@@ -53,6 +53,7 @@ class PublicationLease:
     purpose: str
     acquired_at_utc: datetime
     expires_at_utc: datetime
+    protocol_version: int = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +63,21 @@ class PublicationLeaseHandle:
     etag: str
     acquired_at_utc: datetime
     expires_at_utc: datetime
+    protocol_version: int = 2
+
+
+def _protocol_version(value: object, legacy_keys: set[str]) -> Literal[1, 2]:
+    if not isinstance(value, dict):
+        raise LeaseError("invalid publication lease fields")
+    if set(value) == legacy_keys:
+        return 1
+    if (
+        set(value) == legacy_keys | {"protocol_version"}
+        and type(value["protocol_version"]) is int
+        and value["protocol_version"] == 2
+    ):
+        return 2
+    raise LeaseError("unsupported publication lease protocol or fields")
 
 
 def _timestamp(value: object) -> datetime:
@@ -77,6 +93,8 @@ def _timestamp(value: object) -> datetime:
 
 
 def _validate(lease: PublicationLease) -> PublicationLease:
+    if type(lease.protocol_version) is not int or lease.protocol_version not in (1, 2):
+        raise LeaseError("unsupported publication lease protocol")
     if lease.state not in ("held", "released"):
         raise LeaseError("invalid publication lease state")
     if _OWNER.fullmatch(lease.owner) is None or len(lease.owner) > 80:
@@ -95,8 +113,7 @@ def _validate(lease: PublicationLease) -> PublicationLease:
 def _decode(payload: bytes) -> PublicationLease:
     try:
         value = json.loads(payload)
-        if not isinstance(value, dict) or set(value) != _WIRE_KEYS:
-            raise LeaseError("invalid publication lease fields")
+        version = _protocol_version(value, _WIRE_KEYS)
         if any(not isinstance(value[key], str) for key in _WIRE_KEYS):
             raise LeaseError("invalid publication lease value")
         lease = PublicationLease(
@@ -105,6 +122,7 @@ def _decode(payload: bytes) -> PublicationLease:
             purpose=value["purpose"],
             acquired_at_utc=_timestamp(value["acquired_at_utc"]),
             expires_at_utc=_timestamp(value["expires_at_utc"]),
+            protocol_version=version,
         )
         return _validate(lease)
     except (ValueError, UnicodeDecodeError) as exc:
@@ -119,6 +137,7 @@ def _encode(lease: PublicationLease) -> bytes:
             "purpose": lease.purpose,
             "acquired_at_utc": lease.acquired_at_utc.isoformat(),
             "expires_at_utc": lease.expires_at_utc.isoformat(),
+            **({"protocol_version": lease.protocol_version} if lease.protocol_version != 1 else {}),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -188,6 +207,9 @@ def acquire(
     else:
         etag = None
     ttl = DAILY_LEASE_TTL if purpose == "daily" else LEASE_TTL
+    # A normal acquisition upgrades a released/expired legacy record by CAS.
+    # V1 clients reject the explicit version even after this lease is released;
+    # fresh pulls and an idle lease cannot authorize an older publisher again.
     lease = _validate(PublicationLease("held", owner, purpose, moment, moment + ttl))
     payload = _encode(lease)
     try:
@@ -229,6 +251,7 @@ def verify_held(
         or lease.purpose != handle.purpose
         or lease.acquired_at_utc != handle.acquired_at_utc
         or lease.expires_at_utc != handle.expires_at_utc
+        or lease.protocol_version != handle.protocol_version
         or lease.expires_at_utc <= (now or datetime.now(UTC))
     ):
         raise LeaseError("publication lease is expired or replaced")
@@ -237,9 +260,20 @@ def verify_held(
 def release(store: ObjectStore, handle: PublicationLeaseHandle) -> None:
     if not handle.etag or len(handle.etag) > 256:
         raise LeaseError("invalid publication lease handle ETag")
+    if handle.protocol_version == 1:
+        previous = _generation(store)
+        if previous is None or previous[0].protocol_version != 1:
+            # Even a copied current ETag must not let a truncated legacy handle
+            # downgrade the fence. A later race is still rejected by If-Match.
+            raise LeaseError("legacy handle cannot downgrade the publication lease protocol")
     held = _validate(
         PublicationLease(
-            "held", handle.owner, handle.purpose, handle.acquired_at_utc, handle.expires_at_utc
+            "held",
+            handle.owner,
+            handle.purpose,
+            handle.acquired_at_utc,
+            handle.expires_at_utc,
+            handle.protocol_version,
         )
     )
     payload = _encode(replace(held, state="released"))
@@ -268,6 +302,11 @@ def _handle_payload(handle: PublicationLeaseHandle) -> bytes:
             "etag": handle.etag,
             "acquired_at_utc": handle.acquired_at_utc.isoformat(),
             "expires_at_utc": handle.expires_at_utc.isoformat(),
+            **(
+                {"protocol_version": handle.protocol_version}
+                if handle.protocol_version != 1
+                else {}
+            ),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -291,8 +330,7 @@ def _save_handle(path: Path, handle: PublicationLeaseHandle) -> None:
 def _load_handle(path: Path) -> PublicationLeaseHandle:
     try:
         value = json.loads(path.read_bytes())
-        if not isinstance(value, dict) or set(value) != _HANDLE_KEYS:
-            raise LeaseError("invalid publication lease handle fields")
+        version = _protocol_version(value, _HANDLE_KEYS)
         if any(not isinstance(value[key], str) for key in _HANDLE_KEYS):
             raise LeaseError("invalid publication lease handle value")
         handle = PublicationLeaseHandle(
@@ -301,12 +339,18 @@ def _load_handle(path: Path) -> PublicationLeaseHandle:
             value["etag"],
             _timestamp(value["acquired_at_utc"]),
             _timestamp(value["expires_at_utc"]),
+            version,
         )
         if not handle.etag or len(handle.etag) > 256:
             raise LeaseError("invalid publication lease handle ETag")
         _validate(
             PublicationLease(
-                "held", handle.owner, handle.purpose, handle.acquired_at_utc, handle.expires_at_utc
+                "held",
+                handle.owner,
+                handle.purpose,
+                handle.acquired_at_utc,
+                handle.expires_at_utc,
+                handle.protocol_version,
             )
         )
         return handle

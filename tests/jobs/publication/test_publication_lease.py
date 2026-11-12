@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -93,7 +94,7 @@ def test_absent_acquire_busy_release_and_reacquire() -> None:
     handle, expired = lease.acquire(store, "daily", now=NOW)
     assert not expired
     assert store.writes == [(None, True)]
-    assert set(json.loads(store.body or b"{}")) == lease._WIRE_KEYS
+    assert set(json.loads(store.body or b"{}")) == lease._WIRE_KEYS | {"protocol_version"}
     assert handle.owner.startswith("local:")
     with pytest.raises(lease.LeaseBusy):
         lease.acquire(store, "operator", now=NOW)
@@ -107,6 +108,169 @@ def test_absent_acquire_busy_release_and_reacquire() -> None:
     with pytest.raises(lease.LeaseError):
         lease.release(store, handle)
     assert lease._decode(store.body or b"").owner == newer.owner
+
+
+@pytest.mark.parametrize("state", ["held", "released"])
+@pytest.mark.parametrize(
+    ("purpose", "minutes"), [("operator", 120), ("daily", 120), ("daily", 180), ("daily", 220)]
+)
+def test_legacy_handle_finishes_before_normal_acquire_establishes_v2(
+    state, purpose, minutes, tmp_path
+):
+    store = MemoryStore()
+    old = lease.PublicationLease(
+        state,
+        "local:" + "a" * 32,
+        purpose,
+        NOW,
+        NOW + timedelta(minutes=minutes),
+        protocol_version=1,
+    )
+    store._set(lease._encode(old))
+    assert set(json.loads(store.body or b"{}")) == lease._WIRE_KEYS
+    handle = lease.PublicationLeaseHandle(
+        old.owner,
+        old.purpose,
+        store.etag,
+        old.acquired_at_utc,
+        old.expires_at_utc,
+        protocol_version=1,
+    )
+    path = tmp_path / "legacy-handle.json"
+    lease._save_handle(path, handle)
+    assert set(json.loads(path.read_bytes())) == lease._HANDLE_KEYS
+    assert lease._load_handle(path) == handle
+    if state == "held":
+        lease.verify_held(store, handle, now=NOW)
+        with pytest.raises(lease.LeaseBusy):
+            lease.acquire(store, "operator", now=NOW)
+        assert store.writes == []
+        lease.release(store, handle)
+        assert lease._decode(store.body or b"").protocol_version == 1
+    old_etag = store.etag
+    upgraded, expired = lease.acquire(store, "operator", now=NOW)
+    assert not expired
+    assert store.writes[-1] == (old_etag, False)
+    assert upgraded.protocol_version == 2
+    assert json.loads(store.body or b"{}")["protocol_version"] == 2
+    lease.release(store, upgraded)
+    assert lease._decode(store.body or b"").protocol_version == 2
+    assert set(json.loads(store.body or b"{}")) != lease._WIRE_KEYS
+    before = store.body, store.etag, list(store.writes)
+    with pytest.raises(lease.LeaseError, match="downgrade"):
+        lease.release(store, handle)
+    assert (store.body, store.etag, store.writes) == before
+
+
+@pytest.mark.parametrize("protocol", [None, True, 1, "2", 3])
+def test_explicit_unknown_protocol_is_not_a_legacy_record_or_handle(protocol, tmp_path):
+    store = MemoryStore()
+    handle, _ = lease.acquire(store, "operator", now=NOW)
+    raw = json.loads(store.body or b"{}")
+    raw["protocol_version"] = protocol
+    store._set(json.dumps(raw).encode())
+    store.writes.clear()
+    with pytest.raises(lease.LeaseError, match="protocol"):
+        lease.acquire(store, "daily", now=NOW + lease.LEASE_TTL)
+    assert store.writes == []
+    raw_handle = json.loads(lease._handle_payload(handle))
+    raw_handle["protocol_version"] = protocol
+    path = tmp_path / "invalid-handle.json"
+    path.write_text(json.dumps(raw_handle))
+    with pytest.raises(lease.LeaseError, match="protocol"):
+        lease._load_handle(path)
+
+
+def test_v1_to_v2_upgrade_loses_to_an_actual_legacy_acquire_without_retry():
+    store = MemoryStore()
+    old = lease.PublicationLease(
+        "released",
+        "local:" + "a" * 32,
+        "operator",
+        NOW,
+        NOW + lease.LEASE_TTL,
+        protocol_version=1,
+    )
+    store._set(lease._encode(old))
+    expected_etag = store.etag
+    other = replace(old, state="held", owner="local:" + "b" * 32)
+    store.other = lease._encode(other)
+    store.fault = "other"
+    with pytest.raises(lease.LeaseBusy) as error:
+        lease.acquire(store, "daily", now=NOW)
+    assert error.value.lease == other
+    assert store.body == lease._encode(other)
+    assert store.writes == [(expected_etag, False)]
+
+
+def test_truncated_v2_handle_cannot_release_as_v1_even_with_the_current_etag(tmp_path):
+    store = MemoryStore()
+    handle, _ = lease.acquire(store, "operator", now=NOW)
+    path = tmp_path / "truncated-handle.json"
+    raw = json.loads(lease._handle_payload(handle))
+    del raw["protocol_version"]
+    path.write_text(json.dumps(raw))
+    truncated = lease._load_handle(path)
+    before = store.body, store.etag, list(store.writes)
+    with pytest.raises(lease.LeaseError, match="expired or replaced"):
+        lease.verify_held(store, truncated, now=NOW)
+    with pytest.raises(lease.LeaseError, match="downgrade"):
+        lease.release(store, truncated)
+    assert (store.body, store.etag, store.writes) == before
+
+
+def test_legacy_release_cannot_overwrite_an_upgrade_after_its_preflight_read():
+    store = MemoryStore()
+    old = lease.PublicationLease(
+        "held",
+        "local:" + "a" * 32,
+        "operator",
+        NOW,
+        NOW + lease.LEASE_TTL,
+        protocol_version=1,
+    )
+    store._set(lease._encode(old))
+    handle = lease.PublicationLeaseHandle(
+        old.owner,
+        old.purpose,
+        store.etag,
+        old.acquired_at_utc,
+        old.expires_at_utc,
+        protocol_version=1,
+    )
+    newer = replace(old, owner="local:" + "b" * 32, protocol_version=2)
+    store.other = lease._encode(newer)
+    store.fault = "other"
+    with pytest.raises(lease.LeaseError, match="conflicted with another owner"):
+        lease.release(store, handle)
+    assert store.writes == [(handle.etag, False)]
+    assert store.body == lease._encode(newer)
+
+
+@pytest.mark.parametrize("fault", ["before", "after"])
+def test_legacy_upgrade_ambiguous_write_is_observed_without_retry(fault):
+    store = MemoryStore()
+    old = lease.PublicationLease(
+        "released",
+        "local:" + "a" * 32,
+        "operator",
+        NOW,
+        NOW + lease.LEASE_TTL,
+        protocol_version=1,
+    )
+    old_payload = lease._encode(old)
+    store._set(old_payload)
+    old_etag = store.etag
+    store.fault = fault
+    if fault == "before":
+        with pytest.raises(lease.LeaseError, match="write did not complete"):
+            lease.acquire(store, "daily", now=NOW)
+        assert store.body == old_payload
+    else:
+        handle, _ = lease.acquire(store, "daily", now=NOW)
+        assert handle.protocol_version == 2
+        lease.verify_held(store, handle, now=NOW)
+    assert store.writes == [(old_etag, False)]
 
 
 def test_expired_takeover_and_race() -> None:
@@ -332,7 +496,7 @@ def test_handle_lifecycle_and_existing_file_fails_before_r2(
     assert store.body is None
     path.unlink()
     assert lease.main(["acquire", "--purpose", "daily", "--handle", str(path)]) == 0
-    assert set(json.loads(path.read_text())) == lease._HANDLE_KEYS
+    assert set(json.loads(path.read_text())) == lease._HANDLE_KEYS | {"protocol_version"}
     assert lease.main(["release", "--handle", str(path)]) == 0
     assert not path.exists()
 
