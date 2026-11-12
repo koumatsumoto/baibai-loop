@@ -253,6 +253,36 @@ def test_observed_scheduled_default_title_keeps_the_original_cron_day():
     )
 
 
+@pytest.mark.parametrize("attempt", [2, 3])
+def test_queued_rerun_does_not_reuse_original_run_age_for_this_attempt(
+    tmp_path, monkeypatch, attempt
+):
+    payload = _listing(
+        _run(
+            created_at=FIRED_AT - timedelta(hours=4),
+            updated_at=FIRED_AT - timedelta(minutes=1),
+            status="queued",
+            conclusion="",
+            event="workflow_dispatch",
+            display_title="daily 2026-08-03",
+            attempt=attempt,
+        )
+    )
+    runs = parse_runs(payload)
+    assert runs[0].target_date == date(2026, 8, 3)
+    verdict = evaluate(
+        runs,
+        window_end=FIRED_AT,
+        window_hours=DEFAULT_WINDOW_HOURS,
+        queued_delay_after=DAILY_QUEUED_ALERT_AFTER,
+    )
+    assert verdict.state == STATE_IN_FLIGHT
+    assert verdict.delayed_runs == ()
+    code, transport = _run_main(tmp_path, monkeypatch, payload, argv=["--check-date", "2026-08-03"])
+    assert code == 0
+    assert transport.calls == []
+
+
 @pytest.mark.parametrize("success", [False, True])
 def test_main_uses_the_existing_notice_path_for_only_unanswered_queued_delay(
     tmp_path, monkeypatch, success

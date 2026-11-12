@@ -324,6 +324,8 @@ def evaluate(
         for run in answering
         if queued_delay_after is not None
         and run.status == "queued"
+        # Reruns keep the original run clock, not this attempt's queue start.
+        and run.run_attempt == 1
         and window_end - run.created_at > queued_delay_after
     )
     if any(run.succeeded for run in answering):
