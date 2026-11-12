@@ -214,3 +214,112 @@ def test_common_integration_accepts_article_shape_from_old_market_version(tmp_pa
     assert (packet / "receipts.sqlite").read_bytes() == before
     assert remote.put_keys[: len(puts)] == puts
     assert all(key.startswith("fixed-inputs/") for key in remote.put_keys[len(puts) :])
+
+
+def test_explicit_semantic_recovery_keeps_selected_native_version_and_publication_closure(
+    tmp_path, monkeypatch
+):
+    from tests.helpers.trends import BOJ, NOW
+
+    from baibai_engine.data_collection.providers.articles import native
+    from baibai_engine.data_collection.receipts.articles.store import read_body
+    from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
+    from baibai_engine.machine_analysis.observations.articles.projection import project_receipt
+    from baibai_engine.machine_analysis.observations.articles.store import (
+        read_artifacts,
+        save_artifact,
+    )
+    from baibai_engine.machine_analysis.observations.trends.extraction import (
+        extract_observation,
+        extract_observations,
+    )
+
+    database = tmp_path / "market.sqlite"
+    body = f"<main><h1>当面の金融政策運営について</h1><p>{BOJ}</p></main>".encode()
+    original = ArticleReceipt(
+        receipt_id="original",
+        source="boj_news",
+        requested_url="https://www.boj.or.jp/mopo/synthetic.htm",
+        received_at=NOW - timedelta(days=2),
+        status="ok",
+        http_status=200,
+        body_ref=BodyRef(receipt_id="original", sha256=hashlib.sha256(body).hexdigest()),
+    )
+    confirmed = original.model_copy(
+        update={
+            "receipt_id": "later-304",
+            "received_at": NOW - timedelta(days=1),
+            "status": "not_modified",
+            "http_status": 304,
+        }
+    )
+
+    def social(cutoff):
+        return read_trend_inputs(
+            database,
+            release_id="synthetic",
+            release_sha256="a" * 64,
+            cutoff=cutoff,
+            as_of=NOW.date(),
+        ).social
+
+    with closing(open_connection(database)) as conn, conn:
+        retain_receipt(conn, original, body=body)
+        retain_receipt(conn, confirmed)
+        with monkeypatch.context() as old_native:
+            old_native.setattr(native, "BOJ_PARSER_REVISION", "article-native-boj-v2")
+            _, (first,) = project_receipt(
+                conn, original.receipt_id, kind="document", generated_at=original.received_at
+            )
+            _, (selected,) = project_receipt(
+                conn, confirmed.receipt_id, kind="document", generated_at=confirmed.received_at
+            )
+        old_artifact = extract_observation(
+            first, original, generated_at=original.received_at
+        ).model_copy(update={"extractor_revision": "boj-policy-decision-v1"})
+        save_artifact(conn, old_artifact)
+        # Native replay creates another version, not an extraction for the later 304's version.
+        _, (reprojected,) = project_receipt(
+            conn, original.receipt_id, kind="document", generated_at=NOW
+        )
+        (new_native,) = extract_observations(conn, [reprojected.observation_id], generated_at=NOW)
+        assert reprojected.text == selected.text
+        assert reprojected.article_version_id != selected.article_version_id
+        before = {
+            table: conn.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+            for table in (
+                "article_source_receipts",
+                "article_observations",
+                "article_projection_runs",
+            )
+        }
+    assert social(NOW).coverage.state == "extraction_pending"
+    with closing(open_connection(database)) as conn, conn:
+        (recovered,) = extract_observations(conn, [selected.observation_id], generated_at=NOW)
+        assert recovered.payload["article_version_id"] == selected.article_version_id
+        assert recovered.extractor_revision == "boj-policy-decision-v2"
+        assert recovered.status == "extracted"
+        assert recovered.generated_at == NOW
+        assert read_artifacts(conn, [old_artifact.artifact_id]) == (old_artifact,)
+        assert read_body(conn, original.body_ref) == body
+        for table, rows in before.items():
+            assert conn.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() == rows
+        assert extract_observations(
+            conn, [selected.observation_id], generated_at=NOW + timedelta(hours=1)
+        ) == (recovered,)
+    assert social(NOW - timedelta(seconds=1)).artifacts == ()
+    (selection,) = social(NOW).artifacts
+    assert selection.current.ref.artifact_id == recovered.artifact_id
+    assert selection.current.evidence.receipt_id == confirmed.receipt_id
+    delta = capture_delta(database, [], artifact_ids=[recovered.artifact_id])
+    assert set(delta["articles.source_receipts"]) == {original.receipt_id, confirmed.receipt_id}
+    assert set(delta["articles.observations"]) == {
+        first.observation_id,
+        selected.observation_id,
+        reprojected.observation_id,
+    }
+    assert set(delta["articles.extraction_artifacts"]) == {
+        old_artifact.artifact_id,
+        new_native.artifact_id,
+        recovered.artifact_id,
+    }
