@@ -30,7 +30,6 @@ from baibai_engine.data_collection.providers.jquants.receipts import (
     read_request_pages,
 )
 from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
-from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
@@ -391,7 +390,9 @@ def test_timeout_before_response_has_finite_get_retry_budget(wire):
     assert wire.waits == [30, 60, 120, 300, 600]
 
 
-def test_body_timeout_retains_complete_pages_and_explicit_retry_projects_once(wire, tmp_path):
+def test_body_timeout_retains_complete_pages_and_explicit_retry_retains_complete_request(
+    wire, tmp_path
+):
     class InterruptedBody(io.BytesIO):
         prefix_read = False
 
@@ -448,7 +449,10 @@ def test_body_timeout_retains_complete_pages_and_explicit_retry_projects_once(wi
             resumed = acquire_request(
                 connection, client, "daily_bars", {"date": target.isoformat()}
             )
-        project_request(database, resumed)
+            assert read_complete_request(connection, resumed).records() == [
+                {"Code": "13010", "Date": target.isoformat(), "C": 100, "AdjFactor": 1.0},
+                {"Code": "72030", "Date": target.isoformat(), "C": 200, "AdjFactor": 1.0},
+            ]
     finally:
         client.close()
 
@@ -464,10 +468,8 @@ def test_body_timeout_retains_complete_pages_and_explicit_retry_projects_once(wi
             second,
         ]
         assert [page.body for page in read_request_pages(connection, failed_id)] == [first]
-        assert connection.execute(
-            "SELECT ticker, close FROM jquants_daily_bars ORDER BY ticker"
-        ).fetchall() == [("1301", 100.0), ("7203", 200.0)]
-        assert range_covered(connection, "jquants_daily_bars", target, target)
+        assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone() == (0,)
+        assert not range_covered(connection, "jquants_daily_bars", target, target)
 
 
 @pytest.mark.parametrize("status", [401, 403, 404])

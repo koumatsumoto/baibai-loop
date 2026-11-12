@@ -5,14 +5,13 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
-from tests.helpers.jquants_receipts import FIRST_AT, body, calendar, receive
+from tests.helpers.jquants_receipts import FIRST_AT, body, receive
 from tests.helpers.master_calendar_native import seed_calendar, seed_master
 from tests.helpers.native_handoff import integrate_economic, stage
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.economic_staging import save_handoff
@@ -55,8 +54,11 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
 
     PriceL1(store, tmp_path / "empty-price-baseline").initialize()
     market, source = tmp_path / "market.sqlite", tmp_path / "source.sqlite"
-    prior = calendar(market, "2026-10-01", "2026-10-10", 1, FIRST_AT)
-    project_request(market, prior)
+    with closing(open_connection(market)) as conn, conn:
+        conn.executemany(
+            "INSERT INTO jquants_market_calendar VALUES (?, 1)",
+            [((date(2026, 10, 1) + timedelta(days=offset)).isoformat(),) for offset in range(10)],
+        )
     # A syntactically received page is not a complete admissible calendar view.
     receive(
         source,
