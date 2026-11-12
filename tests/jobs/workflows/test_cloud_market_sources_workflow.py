@@ -21,6 +21,7 @@ INPUT_SOURCES = [
     "jpx-regulations",
     "edinet-list",
 ]
+EARLY_SOURCES = [source for source in INPUT_SOURCES if source != "jquants-financial"]
 
 
 def _workflow():
@@ -118,8 +119,14 @@ def test_workflow_crons_match_supported_market_source_slots():
     ("schedule", "created_at", "expected_day", "expected_sources"),
     [
         ("43 8 * * *", "2026-10-26T15:29:01Z", "2026-10-26", ["edinet-metrics"]),
-        ("13 9 * * *", "2026-10-26T16:08:24Z", "2026-10-26", ["edinet-facts"]),
-        ("43 7 * * *", "2026-10-24T00:05:00Z", "2026-10-23", INPUT_SOURCES),
+        (
+            "13 9 * * *",
+            "2026-10-26T16:08:24Z",
+            "2026-10-26",
+            ["jquants-financial", "edinet-facts"],
+        ),
+        ("13 9 * * *", "2026-10-26T00:05:00Z", "2026-10-25", ["edinet-facts"]),
+        ("43 7 * * *", "2026-10-24T00:05:00Z", "2026-10-23", EARLY_SOURCES),
         ("43 7 * * *", "2026-10-26T00:05:00Z", "2026-10-25", ["jquants-market", "edinet-list"]),
     ],
 )
@@ -133,6 +140,29 @@ def test_delayed_schedule_preserves_slot_date_and_weekday(
     assert output["edinet_all"] == "false"
 
 
+@pytest.mark.parametrize("day", ["2026-11-02", "2026-11-03", "2026-11-07", "2026-11-08"])
+def test_financial_moves_to_existing_evening_slot_without_extra_acquisition(tmp_path, day):
+    target = date.fromisoformat(day)
+    planned = {}
+    for index, (schedule, fire_time) in enumerate(MARKET_SOURCE_SCHEDULES.items()):
+        directory = tmp_path / str(index)
+        directory.mkdir()
+        result, output = _run_plan(
+            directory,
+            created_at=datetime.combine(target, fire_time).isoformat(),
+            schedule=schedule,
+        )
+        assert result.returncode == 0, result.stderr
+        planned[schedule] = _planned_sources(output)
+    # Preserve the weekday rule, including weekday exchange holidays, not a new calendar gate.
+    expected = INPUT_SOURCES if target.weekday() < 5 else ["jquants-market", "edinet-list"]
+    assert sorted(source for sources in planned.values() for source in sources) == sorted(
+        [*expected, "edinet-metrics", "edinet-facts"]
+    )
+    assert "jquants-financial" not in planned["43 7 * * *"]
+    assert ("jquants-financial" in planned["13 9 * * *"]) == (target.weekday() < 5)
+
+
 @pytest.mark.parametrize("day", ["2026-11-07", "2026-11-08"])
 def test_weekend_market_receipts_are_acquired_before_daily_publication(tmp_path, day):
     result, output = _run_plan(tmp_path, created_at=f"{day}T07:43:00Z", schedule="43 7 * * *")
@@ -143,16 +173,19 @@ def test_weekend_market_receipts_are_acquired_before_daily_publication(tmp_path,
 
 
 @pytest.mark.parametrize("attempt", ["1", "2"])
-def test_original_clock_survives_queue_wait_and_rerun(tmp_path, attempt):
+@pytest.mark.parametrize("schedule", MARKET_SOURCE_SCHEDULES)
+def test_original_clock_survives_queue_wait_and_rerun(tmp_path, attempt, schedule):
     result, output = _run_plan(
         tmp_path,
         created_at="2026-10-26T15:29:01Z",
         started_at="2026-10-29T16:00:00Z",
-        schedule="43 8 * * *",
+        schedule=schedule,
         attempt=attempt,
     )
     assert result.returncode == 0, result.stderr
     assert output["asof"] == "2026-10-26"
+    if schedule == "13 9 * * *":
+        assert _planned_sources(output) == ["jquants-financial", "edinet-facts"]
 
 
 @pytest.mark.parametrize("schedule", MARKET_SOURCE_SCHEDULES)

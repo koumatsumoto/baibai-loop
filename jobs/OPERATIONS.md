@@ -521,6 +521,10 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 <a id="financial-native-l1"></a>
 **財務。** [固定reader](src/baibai_jobs/integration/financial_native.py)は旧inline/共有固定入力も読む。旧SQL/Parquetの明示reader・cold再構築は保持する。旧mode/旧財務handoffを含む通常planは作り直し、旧Selectionを再署名しない。Operation再開とcold計算を混同しない。
 
+定期財務取得は平日18:13 JSTの`financial-edinet-facts`枠へ置き、価格等の16:43枠と分ける。Standard等の[公式更新目安](https://jpx-jquants.com/ja/spec/data-update)は18:00速報・翌00:30確報で、18:13の完全到着や22:43統合への間に合いを保証しない。確報は次回overlapで取り込むため、17時頃の臨時統合では前回取得後の確報が未反映の場合がある。必要な早期取得は明示実行で確認し、dailyへprovider取得や後着入力の差替えを追加しない。
+
+財務summaryの[API枠](https://jpx-jquants.com/ja/spec/rate-limits)はプラン共通60要求/分で通常plan枠とは別。現行のJ-Quants共通queueはこれより保守的な実装上の直列化であり、時刻変更では外さない。`financial-edinet-facts`は枠名で、土日は従来どおりEDINET factsだけを取得する。
+
 <a id="master-native-l1"></a>
 <a id="calendar-native-l1"></a>
 **master/calendar。** TradingView/外部評価はcalendarを先に固定し、休場なら直前営業日のbasis masterから銘柄集合を固定する。unknown/partialを休場へ変えず、空/failed/held masterを旧値で補わない。保存packetの元master/calendarはhead削除/訂正後も保持参照から再生し、新しいheadへ再固定しない。

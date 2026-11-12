@@ -1,5 +1,5 @@
 name: cloud-market-sources
-run-name: "market-acquisition ${{ github.event.schedule == '43 7 * * *' && 'inputs' || github.event.schedule == '43 8 * * *' && 'edinet-metrics' || github.event.schedule == '13 9 * * *' && 'edinet-facts' || inputs.source || 'all' }} ${{ inputs.asof || '' }}"
+run-name: "market-acquisition ${{ github.event.schedule == '43 7 * * *' && 'inputs' || github.event.schedule == '43 8 * * *' && 'edinet-metrics' || github.event.schedule == '13 9 * * *' && 'financial-edinet-facts' || inputs.source || 'all' }} ${{ inputs.asof || '' }}"
 
 on:
   schedule:
@@ -69,8 +69,14 @@ jobs:
               selected = ['edinet-metrics']
           elif slot == '13 9 * * *':
               selected = ['edinet-facts']
+              # Non-Premium financial summaries arrive around 18:00 JST, after prices.
+              if day.weekday() < 5:
+                  selected.insert(0, 'jquants-financial')
           elif slot == '43 7 * * *':
-              selected = all_sources[:5] if day.weekday() < 5 else ['jquants-market', 'edinet-list']
+              selected = ['jquants-market']
+              if day.weekday() < 5:
+                  selected += ['jpx-earnings', 'jpx-regulations']
+              selected.append('edinet-list')
           else:
               selected = all_sources[:4] if source == 'all' else [source]
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
