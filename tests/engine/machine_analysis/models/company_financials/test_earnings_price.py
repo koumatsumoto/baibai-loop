@@ -93,6 +93,39 @@ def test_completed_post_period_share_conversion_does_not_reuse_old_treasury():
     assert snapshot.market_cap is None
 
 
+def test_late_completion_publication_cannot_be_reused_before_disclosure():
+    action = CapitalAction(
+        ticker="1001",
+        issued_shares=130,
+        effective_date=date(2026, 7, 1),
+        received_at=datetime(2026, 11, 12, tzinfo=UTC),
+        source_url="https://example.invalid",
+        source_sha256="a" * 64,
+        disclosure_number="synthetic",
+        description="completed_post_period_common_share_conversion_total",
+        published_on=date(2026, 9, 10),
+    )
+    with pytest.raises(ValueError, match="after the model as-of"):
+        earnings_price(
+            [annual()],
+            adjusted_price=PriceBar(ASOF, 10.0, None),
+            adjustment_events=(),
+            as_of=ASOF,
+            ttm_rules=RULES,
+            capital_actions=[action],
+        )
+    with pytest.raises(ValueError, match="after the model as-of"):
+        build_financial_snapshot(
+            10.0,
+            [annual()],
+            None,
+            RULES,
+            adjustment_events=(),
+            asof_date=ASOF,
+            capital_actions=[action],
+        )
+
+
 def test_later_financial_period_with_complete_capital_resolves_event():
     action = CapitalAction(
         ticker="1001",
@@ -421,3 +454,28 @@ def test_native_accounting_flags_preserve_false_blank_missing_and_known_change()
     assert read_earnings_price(json.loads(canonical_json(asdict(result)))) == result
     future = replace(row, disclosed_at=date(2026, 9, 1))
     assert observation([future]).accounting_disclosures == ()
+
+
+def test_conflicting_completed_totals_do_not_select_a_share_denominator():
+    event = CapitalAction(
+        ticker="1001",
+        issued_shares=130,
+        effective_date=date(2026, 7, 1),
+        received_at=datetime(2026, 8, 1, tzinfo=UTC),
+        source_url="https://example.invalid",
+        source_sha256="a" * 64,
+        disclosure_number="synthetic",
+        description="completed",
+        published_on=date(2026, 7, 15),
+    )
+    result = earnings_price(
+        [annual()],
+        adjusted_price=PriceBar(ASOF, 10.0, None),
+        adjustment_events=(),
+        as_of=ASOF,
+        ttm_rules=RULES,
+        capital_actions=[event, replace(event, issued_shares=140)],
+    )
+    assert result.unavailable_reason == "conflicting_capital_actions"
+    assert result.market_cap_yen is None
+    assert result.shares_ex_treasury is None

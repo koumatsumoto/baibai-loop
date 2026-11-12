@@ -1,6 +1,9 @@
+import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook
@@ -22,6 +25,7 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import 
     JPX_EARNINGS_CALENDAR_INDEX_URL,
     JPX_REGULATION_URLS,
 )
+from baibai_engine.machine_analysis.observations.financials import capital_action_pdf
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration import jpx_handoff
 from baibai_jobs.integration.jpx_handoff import export_handoff, import_handoff
@@ -237,3 +241,82 @@ def test_receipt_stage_with_wrong_shape_is_rejected(tmp_path):
         conn.execute("CREATE TABLE jpx_source_bundles(bundle_id TEXT)")
     with pytest.raises(ValueError, match="JPX receipt schema"):
         import_handoff(stage, target, ("bad",), collection="earnings_calendar")
+
+
+@pytest.mark.parametrize("case", ["same_day", "subsequent", "planned"])
+def test_capital_action_handoff_keeps_receipts_and_defers_model_cutoffs(
+    tmp_path, monkeypatch, case
+):
+    fixture = json.loads(
+        (
+            Path(__file__).parents[2] / "fixtures/jpx/7640_completed_post_period_conversion.json"
+        ).read_text()
+    )
+    if case == "same_day":
+        texts = [
+            (
+                "2026年10月1日(コード:5838東証プライム市場)"
+                "本日、本株式交付の効力が発生いたしました。"
+                "本転換の結果、当行普通株式の発行済株式数は223,936,153株となり"
+            )
+        ]
+        url = "https://www2.jpx.co.jp/disc/58380/140120260930543771.pdf"
+        ticker, disclosure, published = "5838", "20260930543771", date(2026, 10, 1)
+        received = datetime(2026, 9, 30, 15, 10, tzinfo=UTC)
+    else:
+        texts = fixture["texts"]
+        if case == "planned":
+            texts = [text.replace("消却いたしました", "消却する予定です") for text in texts]
+        url = fixture["source_url"]
+        ticker, disclosure, published = "7640", "20260909533860", date(2026, 9, 10)
+        received = datetime(2026, 9, 9, 15, 10, tzinfo=UTC)
+
+    class Reader:
+        def __init__(self, content):
+            self.pages = [SimpleNamespace(extract_text=lambda text=text: text) for text in texts]
+
+    monkeypatch.setattr(capital_action_pdf, "PdfReader", Reader)
+    source, stage, target = (tmp_path / name for name in ("source", "stage", "target"))
+    resource, body = "pdf:" + disclosure, b"%PDF-synthetic-excerpts"
+    with closing(open_connection(source)) as conn:
+        # An older bundle-selection date is not an instruction to backdate the disclosure.
+        bundle = create_bundle(
+            conn, "capital_actions", date(2026, 8, 1), received, ((resource, url),)
+        )
+        retain_bundle_response(
+            conn, bundle, resource, JPXResponse(url, received, "application/pdf", body)
+        )
+        complete_bundle(conn, bundle)
+    selected = export_handoff(source, stage, since=received, collection="capital_actions")
+    assert selected == (bundle,)
+    result = import_handoff(stage, target, selected, collection="capital_actions")
+    assert result.complete is (case != "planned")
+    assert result.report["raw_rows_added"] == 2
+    assert len(result.report["projection_failures"]) == (1 if case == "planned" else 0)
+    assert (
+        import_handoff(stage, target, selected, collection="capital_actions").report[
+            "raw_rows_added"
+        ]
+        == 0
+    )
+    with closing(open_connection(target)) as conn:
+        assert read_complete_bundle(conn, bundle).responses[0].response.body == body
+        assert not capital_action_pdf.read_capital_actions(
+            conn, as_of=published - timedelta(days=1), tickers=[ticker], known_at=received
+        )
+        assert not capital_action_pdf.read_capital_actions(
+            conn,
+            as_of=date(2026, 11, 12),
+            tickers=[ticker],
+            known_at=received - timedelta(microseconds=1),
+        )
+        actions = capital_action_pdf.read_capital_actions(
+            conn, as_of=published, tickers=[ticker], known_at=received
+        )
+        if case == "planned":
+            assert not actions
+        else:
+            assert actions[ticker][0].published_on == published
+            assert actions[ticker][0].received_at == received
+            if case == "subsequent":
+                assert actions[ticker][0].effective_date == date(2026, 8, 31)

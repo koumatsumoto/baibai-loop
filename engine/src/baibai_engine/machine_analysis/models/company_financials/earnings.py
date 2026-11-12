@@ -135,7 +135,7 @@ def earnings_price(
     adjusted_priceはas_of基準へ調整済みの価格。開示EPSの足し算やPERの逆数は使わない。
     連結/単体が不明なら原額は保持するが選定用利回りを確定しない。
     """
-    if any(action.effective_date > as_of for action in capital_actions):
+    if any(action.after_as_of(as_of) for action in capital_actions):
         raise ValueError("capital action is after the model as-of date")
     projected = sorted(
         project_financial_documents(summaries, as_of),
