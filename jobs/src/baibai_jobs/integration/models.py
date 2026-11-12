@@ -31,7 +31,6 @@ from baibai_engine.machine_analysis.generation.contracts import (
 from baibai_engine.machine_analysis.generation.economic_inputs import (
     EconomicInputSession,
 )
-from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
 from baibai_engine.machine_analysis.generation.query import (
     read_generation_ids,
@@ -122,7 +121,6 @@ def integrate_models(
     mirror.mkdir(parents=True, exist_ok=True)
     if edinet_input is None:
         raise ValueError("normal model integration requires its fixed EDINET input")
-    fixed_edinet = read_edinet_input(store, edinet_input)
     phase_started = _phase_progress("native_financial")
     # One head read fixes both source membership and confirmation/failure state.
     fixed = FinancialL1(store, mirror / "financial-native").fixed()
@@ -176,7 +174,7 @@ def integrate_models(
             ttm_rules=DEFAULT_TTM_RULES,
             growth_start=growth_start,
             financial_input=financial_input,
-            edinet_input=fixed_edinet,
+            edinet_input=prepared.edinet_input,
             comparison_evidence=SavedComparisonEvidence(
                 market=InputSnapshot(
                     kind="lake_release",

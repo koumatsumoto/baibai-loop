@@ -91,7 +91,7 @@ def archive_count(market):
 def test_normal_publication_omits_raw_after_fixed_metadata_proof_and_preserves_legacy(
     legacy, tmp_path
 ):
-    store, _, archives, saved, market, mirror, old = legacy
+    store, lists, archives, saved, market, mirror, old = legacy
     before = {key: value.body for key, value in store.values.items() if key != POINTER}
     project_archive_execution(archives, market)
     assert archive_count(market) == len(
@@ -100,6 +100,9 @@ def test_normal_publication_omits_raw_after_fixed_metadata_proof_and_preserves_l
     with publication.prepare_market_lake(
         sqlite_path=market, mirror_root=mirror, store=store, release_id="native", edinet_input=saved
     ) as prepared:
+        assert prepared.edinet_input.identity == saved
+        assert prepared.edinet_input.lists.value() == lists.value()
+        assert prepared.edinet_input.archives.value() == archives.value()
         assert set(prepared.export.datasets) == {DOCUMENTS}
         assert archive_count(market) == 0
         with sqlite3.connect(market) as connection:

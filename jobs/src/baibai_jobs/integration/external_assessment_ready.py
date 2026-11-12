@@ -7,7 +7,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import (
@@ -130,8 +130,18 @@ def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPlan:
         raise ValueError("fixed external ready selection changed")
     value = json.loads(saved.payload)
     plan = read_plan(store, value["run_id"])
+    return _prepare_ready(store, value, plan, {})
+
+
+def _prepare_ready(
+    store: ObjectStore,
+    value: dict[str, Any],
+    plan: RunPlan | None,
+    confirmed_stages: dict[str, tuple[CohortStage, str]],
+) -> PreparedPlan:
     if (
         plan is None
+        or plan.run_id != value["run_id"]
         or plan.plan_sha256 != value["plan_sha256"]
         or plan.sources != (value["source"],)
     ):
@@ -143,13 +153,17 @@ def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPlan:
         expected_key = prefix(plan.run_id) + f"/confirmed-stages/{stage_ref['sha256']}.json"
         if stage_ref["key"] != expected_key or stage_ref["index"] in stages:
             raise ValueError("invalid confirmed stage scope")
-        saved = read_private(store, stage_ref["key"])
-        if saved is None or hashlib.sha256(saved.payload).hexdigest() != stage_ref["sha256"]:
-            raise ValueError("confirmed external cohort snapshot changed")
-        stage = load_stage(plan, saved.payload)
+        confirmed = confirmed_stages.get(expected_key)
+        if confirmed is None:
+            saved = read_private(store, expected_key)
+            if saved is None or hashlib.sha256(saved.payload).hexdigest() != stage_ref["sha256"]:
+                raise ValueError("confirmed external cohort snapshot changed")
+            confirmed = (load_stage(plan, saved.payload), saved.etag)
+            confirmed_stages[expected_key] = confirmed
+        stage, _ = confirmed
         if stage.result.cohort_index != stage_ref["index"]:
             raise ValueError("confirmed external cohort index changed")
-        stages[stage_ref["index"]] = (stage, saved.etag)
+        stages[stage_ref["index"]] = confirmed
     mode = value.get("mode")
     if mode not in (None, "cumulative-v1"):
         raise ValueError("unknown external ready mode")
@@ -201,6 +215,9 @@ def _contains(new: PreparedPlan, old: PreparedPlan) -> bool:
 
 def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     candidates: dict[str, list[tuple[datetime, dict[str, str], PreparedPlan]]] = {}
+    # この走査内だけ不変plan/confirmed-stageを共有する。terminal/ackは毎回読む。
+    plans: dict[str, RunPlan] = {}
+    confirmed_stages: dict[str, tuple[CohortStage, str]] = {}
     failed = []
     invalid: set[str] = set()
     for key, _ in store.iter_objects("coordination/external-assessment/"):
@@ -208,9 +225,12 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
             continue
         run_id = key.split("/")[-2]
         try:
-            plan = read_plan(store, run_id)
+            plan = plans.get(run_id)
+            if plan is None:
+                plan = read_plan(store, run_id)
             if plan is None:
                 raise ValueError("ready selection has no exact plan")
+            plans[run_id] = plan
             if read_terminal(store, plan) is not None:
                 continue
             saved = read_private(store, key)
@@ -221,7 +241,7 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
             if clock.tzinfo is None:
                 raise ValueError("external ready clock must have a timezone")
             reference = {"key": key, "sha256": hashlib.sha256(saved.payload).hexdigest()}
-            item = load_ready(store, reference)
+            item = _prepare_ready(store, value, plan, confirmed_stages)
             candidates.setdefault(run_id, []).append((clock, reference, item))
         except (R2Error, LakeCASConflict):
             raise
