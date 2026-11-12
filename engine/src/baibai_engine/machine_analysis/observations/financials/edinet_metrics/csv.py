@@ -80,7 +80,12 @@ def parse_csv_zip_metric_record(
     depreciation = _depreciation_metric(rows)
     capex = _capex_metric(rows)
     capex_abs = abs(capex) if capex is not None else None
-    details = _cash_flow_details(rows) if doc_type_code in {"120", "130"} else {}
+    if doc_type_code in {"120", "130"}:
+        details = _cash_flow_details(rows)
+    elif doc_type_code in {"160", "170"}:
+        details = _capex_details(rows)
+    else:
+        details = {}
     ebitda = (
         operating_profit + depreciation
         if operating_profit is not None and depreciation is not None
@@ -435,11 +440,18 @@ def _cash_flow_details(rows: Sequence[Mapping[str, str]]) -> dict[str, float | N
         "ocf_other_payables_cash_effect",
     )
     details = {field: _single_metric(rows, _TAGS[field]) for field in fields}
+    return details | _capex_details(rows)
+
+
+def _capex_details(rows: Sequence[Mapping[str, str]]) -> dict[str, float | None]:
+    # A reported component remains useful when another component is unknown.
+    # It neither completes total CapEx nor changes the statement's period quality.
     ppe = _single_metric(rows, _TAGS["capex_tangible"])
     intangible = _single_metric(rows, _TAGS["capex_intangible"])
-    details["capex_ppe_reported"] = abs(ppe) if ppe is not None else None
-    details["capex_intangible_reported"] = abs(intangible) if intangible is not None else None
-    return details
+    return {
+        "capex_ppe_reported": abs(ppe) if ppe is not None else None,
+        "capex_intangible_reported": abs(intangible) if intangible is not None else None,
+    }
 
 
 def _row_element(row: Mapping[str, str]) -> str:

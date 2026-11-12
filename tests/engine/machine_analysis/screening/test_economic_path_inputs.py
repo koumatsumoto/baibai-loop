@@ -1387,7 +1387,8 @@ def test_reported_flow_and_ttm_period_context_is_not_relabelled_as_one_interval(
     assert financial["ocf_ttm"] == -1_422_368_000.0
 
 
-def test_reported_cf_details_reach_l3_brief_without_changing_candidate_paths():
+@pytest.mark.parametrize("period_kind", ["annual", "interim"])
+def test_reported_cf_details_reach_l3_brief_without_changing_candidate_paths(period_kind):
     inputs = payloads()
     baseline = project(inputs)
     reported = {
@@ -1412,6 +1413,14 @@ def test_reported_cf_details_reach_l3_brief_without_changing_candidate_paths():
         "filing_fiscal_period": {"start": "2025-01-01", "end": "2025-12-31"},
         "annual_quality": {"free_cash_flow": "exact"},
     }
+    if period_kind == "interim":
+        reported["period_kind"] = "interim"
+        reported["amounts"]["capex"] = None
+        reported["amounts"]["free_cash_flow"] = None
+        for key in reported["amounts"]:
+            if key.startswith("ocf_"):
+                reported["amounts"][key] = None
+        reported["annual_quality"] = {"free_cash_flow": "unavailable"}
     inputs["company_financials"]["financial"]["edinet_reported_flows"] = reported
     original = deepcopy(inputs)
     projected = project(inputs)
