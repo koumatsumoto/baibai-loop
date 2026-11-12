@@ -823,6 +823,32 @@ def test_capital_proxy_uses_pbr_not_unselected_equity_or_edinet_scope():
     assert active(project(data), "capital_productivity") is None
 
 
+def test_selected_book_reaches_l3_context_without_changing_economic_coordinates():
+    data = payloads()
+    baseline = project(data)
+    book = {
+        "amount_yen": 20000.0,
+        "method": "assets_times_equity_ratio",
+        "measurement_date": "2025-06-30",
+        "statement_basis": "consolidated",
+        "disclosure_number": "book-source",
+        "disclosed_at": "2025-08-12",
+        "operands": {"total_assets_yen": 40000.0, "equity_to_asset_ratio": 0.5},
+    }
+    data["company_financials"]["financial"]["book_equity"] = book
+    changed = project(data)
+    for before, after in zip(baseline.paths, changed.paths, strict=True):
+        assert (before.price_value, before.business_value, before.eligible) == (
+            after.price_value,
+            after.business_value,
+            after.eligible,
+        )
+    assert changed.context["financial"]["book_equity"] == book
+    assert active(changed, "capital_productivity").evidence["book_provenance"] == (
+        "selected_model_book_in_context_financial_book_equity"
+    )
+
+
 def test_economic_result_roundtrip_and_history_identity(tmp_path):
     header = metadata()
     generation = ModelGeneration(**header.model_dump(), models=models(payloads()))

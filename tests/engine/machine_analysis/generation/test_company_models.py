@@ -5,10 +5,12 @@ from io import BytesIO
 
 import pytest
 
+from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     InputSnapshot,
     ModelGeneration,
+    ModelInputSlice,
 )
 from baibai_engine.machine_analysis.generation.financial_models import (
     generate_financial_and_price_models,
@@ -276,10 +278,37 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1"
+        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
+
+
+def test_selected_book_survives_generation_serialization_and_l3_projection():
+    models = generate(
+        documents=(replace(document(), total_assets=4000.0, equity_to_asset_ratio=0.6, bps=30.0),),
+        bars=(PriceBar(ASOF, 10.0, None),),
+    )
+    generation = ModelGeneration(
+        generation_id="book-source",
+        as_of=ASOF,
+        evaluation_time=datetime(2026, 9, 1, tzinfo=UTC),
+        inputs={
+            "market": InputSnapshot(
+                kind="lake_release", reference=RELEASE.release_id, sha256=RELEASE.manifest_sha256
+            )
+        },
+        models=models,
+    )
+    saved = ModelGeneration.model_validate_json(generation.model_dump_json())
+    book = saved.result("company_financials", "1001").payload["financial"]["book_equity"]
+    assert book["amount_yen"] == 2400.0
+    assert book["measurement_date"] == "2026-03-31"
+    assert book["disclosed_at"] == "2026-05-15"
+    assert book["disclosure_number"] == "synthetic-annual"
+    selected = ModelInputSlice(**saved.model_dump(), subjects=("1001",))
+    projected = project_generated_inputs(selected)
+    assert projected["securities"]["1001"]["company_financials"]["financial"]["book_equity"] == book
 
 
 def test_edinet_entity_mismatch_keeps_provenance_without_filling_financial_values():

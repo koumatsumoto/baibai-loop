@@ -89,6 +89,8 @@ class FinancialSnapshot:
     total_assets: float | None = None
     # Reinvestment用。最新のcomplete actual rowのTAとEqARの積であり、PBRのBPS fallbackは使わない。
     same_state_equity_yen: float | None = None
+    # PBRが実際に採った分母と元開示。EDINET残高のscopeや現在の純資産とは別に読む。
+    book_equity: dict[str, object] | None = None
     # 最後の raw close を as-of の株式基準へ換算した screening 参考価格。時価総額・E[r]・
     # Stock Analysis表示は同じ基準の株数と組み合わせる。約定価格ではなく、
     # Research の価格 fact は SQLite の raw/unadjusted close を取得する。
