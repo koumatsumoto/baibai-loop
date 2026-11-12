@@ -32,6 +32,8 @@ uv run baibai-engine technical-analysis saved \
 
 `--all-stocks`は当世代のstock plan、個社は繰返しの`--ticker`を使う。`--section MODEL.SECTION`で元の小セクションを選ぶ。相対強弱は`market_context.price_path_relative` / `market_context.relative`、変動・流動性は`market_context.price`と必要な`technical_analysis.bollinger_20bar`、タイミングの検討は`technical_analysis.rsi_14bar` / `technical_analysis.price_path`を読む。新しい分類や売買signalではなく、[期間・価格basis・限界](../../../docs/reference/model-observations.md#technical-analysis)を保つ。
 
+`relative`の実在bar窓と`price_path_relative`の同一端点比較（R20は共通calendar）は区別し、旧世代で窓が未記録なら不明のまま扱う。
+
 各行のGeneration・subject・モデルrevisionで元結果へ戻れる。`price_context`の株価日/鮮度と、選んだセクション内の期間・欠測を合わせて読む。`missing_models`は当世代planと照合し、`not_recorded_sections`をnullや0に置換しない。失敗したcommandの途中出力を完全な全社結果として使わない。
 
 contextのidentity/時点/依頼を保つResearch Selectionを作り、対象・問い・理由・代替・未確認範囲を記す。全社モデル投入や単一対象の全期間backfillをせず、不足は必要な通常取得で補い経済的棄却で代用しない。新しい共通市場判断は[市場判断skill](../market-context-assessment/SKILL.md)へ。

@@ -161,7 +161,7 @@ def main(argv: list[str] | None = None, /) -> int:
         else:
             result = technical_analysis(args.db, ticker=args.ticker, as_of=args.asof)
             print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
-    except (ValueError, OSError, RuntimeError, sqlite3.Error) as error:
+    except (EOFError, ValueError, OSError, RuntimeError, sqlite3.Error) as error:
         print(f"error: technical analysis read failed: {error}", file=sys.stderr)
         return 1
     return 0

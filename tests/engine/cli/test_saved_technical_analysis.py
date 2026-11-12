@@ -1,5 +1,6 @@
 """固定モデルを問いに必要な小セクションだけで読むCLI。"""
 
+import gzip
 import json
 import sqlite3
 
@@ -184,7 +185,14 @@ def test_explicit_tickers_are_finite_normalized_and_can_read_full_original_secti
         assert "saved subject plan" in capsys.readouterr().err
 
 
-def test_read_failure_is_not_an_empty_success_and_never_creates_missing_store(tmp_path, capsys):
+@pytest.mark.parametrize(
+    "broken_payload",
+    [b"not-gzip", gzip.compress(b"{}")[:-1]],
+    ids=("invalid-header", "truncated-gzip"),
+)
+def test_read_failure_is_not_an_empty_success_and_never_creates_missing_store(
+    tmp_path, capsys, broken_payload
+):
     path = tmp_path / "missing.sqlite"
     assert main(_args(path, "--all-stocks", "--section", "market_context.price")) == 1
     assert not path.exists()
@@ -201,7 +209,7 @@ def test_read_failure_is_not_an_empty_success_and_never_creates_missing_store(tm
     with sqlite3.connect(path) as connection:
         connection.execute(
             "INSERT INTO generated_model VALUES (?,?,?,?,?)",
-            ("synthetic-generation", "technical_analysis", "5678", "v1", b"not-gzip"),
+            ("synthetic-generation", "technical_analysis", "5678", "v1", broken_payload),
         )
     assert main(_args(path, "--all-stocks", "--section", "market_context.price")) == 1
     output = capsys.readouterr()
