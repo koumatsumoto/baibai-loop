@@ -113,7 +113,7 @@ def test_response_callback_latency_does_not_extend_retry_after(clock):
     result = collect(client, on_response=response)
     assert result.retry_after_not_before_utc == received[0] + timedelta(seconds=30)
     assert result.last_response_finished_at_utc == received[0]
-    assert result.response_content_bytes == len(b"private-secret-body")
+    assert result.response_content_bytes == 0
     assert clock.utc() == received[0] + timedelta(seconds=10)
 
 

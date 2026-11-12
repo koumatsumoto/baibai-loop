@@ -202,11 +202,13 @@ def receive_html(
     request_options: dict[str, Any] = {}
     if source == "minkabu":
         request_options["headers"] = MINKABU_PUBLIC_HEADERS
-    with session.get(url, timeout=timeout, allow_redirects=False, **request_options) as response:
+    with session.get(
+        url, timeout=timeout, allow_redirects=False, stream=True, **request_options
+    ) as response:
         if response.status_code != 200:
             if response.status_code == 429:
-                # PairSession records full body completion before a possibly
-                # slow on_response callback. Do not add its delay.
+                # PairSession completes a non-200 reception at its headers,
+                # before the callback. An unreadable error body cannot hide 429.
                 received = (
                     session.finished_at_utc
                     if isinstance(session, PairSession)
@@ -296,7 +298,7 @@ class PairSession(requests.Session):
         self.requests += 1
         response = self.client.get(url, **kwargs)
         try:
-            body = response.content
+            body = response.content if response.status_code == 200 else b""
             finished = datetime.now(UTC)
             self.finished_at_utc = finished
             self.content_bytes += len(body)
