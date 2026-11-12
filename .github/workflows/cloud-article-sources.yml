@@ -10,7 +10,7 @@ on:
         description: '取得group（保存済みindexと未処理本文を確認。同slot重複・cooldownは維持）'
         type: choice
         default: all
-        options: [all, public, world, minkabu, rakuten]
+        options: [all, public, world, rakuten]
 
 permissions:
   contents: read
@@ -20,8 +20,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [public, world, minkabu, rakuten]
-    # The shared hosts use exactly the collector's existing host queue. No global
+        group: [public, world, rakuten]
+    # Toushiru uses exactly the external collector's existing Rakuten host queue. No global
     # provider barrier, publication lease, or machine model calculation here.
     concurrency:
       group: source-host-${{ matrix.group == 'public' && 'article-public' || matrix.group }}
@@ -40,7 +40,7 @@ jobs:
           REQUESTED_GROUP: ${{ inputs.group || 'all' }}
           GROUP: ${{ matrix.group }}
         run: |
-          case "$REQUESTED_GROUP" in all|public|world|minkabu|rakuten) ;; *) exit 2 ;; esac
+          case "$REQUESTED_GROUP" in all|public|world|rakuten) ;; *) exit 2 ;; esac
           if [ "$REQUESTED_GROUP" = all ] || [ "$REQUESTED_GROUP" = "$GROUP" ]; then
             echo 'selected=true' >> "$GITHUB_OUTPUT"
           fi

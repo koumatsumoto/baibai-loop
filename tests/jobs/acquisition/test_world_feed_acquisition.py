@@ -12,7 +12,7 @@ from baibai_engine.data_collection.receipts.articles.store import read_body, rea
 from baibai_engine.machine_analysis.observations.articles.store import read_observations
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition import articles
-from baibai_jobs.acquisition.article_planning import publish_planning_input
+from baibai_jobs.acquisition.article_planning import COLLECTION_SOURCES, publish_planning_input
 from baibai_jobs.integration.article_handoff import import_handoff
 
 FEED = b"""<rss><channel><item><guid>one</guid><link>https://example.invalid/one</link>
@@ -20,6 +20,12 @@ FEED = b"""<rss><channel><item><guid>one</guid><link>https://example.invalid/one
 
 
 def test_world_group_does_not_reduce_existing_group_budgets():
+    assert set(articles.GROUPS) == {"public", "world", "rakuten"}
+    assert articles.GROUPS["rakuten"] == ("toushiru",)
+    assert {source for group in articles.GROUPS.values() for source in group} == set(
+        COLLECTION_SOURCES
+    )
+    assert set(SOURCES) - set(COLLECTION_SOURCES) == {"minkabu_news", "rakuten_news"}
     assert set(articles.GROUPS["world"]) == WORLD_NEWS_SOURCES
     assert set(articles.GROUPS["public"]) == {
         "nhk_news",
@@ -31,7 +37,6 @@ def test_world_group_does_not_reduce_existing_group_budgets():
     assert articles.GROUP_BYTES == {
         "world": 4 * 1024 * 1024,
         "public": 80 * 1024 * 1024,
-        "minkabu": 24 * 1024 * 1024,
         "rakuten": 24 * 1024 * 1024,
     }
     assert sum(len(SOURCES[source].entry_urls) for source in WORLD_NEWS_SOURCES) == 4

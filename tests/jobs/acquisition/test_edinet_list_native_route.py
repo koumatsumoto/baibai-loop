@@ -562,9 +562,9 @@ def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
     assert sources.main(argv) == 0
     expected = [group for group in sources.SOURCE_INPUT_GROUPS if not group.startswith("edinet-")]
     assert published == expected
-    assert articles == list(sources.ARTICLE_SOURCES)
+    assert articles == list(sources.COLLECTION_SOURCES)
     report = json.loads(capsys.readouterr().out)
-    assert report["updated"] == expected + list(sources.ARTICLE_SOURCES)
+    assert report["updated"] == expected + list(sources.COLLECTION_SOURCES)
     assert report["failed"] == []
     published.clear()
     assert sources.main([*argv, "--group", "edinet-list"]) == 1

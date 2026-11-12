@@ -29,6 +29,10 @@ from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
 from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs
 
 ARTICLE_SOURCES = tuple(SOURCES)
+# 新規取得と保存原本の読取を分ける。旧sourceのplanning/rootは履歴照合に残す。
+COLLECTION_SOURCES = tuple(
+    source for source in ARTICLE_SOURCES if source not in {"minkabu_news", "rakuten_news"}
+)
 TSR_SOURCES = frozenset({"tsr_data", "tsr_flash"})
 ARTICLE_NAMESPACE = "article-sources"
 MAX_PLANNING_BYTES = 128 * 1024

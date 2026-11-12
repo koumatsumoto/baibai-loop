@@ -48,6 +48,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
 from baibai_jobs.acquisition.article_planning import (
     ARTICLE_NAMESPACE,
     ARTICLE_SOURCES,
+    COLLECTION_SOURCES,
     pending_handoffs,
     publish_planning_input,
 )
@@ -581,7 +582,7 @@ def main(argv: list[str] | None = None) -> int:
                     input_report["updated"].extend(result["updated"])
                     input_report["failed"].extend(result["failed"])
                 for source in (
-                    ARTICLE_SOURCES
+                    COLLECTION_SOURCES
                     if args.group is None
                     else (args.group,)
                     if args.group in ARTICLE_SOURCES
