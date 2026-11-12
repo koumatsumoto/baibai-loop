@@ -58,8 +58,10 @@ def case(tmp_path, monkeypatch):
     return helper.backend_case(tmp_path)
 
 
-@pytest.mark.parametrize("legacy_draft", [False, True])
-def test_price_window_date_is_fixed_without_rewriting_legacy_proposals(case, legacy_draft):
+@pytest.mark.parametrize(
+    "omitted_fields", [(), ("turnover_window",), ("price_window_end", "turnover_window")]
+)
+def test_price_window_date_is_fixed_without_rewriting_legacy_proposals(case, omitted_fields):
     context = build_proposal_context(
         operation_id=case.operation.operation_id,
         db_path=case.app,
@@ -70,10 +72,18 @@ def test_price_window_date_is_fixed_without_rewriting_legacy_proposals(case, leg
     assert row["price_window_end"] == "2026-10-07"
     assert row["analysis_as_of"] == "2026-10-14"
     assert row["adv_yen"] == "100000000.0"
+    assert row["turnover_window"] == {
+        "start_date": "2026-09-10",
+        "end_date": "2026-10-07",
+        "price_bar_count": 20,
+        "valid_turnover_count": 19,
+        "median_yen": "100000000.0",
+    }
     proposal = helper.reviewed_proposal(case)
     raw = proposal.payload()
-    if legacy_draft:
-        raw["liquidity_context"][0].pop("price_window_end")
+    if omitted_fields:
+        for field in omitted_fields:
+            raw["liquidity_context"][0].pop(field)
         # 旧serializerの本文を直接hashし、新しい型のdefaultに依存しない。
         raw["review"]["draft_sha256"] = sha256(
             canonical_json({k: v for k, v in raw.items() if k != "review"}).encode()
@@ -154,4 +164,20 @@ def test_missing_source_date_is_not_replaced_with_generation_date(case, price):
     row = proposal_liquidity_context(selection)[0]
     assert row.price_window_end is None
     assert "price_window_end" not in row.model_dump(mode="json")
+    assert row.turnover_window is None
+    assert "turnover_window" not in row.model_dump(mode="json")
     assert (row.adv_yen is None) == (price is None)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("valid_turnover_count", 20), ("median_yen", "90000000")]
+)
+def test_proposal_keeps_the_saved_turnover_window(case, field, value):
+    raw = helper.reviewed_proposal(case).payload()
+    raw["liquidity_context"][0]["turnover_window"][field] = value
+    changed = helper.bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+    )
+    with pytest.raises(ProposalConflictError, match="liquidity differs"):
+        service.check(changed)

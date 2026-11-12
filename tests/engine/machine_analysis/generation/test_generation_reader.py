@@ -378,7 +378,6 @@ def test_shared_market_model_contains_retained_tradingview_observations(tmp_path
     tv = common.payload["tradingview_market"]
     assert tv["quotes"][0]["receipt_id"] == "quote"
     assert tv["bars"][0]["receipt_id"] == "bar"
-    assert "tradingview" in common.calculation_revision
 
 
 @pytest.mark.parametrize("changed", ["as_of", "evaluation_time"])

@@ -318,6 +318,9 @@ def proposal_liquidity_context(
                     price_window_end=price.get("resolved_date")
                     if isinstance(price, dict)
                     else None,
+                    turnover_window=price.get("turnover_window")
+                    if isinstance(price, dict)
+                    else None,
                     adv_yen=adv,
                     unavailable_reason=None if adv is not None else "保存モデルにADV値が無い",
                 )

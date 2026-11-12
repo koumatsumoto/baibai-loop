@@ -255,15 +255,19 @@ def _check_proposal(
     if proposal.prepared_at < selection.input_known_at:
         raise ProposalConflictError("proposal preparation precedes its saved Research inputs")
     expected_liquidity = proposal_liquidity_context(selection)
-    # 日付を持たない旧draftは当時のcontextで照合し、後から日付を補完しない。
-    undated = {
-        item.ticker
+    # 旧draftは当時のcontextで照合し、後から未記録の窓を補完しない。
+    unrecorded = {
+        item.ticker: {
+            field: None
+            for field in ("price_window_end", "turnover_window")
+            if getattr(item, field) is None
+        }
         for item in proposal.liquidity_context
-        if isinstance(item, GeneratedLiquidityContext) and item.price_window_end is None
+        if isinstance(item, GeneratedLiquidityContext)
     }
     expected_liquidity = tuple(
-        item.model_copy(update={"price_window_end": None})
-        if isinstance(item, GeneratedLiquidityContext) and item.ticker in undated
+        item.model_copy(update=unrecorded.get(item.ticker, {}))
+        if isinstance(item, GeneratedLiquidityContext)
         else item
         for item in expected_liquidity
     )

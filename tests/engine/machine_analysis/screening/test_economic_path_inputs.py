@@ -1,6 +1,7 @@
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from hashlib import sha256
 
 import pytest
 from pydantic import TypeAdapter
@@ -190,6 +191,37 @@ def test_projected_observation_standard_reaches_the_bounded_brief():
         observation["accounting_standard"] == "JP"
         for path in brief["cards"][0]["paths"]
         for observation in path["evidence"].get("period_basis", [])
+    )
+
+
+def test_turnover_window_reaches_selection_and_brief_without_changing_candidate_paths():
+    data = payloads()
+    baseline = project(data)
+    window = {
+        "start_date": "2025-11-20",
+        "end_date": "2026-01-05",
+        "price_bar_count": 20,
+        "valid_turnover_count": 17,
+        "median_yen": 100000.0,
+    }
+    data["market_context"]["price"] = {"turnover_window": window}
+    original = deepcopy(data)
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
+    assert saved["cards"][0]["context"]["turnover_window"] == window
+    assert economic_screening_brief(saved)["cards"][0]["context"]["turnover_window"] == window
+    assert data == original
+
+
+def test_old_model_does_not_gain_a_turnover_window_or_change_selection_hash():
+    selected = select_economic_paths((project(payloads()),), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
+    assert "turnover_window" not in saved["cards"][0]["context"]
+    # Captured from the same fixture on main 4ed88898, before window projection.
+    assert sha256(canonical_json(saved).encode()).hexdigest() == (
+        "31dfe3c282d5aced68d54872768986538e0d4a3b358213529e9297c82c78adeb"
     )
 
 

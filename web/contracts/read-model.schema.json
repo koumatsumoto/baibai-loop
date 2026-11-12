@@ -1266,6 +1266,17 @@
           "default": null,
           "title": "Price Window End"
         },
+        "turnover_window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedTurnoverWindowView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "adv_yen": {
           "anyOf": [
             {
@@ -1292,6 +1303,7 @@
       "required": [
         "analysis_as_of",
         "price_window_end",
+        "turnover_window",
         "adv_yen",
         "unavailable_reason"
       ],
@@ -1772,6 +1784,48 @@
         "terms_unavailable_reasons"
       ],
       "title": "SavedSellItemView",
+      "type": "object"
+    },
+    "SavedTurnoverWindowView": {
+      "properties": {
+        "start_date": {
+          "format": "date",
+          "title": "Start Date",
+          "type": "string"
+        },
+        "end_date": {
+          "format": "date",
+          "title": "End Date",
+          "type": "string"
+        },
+        "price_bar_count": {
+          "title": "Price Bar Count",
+          "type": "integer"
+        },
+        "valid_turnover_count": {
+          "title": "Valid Turnover Count",
+          "type": "integer"
+        },
+        "median_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Median Yen"
+        }
+      },
+      "required": [
+        "start_date",
+        "end_date",
+        "price_bar_count",
+        "valid_turnover_count",
+        "median_yen"
+      ],
+      "title": "SavedTurnoverWindowView",
       "type": "object"
     },
     "UnfinishedResearchView": {

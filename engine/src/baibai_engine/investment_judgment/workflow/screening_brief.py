@@ -82,6 +82,7 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
                 "growth_comparison_basis",
                 "turnover_20d_oku",
                 "turnover_observation_date",
+                "turnover_window",
                 "related_subjects",
                 "full_result_reference",
             ),

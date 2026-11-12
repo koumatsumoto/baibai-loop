@@ -33,6 +33,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedReasonView,
     SavedRemainingRewardView,
     SavedSellItemView,
+    SavedTurnoverWindowView,
     UnfinishedResearchView,
 )
 from baibai_web.sources.protocols import ProposalSource
@@ -179,6 +180,14 @@ def _item(
                     else None
                 ),
                 adv_yen=None if liquidity.adv_yen is None else str(liquidity.adv_yen),
+                turnover_window=(
+                    SavedTurnoverWindowView.model_validate(
+                        liquidity.turnover_window.model_dump(mode="json")
+                    )
+                    if isinstance(liquidity, GeneratedLiquidityContext)
+                    and liquidity.turnover_window is not None
+                    else None
+                ),
                 unavailable_reason=liquidity.unavailable_reason,
             )
         ),

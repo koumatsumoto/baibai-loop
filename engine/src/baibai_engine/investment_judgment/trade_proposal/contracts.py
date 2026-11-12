@@ -392,6 +392,16 @@ class LiquidityContext(_ProposalValue):
         return self
 
 
+class TurnoverWindow(_ProposalValue):
+    """ADVと同じ実在価格bar窓。未記録日を無出来高日として埋めない。"""
+
+    start_date: ISODate
+    end_date: ISODate
+    price_bar_count: PositiveInt
+    valid_turnover_count: Annotated[int, Field(ge=0)]
+    median_yen: NonnegativeMoney | None
+
+
 class GeneratedLiquidityContext(_ProposalValue):
     """モデル生成snapshotから固定したADV。旧run identityを捏造しない。"""
 
@@ -401,6 +411,9 @@ class GeneratedLiquidityContext(_ProposalValue):
     calculation_revision: NonEmptyStr | None
     # 旧提案のhashを保つ。売買代金の最終有効日ではなく、元の価格窓の終端。
     price_window_end: ISODate | None = Field(default=None, exclude_if=lambda value: value is None)
+    turnover_window: TurnoverWindow | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     adv_yen: Money | None
     unavailable_reason: NonEmptyStr | None
 
