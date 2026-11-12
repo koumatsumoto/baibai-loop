@@ -826,6 +826,7 @@ def test_capital_proxy_uses_pbr_not_unselected_equity_or_edinet_scope():
 def test_selected_book_reaches_l3_context_without_changing_economic_coordinates():
     data = payloads()
     baseline = project(data)
+    assert "book_equity" not in baseline.context["financial"]
     book = {
         "amount_yen": 20000.0,
         "method": "assets_times_equity_ratio",
@@ -846,6 +847,17 @@ def test_selected_book_reaches_l3_context_without_changing_economic_coordinates(
     assert changed.context["financial"]["book_equity"] == book
     assert active(changed, "capital_productivity").evidence["book_provenance"] == (
         "selected_model_book_in_context_financial_book_equity"
+    )
+
+
+def test_explicit_missing_book_stays_distinct_from_unrecorded_book():
+    data = payloads()
+    data["company_financials"]["financial"]["book_equity"] = None
+    result = project(data)
+    assert "book_equity" in result.context["financial"]
+    assert result.context["financial"]["book_equity"] is None
+    assert active(result, "capital_productivity").evidence["book_provenance"] == (
+        "individual_book_source_scope_and_measurement_date_not_exposed"
     )
 
 
