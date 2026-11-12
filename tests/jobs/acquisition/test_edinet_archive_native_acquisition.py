@@ -504,3 +504,58 @@ def test_official_body_401_stops_after_saved_original_and_resumes_missing_only(t
     assert len(resumed_session.calls) == resumed["downloaded"] == 2
     assert resumed["retained_archives_reused"] == 1
     assert owner.freeze().metadata(*key) == original
+
+
+@pytest.mark.parametrize("group", ["edinet-metrics", "edinet-facts"])
+def test_http_429_with_broken_body_stops_after_original_and_resumes_missing_only(
+    tmp_path, monkeypatch, group
+):
+    import requests
+    from tests.engine.data_collection.providers.edinet.test_edinet_collection_http import Session
+    from tests.helpers.http_doubles import response
+
+    from baibai_engine.data_collection.providers.edinet.http import EDINETHTTP
+
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    owner, _, _, lists = setup(
+        tmp_path, [filing("S100ONE"), filing("S100TWO", "67580"), filing("S100THREE", "94320")]
+    )
+    refusals = []
+    for _ in range(6):
+        reply = requests.Response()
+        reply.status_code = 429
+        reply.headers["Retry-After"] = "0"
+        reply.raw = Mock()
+        reply.raw.stream.side_effect = requests.ConnectionError("broken refusal body")
+        refusals.append(reply)
+    later = response(source_zip())
+    session = Session(response(source_zip()), *refusals, later)
+    options = {"lookback_days": 0} if group == "edinet-metrics" else {"initialize_facts": True}
+    report = acquire_archives(
+        owner, EDINETHTTP("synthetic", session=session), lists, group=group, asof=DAY, **options
+    )
+    assert len(session.calls) == 7
+    assert later.close_count == 0
+    assert report["status"] == "failed"
+    assert report["downloaded"] == 1
+    assert report["failed"][0]["reason"] == "EdinetRateLimitError"
+    assert all(reply.raw.stream.call_count == 0 for reply in refusals)
+    assert all(
+        reply.raw.close.call_count == reply.raw.release_conn.call_count == 1 for reply in refusals
+    )
+    fixed = owner.freeze()
+    key = next(iter(fixed.archive_keys))
+    original = fixed.metadata(*key)
+    resumed_session = Session(response(source_zip()), response(source_zip()))
+    resumed = acquire_archives(
+        owner,
+        EDINETHTTP("synthetic", session=resumed_session),
+        lists,
+        group=group,
+        asof=DAY,
+        **options,
+    )
+    assert resumed["status"] == "received"
+    assert len(resumed_session.calls) == resumed["downloaded"] == 2
+    assert resumed["retained_archives_reused"] == 1
+    assert owner.freeze().metadata(*key) == original
