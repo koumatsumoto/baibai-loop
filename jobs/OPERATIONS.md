@@ -521,7 +521,15 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 <a id="financial-native-l1"></a>
 **財務。** [固定reader](src/baibai_jobs/integration/financial_native.py)は旧inline/共有固定入力も読む。旧SQL/Parquetの明示reader・cold再構築は保持する。旧mode/旧財務handoffを含む通常planは作り直し、旧Selectionを再署名しない。Operation再開とcold計算を混同しない。
 
-定期財務取得は平日18:13 JSTの`financial-edinet-facts`枠へ置き、価格等の16:43枠と分ける。Standard等の[公式更新目安](https://jpx-jquants.com/ja/spec/data-update)は18:00速報・翌00:30確報で、18:13の完全到着や22:43統合への間に合いを保証しない。確報は次回overlapで取り込むため、17時頃の臨時統合では前回取得後の確報が未反映の場合がある。必要な早期取得は明示実行で確認し、dailyへprovider取得や後着入力の差替えを追加しない。
+定期財務取得は平日18:13 JSTの`financial-edinet-facts`枠へ置き、価格等の16:43枠と分ける。Standard等の[公式更新目安](https://jpx-jquants.com/ja/spec/data-update)は18:00速報・翌00:30確報で、18:13の完全到着や22:43統合への間に合いを保証しない。確報は次回overlapで取り込むため、17時頃の臨時統合では前回取得後の確報が未反映の場合がある。早期更新が必要なら既存受領と進行中runを確認し、不足する財務だけ次で明示取得する。
+
+```bash
+gh workflow run cloud-market-sources.yml --ref main -f source=jquants-financial -f asof=<YYYY-MM-DD>
+gh run list --workflow cloud-market-sources.yml --branch main --event workflow_dispatch --limit 5
+gh run watch <SOURCE_RUN_ID> --exit-status --interval 60
+```
+
+作成された対象run IDを固定し、成功後も財務head/受領の対象日・不足を確認してから必要な[日次統合](#daily)へ進む。取得完了とL2利用可能時刻を分け、統合・公開/readbackの時間も見込む。dailyだけの再実行ではproviderの最新値を取得せず、後着入力へ途中で差し替えない。scheduleのrun作成自体も遅れ得るため、枠の追加を定刻到着の保証にしない。明示実行も既存queueを守り、即時完了は保証しない。
 
 財務summaryの[API枠](https://jpx-jquants.com/ja/spec/rate-limits)はプラン共通60要求/分で通常plan枠とは別。現行のJ-Quants共通queueはこれより保守的な実装上の直列化であり、時刻変更では外さない。`financial-edinet-facts`は枠名で、土日は従来どおりEDINET factsだけを取得する。
 
