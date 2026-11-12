@@ -36,7 +36,7 @@ type AnnualRevisionBasis = Literal[
     "same_disclosure", "latest_reconfirmed_unchanged_amounts", "same_day_restated_reference_actual"
 ]
 
-REVISION = "retained-pdf-restatement-selection-v3"
+REVISION = "retained-pdf-restatement-selection-v4"
 _FIELDS: dict[Metric, str] = {
     "sales": "sales",
     "operating_profit": "operating_profit",
@@ -178,6 +178,19 @@ def _unchanged_annual_pdf(
     return next(iter(candidates.values())) if len(candidates) == 1 else None
 
 
+def _native_pdf_disclosure(
+    statement: PdfStatement,
+    documents: Sequence[JQuantsFinancialSummary],
+) -> JQuantsFinancialSummary | None:
+    sources = [
+        row
+        for row in documents
+        if row.disclosure_number == statement.disclosure_number
+        and row.disclosed_at == statement.published_on
+    ]
+    return sources[0] if len({row.disclosed_time for row in sources}) == 1 else None
+
+
 def _annual_reference_order_reason(
     annual: JQuantsFinancialSummary,
     reference: PdfStatement,
@@ -188,22 +201,39 @@ def _annual_reference_order_reason(
         return None
     if annual.disclosed_at > reference.published_on:
         return "annual_revised_after_reference_disclosure"
-    sources = [
-        row
-        for row in documents
-        if row.disclosure_number == reference.disclosure_number
-        and row.disclosed_at == reference.published_on
-    ]
     # PDFの公表日は日単位。別文書である四半期の時刻を参考実績へ借用しない。
-    if len({row.disclosed_time for row in sources}) != 1:
+    source = _native_pdf_disclosure(reference, documents)
+    if source is None:
         return "annual_reference_disclosure_order_unresolved"
-    source = sources[0]
     if certainly_disclosed_by(annual, source):
         return None
     return (
         "annual_revised_after_reference_disclosure"
         if certainly_disclosed_by(source, annual)
         else "annual_reference_disclosure_order_unresolved"
+    )
+
+
+def _annual_statement_order_reason(
+    annual: PdfStatement,
+    current: JQuantsFinancialSummary,
+    documents: Sequence[JQuantsFinancialSummary],
+) -> str | None:
+    assert annual.published_on is not None
+    if annual.published_on < current.disclosed_at:
+        return None
+    if annual.published_on > current.disclosed_at:
+        return "annual_revised_after_current_disclosure"
+    # 不変額を旧PDFから使う場合、後のEPS訂正ではなくoperand自身の公表時計を比べる。
+    source = _native_pdf_disclosure(annual, documents)
+    if source is None:
+        return "annual_disclosure_order_unresolved"
+    if certainly_disclosed_by(source, current):
+        return None
+    return (
+        "annual_revised_after_current_disclosure"
+        if certainly_disclosed_by(current, source)
+        else "annual_disclosure_order_unresolved"
     )
 
 
@@ -356,16 +386,13 @@ def select_pdf_financials(
         annual_revision_basis = "latest_reconfirmed_unchanged_amounts"
     if annual is None:
         return PdfFinancialSelection(status="unavailable", current=current, reason=reason)
-    if (
-        annual.published_on is None
-        or current.published_on is None
-        or annual.published_on > current.published_on
-    ):
+    annual_order_reason = _annual_statement_order_reason(annual, current_row, projected)
+    if annual_order_reason is not None:
         return PdfFinancialSelection(
             status="unavailable",
             current=current,
             annual=annual,
-            reason="annual_revised_after_current_disclosure",
+            reason=annual_order_reason,
         )
     if current.comparative_end is None:
         return PdfFinancialSelection(
