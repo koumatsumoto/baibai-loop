@@ -46,8 +46,8 @@ class Source(BaseModel):
         if self.source_tier == "local_data":
             if self.ref is not None or self.provider is None or self.dataset is None:
                 raise ValueError("local_data source requires provider and dataset and forbids ref")
-        elif self.ref is None or not self.ref.startswith("https://"):
-            raise ValueError("external source requires an HTTPS ref")
+        elif self.ref is None or not self.ref.startswith(("http://", "https://")):
+            raise ValueError("external source requires an HTTP(S) ref")
         elif self.provider is not None or self.dataset is not None:
             raise ValueError("external source forbids local provider and dataset")
         return self
