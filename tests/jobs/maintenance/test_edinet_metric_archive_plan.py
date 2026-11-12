@@ -155,7 +155,7 @@ def test_window_is_inclusive_and_old_origins_only_resolve_operations(tmp_path):
 
 
 @pytest.mark.parametrize("problem", ["missing", "failed", "no_candidates"])
-def test_incomplete_or_empty_selection_fails_without_get_or_l2_failure_write(tmp_path, problem):
+def test_incomplete_lists_allow_known_candidates_without_l2_failure_write(tmp_path, problem):
     path = tmp_path / "source.sqlite"
     save_list(path, ASOF, [] if problem == "no_candidates" else [filing()])
     if problem != "missing":
@@ -173,8 +173,11 @@ def test_incomplete_or_empty_selection_fails_without_get_or_l2_failure_write(tmp
                 error="source list unavailable",
             )
     before = path.read_bytes()
-    with pytest.raises(EDINETProviderError):
-        subject.metric_archive_candidates(path, asof=ASOF)
+    if problem == "no_candidates":
+        with pytest.raises(EDINETProviderError):
+            subject.metric_archive_candidates(path, asof=ASOF)
+    else:
+        assert subject.metric_archive_candidates(path, asof=ASOF) == (["S100CURRENT"], 0)
     assert path.read_bytes() == before
 
 

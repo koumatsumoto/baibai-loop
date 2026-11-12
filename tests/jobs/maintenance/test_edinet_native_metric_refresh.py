@@ -28,7 +28,7 @@ DAY = date(2026, 11, 2)
 AT = datetime(2026, 11, 2, tzinfo=UTC)
 
 
-def native_input(tmp_path, monkeypatch, lookback):
+def native_input(tmp_path, monkeypatch, lookback, *, include_bad_old=True):
     start = DAY - timedelta(days=lookback)
     document = {
         **_edinet_document(ticker="72030", doc_id="S100NATIVE"),
@@ -54,9 +54,12 @@ def native_input(tmp_path, monkeypatch, lookback):
             )
         )
     # Unrelated malformed old input cannot globally stop this requested window.
-    receipts.append(
-        NativeListReceipt.from_response(start - timedelta(days=1), EdinetResponse(AT, b"bad JSON"))
-    )
+    if include_bad_old:
+        receipts.append(
+            NativeListReceipt.from_response(
+                start - timedelta(days=1), EdinetResponse(AT, b"bad JSON")
+            )
+        )
     store = MemoryR2Store()
     owner = EdinetListL1(store, tmp_path / "native")
     owner.freeze(False)
@@ -148,22 +151,151 @@ def test_native_refresh_missing_head_does_not_fall_back_to_legacy_list_writer(
     assert calls == []
 
 
-def test_native_refresh_missing_requested_day_stops_before_csv_get(tmp_path, monkeypatch):
-    native_input(tmp_path, monkeypatch, 0)
+@pytest.mark.parametrize("lookback", [1, 540])
+@pytest.mark.parametrize("missing_kind", ["unreceived", "failed"])
+def test_native_refresh_missing_list_keeps_known_csv_without_completing_l2(
+    tmp_path, monkeypatch, lookback, missing_kind
+):
+    _store, owner = native_input(tmp_path, monkeypatch, 0, include_bad_old=False)
+    if missing_kind == "failed":
+        owner.publish(
+            [
+                NativeListReceipt.from_response(
+                    DAY - timedelta(days=1), EdinetResponse(AT + timedelta(minutes=1), b"{")
+                )
+            ]
+        )
     calls = []
-    acquisition = SimpleNamespace(
-        list_documents=lambda day: calls.append(day),
-        download_csv_zip=lambda value: calls.append(value),
-    )
     database = tmp_path / "market.sqlite"
+    zip_content = _edinet_csv_zip()
+
+    def fetch(doc_id, kind):
+        calls.append((doc_id, kind))
+        return EdinetResponse(AT, zip_content)
+
+    acquisition = EDINETRefresh("synthetic", sqlite_path=database)
+    acquisition._http = SimpleNamespace(fetch_archive=fetch)
     assert (
         refresh.refresh_edinet_metrics_command(
             asof_date=DAY,
-            lookback_days=2,
+            lookback_days=lookback,
             reader=EDINETReader(database),
             acquisition=acquisition,
             sqlite_path=database,
         )
         == 1
     )
-    assert calls == []
+    assert calls == [("S100NATIVE", 5)]
+    original = acquisition.retained_archives().metadata("S100NATIVE", 5)
+    assert original.received_at_utc == AT
+    with closing(open_connection(database)) as connection:
+        assert read_source_archive(connection, "S100NATIVE", 5) == zip_content
+        assert connection.execute("SELECT * FROM edinet_metrics").fetchall() == []
+        assert (
+            connection.execute(
+                "SELECT * FROM source_coverage WHERE source='edinet_metrics'"
+            ).fetchall()
+            == []
+        )
+
+    if lookback == 1:
+        day = DAY - timedelta(days=1)
+        owner.publish(
+            [
+                NativeListReceipt.from_response(
+                    day,
+                    EdinetResponse(
+                        AT + timedelta(days=1),
+                        json.dumps(
+                            {
+                                "metadata": {"resultset": {"count": 0}},
+                                "results": [],
+                            }
+                        ).encode(),
+                    ),
+                )
+            ]
+        )
+        assert (
+            refresh.refresh_edinet_metrics_command(
+                asof_date=DAY,
+                lookback_days=lookback,
+                reader=EDINETReader(database),
+                acquisition=acquisition,
+                sqlite_path=database,
+                stdout=io.StringIO(),
+            )
+            == 0
+        )
+        assert calls == [("S100NATIVE", 5)]
+        assert acquisition.retained_archives().metadata("S100NATIVE", 5) == original
+        assert set(EDINETReader(database).load_metric_records(DAY)) == {"7203"}
+
+
+def test_missing_list_preserves_good_metrics_while_retaining_another_known_original(
+    tmp_path, monkeypatch
+):
+    _store, owner = native_input(tmp_path, monkeypatch, 0)
+    database = tmp_path / "market.sqlite"
+    calls = []
+    zip_content = _edinet_csv_zip()
+
+    def fetch(doc_id, kind):
+        calls.append((doc_id, kind))
+        return EdinetResponse(AT, zip_content)
+
+    acquisition = EDINETRefresh("synthetic", sqlite_path=database)
+    acquisition._http = SimpleNamespace(fetch_archive=fetch)
+
+    def refresh_window(lookback):
+        return refresh.refresh_edinet_metrics_command(
+            asof_date=DAY,
+            lookback_days=lookback,
+            reader=EDINETReader(database),
+            acquisition=acquisition,
+            sqlite_path=database,
+            stdout=io.StringIO(),
+        )
+
+    def l2_rows():
+        with closing(open_connection(database)) as connection:
+            return (
+                [tuple(row) for row in connection.execute("SELECT * FROM edinet_metrics")],
+                [
+                    tuple(row)
+                    for row in connection.execute(
+                        "SELECT * FROM source_coverage WHERE source='edinet_metrics'"
+                    )
+                ],
+            )
+
+    assert refresh_window(0) == 0
+    baseline = l2_rows()
+    assert baseline[0]
+    documents = [
+        {
+            **_edinet_document(ticker=ticker, doc_id=doc_id),
+            "seqNumber": index,
+            "submitDateTime": DAY.isoformat() + " 12:00",
+        }
+        for index, (ticker, doc_id) in enumerate(
+            [("72030", "S100NATIVE"), ("83060", "S100NEXT")], 1
+        )
+    ]
+    owner.publish(
+        [
+            NativeListReceipt.from_response(
+                DAY,
+                EdinetResponse(
+                    AT + timedelta(minutes=1),
+                    json.dumps(
+                        {"metadata": {"resultset": {"count": 2}}, "results": documents}
+                    ).encode(),
+                ),
+            )
+        ]
+    )
+    assert refresh_window(1) == 1
+    assert calls == [("S100NATIVE", 5), ("S100NEXT", 5)]
+    assert acquisition.retained_archives().read_csv_zip("S100NEXT") == zip_content
+    assert l2_rows() == baseline

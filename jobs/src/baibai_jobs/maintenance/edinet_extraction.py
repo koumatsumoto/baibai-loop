@@ -20,7 +20,6 @@ from baibai_engine.data_collection.providers.edinet.models import (
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_observed_documents,
-    read_stored_documents,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
     extract_edinet_facts_command,
@@ -79,6 +78,7 @@ def refresh_edinet_metrics_command(
         )
         for doc_id in candidates:
             acquisition.download_csv_zip(doc_id)
+        _require_metric_document_window(sqlite_path, asof=asof_date, lookback_days=lookback_days)
     except (
         EdinetAcquisitionError,
         EDINETProviderError,
@@ -176,7 +176,7 @@ def refresh_edinet_facts_command(
 def metric_archive_candidates(
     database: Path, *, asof: date, lookback_days: int = 540
 ) -> tuple[list[str], int]:
-    """Plan CSV originals from complete saved lists, never extracted metrics.
+    """Plan known CSV originals from saved lists, never extracted metrics.
 
     The requested origin window and native event selection stay fixed.
     Older origins resolve edits/withdrawals but cannot become new candidates.
@@ -184,11 +184,16 @@ def metric_archive_candidates(
     start = asof - timedelta(days=lookback_days)
     with closing(connect_read_only(database)) as connection:
         connection.execute("BEGIN")
-        day = start
+        documents = read_observed_documents(connection, through=asof)
+    return select_metric_archives(documents, origin_start=start)
+
+
+def _require_metric_document_window(database: Path, *, asof: date, lookback_days: int) -> None:
+    """Incomplete lists defer L2 without preventing receipt of known originals."""
+    with closing(connect_read_only(database)) as connection:
+        connection.execute("BEGIN")
+        day = asof - timedelta(days=lookback_days)
         while day <= asof:
             if not date_covered(connection, "edinet_documents", day):
                 raise EDINETProviderError("stored EDINET document list is unavailable")
             day += timedelta(days=1)
-        documents = read_stored_documents(connection, through=asof, start=start)
-        documents.extend(read_observed_documents(connection, through=start - timedelta(days=1)))
-    return select_metric_archives(documents, origin_start=start)
