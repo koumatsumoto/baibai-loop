@@ -29,6 +29,9 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     PeriodState,
     Value,
 )
+from baibai_engine.machine_analysis.models.market_context.security import (
+    calculate_security_market_context,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -223,6 +226,52 @@ def test_old_model_does_not_gain_a_turnover_window_or_change_selection_hash():
     assert sha256(canonical_json(saved).encode()).hexdigest() == (
         "31dfe3c282d5aced68d54872768986538e0d4a3b358213529e9297c82c78adeb"
     )
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_relative_window_reaches_l3_without_inventing_legacy_dates(legacy):
+    data = payloads()
+    baseline = project(data)
+    end = metadata().as_of
+    start = end - timedelta(days=180)
+    bars = [PriceBar(start, 100.0, None)] + [
+        PriceBar(end - timedelta(days=19 - index), 120.0, None) for index in range(20)
+    ]
+    market = calculate_security_market_context(
+        ticker="1234",
+        bars=bars,
+        master=None,
+        benchmark_ticker="1321",
+        benchmark_prices={start: 100.0, end: 110.0},
+        peer_prices=(),
+        self_range_window_bars=750,
+    )
+    relative = market["relative"]
+    if legacy:
+        relative.pop("window_basis", None)
+        relative.pop("comparison_windows", None)
+    data["market_context"]["relative"] = relative
+    original = deepcopy(data)
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
+    before = canonical_json(saved)
+    assert saved["cards"][0]["context"]["market_relative"] == relative
+    brief = economic_screening_brief(saved)["cards"][0]["context"]["market_relative"]
+    assert brief["relative_20d"] == pytest.approx(0.1)
+    if legacy:
+        assert "window_basis" not in brief
+        assert "comparison_windows" not in brief
+    else:
+        assert brief["window_basis"] == "observed_security_bar_differences"
+        assert brief["comparison_windows"]["relative_20d"] == {
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+        }
+        brief["comparison_windows"]["relative_20d"]["start_date"] = "display-only-change"
+    assert canonical_json(saved) == before
+    assert data == original
 
 
 @pytest.mark.parametrize("basis", ["actual_reported", "forecast_annual", None])

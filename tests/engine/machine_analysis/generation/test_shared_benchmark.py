@@ -63,7 +63,7 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
     result = generate(path)
     shared = result.result("market_context", "market")
     benchmark = shared.payload["benchmark_trend"]
-    assert shared.calculation_revision == "shared-market-context-v10-turnover-window"
+    assert shared.calculation_revision == "shared-market-context-v11-relative-windows"
     if not benchmark_count:
         assert benchmark is None
     else:

@@ -85,6 +85,8 @@ Company Research factsは年次/訂正と比較年度の任意入力。外部/�
 
 不正な価格は依存する比較端点・窓を欠測にし、古い価格日へ繰り上げない。他社や独立した端点比較まで一律に消さない。
 
+個社の`relative_1d/5d/20d/60d`は実在価格bar間の差で、共通営業日数ではない。欠測・停止を挟むと長期間になり得るため、L3初回比較でも`comparison_windows`の両端日を併読する。benchmarkの端点欠測と個社の窓不足を分け、日付のない旧結果へ現在の窓を補わない。
+
 <a id="technical-analysis"></a>
 [TA](../../engine/src/baibai_engine/machine_analysis/models/technical_analysis/)は配当なしの調整終値を使う。bar本数は窓・鮮度・流動性・取引可能性を保証せず、慣例期間の最適性、BBの95%包含/反転確率、RSIのbuy/sellを仮定しない。RSIの履歴依存やflat中立値は計算規約である。
 

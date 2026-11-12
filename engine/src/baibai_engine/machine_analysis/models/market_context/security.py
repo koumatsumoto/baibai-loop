@@ -160,15 +160,23 @@ def _relative_block(
         return None
     prices = [bar.price for bar in bars]
     versus_benchmark = {}
+    comparison_windows = {}
     for window in _RETURN_WINDOWS_BARS:
+        endpoints = _window_endpoints(bars, window)
         own = trailing_return(prices, window)
-        bench = _endpoint_return(benchmark_prices, _window_endpoints(bars, window))
-        versus_benchmark[f"relative_{window}d"] = (
-            own - bench if own is not None and bench is not None else None
+        bench = _endpoint_return(benchmark_prices, endpoints)
+        name = f"relative_{window}d"
+        versus_benchmark[name] = own - bench if own is not None and bench is not None else None
+        comparison_windows[name] = (
+            None
+            if endpoints is None
+            else {"start_date": endpoints[0].isoformat(), "end_date": endpoints[1].isoformat()}
         )
     return {
         "benchmark_ticker": benchmark_ticker,
         **versus_benchmark,
+        "window_basis": "observed_security_bar_differences",
+        "comparison_windows": comparison_windows,
         "sector": _sector_block(bars=bars, sector=sector, master=master, peer_prices=peer_prices)
         if sector
         else None,
