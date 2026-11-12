@@ -154,6 +154,8 @@ def test_explicit_tickers_are_finite_normalized_and_can_read_full_original_secti
                 "--ticker",
                 "9999",
                 "--ticker",
+                "0000",
+                "--ticker",
                 " 1234 ",
                 "--ticker",
                 "1234",
@@ -163,7 +165,10 @@ def test_explicit_tickers_are_finite_normalized_and_can_read_full_original_secti
         )
         == 0
     )
-    first, absent = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    before, first, absent = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert before["subject"] == "0000"
+    assert before["sections"] == {}
+    assert before["missing_models"] == list(_MODEL_IDS)
     assert first["subject"] == "1234"
     assert (
         first["sections"]["technical_analysis.price_path"]
@@ -195,19 +200,37 @@ def test_read_failure_is_not_an_empty_success_and_never_creates_missing_store(tm
     assert capsys.readouterr().out == ""
     with sqlite3.connect(path) as connection:
         connection.execute(
-            "UPDATE generated_model SET payload_gzip=? WHERE subject='1234'", (b"not-gzip",)
+            "INSERT INTO generated_model VALUES (?,?,?,?,?)",
+            ("synthetic-generation", "technical_analysis", "5678", "v1", b"not-gzip"),
         )
     assert main(_args(path, "--all-stocks", "--section", "market_context.price")) == 1
-    assert "technical analysis read failed" in capsys.readouterr().err
+    output = capsys.readouterr()
+    assert "technical analysis read failed" in output.err
+    assert [json.loads(line)["subject"] for line in output.out.splitlines()] == ["1234"]
+    assert main(_args(path, "--ticker", "1234", "--section", "market_context.price")) == 0
 
 
 @pytest.mark.parametrize(
-    "section",
-    ["company_growth.periods", "price", "technical_analysis.", "market_context.price.close"],
+    "flags",
+    [
+        ("--all-stocks", "--section", section)
+        for section in (
+            "company_growth.periods",
+            "price",
+            "technical_analysis.",
+            "market_context.price.close",
+        )
+    ]
+    + [
+        ("--section", "market_context.price"),
+        ("--all-stocks",),
+        ("--all-stocks", "--ticker", "1234", "--section", "market_context.price"),
+        ("--all-stocks", "--section", "market_context.price", "--asof", "2026-10-23"),
+    ],
 )
-def test_section_is_only_an_existing_model_and_top_level_name(tmp_path, section):
+def test_saved_command_rejects_scope_and_section_misuse(tmp_path, flags):
     with pytest.raises(SystemExit) as result:
-        main(_args(tmp_path / "unused.sqlite", "--all-stocks", "--section", section))
+        main(_args(tmp_path / "unused.sqlite", *flags))
     assert result.value.code == 2
 
 
