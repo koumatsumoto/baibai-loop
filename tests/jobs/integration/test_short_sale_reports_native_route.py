@@ -1,13 +1,11 @@
 """Ordinary short-report routing stays independent of L2 and exact on old stages."""
 
-import gzip
-import json
 import sqlite3
 from contextlib import closing
 from dataclasses import replace
 
 import pytest
-from tests.helpers.jquants_receipts import body
+from tests.helpers.jquants_receipts import body, receive_page
 from tests.helpers.margin_alerts_native import attempt as alert_attempt
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.short_sale_reports_native import AT, DAY, attempt, records
@@ -19,21 +17,6 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, import_handoff
-
-
-def receive_page(connection, page, *, request_id, page_index):
-    connection.execute(
-        "INSERT INTO jquants_source_pages VALUES (?,?,?,?,?,?,?)",
-        (
-            request_id,
-            page_index,
-            page.source,
-            json.dumps(dict(page.query)),
-            page.received_at.isoformat(),
-            page.received_at.date().isoformat(),
-            gzip.compress(page.body, mtime=0),
-        ),
-    )
 
 
 @pytest.mark.parametrize("partial", [False, True])
