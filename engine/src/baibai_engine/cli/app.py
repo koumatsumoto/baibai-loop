@@ -59,7 +59,7 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "technical-analysis": Domain(
         module="baibai_engine.cli.technical_analysis",
-        summary="read-only SMA, BB, Wilder RSI and common-calendar momentum from saved prices",
+        summary="read-only price analysis and selected TA/Market sections from a fixed generation",
     ),
     "operation": Domain(
         module="baibai_engine.cli.operation",
