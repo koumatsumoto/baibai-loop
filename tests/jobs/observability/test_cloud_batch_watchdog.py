@@ -603,7 +603,7 @@ def test_a_recovery_dispatch_for_an_earlier_day_is_not_in_flight_cover_either(
         ("--economic", "economic all all", 7, 43),
         ("--market", "market-acquisition inputs", 7, 43),
         ("--market", "market-acquisition edinet-metrics", 8, 43),
-        ("--market", "market-acquisition edinet-facts", 9, 13),
+        ("--market", "market-acquisition financial-edinet-facts", 9, 13),
     ],
 )
 def test_scheduled_reruns_cover_only_the_original_day(
@@ -628,7 +628,7 @@ def test_scheduled_reruns_cover_only_the_original_day(
                 created_at=ACQUISITION_CHECK - timedelta(hours=1),
                 display_title="market-acquisition " + scope,
             )
-            for index, scope in enumerate(("inputs", "edinet-metrics", "edinet-facts"), 2)
+            for index, scope in enumerate(("inputs", "edinet-metrics", "financial-edinet-facts"), 2)
             if title != "market-acquisition " + scope
         )
     code, transport = _run_main(
@@ -769,6 +769,13 @@ def test_the_batch_run_name_is_the_one_the_watchdog_parses() -> None:
 
     assert run_name.startswith("daily ")
     assert "inputs.asof" in run_name
+
+
+def test_financial_evening_scope_matches_the_workflow_run_name() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/cloud-market-sources.yml").read_text(encoding="utf-8")
+    )
+    assert "'13 9 * * *' && 'financial-edinet-facts'" in workflow["run-name"]
 
 
 def test_daily_queue_age_reference_matches_the_existing_job_budget():
@@ -1118,7 +1125,7 @@ def test_market_watchdog_does_not_let_later_edinet_slots_mask_a_missing_market_i
             created_at=ACQUISITION_CHECK - timedelta(hours=1),
             display_title="market-acquisition " + scope,
         )
-        for index, scope in enumerate(("edinet-metrics", "edinet-facts"), 1)
+        for index, scope in enumerate(("edinet-metrics", "financial-edinet-facts"), 1)
     ]
     code, transport = _run_main(
         tmp_path, monkeypatch, _listing(*rows), argv=["--market", "--check-date", "2026-08-03"]

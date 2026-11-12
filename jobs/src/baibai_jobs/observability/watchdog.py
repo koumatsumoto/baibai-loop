@@ -63,7 +63,7 @@ RESULT_STEP_PREFIX = "Notify Discord #batch-runs for "
 MARKET_SCOPE_SCHEDULES = {
     "inputs": "43 7 * * *",
     "edinet-metrics": "43 8 * * *",
-    "edinet-facts": "13 9 * * *",
+    "financial-edinet-facts": "13 9 * * *",
 }
 
 
