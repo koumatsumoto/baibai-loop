@@ -19,6 +19,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.screening.policies import economic_path_inputs
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
     evaluate_economic_coordinates,
@@ -278,6 +279,35 @@ def test_latest_fy_missing_parent_profit_does_not_use_eps_or_older_profit():
     assert active(row, "capital_productivity") is None
     assert active(row, "business_expansion").variant == "full_fy"
     assert row.context["annual_observation"]["full_fy_period_end"] == "2025-03-31"
+
+
+def test_bounded_fy_read_keeps_every_matching_prior_source_for_the_cutoff(monkeypatch):
+    def update(payload):
+        prior = deepcopy(payload["periods"][1])
+        prior["fiscal_year_end"] = "2024-06-30"
+        for item in prior["observations"]:
+            if item["measurement"] == "annual_ttm":
+                item["metrics"]["sales"]["documents"][0]["disclosed_at"] = "2025-09-01"
+        payload["periods"].insert(2, prior)
+
+    fixed = with_growth(generation([document(2020, "FY", 500.0, 50.0, 40.0), *documents()]), update)
+    payload = fixed.result("company_growth", "1001").payload
+    before = canonical_json(payload)
+    bounded = economic_path_inputs._growth_policy_inputs(payload)
+    assert [item["period_end"] for item in bounded["periods"]] == [
+        "2024-03-31",
+        "2024-03-31",
+        "2025-03-31",
+        "2025-06-30",
+    ]
+    row = project(fixed)
+    assert row.context["latest_growth_changes"]["sales"]["selected_comparison"]["reason"] == (
+        "comparison_sources_not_observed_by_as_of"
+    )
+    assert active(row, "earning_power") is not None
+    monkeypatch.setattr(economic_path_inputs, "_growth_policy_inputs", lambda payload: payload)
+    assert project(fixed) == row
+    assert canonical_json(payload) == before
 
 
 def test_changed_calendar_does_not_reuse_a_prior_fy_as_current_annual_basis():

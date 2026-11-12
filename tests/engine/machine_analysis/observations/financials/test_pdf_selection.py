@@ -26,7 +26,10 @@ from baibai_engine.machine_analysis.observations.financials.pdf_selection import
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pages
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import _change
+from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
+    _change,
+    _growth_policy_inputs,
+)
 
 
 def document(annual=False):
@@ -283,7 +286,8 @@ def test_later_ifrs_annual_operand_is_not_promoted_through_shared_model_generati
     assert metric_value(quarter, "parent_profit") == 924_000_000
 
 
-def test_models_share_selected_ttm_and_restated_quarter_comparison():
+@pytest.mark.parametrize("bounded_read", [False, True])
+def test_models_share_selected_ttm_and_restated_quarter_comparison(bounded_read):
     financial, growth, _ = models()
     result = financial.payload
     selection = result["financial"]["pdf_selection"]
@@ -297,7 +301,9 @@ def test_models_share_selected_ttm_and_restated_quarter_comparison():
     assert result["financial"]["ttm_quality_per_trailing"] == "approximated"
     assert result["financial"]["sales_ttm"] == 353_037_000_000
     assert result["financial"]["operating_profit_ttm"] == 11_386_000_000
-    reader = CompanyGrowthReader(growth.payload)
+    reader = CompanyGrowthReader(
+        _growth_policy_inputs(growth.payload) if bounded_read else growth.payload
+    )
     annual = reader.observation(reader.latest_period, "annual_ttm")
     assert metric_value(annual, "parent_profit", disclosed_by=ASOF) == 3_027_000_000
     quarter = reader.observation(reader.latest_period, "quarter")
