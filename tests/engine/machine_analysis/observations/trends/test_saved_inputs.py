@@ -98,6 +98,7 @@ def test_normal_projection_extracts_and_reuses_unchanged_representation_without_
     inputs = read(path)
     path.unlink()  # calculation consumes only fixed values, after the reader is closed
     result = calculate_industry_trends(inputs.industries[0])
+    assert result["extraction_states"][0]["content_scope"] == observation.content_scope
     descriptor = result["observations"][0]["exact_evidence"]
     reference = ArticleEvidenceRef.model_validate(descriptor)
     assert reference.receipt_id == "first"
@@ -109,13 +110,24 @@ def test_normal_projection_extracts_and_reuses_unchanged_representation_without_
     assert descriptor["artifact_month"] == "2026-10"
 
 
-def test_new_text_without_extraction_is_pending_and_not_an_empty_world(tmp_path):
+@pytest.mark.parametrize("kind", ["index", "document"])
+def test_new_text_without_extraction_keeps_input_scope_and_is_not_an_empty_world(tmp_path, kind):
     path = tmp_path / "market.sqlite"
     with closing(open_connection(path)) as conn, conn:
-        _, observation = retain(conn)
+        if kind == "index":
+            observation = retain_index(conn, "index", received_at=NOW, extract=False)
+        else:
+            _, observation = retain(conn)
     inputs = read(path)
     assert inputs.industries[0].inputs.coverage.state == "extraction_pending"
-    assert observation.observation_id in inputs.industries[0].inputs.coverage.reasons[0]
+    scope = "summary" if kind == "index" else "partial_text"
+    assert observation.content_scope == scope
+    result = calculate_industry_trends(inputs.industries[0])
+    assert result["coverage"]["reasons"] == [
+        f"extraction_pending:{scope}:{observation.observation_id}"
+    ]
+    assert result["observations"] == []
+    assert result["extraction_states"] == []
     assert inputs.industries[0].inputs.artifacts == ()
     assert len(inputs.industries) == 2
 
@@ -170,6 +182,7 @@ def test_new_text_revision_failed_extraction_does_not_promote_old_claims(tmp_pat
     result = calculate_industry_trends(inputs.industries[0])
     assert result["observations"] == []
     assert new.status == "unsupported"
+    assert result["extraction_states"][0]["content_scope"] == changed.content_scope
     assert result["extraction_states"][0]["last_known"] is not None
 
 
@@ -210,7 +223,7 @@ def test_newer_failed_document_projection_keeps_only_exact_last_known(tmp_path):
     assert f"last_known_artifact:{old_artifact.artifact_id}" in inputs.coverage.reasons
 
 
-def retain_index(conn, receipt_id, *, received_at, summary="同じ概要"):
+def retain_index(conn, receipt_id, *, received_at, summary="同じ概要", extract=True):
     import json
 
     item = {
@@ -233,8 +246,20 @@ def retain_index(conn, receipt_id, *, received_at, summary="同じ概要"):
     retain_receipt(conn, receipt, body=body)
     run, (observation,) = project_receipt(conn, receipt_id, kind="index", generated_at=received_at)
     assert run.status == "parsed"
-    extract_observations(conn, (observation.observation_id,), generated_at=received_at)
+    if extract:
+        extract_observations(conn, (observation.observation_id,), generated_at=received_at)
     return observation
+
+
+def test_summary_only_extraction_is_not_reported_as_document_text(tmp_path):
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as conn, conn:
+        retain_index(conn, "index", received_at=NOW)
+    result = calculate_industry_trends(read(path).industries[0])
+    (state,) = result["extraction_states"]
+    assert state["status"] == "unsupported"
+    assert state["content_scope"] == "summary"
+    assert result["observations"] == []
 
 
 def test_unchanged_index_after_document_keeps_fixed_document_claims(tmp_path):

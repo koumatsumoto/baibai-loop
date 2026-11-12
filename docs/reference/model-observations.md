@@ -131,7 +131,7 @@ IVの満期/30日補間は[計算owner](../../engine/src/baibai_engine/machine_a
 TradingViewの受領JST日/master日を公表日、部分公開を市場代表としない。metric別の通貨・FY/next FY・人数を一括流用せず、実受領cutoff/次取引機会を守る。参考closeは株価の第二正本でない。
 
 <a id="public-articles"></a>
-索引/本文受領/投影/主張抽出を分け、見出し/概要/全文/部分の範囲を保つ。BBC World/Business・Fed/ECBの通常取得はRSS見出し/概要までで、本文実読とせず、発言を政策決定としない。取得範囲と[exact回復](../../jobs/OPERATIONS.md#article-acquisition)は運用、判断接続の受入は[#1705](https://github.com/koumatsumoto/baibai-loop/issues/1705)へ。金利CSVを独立測定、XLSXセル投影を図表/書式/計算結果の復元にしない。
+索引/本文受領/投影/主張抽出を分け、見出し/概要/全文/部分の範囲を保つ。抽出待ちの理由・抽出状態にも選択入力の本文範囲を残し、概要の再抽出だけで本文不足が解決するとはしない。BBC World/Business・Fed/ECBの通常取得はRSS見出し/概要までで、本文実読とせず、発言を政策決定としない。取得範囲と[exact回復](../../jobs/OPERATIONS.md#article-acquisition)は運用、判断接続の受入は[#1705](https://github.com/koumatsumoto/baibai-loop/issues/1705)へ。金利CSVを独立測定、XLSXセル投影を図表/書式/計算結果の復元にしない。
 
 <a id="judgment-use"></a>
 ## 判断への受渡し

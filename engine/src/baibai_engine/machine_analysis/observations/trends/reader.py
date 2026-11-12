@@ -40,7 +40,7 @@ def _choose(
 ) -> tuple[ExtractionArtifact | None, str | None]:
     candidates = matching_artifacts(conn, observation, cutoff=cutoff)
     if not candidates:
-        return None, "extraction_pending"
+        return None, f"extraction_pending:{observation.content_scope}"
     # Ignore generation clocks when comparing semantic results. Different results
     # under the same method remain unresolved; receive order cannot adjudicate.
     meanings = {
