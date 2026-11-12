@@ -97,6 +97,7 @@ def _wire_refresh(
     monkeypatch.setattr(list_native, "EdinetListL1", Mock())
     monkeypatch.setattr(list_copy, "materialize_lists", Mock(return_value={}))
     monkeypatch.setattr(refresh, "metric_archive_candidates", Mock(return_value=(source_ids, None)))
+    monkeypatch.setattr(refresh, "_require_metric_document_window", Mock())
 
     def prepare(**kwargs):
         assert kwargs["reader"] is sql_reader

@@ -559,7 +559,7 @@ uv run baibai-jobs edinet-archives-native acquire --bucket <ISOLATED_BUCKET> --d
 uv run baibai-jobs edinet-archives-native freeze --bucket <ISOLATED_BUCKET> --directory <READ_DIR>
 ```
 
-手動source=allは一覧/stage成功後にarchiveへ進む。一覧失敗時はall内archiveを止め、有効一覧を確認できる場合だけ同asofのarchiveを再実行する。metricsは取得窓の一覧に未受領日があっても、固定一覧で判明した許可CSVを先に保持する。未受領日はlist_unavailable_days、失敗受領日はlist_failed_daysへ残し、取得全体は失敗のままにする。L2の完全window条件を緩めず、一覧回復後は保存済みZIPを再利用する。保持docID/typeを再GETせず、L2成否/revisionを取得条件にしない。holder/訂正の未保存分は既存batchを使う。CSV/XBRLともHTTP 401/403と、HTTP 200本文のStatusCode 401で当該passを止め、保存済みの部分原本を保ち、次の通常取得は未保存docID/typeだけを進める。
+手動source=allは一覧/stage成功後にarchiveへ進む。一覧失敗時はall内archiveを止め、有効一覧を確認できる場合だけ同asofのarchiveを再実行する。metricsは取得窓の一覧に未受領日があっても、固定一覧で判明した許可CSVを先に保持する。未受領日はlist_unavailable_days、失敗受領日はlist_failed_daysへ残し、取得全体は失敗のままにする。明示refresh-edinet-metricsも既知CSVを先に保存し、取得後の一覧window不足では既存metrics/coverageを変えず失敗終了する。L2の完全window条件を緩めず、一覧回復後は保存済みZIPを再利用する。保持docID/typeを再GETせず、L2成否/revisionを取得条件にしない。holder/訂正の未保存分は既存batchを使う。CSV/XBRLともHTTP 401/403と、HTTP 200本文のStatusCode 401で当該passを止め、保存済みの部分原本を保ち、次の通常取得は未保存docID/typeだけを進める。
 
 一覧/archive未到着はdeferred_inputsで適格保存値を使い、到着後に再抽出する。解析失敗/原本破損を延期で隠さず、不正dayは正常投影を保ちながらsource-check失敗を残す。延期だけの継続とpartial/日別成功を分ける。誤orphanは現年度CSVを確保して次統合で回復し、全期間GETを代行しない。
 
