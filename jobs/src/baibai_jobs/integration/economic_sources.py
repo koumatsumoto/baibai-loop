@@ -210,8 +210,10 @@ def integrate(
             raise LakeCASConflict("economic canonical changed before publication")
 
     before_canonical_put()
-    readback = work / "readback.sqlite"
+    # The unchanged base was already read and validated under this same ETag.
+    published, readback = original, base
     if digest != base_digest:
+        readback = work / "readback.sqlite"
         backup = store.head(KEY + ".bak")
         _put_readback(
             store,
@@ -229,10 +231,6 @@ def integrate(
             expected=original.etag,
             before_put=before_canonical_put,
         )
-    else:
-        published = _read(store, readback)
-        if sha256_file(readback) != digest:
-            raise LakeCASConflict("economic canonical changed before readback")
     generations = {"economic_etag": published.etag}
     report.update(l1_published=True, canonical_generations=generations)
     write_json_atomic(directory / "applied.json", report)

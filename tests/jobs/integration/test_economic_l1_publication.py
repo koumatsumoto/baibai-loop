@@ -12,7 +12,7 @@ from baibai_engine.data_collection.receipts.native_sources.confirmations import 
 )
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_engine.storage.objects.r2 import LakePublishError, R2Error
+from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs
 from baibai_jobs.acquisition.source_inputs import load_input
@@ -203,9 +203,66 @@ def test_backup_is_exact_fresh_base_and_no_stage_does_not_republish(tmp_path, se
     run(tmp_path, setup)
     assert store.get_bytes("indicators.sqlite.bak") == old
     before = len([key for key in store.put_keys if key == "indicators.sqlite"])
-    run(tmp_path, setup, "no-new-stage")
+    downloads = store.get_keys.count("indicators.sqlite")
+    original = store.head("indicators.sqlite")
+    result = run(tmp_path, setup, "no-new-stage")
     assert len([key for key in store.put_keys if key == "indicators.sqlite"]) == before
+    assert store.get_keys.count("indicators.sqlite") - downloads == 1
+    assert store.head("indicators.sqlite") == original
+    assert result["canonical_generations"] == {"economic_etag": original.etag}
+    assert result["inputs_updated"] == ["economic-" + group for group in acquisition_groups()]
     assert store.get_bytes("indicators.sqlite.bak") == old
+
+
+@pytest.mark.parametrize("guard", [3, 4], ids=["before-publication", "before-source-state"])
+@pytest.mark.parametrize("missing", [False, True], ids=["changed", "missing"])
+def test_unchanged_canonical_still_checks_remote_generation(
+    tmp_path, setup, monkeypatch, guard, missing
+):
+    store, _, _ = setup
+    replacement = tmp_path / "replacement.sqlite"
+    with closing(initialize_database(replacement)) as conn, conn:
+        confirm_source_response(
+            conn, source_id=SOURCE, fetched_at=AT, records_by_day={DAY: [{"value": "B"}]}
+        )
+    real = store.head
+    put_keys = list(store.put_keys)
+    reads = 0
+
+    def head(key):
+        nonlocal reads
+        if key == "indicators.sqlite":
+            reads += 1
+            if reads == guard:
+                if missing:
+                    del store.values[key]
+                else:
+                    store.store_object(key, replacement.read_bytes())
+        return real(key)
+
+    monkeypatch.setattr(store, "head", head)
+    with pytest.raises(LakeCASConflict, match="economic canonical changed before"):
+        run(tmp_path, setup)
+    assert store.get_keys.count("indicators.sqlite") == 1
+    assert store.put_keys == put_keys
+    assert not (tmp_path / "run.sqlite").exists()
+
+
+def test_unchanged_canonical_does_not_reuse_read_after_lease_expiry(tmp_path, setup, monkeypatch):
+    store, _, handle = setup
+    real = store.download_file
+
+    def download(key, *args, **kwargs):
+        result = real(key, *args, **kwargs)
+        if key == "indicators.sqlite":
+            release(store, handle)
+        return result
+
+    monkeypatch.setattr(store, "download_file", download)
+    with pytest.raises(RuntimeError):
+        run(tmp_path, setup)
+    assert not any(key.startswith("coordination/source-inputs/") for key in store.put_keys)
+    assert not (tmp_path / "run.sqlite").exists()
 
 
 def test_backup_failure_does_not_replace_canonical_or_seal(tmp_path, setup, monkeypatch):
