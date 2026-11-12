@@ -50,6 +50,8 @@ EDINETは同じmarket sealに適格な任意入力で、未取得でも全社生
 
 PBRの`book_equity`は実際に選んだ分母・算式・元開示を示す。自己資本比率経路と、as-of株式basisへ換算したBPS×現在株数経路を区別し、別sourceのEDINET連結scopeや最新開示日を簿価へ付け替えない。出典があっても現在の普通株持分・平均資本ROE・換金価値を保証せず、旧世代に出典を補作しない。
 
+EDINETの金融残高は、簿価や予想と別の出典・連結範囲で読む。現預金と現金同等物の選択科目は旧metricで保持されず、年度metadataはBS実測日ではない。金利負債は抽出科目の合計で、注記だけにある内訳の網羅を保証しない。net cashや投資有価証券だけでは全負債・非支配持分・必要資金の控除や換金可能性を確認できず、普通株へ配れる額にしない。持分法投資と持分利益、金融資産とその運用益の重複は[資本bridge](stock-assessment.md#capital-bridge)で判断する。
+
 期末株数と遡及分割EPS/BPSの混在は[資本補正](../../engine/src/baibai_engine/machine_analysis/models/company_financials/metrics/capital.py)の裏付けで扱い、数値一致だけで誤転記にしない。連続する分割の一部だけが反映済みの場合も、各per-share値と独立総額で既知の株式basisを照合し、複数basisが成立するfieldは未解決にする。JPX PDFの転換も完了と普通株basisを確認し、新発行済数と旧自己株を混ぜない。
 
 大量保有報告は第三者申告で、発行会社確認/変更日確定ではなく、時価総額/順位を自動補正しない。受領UTC日だけなら翌日以降、評価前の固定snapshotがある場合だけ同日その固定時刻まで利用できる。通常生成は同じ固定EDINET pairのnative在庫/selected receipt、旧SQL/body-only readerはSQLの在庫/受領日を使う。latest確認や精密時計でcoarse dayの採否を広げない。

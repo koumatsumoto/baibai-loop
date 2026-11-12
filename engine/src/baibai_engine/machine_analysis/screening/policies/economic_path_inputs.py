@@ -391,6 +391,7 @@ def project_company(
                 "earnings_forecast_source",
                 "forecast_full_year_loss_flag",
                 "book_equity",
+                "edinet_reported_balances",
                 "cash",
                 "debt",
                 "fcf_ttm",
@@ -416,7 +417,7 @@ def project_company(
                 "net_share_change_yoy",
                 "tradable_share_change_yoy",
             )
-            if key != "book_equity" or key in financial
+            if key not in {"book_equity", "edinet_reported_balances"} or key in financial
         },
         "price_momentum": technical.get("price_momentum"),
         "rsi_14bar": technical.get("rsi_14bar"),

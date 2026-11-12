@@ -1,4 +1,4 @@
-"""現行モデルの報告フロー契約。保存済み世代や物理列の名称は変更しない。"""
+"""現行モデルの報告残高・フロー契約。保存済み世代や物理列は変更しない。"""
 
 from __future__ import annotations
 
@@ -17,11 +17,40 @@ def financial_observation_payload(
     """報告値を残し、12か月が成立しない額を年間倍率の分母・分子にしない。"""
     result: dict[str, object] = asdict(snapshot)
     result["edinet_reported_flows"] = _reported_flows(edinet)
+    result["edinet_reported_balances"] = _reported_balances(snapshot, edinet)
     if snapshot.ttm_quality_fcf_yield != TTMQuality.EXACT:
         result["fcf_yield"] = None
     if snapshot.ttm_quality_ev_ebitda != TTMQuality.EXACT:
         result["ev_ebitda"] = None
     return result
+
+
+def _reported_balances(
+    snapshot: FinancialSnapshot, record: EdinetMetricRecord | None
+) -> dict[str, object] | None:
+    if record is None:
+        return None
+    return {
+        "amount_unit": "JPY",
+        "amounts": {
+            "cash": snapshot.cash,
+            "debt": snapshot.debt,
+            "net_cash": snapshot.net_cash,
+            "investment_securities": snapshot.investment_securities,
+        },
+        "consolidation_basis": record.consolidation_basis,
+        "source_doc_id": record.source_doc_id,
+        "source_submit_datetime": record.source_submit_datetime,
+        "document_type": record.document_type,
+        # 年度metadataやモデル生成日を、未保持のBS実測日へ転用しない。
+        "measurement_date": {"date": None, "reason": "fact_date_not_retained"},
+        "filing_fiscal_period": {
+            "start": record.source_period_start,
+            "end": record.source_period_end,
+        },
+        "failure_reasons": snapshot.edinet_failure_reasons,
+        "interpretation": "reported_financial_balances_not_common_equity_surplus",
+    }
 
 
 def _reported_flows(record: EdinetMetricRecord | None) -> dict[str, object] | None:
