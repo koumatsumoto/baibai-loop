@@ -10,8 +10,10 @@ from tests.helpers.workflow_schedule import declared_schedule
 
 from baibai_jobs.integration.workflow_inputs import WorkflowInputError, validate_watchdog_input
 from baibai_jobs.observability.watchdog import (
+    DAILY_QUEUED_ALERT_AFTER,
     DEFAULT_WINDOW_HOURS,
     RESULT_STEP_PREFIX,
+    STATE_DELAYED,
     STATE_HEALTHY,
     STATE_IN_FLIGHT,
     STATE_MISSING,
@@ -176,6 +178,157 @@ def test_a_queued_run_is_also_treated_as_in_flight() -> None:
     )
 
     assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).alerting is False
+
+
+@pytest.mark.parametrize(
+    ("status", "title", "minutes", "state"),
+    [
+        ("queued", "daily 2026-08-03", 210, STATE_IN_FLIGHT),
+        ("queued", "daily 2026-08-03", 211, STATE_DELAYED),
+        ("in_progress", "daily 2026-08-03", 720, STATE_IN_FLIGHT),
+        ("queued", "cloud-daily-batch", 720, STATE_IN_FLIGHT),
+        ("queued", "daily not-a-date", 720, STATE_IN_FLIGHT),
+        ("queued", "daily 2026-08-02", 211, STATE_MISSING),
+    ],
+)
+def test_daily_queue_age_never_becomes_an_execution_timeout_or_an_inferred_target(
+    status, title, minutes, state
+):
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(minutes=minutes),
+                status=status,
+                conclusion="",
+                event="workflow_dispatch",
+                display_title=title,
+            )
+        )
+    )
+    verdict = evaluate(
+        runs,
+        window_end=FIRED_AT,
+        window_hours=DEFAULT_WINDOW_HOURS,
+        queued_delay_after=DAILY_QUEUED_ALERT_AFTER,
+    )
+    assert verdict.state == state
+    assert verdict.alerting is (state in {STATE_MISSING, STATE_DELAYED})
+
+
+def test_observed_scheduled_default_title_keeps_the_original_cron_day():
+    created = datetime(2026, 11, 11, 20, 37, 29, tzinfo=UTC)
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=created,
+                status="queued",
+                conclusion="",
+                display_title="cloud-daily-batch",
+            )
+        )
+    )
+    assert runs[0].target_date == date(2026, 11, 11)
+    verdict = evaluate(
+        runs,
+        window_end=datetime(2026, 11, 12, 8, 35, tzinfo=UTC),
+        window_hours=DEFAULT_WINDOW_HOURS,
+        queued_delay_after=DAILY_QUEUED_ALERT_AFTER,
+    )
+    assert verdict.state == STATE_DELAYED
+    assert verdict.delayed_runs == runs
+    message = render_alert(verdict, repository="owner/repo", watchdog_run_url="https://run")
+    assert "[DELAYED]" in message
+    assert "[MISSING]" not in message
+    assert "queued age=717min" in message
+    assert "実行停止や遅延原因は未確認" in message
+    # The same old queued run cannot cover the next scheduled target day.
+    assert (
+        evaluate(
+            runs,
+            window_end=datetime(2026, 11, 12, 16, 0, tzinfo=UTC),
+            window_hours=DEFAULT_WINDOW_HOURS,
+            queued_delay_after=DAILY_QUEUED_ALERT_AFTER,
+        ).state
+        == STATE_MISSING
+    )
+
+
+@pytest.mark.parametrize("attempt", [2, 3])
+def test_queued_rerun_does_not_reuse_original_run_age_for_this_attempt(
+    tmp_path, monkeypatch, attempt
+):
+    payload = _listing(
+        _run(
+            created_at=FIRED_AT - timedelta(hours=4),
+            updated_at=FIRED_AT - timedelta(minutes=1),
+            status="queued",
+            conclusion="",
+            event="workflow_dispatch",
+            display_title="daily 2026-08-03",
+            attempt=attempt,
+        )
+    )
+    runs = parse_runs(payload)
+    assert runs[0].target_date == date(2026, 8, 3)
+    verdict = evaluate(
+        runs,
+        window_end=FIRED_AT,
+        window_hours=DEFAULT_WINDOW_HOURS,
+        queued_delay_after=DAILY_QUEUED_ALERT_AFTER,
+    )
+    assert verdict.state == STATE_IN_FLIGHT
+    assert verdict.delayed_runs == ()
+    code, transport = _run_main(tmp_path, monkeypatch, payload, argv=["--check-date", "2026-08-03"])
+    assert code == 0
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_main_uses_the_existing_notice_path_for_only_unanswered_queued_delay(
+    tmp_path, monkeypatch, success
+):
+    rows = [
+        _run(
+            created_at=FIRED_AT - timedelta(minutes=211),
+            status="queued",
+            conclusion="",
+            event="workflow_dispatch",
+            display_title="daily 2026-08-03",
+        )
+    ]
+    if success:
+        rows.append(_run(number=2, created_at=FIRED_AT - timedelta(hours=1)))
+    code, transport = _run_main(
+        tmp_path, monkeypatch, _listing(*rows), argv=["--check-date", "2026-08-03"]
+    )
+    assert code == 0
+    if success:
+        assert transport.calls == []
+    else:
+        assert "[DELAYED]" in _delivered_message(transport)
+
+
+@pytest.mark.parametrize(
+    ("mode", "title"),
+    [("--economic", "economic all all"), ("--market", "market-acquisition all")],
+)
+def test_daily_queue_age_policy_does_not_expand_to_acquisition_workflows(
+    tmp_path, monkeypatch, mode, title
+):
+    payload = _listing(
+        _run(
+            created_at=ACQUISITION_CHECK - timedelta(hours=4),
+            status="queued",
+            conclusion="",
+            display_title=title,
+            event="workflow_dispatch",
+        )
+    )
+    code, transport = _run_main(
+        tmp_path, monkeypatch, payload, argv=[mode, "--check-date", "2026-08-03"]
+    )
+    assert code == 0
+    assert transport.calls == []
 
 
 def _jobs(asof: str) -> dict[str, object]:
@@ -616,6 +769,15 @@ def test_the_batch_run_name_is_the_one_the_watchdog_parses() -> None:
 
     assert run_name.startswith("daily ")
     assert "inputs.asof" in run_name
+
+
+def test_daily_queue_age_reference_matches_the_existing_job_budget():
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+    )
+    assert (
+        timedelta(minutes=workflow["jobs"]["daily"]["timeout-minutes"]) == DAILY_QUEUED_ALERT_AFTER
+    )
 
 
 # --- input handling (fail closed) ------------------------------------------

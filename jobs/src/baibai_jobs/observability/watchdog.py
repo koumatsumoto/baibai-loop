@@ -2,6 +2,7 @@
 
 各jobの通知だけでは起動しなかった実行を検出できないため、gh APIの履歴を読む。
 確認範囲に対象日の成功も進行中runもなければ同じ#batch-runsへ通知する。
+dailyの既知対象日で長時間queuedのままなら、起動欠落とは別に待機遅延を通知する。
 成功と進行中は区別し、遅延・欠落の原因や通知配送の成功を推定しない。
 取得・再実行・公開は行わず、healthy/in_flight時は重複した正常通知を送らない。
 
@@ -52,6 +53,9 @@ ACQUISITION_WATCHDOG_FIRE_TIME = time(12, 0, tzinfo=UTC)
 # Bound the run-history window; a matching reported target date, not recency
 # alone, decides whether a successful run answers the scheduled day.
 DEFAULT_WINDOW_HOURS = 20
+# Queue age, not execution time: a long wait can precede a healthy full-length job.
+# Use the daily job's existing 210-minute budget without adding a new grace period.
+DAILY_QUEUED_ALERT_AFTER = timedelta(minutes=210)
 
 # In-flight runs use explicit recovery inputs or the original run clock.
 # Success is bound to the notice as-of carried by the actual terminal step result.
@@ -82,7 +86,7 @@ def run_target_date(*, event: str, display_title: str, created_at: datetime) -> 
         return None
     if event == "schedule":
         match display_title.split():
-            case ["daily"]:
+            case ["daily"] | ["cloud-daily-batch"]:
                 return integration_target_date(created_at, scheduled=True)
             case ["economic", "all", "all"]:
                 return acquisition_target_date(created_at)
@@ -125,6 +129,7 @@ class WorkflowRun:
 STATE_HEALTHY = "healthy"
 STATE_IN_FLIGHT = "in_flight"
 STATE_MISSING = "missing"
+STATE_DELAYED = "delayed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,10 +148,11 @@ class Verdict:
     window_start: datetime
     window_end: datetime
     runs_in_window: tuple[WorkflowRun, ...]
+    delayed_runs: tuple[WorkflowRun, ...] = ()
 
     @property
     def alerting(self) -> bool:
-        return self.state == STATE_MISSING
+        return self.state in {STATE_MISSING, STATE_DELAYED}
 
 
 def _parse_instant(value: object, *, field: str) -> datetime:
@@ -294,6 +300,7 @@ def evaluate(
     window_end: datetime,
     window_hours: int,
     target_date: date | None = None,
+    queued_delay_after: timedelta | None = None,
 ) -> Verdict:
     """Decide whether the window holds a completed, successful run."""
     if window_hours <= 0:
@@ -312,8 +319,19 @@ def evaluate(
     # missing batch. The same filter applies to a run still in flight for the same
     # reason: it will report an outcome about its own day, not about this one.
     answering = tuple(run for run in in_window if run.target_date == check_date)
+    delayed = tuple(
+        run
+        for run in answering
+        if queued_delay_after is not None
+        and run.status == "queued"
+        # Reruns keep the original run clock, not this attempt's queue start.
+        and run.run_attempt == 1
+        and window_end - run.created_at > queued_delay_after
+    )
     if any(run.succeeded for run in answering):
         state = STATE_HEALTHY
+    elif delayed:
+        state = STATE_DELAYED
     elif any(run.in_flight and run.target_date in {None, check_date} for run in in_window):
         state = STATE_IN_FLIGHT
     else:
@@ -324,6 +342,7 @@ def evaluate(
         window_start=window_start,
         window_end=window_end,
         runs_in_window=in_window,
+        delayed_runs=delayed if state == STATE_DELAYED else (),
     )
 
 
@@ -342,6 +361,14 @@ def render_alert(
         f"repo: {sanitize_one_line(repository)}",
         f"window: {verdict.window_start.isoformat()} .. {verdict.window_end.isoformat()}",
     ]
+    if verdict.state == STATE_DELAYED:
+        lines.append("queuedの待機が210分を超過。実行停止や遅延原因は未確認")
+        for run in verdict.delayed_runs[:RUNS_SHOWN]:
+            minutes = int((verdict.window_end - run.created_at).total_seconds() // 60)
+            lines.append(
+                f"#{run.run_number} queued age={minutes}min: "
+                f"https://github.com/{sanitize_one_line(repository)}/actions/runs/{run.run_id}"
+            )
     if verdict.runs_in_window:
         lines.append("runs in window:")
         lines.extend(run.describe() for run in verdict.runs_in_window[:RUNS_SHOWN])
@@ -350,7 +377,7 @@ def render_alert(
     else:
         lines.append("runs in window: none")
     return render_run_notice(
-        label="[MISSING]",
+        label="[DELAYED]" if verdict.state == STATE_DELAYED else "[MISSING]",
         batch="実行監視（cloud-batch-watchdog）",
         asof=verdict.check_date.isoformat(),
         details=lines,
@@ -475,6 +502,7 @@ def main(
             target_date=acquisition_target_date(window_end)
             if args.economic or args.market
             else None,
+            queued_delay_after=None if args.economic or args.market else DAILY_QUEUED_ALERT_AFTER,
         )
         if args.market:
             verdicts = [
