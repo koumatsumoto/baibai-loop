@@ -217,6 +217,13 @@ def test_jst_and_utc_date_boundaries_keep_slot_date(schedule, created_at, expect
     [
         ("2026-10-26T14:59:59Z", "", "jpx-earnings", "2026-10-26", ["jpx-earnings"]),
         (
+            "2026-11-12T08:00:00Z",
+            "2026-11-12",
+            "jquants-financial",
+            "2026-11-12",
+            ["jquants-financial"],
+        ),
+        (
             "2026-10-26T15:00:00Z",
             "",
             "all",
