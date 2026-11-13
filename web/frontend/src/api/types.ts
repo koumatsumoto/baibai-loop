@@ -118,6 +118,23 @@ export interface SavedAssessmentReviewView {
   uncertainty_acceptance_reason: string | null
 }
 
+export interface SavedAssessmentRisksView {
+  risks: SavedPermanentLossRiskView[]
+  unresolved_questions: string[]
+  sources: SavedAssessmentSourceView[]
+}
+
+export interface SavedAssessmentSourceView {
+  source_id: string
+  source_tier: 'primary' | 'secondary' | 'local_data'
+  ref: string | null
+  provider: string | null
+  dataset: string | null
+  as_of: string
+  retrieved_at: string
+  used_for: string
+}
+
 export interface SavedAssessmentView {
   assessment_id: string
   core_sha256: string
@@ -129,7 +146,8 @@ export interface SavedAssessmentView {
   investment_case_status_reason: string
   invalidation_conditions: string[]
   model_perspectives: SavedModelPerspectiveView[]
-  model_perspective_sources: SavedPerspectiveSourceView[]
+  model_perspective_sources: SavedAssessmentSourceView[]
+  risk_analysis: SavedAssessmentRisksView | null
   valuation: SavedResolvedValuationView | SavedUnresolvedValuationView | null
   review: SavedAssessmentReviewView
 }
@@ -223,15 +241,13 @@ export interface SavedNoActionItemView {
   action: 'no_action'
 }
 
-export interface SavedPerspectiveSourceView {
-  source_id: string
-  source_tier: 'primary' | 'secondary' | 'local_data'
-  ref: string | null
-  provider: string | null
-  dataset: string | null
+export interface SavedPermanentLossRiskView {
+  axis: 'funding_liquidity' | 'debt_repayment' | 'cash_flow' | 'dilution' | 'customer_concentration' | 'structural_decline' | 'governance_accounting'
+  assessment: 'acceptable' | 'adverse' | 'unknown'
+  evidence_status: 'verified' | 'partially_verified' | 'unverified'
+  summary: string
   as_of: string
-  retrieved_at: string
-  used_for: string
+  source_ids: string[]
 }
 
 export interface SavedPortfolioExposureView {

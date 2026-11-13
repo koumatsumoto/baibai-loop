@@ -24,6 +24,7 @@ export function assessmentFixture(label: string): SavedAssessmentView {
     invalidation_conditions: [`${label}の反証条件：主要顧客の離脱`],
     model_perspectives: [],
     model_perspective_sources: [],
+    risk_analysis: null,
     valuation: null,
     review: {
       reviewed_at: '2026-10-26T08:15:30+09:00',

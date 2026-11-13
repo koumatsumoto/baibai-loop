@@ -36,10 +36,24 @@ def payload():
 
 
 def _pair(
-    *, number=1, explanation=None, partial=False, perspectives=(), price=None, valuation=None
+    *,
+    number=1,
+    explanation=None,
+    partial=False,
+    perspectives=(),
+    price=None,
+    valuation=None,
+    risks=None,
+    questions=(),
+    acceptance=None,
 ):
     raw, review_raw = pair_payload(review_number=number + 1)
     raw["model_perspectives"] = list(perspectives)
+    if risks is not None:
+        raw["permanent_loss_risks"] = risks
+    raw["findings"]["unresolved_questions"] = list(questions)
+    if acceptance is not None:
+        review_raw["uncertainty_acceptance_reason"] = acceptance
     if price is not None:
         raw["input_snapshot"]["facts"][0]["value"] = price
     if valuation is not None:
@@ -193,6 +207,71 @@ def test_legacy_model_perspectives_remain_unrecorded(payload):
     assert view.items[0].assessment.model_perspective_sources == []
 
 
+def test_risks_and_questions_keep_exact_basis_without_changing_buy_or_value(payload):
+    raw, _ = pair_payload()
+    risks = raw["permanent_loss_risks"]
+    for risk in risks:
+        if risk["axis"] == "debt_repayment":
+            risk.update(
+                assessment="adverse",
+                evidence_status="partially_verified",
+                summary="合成：返済期日は確認。借換は未確約。cashと負債を同時に動かす。",
+                as_of="2026-09-30",
+                source_ids=["annual"],
+            )
+        elif risk["axis"] == "cash_flow":
+            risk.update(
+                assessment="unknown",
+                summary="期末黒字でも支払日前の資金が足りるとは限らない。",
+            )
+    questions = [
+        "将来CFは未確定。会社の配当支出と新規買付者の受取権利を分けて確認する。",
+        "未決定の還元と元本返済へ同じcashを二重使用しないか。",
+    ]
+    pair = _pair(
+        risks=risks,
+        questions=questions,
+        acceptance="合成の引受理由：借換未確約を残し、現金返済する代替経路と見返りを比較した。",
+    )
+    assert not pair.evaluation.errors
+    _current(payload, pair)
+    proposal = TradeProposal.model_validate(payload)
+    before_document, before_proposal = pair.document.model_dump_json(), proposal.model_dump_json()
+    item = project_saved_proposal(proposal, {pair.assessment_id: pair}).items[0]
+    projected = item.assessment.risk_analysis
+    assert [risk.model_dump(mode="json") for risk in projected.risks] == risks
+    assert projected.unresolved_questions == questions
+    referenced = {source for risk in risks for source in risk["source_ids"]}
+    assert [source.model_dump(mode="json") for source in projected.sources] == [
+        source.model_dump(mode="json", exclude={"ticker"})
+        for source in pair.document.input_snapshot.sources
+        if source.source_id in referenced
+    ]
+    assert item.action == "buy"  # This projection does not reinterpret unknown/adverse as a gate.
+    assert item.assessment.model_perspectives == []  # No inferred cross-model opinions.
+    assert item.assessment.core_sha256 == pair.core_sha256
+    assert item.assessment.valuation.base.calculation == pair.document.valuation.base.calculation
+    assert pair.document.model_dump_json() == before_document
+    assert proposal.model_dump_json() == before_proposal
+
+
+def test_old_serving_payload_omission_differs_from_saved_empty_questions(payload):
+    from baibai_web.readmodel.proposal_models import SavedAssessmentView
+
+    pair = _pair()
+    _current(payload, pair)
+    assessment = (
+        project_saved_proposal(TradeProposal.model_validate(payload), {pair.assessment_id: pair})
+        .items[0]
+        .assessment
+    )
+    assert len(assessment.risk_analysis.risks) == 7
+    assert assessment.risk_analysis.unresolved_questions == []
+    old = assessment.model_dump(mode="json")
+    del old["risk_analysis"]
+    assert SavedAssessmentView.model_validate(old).risk_analysis is None
+
+
 def test_saved_valuation_uses_assessment_price_and_keeps_assumptions_without_mutation(payload):
     raw, _ = pair_payload()
     raw["valuation"]["base"]["terminal_value_per_share_yen"] = "1100.0000000000000001"
@@ -336,7 +415,15 @@ def test_terms_absent_buy_keeps_exact_author_limit_without_invented_order_terms(
 def test_holding_keeps_original_reason_separate_from_current_assessment(
     payload, action, original_kind
 ):
-    original, current, newer = (_pair(number=n, explanation=f"評価{n}の理由") for n in (1, 10, 20))
+    original, current, newer = (
+        _pair(
+            number=n,
+            explanation=f"評価{n}の理由",
+            questions=[f"評価{n}に残った問い"],
+            acceptance=f"評価{n}の合成の引受理由。",
+        )
+        for n in (1, 10, 20)
+    )
     origin = {
         "reference": {"original_assessment_ref": _ref(original)},
         "prose": {"original_investment_reason": "当初の保存理由"},
@@ -349,12 +436,14 @@ def test_holding_keeps_original_reason_separate_from_current_assessment(
     assert item.action == action
     assert item.assessment.assessment_id == current.assessment_id
     assert item.assessment.investment_case_explanation == "評価10の理由"
+    assert item.assessment.risk_analysis.unresolved_questions == ["評価10に残った問い"]
     assert item.case_reassessment_reason == "今回の根拠で当初仮説の変化を検討した。"
     if original_kind == "reference":
         assert item.original_assessment.assessment_id == original.assessment_id
         assert item.original_assessment.investment_case_explanation == "評価1の理由"
         assert item.original_assessment.core_sha256 == original.core_sha256
         assert item.original_assessment.review_id == original.review.review_id
+        assert item.original_assessment.risk_analysis.unresolved_questions == ["評価1に残った問い"]
     else:
         assert item.original_assessment is None
         assert getattr(item, next(iter(origin))) == next(iter(origin.values()))
