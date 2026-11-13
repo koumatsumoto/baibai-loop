@@ -11,10 +11,11 @@ const MODELS: { model: SavedModelPerspectiveView['model']; label: string }[] = [
   { model: 'social_trends', label: '社会動向' },
 ]
 
+// アプリの背景はライト固定なので、OS設定だけで文字を淡色にしない。
 const JUDGMENTS: Record<SavedModelPerspectiveView['assessment'], { mark: string; label: string; style: string }> = {
-  supportive: { mark: '＋', label: '支持', style: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' },
-  mixed: { mark: '±', label: '支持・相反', style: 'bg-amber-500/10 text-amber-800 dark:text-amber-300' },
-  adverse: { mark: '−', label: '逆風', style: 'bg-rose-500/10 text-rose-700 dark:text-rose-300' },
+  supportive: { mark: '＋', label: '支持', style: 'bg-emerald-500/10 text-emerald-700' },
+  mixed: { mark: '±', label: '支持・相反', style: 'bg-amber-500/10 text-amber-800' },
+  adverse: { mark: '−', label: '逆風', style: 'bg-rose-500/10 text-rose-700' },
   neutral: { mark: '＝', label: '中立', style: 'bg-muted text-muted-foreground' },
   insufficient: { mark: '？', label: '情報不足', style: 'bg-muted text-muted-foreground' },
   not_applicable: { mark: '／', label: '対象外', style: 'bg-muted text-muted-foreground' },
