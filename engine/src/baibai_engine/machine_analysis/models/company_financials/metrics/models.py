@@ -85,6 +85,8 @@ class FinancialSnapshot:
     bs_carry_forward_lag_days: int | None = None
     sales: float | None = None
     cfo: float | None = None
+    # 主cfoが採った報告行。最新開示日やTTM/EDINETの期間で置き換えない。
+    cfo_source: dict[str, str | None] | None = None
     cash_eq: float | None = None
     total_assets: float | None = None
     # Reinvestment用。最新のcomplete actual rowのTAとEqARの積であり、PBRのBPS fallbackは使わない。

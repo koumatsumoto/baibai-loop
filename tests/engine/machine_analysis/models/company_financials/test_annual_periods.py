@@ -242,6 +242,18 @@ def test_fy_cfo_survives_a_newer_quarter_without_cfo():
         asof_date=date(2025, 9, 1),
     )
     assert financial.cfo == 100.0
+    assert financial.latest_financial_disclosure_date == quarter.disclosed_at
+    assert financial.cfo_source == {
+        "period_type": "FY",
+        "period_start": "2024-04-01",
+        "period_end": "2025-03-31",
+        "statement_basis": "consolidated",
+        "accounting_standard": "JP",
+        "disclosure_number": current.disclosure_number,
+        "disclosed_at": current.disclosed_at.isoformat(),
+        "disclosed_time": None,
+        "document_type": current.document_type,
+    }
 
 
 @pytest.mark.parametrize("revision_standard", ["JP", "IFRS"])
