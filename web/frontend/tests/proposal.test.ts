@@ -35,7 +35,7 @@ describe('保存提案レポート', () => {
     }
     expect(fresh).not.toContain('全量売却 · sell')
     expect(holdings).not.toContain('買付（指値） · buy')
-    expect(fresh).not.toContain('<table')
+    expect(fresh).toContain('7モデルの観点')
     expect(fresh.match(/<main\b/g)).toHaveLength(1)
   })
 

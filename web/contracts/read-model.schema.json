@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 8,
+  "schemaVersion": 9,
   "roots": {
     "views/latest-proposal.json": "#/$defs/LatestProposalView",
     "views/outcomes.json": "#/$defs/OutcomesView",
@@ -777,6 +777,20 @@
           "title": "Invalidation Conditions",
           "type": "array"
         },
+        "model_perspectives": {
+          "items": {
+            "$ref": "#/$defs/SavedModelPerspectiveView"
+          },
+          "title": "Model Perspectives",
+          "type": "array"
+        },
+        "model_perspective_sources": {
+          "items": {
+            "$ref": "#/$defs/SavedPerspectiveSourceView"
+          },
+          "title": "Model Perspective Sources",
+          "type": "array"
+        },
         "review": {
           "$ref": "#/$defs/SavedAssessmentReviewView"
         }
@@ -791,6 +805,8 @@
         "investment_case_status",
         "investment_case_status_reason",
         "invalidation_conditions",
+        "model_perspectives",
+        "model_perspective_sources",
         "review"
       ],
       "title": "SavedAssessmentView",
@@ -1310,6 +1326,54 @@
       "title": "SavedLiquidityView",
       "type": "object"
     },
+    "SavedModelPerspectiveView": {
+      "properties": {
+        "model": {
+          "enum": [
+            "company_financials",
+            "company_growth",
+            "market_context",
+            "external_assessment",
+            "technical_analysis",
+            "industry_trends",
+            "social_trends"
+          ],
+          "title": "Model",
+          "type": "string"
+        },
+        "assessment": {
+          "enum": [
+            "supportive",
+            "mixed",
+            "adverse",
+            "neutral",
+            "insufficient",
+            "not_applicable"
+          ],
+          "title": "Assessment",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "model",
+        "assessment",
+        "summary",
+        "source_ids"
+      ],
+      "title": "SavedModelPerspectiveView",
+      "type": "object"
+    },
     "SavedNoActionItemView": {
       "properties": {
         "ticker": {
@@ -1384,6 +1448,82 @@
         "action"
       ],
       "title": "SavedNoActionItemView",
+      "type": "object"
+    },
+    "SavedPerspectiveSourceView": {
+      "properties": {
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_tier": {
+          "enum": [
+            "primary",
+            "secondary",
+            "local_data"
+          ],
+          "title": "Source Tier",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ref"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider"
+        },
+        "dataset": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "used_for": {
+          "title": "Used For",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_tier",
+        "ref",
+        "provider",
+        "dataset",
+        "as_of",
+        "retrieved_at",
+        "used_for"
+      ],
+      "title": "SavedPerspectiveSourceView",
       "type": "object"
     },
     "SavedPortfolioExposureView": {

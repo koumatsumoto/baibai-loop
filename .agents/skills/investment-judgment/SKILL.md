@@ -66,7 +66,7 @@ lookupは元lineageや旧release全体の再読でない。Research source.ref�
 
 同じworkspace/ticker/DB（保有はholding子workspace）で進める。
 
-1. `stock-assessment-scaffold`へasofを指定し、[根拠とニュース](../../../docs/reference/stock-assessment.md#recent-news-research)を確認して執筆する。事業・成長・競争・懸念の前提を確かめるときは[外部見解との比較](../../../docs/reference/model-observations.md#public-research-reports)へ。PDF抽出失敗は原ページへ戻す。
+1. `stock-assessment-scaffold`へasofを指定し、[根拠とニュース](../../../docs/reference/stock-assessment.md#recent-news-research)を確認して執筆する。Web提案で伝える[七モデルの観点](../../../docs/reference/stock-assessment.md#analysis-domain-integration)も、支持・相反と不足理由を根拠付きで記す。事業・成長・競争・懸念の前提を確かめるときは[外部見解との比較](../../../docs/reference/model-observations.md#public-research-reports)へ。PDF抽出失敗は原ページへ戻す。
 2. `stock-assessment-evaluate <DRAFT>`で確認する。算術補助は`calculate`を使う。
 3. `independent-review-scaffold`から別作業者が[独立検証](../../../docs/reference/stock-assessment.md#independent-second-pass)する。
 4. `stock-assessment-evaluate <DRAFT> --review <REVIEW>`でpairを確認し、`stock-assessment-promote`で保存する。

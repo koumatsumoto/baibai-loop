@@ -22,6 +22,8 @@ export function assessmentFixture(label: string): SavedAssessmentView {
     investment_case_status: 'intact',
     investment_case_status_reason: `${label}の状態理由。主要顧客の継続を保存資料で確認。`,
     invalidation_conditions: [`${label}の反証条件：主要顧客の離脱`],
+    model_perspectives: [],
+    model_perspective_sources: [],
     review: {
       reviewed_at: '2026-10-26T08:15:30+09:00',
       primary_source_check: 'partially_verified',

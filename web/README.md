@@ -6,6 +6,8 @@
 
 [最新の保存提案](../docs/reference/trade-proposal.md)と対応するAssessment/Reviewを表示し、現在価格・cash・注文資格は再計算しない。提案や成績が0件の場合と読取不能を区別し、一部の読取不能で他の表示を止めない。壊れた最新提案を古い提案で代用しない。
 
+七モデルの観点はexact評価pairに保存された作者判断と出典だけを示す。未記録は0点/中立へ補完せず、支持の件数・総合点・L2取得状況を推定しない。根拠の対象日と取得時刻、評価基準日は別に表示する。
+
 ## 実装の入口
 
 - [materialize](backend/src/baibai_web/materialize.py)：applicationとmarketから表示を生成する。生成と公開は別。

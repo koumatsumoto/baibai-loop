@@ -90,6 +90,88 @@ def test_full_appendix_parses_and_has_exact_typed_canonical_identity():
     assert StockAssessmentDocument.model_validate_json(document.model_dump_json()) == document
 
 
+def test_absent_model_perspectives_preserve_existing_identity_and_serialization():
+    raw, _ = pair_payload()
+    document = StockAssessmentDocument.model_validate(raw)
+    assert document.model_perspectives == ()
+    assert "model_perspectives" not in document.model_dump(mode="json")
+    raw["model_perspectives"] = []
+    explicit_empty = StockAssessmentDocument.model_validate(raw)
+    assert explicit_empty.model_dump_json() == document.model_dump_json()
+    assert assessment_core_hash(explicit_empty) == assessment_core_hash(document)
+
+
+@pytest.mark.parametrize("judgment", ["supportive", "mixed", "adverse", "neutral"])
+def test_model_perspective_requires_evidence_without_making_a_buy_gate(judgment):
+    raw, review = pair_payload()
+    raw["model_perspectives"] = [
+        {
+            "model": "company_financials",
+            "assessment": judgment,
+            "summary": "確認した財務と反証を個社の仮定へ結ぶ。",
+            "source_ids": ["annual"],
+        }
+    ]
+    assert evaluation(raw, review).errors == ()
+    raw["model_perspectives"][0]["source_ids"] = []
+    with pytest.raises(ValueError, match="requires source references"):
+        StockAssessmentDocument.model_validate(raw)
+
+
+@pytest.mark.parametrize("judgment", ["insufficient", "not_applicable"])
+def test_model_perspective_missingness_is_explicit_and_does_not_require_invented_source(judgment):
+    raw, review = pair_payload()
+    raw["model_perspectives"] = [
+        {
+            "model": "industry_trends",
+            "assessment": judgment,
+            "summary": "対象業種の比較可能な抽出はなく、他業種のデータで補完しない。",
+            "source_ids": [],
+        }
+    ]
+    assert evaluation(raw, review).errors == ()
+
+
+def test_model_perspective_references_and_changes_require_the_exact_review():
+    raw, review = pair_payload()
+    raw["model_perspectives"] = [
+        {
+            "model": "company_growth",
+            "assessment": "mixed",
+            "summary": "成長の支持材料と比較範囲の不一致が併存する。",
+            "source_ids": ["annual"],
+        }
+    ]
+    assert (
+        "Assessment Review hash does not match assessment"
+        in evaluation(raw, review, refresh_hash=False).errors
+    )
+    assert evaluation(raw, review).errors == ()
+    raw["model_perspectives"][0]["source_ids"] = ["missing"]
+    assert "model perspective references unknown source" in evaluation(raw).errors
+
+
+def test_model_perspectives_roundtrip_with_saved_pair_and_no_extra_store(connection):
+    raw, review = pair_payload()
+    raw["model_perspectives"] = [
+        {
+            "model": "technical_analysis",
+            "assessment": "mixed",
+            "summary": "価格の強さは支持するが、価値を示す別票ではない。",
+            "source_ids": ["price"],
+        }
+    ]
+    update_review_hash(raw, review)
+    pair = publish(connection, raw, review)
+    loaded = load_reviewed_assessment(connection, pair.assessment_id)
+    assert loaded.document.model_perspectives == pair.document.model_perspectives
+    assert loaded.core_sha256 == pair.core_sha256
+    assert publish(connection, raw, review).core_sha256 == pair.core_sha256
+    raw["model_perspectives"] *= 2
+    with pytest.raises(ValueError, match="each model at most once"):
+        StockAssessmentDocument.model_validate(raw)
+
+
 def test_supported_assessment_has_no_cash_or_current_buy_input():
     document, review = pair_payload()
     result = evaluation(document, review)

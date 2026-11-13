@@ -128,6 +128,8 @@ export interface SavedAssessmentView {
   investment_case_status: 'intact' | 'broken' | 'uncertain'
   investment_case_status_reason: string
   invalidation_conditions: string[]
+  model_perspectives: SavedModelPerspectiveView[]
+  model_perspective_sources: SavedPerspectiveSourceView[]
   review: SavedAssessmentReviewView
 }
 
@@ -202,6 +204,13 @@ export interface SavedLiquidityView {
   unavailable_reason: string | null
 }
 
+export interface SavedModelPerspectiveView {
+  model: 'company_financials' | 'company_growth' | 'market_context' | 'external_assessment' | 'technical_analysis' | 'industry_trends' | 'social_trends'
+  assessment: 'supportive' | 'mixed' | 'adverse' | 'neutral' | 'insufficient' | 'not_applicable'
+  summary: string
+  source_ids: string[]
+}
+
 export interface SavedNoActionItemView {
   ticker: string
   rationale: string
@@ -211,6 +220,17 @@ export interface SavedNoActionItemView {
   liquidity: SavedLiquidityView | null
   unfinished: UnfinishedResearchView | null
   action: 'no_action'
+}
+
+export interface SavedPerspectiveSourceView {
+  source_id: string
+  source_tier: 'primary' | 'secondary' | 'local_data'
+  ref: string | null
+  provider: string | null
+  dataset: string | null
+  as_of: string
+  retrieved_at: string
+  used_for: string
 }
 
 export interface SavedPortfolioExposureView {

@@ -15,6 +15,7 @@ import type {
   SavedSellItemView,
 } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
+import { ModelPerspectives } from '../components/ModelPerspectives'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
@@ -194,6 +195,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
     <SectionCard headingLevel={3} meta={<Badge variant="secondary">{ACTION_LABEL[item.action]} · {item.action}</Badge>} padded title={item.ticker}>
       <div className="grid min-w-0 gap-5">
         <Prose>{item.rationale}</Prose>
+        {item.assessment !== null && <ModelPerspectives assessment={item.assessment} />}
         {item.saved_quote !== null && <dl className="grid gap-4 sm:grid-cols-2">
           <Field label="保存株価（未調整終値）">{item.saved_quote.price_yen} 円</Field>
           <Field label="保存株価の基準日"><time dateTime={item.saved_quote.price_as_of}>{item.saved_quote.price_as_of}</time></Field>

@@ -11,6 +11,34 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 )
 
 
+class SavedModelPerspectiveView(BaseModel):
+    model: Literal[
+        "company_financials",
+        "company_growth",
+        "market_context",
+        "external_assessment",
+        "technical_analysis",
+        "industry_trends",
+        "social_trends",
+    ]
+    assessment: Literal[
+        "supportive", "mixed", "adverse", "neutral", "insufficient", "not_applicable"
+    ]
+    summary: str
+    source_ids: list[str]
+
+
+class SavedPerspectiveSourceView(BaseModel):
+    source_id: str
+    source_tier: Literal["primary", "secondary", "local_data"]
+    ref: str | None
+    provider: str | None
+    dataset: str | None
+    as_of: date
+    retrieved_at: datetime
+    used_for: str
+
+
 class SavedAssessmentReviewView(BaseModel):
     reviewed_at: datetime
     primary_source_check: Literal["verified", "partially_verified", "unverified"]
@@ -29,6 +57,8 @@ class SavedAssessmentView(BaseModel):
     investment_case_status: Literal["intact", "broken", "uncertain"]
     investment_case_status_reason: str
     invalidation_conditions: list[str]
+    model_perspectives: list[SavedModelPerspectiveView] = Field(default_factory=list)
+    model_perspective_sources: list[SavedPerspectiveSourceView] = Field(default_factory=list)
     review: SavedAssessmentReviewView
 
 
