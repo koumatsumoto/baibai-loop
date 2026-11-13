@@ -162,7 +162,7 @@ function AssessmentValue({ assessment }: { assessment: SavedAssessmentView }) {
     <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存評価の見返り">
       <div>
         <h4 className="text-sm font-semibold">保存評価の見返り</h4>
-        <p className="mt-1 text-xs leading-6 text-muted-foreground">評価基準日 <time dateTime={assessment.as_of}>{assessment.as_of}</time> の価格と仮定を固定した計算です。現在価格・提案指値での再計算ではありません。</p>
+        <p className="mt-1 text-xs leading-6 text-muted-foreground">評価基準日 <time dateTime={assessment.as_of}>{assessment.as_of}</time> の保存評価です。計算は評価に用いた価格と仮定を固定しています。現在価格・提案指値での再計算ではありません。</p>
       </div>
       {valuation == null ? <p className="text-sm text-muted-foreground">この表示データには評価の見返りが含まれていません。</p> : valuation.status === 'unresolved' ? <div>
         <p className="mb-1 text-sm font-medium">価値評価は未確定</p>
