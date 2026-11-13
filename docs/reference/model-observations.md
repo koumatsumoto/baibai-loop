@@ -32,7 +32,9 @@
 
 EDINETは同じmarket sealに適格な任意入力で、未取得でも全社生成/J-Quantsを止めない。CSV/XBRL、原本受領/抽出を分け、[保持/再開](../../jobs/OPERATIONS.md#edinet-list-native-l1)に従う。再抽出で初回bytesを差し替えず、提供元修復後も隔離取得/差分確認を要する。
 
-[comparison再利用](../../engine/src/baibai_engine/machine_analysis/generation/comparison_evidence.py)は任意cache。同じ原本/抽出入力・revisionに一致する適格入力だけ再利用し、不正/非対応なら再抽出する。原本の取得/保持を代替せず、cold再生成に前回L2を要しない。
+[comparison再利用](../../engine/src/baibai_engine/machine_analysis/generation/comparison_evidence.py)は任意cache。同じ原本/抽出入力・revisionに一致する適格入力だけ再利用し、旧/不正形式なら再抽出する。原本の取得/保持を代替せず、cold再生成に前回L2を要しない。
+
+EDINETでは明示された日本/米国基準もIFRS抽出の確定的な非対象として再利用するが、空/未知基準・観測全体の欠測/解析失敗は再試行する。成功観測内の個別operand欠測は、その理由を保って再利用できる。旧来の非対応理由から確定非対象を推定しない。いずれも今回の固定原本を読み存在・hashを検証し、現在の文書/訂正選択を優先するため、保存原本のI/Oは省かない。
 
 | 経路 | 固有の成立範囲 |
 | --- | --- |

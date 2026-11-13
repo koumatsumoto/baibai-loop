@@ -209,6 +209,7 @@ def test_generation_reuses_saved_comparisons_with_identical_complete_output(
             "reported_comparisons"
         ]
         publish_generation(cold, path=runs)
+        saved_generation = runs.read_bytes()
         source = SavedComparisonEvidence(MARKET, runs)
         observations_spy = mocker.spy(SavedComparisonEvidence, "observations")
         extract_spy = mocker.spy(edinet_comparison_reader, "extract_comparisons")
@@ -228,3 +229,4 @@ def test_generation_reuses_saved_comparisons_with_identical_complete_output(
         }
         assert extract_spy.call_count == expected_parses
         assert all(call.kwargs["ticker"] != "436A" for call in extract_spy.call_args_list)
+        assert runs.read_bytes() == saved_generation

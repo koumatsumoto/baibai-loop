@@ -414,7 +414,7 @@ def test_consolidated_annual_native_pairs_keep_period_scope_and_partial_gap(
     result = extract(doc)
     assert result.reason is None
     assert result.statement_basis == "consolidated"
-    assert result.extractor_revision == "edinet-ifrs-statement-comparisons-v2-consolidated-annual"
+    assert result.extractor_revision == "edinet-ifrs-statement-comparisons-v3-known-non-ifrs"
     assert result.current_period_start.isoformat() == metadata(doc)["periodStart"]
     assert result.current_period_end.isoformat() == metadata(doc)["periodEnd"]
     assert [pair.metric for pair in result.pairs] == ["sales", "operating_profit", "parent_profit"]

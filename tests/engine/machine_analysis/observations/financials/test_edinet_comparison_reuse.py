@@ -67,10 +67,15 @@ def read(monkeypatch):
 
 @pytest.mark.parametrize("route", ["native", "sql"])
 @pytest.mark.parametrize("day_change", [0, 1])
-def test_success_seed_skips_xml_but_keeps_original_get_and_exact_native_evidence(
-    read, route, day_change
+@pytest.mark.parametrize("standard", ["IFRS", "Japan GAAP", "US GAAP"])
+def test_eligible_seed_skips_xml_but_keeps_original_get_and_exact_native_evidence(
+    read, route, day_change, standard
 ):
-    bodies = [("S100YRSR", archive()), ("S100YV6Y", archive("S100YV6Y"))]
+    replacement = {b">IFRS<": f">{standard}<".encode()}
+    bodies = [
+        ("S100YRSR", archive(replace=replacement)),
+        ("S100YV6Y", archive("S100YV6Y", replace=replacement)),
+    ]
     documents = [metadata(), metadata("S100YV6Y")]
     cold, counts, gets = read(documents, bodies, route=route)
     assert counts == {"extract": 2, "xml": 2}
@@ -87,8 +92,12 @@ def test_success_seed_skips_xml_but_keeps_original_get_and_exact_native_evidence
     assert counts == {"extract": 0, "xml": 0}
     assert len(gets) == (2 if route == "native" else 0)
     assert serialized(warm) == serialized(cold)
-    assert warm["436A"][0].pairs[0].current.amount == "3525761000"
-    assert warm["436A"][0].pairs[0].current.decimals == "-3"
+    if standard == "IFRS":
+        assert warm["436A"][0].pairs[0].current.amount == "3525761000"
+        assert warm["436A"][0].pairs[0].current.decimals == "-3"
+    else:
+        assert warm["436A"][0].reason == "comparison_accounting_standard_non_ifrs"
+        assert not warm["436A"][0].pairs
 
 
 @pytest.mark.parametrize(
@@ -190,8 +199,9 @@ def test_invalid_or_ambiguous_seed_falls_back_to_exact_cold_parse(read, damage):
 
 
 @pytest.mark.parametrize("cutoff", ["asof", "known_at", "ticker"])
-def test_fresh_publication_and_subject_cutoffs_do_not_consume_seed_or_body(read, cutoff):
-    bodies = [("S100YRSR", archive())]
+@pytest.mark.parametrize("standard", ["IFRS", "Japan GAAP"])
+def test_fresh_publication_and_subject_cutoffs_do_not_consume_seed_or_body(read, cutoff, standard):
+    bodies = [("S100YRSR", archive(replace={b">IFRS<": f">{standard}<".encode()}))]
     cold, _, _ = read([metadata()], bodies)
     stamp = cold["436A"][0].source_submit_datetime
 
@@ -213,10 +223,12 @@ def test_fresh_publication_and_subject_cutoffs_do_not_consume_seed_or_body(read,
 
 
 @pytest.mark.parametrize("blocked", ["unavailable", "withdrawn", "quarantined", "orphan"])
-def test_current_document_reason_overrides_old_success_without_skipping_get(read, blocked):
+@pytest.mark.parametrize("standard", ["IFRS", "Japan GAAP"])
+def test_current_document_reason_overrides_old_seed_without_skipping_get(read, blocked, standard):
     original = metadata()
     target = correction() if blocked == "orphan" else original
-    bodies = [(target["docID"], archive())]
+    body = archive(replace={b">IFRS<": f">{standard}<".encode()})
+    bodies = [(target["docID"], body)]
     cold, _, _ = read([original, target], bodies)
     seeds = [value.model_dump(mode="json") for value in cold["436A"]]
     if blocked == "unavailable":
@@ -245,7 +257,7 @@ def test_current_document_reason_overrides_old_success_without_skipping_get(read
     assert len(gets) == 1
     assert result["436A"][0].reason == reason
     assert not result["436A"][0].pairs
-    assert result["436A"][0].source_sha256 == hashlib.sha256(archive()).hexdigest()
+    assert result["436A"][0].source_sha256 == hashlib.sha256(body).hexdigest()
 
 
 def test_parent_and_family_membership_are_recomputed_from_current_documents(read):
@@ -267,8 +279,11 @@ def test_parent_and_family_membership_are_recomputed_from_current_documents(read
 
 @pytest.mark.parametrize("damage", ["missing", "changed"])
 @pytest.mark.parametrize("blocked", [False, True])
-def test_warm_seed_cannot_hide_missing_or_changed_retained_native_body(read, damage, blocked):
-    body = archive()
+@pytest.mark.parametrize("standard", ["IFRS", "Japan GAAP"])
+def test_warm_seed_cannot_hide_missing_or_changed_retained_native_body(
+    read, damage, blocked, standard
+):
+    body = archive(replace={b">IFRS<": f">{standard}<".encode()})
     bodies = [("S100YRSR", body)]
     cold, _, _ = read([metadata()], bodies)
     store, fixed = fixed_archives({("S100YRSR", 1): body})
@@ -323,8 +338,9 @@ def test_same_zip_does_not_share_success_across_ticker_or_document_identity(read
     assert result["1111"][0].reason == "comparison_security_mismatch"
 
 
-def test_parse_failure_is_not_a_success_seed(read):
-    bodies = [("S100YRSR", archive(replace={b">IFRS<": b">JP<"}))]
+@pytest.mark.parametrize("standard", ["JP", "unknown", "", " "])
+def test_unknown_or_empty_accounting_standard_is_retried(read, standard):
+    bodies = [("S100YRSR", archive(replace={b">IFRS<": f">{standard}<".encode()}))]
     cold, _, _ = read([metadata()], bodies)
     result, counts, gets = read(
         [metadata()], bodies, seeds=[cold["436A"][0].model_dump(mode="json")]
@@ -332,6 +348,86 @@ def test_parse_failure_is_not_a_success_seed(read):
     assert counts == {"extract": 1, "xml": 1}
     assert len(gets) == 1
     assert result == cold
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        {"extractor_revision": "edinet-ifrs-statement-comparisons-v2-consolidated-annual"},
+        {"source_sha256": None},
+        {"source_sha256": "0" * 64},
+        {"source_doc_id": "S100OTHER"},
+        {"ticker": "1111"},
+        {"source_submit_datetime": "2026-07-26T15:31:00+09:00"},
+        {"document_type": "160"},
+        {"accounting_standard": "IFRS"},
+        {"statement_basis": "consolidated"},
+        {"current_period_start": "2025-05-01"},
+        {"current_period_end": "2026-04-30"},
+        {"pairs": [{"metric": "sales", "reason": "comparison_operand_not_observed"}]},
+        {"reason": "comparison_accounting_standard_unsupported"},
+        {"reason": "comparison_archive_not_received"},
+        {"reason": "comparison_dei_unknown"},
+        {"reason": "comparison_main_statement_unknown"},
+        {"unknown": "untrusted"},
+    ],
+)
+def test_non_ifrs_seed_must_be_exact_current_revision_and_determinate(read, damage):
+    bodies = [("S100YRSR", archive(replace={b">IFRS<": b">Japan GAAP<"}))]
+    cold, _, _ = read([metadata()], bodies)
+    seed = {**cold["436A"][0].model_dump(mode="json"), **damage}
+    result, counts, gets = read([metadata()], bodies, seeds=[seed])
+    assert counts == {"extract": 1, "xml": 1}
+    assert len(gets) == 1
+    assert serialized(result) == serialized(cold)
+
+
+def test_new_correction_and_changed_fixed_body_are_reparsed_without_mutating_old_seed(read):
+    body = archive(replace={b">IFRS<": b">Japan GAAP<"})
+    cold, _, _ = read([metadata()], [("S100YRSR", body)])
+    seeds = [cold["436A"][0].model_dump(mode="json")]
+    saved = copy.deepcopy(seeds)
+    documents = [metadata(), correction()]
+    bodies = [("S100YRSR", body), ("S100FIX", archive())]
+    expected, _, _ = read(documents, bodies)
+    result, counts, gets = read(documents, bodies, seeds=seeds)
+    assert counts == {"extract": 1, "xml": 1}
+    assert len(gets) == 2
+    assert serialized(result) == serialized(expected)
+    assert result["436A"][0] == cold["436A"][0]
+    assert result["436A"][1].reason is None
+    assert result["436A"][1].parent_doc_id == "S100YRSR"
+    # Even the same docID must be reparsed if the fixed body's hash changes.
+    replacement = [("S100YRSR", archive())]
+    expected, _, _ = read([metadata()], replacement)
+    result, counts, gets = read([metadata()], replacement, seeds=seeds)
+    assert counts == {"extract": 1, "xml": 1}
+    assert len(gets) == 1
+    assert serialized(result) == serialized(expected)
+    assert seeds == saved
+
+
+def test_non_ifrs_seed_does_not_suppress_transport_failure_and_next_retry(read, monkeypatch):
+    body = archive(replace={b">IFRS<": b">Japan GAAP<"})
+    bodies = [("S100YRSR", body)]
+    cold, _, _ = read([metadata()], bodies)
+    seeds = [cold["436A"][0].model_dump(mode="json")]
+    store, fixed = fixed_archives({("S100YRSR", 1): body})
+    original = store.get_bytes
+
+    def unavailable(key):
+        original(key)
+        raise RuntimeError("temporary transport failure")
+
+    monkeypatch.setattr(store, "get_bytes", unavailable)
+    with pytest.raises(RuntimeError, match="temporary transport failure"):
+        read([metadata()], bodies, seeds=seeds, fixed=(store, fixed))
+    assert len(store.get_keys) == 1
+    monkeypatch.setattr(store, "get_bytes", original)
+    result, counts, gets = read([metadata()], bodies, seeds=seeds, fixed=(store, fixed))
+    assert counts == {"extract": 0, "xml": 0}
+    assert len(gets) == 1
+    assert serialized(result) == serialized(cold)
 
 
 @pytest.mark.parametrize("partial", ["nil", "missing", "conflict"])

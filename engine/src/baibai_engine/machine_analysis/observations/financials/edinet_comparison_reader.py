@@ -27,7 +27,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparison_mo
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     extract_comparisons,
-    successful_comparison_seed,
+    reusable_comparison_seed,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
     filing_identity,
@@ -110,7 +110,7 @@ def read_comparison_population(
     seed_started = time.perf_counter()
     for value in prior_observations if ready else ():
         seed_candidates += 1
-        seed = successful_comparison_seed(value)
+        seed = reusable_comparison_seed(value)
         if seed is None:
             continue
         base = observations.get(seed.source_doc_id)
