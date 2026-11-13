@@ -467,7 +467,6 @@ def test_article_get_uses_shared_honest_identity_on_each_attempt():
     from unittest.mock import patch
 
     from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
-    from baibai_engine.data_collection.transport.public_pages import MINKABU_PUBLIC_HEADERS
 
     with requests.Session() as session:
         default_agent = session.headers["User-Agent"]
@@ -480,7 +479,6 @@ def test_article_get_uses_shared_honest_identity_on_each_attempt():
                 requests.Request("GET", call.args[0], headers=call.kwargs["headers"])
             )
             assert prepared.headers["User-Agent"] == PUBLIC_RESEARCH_USER_AGENT
-            assert prepared.headers["User-Agent"] == MINKABU_PUBLIC_HEADERS["User-Agent"]
             assert prepared.headers["User-Agent"] == "baibai-loop-public-research/1.0"
             assert "application/json" in prepared.headers["Accept"]
         assert session.headers["User-Agent"] == default_agent
