@@ -198,7 +198,10 @@ class AssessmentRefresh(BaseModel):
     checked_at: AwareDatetime
     material_information_check: NonEmptyStr
     changed_sections: tuple[
-        Literal["findings", "valuation", "investment_case", "risks", "sources"], ...
+        Literal[
+            "findings", "valuation", "investment_case", "risks", "sources", "model_perspectives"
+        ],
+        ...,
     ]
     unchanged_assumptions_reason: NonEmptyStr
     horizon_reason: NonEmptyStr

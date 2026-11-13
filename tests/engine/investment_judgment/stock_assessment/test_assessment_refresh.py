@@ -128,6 +128,34 @@ def test_refresh_scaffold_preserves_old_sources_facts_and_cannot_publish(prior, 
     assert prior.document.model_dump(mode="json") == before
 
 
+def test_refresh_can_name_model_perspectives_and_preserve_source_clocks(prior, connection):
+    draft, review = authored_refresh(prior)
+    draft["model_perspectives"] = [
+        {
+            "model": "company_financials",
+            "assessment": "mixed",
+            "summary": "同じ旧根拠を今回の評価で読み直し、支持と資金制約を区別した。",
+            "source_ids": ["annual"],
+        }
+    ]
+    draft["refresh"]["changed_sections"].append("model_perspectives")
+    update_review_hash(draft, review)
+    saved = publish_reviewed_assessment(
+        connection,
+        assessment_id(3),
+        draft,
+        review,
+        published_at=NOW,
+        supersedes_id=prior.assessment_id,
+    )
+    loaded = load_reviewed_assessment(connection, saved.assessment_id)
+    assert loaded.document.refresh.changed_sections == ("valuation", "model_perspectives")
+    assert loaded.document.input_snapshot.sources == prior.document.input_snapshot.sources
+    assert (
+        loaded.document.model_perspectives[0].summary == draft["model_perspectives"][0]["summary"]
+    )
+
+
 def test_same_day_reuses_original_immutable_pair_without_new_publication(connection):
     document, review = pair_payload()
     connection.execute("BEGIN IMMEDIATE")

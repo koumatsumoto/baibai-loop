@@ -125,7 +125,11 @@ def test_model_perspective_missingness_is_explicit_and_does_not_require_invented
         {
             "model": "industry_trends",
             "assessment": judgment,
-            "summary": "対象業種の比較可能な抽出はなく、他業種のデータで補完しない。",
+            "summary": (
+                "対象業種の比較可能な抽出はなく、他業種のデータで補完しない。"
+                if judgment == "insufficient"
+                else "今回比較した業界の対象製品は当該事業に含まれない。"
+            ),
             "source_ids": [],
         }
     ]
