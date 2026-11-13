@@ -513,6 +513,8 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 
 `rebuild-<source>-native`は--work-directory / --start / --end / --outputから新しいL2とinput.jsonを作る（calendarは下の専用引数）。保存入力からの再計算はGenerationのinputsにあるdescriptor付きexact InputSnapshotを--saved-inputへ渡す。head/summaryに付け替えず、新outputを使う。欠損/改変/partialのL2や不適格な[投影cache](src/baibai_jobs/integration/native_projection_cache.py)は同じ固定L1から再生成し、原本を再GETしない。旧SQLite受領の汎用再投影入口は撤去済みで、旧原本・固定releaseの読取と移送済みstageの照合は保持する。
 
+固定full-day packは同一GET応答のbody/metadataと固定参照の内容hashで検証し、同じbytesのETagだけの変化は原本変更としない。可変headの前後ETag検査・条件付き書込のreadbackは別の境界として残す。原本GETや保持を省くcacheではなく、取得範囲・受領/確認時計・保存入力は変えない。
+
 <a id="sourceごとの通常読取"></a>
 
 <a id="price-native-l1"></a>

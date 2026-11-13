@@ -1,11 +1,16 @@
 """Independent financial L1 publication, retries and source-native change semantics."""
 
 import gzip
+import hashlib
+import io
 import json
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
+from botocore.response import StreamingBody
+from botocore.stub import Stubber
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_engine.data_collection.providers.jquants.contracts as contracts
@@ -18,7 +23,13 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FixedFinancialL1,
 )
 from baibai_engine.data_collection.providers.jquants.full_day_native import full_day_content_id
-from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakeCASConflict,
+    LakePublishError,
+    R2Error,
+    R2OperationStopped,
+)
 
 DAY = date(2026, 11, 1)
 AT = datetime(2026, 11, 2, tzinfo=UTC)
@@ -404,3 +415,150 @@ def test_valid_unicode_keeps_content_hash_and_raw_identity(owner, body, monkeypa
         previous = full_day_content_id(complete_request(original.pages), owner.contract)
     assert full_day_content_id(complete_request(original.pages), owner.contract) == previous
     assert original.value() == raw
+
+
+def test_fixed_pack_atomic_get_and_legacy_reads_preserve_old_receipts(owner):
+    owner.commit([attempt("a"), attempt("f", day=DAY + timedelta(days=1), partial=True)])
+    fixed = owner.fixed()
+    original_payload = fixed.payload
+    owner.commit([attempt("correction", 2, at=AT + timedelta(hours=1))])
+    store = owner.store
+    legacy = SimpleNamespace(head=store.head, get_bytes=store.get_bytes)
+    days = [DAY, DAY + timedelta(days=1)]
+    store.head_keys.clear()
+    store.get_keys.clear()
+    previous = tuple(fixed.requests(legacy, days=days))
+    assert len(store.get_keys) == 1  # Both selected receipts share one pack.
+    pack_key = store.get_keys[0]
+    assert store.head_keys == [pack_key, pack_key]
+
+    store.head_keys.clear()
+    store.get_keys.clear()
+    assert tuple(fixed.requests(store, days=days)) == previous
+    assert store.get_keys == [pack_key]
+    assert store.head_keys == []
+    assert [item.request_id for item in previous] == ["a", "f"]
+    assert previous[1].request is None
+    assert fixed.payload == original_payload
+    current = owner.fixed()
+    assert store.head_keys == [HEAD_KEY, HEAD_KEY]
+    assert store.get_keys == [pack_key, HEAD_KEY]
+    assert next(current.requests(store, days=[DAY])).request_id == "correction"
+
+
+@pytest.mark.parametrize("fault", ["missing", "bytes", "size", "metadata_hash", "path_hash"])
+def test_atomic_pack_read_preserves_integrity_failures(owner, monkeypatch, fault):
+    owner.commit([attempt("a")])
+    fixed = owner.fixed()
+    pack_key = packs(owner)[0]
+    payload, remote = owner.store.get_bytes_with_metadata(pack_key)
+    if fault == "missing":
+        response = None
+    elif fault == "bytes":
+        response = (payload[:-1] + bytes([payload[-1] ^ 1]), remote)
+    elif fault == "size":
+        response = (payload, replace(remote, size=remote.size + 1))
+    elif fault == "metadata_hash":
+        response = (payload, replace(remote, metadata={}))
+    else:
+        changed = gzip.compress(b"[]", mtime=0)
+        response = (
+            changed,
+            replace(
+                remote, size=len(changed), metadata={"sha256": hashlib.sha256(changed).hexdigest()}
+            ),
+        )
+    monkeypatch.setattr(owner.store, "get_bytes_with_metadata", lambda key: response)
+    with pytest.raises(LakePublishError):
+        list(fixed.requests(owner.store, days=[DAY]))
+
+
+def test_atomic_pack_failure_is_not_cached_or_replaced_with_empty(owner, monkeypatch):
+    owner.commit([attempt("a")])
+    fixed = owner.fixed()
+    read = owner.store.get_bytes_with_metadata
+
+    def unavailable(key):
+        raise R2Error("temporary transport failure")
+
+    monkeypatch.setattr(owner.store, "get_bytes_with_metadata", unavailable)
+    with pytest.raises(R2Error, match="temporary transport failure"):
+        list(fixed.requests(owner.store, days=[DAY]))
+    monkeypatch.setattr(owner.store, "get_bytes_with_metadata", read)
+    assert next(fixed.requests(owner.store, days=[DAY])).request_id == "a"
+
+
+@pytest.mark.parametrize("fault", ["fingerprint", "membership"])
+def test_atomic_pack_still_checks_selected_receipts(owner, fault):
+    owner.commit([attempt("a")])
+    fixed = owner.fixed()
+    value = fixed.value()
+    if fault == "fingerprint":
+        value["receipts"]["a"]["fingerprint"] = "0" * 64
+    else:
+        value["scopes"][DAY.isoformat()]["adopted"] = "absent"
+        value["receipts"]["absent"] = value["receipts"]["a"]
+    altered = replace(fixed, payload=json.dumps(value).encode())
+    with pytest.raises(LakePublishError, match=r"fixed head|lacks a fixed receipt"):
+        list(altered.requests(owner.store, days=[DAY]))
+
+
+@pytest.fixture
+def pack_wire(monkeypatch):
+    store = Boto3R2Store(
+        bucket="local-fixture",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "fixture",
+            "R2_SECRET_ACCESS_KEY": "fixture",
+            "R2_STOP_ON_REJECTION": "1",
+        },
+    )
+    client = store._client()
+    monkeypatch.setattr(store, "_client", lambda *_: client)
+    try:
+        with Stubber(client) as stub:
+            yield store, stub
+            stub.assert_no_pending_responses()
+    finally:
+        store.close()
+
+
+def test_fixed_pack_uses_one_real_adapter_get_and_closes_body(owner, pack_wire):
+    owner.commit([attempt("a")])
+    fixed = owner.fixed()
+    key = packs(owner)[0]
+    payload, remote = owner.store.get_bytes_with_metadata(key)
+    store, stub = pack_wire
+    stream = io.BytesIO(payload)
+    stub.add_response(
+        "get_object",
+        {
+            "Body": StreamingBody(stream, len(payload)),
+            "ETag": '"different-etag-same-content"',
+            "ContentLength": len(payload),
+            "Metadata": dict(remote.metadata),
+        },
+        {"Bucket": "local-fixture", "Key": key},
+    )
+    assert tuple(fixed.requests(store, days=[DAY])) == tuple(
+        fixed.requests(owner.store, days=[DAY])
+    )
+    assert stream.closed
+
+
+@pytest.mark.parametrize("status", [403, 429])
+def test_fixed_pack_get_keeps_rejection_stop_and_blocks_next_request(owner, pack_wire, status):
+    owner.commit([attempt("a")])
+    fixed = owner.fixed()
+    store, stub = pack_wire
+    stub.add_client_error(
+        "get_object",
+        service_error_code=str(status),
+        http_status_code=status,
+        expected_params={"Bucket": "local-fixture", "Key": packs(owner)[0]},
+    )
+    with pytest.raises(R2OperationStopped, match=f"HTTP {status}"):
+        list(fixed.requests(store, days=[DAY]))
+    with pytest.raises(R2OperationStopped, match="previously stopped"):
+        list(fixed.requests(store, days=[DAY]))

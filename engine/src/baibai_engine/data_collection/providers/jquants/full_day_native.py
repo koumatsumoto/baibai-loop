@@ -32,7 +32,7 @@ from baibai_engine.data_collection.providers.jquants.native_objects import (
     _put,
     _read,
 )
-from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
+from baibai_engine.storage.objects.r2 import LakePublishError, ObjectMetadataReader, ObjectStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +211,20 @@ class FixedFullDayL1:
         )
 
 
+def _read_fixed_pack(store: ObjectStore, key: str) -> bytes | None:
+    # Content-addressed packs need a coherent GET, not a mutable head's ETag fence.
+    if isinstance(store, ObjectMetadataReader):
+        response = store.get_bytes_with_metadata(key)
+        if response is None:
+            return None
+        payload, remote = response
+        if len(payload) != remote.size or _digest(payload) != remote.metadata.get("sha256"):
+            raise LakePublishError("native L1 object failed integrity")
+        return payload
+    saved = _read(store, key)
+    return None if saved is None else saved[0]
+
+
 def read_full_day_requests(
     store: ObjectStore,
     *,
@@ -232,10 +246,10 @@ def read_full_day_requests(
     for identity, receipt in wanted.items():
         by_pack.setdefault(receipt["pack"], set()).add(identity)
     for digest, identities in by_pack.items():
-        saved = _read(store, contract.prefix + "packs/" + digest + ".json.gz")
-        if saved is None or _digest(saved[0]) != digest:
+        payload = _read_fixed_pack(store, contract.prefix + "packs/" + digest + ".json.gz")
+        if payload is None or _digest(payload) != digest:
             raise LakePublishError("fixed full-day L1 pack is unavailable")
-        values = json.loads(gzip.decompress(saved[0]))
+        values = json.loads(gzip.decompress(payload))
         found: set[str] = set()
         for raw in values:
             identity = raw["request_id"]
