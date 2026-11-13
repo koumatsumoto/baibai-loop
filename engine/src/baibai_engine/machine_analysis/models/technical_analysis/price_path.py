@@ -103,8 +103,16 @@ def observe_price_path(
             unavailable_reason=reason,
         )
         if differences == 60:
+            # Other OHLCV fields can be partial without invalidating a real close.
+            # Keep the existing six-field coverage and annotation contract above.
             item["path_statistics"] = close_path_statistics(
-                {bar.traded_at: bar for bar in bars if bar.traded_at in prices}, window=window
+                {
+                    bar.traded_at: bar
+                    for bar in bars
+                    if bar.traded_at in retained
+                    and day_states.get(bar.traded_at) in ("priced", "mixed", "invalid")
+                },
+                window=window,
             )
         observations[ref] = item
         if value is not None:

@@ -13,8 +13,9 @@ from baibai_engine.machine_analysis.observations.prices.price_models import Pric
 def close_path_statistics(
     bars: Mapping[date, PriceBar], *, window: tuple[date, ...] | None
 ) -> dict[str, object]:
-    """The caller supplies only validated priced days on one adjustment basis."""
+    """The caller supplies observed valid closes on one adjustment basis."""
     result: dict[str, object] = {
+        "price_row_basis": "observed_finite_positive_adjusted_close",
         "status": "insufficient_calendar" if window is None else "incomplete_price_window",
         "up_days": None,
         "down_days": None,

@@ -107,7 +107,7 @@ def test_one_sided_and_zero_denominator_are_undefined_not_zero_demand():
     assert zero["unavailable_reason"] == "zero_down_mean"
 
 
-@pytest.mark.parametrize("state", ["absent", "no_trade", "mixed", "invalid"])
+@pytest.mark.parametrize("state", ["absent", "no_trade"])
 def test_missing_calendar_interval_never_becomes_a_smooth_filled_path(state):
     states = dict.fromkeys(WINDOW, "priced")
     if state == "absent":
@@ -120,6 +120,18 @@ def test_missing_calendar_interval_never_becomes_a_smooth_filled_path(state):
     assert result["path_statistics"]["status"] == "incomplete_price_window"
     assert result["path_statistics"]["log_path_efficiency"] is None
     assert result["path_statistics"]["turnover_comparison"] is None
+
+
+@pytest.mark.parametrize("state", ["mixed", "invalid"])
+def test_other_daily_fields_do_not_invalidate_an_observed_valid_close(state):
+    states = dict.fromkeys(WINDOW, "priced")
+    states[WINDOW[10]] = state
+    result = observe(list(range(100, 161)), states=states).payload["observations"]["G60"]
+    assert result["coverage"]["row_counts"][state] == 1
+    assert not result["coverage"]["complete"]
+    assert result["path_statistics"]["status"] == "available"
+    assert result["path_statistics"]["price_row_basis"] == "observed_finite_positive_adjusted_close"
+    assert result["path_statistics"]["up_days"] == 60
 
 
 def test_future_values_and_outside_window_prices_do_not_change_statistics():
