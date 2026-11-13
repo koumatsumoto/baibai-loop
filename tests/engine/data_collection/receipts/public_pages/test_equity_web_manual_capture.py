@@ -13,7 +13,6 @@ from tests.helpers.external_assessment_html import (
     kabumap_html,
     monex_html,
     official_html,
-    rakuten_html,
 )
 from tests.helpers.external_assessment_http import BytesSession, _original
 from tests.helpers.external_assessment_publication import pair_responses
@@ -46,19 +45,17 @@ def _counts(db):
         )
 
 
-def test_three_media_manual_collect_preserves_bytes_then_imports_without_network(
+def test_active_manual_collect_preserves_bytes_then_imports_without_network(
     monkeypatch, tmp_path, capsys
 ):
     bodies = (
         monex_html(value="--").encode(),
-        official_html().encode(),
-        rakuten_html().encode(),
         kabumap_html("7203").encode("shift_jis"),
     )
     client = BytesSession(
         [
             (200, body, {"Content-Type": "text/html; charset=" + encoding})
-            for body, encoding in zip(bodies, ("utf-8", "utf-8", "utf-8", "shift_jis"), strict=True)
+            for body, encoding in zip(bodies, ("utf-8", "shift_jis"), strict=True)
         ]
     )
     original_collect = collection.collect
@@ -79,11 +76,9 @@ def test_three_media_manual_collect_preserves_bytes_then_imports_without_network
                 "--source",
                 "monex",
                 "--source",
-                "rakuten",
-                "--source",
                 "kabumap",
                 "--request-budget",
-                "4",
+                "2",
                 "--output",
                 str(output),
             ]
@@ -92,29 +87,19 @@ def test_three_media_manual_collect_preserves_bytes_then_imports_without_network
     )
     after = datetime.now(UTC)
     summary = json.loads(capsys.readouterr().out)
-    assert summary["outcome_counts"] == {"observed": 3}
+    assert summary["outcome_counts"] == {"observed": 2}
     capture = load_capture(output)
     assert tuple(response.body for response in capture.responses) == bodies
-    assert tuple(response.role for response in capture.responses) == (
-        "page",
-        "page",
-        "iframe",
-        "page",
-    )
+    assert tuple(response.role for response in capture.responses) == ("page", "page")
     assert tuple(response.selected_encoding.lower() for response in capture.responses) == (
-        "utf-8",
-        "utf-8",
         "utf-8",
         "shift_jis",
     )
     assert all(before <= response.received_at_utc <= after for response in capture.responses)
-    assert capture.responses[1].attempt_id == capture.responses[2].attempt_id
-    assert capture.responses[2].parent_receipt_id == capture.responses[1].receipt_id
-    assert capture.responses[0].parent_receipt_id is None
+    assert all(response.parent_receipt_id is None for response in capture.responses)
     assert capture.selected_attempt_ids == (
         capture.responses[0].attempt_id,
         capture.responses[1].attempt_id,
-        capture.responses[3].attempt_id,
     )
     assert all(kwargs["allow_redirects"] is False for _, kwargs in client.calls)
 
@@ -124,8 +109,8 @@ def test_three_media_manual_collect_preserves_bytes_then_imports_without_network
     assert cli.main(["import", "--input", str(output), "--db", str(database)]) == 0
     assert json.loads(capsys.readouterr().out) == {
         "status": "imported",
-        "source_responses_inserted": 4,
-        "observations_inserted": 3,
+        "source_responses_inserted": 2,
+        "observations_inserted": 2,
     }
     with closing(sqlite3.connect(database)) as conn:
         ids = tuple(response.receipt_id for response in capture.responses)
@@ -133,7 +118,7 @@ def test_three_media_manual_collect_preserves_bytes_then_imports_without_network
         assert conn.execute(f"SELECT consensus_target FROM {MODEL_VALUATION_TABLE}").fetchone() == (
             None,
         )
-    assert _counts(database) == (1, 1, 1)
+    assert _counts(database) == (1, 0, 1)
     assert cli.main(["import", "--input", str(output), "--db", str(database)]) == 0
     assert json.loads(capsys.readouterr().out) == {
         "status": "imported",
@@ -142,13 +127,10 @@ def test_three_media_manual_collect_preserves_bytes_then_imports_without_network
     }
 
 
-def test_failed_and_incomplete_http_200_originals_are_retained_without_selection(
-    monkeypatch, tmp_path, capsys
-):
+def test_parse_failure_originals_are_retained_but_non200_has_no_body(monkeypatch, tmp_path, capsys):
     client = BytesSession(
         [
             (200, b"<html>bad ticker identity</html>", {"Content-Type": "text/html"}),
-            (200, official_html().encode(), {"Content-Type": "text/html; charset=utf-8"}),
             (500, b"not a captured response", {}),
         ]
     )
@@ -169,7 +151,7 @@ def test_failed_and_incomplete_http_200_originals_are_retained_without_selection
                 "--source",
                 "monex",
                 "--source",
-                "rakuten",
+                "kabumap",
                 "--output",
                 str(output),
             ]
@@ -179,39 +161,39 @@ def test_failed_and_incomplete_http_200_originals_are_retained_without_selection
     summary = json.loads(capsys.readouterr().out)
     assert summary["outcome_counts"] == {"parse_failure": 1, "http_failure": 1}
     capture = load_capture(output)
-    assert len(capture.responses) == 2
+    assert len(capture.responses) == 1
     assert capture.selected_attempt_ids == ()
     assert capture.responses[0].body == b"<html>bad ticker identity</html>"
-    assert capture.responses[1].body == official_html().encode()
     database = tmp_path / "market.sqlite"
     open_connection(database).close()
     assert cli.main(["import", "--input", str(output), "--db", str(database)]) == 0
     capsys.readouterr()
     with closing(sqlite3.connect(database)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (2,)
+        assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (1,)
     assert _counts(database) == (0, 0, 0)
 
 
-def test_budget_interruption_retains_only_received_outer_page(tmp_path):
+def test_budget_interruption_retains_only_received_attempt(tmp_path):
     client = BytesSession(
-        [(200, official_html().encode(), {"Content-Type": "text/html; charset=utf-8"})]
+        [(200, monex_html().encode(), {"Content-Type": "text/html; charset=utf-8"})]
     )
     received = []
     result = collection.collect(
         ["7203"],
-        sources=("rakuten",),
+        sources=("monex", "kabumap"),
         request_budget=1,
         session=client,
         on_received_html=received.append,
     )
     assert result.stop_reason == "request_budget"
-    assert result.outcomes[0].status == "incomplete"
+    assert [item.status for item in result.outcomes] == ["observed", "not_attempted"]
     assert len(received) == 1
     assert received[0].attempt_id == result.outcomes[0].attempt_id
     assert received[0].role == "page"
-    path = tmp_path / "outer-only.json"
-    save_capture(path, EquityWebCapture(tuple(received), ()))
-    assert load_capture(path).responses == tuple(received)
+    path = tmp_path / "first-only.json"
+    capture = EquityWebCapture(tuple(received), (received[0].attempt_id,))
+    save_capture(path, capture)
+    assert load_capture(path) == capture
 
 
 def test_incomplete_selected_attempt_leaves_l2_empty_but_keeps_originals(tmp_path, capsys):

@@ -44,7 +44,10 @@ from baibai_jobs.acquisition.external_assessments.cohorts import (
     record_outcome,
     summarize,
 )
-from baibai_jobs.acquisition.external_assessments.collection import DEFAULT_PAIR_TIME_LIMIT_SECONDS
+from baibai_jobs.acquisition.external_assessments.collection import (
+    DEFAULT_PAIR_TIME_LIMIT_SECONDS,
+    SOURCES,
+)
 from baibai_jobs.acquisition.external_assessments.collection import (
     CollectionResult as ExternalAssessmentCollectionResult,
 )
@@ -96,6 +99,8 @@ def initialize(
     observation_date: date | None = None,
     source: ExternalAssessmentSource | None = None,
 ) -> RunPlan:
+    if source is not None and source not in SOURCES:
+        raise ValueError("unsupported acquisition source")
     if (master_asof is None) == (observation_date is None):
         raise ValueError(
             "external assessment plan requires either a saved master or a scheduled date"
@@ -124,7 +129,7 @@ def initialize(
         tickers=tickers,
         universe_binding=binding,
         collector_binding=external_assessment_collector_binding(source=source),
-        sources=(source,) if source is not None else ("monex", "rakuten", "kabumap", "minkabu"),
+        sources=(source,) if source is not None else SOURCES,
     )
     if len(plan.cohorts) > 256:
         raise ValueError("external assessment cohort count exceeds the supported Actions matrix")
@@ -285,7 +290,7 @@ def acquire_cohort(
                     response_content_bytes=stage.response_content_bytes
                     + (result.response_content_bytes or 0),
                 )
-                # At most two bodies per attempt stay in memory. Disk/compression/R2
+                # One body per attempt stays in memory. Disk/compression/R2
                 # work is outside the finite pair deadline and cannot alter its result.
                 storage_started = time.monotonic()
                 for received in received_html:
@@ -356,8 +361,7 @@ def acquire_cohort(
                         for receipt in bundle.receipts
                         if receipt["attempt_id"] == entry.attempt_id
                     ]
-                    expected_roles = {"page", "iframe"} if entry.source == "rakuten" else {"page"}
-                    if {receipt["role"] for receipt in receipts} != expected_roles or any(
+                    if {receipt["role"] for receipt in receipts} != {"page"} or any(
                         (receipt["source"], receipt["requested_ticker"])
                         != (entry.source, entry.ticker)
                         for receipt in receipts

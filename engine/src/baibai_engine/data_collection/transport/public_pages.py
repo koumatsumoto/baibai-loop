@@ -23,22 +23,13 @@ from baibai_engine.data_collection.receipts.public_pages.models import (
     Source,
 )
 from baibai_engine.data_collection.receipts.public_pages.receipts import validate_response
-from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
-
-# Identify the actual tool, not a browser or a different client.
-MINKABU_PUBLIC_HEADERS = {
-    "User-Agent": PUBLIC_RESEARCH_USER_AGENT,
-    "Accept": "text/html",
-}
 
 MIN_REQUEST_INTERVAL_SECONDS = 2.0
-# Every request start, including iframe/fallback/retry, shares its source clock.
+# Every request start, including retry, shares its source clock.
 SOURCE_REQUEST_INTERVAL_SECONDS = 0.5
 SOURCE_HOSTS = {
     "monex": ("scouter.monex.co.jp",),
-    "rakuten": ("www.rakuten-sec.co.jp", "rakuten-sec.ifis.co.jp"),
     "kabumap": ("jp.kabumap.com",),
-    "minkabu": ("minkabu.jp",),
 }
 _HOST_SOURCES = {host: source for source, hosts in SOURCE_HOSTS.items() for host in hosts}
 
@@ -199,12 +190,7 @@ def receive_html(
     on_received_html: Callable[[EquityWebSourceResponse], None] | None = None,
 ) -> tuple[str, datetime, str | None]:
     # Redirects would add unbudgeted requests and can redirect to login pages.
-    request_options: dict[str, Any] = {}
-    if source == "minkabu":
-        request_options["headers"] = MINKABU_PUBLIC_HEADERS
-    with session.get(
-        url, timeout=timeout, allow_redirects=False, stream=True, **request_options
-    ) as response:
+    with session.get(url, timeout=timeout, allow_redirects=False, stream=True) as response:
         if response.status_code != 200:
             if response.status_code == 429:
                 # PairSession completes a non-200 reception at its headers,

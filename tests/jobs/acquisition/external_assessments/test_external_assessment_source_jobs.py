@@ -10,8 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.helpers.external_assessment_html import (
-    official_html,
-    rakuten_html,
+    kabumap_html,
 )
 from tests.helpers.external_assessment_http import HostRateClock as Clock
 from tests.helpers.external_assessment_http import HostRateSession as Session
@@ -40,23 +39,23 @@ def test_source_ids_are_disjoint_and_current_cycle_is_selected(monkeypatch):
     )
     assert eligible
     assert day.isoformat() == "2026-10-12"
-    assert len({item["run_id"] for item in selected}) == 4
+    assert len({item["run_id"] for item in selected}) == 2
     assert all(
         item["run_id"] == f"external-assessment-daily-{item['source']}-2026-10-12"
         for item in selected
     )
     one, _, _ = sources.selection(source="monex", batch_id="manual", created_at=None)
-    other, _, _ = sources.selection(source="minkabu", batch_id="manual", created_at=None)
+    other, _, _ = sources.selection(source="kabumap", batch_id="manual", created_at=None)
     assert one[0]["run_id"] != other[0]["run_id"]
     assert sources.read_selection(json.dumps(one)) == one
     scheduled = selected[0]["run_id"]
     resumed, _, _ = sources.selection(source="monex", batch_id=scheduled, created_at=None)
     assert resumed == selected[:1]
-    for wrong_source in ("all", "minkabu"):
+    for wrong_source in ("all", "kabumap"):
         with pytest.raises(ValueError, match="one exact source"):
             sources.selection(source=wrong_source, batch_id=scheduled, created_at=None)
     with pytest.raises(ValueError, match="namespaced"):
-        sources.read_selection('[{"source":"minkabu","run_id":"monex-manual"}]')
+        sources.read_selection('[{"source":"kabumap","run_id":"monex-manual"}]')
 
 
 def test_manual_scheduled_resume_requires_existing_exact_plan(monkeypatch, tmp_path):
@@ -73,9 +72,9 @@ def test_manual_scheduled_resume_requires_existing_exact_plan(monkeypatch, tmp_p
             [
                 "acquire",
                 "--source",
-                "minkabu",
+                "kabumap",
                 "--run-id",
-                "external-assessment-daily-minkabu-2026-10-22",
+                "external-assessment-daily-kabumap-2026-10-22",
                 "--master-asof",
                 "2026-10-22",
                 "--directory",
@@ -85,7 +84,7 @@ def test_manual_scheduled_resume_requires_existing_exact_plan(monkeypatch, tmp_p
         == 1
     )
     assert recorded[0]["require_existing"] is True
-    assert recorded[0]["source"] == "minkabu"
+    assert recorded[0]["source"] == "kabumap"
 
 
 def test_old_multi_source_plan_is_never_rebound():
@@ -139,7 +138,9 @@ def test_one_source_refusal_stops_its_unattempted_pairs_while_other_source_acqui
     monkeypatch.setattr(sources.time, "monotonic", timer.monotonic)
     monkeypatch.setattr(sources.time, "sleep", timer.sleep)
     denied = Session(timer, [(status, "synthetic denial", {})])
-    available = Session(timer, [(200, official_html(), {}), (200, rakuten_html(), {})])
+    available = Session(
+        timer, [(200, kabumap_html("7203"), {"Content-Type": "text/html; charset=utf-8"})]
+    )
     clients = iter((denied, available))
     monkeypatch.setattr(sources.requests, "Session", lambda: next(clients))
     store = FakeObjectStore()
@@ -149,7 +150,7 @@ def test_one_source_refusal_stops_its_unattempted_pairs_while_other_source_acqui
         source="monex",
     )
     successful = sources.acquire_source(
-        store, replace(plan(sources=("rakuten",)), run_id="rakuten-ready-acquire"), source="rakuten"
+        store, replace(plan(sources=("kabumap",)), run_id="kabumap-ready-acquire"), source="kabumap"
     )
     assert failed["status"] == "blocked"
     assert failed["state_counts"]["failure"] == 1
@@ -157,8 +158,7 @@ def test_one_source_refusal_stops_its_unattempted_pairs_while_other_source_acqui
     assert len(denied.calls) == 1
     assert successful["status"] == "acquired"
     assert successful["state_counts"]["success"] == 1
-    assert len(available.calls) == 2
-    assert available.calls[1][0] - available.calls[0][0] >= 0.5
+    assert len(available.calls) == 1
 
 
 @pytest.mark.parametrize("http_status", [200, 404])

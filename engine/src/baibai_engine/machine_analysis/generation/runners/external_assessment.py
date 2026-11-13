@@ -16,11 +16,12 @@ from baibai_engine.machine_analysis.observations.external_assessments.reader imp
 def external_assessment(
     path: Path, *, ticker: str, cutoff: datetime, evaluated_at: datetime
 ) -> ExternalAssessment:
-    return analyze(read_observations(path, ticker, cutoff), evaluated_at=evaluated_at)
+    return analyze(
+        read_observations(path, ticker, cutoff, include_retired=False), evaluated_at=evaluated_at
+    )
 
 
 def generate_external_assessment(
     history: ObservationHistory, *, evaluated_at: datetime
 ) -> ExternalAssessment:
-    result = analyze(history, evaluated_at=evaluated_at)
-    return result.model_copy(update={"method_version": "same-series-v6"})
+    return analyze(history, evaluated_at=evaluated_at)

@@ -206,7 +206,16 @@ def test_import_parent_and_attempt_reads_share_the_immediate_write_transaction(
     statements = []
     connection = sqlite3.connect(path)
     connection.set_trace_callback(lambda sql: statements.append((sql, connection.in_transaction)))
-    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: connection)
+    connect = sqlite3.connect
+    # Schema validation may build its own in-memory reference on a cold worker.
+    # Do not alias that scratch database to the observed write transaction.
+    monkeypatch.setattr(
+        sqlite3,
+        "connect",
+        lambda database, *args, **kwargs: (
+            connect(database, *args, **kwargs) if database == ":memory:" else connection
+        ),
+    )
     assert import_responses(path, (iframe, page)) == 2
     reads = [
         active

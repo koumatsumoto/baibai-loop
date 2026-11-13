@@ -60,7 +60,7 @@ def clock(monkeypatch):
     return value
 
 
-@pytest.mark.parametrize("source", ["monex", "rakuten", "kabumap", "minkabu"])
+@pytest.mark.parametrize("source", ["monex", "kabumap"])
 @pytest.mark.parametrize("status", [401, 403, 429])
 @pytest.mark.parametrize("paired", [False, True])
 def test_status_stops_direct_and_pair_collection_before_error_body(clock, source, status, paired):

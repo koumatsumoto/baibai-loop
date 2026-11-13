@@ -15,6 +15,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLiteSchemaError,
     validate_current_schema,
 )
+from baibai_jobs.acquisition.external_assessments.collection import SOURCES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,9 +31,7 @@ def add_acquisition_commands(commands: argparse._SubParsersAction[argparse.Argum
     )
     acquisition.add_argument("--output", type=Path, required=True)
     acquisition.add_argument("--tickers", nargs="+")
-    acquisition.add_argument(
-        "--source", choices=("monex", "rakuten", "kabumap", "minkabu"), action="append"
-    )
+    acquisition.add_argument("--source", choices=SOURCES, action="append")
     acquisition.add_argument("--request-budget", type=int, default=9)
     acquisition.add_argument("--time-limit-seconds", type=float, default=60)
     acquisition.add_argument("--request-timeout-seconds", type=float, default=10)
@@ -66,7 +65,7 @@ def main(argv: list[str] | None = None, /) -> int:
             received: list[EquityWebSourceResponse] = []
             result = collect(
                 args.tickers or DEFAULT_TICKERS,
-                sources=args.source or ("monex", "rakuten"),
+                sources=args.source or SOURCES,
                 request_budget=args.request_budget,
                 time_limit_seconds=args.time_limit_seconds,
                 request_timeout_seconds=args.request_timeout_seconds,

@@ -17,7 +17,6 @@ from pydantic import ValidationError
 import baibai_engine.data_collection.transport.public_pages as source_http
 from baibai_engine.data_collection.receipts.public_pages.models import (
     EquityWebSourceResponse,
-    Role,
     Source,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.identity import (
@@ -27,9 +26,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     kabumap,
-    minkabu,
     monex,
-    rakuten,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
     parse_source_html,
@@ -41,6 +38,7 @@ MAX_TICKERS = 3
 MAX_REQUESTS = 9
 DEFAULT_PAIR_TIME_LIMIT_SECONDS = 120
 DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS = 30
+SOURCES: tuple[Source, ...] = ("monex", "kabumap")
 
 
 PARSE_FAILURE_REASONS = frozenset(
@@ -117,7 +115,7 @@ class CollectionResult:
 def collect(
     tickers: Sequence[str] = DEFAULT_TICKERS,
     *,
-    sources: Sequence[Source] = ("monex", "rakuten"),
+    sources: Sequence[Source] = SOURCES,
     request_budget: int = MAX_REQUESTS,
     time_limit_seconds: float = 60,
     request_timeout_seconds: float = 10,
@@ -131,7 +129,7 @@ def collect(
     if (
         not sources
         or len(set(sources)) != len(sources)
-        or any(source not in {"monex", "rakuten", "kabumap", "minkabu"} for source in sources)
+        or any(source not in SOURCES for source in sources)
     ):
         raise ValueError("collection requires distinct supported sources")
     if not 1 <= request_budget <= MAX_REQUESTS:
@@ -153,9 +151,7 @@ def collect(
     deadline = time.monotonic() + time_limit_seconds
     last_request_finished: float | None = None
 
-    def receive(
-        url: str, *, role: Role, parent_receipt_id: str | None = None
-    ) -> tuple[str, datetime, str | None]:
+    def receive(url: str) -> tuple[str, datetime, str | None]:
         nonlocal used, last_request_finished
         if used >= request_budget:
             raise _RequestLimit
@@ -185,8 +181,7 @@ def collect(
                 attempt_id=active_attempt_id,
                 source=active[0],
                 ticker=active[1],
-                role=role,
-                parent_receipt_id=parent_receipt_id,
+                role="page",
                 on_received_html=on_received_html,
             )
         finally:
@@ -202,33 +197,10 @@ def collect(
                     try:
                         if source == "monex":
                             url = monex.public_url(ticker)
-                            html, received, _ = receive(url, role="page")
-                        elif source == "minkabu":
-                            url = minkabu.public_url(ticker)
-                            try:
-                                html, received, _ = receive(url, role="page")
-                            except source_http.HttpFailure as exc:
-                                if exc.status != 404:
-                                    raise
-                                # 404 alone proves nothing. Only the identified issuer's
-                                # explicit public "対象外" display can become normal-null.
-                                url = minkabu.profile_url(ticker)
-                                html, received, _ = receive(url, role="page")
-                        elif source == "kabumap":
-                            url = kabumap.public_url(ticker)
-                            html, received, _ = receive(url, role="page")
+                            html, received, _ = receive(url)
                         else:
-                            url = rakuten.public_url(ticker)
-                            html, _, page_receipt_id = receive(url, role="page")
-                            try:
-                                url = rakuten.iframe_url(html, ticker=ticker, source_url=url)
-                            except (ParseError, ValidationError, source_http.TimeLimit):
-                                raise
-                            except Exception as exc:
-                                raise ParseError("unclassified_parse_failure") from exc
-                            html, received, _ = receive(
-                                url, role="iframe", parent_receipt_id=page_receipt_id
-                            )
+                            url = kabumap.public_url(ticker)
+                            html, received, _ = receive(url)
                         # Projection failure must still return the received originals
                         # to the caller. Transport and receipt/storage failures stay outside.
                         try:
@@ -363,25 +335,19 @@ def collector_binding(*, source: Source | None = None) -> str:
     """Bind only the selected source's parser and shared transport policy."""
     parsers = {
         "monex": monex.PARSER_VERSION,
-        "rakuten": rakuten.PARSER_VERSION,
         "kabumap": kabumap.PARSER_VERSION,
-        "minkabu": minkabu.PARSER_VERSION,
     }
     if source is not None and source not in parsers:
         raise ValueError("unsupported external assessment source")
     selected = tuple(parsers) if source is None else (source,)
-    limits = {"monex": 1, "rakuten": 2, "kabumap": 1, "minkabu": 2}
     policy = {
         "format": PAIR_ACQUISITION_POLICY_VERSION,
         "parsers": {name: parsers[name] for name in selected},
-        "request_headers": {
-            name: source_http.MINKABU_PUBLIC_HEADERS if name == "minkabu" else {}
-            for name in selected
-        },
+        "request_headers": {name: {} for name in selected},
         "request_interval_seconds": source_http.MIN_REQUEST_INTERVAL_SECONDS,
         "pair_time_limit_seconds": DEFAULT_PAIR_TIME_LIMIT_SECONDS,
         "request_timeout_seconds": DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
-        "source_request_limits": {name: limits[name] for name in selected},
+        "source_request_limits": dict.fromkeys(selected, 1),
         "source_start_interval_seconds": source_http.SOURCE_REQUEST_INTERVAL_SECONDS,
         "source_hosts": {name: source_http.SOURCE_HOSTS[name] for name in selected},
     }
@@ -408,7 +374,7 @@ def collect_pair(
     finite pair/HTTP deadlines and source identity checks remain unchanged.
     """
     ticker = normalize_ticker(ticker)
-    if source not in {"monex", "rakuten", "kabumap", "minkabu"}:
+    if source not in SOURCES:
         raise ValueError("pair collection requires a supported source")
     if not math.isfinite(time_limit_seconds) or not 0 < time_limit_seconds <= 120:
         raise ValueError("wall-clock limit must be positive and at most 120 seconds")
@@ -439,7 +405,7 @@ def collect_pair(
         result = collect(
             [ticker],
             sources=(source,),
-            request_budget=2 if source in {"rakuten", "minkabu"} else 1,
+            request_budget=1,
             time_limit_seconds=remaining,
             request_timeout_seconds=request_timeout_seconds,
             session=wrapped,

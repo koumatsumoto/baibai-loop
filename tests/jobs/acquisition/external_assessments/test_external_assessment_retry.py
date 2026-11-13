@@ -8,9 +8,6 @@ import requests
 from tests.helpers.external_assessment_html import (
     kabumap_html,
     monex_html,
-    official_html,
-    rakuten_html,
-    rakuten_no_estimates_html,
 )
 from tests.helpers.external_assessment_stages import FakeObjectStore, plan
 
@@ -151,14 +148,12 @@ def test_host_spacing_cannot_start_request_after_cycle_deadline(monkeypatch, clo
     assert store.puts == []
 
 
-@pytest.mark.parametrize(("source", "limit"), [("monex", 6), ("rakuten", 12), ("kabumap", 6)])
+@pytest.mark.parametrize(("source", "limit"), [("monex", 6), ("kabumap", 6)])
 def test_initial_plus_five_retry_stops_and_saved_failure_is_not_retried(
     monkeypatch, clock, source, limit
 ):
     p, store = plan(sources=(source,)), FakeObjectStore()
     replies = [(429, "0", "denied")] * 6
-    if source == "rakuten":
-        replies = [reply for denied in replies for reply in [(200, None, official_html()), denied]]
     client = wire_collector(monkeypatch, store, p, clock, replies)
     report = daily.acquire_cohort(store, p, 0)
     assert len(client.calls) == report["provider_requests"] == limit
@@ -173,36 +168,6 @@ def test_initial_plus_five_retry_stops_and_saved_failure_is_not_retried(
     assert daily.acquire_cohort(store, p, 0)["provider_requests"] == 0
     assert store.puts == before
     assert len(client.calls) == limit
-
-
-def test_rakuten_retry_restarts_outer_page_and_archives_every_received_200(monkeypatch, clock):
-    p, store = plan(sources=("rakuten",)), FakeObjectStore()
-    client = wire_collector(
-        monkeypatch,
-        store,
-        p,
-        clock,
-        [
-            (200, None, official_html()),
-            (429, "0", "denied"),
-            (200, None, official_html()),
-            (200, None, rakuten_html()),
-        ],
-    )
-    report = daily.acquire_cohort(store, p, 0)
-    assert report["provider_requests"] == len(client.calls) == 4
-    assert client.calls[0][0] == client.calls[2][0]
-    saved = staging.read_stage(store, p, 0)[0]
-    assert saved.result.entries[0].state == "success"
-    from baibai_jobs.acquisition.external_assessments.raw import read_raw_bundle
-
-    manifest, bodies = read_raw_bundle(store, saved.raw_bundle_keys[0])
-    assert len(manifest["receipts"]) == len(bodies) == 3
-    assert bodies[0].role == bodies[1].role == "page"
-    assert bodies[0].attempt_id != bodies[1].attempt_id
-    assert bodies[2].role == "iframe"
-    assert bodies[2].attempt_id == bodies[1].attempt_id == saved.result.entries[0].attempt_id
-    assert bodies[2].parent_receipt_id == bodies[1].receipt_id
 
 
 @pytest.mark.parametrize(
@@ -301,7 +266,7 @@ def test_host_bucket_is_shared_across_pairs_and_resets_without_restart_credit(mo
 
 
 def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monkeypatch, clock):
-    p = plan(tickers=("130A", "7203", "8301"), sources=("kabumap", "monex", "rakuten"))
+    p = plan(tickers=("130A", "7203", "8301"), sources=("kabumap", "monex"))
     store = FakeObjectStore()
     original_plan = staging.plan_bytes(p)
     client = wire_collector(
@@ -312,12 +277,8 @@ def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monke
         [
             (200, None, kabumap_html("130A")),
             (200, None, monex_html("130A", value="--")),
-            (200, None, official_html("130A")),
-            (200, None, rakuten_html("130A", value="0")),
             (200, None, kabumap_html("7203")),
             (200, None, monex_html("7203").replace("theory_summary_inner", "missing")),
-            (200, None, official_html("7203")),
-            (200, None, rakuten_no_estimates_html()),
         ],
     )
     collect = daily.external_assessment_collect_pair
@@ -326,7 +287,7 @@ def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monke
     def limited(ticker, *, source, **kwargs):
         seen.append((source, ticker))
         result = collect(ticker, source=source, **kwargs)
-        if (source, ticker) == ("rakuten", "7203"):
+        if (source, ticker) == ("monex", "7203"):
             clock.elapsed = 101
         return result
 
@@ -334,13 +295,13 @@ def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monke
     report = daily.acquire_cohort(store, p, 0, soft_budget_seconds=1000)
     assert report["stop_reason"] == "soft_budget"
     assert report["state_counts"] == {
-        "success": 3,
+        "success": 2,
         "normal_null": 1,
-        "failure": 2,
-        "unattempted": 3,
+        "failure": 1,
+        "unattempted": 2,
     }
     assert seen == [(source, ticker) for ticker in ("130A", "7203") for source in p.sources]
-    assert len(client.calls) == report["provider_requests"] == 8
+    assert len(client.calls) == report["provider_requests"] == 4
     assert all(limiter is client.limiters[0] for limiter in client.limiters)
     saved = staging.read_stage(store, p, 0)[0]
     assert (
@@ -352,10 +313,8 @@ def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monke
         for entry in saved.result.entries
         if entry.state != "unattempted"
     }
-    assert received["rakuten", "130A"].observation.rating == 0
     assert received["monex", "130A"].observation.pbr is None
     assert received["monex", "7203"].reason == "missing_theory_table"
-    assert received["rakuten", "7203"].reason == "no_estimates_identity_unconfirmed"
 
     store.events.clear()
     resumed = wire_collector(
@@ -366,13 +325,11 @@ def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monke
         [
             (200, None, kabumap_html("8301")),
             (200, None, monex_html("8301")),
-            (200, None, official_html("8301")),
-            (200, None, rakuten_html("8301")),
         ],
     )
     report = daily.acquire_cohort(store, p, 0)
     assert report["cohort_complete"] is True
-    assert len(resumed.calls) == report["provider_requests"] == 4
+    assert len(resumed.calls) == report["provider_requests"] == 2
     complete = staging.read_stage(store, p, 0)[0]
     assert all(
         received[key] == entry
@@ -382,5 +339,5 @@ def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monke
     before = store.objects.copy()
     report = daily.acquire_cohort(store, p, 0)
     assert report["provider_requests"] == 0
-    assert len(resumed.calls) == 4
+    assert len(resumed.calls) == 2
     assert store.objects == before

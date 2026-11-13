@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: "Independent acquisition source; all selects the four exact source plans"
+        description: "Independent acquisition source; all selects the two exact source plans"
         type: choice
         default: all
-        options: [all, monex, rakuten, kabumap, minkabu]
+        options: [all, monex, kabumap]
       batch_id:
         description: "Manual label, or exact existing scheduled source plan ID"
         required: true
@@ -82,7 +82,7 @@ jobs:
     if: ${{ needs.plan.outputs.eligible == 'true' }}
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 2
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.source_runs) }}
     uses: ./.github/workflows/cloud-external-assessment-source.yml

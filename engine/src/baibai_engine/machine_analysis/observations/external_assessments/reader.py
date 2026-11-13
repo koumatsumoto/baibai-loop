@@ -115,16 +115,25 @@ def tradingview_rows_at_cutoff(
     return [row for series in latest.values() for _, row in series]
 
 
-def read_observations(sqlite_path: Path, ticker: str, cutoff: datetime) -> ObservationHistory:
+def read_observations(
+    sqlite_path: Path, ticker: str, cutoff: datetime, *, include_retired: bool = True
+) -> ObservationHistory:
     """Read newest and previous received rows per distributor, including normal nulls."""
     ticker = normalize_ticker(ticker)
-    return read_observation_population(sqlite_path, tickers=(ticker,), cutoff=cutoff)[ticker]
+    return read_observation_population(
+        sqlite_path, tickers=(ticker,), cutoff=cutoff, include_retired=include_retired
+    )[ticker]
 
 
 def read_observation_population(
-    sqlite_path: Path, *, tickers: Sequence[str], cutoff: datetime, include_tradingview: bool = True
+    sqlite_path: Path,
+    *,
+    tickers: Sequence[str],
+    cutoff: datetime,
+    include_tradingview: bool = True,
+    include_retired: bool = True,
 ) -> dict[str, ObservationHistory]:
-    """同一read transactionで必要企業の履歴を読む。全社生成で接続を反復しない。"""
+    """履歴読取は旧sourceも保持し、新規生成は廃止sourceをquery/decodeしない。"""
     requested = sorted({normalize_ticker(ticker) for ticker in tickers})
     cutoff = utc_datetime(cutoff)
     if not requested or not sqlite_path.exists():
@@ -141,25 +150,33 @@ def read_observation_population(
             )
             if row["ticker"] in selected
         ]
-        rating = [
-            AnalystRatingObservation.model_validate(dict(row))
-            for row in _latest_rows(
-                conn, ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS, ticker, cutoff
-            )
-            if row["ticker"] in selected
-        ]
+        rating = (
+            [
+                AnalystRatingObservation.model_validate(dict(row))
+                for row in _latest_rows(
+                    conn, ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS, ticker, cutoff
+                )
+                if row["ticker"] in selected
+            ]
+            if include_retired
+            else []
+        )
         quants = [
             QuantsScoreObservation.model_validate(dict(row))
             for row in _latest_rows(conn, QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS, ticker, cutoff)
             if row["ticker"] in selected
         ]
-        minkabu = [
-            AnalystForecastObservation.model_validate(dict(row))
-            for row in _latest_rows(
-                conn, ANALYST_FORECAST_TABLE, ANALYST_FORECAST_COLUMNS, ticker, cutoff
-            )
-            if row["ticker"] in selected
-        ]
+        minkabu = (
+            [
+                AnalystForecastObservation.model_validate(dict(row))
+                for row in _latest_rows(
+                    conn, ANALYST_FORECAST_TABLE, ANALYST_FORECAST_COLUMNS, ticker, cutoff
+                )
+                if row["ticker"] in selected
+            ]
+            if include_retired
+            else []
+        )
         tradingview = (
             [
                 TradingViewObservation.model_validate(dict(row))

@@ -32,7 +32,7 @@ concurrency:
 jobs:
   acquire:
     concurrency:
-      group: source-host-${{ inputs.source == 'minkabu' && 'minkabu' || inputs.source == 'rakuten' && 'rakuten' || format('external-{0}', inputs.source) }}
+      group: source-host-external-${{ inputs.source }}
       queue: max
       cancel-in-progress: false
     if: ${{ inputs.operation == 'collect' }}

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from baibai_engine.machine_analysis.models.external_assessment.models import (
-    AnalystRatingAssessment,
     ExternalAssessment,
     MetricComparison,
     ModelValuationAssessment,
@@ -15,8 +14,6 @@ from baibai_engine.machine_analysis.models.external_assessment.models import (
     TradingViewAssessment,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
-    AnalystForecastHistory,
-    AnalystRatingHistory,
     ModelValuationHistory,
     ObservationHistory,
     QuantsScoreHistory,
@@ -139,18 +136,12 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
     if cutoff > evaluated_at:
         raise ValueError("analysis cutoff cannot be later than evaluation time")
     all_series: tuple[
-        ModelValuationHistory
-        | AnalystRatingHistory
-        | QuantsScoreHistory
-        | TradingViewHistory
-        | AnalystForecastHistory,
+        ModelValuationHistory | QuantsScoreHistory | TradingViewHistory,
         ...,
     ] = (
         *history.model_valuations,
-        *history.analyst_ratings,
         *history.quants_scores,
         history.tradingview,
-        history.minkabu,
     )
     for series in all_series:
         for row in (series.latest, series.previous):
@@ -212,42 +203,6 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
             row = model_pair.latest
             if row is not None and getattr(row, metric) is not None:
                 origin_reference(getattr(row, f"{metric}_origin"), row, "model_valuation", metric)
-    ratings = []
-    for rating_pair in history.analyst_ratings:
-        if rating_pair.latest is None:
-            continue
-        ratings.append(
-            AnalystRatingAssessment(
-                distributor=rating_pair.latest.distributor,
-                inputs=rating_pair,
-                comparison=_compare(
-                    "rating",
-                    rating_pair.latest,
-                    rating_pair.previous,
-                    (
-                        "distributor",
-                        "origin",
-                        "rating_scale_min",
-                        "rating_scale_max",
-                        "rating_scale_direction",
-                    ),
-                ),
-            )
-        )
-        if rating_pair.latest.rating is not None:
-            origin_reference(
-                rating_pair.latest.origin, rating_pair.latest, "analyst_rating", "rating"
-            )
-    # Absence of a saved response is not a received null. Keep the expected
-    # Rakuten series visible without manufacturing an observation or receipt.
-    if not any(item.distributor == "rakuten" for item in ratings):
-        ratings.append(
-            AnalystRatingAssessment(
-                distributor="rakuten",
-                inputs=AnalystRatingHistory(),
-                comparison=_compare("rating", None, None, ()),
-            )
-        )
     scores = []
     for score_pair in history.quants_scores:
         scores.append(
@@ -289,10 +244,10 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
         ticker=history.ticker,
         cutoff=cutoff,
         evaluated_at=evaluated_at,
+        method_version="same-series-v7",
         model_valuations=tuple(models),
-        analyst_ratings=tuple(ratings),
+        analyst_ratings=(),
         quants_scores=tuple(scores),
-        minkabu=history.minkabu,
         tradingview=TradingViewAssessment(
             inputs=tv,
             availability=availability,

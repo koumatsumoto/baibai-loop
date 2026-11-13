@@ -12,9 +12,8 @@ from pathlib import Path
 import pytest
 import requests
 from tests.helpers.external_assessment_html import (
+    kabumap_html,
     monex_html,
-    official_html,
-    rakuten_html,
 )
 from tests.helpers.external_assessment_http import BytesSession, _original
 from tests.helpers.external_assessment_http import CaptureSession as Session
@@ -115,15 +114,15 @@ def test_invalid_bytes_and_unknown_charset_are_fixed_failures_not_null(content_t
 
 def test_live_collector_separates_acquisition_and_receipt_time(monkeypatch):
     fake_clock(monkeypatch)
-    client = Session([(200, monex_html()), (200, official_html()), (200, rakuten_html())])
+    client = Session([(200, monex_html()), (200, kabumap_html("7203"))])
     before = datetime.now(UTC)
     result = collection.collect(["7203"], session=client)
     after = datetime.now(UTC)
     assert len(result.observations) == 2
-    assert result.requests == 3
+    assert result.requests == 2
     assert result.stop_reason is None
     assert all(before <= row.fetched_at_utc <= after for row in result.observations)
-    assert client.calls[-1][0].endswith("bcode=7203.T")
+    assert "jp.kabumap.com" in client.calls[-1][0]
     assert all(
         call[1] == {"timeout": 10, "allow_redirects": False, "stream": True}
         for call in client.calls
@@ -139,14 +138,12 @@ def test_limit_response_stops_only_that_source(status, category, monkeypatch):
     client = Session(
         [
             (status, "secret"),
-            (200, official_html()),
-            (200, rakuten_html()),
-            (200, official_html("9432")),
-            (200, rakuten_html("9432")),
+            (200, kabumap_html("7203")),
+            (200, kabumap_html("9432")),
         ]
     )
     result = collection.collect(["7203", "9432"], session=client)
-    assert result.requests == 5
+    assert result.requests == 3
     assert len(result.observations) == 2
     assert [row.status for row in result.outcomes] == [
         category,
@@ -161,25 +158,13 @@ def test_limit_response_stops_only_that_source(status, category, monkeypatch):
     assert "secret" not in json.dumps(result.summary())
 
 
-@pytest.mark.parametrize("status", [401, 403])
-def test_iframe_refusal_stops_remaining_rakuten_tickers(monkeypatch, status):
+def test_budget_stops_before_the_other_active_source(monkeypatch):
     fake_clock(monkeypatch)
-    client = Session([(200, official_html()), (status, "secret")])
-    result = collection.collect(["7203", "9432"], sources=("rakuten",), session=client)
-    assert result.requests == 2
-    assert not result.observations
-    assert result.outcomes[0].status == ("http_failure" if status == 401 else "access_denied")
-    assert result.outcomes[1].status == "not_attempted"
-    assert result.outcomes[1].reason == "access_denied"
-
-
-def test_budget_counts_official_and_iframe_separately(monkeypatch):
-    fake_clock(monkeypatch)
-    client = Session([(200, monex_html()), (200, official_html())])
-    result = collection.collect(["7203"], session=client, request_budget=2)
-    assert result.requests == 2
+    client = Session([(200, monex_html())])
+    result = collection.collect(["7203"], session=client, request_budget=1)
+    assert result.requests == 1
     assert result.stop_reason == "request_budget"
-    assert result.outcomes[-1].status == "incomplete"
+    assert result.outcomes[-1].status == "not_attempted"
     assert result.outcomes[-1].reason == "request_budget"
     assert len(result.observations) == 1
 
@@ -212,22 +197,6 @@ def test_timeout_and_shell_are_failures_not_nullable_observations(monkeypatch):
     result = collection.collect(["7203"], session=client, sources=("monex",))
     assert result.outcomes[0].status == "request_timeout"
     assert "secret" not in json.dumps(result.summary())
-
-
-def test_no_forecast_shell_has_safe_identity_failure_and_no_observation(monkeypatch):
-    fake_clock(monkeypatch)
-    client = Session(
-        [
-            (200, official_html("130A")),
-            (200, "<p>この銘柄のアナリスト業績予測情報はありません。</p>"),
-        ]
-    )
-    result = collection.collect(["130A"], sources=("rakuten",), session=client)
-    assert not result.observations
-    assert result.outcomes[0].status == "parse_failure"
-    assert result.outcomes[0].reason == "no_estimates_identity_unconfirmed"
-    assert result.outcomes[0].http_status == 200
-    assert "アナリスト" not in json.dumps(result.summary(), ensure_ascii=False)
 
 
 @pytest.mark.parametrize(
@@ -392,7 +361,7 @@ def test_minimum_interval_waits_only_remaining_time_after_response(monkeypatch, 
 
 def test_interval_is_after_response_completion_and_across_sources(monkeypatch):
     clock = fake_clock(monkeypatch)
-    client = Session([(403, "denied"), (200, official_html()), (200, rakuten_html())])
+    client = Session([(403, "denied"), (200, kabumap_html("7203"))])
     starts = []
     original_get = client.get
 
@@ -403,10 +372,10 @@ def test_interval_is_after_response_completion_and_across_sources(monkeypatch):
 
     monkeypatch.setattr(client, "get", get)
     result = collection.collect(["7203"], session=client)
-    assert result.requests == 3
+    assert result.requests == 2
     assert len(result.observations) == 1
-    assert starts == [100, 105, 110]
-    assert clock.sleeps == [2, 2]
+    assert starts == [100, 105]
+    assert clock.sleeps == [2]
 
 
 def test_request_budget_stops_before_interval_wait(monkeypatch):

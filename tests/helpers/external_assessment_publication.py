@@ -274,7 +274,11 @@ def independent_plans(publication):
             sources=(source,),
             tickers=("6758", "7203"),
             universe_binding=json.dumps({"master_asof": "2026-10-09"}),
-            collector_binding=external_assessment_collector_binding(source=source),
+            collector_binding=(
+                external_assessment_collector_binding(source=source)
+                if source == "monex"
+                else "synthetic-retired-collector"
+            ),
         )
         journal = new_result(p, 0)
         originals = []
@@ -311,7 +315,9 @@ def _plan(previous, *, run_id, tickers=("7203",), sources=("monex",), cohort_siz
         universe_binding=previous.universe_binding,
         collector_binding=external_assessment_collector_binding(
             source=sources[0] if len(sources) == 1 else None
-        ),
+        )
+        if all(source in ("monex", "kabumap") for source in sources)
+        else "synthetic-retired-collector",
     )
 
 

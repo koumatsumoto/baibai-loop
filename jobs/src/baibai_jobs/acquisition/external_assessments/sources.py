@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import cast
+from typing import cast, get_args
 
 import requests
 
@@ -25,6 +25,7 @@ from baibai_engine.storage.objects.r2 import (
     ObjectStore,
 )
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan, summarize
+from baibai_jobs.acquisition.external_assessments.collection import SOURCES
 from baibai_jobs.acquisition.external_assessments.identity import SCHEDULED_BATCH_PREFIX
 from baibai_jobs.acquisition.external_assessments.staging import (
     prefix,
@@ -36,11 +37,9 @@ from baibai_jobs.acquisition.external_assessments.staging import (
 from baibai_jobs.integration.external_assessment_ready import PreparedPlan, prepare_saved_stages
 from baibai_jobs.schedule import external_assessment_cycle_end, external_assessment_target_date
 
-SOURCES: tuple[ExternalAssessmentSource, ...] = ("monex", "rakuten", "kabumap", "minkabu")
-
 
 def require_source(plan: RunPlan, source: str) -> None:
-    if source not in SOURCES or plan.sources != (source,):
+    if plan.sources != (source,):
         raise ValueError(
             "source mismatch; old multi-source plans require explicit disposition, never conversion"
         )
@@ -84,7 +83,9 @@ def selection(
 
 def read_selection(payload: str) -> list[dict[str, str]]:
     value = json.loads(payload)
-    if not isinstance(value, list) or not 1 <= len(value) <= len(SOURCES):
+    if not isinstance(value, list) or not 1 <= len(value) <= len(
+        get_args(ExternalAssessmentSource.__value__)
+    ):
         raise ValueError("invalid exact source selection")
     result: list[dict[str, str]] = []
     for entry in value:
@@ -95,7 +96,7 @@ def read_selection(payload: str) -> list[dict[str, str]]:
         ):
             raise ValueError("invalid source selection entry")
         name, run_id = entry["source"], entry["run_id"]
-        if name not in SOURCES or not (
+        if name not in get_args(ExternalAssessmentSource.__value__) or not (
             run_id.startswith((f"{name}-", f"{SCHEDULED_BATCH_PREFIX}{name}-"))
         ):
             raise ValueError("source identity is not namespaced")

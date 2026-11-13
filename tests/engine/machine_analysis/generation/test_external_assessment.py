@@ -130,11 +130,11 @@ def test_original_origin_groups_do_not_merge_different_models_into_votes(tmp_pat
     groups = {group.origin: group.references for group in result.origin_groups}
     assert {(ref.distributor, ref.metric) for ref in groups["IFIS"]} == {
         ("monex", "consensus_target"),
-        ("rakuten", "rating"),
     }
     assert groups["Monex Scouter model"][0].metric == "per_company_forecast"
     assert result.model_valuations[0].inputs.latest.consensus_target == 1200
-    assert result.analyst_ratings[0].inputs.latest.rating == 3.5
+    assert result.analyst_ratings == ()
+    assert read_observations(path, "1234", result.cutoff).analyst_ratings[0].latest.rating == 3.5
     assert not hasattr(result, "composite_score")
 
 
@@ -344,7 +344,7 @@ def test_new_generation_retains_tradingview_inputs_without_rewriting_saved_histo
     assert personal.tradingview.inputs.latest.eps_forecast_next_fy == 10
     fixed_payload = personal.model_dump_json()
     generated = generate_external_assessment(history, evaluated_at=cutoff)
-    assert generated.method_version == "same-series-v6"
+    assert generated.method_version == "same-series-v7"
     assert generated.tradingview == personal.tradingview
     assert generated.tradingview.availability == "forecast_fields_present"
     assert "eps_forecast_next_fy" in generated.tradingview.forecast_fields

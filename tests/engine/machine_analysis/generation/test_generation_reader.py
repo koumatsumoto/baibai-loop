@@ -123,7 +123,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
     assert [spy.call_count for spy in spies] == [1, 1, 1, 1, 1]
     assert spies[2].call_args.kwargs["include_tradingview"] is True
     external = result.result("external_assessment", "1234")
-    assert external.calculation_revision == "same-series-v6"
+    assert external.calculation_revision == "same-series-v7"
     assert external.payload["tradingview"]["availability"] == "not_observed"
 
 

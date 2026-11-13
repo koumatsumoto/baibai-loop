@@ -34,6 +34,7 @@ from baibai_engine.storage.json import canonical_json
 from baibai_jobs.acquisition.external_assessments.collection import (
     PARSE_FAILURE_REASONS as external_assessment_parse_failure_reasons,
 )
+from baibai_jobs.acquisition.external_assessments.collection import SOURCES
 from baibai_jobs.acquisition.external_assessments.collection import (
     CollectionOutcome as ExternalAssessmentCollectionOutcome,
 )
@@ -131,7 +132,7 @@ def make_plan(
     universe_binding: str,
     collector_binding: str,
     cohort_size: int = DEFAULT_COHORT_TICKERS,
-    sources: Sequence[ExternalAssessmentSource] = ("monex", "rakuten", "kabumap", "minkabu"),
+    sources: Sequence[ExternalAssessmentSource] = SOURCES,
 ) -> RunPlan:
     if any(type(ticker) is not str or _TICKER.fullmatch(ticker) is None for ticker in tickers):
         raise ValueError("plan requires canonical ASCII tickers")

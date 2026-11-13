@@ -1,4 +1,4 @@
-"""The new source survives the existing private fixed-cohort handoff."""
+"""Retired source snapshots retain their exact fixed-cohort read contract."""
 
 import json
 from datetime import UTC, datetime
@@ -24,12 +24,13 @@ from baibai_jobs.acquisition.external_assessments.collection import (
 
 
 @pytest.mark.parametrize("available", [True, False])
-def test_default_plan_includes_four_sources_and_minkabu_roundtrips(available):
+def test_retained_four_source_plan_and_minkabu_roundtrip(available):
     plan = make_plan(
         run_id="synthetic-minkabu",
         tickers=("7203",),
         universe_binding="synthetic-universe",
         collector_binding="synthetic-code",
+        sources=("monex", "rakuten", "kabumap", "minkabu"),
     )
     assert plan.sources == ("monex", "rakuten", "kabumap", "minkabu")
     assert load_plan(plan_bytes(plan)) == plan
@@ -66,6 +67,7 @@ def test_source_period_conflict_remains_a_reasoned_failure_in_cohort_handoff():
         tickers=("7203",),
         universe_binding="synthetic-universe",
         collector_binding="synthetic-code",
+        sources=("monex", "rakuten", "kabumap", "minkabu"),
     )
     outcome = ExternalAssessmentCollectionOutcome(
         "minkabu", "7203", "parse_failure", "conflicting_forecast_period", 200, str(uuid4())
