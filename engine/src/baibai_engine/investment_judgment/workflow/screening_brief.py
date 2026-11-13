@@ -374,7 +374,9 @@ def _external(external: dict[str, Any]) -> dict[str, Any]:
             "previous_origin",
             "source_url",
             "fetched_at_utc",
+            "previous_fetched_at_utc",
             "score_as_of_date",
+            "previous_score_as_of_date",
             "availability",
             "previous_availability",
             "basis",
@@ -444,7 +446,9 @@ def _external(external: dict[str, Any]) -> dict[str, Any]:
                     "source_target_period_label",
                     "source_target_period_end",
                     "fetched_at_utc",
+                    "previous_fetched_at_utc",
                     "score_as_of_date",
+                    "previous_score_as_of_date",
                 )
             )
     return {
