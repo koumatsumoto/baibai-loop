@@ -7,20 +7,14 @@ import pytest
 import requests
 from tests.helpers.external_assessment_html import (
     monex_html,
-    official_html,
-    rakuten_html,
-    rakuten_no_estimates_html,
 )
 from tests.helpers.external_assessment_http import PairSession as Session
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    kabumap,
     monex,
-    rakuten,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
-    decode_attempt,
 )
 
 
@@ -122,14 +116,6 @@ def test_access_limits_request_whole_run_halt_with_confirmed_status(clock, statu
     assert not result.observations
 
 
-@pytest.mark.parametrize("status", [401, 403])
-def test_iframe_access_limit_confirms_two_requests_and_stops(clock, status):
-    client = Session([(200, official_html()), (status, "synthetic denial")], clock=clock)
-    result = pair(client, source="rakuten")
-    assert result.requests == 2
-    assert result.stop_reason == "access_denied"
-
-
 @pytest.mark.parametrize("value", ["--", "1,234円"])
 def test_verified_null_and_numeric_results_remain_typed(clock, value):
     client = Session([(200, monex_html(value=value))], clock=clock)
@@ -137,26 +123,6 @@ def test_verified_null_and_numeric_results_remain_typed(clock, value):
     assert result.outcomes[0].status == "observed"
     assert len(result.observations) == 1
     assert (result.observations[0].consensus_target is None) is (value == "--")
-
-
-@pytest.mark.parametrize("ticker", ["1301", "130A", "7203", "6091"])
-def test_identity_unknown_is_fixed_failure_without_null_observation(clock, ticker):
-    client = Session(
-        [(200, official_html(ticker)), (200, rakuten_no_estimates_html())],
-        clock=clock,
-    )
-    result = pair(client, source="rakuten", ticker=ticker)
-    assert result.outcomes[0].status == "parse_failure"
-    assert result.outcomes[0].reason == "no_estimates_identity_unconfirmed"
-    assert result.outcomes[0].http_status == 200
-    assert result.outcomes[0].attempt_id is not None
-    assert not result.observations
-    assert result.stop_reason is None
-    assert result.requests == 2
-    assert [call[0] for call in client.calls] == [
-        rakuten.public_url(ticker),
-        rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + ticker + ".T",
-    ]
 
 
 def test_wall_clock_interruption_after_transport_reports_timeout(clock):
@@ -167,29 +133,24 @@ def test_wall_clock_interruption_after_transport_reports_timeout(clock):
     assert result.response_content_bytes == 0
 
 
-@pytest.mark.parametrize("projection", ["iframe", "observation"])
 @pytest.mark.parametrize("error_type", [source_http.TimeLimit, KeyboardInterrupt, SystemExit])
-def test_projection_interruption_is_not_parse_failure(clock, monkeypatch, projection, error_type):
-    client = Session([(200, official_html()), (200, rakuten_html())], clock=clock)
+def test_projection_interruption_is_not_parse_failure(clock, monkeypatch, error_type):
+    client = Session([(200, monex_html())], clock=clock)
     received = []
 
     def interrupt(*args, **kwargs):
         raise error_type
 
-    monkeypatch.setattr(
-        rakuten if projection == "iframe" else collection,
-        "iframe_url" if projection == "iframe" else "parse_source_html",
-        interrupt,
-    )
+    monkeypatch.setattr(collection, "parse_source_html", interrupt)
     if error_type is source_http.TimeLimit:
-        result = pair(client, source="rakuten", on_received_html=received.append)
+        result = pair(client, on_received_html=received.append)
         assert result.outcomes[0].status == "request_timeout"
         assert result.stop_reason == "wall_clock_limit"
         assert not result.observations
     else:
         with pytest.raises(error_type):
-            pair(client, source="rakuten", on_received_html=received.append)
-    assert len(received) == len(client.calls) == (1 if projection == "iframe" else 2)
+            pair(client, on_received_html=received.append)
+    assert len(received) == len(client.calls) == 1
 
 
 @pytest.mark.parametrize("error_type", [ValueError, RuntimeError])
@@ -275,34 +236,13 @@ def test_pair_invalid_limits_or_identity_never_request(clock, kwargs):
     assert not client.calls
 
 
-@pytest.mark.parametrize("parser", [monex, rakuten])
+@pytest.mark.parametrize("parser", [monex, kabumap])
 def test_policy_binding_is_deterministic_and_parser_sensitive(monkeypatch, parser):
     binding = collection.collector_binding()
     assert len(binding) == 64
     assert binding == collection.collector_binding()
     monkeypatch.setattr(parser, "PARSER_VERSION", "synthetic-next-parser")
     assert binding != collection.collector_binding()
-
-
-def test_two_http_receipt_times_and_content_accounting_without_durable_callbacks(clock):
-    pages = [official_html(), rakuten_html()]
-    client = Session([(200, html) for html in pages], clock=clock)
-    received = []
-    result = pair(client, source="rakuten", on_received_html=received.append)
-    assert result.requests == 2
-    assert result.response_content_bytes == sum(len(html.encode()) for html in pages)
-    assert result.observations[0].fetched_at_utc == received[-1].received_at_utc
-    assert result.last_response_finished_at_utc == received[-1].received_at_utc
-    assert [item.body for item in received] == [html.encode() for html in pages]
-    assert received[0].role == "page"
-    assert received[0].parent_receipt_id is None
-    assert received[1].role == "iframe"
-    assert received[1].parent_receipt_id == received[0].receipt_id
-    assert received[0].attempt_id == received[1].attempt_id == result.outcomes[0].attempt_id
-    assert decode_attempt(received) == result.observations[0]
-    assert all(
-        call[1]["allow_redirects"] is False and call[1]["timeout"] <= 30 for call in client.calls
-    )
 
 
 def test_real_timer_interrupts_hanging_body_and_returns_controlled_timeout(monkeypatch):

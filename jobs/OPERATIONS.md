@@ -440,10 +440,12 @@ EDINETの取得・facts・再抽出は[独立L1の手順](#edinet-list-native-l1
 <a id="external-assessment-acquisition"></a>
 ### 外部評価
 
+数値の通常・手動取得はMonexと株マップ、TradingViewは[別入口](#tradingview-expectations)で継続する。楽天・みんかぶの数値取得は[拒否の記録と本人の廃止判断](https://github.com/koumatsumoto/baibai-loop/issues/1820#issuecomment-6856119813)に基づき除去し、新しいExternal Assessmentへ保存済み旧値を採用しない。拒否原因や許諾不存在を確定した変更ではない。旧plan/receipt・原本decoder・保存Generation/Selectionの読取は保持し、未試行pairの取得再開や履歴削除はしない。旧HEADで既に起動したrunの停止はmergeだけでは保証されない。ニュースsource・トウシル記事は別範囲である。
+
 通常TLS/proxyで有限銘柄を直列取得し、試行別private captureをcurrent-schemaの隔離marketへimportする。parse失敗でも原本は保ち、L2を部分追記しない。再投入0件を確認する。
 
 ```bash
-uv run baibai-jobs external-assessment collect --source minkabu --tickers 7203 4436 --output <NEW_PRIVATE_CAPTURE>
+uv run baibai-jobs external-assessment collect --source monex --tickers 7203 4436 --output <NEW_PRIVATE_CAPTURE>
 uv run baibai-jobs external-assessment import --input <PRIVATE_CAPTURE> --db <LOCAL_MARKET_COPY>
 gh workflow run cloud-external-assessment.yml --ref main -f source=monex -f batch_id=<LABEL> -f master_asof=<YYYY-MM-DD>
 ```

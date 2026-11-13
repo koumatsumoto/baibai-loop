@@ -299,7 +299,11 @@ def read_and_generate_models(
             benchmark_ticker=prepared.benchmark_ticker,
         )
     histories = read_observation_population(
-        path, tickers=subjects, cutoff=evaluation_time, include_tradingview=True
+        path,
+        tickers=subjects,
+        cutoff=evaluation_time,
+        include_tradingview=True,
+        include_retired=False,
     )
     edinet = EDINETReader(path).load_metric_records(as_of)
     trends = read_trend_inputs(

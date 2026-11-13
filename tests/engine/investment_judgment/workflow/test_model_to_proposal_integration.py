@@ -75,7 +75,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
-    AnalystForecastObservation,
     ModelValuationObservation,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
@@ -92,15 +91,6 @@ CONTEXT_ID = "market-context-assessment-2026-10-14-synthetic-rates"
 
 def _external_observations(at, *, missing=False, target=1500):
     common = dict(ticker="1234", parser_version="synthetic-1")
-    if missing:
-        return [
-            AnalystForecastObservation(
-                **common,
-                fetched_at_utc=at,
-                source_url="https://example.invalid/minkabu/1234",
-                availability="not_covered",
-            )
-        ]
     return [
         ModelValuationObservation(
             **common,
@@ -108,14 +98,15 @@ def _external_observations(at, *, missing=False, target=1500):
             distributor=distributor,
             origin="ifis",
             source_url=f"https://example.invalid/{distributor}/1234",
-            consensus_target=target,
+            consensus_target=None if missing else target,
             consensus_target_origin="ifis",
             consensus_target_period="12-month-target",
             currency="JPY",
             unit="currency_per_share",
             share_basis="synthetic-common-shares",
         )
-        for index, distributor in enumerate(("monex", "rakuten"))
+        # A second synthetic redistributor tests provenance, not a configured provider.
+        for index, distributor in enumerate(("monex",) if missing else ("monex", "synthetic-ifis"))
     ]
 
 
@@ -485,11 +476,7 @@ def _assessment_payload(case):
         ]
     )
     external = fixed["external_assessment"]
-    observations = (
-        [external["minkabu"]["latest"]]
-        if case.scenario == "gaps"
-        else [item["inputs"]["latest"] for item in external["model_valuations"]]
-    )
+    observations = [item["inputs"]["latest"] for item in external["model_valuations"]]
     external_refs = []
     for observation in observations:
         source_id = "external-" + observation["distributor"]
@@ -549,7 +536,7 @@ def _assessment_payload(case):
             "statement": "外部提示を自己終価へ採用できるか",
             "origin": "research",
             "result": "unresolved" if case.scenario == "gaps" else "refuted",
-            "reason": "明示対象外で目標値は欠測。0や中立にしない。"
+            "reason": "受領した目標値は欠測。0や中立にしない。"
             if case.scenario == "gaps"
             else "二媒体の同じifis目標1500円は一原評価。自己仮定の裏取りとせず採用しない。",
             "source_ids": external_refs,
@@ -752,8 +739,11 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     if scenario == "gaps":
         assert technical["moving_averages"]["sma_200bar"]["status"] == "insufficient_history"
         assert technical["moving_averages"]["sma_20bar"]["status"] == "available"
-        assert security["external_assessment"]["minkabu"]["latest"]["target_price_yen"] is None
-        assert security["external_assessment"]["minkabu"]["latest"]["availability"] == "not_covered"
+        external = security["external_assessment"]
+        assert external["minkabu"]["latest"] is None
+        assert external["analyst_ratings"] == []
+        assert external["model_valuations"][0]["inputs"]["latest"]["consensus_target"] is None
+        assert external["model_valuations"][0]["comparisons"][0]["state"] == "missing"
     context, proposal = _promote_and_propose(case)
     pair = context.assessments[assessment_id()]
     authored = context.payload()["assessments"][assessment_id()]

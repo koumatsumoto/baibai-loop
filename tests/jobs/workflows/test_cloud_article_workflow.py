@@ -27,8 +27,9 @@ def test_article_slots_use_bounded_host_groups_without_model_generation():
         Loader=yaml.BaseLoader,
     )
     assert "source-host-" in collector["jobs"]["acquire"]["concurrency"]["group"]
-    assert "minkabu" in collector["jobs"]["acquire"]["concurrency"]["group"]
-    assert "rakuten" in collector["jobs"]["acquire"]["concurrency"]["group"]
+    assert collector["jobs"]["acquire"]["concurrency"]["group"] == (
+        "source-host-external-${{ inputs.source }}"
+    )
 
 
 def test_manual_and_scheduled_article_dispatch_share_one_acquisition_contract():

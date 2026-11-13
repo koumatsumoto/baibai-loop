@@ -122,7 +122,7 @@ def test_l1_replay_immutable_history_and_exact_cutoff(tmp_path):
     current = read_observations(db, "7203", NOW)
     assert current.minkabu.latest == parse()
     assert current.minkabu.previous is None
-    assert analyze(current, evaluated_at=NOW).minkabu.latest == parse()
+    assert analyze(current, evaluated_at=NOW).minkabu.latest is None
     history = read_observations(db, "7203", NOW + timedelta(days=1))
     assert history.minkabu.latest == later
     assert history.minkabu.previous == parse()
@@ -130,15 +130,14 @@ def test_l1_replay_immutable_history_and_exact_cutoff(tmp_path):
         save_observations(db, [parse(html(eps="9"))])
 
 
-def test_analysis_rejects_future_or_different_security():
-    for row in (parse(at=NOW + timedelta(seconds=1)), parse(ticker="130A")):
+def test_new_analysis_ignores_retired_history_without_mutating_it():
+    for row in (parse(), parse(at=NOW + timedelta(seconds=1)), parse(ticker="130A")):
         history = ObservationHistory(
-            ticker="7203",
-            cutoff=NOW,
-            minkabu=AnalystForecastHistory(latest=row),
+            ticker="7203", cutoff=NOW, minkabu=AnalystForecastHistory(latest=row)
         )
-        with pytest.raises(ValueError, match="outside ticker/cutoff"):
-            analyze(history, evaluated_at=NOW)
+        before = history.model_dump_json()
+        assert analyze(history, evaluated_at=NOW).minkabu.latest is None
+        assert history.model_dump_json() == before
 
 
 @pytest.mark.parametrize("linked", [False, True])

@@ -169,7 +169,7 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
     assert declared_schedule(raw) == [{"cron": "13 10,14,22 * * *"}]
     acquire_job = workflow["jobs"]["source"]
-    assert acquire_job["strategy"]["max-parallel"] == "4"
+    assert acquire_job["strategy"]["max-parallel"] == "2"
     assert acquire_job["strategy"]["fail-fast"] == "false"
     assert acquire_job["uses"] == "./.github/workflows/cloud-external-assessment-source.yml"
     child = yaml.load(

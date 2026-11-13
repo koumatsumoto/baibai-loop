@@ -14,8 +14,9 @@ from tests.helpers.external_assessment_html import (
 )
 from tests.helpers.external_assessment_http import RawSession as Session
 from tests.helpers.external_assessment_http import connect as connect
+from tests.helpers.external_assessment_publication import pair_responses, upload_bundle
 from tests.helpers.external_assessment_responses import response
-from tests.helpers.external_assessment_stages import FakeObjectStore, plan, stage
+from tests.helpers.external_assessment_stages import RECEIVED, FakeObjectStore, plan, stage
 
 import baibai_jobs.acquisition.external_assessments.collection as collection
 import baibai_jobs.acquisition.external_assessments.daily as daily
@@ -24,7 +25,6 @@ import baibai_jobs.acquisition.external_assessments.staging as staging
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     monex,
-    rakuten,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
     decode_attempt,
@@ -81,26 +81,17 @@ def test_exact_bytes_encoding_reparse_and_typed_idempotency(tmp_path, connect):
     assert store.puts[2][0].endswith("cohort-0000.json")
 
 
-def test_rakuten_outer_and_iframe_bytes_are_in_one_archive(connect):
-    outer, iframe = official_html().encode(), rakuten_html().encode()
-    session = Session([(200, outer, "utf-8"), (200, iframe, "utf-8")])
-    connect(session)
+def test_retained_rakuten_outer_and_iframe_bytes_are_in_one_archive():
     p, store = plan(sources=("rakuten",)), FakeObjectStore()
-    daily.acquire_cohort(store, p, 0)
-    saved = stage(store, p)
-    manifest, bodies = external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])
-    assert tuple(item.body for item in bodies) == (outer, iframe)
-    receipt = manifest["receipts"][1]
-    assert bodies[0].attempt_id == bodies[1].attempt_id == saved.result.entries[0].attempt_id
+    originals = pair_responses("rakuten", "7203", received_at_utc=RECEIVED)
+    key = upload_bundle(store, p, 0, originals)
+    manifest, bodies = external_assessment_raw.read_raw_bundle(store, key)
+    assert bodies == originals
+    assert bodies[0].attempt_id == bodies[1].attempt_id
     assert bodies[1].parent_receipt_id == bodies[0].receipt_id
-    parsed = rakuten.parse_html(
-        bodies[1].body.decode(),
-        ticker="7203",
-        source_url=receipt["requested_url"],
-        fetched_at_utc=datetime.fromisoformat(receipt["received_at_utc"]),
-    )
-    assert saved.result.observations == (parsed,)
-    assert len(store.puts) == 3
+    assert manifest["receipts"][1]["role"] == "iframe"
+    assert decode_attempt(bodies).rating == 3.25
+    assert len(store.puts) == 1
 
 
 @pytest.mark.parametrize("status", [403, 404, 500])
@@ -186,38 +177,6 @@ def test_projection_failure_keeps_batch_bodies_outcomes_and_same_plan_resume(
     assert daily.acquire_cohort(store, p, 0)["provider_requests"] == 0
     assert len(session.calls) == 3
     assert store.puts == before
-
-
-@pytest.mark.parametrize("error_type", [ValueError, RuntimeError])
-@pytest.mark.parametrize("projection", ["iframe", "observation"])
-def test_unknown_rakuten_projection_failure_retains_received_roles_only(
-    connect, monkeypatch, error_type, projection
-):
-    bodies = [official_html().encode(), rakuten_html().encode()]
-    session = Session([(200, body, "utf-8") for body in bodies])
-    connect(session)
-
-    def fail(*args, **kwargs):
-        raise error_type("private parser detail")
-
-    monkeypatch.setattr(
-        rakuten if projection == "iframe" else collection,
-        "iframe_url" if projection == "iframe" else "parse_source_html",
-        fail,
-    )
-    p, store = plan(sources=("rakuten",)), FakeObjectStore()
-    daily.acquire_cohort(store, p, 0)
-    saved = stage(store, p)
-    entry = saved.result.entries[0]
-    assert (entry.state, entry.reason) == ("failure", "unclassified_parse_failure")
-    assert saved.result.observations == ()
-    _, restored = external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])
-    expected = 1 if projection == "iframe" else 2
-    assert tuple(item.body for item in restored) == tuple(bodies[:expected])
-    assert all(item.attempt_id == entry.attempt_id for item in restored)
-    assert [item.role for item in restored] == ["page", "iframe"][:expected]
-    assert len(session.calls) == expected
-    assert "private parser detail" not in json.dumps(read_attempts(store, p))
 
 
 def _unexpected_projection(*args, **kwargs):
@@ -559,13 +518,10 @@ def _rewrite_manifest(store, key, change):
         lambda manifest: manifest["receipts"][0].update(requested_ticker="７２０３"),
     ],
 )
-def test_readback_rejects_old_or_mismatched_raw_identity(connect, change):
-    connect(
-        Session([(200, official_html().encode(), "utf-8"), (200, rakuten_html().encode(), "utf-8")])
-    )
+def test_readback_rejects_old_or_mismatched_raw_identity(change):
     p, store = plan(sources=("rakuten",)), FakeObjectStore()
-    daily.acquire_cohort(store, p, 0)
-    key = stage(store, p).raw_bundle_keys[0]
+    originals = pair_responses("rakuten", "7203", received_at_utc=RECEIVED)
+    key = upload_bundle(store, p, 0, originals)
     _rewrite_manifest(store, key, change)
     with pytest.raises(ValueError, match=r"external assessment|canonical"):
         external_assessment_raw.read_raw_bundle(store, key)

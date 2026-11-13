@@ -178,9 +178,7 @@ def test_empty_current_store_and_missing_file_are_unobserved(tmp_path):
     open_connection(db).close()
     result = analyze(read_observations(db, "1234", RECEIVED), evaluated_at=RECEIVED)
     assert result.model_valuations == ()
-    assert result.analyst_ratings[0].distributor == "rakuten"
-    assert result.analyst_ratings[0].inputs.latest is None
-    assert result.analyst_ratings[0].comparison.state == "not_observed"
+    assert result.analyst_ratings == ()
     assert result.tradingview.availability == "not_observed"
 
 
@@ -216,7 +214,7 @@ def test_unknown_or_changed_basis_has_no_delta(field, change, reason):
     assert metric.reason == reason
     assert metric.delta is None
     assert result.model_valuations[0].inputs.latest == latest
-    assert result.method_version == "same-series-v4"
+    assert result.method_version == "same-series-v7"
 
 
 def test_same_value_recovery_and_count_change_are_distinct_from_increase():
@@ -251,24 +249,6 @@ def test_same_value_recovery_and_count_change_are_distinct_from_increase():
     assert count.previous_count == 4
 
 
-def test_rating_requires_known_scale_and_does_not_infer_rating_count():
-    later_at = RECEIVED + timedelta(days=1)
-    history = ObservationHistory(
-        ticker="1234",
-        cutoff=later_at,
-        analyst_ratings=(
-            AnalystRatingHistory(
-                previous=rating(rating_count=None),
-                latest=rating(later_at, rating=4, rating_scale_direction=None, rating_count=None),
-            ),
-        ),
-    )
-    result = analyze(history, evaluated_at=later_at)
-    assert result.analyst_ratings[0].comparison.reason == "unknown_rating_scale_direction"
-    assert result.analyst_ratings[0].comparison.latest_count is None
-    assert result.analyst_ratings[0].comparison.delta is None
-
-
 @pytest.mark.parametrize(("previous_count", "latest_count"), [(4, None), (None, 4)])
 def test_one_unknown_count_blocks_same_population_comparison(previous_count, latest_count):
     later_at = RECEIVED + timedelta(days=1)
@@ -291,7 +271,7 @@ def test_one_unknown_count_blocks_same_population_comparison(previous_count, lat
         ),
     )
     result = analyze(history, evaluated_at=later_at)
-    for metric in (result.model_valuations[0].comparisons[0], result.analyst_ratings[0].comparison):
+    for metric in (result.model_valuations[0].comparisons[0],):
         assert metric.state == "not_comparable"
         assert metric.reason == "unknown_count"
         assert not metric.comparable

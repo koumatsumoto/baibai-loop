@@ -8,9 +8,8 @@ from contextlib import closing
 
 import pytest
 from tests.helpers.external_assessment_html import (
-    minkabu_html,
+    kabumap_html,
     monex_html,
-    no_coverage_html,
 )
 from tests.helpers.external_assessment_http import RawSession as Session
 from tests.helpers.external_assessment_http import connect as connect
@@ -161,18 +160,12 @@ def test_three_independent_sources_and_rakuten_retry_rebuild_from_l1_only(public
         ] == [1, 1, 1]
 
 
-@pytest.mark.parametrize(
-    ("source", "missing"), [("monex", False), ("minkabu", False), ("minkabu", True)]
-)
-def test_actual_receiver_bundle_flows_into_fixed_release(publication, connect, source, missing):
+@pytest.mark.parametrize("source", ["monex", "kabumap"])
+def test_actual_receiver_bundle_flows_into_fixed_release(publication, connect, source):
     store, previous, _, database, _, _ = publication
     plan = _plan(previous, run_id="source-receiver-integration", sources=(source,))
-    html = monex_html("7203") if source == "monex" else minkabu_html("7203")
-    replies = (
-        [(404, b"not found", "utf-8"), (200, no_coverage_html("7203").encode(), "utf-8")]
-        if missing
-        else [(200, html.encode(), "utf-8")]
-    )
+    html = monex_html("7203") if source == "monex" else kabumap_html("7203")
+    replies = [(200, html.encode(), "utf-8")]
     connect(Session(replies))
     daily.acquire_cohort(store, plan, 0)
     report = _publish(publication, plan, "receiver-integration")

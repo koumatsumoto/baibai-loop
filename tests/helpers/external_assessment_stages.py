@@ -119,7 +119,9 @@ def plan(*, tickers=("7203",), sources=("monex",), cohort_size=50, **kwargs):
         universe_binding=json.dumps({"master_asof": "2026-10-11", "sha256": "synthetic-master"}),
         collector_binding=external_assessment_collector_binding(
             source=sources[0] if len(sources) == 1 else None
-        ),
+        )
+        if all(source in ("monex", "kabumap") for source in sources)
+        else "synthetic-retired-collector",
         **kwargs,
     )
 
