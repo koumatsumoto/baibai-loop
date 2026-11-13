@@ -199,15 +199,63 @@ def test_pmi_notice_retains_failure_and_only_identifies_actual_http_403(
     report = json.loads((directory / "result.json").read_text())
     assert all(row["status"] == "failed" for row in report["sources"])
     assert f"expected_unavailable={'true' if failure == 403 else 'false'}" in output.read_text()
-    if failure == 403:
+    if failure in {403, 429, "empty", "message_only"}:
         assert len(calls) == 1
-        assert all(row["http_status"] == 403 for row in report["sources"])
+        first, *blocked = report["sources"]
+        assert "blocked_by_source_id" not in first
+        assert first["error_types"]
+        assert all(row["blocked_by_source_id"] == first["source_id"] for row in blocked)
+        assert all("http_status" not in row and "error_types" not in row for row in blocked)
+        if failure in {403, 429}:
+            assert first["http_status"] == failure
+        else:
+            assert "http_status" not in first
     with closing(initialize_database(directory / "receipts.sqlite")) as conn:
         assert conn.execute("SELECT COUNT(*) FROM economic_source_documents").fetchone()[0] == 0
         assert (
             conn.execute("SELECT status FROM economic_source_runs LIMIT 1").fetchone()[0]
             == "failed"
         )
+        if len(calls) == 1:
+            assert conn.execute("SELECT COUNT(*) FROM economic_source_runs").fetchone()[0] == 1
+
+
+def test_h15_failure_keeps_typed_causes_without_publishing_private_error_text(
+    tmp_path, monkeypatch, capsys
+):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    from baibai_engine.data_collection.transport.context import IndicatorsProviderError
+
+    private = "https://provider.example/?api_key=private-test-value provider response body"
+
+    def fetch(source, **kwargs):
+        try:
+            raise PlaywrightTimeoutError(private)
+        except PlaywrightTimeoutError as error:
+            raise IndicatorsProviderError(private) from error
+
+    monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
+    database = tmp_path / "source.sqlite"
+    snapshot(database, "fed-h15", "retained original")
+    directory = tmp_path / "stage"
+    assert acquire("frb_h15", "", DAY, directory, database) == 1
+    report = json.loads((directory / "result.json").read_text())
+    row = report["sources"][0]
+    assert row["status"] == "failed"
+    assert row["error_types"] == ["IndicatorsProviderError", "TimeoutError"]
+    assert "http_status" not in row
+    assert "blocked_by_source_id" not in row
+    public = json.dumps(report) + capsys.readouterr().out
+    assert "private-test-value" not in public
+    assert "provider response body" not in public
+    with closing(initialize_database(database)) as conn:
+        assert next(read_snapshots(conn, DAY, DAY, source_id="fed-h15")).records == (
+            {"value": "retained original"},
+        )
+    with closing(initialize_database(directory / "receipts.sqlite")) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM economic_source_runs").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 0
 
 
 def test_economic_workflow_passes_notice_classification_without_hiding_job_failure():

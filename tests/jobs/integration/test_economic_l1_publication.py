@@ -338,7 +338,10 @@ def test_l1_readback_remains_visible_when_following_seal_fails(tmp_path, setup, 
     assert merged["economic_l1_published"]
 
 
-def test_retained_acquisition_failure_is_a_gap_not_failed_publication(tmp_path, setup, capsys):
+@pytest.mark.parametrize("diagnostics", [{}, {"error_types": ["SourceWithheldError", "HTTPError"]}])
+def test_retained_acquisition_failure_is_a_gap_not_failed_publication(
+    tmp_path, setup, capsys, diagnostics
+):
     from baibai_engine.data_collection.receipts.native_sources.store import record_source_run
     from baibai_jobs.integration.sources import main as check
     from baibai_jobs.observability.discord import render_source_failures
@@ -368,6 +371,7 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(tmp_path, 
                         "source_id": SOURCE,
                         "status": "failed",
                         "http_status": 403,
+                        **diagnostics,
                         "history_recovery_required": True,
                     }
                 ],
@@ -381,7 +385,7 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(tmp_path, 
     assert not report["handoffs"][0]["failed"]
     result = report["handoffs"][0]["result"]
     assert result["acquisition_failures"] == [
-        {"source_id": SOURCE, "status": "failed", "http_status": 403}
+        {"source_id": SOURCE, "status": "failed", "http_status": 403, **diagnostics}
     ]
     assert result["acquisition_issues"] == [SOURCE + ":history_recovery_required"]
     assert check(["check", "--directory", str(tmp_path / "run")]) == 0
@@ -389,6 +393,59 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(tmp_path, 
     assert checked["integration_status"] == "completed_with_source_gaps"
     assert "受領1" in render_source_failures(report)[0]
     assert "private provider failure" not in json.dumps(report)
+
+
+def test_pmi_group_stop_survives_private_handoff_and_l1_integration(tmp_path, setup):
+    from baibai_engine.data_collection.receipts.native_sources.store import record_source_run
+    from baibai_jobs.observability.discord import render_source_failures
+
+    store, _, _ = setup
+    directory = tmp_path / "pmi-stop"
+    directory.mkdir()
+    first, sibling = "spglobal-jp-pmi-mfg", "spglobal-jp-pmi-svc"
+    with closing(initialize_database(directory / "receipts.sqlite")) as conn, conn:
+        record_source_run(
+            conn,
+            source_id=first,
+            start=DAY,
+            end=DAY,
+            started_at=AT,
+            status="failed",
+            record_count=0,
+            error_message="private HTTP response",
+        )
+    failures = [
+        {
+            "source_id": first,
+            "status": "failed",
+            "http_status": 403,
+            "error_types": ["ProviderFetchStoppedError", "SourceWithheldError", "HTTPError"],
+        },
+        {"source_id": sibling, "status": "failed", "blocked_by_source_id": first},
+    ]
+    (directory / "result.json").write_text(
+        json.dumps(
+            {
+                "group": "spglobal_pmi",
+                "started_at": AT.isoformat(),
+                "asof": DAY.isoformat(),
+                "sources": failures,
+            }
+        )
+    )
+    before = (directory / "receipts.sqlite").read_bytes()
+    save_handoff(store, "pmi-stop", directory)
+    report = run(tmp_path, setup)
+    assert report["l1_published"]
+    assert report["l1_sealed"]
+    assert report["handoffs"][0]["result"]["acquisition_failures"] == failures
+    assert not report["handoffs"][0]["failed"]
+    assert not render_source_failures(report)
+    assert (directory / "receipts.sqlite").read_bytes() == before
+    with closing(sqlite3.connect(tmp_path / "run.sqlite")) as conn:
+        assert conn.execute("SELECT source_id, status FROM economic_source_runs").fetchall() == [
+            (first, "failed")
+        ]
 
 
 @pytest.mark.parametrize(

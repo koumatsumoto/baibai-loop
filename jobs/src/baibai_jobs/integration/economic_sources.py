@@ -156,7 +156,11 @@ def integrate(
                     {
                         "source_id": row["source_id"],
                         "status": "failed",
-                        **({"http_status": row["http_status"]} if "http_status" in row else {}),
+                        **{
+                            key: row[key]
+                            for key in ("http_status", "error_types", "blocked_by_source_id")
+                            if key in row
+                        },
                     }
                     for row in source_report["sources"]
                     if row.get("status") == "failed"
