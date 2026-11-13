@@ -860,15 +860,31 @@ def test_external_previous_clocks_survive_selection_and_brief(tmp_path, kind, le
 
 
 @pytest.mark.parametrize("legacy_saved_summary", [False, True])
-def test_minkabu_receipt_clock_survives_selection_and_brief_without_rewriting_history(
-    tmp_path, legacy_saved_summary
+@pytest.mark.parametrize(
+    "rating_counts",
+    [
+        (9, 6, 0, 1, 0),
+        (0, 1, 0, 0, 0),
+        (None, None, None, None, None),
+    ],
+)
+def test_minkabu_receipt_and_rating_counts_survive_selection_and_brief_without_rewriting_history(
+    tmp_path, legacy_saved_summary, rating_counts
 ):
     data = payloads()
+    counts = dict(
+        zip(
+            ("strong_buy_count", "buy_count", "neutral_count", "sell_count", "strong_sell_count"),
+            rating_counts,
+            strict=True,
+        )
+    )
     latest = {"availability": "available", "display_as_of_date": "2025-12-30"}
     data["external_assessment"] = {"minkabu": {"latest": latest}}
     baseline = project(data)
     received = "2026-01-04T15:30:00Z"
     latest["fetched_at_utc"] = received
+    latest.update(counts)
     source = deepcopy(data)
     projected = project(data)
     assert projected.paths == baseline.paths
@@ -876,9 +892,12 @@ def test_minkabu_receipt_clock_survives_selection_and_brief_without_rewriting_hi
     summary = projected.context["external_assessment"]["minkabu_latest"]
     assert summary["fetched_at_utc"] == received
     assert summary["display_as_of_date"] == "2025-12-30"
+    assert {key: summary[key] for key in counts} == counts
     if legacy_saved_summary:
-        # Existing saved cards lack the field; reading them must not backfill it.
+        # Existing saved cards lack these fields; reading must not backfill them.
         del summary["fetched_at_utc"]
+        for key in counts:
+            del summary[key]
     header = metadata()
     runs = tmp_path / "runs.sqlite"
     publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
@@ -898,6 +917,11 @@ def test_minkabu_receipt_clock_survives_selection_and_brief_without_rewriting_hi
         assert "fetched_at_utc" not in brief
     else:
         assert brief["fetched_at_utc"] == received
+    assert {key: brief[key] for key in counts if key in brief} == (
+        {}
+        if legacy_saved_summary
+        else {key: value for key, value in counts.items() if value is not None}
+    )
     assert brief["display_as_of_date"] == "2025-12-30"
     assert canonical_json(saved) == before
     assert runs.read_bytes() == stored_bytes
