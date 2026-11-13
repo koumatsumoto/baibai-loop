@@ -316,7 +316,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1-balance-context-v1-capital-actions-v2-post-period-completion"
+        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1-balance-context-v1-cfo-source-v1-capital-actions-v2-post-period-completion"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
@@ -751,6 +751,102 @@ def test_reported_annual_cfo_interval_keeps_known_dates_and_source():
     assert period["components"][0]["amount_yen"] == financial["ocf_ttm"] == 100.0
 
 
+@pytest.mark.parametrize("cfo", [100.0, 0.0, -100.0, None])
+def test_reported_cfo_source_preserves_missing_dates_and_value_availability(cfo):
+    row = replace(
+        document(),
+        cfo=cfo,
+        period_start=None,
+        period_end=None,
+        document_type=None,
+        disclosure_number=None,
+    )
+    financial = generate(documents=(row,), bars=())[0].payload["financial"]
+    assert financial["cfo"] == cfo
+    if cfo is None:
+        assert financial["cfo_source"] is None
+    else:
+        assert financial["cfo_source"] == {
+            "period_type": "FY",
+            "period_start": None,
+            "period_end": None,
+            "statement_basis": "primary_unknown",
+            "accounting_standard": None,
+            "disclosure_number": None,
+            "disclosed_at": "2026-05-15",
+            "disclosed_time": None,
+            "document_type": None,
+        }
+    assert financial["ocf_ttm"] is None
+
+
+@pytest.mark.parametrize("correction", ["omitted", "changed", "new_basis", "conflict"])
+def test_reported_cfo_trace_follows_the_selected_field_not_latest_disclosure(correction):
+    annual, current, prior = cash_flow_documents()
+    revised = replace(
+        current,
+        disclosed_at=date(2026, 8, 10),
+        disclosed_time="15:31:00",
+        disclosure_number="revised-cfo",
+        cfo=-6_000_000_000.0 if correction in {"changed", "conflict"} else None,
+        document_type=(
+            "1QFinancialStatements_Consolidated_IFRS"
+            if correction == "new_basis"
+            else current.document_type
+        ),
+    )
+    documents = (annual, current, prior, revised)
+    if correction == "conflict":
+        documents += (replace(revised, disclosure_number="conflicting-cfo", cfo=50.0),)
+    financial = generate(documents=documents, bars=())[0].payload["financial"]
+    assert financial["latest_financial_disclosure_date"] == "2026-08-10"
+    if correction in {"new_basis", "conflict"}:
+        assert financial["cfo"] is None
+        assert financial["cfo_source"] is None
+    else:
+        selected = revised if correction == "changed" else current
+        assert financial["cfo"] == selected.cfo
+        assert financial["cfo_source"]["disclosure_number"] == selected.disclosure_number
+        assert financial["cfo_source"]["disclosed_at"] == selected.disclosed_at.isoformat()
+        assert financial["cfo_source"]["disclosed_time"] == selected.disclosed_time
+        assert financial["cfo_source"]["period_start"] == "2026-04-01"
+        assert financial["cfo_source"]["period_end"] == "2026-06-30"
+
+
+def test_reported_cfo_source_survives_generation_and_l3_without_relabeling_edinet():
+    annual, current, prior = cash_flow_documents()
+    current = replace(current, cfo=None)
+    record = reported_edinet(
+        kind="160", start=date(2026, 1, 1), end=date(2026, 12, 31), ocf=-200.0, capex=30.0
+    )
+    models = generate(documents=(annual, current, prior), bars=(), edinet=record)
+    generation = ModelGeneration(
+        generation_id="reported-cfo-source",
+        as_of=ASOF,
+        evaluation_time=datetime(2026, 9, 1, tzinfo=UTC),
+        inputs={
+            "market": InputSnapshot(
+                kind="lake_release", reference=RELEASE.release_id, sha256=RELEASE.manifest_sha256
+            )
+        },
+        models=models,
+    )
+    saved = ModelGeneration.model_validate_json(generation.model_dump_json())
+    selected = ModelInputSlice(**saved.model_dump(), subjects=("1001",))
+    financial = project_generated_inputs(selected)["securities"]["1001"]["company_financials"][
+        "financial"
+    ]
+    assert financial == models[0].payload["financial"]
+    assert financial["cfo"] == annual.cfo
+    assert financial["latest_financial_disclosure_date"] == "2026-08-06"
+    assert financial["cfo_source"]["period_end"] == "2026-03-31"
+    assert financial["cfo_source"]["disclosure_number"] == "synthetic-annual"
+    assert financial["ocf_ttm"] is None
+    assert financial["ocf_ttm_period"] is None
+    assert financial["edinet_reported_flows"]["amounts"]["operating_cash_flow"] == -200.0
+    assert financial["edinet_reported_flows"]["measurement_period"]["end"] is None
+
+
 def test_saved_old_model_retains_its_payload_without_new_period_defaults():
     old = GeneratedModel(
         model_id="company_financials",
@@ -762,6 +858,7 @@ def test_saved_old_model_retains_its_payload_without_new_period_defaults():
     assert GeneratedModel.model_validate_json(saved).model_dump_json() == saved
     assert "edinet_reported_flows" not in saved
     assert "ocf_ttm_period" not in saved
+    assert "cfo_source" not in saved
 
 
 def test_holder_report_is_retained_as_attributed_evidence_without_rewriting_capital():

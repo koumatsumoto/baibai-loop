@@ -69,6 +69,22 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
 VALUATION_CALCULATION_REVISION = "continuous-annual-input-v51-partial-split-basis"
 
 
+def _reported_cfo_source(row: JQuantsFinancialSummary | None) -> dict[str, str | None] | None:
+    if row is None or row.cfo is None:
+        return None
+    return {
+        "period_type": row.fiscal_period,
+        "period_start": row.period_start.isoformat() if row.period_start else None,
+        "period_end": row.period_end.isoformat() if row.period_end else None,
+        "statement_basis": statement_basis(row),
+        "accounting_standard": accounting_standard(row),
+        "disclosure_number": row.disclosure_number,
+        "disclosed_at": row.disclosed_at.isoformat(),
+        "disclosed_time": row.disclosed_time,
+        "document_type": row.document_type,
+    }
+
+
 def build_financial_snapshot(
     latest_price: float | None,
     summaries: Sequence[JQuantsFinancialSummary],
@@ -344,6 +360,7 @@ def build_financial_snapshot(
         ocf_ttm_period=_ttm_period(summaries, "cfo", ttm_rules),
         sales=sales_row.sales if sales_row else None,
         cfo=cfo_row.cfo if cfo_row else None,
+        cfo_source=_reported_cfo_source(cfo_row),
         cash_eq=cash_eq,
         total_assets=total_assets,
         same_state_equity_yen=same_state_equity_yen,
