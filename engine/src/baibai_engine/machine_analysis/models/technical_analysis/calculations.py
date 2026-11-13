@@ -9,7 +9,7 @@ from itertools import pairwise
 
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 
-TECHNICAL_CALCULATION_REVISION = "sma20-50-200-bb20-wilder-rsi14-price-path-v2"
+TECHNICAL_CALCULATION_REVISION = "sma20-50-200-bb20-wilder-rsi14-price-path-v3"
 
 
 def bollinger_20bar(bars: Sequence[PriceBar]) -> dict[str, object]:

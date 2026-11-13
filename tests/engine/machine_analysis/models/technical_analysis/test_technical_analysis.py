@@ -253,3 +253,41 @@ def test_calendar_missing_from_written_store_is_not_silently_unavailable(tmp_pat
         connection.execute("DROP TABLE jquants_market_calendar")
     with pytest.raises(SQLiteSchemaError, match="jquants_market_calendar"):
         technical_analysis(path, ticker="1234", as_of=ASOF)
+
+
+def test_common_calendar_path_reads_retained_turnover_without_extra_source_or_future_factor(
+    tmp_path,
+):
+    path = tmp_path / "market.sqlite"
+    dates = [ASOF - timedelta(days=i) for i in range(120)]
+    traded = sorted(day for day in dates if day.weekday() < 5)
+    closes = [100.0] * (len(traded) - 2) + [110.0, 100.0]
+    with closing(open_connection(path)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
+            [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in dates],
+        )
+        connection.executemany(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,open,high,low,close,volume,turnover_value,adjustment_factor) "
+            "VALUES('1234',?,?,?,?,?,?,?,1)",
+            [
+                (day.isoformat(), close, close, close, close, 10, 1000)
+                for day, close in zip(traded, closes, strict=True)
+            ],
+        )
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) VALUES('1234',?,99999,.01)",
+            ((ASOF + timedelta(days=1)).isoformat(),),
+        )
+    before = path.read_bytes()
+    result = technical_analysis(path, ticker="1234", as_of=ASOF)
+    observation = result["price_path"]["observations"]["G60"]
+    assert result["calculation_revision"].endswith("price-path-v3")
+    assert observation["coverage"]["row_counts"]["priced"] == 61
+    assert observation["path_statistics"]["up_days"] == 1
+    assert observation["path_statistics"]["down_days"] == 1
+    assert observation["path_statistics"]["log_path_efficiency"] == 0
+    assert observation["path_statistics"]["turnover_comparison"]["up_down_mean_ratio"] == 1
+    assert observation["comparison_end_price"] == 100
+    assert result["moving_averages"]["sma_20bar"]["value"] == 100.5
+    assert path.read_bytes() == before

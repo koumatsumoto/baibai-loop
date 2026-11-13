@@ -32,10 +32,15 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
 from baibai_engine.machine_analysis.models.market_context.security import (
     calculate_security_market_context,
 )
+from baibai_engine.machine_analysis.models.technical_analysis.generation import (
+    generate_technical_analysis,
+)
+from baibai_engine.machine_analysis.models.technical_analysis.price_path import observe_price_path
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies import economic_path_inputs
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
@@ -268,6 +273,90 @@ def test_old_model_does_not_gain_a_turnover_window_or_change_selection_hash():
     assert sha256(canonical_json(saved).encode()).hexdigest() == (
         "31dfe3c282d5aced68d54872768986538e0d4a3b358213529e9297c82c78adeb"
     )
+    assert "moving_averages" not in saved["cards"][0]["context"]
+    assert "price_path" not in saved["cards"][0]["context"]
+    brief = economic_screening_brief(saved)["cards"][0]["context"]
+    assert "moving_averages" not in brief
+    assert "price_path" not in brief
+
+
+@pytest.mark.parametrize("state", ["complete", "missing_interval", "old_model", "old_selection"])
+def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_backfill(
+    tmp_path, state
+):
+    data = payloads()
+    baseline = project(data)
+    end = metadata().as_of
+    calendar = {
+        end - timedelta(days=i): (end - timedelta(days=i)).weekday() < 5 for i in range(150)
+    }
+    dates = sorted(day for day, business in calendar.items() if business)
+    bars = [PriceBar(day, 100 + i % 3, 1000.0) for i, day in enumerate(dates)]
+    states = dict.fromkeys(dates, "priced")
+    if state == "missing_interval":
+        del states[dates[-10]]
+    path = observe_price_path(
+        bars, calendar=price_calendar(calendar, as_of=end), day_states=states
+    ).payload
+    technical = generate_technical_analysis(
+        bars, ticker="1234", as_of=end, trading_dates=dates, price_path=path
+    )
+    if state == "old_model":
+        del path["observations"]["G60"]["path_statistics"]
+        path["calculation_revision"] = "common-calendar-observed-close-path-v1"
+    data["technical_analysis"] = technical
+    original = deepcopy(data)
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    assert projected.context["moving_averages"] == technical["moving_averages"]
+    assert projected.context["price_path"] == path
+    second = replace(project(payloads(price=200)), ticker="5678")
+    before = select_economic_paths((baseline, second), policy=EconomicPathPolicy())
+    selected = select_economic_paths((projected, second), policy=EconomicPathPolicy())
+    assert [(c.ticker, c.rank, c.priority, c.paths) for c in selected.cards] == [
+        (c.ticker, c.rank, c.priority, c.paths) for c in before.cards
+    ]
+    if state == "old_selection":
+        del selected.cards[0].context["moving_averages"]
+        del selected.cards[0].context["price_path"]
+    header = metadata()
+    runs = tmp_path / "runs.sqlite"
+    publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
+    store = ScreeningSelectionStore(runs)
+    document = ScreeningSelection(header.generation_id, ("1234", "5678"), selected)
+    assert store.publish("technical-context", document)
+    stored_bytes = runs.read_bytes()
+    restored = store.read("technical-context")
+    assert restored == document
+    saved = TypeAdapter(EconomicPathSelection).dump_python(restored.result, mode="json")
+    canonical_before = canonical_json(saved)
+    brief = economic_screening_brief(saved)["cards"][0]["context"]
+    if state == "old_selection":
+        assert "moving_averages" not in brief
+        assert "price_path" not in brief
+    else:
+        assert brief["moving_averages"] == technical["moving_averages"]
+        assert brief["moving_averages"]["sma_200bar"]["status"] == "insufficient_history"
+        shown = brief["price_path"]
+        assert shown["read_semantics"] == path["read_semantics"]
+        assert set(shown["observations"]) == {"R20", "G60"}
+        g60 = shown["observations"]["G60"]
+        assert "unpriced_dates" not in g60["coverage"]
+        assert g60["window_start_date"] == path["observations"]["G60"]["window_start_date"]
+        if state == "old_model":
+            assert "path_statistics" not in g60
+        else:
+            assert g60["path_statistics"] == path["observations"]["G60"]["path_statistics"]
+            assert g60["path_statistics"]["status"] == (
+                "incomplete_price_window" if state == "missing_interval" else "available"
+            )
+            if state == "missing_interval":
+                assert g60["coverage"]["row_counts"]["absent"] == 1
+            g60["path_statistics"]["status"] = "display-only-mutation"
+        brief["moving_averages"]["sma_20bar"]["value"] = -1
+    assert canonical_json(saved) == canonical_before
+    assert data == original
+    assert runs.read_bytes() == stored_bytes
 
 
 @pytest.mark.parametrize("legacy", [False, True])

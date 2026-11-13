@@ -9,6 +9,9 @@ from datetime import date
 from decimal import Decimal
 from math import isfinite
 
+from baibai_engine.machine_analysis.models.technical_analysis.path_statistics import (
+    close_path_statistics,
+)
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.prices.price_observation import (
     PriceCalendar,
@@ -16,7 +19,7 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
     PriceDayState,
 )
 
-PRICE_PATH_REVISION = "common-calendar-observed-close-path-v1"
+PRICE_PATH_REVISION = "common-calendar-observed-close-path-v2"
 ANNOTATION_POLICY_REVISION = "research-price-note-b-v1"
 _THRESHOLDS = {"R1": -0.08, "R20": -0.20, "G60": -0.20}
 _STATES = ("priced", "no_trade", "absent", "mixed", "invalid")
@@ -99,6 +102,10 @@ def observe_price_path(
             value=value,
             unavailable_reason=reason,
         )
+        if differences == 60:
+            item["path_statistics"] = close_path_statistics(
+                {bar.traded_at: bar for bar in bars if bar.traded_at in prices}, window=window
+            )
         observations[ref] = item
         if value is not None:
             assert start_date is not None

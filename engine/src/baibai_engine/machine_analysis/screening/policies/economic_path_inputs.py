@@ -428,6 +428,7 @@ def project_company(
         "price_momentum": technical.get("price_momentum"),
         "rsi_14bar": technical.get("rsi_14bar"),
         "bollinger_20bar": technical.get("bollinger_20bar"),
+        **{key: technical[key] for key in ("moving_averages", "price_path") if key in technical},
         "market_relative": market.get("relative"),
         "external_assessment": _external_context(external),
         "path_inputs": [
