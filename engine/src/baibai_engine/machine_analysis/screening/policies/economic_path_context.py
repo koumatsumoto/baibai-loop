@@ -88,7 +88,9 @@ def _external_comparisons(kind: str, assessment: dict[str, JsonValue]) -> list[J
                 "previous_target_period": previous.get(f"{metric}_period"),
                 "source_url": latest.get("source_url"),
                 "fetched_at_utc": latest.get("fetched_at_utc"),
+                "previous_fetched_at_utc": previous.get("fetched_at_utc"),
                 "score_as_of_date": latest.get("score_as_of_date"),
+                "previous_score_as_of_date": previous.get("score_as_of_date"),
                 **(
                     {
                         "availability": latest.get("availability"),

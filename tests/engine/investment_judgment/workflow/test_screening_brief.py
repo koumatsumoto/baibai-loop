@@ -235,6 +235,28 @@ def test_external_keeps_current_levels_states_periods_and_all_genuine_changes():
     assert company == before
 
 
+@pytest.mark.parametrize("clock", ["previous_fetched_at_utc", "previous_score_as_of_date"])
+def test_external_does_not_group_metrics_with_different_previous_clocks(clock):
+    company = card()
+    company["context"]["external_assessment"]["comparisons"] = [
+        {
+            "kind": "quants_scores",
+            "origin": "synthetic-source",
+            "metric": metric,
+            "state": "same_value",
+            "comparable": True,
+            "latest_value": 5.0,
+            "previous_value": 5.0,
+            clock: previous,
+        }
+        for metric, previous in (("growth_score", "2026-01-01"), ("size_score", "2026-01-02"))
+    ]
+    brief = economic_screening_brief(result(company))["cards"][0]["context"]["external_assessment"]
+    assert len(brief["sources"]) == 2
+    assert [group[clock] for group in brief["sources"]] == ["2026-01-01", "2026-01-02"]
+    assert brief["comparable_changes"] == []
+
+
 def test_growth_retains_bad_latest_quarter_and_only_distinct_selected_fallback():
     company = card()
     quarter = {
