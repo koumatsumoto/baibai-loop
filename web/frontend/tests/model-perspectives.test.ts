@@ -55,6 +55,18 @@ describe('モデル別の保存判断', () => {
     expect(render(assessment)).toContain(`>${label}<`)
   })
 
+  it('ライト固定の背景にOSのdark設定だけで淡色文字を適用しない', () => {
+    const assessment = assessmentFixture('light-palette')
+    assessment.model_perspectives = [
+      { model: 'company_financials', assessment: 'supportive', summary: '根拠のある支持。', source_ids: ['source'] },
+      { model: 'company_growth', assessment: 'mixed', summary: '支持と相反が併存。', source_ids: ['source'] },
+      { model: 'technical_analysis', assessment: 'adverse', summary: '価格面の逆風。', source_ids: ['source'] },
+    ]
+    const html = render(assessment)
+    for (const color of ['text-emerald-700', 'text-amber-800', 'text-rose-700']) expect(html).toContain(color)
+    expect(html).not.toContain('dark:')
+  })
+
   it('exact根拠の対象日と取得時刻を評価日へ置換せず、本文とURLをescapeする', () => {
     const assessment = assessmentFixture('clocks')
     assessment.model_perspectives = [{ model: 'company_growth', assessment: 'mixed', summary: '<script>alert(1)</script>\n実績成長と予想を区別。', source_ids: ['old-ir', 'saved'] }]
