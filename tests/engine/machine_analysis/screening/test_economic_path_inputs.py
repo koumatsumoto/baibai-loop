@@ -783,6 +783,82 @@ def test_external_context_preserves_actual_group_comparisons_without_original_sn
     assert "snapshot_only_payload" not in str(external)
 
 
+@pytest.mark.parametrize(
+    "kind", ["model_valuations", "analyst_ratings", "quants_scores", "tradingview"]
+)
+@pytest.mark.parametrize("legacy_saved_summary", [False, True])
+def test_external_previous_clocks_survive_selection_and_brief(tmp_path, kind, legacy_saved_summary):
+    data = payloads()
+    baseline = project(data)
+    latest = {"fetched_at_utc": "2026-01-04T15:30:00Z"}
+    previous = {"fetched_at_utc": "2026-01-01T15:30:00Z"}
+    comparison = {
+        "metric": "growth_score" if kind == "quants_scores" else "rating",
+        "state": "increased" if kind == "quants_scores" else "not_comparable",
+        "comparable": kind == "quants_scores",
+        "latest_value": 8.0,
+        "previous_value": 7.0,
+        "delta": 1.0 if kind == "quants_scores" else None,
+    }
+    if kind == "quants_scores":
+        latest["score_as_of_date"] = "2025-12-30"
+        previous["score_as_of_date"] = "2025-12-29"
+    assessment = {"inputs": {"latest": latest, "previous": previous}}
+    if kind == "analyst_ratings":
+        assessment["comparison"] = comparison
+    else:
+        assessment["comparisons"] = [comparison]
+    data["external_assessment"] = {kind: assessment if kind == "tradingview" else [assessment]}
+    original = deepcopy(data)
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    assert data == original
+    summary = projected.context["external_assessment"]["comparisons"][0]
+    assert summary["previous_fetched_at_utc"] == previous["fetched_at_utc"]
+    assert summary["previous_score_as_of_date"] == previous.get("score_as_of_date")
+    assert summary["comparable"] is comparison["comparable"]
+    assert summary["delta"] == comparison["delta"]
+    if legacy_saved_summary:
+        del summary["previous_fetched_at_utc"]
+        del summary["previous_score_as_of_date"]
+    header = metadata()
+    runs = tmp_path / "runs.sqlite"
+    publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
+    result = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    prior = select_economic_paths((baseline,), policy=EconomicPathPolicy()).cards[0]
+    assert (result.cards[0].rank, result.cards[0].priority) == (prior.rank, prior.priority)
+    selected = ScreeningSelection(header.generation_id, ("1234",), result)
+    store = ScreeningSelectionStore(runs)
+    assert store.publish("external-clocks", selected)
+    stored_bytes = runs.read_bytes()
+    restored = store.read("external-clocks")
+    assert restored == selected
+    saved = TypeAdapter(EconomicPathSelection).dump_python(restored.result, mode="json")
+    before = canonical_json(saved)
+    brief = economic_screening_brief(saved)["cards"][0]["context"]["external_assessment"]
+    group = brief["sources"][0]
+    assert group["fetched_at_utc"] == latest["fetched_at_utc"]
+    if legacy_saved_summary:
+        assert "previous_fetched_at_utc" not in group
+        assert "previous_score_as_of_date" not in group
+    else:
+        assert group["previous_fetched_at_utc"] == previous["fetched_at_utc"]
+        assert group.get("previous_score_as_of_date") == previous.get("score_as_of_date")
+    if kind == "quants_scores":
+        change = brief["comparable_changes"][0]
+        assert change["score_as_of_date"] == latest["score_as_of_date"]
+        if legacy_saved_summary:
+            assert "previous_fetched_at_utc" not in change
+            assert "previous_score_as_of_date" not in change
+        else:
+            assert change["previous_fetched_at_utc"] == previous["fetched_at_utc"]
+            assert change["previous_score_as_of_date"] == previous["score_as_of_date"]
+    else:
+        assert brief["comparable_changes"] == []
+    assert canonical_json(saved) == before
+    assert runs.read_bytes() == stored_bytes
+
+
 @pytest.mark.parametrize("legacy_saved_summary", [False, True])
 def test_minkabu_receipt_clock_survives_selection_and_brief_without_rewriting_history(
     tmp_path, legacy_saved_summary
