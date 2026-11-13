@@ -780,6 +780,319 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1}
                 )
 
+    def _tier_documents(self, *, second_result_parent="SREGB"):
+        return [
+            ("2026-02-01", 1, "SREGA", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET", None),
+            ("2026-02-05", 1, "SREGB", None, "240", "2026-02-05T09:00", "BIDDER", "TARGET", None),
+            (
+                "2026-03-20",
+                1,
+                "SRESA",
+                None,
+                "270",
+                "2026-03-20T09:00",
+                "BIDDER",
+                "TARGET",
+                "SREGA",
+            ),
+            (
+                "2026-03-25",
+                1,
+                "SRESB",
+                None,
+                "270",
+                "2026-03-25T09:00",
+                "BIDDER",
+                "TARGET",
+                second_result_parent,
+            ),
+        ]
+
+    def _tier_archives(self, first_outcome, second_outcome):
+        offer = _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY})
+        return {
+            "SREGA": offer,
+            "SREGB": offer,
+            "SRESA": _archive({_OUTCOME: first_outcome}),
+            "SRESB": _archive({_OUTCOME: second_outcome}),
+        }
+
+    def test_each_tier_requires_its_own_successful_result(self) -> None:
+        for parent in ("SREGB", None):
+            for first, second in ((_SUCCESS, _SUCCESS), (_FAILURE, _SUCCESS), (_SUCCESS, _FAILURE)):
+                with (
+                    self.subTest(parent=parent, first=first, second=second),
+                    TemporaryDirectory() as tmp,
+                ):
+                    path = self._store(
+                        tmp, self._tier_documents(second_result_parent=parent), reason="公開買付け"
+                    )
+                    reader = _Reader(self._tier_archives(first, second))
+                    values, summary = build_tender_offer_exit_values(
+                        path, reader=reader, asof=self.ASOF
+                    )
+                    if first == second == _SUCCESS:
+                        self.assertEqual(values[0].offer_price_yen, 1000)
+                        self.assertEqual(values[0].offer_doc_id, "SREGA")
+                        self.assertEqual(values[0].result_doc_id, "SRESA")
+                        self.assertEqual(reader.requested, ["SRESB", "SRESA", "SREGA", "SREGB"])
+                    else:
+                        self.assertEqual(values, ())
+                        self.assertEqual(
+                            summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1}
+                        )
+                        self.assertNotIn("SREGA", reader.requested)
+
+    def test_result_for_one_tier_does_not_complete_another(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = self._store(tmp, self._tier_documents()[:-1], reason="公開買付け")
+            reader = _Reader({})
+            values, summary = build_tender_offer_exit_values(path, reader=reader, asof=self.ASOF)
+            self.assertEqual(values, ())
+            self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
+            self.assertEqual(reader.requested, [])
+
+    def test_result_correction_changes_only_its_own_tier(self) -> None:
+        for second in (_SUCCESS, _FAILURE):
+            with self.subTest(second=second), TemporaryDirectory() as tmp:
+                documents = [
+                    *self._tier_documents(),
+                    (
+                        "2026-04-01",
+                        1,
+                        "SCORA",
+                        None,
+                        "280",
+                        "2026-04-01T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        "SRESA",
+                    ),
+                    (
+                        "2026-04-02",
+                        1,
+                        "SCORA2",
+                        None,
+                        "280",
+                        "2026-04-02T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        "SCORA",
+                    ),
+                ]
+                path = self._store(tmp, documents, reason="公開買付け")
+                reader = _Reader(
+                    {
+                        **self._tier_archives(_FAILURE, second),
+                        "SCORA": _archive({_OUTCOME: _SUCCESS}),
+                        "SCORA2": _archive({"other:Note": "結果を変更しない訂正"}),
+                    }
+                )
+                values, summary = build_tender_offer_exit_values(
+                    path, reader=reader, asof=self.ASOF
+                )
+                if second == _SUCCESS:
+                    self.assertEqual(values[0].offer_doc_id, "SREGA")
+                    self.assertEqual(values[0].result_doc_id, "SCORA")
+                    self.assertEqual(
+                        reader.requested, ["SRESB", "SCORA2", "SCORA", "SREGA", "SREGB"]
+                    )
+                else:
+                    self.assertEqual(values, ())
+                    self.assertEqual(
+                        summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1}
+                    )
+                    self.assertEqual(reader.requested, ["SRESB"])
+
+    def test_one_common_result_is_read_once_for_all_its_tiers(self) -> None:
+        with TemporaryDirectory() as tmp:
+            documents = [
+                *self._tier_documents()[:2],
+                (
+                    "2026-03-20",
+                    1,
+                    "SCOMMON",
+                    None,
+                    "270",
+                    "2026-03-20T09:00",
+                    "BIDDER",
+                    "TARGET",
+                    None,
+                ),
+            ]
+            path = self._store(tmp, documents, reason="公開買付け")
+            reader = _Reader(
+                {
+                    **self._tier_archives(_SUCCESS, _SUCCESS),
+                    "SCOMMON": _archive({_OUTCOME: _SUCCESS}),
+                }
+            )
+            values, _ = build_tender_offer_exit_values(path, reader=reader, asof=self.ASOF)
+            self.assertEqual(values[0].result_doc_id, "SCOMMON")
+            self.assertEqual(reader.requested, ["SCOMMON", "SREGA", "SREGB"])
+
+    def test_late_correction_of_an_older_result_does_not_replace_a_new_result(self) -> None:
+        for newest in (_SUCCESS, _FAILURE):
+            with self.subTest(newest=newest), TemporaryDirectory() as tmp:
+                path = self._store(
+                    tmp,
+                    [
+                        *self._registration_and_result(),
+                        (
+                            "2026-03-25",
+                            1,
+                            "SRESNEW",
+                            None,
+                            "270",
+                            "2026-03-25T09:00",
+                            "BIDDER",
+                            "TARGET",
+                            "SREG",
+                        ),
+                        (
+                            "2026-04-01",
+                            1,
+                            "SCOROLD",
+                            None,
+                            "280",
+                            "2026-04-01T09:00",
+                            "BIDDER",
+                            "TARGET",
+                            "SRES",
+                        ),
+                    ],
+                    reason="公開買付け",
+                )
+                reader = _Reader(
+                    {
+                        "SREG": _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY}),
+                        "SRESNEW": _archive({_OUTCOME: newest}),
+                        "SCOROLD": _archive(
+                            {_OUTCOME: _FAILURE if newest == _SUCCESS else _SUCCESS}
+                        ),
+                    }
+                )
+                values, _ = build_tender_offer_exit_values(path, reader=reader, asof=self.ASOF)
+                if newest == _SUCCESS:
+                    self.assertEqual(values[0].result_doc_id, "SRESNEW")
+                    self.assertEqual(reader.requested, ["SRESNEW", "SREG"])
+                else:
+                    self.assertEqual(values, ())
+                    self.assertEqual(reader.requested, ["SRESNEW"])
+
+    def test_result_correction_must_descend_from_a_result_not_registration(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = self._store(
+                tmp,
+                [
+                    *self._registration_and_result(),
+                    (
+                        "2026-04-01",
+                        1,
+                        "SCOR",
+                        None,
+                        "280",
+                        "2026-04-01T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        "SREG",
+                    ),
+                ],
+                reason="公開買付け",
+            )
+            reader = _Reader({})
+            values, summary = build_tender_offer_exit_values(path, reader=reader, asof=self.ASOF)
+            self.assertEqual(values, ())
+            self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
+            self.assertEqual(reader.requested, [])
+
+    def test_parentless_result_cannot_choose_between_closed_tiers(self) -> None:
+        for first, second in ((_SUCCESS, _FAILURE), (_FAILURE, _SUCCESS)):
+            with self.subTest(first=first), TemporaryDirectory() as tmp:
+                path = self._store(
+                    tmp,
+                    [
+                        *self._tier_documents(),
+                        (
+                            "2026-04-01",
+                            1,
+                            "SUNKNOWN",
+                            None,
+                            "270",
+                            "2026-04-01T09:00",
+                            "BIDDER",
+                            "TARGET",
+                            None,
+                        ),
+                    ],
+                    reason="公開買付け",
+                )
+                reader = _Reader(
+                    {
+                        **self._tier_archives(first, second),
+                        "SUNKNOWN": _archive({_OUTCOME: _SUCCESS}),
+                    }
+                )
+                values, summary = build_tender_offer_exit_values(
+                    path, reader=reader, asof=self.ASOF
+                )
+                self.assertEqual(values, ())
+                self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
+                self.assertEqual(reader.requested, [])
+
+    def test_parentless_repeat_result_keeps_single_current_round_fallback(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = self._store(
+                tmp,
+                [
+                    (
+                        "2025-09-01",
+                        1,
+                        "SOLDREG",
+                        None,
+                        "240",
+                        "2025-09-01T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        None,
+                    ),
+                    (
+                        "2025-10-01",
+                        1,
+                        "SOLDRES",
+                        None,
+                        "270",
+                        "2025-10-01T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        None,
+                    ),
+                    *self._registration_and_result(),
+                    (
+                        "2026-04-01",
+                        1,
+                        "SREPEAT",
+                        None,
+                        "270",
+                        "2026-04-01T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        None,
+                    ),
+                ],
+                reason="公開買付け",
+            )
+            reader = _Reader(
+                {
+                    "SREG": _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY}),
+                    "SREPEAT": _archive({_OUTCOME: _SUCCESS}),
+                }
+            )
+            values, _ = build_tender_offer_exit_values(path, reader=reader, asof=self.ASOF)
+            self.assertEqual(values[0].offer_doc_id, "SREG")
+            self.assertEqual(values[0].result_doc_id, "SREPEAT")
+            self.assertEqual(reader.requested, ["SREPEAT", "SREG"])
+
     def test_a_correction_supersedes_the_price_it_revises(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(
