@@ -35,9 +35,23 @@ def payload():
     ]
 
 
-def _pair(*, number=1, explanation=None, partial=False, perspectives=()):
+def _pair(
+    *, number=1, explanation=None, partial=False, perspectives=(), price=None, valuation=None
+):
     raw, review_raw = pair_payload(review_number=number + 1)
     raw["model_perspectives"] = list(perspectives)
+    if price is not None:
+        raw["input_snapshot"]["facts"][0]["value"] = price
+    if valuation is not None:
+        raw["valuation"] = valuation
+        review_raw["recalculated_projections"] = (
+            [
+                {"name": name, **{k: v for k, v in valuation[name].items() if k.endswith("_yen")}}
+                for name in ("base", "downside")
+            ]
+            if valuation["status"] == "resolved"
+            else []
+        )
     if explanation is not None:
         raw["investment_case"]["explanation"] = explanation
     if partial:
@@ -177,6 +191,84 @@ def test_legacy_model_perspectives_remain_unrecorded(payload):
     view = project_saved_proposal(TradeProposal.model_validate(payload), {pair.assessment_id: pair})
     assert view.items[0].assessment.model_perspectives == []
     assert view.items[0].assessment.model_perspective_sources == []
+
+
+def test_saved_valuation_uses_assessment_price_and_keeps_assumptions_without_mutation(payload):
+    raw, _ = pair_payload()
+    raw["valuation"]["base"]["terminal_value_per_share_yen"] = "1100.0000000000000001"
+    pair = _pair(price=1000, valuation=raw["valuation"])
+    assert not pair.evaluation.errors
+    _current(payload, pair)
+    proposal = TradeProposal.model_validate(payload)
+    before = pair.document.model_dump_json()
+    view = project_saved_proposal(proposal, {pair.assessment_id: pair})
+    item = view.items[0]
+    value = item.assessment.valuation
+    assert value.status == "resolved"
+    assert value.price_yen == "1000"
+    assert item.saved_quote.price_yen == "1100"
+    assert item.terms.limit_price_yen == "1000"
+    assert value.price_as_of == pair.document.input_snapshot.facts[0].as_of
+    assert value.price_observed_at == pair.document.input_snapshot.facts[0].observed_at
+    assert value.price_basis == "last_close_unadjusted"
+    assert value.horizon_months == 12
+    assert value.required_annual_return_pct == "10"
+    assert value.base.annualized_return_pct == "10.0000"
+    assert value.downside.annualized_return_pct == "-30.0000"
+    for name in ("base", "downside"):
+        original = getattr(pair.document.valuation, name)
+        projected = getattr(value, name)
+        assert projected.terminal_value_per_share_yen == str(original.terminal_value_per_share_yen)
+        assert projected.cash_distribution_per_share_yen == "0"
+        assert projected.calculation == original.calculation
+    assert pair.document.model_dump_json() == before
+    assert item.assessment.core_sha256 == pair.core_sha256
+
+
+def test_saved_valuation_zero_is_a_loss_not_missing(payload):
+    raw, _ = pair_payload()
+    raw["valuation"]["downside"]["terminal_value_per_share_yen"] = "0"
+    pair = _pair(valuation=raw["valuation"])
+    assert not pair.evaluation.errors
+    _current(payload, pair)
+    value = (
+        project_saved_proposal(TradeProposal.model_validate(payload), {pair.assessment_id: pair})
+        .items[0]
+        .assessment.valuation
+    )
+    assert value.downside.terminal_value_per_share_yen == "0"
+    assert value.downside.cash_distribution_per_share_yen == "0"
+    assert value.downside.annualized_return_pct == "-100.0000"
+
+
+def test_saved_unresolved_valuation_keeps_its_reason_without_invented_returns(payload):
+    pair = _pair(
+        partial=True,
+        valuation={
+            "status": "unresolved",
+            "market_price_fact_id": None,
+            "horizon_months": None,
+            "required_annual_return_pct": None,
+            "base": None,
+            "downside": None,
+            "unresolved_reason": "回収時期の幅を定められず、価値評価は未確定。",
+        },
+    )
+    assert not pair.evaluation.errors
+    _current(payload, pair)
+    item = payload["items"][0]
+    for field in ("terms", "terms_unavailable_reasons", "timing", "proposed_limit_yen"):
+        item.pop(field)
+    item.update(
+        action="defer",
+        blockers=[{"code": "unresolved", "message": "回収時期未確定"}],
+        resume_conditions=["回収時期を確認"],
+    )
+    view = project_saved_proposal(TradeProposal.model_validate(payload), {pair.assessment_id: pair})
+    assert view.items[0].assessment.valuation.model_dump() == {
+        "status": "unresolved",
+        "reason": pair.document.valuation.unresolved_reason,
+    }
 
 
 @pytest.mark.parametrize("window_end", [None, "2026-10-07"])
@@ -375,6 +467,9 @@ def test_source_reads_exact_saved_pair_without_market_or_current_writers(tmp_pat
     assert view.generated_at == generated_at
     assert view.proposal.proposal_id == saved.proposal_id
     assert view.proposal.items[0].assessment.assessment_id == case.pair.assessment_id
+    assert view.proposal.items[0].assessment.valuation.price_yen == str(
+        case.pair.document.input_snapshot.facts[0].value
+    )
     assert reader.call_args.args[1] == saved.items[0].assessment_ref
     preview.assert_not_called()
     writer.assert_not_called()

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 9,
+  "schemaVersion": 10,
   "roots": {
     "views/latest-proposal.json": "#/$defs/LatestProposalView",
     "views/outcomes.json": "#/$defs/OutcomesView",
@@ -791,6 +791,32 @@
           "title": "Model Perspective Sources",
           "type": "array"
         },
+        "valuation": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "resolved": "#/$defs/SavedResolvedValuationView",
+                  "unresolved": "#/$defs/SavedUnresolvedValuationView"
+                },
+                "propertyName": "status"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/SavedResolvedValuationView"
+                },
+                {
+                  "$ref": "#/$defs/SavedUnresolvedValuationView"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valuation"
+        },
         "review": {
           "$ref": "#/$defs/SavedAssessmentReviewView"
         }
@@ -807,6 +833,7 @@
         "invalidation_conditions",
         "model_perspectives",
         "model_perspective_sources",
+        "valuation",
         "review"
       ],
       "title": "SavedAssessmentView",
@@ -1771,6 +1798,75 @@
       "title": "SavedRemainingRewardView",
       "type": "object"
     },
+    "SavedResolvedValuationView": {
+      "properties": {
+        "status": {
+          "const": "resolved",
+          "default": "resolved",
+          "title": "Status",
+          "type": "string"
+        },
+        "price_yen": {
+          "title": "Price Yen",
+          "type": "string"
+        },
+        "price_as_of": {
+          "format": "date",
+          "title": "Price As Of",
+          "type": "string"
+        },
+        "price_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Price Observed At"
+        },
+        "price_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Price Basis"
+        },
+        "horizon_months": {
+          "title": "Horizon Months",
+          "type": "integer"
+        },
+        "required_annual_return_pct": {
+          "title": "Required Annual Return Pct",
+          "type": "string"
+        },
+        "base": {
+          "$ref": "#/$defs/SavedValuationProjectionView"
+        },
+        "downside": {
+          "$ref": "#/$defs/SavedValuationProjectionView"
+        }
+      },
+      "required": [
+        "status",
+        "price_yen",
+        "price_as_of",
+        "price_observed_at",
+        "price_basis",
+        "horizon_months",
+        "required_annual_return_pct",
+        "base",
+        "downside"
+      ],
+      "title": "SavedResolvedValuationView",
+      "type": "object"
+    },
     "SavedSellItemView": {
       "properties": {
         "ticker": {
@@ -1966,6 +2062,54 @@
         "median_yen"
       ],
       "title": "SavedTurnoverWindowView",
+      "type": "object"
+    },
+    "SavedUnresolvedValuationView": {
+      "properties": {
+        "status": {
+          "const": "unresolved",
+          "default": "unresolved",
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "title": "SavedUnresolvedValuationView",
+      "type": "object"
+    },
+    "SavedValuationProjectionView": {
+      "properties": {
+        "terminal_value_per_share_yen": {
+          "title": "Terminal Value Per Share Yen",
+          "type": "string"
+        },
+        "cash_distribution_per_share_yen": {
+          "title": "Cash Distribution Per Share Yen",
+          "type": "string"
+        },
+        "annualized_return_pct": {
+          "title": "Annualized Return Pct",
+          "type": "string"
+        },
+        "calculation": {
+          "title": "Calculation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal_value_per_share_yen",
+        "cash_distribution_per_share_yen",
+        "annualized_return_pct",
+        "calculation"
+      ],
+      "title": "SavedValuationProjectionView",
       "type": "object"
     },
     "UnfinishedResearchView": {

@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Mapping
 from datetime import datetime
 
+from baibai_engine.investment_judgment.stock_assessment.scenario import project_return
 from baibai_engine.investment_judgment.stock_assessment.store import ReviewedAssessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ExposureRow,
@@ -14,6 +15,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalItem,
     TradeProposal,
 )
+from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.primitives.time import JST
 from baibai_web.readmodel.proposal_models import (
     LatestProposalView,
@@ -34,8 +36,11 @@ from baibai_web.readmodel.proposal_models import (
     SavedQuoteView,
     SavedReasonView,
     SavedRemainingRewardView,
+    SavedResolvedValuationView,
     SavedSellItemView,
     SavedTurnoverWindowView,
+    SavedUnresolvedValuationView,
+    SavedValuationProjectionView,
     UnfinishedResearchView,
 )
 from baibai_web.sources.protocols import ProposalSource
@@ -124,6 +129,7 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
             for source in document.input_snapshot.sources
             if source.source_id in perspective_sources
         ],
+        valuation=_valuation(pair),
         review=SavedAssessmentReviewView(
             reviewed_at=review.reviewed_at,
             primary_source_check=review.primary_source_check,
@@ -131,6 +137,49 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
             strongest_countercase=review.strongest_countercase,
             uncertainty_acceptance_reason=review.uncertainty_acceptance_reason,
         ),
+    )
+
+
+def _valuation(
+    pair: ReviewedAssessment,
+) -> SavedResolvedValuationView | SavedUnresolvedValuationView:
+    valuation = pair.document.valuation
+    if valuation.status == "unresolved":
+        assert valuation.unresolved_reason is not None
+        return SavedUnresolvedValuationView(reason=valuation.unresolved_reason)
+    assert valuation.horizon_months is not None
+    assert valuation.required_annual_return_pct is not None
+    assert valuation.base is not None
+    assert valuation.downside is not None
+    price_fact = next(
+        fact
+        for fact in pair.document.input_snapshot.facts
+        if fact.fact_id == valuation.market_price_fact_id
+    )
+    price = finite_decimal(price_fact.value)
+    projections = []
+    for projection in (valuation.base, valuation.downside):
+        # Use the Assessment's entry price and horizon, not the Proposal quote/limit or today.
+        returns = project_return(
+            projection, price_yen=price, horizon_months=valuation.horizon_months
+        )
+        projections.append(
+            SavedValuationProjectionView(
+                terminal_value_per_share_yen=str(projection.terminal_value_per_share_yen),
+                cash_distribution_per_share_yen=str(projection.cash_distribution_per_share_yen),
+                annualized_return_pct=str(round(returns.annualized_return_pct, 4)),
+                calculation=projection.calculation,
+            )
+        )
+    return SavedResolvedValuationView(
+        price_yen=str(price),
+        price_as_of=price_fact.as_of,
+        price_observed_at=price_fact.observed_at,
+        price_basis=price_fact.price_basis,
+        horizon_months=valuation.horizon_months,
+        required_annual_return_pct=str(valuation.required_annual_return_pct),
+        base=projections[0],
+        downside=projections[1],
     )
 
 

@@ -130,6 +130,7 @@ export interface SavedAssessmentView {
   invalidation_conditions: string[]
   model_perspectives: SavedModelPerspectiveView[]
   model_perspective_sources: SavedPerspectiveSourceView[]
+  valuation: SavedResolvedValuationView | SavedUnresolvedValuationView | null
   review: SavedAssessmentReviewView
 }
 
@@ -275,6 +276,18 @@ export interface SavedRemainingRewardView {
   reason: string
 }
 
+export interface SavedResolvedValuationView {
+  status: 'resolved'
+  price_yen: string
+  price_as_of: string
+  price_observed_at: string | null
+  price_basis: string | null
+  horizon_months: number
+  required_annual_return_pct: string
+  base: SavedValuationProjectionView
+  downside: SavedValuationProjectionView
+}
+
 export interface SavedSellItemView {
   ticker: string
   rationale: string
@@ -300,6 +313,18 @@ export interface SavedTurnoverWindowView {
   price_bar_count: number
   valid_turnover_count: number
   median_yen: string | null
+}
+
+export interface SavedUnresolvedValuationView {
+  status: 'unresolved'
+  reason: string
+}
+
+export interface SavedValuationProjectionView {
+  terminal_value_per_share_yen: string
+  cash_distribution_per_share_yen: string
+  annualized_return_pct: string
+  calculation: string
 }
 
 export interface UnfinishedResearchView {
