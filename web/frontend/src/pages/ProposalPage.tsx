@@ -21,7 +21,7 @@ import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
-import { formatJstDateTime } from '../lib/format'
+import { formatJstDateTime, formatPct } from '../lib/format'
 
 type ProposalItem = SavedProposalView['items'][number]
 
@@ -116,7 +116,7 @@ function Identifier({ label, value }: { label: string; value: string }) {
   )
 }
 
-function AssessmentExcerpt({ assessment }: { assessment: SavedAssessmentView }) {
+function AssessmentExcerpt({ assessment, showCountercase = true }: { assessment: SavedAssessmentView; showCountercase?: boolean }) {
   const review = assessment.review
   return (
     <div className="grid min-w-0 gap-4">
@@ -136,7 +136,7 @@ function AssessmentExcerpt({ assessment }: { assessment: SavedAssessmentView }) 
           <Field label="独立検証時刻"><SavedTime value={review.reviewed_at} /></Field>
         </dl>
         <Prose>{review.review_scope}</Prose>
-        <div><p className="mb-1 text-sm font-medium">独立検証の最も強い反対論</p><Prose>{review.strongest_countercase}</Prose></div>
+        {showCountercase && <div><p className="mb-1 text-sm font-medium">独立検証の最も強い反対論</p><Prose>{review.strongest_countercase}</Prose></div>}
         {review.uncertainty_acceptance_reason !== null && <div><p className="mb-1 text-sm font-medium">不確実性を引き受けた理由</p><Prose>{review.uncertainty_acceptance_reason}</Prose></div>}
       </div>
       <div className="grid min-w-0 gap-2 border-t pt-4">
@@ -145,6 +145,61 @@ function AssessmentExcerpt({ assessment }: { assessment: SavedAssessmentView }) 
         <Identifier label="review_id" value={assessment.review_id} />
       </div>
     </div>
+  )
+}
+
+function AssessmentValue({ assessment }: { assessment: SavedAssessmentView }) {
+  const valuation = assessment.valuation
+  const scenarios = valuation?.status === 'resolved'
+    ? [{ label: '中心ケース（Base）', value: valuation.base }, { label: '下方ケース（Downside）', value: valuation.downside }]
+    : []
+  const priceBasis: Record<string, string> = {
+    realtime: '観測時の価格（realtime）',
+    last_close_unadjusted: '未調整終値',
+    last_close_adjusted: '調整済み終値',
+  }
+  return (
+    <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存評価の見返り">
+      <div>
+        <h4 className="text-sm font-semibold">保存評価の見返り</h4>
+        <p className="mt-1 text-xs leading-6 text-muted-foreground">評価基準日 <time dateTime={assessment.as_of}>{assessment.as_of}</time> の価格と仮定を固定した計算です。現在価格・提案指値での再計算ではありません。</p>
+      </div>
+      {valuation == null ? <p className="text-sm text-muted-foreground">この表示データには評価の見返りが含まれていません。</p> : valuation.status === 'unresolved' ? <div>
+        <p className="mb-1 text-sm font-medium">価値評価は未確定</p>
+        <Prose>{valuation.reason}</Prose>
+      </div> : <>
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <Field label="評価に用いた株価">{valuation.price_yen} 円</Field>
+          <Field label="株価基準日"><time dateTime={valuation.price_as_of}>{valuation.price_as_of}</time></Field>
+          <Field label="株価の種類">{valuation.price_basis === null ? '保存値なし' : priceBasis[valuation.price_basis] ?? valuation.price_basis}</Field>
+          <Field label="評価時点からの期間">{valuation.horizon_months} か月</Field>
+          <Field label="評価で選んだ要求年率">{valuation.required_annual_return_pct} %</Field>
+          {valuation.price_observed_at !== null && <Field label="株価の観測時刻"><SavedTime value={valuation.price_observed_at} /></Field>}
+        </dl>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {scenarios.map(({ label, value }) => <div className="min-w-0 rounded-md bg-muted p-4" key={label}>
+            <p className="text-sm font-medium">{label}</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">{formatPct(Number(value.annualized_return_pct), { digits: 2 })}</p>
+            <p className="mt-1 text-xs text-muted-foreground">総受取額の年率換算</p>
+          </div>)}
+        </div>
+        <p className="text-xs leading-6 text-muted-foreground">投資家税・費用前、配当再投資なし。期待値・勝率ではなく、下方ケースも最大損失を示しません。</p>
+      </>}
+      <details className="border-t pt-3">
+        <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">仮定・計算と最も強い反対論</summary>
+        <div className="mt-4 grid min-w-0 gap-5">
+          {scenarios.map(({ label, value }) => <div className="grid min-w-0 gap-3" key={label}>
+            <p className="text-sm font-medium">{label}の保存前提</p>
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <Field label="終期価値（1株）">{value.terminal_value_per_share_yen} 円</Field>
+              <Field label="期間内の累積分配（1株）">{value.cash_distribution_per_share_yen} 円</Field>
+            </dl>
+            <Prose>{value.calculation}</Prose>
+          </div>)}
+          <div><p className="mb-1 text-sm font-medium">独立検証の最も強い反対論</p><Prose>{assessment.review.strongest_countercase}</Prose></div>
+        </div>
+      </details>
+    </section>
   )
 }
 
@@ -195,6 +250,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
     <SectionCard headingLevel={3} meta={<Badge variant="secondary">{ACTION_LABEL[item.action]} · {item.action}</Badge>} padded title={item.ticker}>
       <div className="grid min-w-0 gap-5">
         <Prose>{item.rationale}</Prose>
+        {item.assessment !== null && <AssessmentValue assessment={item.assessment} />}
         {item.assessment !== null && <ModelPerspectives assessment={item.assessment} />}
         {item.saved_quote !== null && <dl className="grid gap-4 sm:grid-cols-2">
           <Field label="保存株価（未調整終値）">{item.saved_quote.price_yen} 円</Field>
@@ -239,7 +295,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
         </details>}
         {item.assessment === null ? <p className="text-sm text-muted-foreground">未評価：この項目には保存評価への参照がありません。</p> : <details className="rounded-lg border p-4">
           <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">今回の保存評価・独立検証の抜粋</summary>
-          <div className="mt-4"><AssessmentExcerpt assessment={item.assessment} /></div>
+          <div className="mt-4"><AssessmentExcerpt assessment={item.assessment} showCountercase={false} /></div>
         </details>}
       </div>
     </SectionCard>

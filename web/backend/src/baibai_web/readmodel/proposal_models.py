@@ -47,6 +47,30 @@ class SavedAssessmentReviewView(BaseModel):
     uncertainty_acceptance_reason: str | None
 
 
+class SavedValuationProjectionView(BaseModel):
+    terminal_value_per_share_yen: str
+    cash_distribution_per_share_yen: str
+    annualized_return_pct: str
+    calculation: str
+
+
+class SavedResolvedValuationView(BaseModel):
+    status: Literal["resolved"] = "resolved"
+    price_yen: str
+    price_as_of: date
+    price_observed_at: datetime | None
+    price_basis: str | None
+    horizon_months: int
+    required_annual_return_pct: str
+    base: SavedValuationProjectionView
+    downside: SavedValuationProjectionView
+
+
+class SavedUnresolvedValuationView(BaseModel):
+    status: Literal["unresolved"] = "unresolved"
+    reason: str
+
+
 class SavedAssessmentView(BaseModel):
     assessment_id: str
     core_sha256: str
@@ -59,6 +83,13 @@ class SavedAssessmentView(BaseModel):
     invalidation_conditions: list[str]
     model_perspectives: list[SavedModelPerspectiveView] = Field(default_factory=list)
     model_perspective_sources: list[SavedPerspectiveSourceView] = Field(default_factory=list)
+    valuation: (
+        Annotated[
+            SavedResolvedValuationView | SavedUnresolvedValuationView,
+            Field(discriminator="status"),
+        ]
+        | None
+    ) = None
     review: SavedAssessmentReviewView
 
 
