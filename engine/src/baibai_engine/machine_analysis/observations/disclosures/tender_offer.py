@@ -399,11 +399,13 @@ class _Case:
     target at once — a two-tier deal prices the pre-agreed holders apart from everyone
     else — so the chains are kept separate instead of being flattened into a single
     "latest price".
+
+    `results` keeps each offer's result/correction chain in the same order. A
+    common result may cover several tiers; another tier's result cannot replace it.
     """
 
     offers: tuple[tuple[TenderOfferFiling, ...], ...]
-    result_document: TenderOfferFiling
-    result_corrections: tuple[TenderOfferFiling, ...]
+    results: tuple[tuple[TenderOfferFiling, ...], ...]
 
 
 def _filings_by_target_ticker(
@@ -427,39 +429,26 @@ def _select_case(
     latest_round = _latest_offer_round(relevant)
     if latest_round is None:
         return None, "incomplete_case"
-    by_offeror: dict[str, list[TenderOfferFiling]] = {}
-    for filing in latest_round:
-        by_offeror.setdefault(filing.offeror_edinet_code, []).append(filing)
+    by_offeror: dict[str, list[tuple[TenderOfferFiling, set[str]]]] = {}
+    for filing, roots in latest_round:
+        by_offeror.setdefault(filing.offeror_edinet_code, []).append((filing, roots))
 
     cases: list[_Case] = []
     withdrawn = False
     missing_result = False
-    for offeror_filings in by_offeror.values():
+    for members in by_offeror.values():
+        offeror_filings = [filing for filing, _roots in members]
         if any(
             filing.doc_type_code == TENDER_OFFER_WITHDRAWAL_DOC_TYPE for filing in offeror_filings
         ):
             withdrawn = True
             continue
         offers = _registration_chains(offeror_filings)
-        results = [
-            filing
-            for filing in offeror_filings
-            if filing.doc_type_code == TENDER_OFFER_RESULT_DOC_TYPE
-        ]
+        results = _result_chains(members, offers)
         if not offers or not results:
             missing_result = True
             continue
-        cases.append(
-            _Case(
-                offers=offers,
-                result_document=results[-1],
-                result_corrections=tuple(
-                    filing
-                    for filing in offeror_filings
-                    if filing.doc_type_code == TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE
-                ),
-            )
-        )
+        cases.append(_Case(offers=offers, results=results))
     if len(cases) > 1:
         return None, "multiple_offerors"
     if cases and missing_result:
@@ -471,7 +460,7 @@ def _select_case(
 
 def _latest_offer_round(
     filings: Sequence[TenderOfferFiling],
-) -> list[TenderOfferFiling] | None:
+) -> list[tuple[TenderOfferFiling, set[str]]] | None:
     """Separate completed campaigns while retaining overlapping bids and tiers.
 
     A new registration starts a separate round only after every open registration
@@ -521,6 +510,12 @@ def _latest_offer_round(
                     for root, registration in registrations.items()
                     if registration.offeror_edinet_code == filing.offeror_edinet_code
                 ]
+                if (
+                    filing.doc_type_code == TENDER_OFFER_RESULT_DOC_TYPE
+                    and len(round_roots.intersection(previous)) > 1
+                ):
+                    # No active tier or parent establishes which closed tier this updates.
+                    return None
                 roots = set(previous[-1:])
             if not roots:
                 return None
@@ -532,7 +527,31 @@ def _latest_offer_round(
         ):
             open_roots.difference_update(roots)
             ended_on = max(ended_on, filing.doc_date)
-    return [filing for filing, roots in members if roots & round_roots]
+    return [(filing, roots) for filing, roots in members if roots & round_roots]
+
+
+def _result_chains(
+    members: Sequence[tuple[TenderOfferFiling, set[str]]],
+    offers: Sequence[tuple[TenderOfferFiling, ...]],
+) -> tuple[tuple[TenderOfferFiling, ...], ...]:
+    """Keep each tier's latest result and only the corrections that descend from it."""
+    by_document: dict[str, list[TenderOfferFiling]] = {}
+    by_offer: dict[str, list[TenderOfferFiling]] = {}
+    for filing, roots in members:
+        if filing.doc_type_code == TENDER_OFFER_RESULT_DOC_TYPE:
+            chain = [filing]
+            by_document[filing.doc_id] = chain
+            for root in roots:
+                by_offer[root] = chain
+        elif filing.doc_type_code == TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE:
+            parent_chain = by_document.get(filing.parent_doc_id) if filing.parent_doc_id else None
+            if parent_chain is None:
+                return ()
+            parent_chain.append(filing)
+            by_document[filing.doc_id] = parent_chain
+    if any(offer[0].doc_id not in by_offer for offer in offers):
+        return ()
+    return tuple(tuple(by_offer[offer[0].doc_id]) for offer in offers)
 
 
 def _realize_case(
@@ -542,21 +561,25 @@ def _realize_case(
     read_blocks: Callable[[str], Mapping[str, str]],
 ) -> TenderOfferExitValue | None:
     """Read the final price state and the reported outcome out of the filings."""
-    outcome: bool | None = None
-    result_doc_id = ""
     # A correction supersedes the result it corrects, and a correction that leaves the
     # outcome alone omits the block, so the newest document that states an outcome at
     # all is the one that holds. A present but unreadable revision blocks fallback.
-    for filing in (case.result_document, *case.result_corrections)[::-1]:
-        blocks = read_blocks(filing.doc_id)
-        outcome = read_tender_offer_outcome(blocks)
-        if outcome is not None:
-            result_doc_id = filing.doc_id
-            break
-        if _block(blocks, _SUCCESS_BLOCK_SUFFIX) is not None:
+    outcomes: dict[str, TenderOfferFiling] = {}
+    for chain in sorted(case.results, key=lambda items: _filing_order(items[0]), reverse=True):
+        result_id = chain[0].doc_id
+        if result_id in outcomes:
+            continue  # A common result is read once, not once per covered tier.
+        outcome: bool | None = None
+        for filing in chain[::-1]:
+            blocks = read_blocks(filing.doc_id)
+            outcome = read_tender_offer_outcome(blocks)
+            if outcome is not None:
+                outcomes[result_id] = filing
+                break
+            if _block(blocks, _SUCCESS_BLOCK_SUFFIX) is not None:
+                return None
+        if outcome is not True:
             return None
-    if outcome is not True:
-        return None
 
     priced: list[tuple[float, TenderOfferFiling]] = []
     for chain in case.offers:
@@ -590,12 +613,13 @@ def _realize_case(
     if len({price for price, _ in priced}) != 1:
         return None
     price, filing = priced[0]
+    # The representative price and outcome must belong to the same offer tier.
     return TenderOfferExitValue(
         ticker=delisting.ticker,
         delisted_on=delisting.delisted_on,
         offer_price_yen=price,
         offer_doc_id=filing.doc_id,
-        result_doc_id=result_doc_id,
+        result_doc_id=outcomes[case.results[0][0].doc_id].doc_id,
         filed_on=filing.doc_date,
     )
 
