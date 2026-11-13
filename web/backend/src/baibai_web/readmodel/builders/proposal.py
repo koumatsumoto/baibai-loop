@@ -25,7 +25,9 @@ from baibai_web.readmodel.proposal_models import (
     SavedHoldItemView,
     SavedLimitTermsView,
     SavedLiquidityView,
+    SavedModelPerspectiveView,
     SavedNoActionItemView,
+    SavedPerspectiveSourceView,
     SavedPortfolioExposureView,
     SavedProposalItemView,
     SavedProposalView,
@@ -100,6 +102,9 @@ def _exposure(row: ExposureRow) -> SavedExposureRowView:
 def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
     document, review = pair.document, pair.review
     case = document.investment_case
+    perspective_sources = {
+        source_id for item in document.model_perspectives for source_id in item.source_ids
+    }
     return SavedAssessmentView(
         assessment_id=pair.assessment_id,
         core_sha256=pair.core_sha256,
@@ -110,6 +115,15 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
         investment_case_status=case.status,
         investment_case_status_reason=case.status_reason,
         invalidation_conditions=list(case.invalidation_conditions),
+        model_perspectives=[
+            SavedModelPerspectiveView.model_validate(item.model_dump(mode="json"))
+            for item in document.model_perspectives
+        ],
+        model_perspective_sources=[
+            SavedPerspectiveSourceView.model_validate(source.model_dump(mode="json"))
+            for source in document.input_snapshot.sources
+            if source.source_id in perspective_sources
+        ],
         review=SavedAssessmentReviewView(
             reviewed_at=review.reviewed_at,
             primary_source_check=review.primary_source_check,

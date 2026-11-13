@@ -35,8 +35,9 @@ def payload():
     ]
 
 
-def _pair(*, number=1, explanation=None, partial=False):
+def _pair(*, number=1, explanation=None, partial=False, perspectives=()):
     raw, review_raw = pair_payload(review_number=number + 1)
+    raw["model_perspectives"] = list(perspectives)
     if explanation is not None:
         raw["investment_case"]["explanation"] = explanation
     if partial:
@@ -137,6 +138,45 @@ def test_saved_buy_preserves_clocks_conditions_precision_warnings_and_exposure(p
     assert item.liquidity.price_window_end is None
     assert item.liquidity.unavailable_reason == proposal.liquidity_context[0].unavailable_reason
     assert not {"inputs", "review", "research_scope", "current_eligibility"} & view.model_fields_set
+
+
+def test_model_perspectives_project_exact_judgments_sources_and_missingness(payload):
+    rows = [
+        {
+            "model": "company_financials",
+            "assessment": "mixed",
+            "summary": "財務の支持と相反を同時に残す。\n0は明示値、欠測は不明。",
+            "source_ids": ["annual"],
+        },
+        {
+            "model": "industry_trends",
+            "assessment": "insufficient",
+            "summary": "原本はあるが対象業界の意味抽出は未対応。変化なしとはしない。",
+            "source_ids": [],
+        },
+    ]
+    pair = _pair(perspectives=rows)
+    _current(payload, pair)
+    before = pair.document.model_dump_json()
+    view = project_saved_proposal(TradeProposal.model_validate(payload), {pair.assessment_id: pair})
+    assessment = view.items[0].assessment
+    assert [row.model_dump(mode="json") for row in assessment.model_perspectives] == rows
+    expected = [
+        s.model_dump(mode="json", exclude={"ticker"})
+        for s in pair.document.input_snapshot.sources
+        if s.source_id == "annual"
+    ]
+    assert [s.model_dump(mode="json") for s in assessment.model_perspective_sources] == expected
+    assert pair.document.model_dump_json() == before
+    assert len(assessment.model_perspectives) == 2  # Other five are absent, not neutral/zero.
+
+
+def test_legacy_model_perspectives_remain_unrecorded(payload):
+    pair = _pair()
+    _current(payload, pair)
+    view = project_saved_proposal(TradeProposal.model_validate(payload), {pair.assessment_id: pair})
+    assert view.items[0].assessment.model_perspectives == []
+    assert view.items[0].assessment.model_perspective_sources == []
 
 
 @pytest.mark.parametrize("window_end", [None, "2026-10-07"])

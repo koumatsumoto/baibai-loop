@@ -154,6 +154,37 @@ class AssessmentConclusion(BaseModel):
         return _datetime(value)
 
 
+class ModelPerspective(BaseModel):
+    """作者による個社への意味づけ。L2の生成状態や機械scoreではない。"""
+
+    model_config = _CONFIG
+    model: Literal[
+        "company_financials",
+        "company_growth",
+        "market_context",
+        "external_assessment",
+        "technical_analysis",
+        "industry_trends",
+        "social_trends",
+    ]
+    assessment: Literal[
+        "supportive", "mixed", "adverse", "neutral", "insufficient", "not_applicable"
+    ]
+    summary: NonEmptyStr
+    source_ids: tuple[NonEmptyStr, ...]
+
+    @field_validator("source_ids", mode="before")
+    @classmethod
+    def _sources(cls, value: object) -> object:
+        return _tuple(value)
+
+    @model_validator(mode="after")
+    def _evidence(self) -> ModelPerspective:
+        if self.assessment not in {"insufficient", "not_applicable"} and not self.source_ids:
+            raise ValueError("assessed model perspective requires source references")
+        return self
+
+
 class AssessmentRef(BaseModel):
     model_config = _CONFIG
     assessment_id: AssessmentId
@@ -167,7 +198,10 @@ class AssessmentRefresh(BaseModel):
     checked_at: AwareDatetime
     material_information_check: NonEmptyStr
     changed_sections: tuple[
-        Literal["findings", "valuation", "investment_case", "risks", "sources"], ...
+        Literal[
+            "findings", "valuation", "investment_case", "risks", "sources", "model_perspectives"
+        ],
+        ...,
     ]
     unchanged_assumptions_reason: NonEmptyStr
     horizon_reason: NonEmptyStr
@@ -202,6 +236,10 @@ class StockAssessmentDocument(BaseModel):
     permanent_loss_risks: tuple[PermanentLossRisk, ...]
     findings: ResearchFindings
     conclusion: AssessmentConclusion
+    # Omit the absent optional section so existing immutable Assessment/Review hashes stay valid.
+    model_perspectives: tuple[ModelPerspective, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
     refresh: AssessmentRefresh | None = None
 
     @field_validator("schema_version", mode="before")
@@ -211,10 +249,17 @@ class StockAssessmentDocument(BaseModel):
             raise ValueError("schema_version must be an integer")
         return value
 
-    @field_validator("permanent_loss_risks", mode="before")
+    @field_validator("permanent_loss_risks", "model_perspectives", mode="before")
     @classmethod
     def _risks(cls, value: object) -> object:
         return _tuple(value)
+
+    @model_validator(mode="after")
+    def _unique_perspectives(self) -> StockAssessmentDocument:
+        models = [item.model for item in self.model_perspectives]
+        if len(models) != len(set(models)):
+            raise ValueError("model_perspectives must contain each model at most once")
+        return self
 
 
 def current_price_projection(
@@ -454,6 +499,11 @@ def evaluate_assessment(
         required_sources.update(refs)
         if not refs.issubset(sources):
             errors.append("hypothesis references unknown source")
+    for perspective in document.model_perspectives:
+        refs = set(perspective.source_ids)
+        required_sources.update(refs)
+        if not refs.issubset(sources):
+            errors.append("model perspective references unknown source")
     refresh = document.refresh
     if refresh is not None and (
         refresh.checked_at > proposed or refresh.checked_at.astimezone(JST).date() < snapshot.as_of
