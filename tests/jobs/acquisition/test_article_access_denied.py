@@ -116,6 +116,79 @@ def test_missing_document_does_not_end_other_independent_work(tmp_path):
     assert state.cursor["pending_urls"] == pending[:1]
 
 
+def test_failed_documents_yield_next_slot_to_unattempted_articles(
+    tmp_path, monkeypatch, clock_and_wait
+):
+    source = "toushiru"
+    policy = replace(articles.SOURCES[source], max_bodies=2)
+    monkeypatch.setitem(articles.SOURCES, source, policy)
+    urls = [f"https://media.rakuten-sec.net/articles/-/{number}" for number in (1, 2, 3)]
+    index = (
+        "<urlset>"
+        + "".join(f"<url><loc>{url}</loc><title>Synthetic</title></url>" for url in urls)
+        + "</urlset>"
+    ).encode()
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {})
+    first = Session([Response(200, index), Response(404, b""), Response(404, b"")])
+    report = articles.acquire_source(
+        store,
+        source=source,
+        slot=SLOT,
+        identity="missing-documents",
+        directory=tmp_path / "first",
+        session=first,
+    )
+    assert first.urls == [policy.entry_url, *urls[:2]]
+    assert report["failures"] == ["http_error"]
+    state, _ = load_planning(store, source)
+    assert state.cursor["pending_urls"] == [urls[2], *urls[:2]]
+
+    clock_and_wait.current += timedelta(hours=4)
+    second = Session(
+        [Response(200, index), Response(200, b"<main>New article</main>"), Response(404, b"")]
+    )
+    articles.acquire_source(
+        store,
+        source=source,
+        slot=SLOT + timedelta(hours=4),
+        identity="advance-unattempted",
+        directory=tmp_path / "second",
+        session=second,
+    )
+    assert second.urls == [policy.entry_url, urls[2], urls[0]]
+    state, _ = load_planning(store, source)
+    assert state.cursor["pending_urls"] == [urls[1], urls[0]]
+    with closing(connect_read_only(tmp_path / "first/receipts.sqlite")) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM article_source_receipts "
+                "WHERE json_extract(receipt_json, '$.http_status')=404"
+            ).fetchone()[0]
+            == 2
+        )
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_provider_cooldown_preserves_the_blocked_document_first(tmp_path, status):
+    store, pending = pending_store()
+    session = Session(
+        [Response(200, b'<a href="/news/100">Existing article</a>'), Response(status, b"")]
+    )
+    result = articles.acquire_source(
+        store,
+        source="minkabu_news",
+        slot=SLOT,
+        identity="cooldown",
+        directory=tmp_path / "cooldown",
+        session=session,
+    )
+    assert result["requests_used"] == 2
+    state, _ = load_planning(store, "minkabu_news")
+    assert state.cursor["pending_urls"] == pending
+    assert state.not_before is not None
+
+
 @pytest.mark.parametrize("status", [401, 403])
 def test_next_existing_slot_resumes_pending_after_refusal(tmp_path, clock_and_wait, status):
     store, pending = pending_store()

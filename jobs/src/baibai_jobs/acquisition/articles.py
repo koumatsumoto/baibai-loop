@@ -652,7 +652,9 @@ def acquire_source(
                 if receipt.http_status in {401, 403} or receipt.cooldown_until is not None:
                     partial = True
                     break
-            pending_urls.extend(queue)
+            # Failed documents must not consume the same bounded slots forever.
+            # Refusals/cooldowns keep their stop point; only a finished pass rotates.
+            pending_urls = [*pending_urls, *queue] if partial else [*queue, *pending_urls]
         except Exception as error:
             # No source text/URL/error messages enter logs. Completed L1 remains
             # eligible for staging even if a later request or native parse fails.
