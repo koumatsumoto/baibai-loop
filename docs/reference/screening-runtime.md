@@ -40,6 +40,20 @@ uv run python -m tools.experiments.inspect_technical_financial_candidates \
 
 保存as_of、期待価格日、計算時刻は別の時計である。出力は消費者への配布/受領証跡、完全PIT、前向き登録、成熟した将来成績を証明しない。旧世代の未記録fieldを現在の値で埋めず、本番採用や利益改善は別途検証する。
 
+### 保存TAの状態と遷移を分ける
+
+[二世代比較の研究診断](../../tools/experiments/inspect_technical_transitions.py)は、現行TA入口の式を変えず、明示した前後のstock planのunionと両方の元診断を残す。
+
+```bash
+uv run python -m tools.experiments.inspect_technical_transitions \
+  --previous-generation-id <PREVIOUS_ID> --current-generation-id <CURRENT_ID> \
+  --runs-path <READ_ONLY_RUNS_COPY> --out <NEW_PRIVATE_JSON>
+```
+
+異なる計算時刻だけで新規イベントにしない。同じ価格日、非連続価格日、policy/model revision不一致、価格/モデル欠測は比較不能として理由を残す。両断面で既知の経路だけ非合致→合致・継続・解消を数え、非充足と欠測が併存する断面からの合致も入力回復へ分ける。経路の`known_state_pairs=0`は計測不能であり、新規0件を確認した意味ではない。新規母集団入りも価格変化としない。
+
+企業単位で前日から候補でも、別経路の新しい合致を落とさない。一方で遷移だけをhard gateにせず、持続する状態も読めるように保つ。保存時刻は配布/受領・取引可能時刻や当時PITを証明しない。これは観測比較であって、財務gate・Research選定・日次政策・利益検証へは自動接続しない。非zero終了の出力は採用せず、私有JSONを公開log/artifactへ出さない。
+
 ## 入力不足と品質
 
 不足は[観測の規則](model-observations.md#source-owners)に従い局所化し、[期間/株式basis](model-observations.md#financial-periods)を揃える。要求範囲の取得coverageを全銘柄充足、不足による候補減を機会減としない。
