@@ -182,19 +182,23 @@ def prepare_selected_workspace(
                 raise ResearchWorkspaceConflictError(str(error)) from error
     selection = _generated_selection(draft, runs_path=runs_path, app_path=database_path(db_path))
     holding = draft.request.scope == "review_positions"
-    operation = service.start(
+    payload = OperationPayload(
+        checkpoint="Research selection and fixed inputs saved",
+        artifacts=(selection.model_dump(mode="json"),),
+        canonical_refs=(draft.generation_id,),
+        next="research the selected targets; record completed or unfinished outcomes",
+    )
+    # 開始側はpayloadから固定入力を検証する。元の全社木を同時に保持し続けない。
+    del selection
+    operation_id = service.start(
         session_kind="position-review" if holding else "capital-allocation",
         as_of=draft.research_as_of,
         started_at=now,
         ticker=tickers[0] if holding and len(tickers) == 1 else None,
-        payload=OperationPayload(
-            checkpoint="Research selection and fixed inputs saved",
-            artifacts=(selection.model_dump(mode="json"),),
-            canonical_refs=(draft.generation_id,),
-            next="research the selected targets; record completed or unfinished outcomes",
-        ),
-    )
-    committed = service.get(operation.operation_id)
+        payload=payload,
+    ).operation_id
+    del payload
+    committed = service.get(operation_id)
     saved = selection_binding(committed.payload)
     assert saved is not None
     return _materialize(

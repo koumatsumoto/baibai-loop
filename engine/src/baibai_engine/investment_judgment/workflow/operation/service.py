@@ -51,7 +51,7 @@ from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import RUNS_DB_PATH
 from baibai_engine.storage.sqlite.application.paths import database_path
@@ -126,7 +126,7 @@ class OperationService:
             targets=tuple(target.ticker for target in selection.targets),
             path=self._runs_path,
         )
-        if canonical is None or canonical_json(canonical.model_dump(mode="json")) != canonical_json(
+        if canonical is None or encode_json(canonical.model_dump(mode="json")) != encode_json(
             selection.inputs.generation.model_dump(mode="json")
         ):
             raise ValueError("model input slice differs from its canonical generation")
@@ -140,8 +140,8 @@ class OperationService:
             if (
                 publication is None
                 or selection.inputs.screening_selection is None
-                or canonical_json(_SCREENING_CODEC.dump_python(publication.selection, mode="json"))
-                != canonical_json(
+                or encode_json(_SCREENING_CODEC.dump_python(publication.selection, mode="json"))
+                != encode_json(
                     _SCREENING_CODEC.dump_python(selection.inputs.screening_selection, mode="json")
                 )
                 or publication.published_at != selection.inputs.screening_published_at
@@ -486,7 +486,7 @@ class OperationService:
                     (
                         operation.status,
                         None if completed_at is None else completed_at.isoformat(),
-                        canonical_json(payload.model_dump(mode="json")),
+                        encode_json(payload.model_dump(mode="json")),
                         operation_id,
                         str(row["payload"]),
                     ),
@@ -570,7 +570,7 @@ def _insert(connection: sqlite3.Connection, operation: OperationSession) -> None
             operation.ticker,
             operation.started_at.isoformat(),
             None,
-            canonical_json(operation.payload.model_dump(mode="json")),
+            encode_json(operation.payload.model_dump(mode="json")),
         ),
     )
 

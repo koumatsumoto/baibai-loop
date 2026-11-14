@@ -94,6 +94,34 @@ def test_pages_cover_all_without_renaming_unresolved_or_loading_candidate_models
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize("explicit_id", [False, True])
+def test_context_reads_one_fixed_publication_without_duplicate_full_result(
+    tmp_path, monkeypatch, explicit_id
+):
+    import baibai_engine.machine_analysis.screening.selection_query as query
+
+    path = tmp_path / "runs"
+    fixed, _, now = seed(path)
+    original = query.read_publication
+    calls = []
+
+    def observe(**kwargs):
+        calls.append(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(query, "read_publication", observe)
+    arguments = args(path, now)
+    if not explicit_id:
+        arguments["screening_selection_id"] = None
+    context = load_generated_selection_context(**arguments)
+    assert len(calls) == 1
+    assert calls[0]["known_at"] == now
+    assert context["screening_selection_id"] == "technical-policy"
+    assert context["generation_id"] == fixed.generation_id
+    assert context["candidate_tickers"]
+    assert not (path.parent / "absent-app").exists()
+
+
 def test_nonselected_and_capacity_outside_detail_reads_original_policy_and_full_models(
     tmp_path, monkeypatch
 ):

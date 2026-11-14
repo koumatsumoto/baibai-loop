@@ -63,9 +63,10 @@ def load_generated_selection_context(
     as_of = research_as_of or known_at.astimezone(JST).date()
     if as_of > known_at.astimezone(JST).date():
         raise ValueError("Research date/cutoff is invalid")
+    publication = None
     if generation_id is None and screening_selection_id is None:
-        current = read_publication(path=runs_path, as_of=as_of, known_at=known_at)
-        if current is None:
+        publication = read_publication(path=runs_path, as_of=as_of, known_at=known_at)
+        if publication is None:
             return {
                 "schema_version": 3,
                 "status": "inputs_required",
@@ -74,16 +75,17 @@ def load_generated_selection_context(
                 "input_known_at": known_at.isoformat(),
                 "missing_inputs": [{"code": "no_model_publication"}],
             }
-        generation_id = current.generation.generation_id
-        screening_selection_id = current.selection_id
+        generation_id = publication.generation.generation_id
+        screening_selection_id = publication.selection_id
     if request.scope == "discover_new" and screening_selection_id is None:
         raise ValueError("discovery requires an explicit saved screening selection")
     screening = None
-    publication = None
     if screening_selection_id is not None:
-        publication = read_publication(
-            path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
-        )
+        # latestも既に同じcutoffで固定済み。同一の全社結果を再展開しない。
+        if publication is None:
+            publication = read_publication(
+                path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
+            )
         if publication is None:
             raise ValueError("unknown or not yet published screening selection")
         screening = publication.selection

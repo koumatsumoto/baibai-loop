@@ -1,10 +1,14 @@
 """候補政策の保存・読取契約。モデル生成の保存testとは責務を分ける。"""
 
+import gzip
+import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
+from pydantic import TypeAdapter, ValidationError
 from tests.helpers.model_generation import empty_selection, generation, publish_generation
 
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
@@ -15,6 +19,7 @@ from baibai_engine.machine_analysis.screening.policies.two_views import (
     ViewSelection,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+from baibai_engine.primitives.json import canonical_json
 
 
 def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp_path, monkeypatch):
@@ -102,3 +107,83 @@ def test_publication_order_prefers_asof_then_real_publication_and_preserves_retr
     assert read_publication(path=path, selection_id="z-first").published_at == first.published_at
     assert read_publication(path=path).selection_id == "a-second"
     assert read_publication(path=path, selection_id="missing") is None
+
+
+def test_reader_separates_json_decode_from_schema_validation_without_changing_bytes(
+    tmp_path, monkeypatch
+):
+    import baibai_engine.machine_analysis.screening.selection_query as query
+
+    path = tmp_path / "runs"
+    source = generation()
+    publish_generation(source, path=path)
+    selected = replace(
+        empty_selection(source.generation_id),
+        price_inputs={"flag": True, "integer": 0, "decimal": 0.0, "missing": None, "text": "値"},
+    )
+    store = ScreeningSelectionStore(path)
+    store.publish("fixed", selected)
+    expected = canonical_json(TypeAdapter(ScreeningSelection).dump_python(selected, mode="json"))
+    with sqlite3.connect(path) as connection:
+        blob = connection.execute("SELECT payload_gzip FROM screening_selection").fetchone()[0]
+    assert gzip.decompress(blob) == expected.encode()
+    before = path.read_bytes()
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("full candidate result must not use the high-peak JSON validation path")
+
+    monkeypatch.setattr(query._CODEC, "validate_json", forbidden)
+    assert store.read("fixed") == selected
+    assert query.read_publication(path=path, selection_id="fixed").selection == selected
+    assert path.read_bytes() == before
+
+
+def test_decoded_selection_still_rejects_invalid_policy(tmp_path):
+    from baibai_engine.machine_analysis.screening.selection_query import read_publication
+
+    path = tmp_path / "runs"
+    source = generation()
+    publish_generation(source, path=path)
+    store = ScreeningSelectionStore(path)
+    store.publish("fixed", empty_selection(source.generation_id))
+    with sqlite3.connect(path) as connection:
+        blob = connection.execute("SELECT payload_gzip FROM screening_selection").fetchone()[0]
+        raw = json.loads(gzip.decompress(blob))
+        raw["result"]["policy"]["method"] = "unknown-policy"
+        connection.execute(
+            "UPDATE screening_selection SET payload_gzip=?",
+            (gzip.compress(canonical_json(raw).encode(), mtime=0),),
+        )
+    with pytest.raises(ValidationError):
+        store.read("fixed")
+    with pytest.raises(ValidationError):
+        read_publication(path=path, selection_id="fixed")
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        (b"{", json.JSONDecodeError),
+        (b"null", ValidationError),
+        (b"[]", ValidationError),
+        (b'{"generation_id":null}', ValidationError),
+        ("null".encode("utf-16"), UnicodeDecodeError),
+        ("null".encode("utf-32"), UnicodeDecodeError),
+    ],
+)
+def test_decoded_selection_fails_closed_on_malformed_saved_json(tmp_path, payload, error):
+    from baibai_engine.machine_analysis.screening.selection_query import read_publication
+
+    path = tmp_path / "runs"
+    source = generation()
+    publish_generation(source, path=path)
+    store = ScreeningSelectionStore(path)
+    store.publish("fixed", empty_selection(source.generation_id))
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE screening_selection SET payload_gzip=?", (gzip.compress(payload, mtime=0),)
+        )
+    with pytest.raises(error):
+        store.read("fixed")
+    with pytest.raises(error):
+        read_publication(path=path, selection_id="fixed")
