@@ -47,8 +47,12 @@ def _conditioned(
     result: dict[str, object] = {
         "status": "unavailable",
         "unavailable_reason": "insufficient_calendar",
-        "own_valid_close_count": len([value for value in own if value is not None]),
-        "benchmark_valid_close_count": len([value for value in bench if value is not None]),
+        "own_valid_close_count": sum(value is not None for value in own)
+        if window is not None
+        else None,
+        "benchmark_valid_close_count": sum(value is not None for value in bench)
+        if window is not None
+        else None,
         "up": None,
         "down": None,
         "flat_market_days": None,
@@ -124,7 +128,7 @@ def turnover_activity(
         "current_yen": current,
         "prior_start_date": None if window is None else window[0].isoformat(),
         "prior_end_date": None if window is None else window[-2].isoformat(),
-        "prior_valid_days": len(valid),
+        "prior_valid_days": len(valid) if window is not None else None,
         "prior_mean_yen": average,
         "prior_median_yen": median(valid) if complete else None,
         "prior_min_yen": min(valid) if complete else None,

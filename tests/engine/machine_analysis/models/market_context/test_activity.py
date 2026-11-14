@@ -93,6 +93,8 @@ def test_future_values_and_unknown_calendar_cannot_supply_missing_sessions():
     unknown = {day: business for day, business in CALENDAR.items() if day != DATES[30]}
     result = observe(prices, prices, calendar=price_calendar(unknown, as_of=ASOF))
     assert result["benchmarks"]["1321"]["unavailable_reason"] == "insufficient_calendar"
+    assert result["benchmarks"]["1321"]["own_valid_close_count"] is None
+    assert result["benchmarks"]["1321"]["benchmark_valid_close_count"] is None
     assert result["window_start_date"] is None
 
 
@@ -146,3 +148,4 @@ def test_turnover_zero_and_unknown_calendar_are_not_a_missing_ratio_of_zero():
     )
     assert missing["unavailable_reason"] == "insufficient_calendar"
     assert missing["current_date"] is None
+    assert missing["prior_valid_days"] is None
