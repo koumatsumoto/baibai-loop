@@ -24,7 +24,6 @@ import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { formatJstDateTime, formatPct } from '../lib/format'
-import { reportExcerpt } from '../lib/report-excerpt'
 
 type ProposalItem = SavedProposalView['items'][number]
 
@@ -258,7 +257,6 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
         <details className="rounded-lg border p-4" data-proposal-details>
           <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">価格・条件と判断の詳細を読む</summary>
           <div className="mt-5 grid min-w-0 gap-5">
-            {reportExcerpt(item.rationale) !== item.rationale && <div><p className="mb-2 text-sm font-medium">判断理由の全文</p><Prose>{item.rationale}</Prose></div>}
             {item.assessment !== null && <AssessmentValue assessment={item.assessment} />}
             {item.saved_quote !== null && <dl className="grid gap-4 sm:grid-cols-2">
               <Field label="保存株価（未調整終値）">{item.saved_quote.price_yen} 円</Field>
@@ -366,9 +364,8 @@ export function ProposalReport({ data }: { data: LatestProposalView | null }) {
           <ReportSummary text={proposal.headline} />
           <p className="text-xs leading-6 text-muted-foreground">保存時点の提案です。現在の注文条件の再確認・採否・発注は別です。</p>
           <details className="border-t pt-3">
-            <summary className="cursor-pointer text-sm text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-4">結論の全文・保存日時</summary>
+            <summary className="cursor-pointer text-sm text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-4">提案の保存日時</summary>
             <div className="mt-4 grid gap-4">
-              {reportExcerpt(proposal.headline) !== proposal.headline && <Prose>{proposal.headline}</Prose>}
               <dl className="grid gap-4 sm:grid-cols-2">
                 <Field label="提案基準日"><time dateTime={proposal.as_of}>{proposal.as_of}</time></Field>
                 <Field label="提案本文の準備時刻"><SavedTime value={proposal.prepared_at} /></Field>
