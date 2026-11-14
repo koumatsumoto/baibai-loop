@@ -6,10 +6,13 @@ from typing import Annotated
 from pydantic import Field, JsonValue
 
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    TechnicalFinancialSelection,
+)
 from baibai_engine.machine_analysis.screening.policies.two_views import ViewSelection
 
 # policy.methodの区別で読む。旧payloadへ新しい既定fieldを補わない。
-type ScreeningResult = ViewSelection | EconomicPathSelection
+type ScreeningResult = ViewSelection | EconomicPathSelection | TechnicalFinancialSelection
 
 
 @dataclass(frozen=True, slots=True)

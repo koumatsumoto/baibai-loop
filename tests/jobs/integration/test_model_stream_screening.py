@@ -1,7 +1,6 @@
 """通常生成は一度だけ保存/投影し、固定期待値と同じ全社比較を行う。"""
 
 import gzip
-import hashlib
 import json
 import sqlite3
 import weakref
@@ -19,7 +18,7 @@ from tests.helpers.trends import generation_inputs
 from tests.jobs.integration.test_model_integration import integration as integration
 
 import baibai_engine.machine_analysis.generation.query as generation_query
-import baibai_engine.machine_analysis.screening.policies.economic_path_selection as screening
+import baibai_engine.machine_analysis.screening.policies.technical_financial_selection as screening
 import baibai_jobs.integration.models as job
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
@@ -32,9 +31,10 @@ from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    TechnicalFinancialPolicy,
+)
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_engine.primitives.json import canonical_json
 
 
 def rows(path):
@@ -90,12 +90,12 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
     integration, tmp_path, monkeypatch, caplog, capsys, schema_version, empty, storage_error
 ):
     arguments, _ = integration
-    arguments["policy"] = EconomicPathPolicy(candidate_limit=2)
+    arguments["policy"] = TechnicalFinancialPolicy(page_size=2)
     generate_models = job.read_and_generate_models
     expected = []
     visited = []
-    project = job.project_company
-    evaluate = job.evaluate_economic_coordinates
+    project = job.project_technical_financial_row
+    evaluate = job.evaluate_technical_financial_rows
     collect = job.read_generation_storage_totals
     collections = []
 
@@ -135,9 +135,9 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
         pytest.fail("normal integration reread its saved model payloads")
 
     monkeypatch.setattr(job, "read_and_generate_models", generate_stream)
-    monkeypatch.setattr(job, "project_company", observe)
-    monkeypatch.setattr(screening, "project_company", observe)
-    monkeypatch.setattr(job, "evaluate_economic_coordinates", after_commit)
+    monkeypatch.setattr(job, "project_technical_financial_row", observe)
+    monkeypatch.setattr(screening, "project_technical_financial_row", observe)
+    monkeypatch.setattr(job, "evaluate_technical_financial_rows", after_commit)
     monkeypatch.setattr(job, "read_generation_storage_totals", collect_once)
     with monkeypatch.context() as normal:
         normal.setattr(generation_query, "_decode_model", forbidden)
@@ -161,12 +161,7 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
     oracle_path = tmp_path / "oracle.sqlite"
     publish_generation(expected[0], path=oracle_path)
     assert rows(arguments["runs"]) == rows(oracle_path)
-    # 既存の選定内容は不変。新規集計は同じ日次結果として別に照合する。
-    expected_sha256 = (
-        "9500136a68701c7697ddbbc46198406c9dcca56ccb821290aea2eec71ba2b5d7"
-        if empty
-        else "54937205e3f3d73c2dac20f066fdc914286f233f05f15ffeef38c92b8f803a8f"
-    )
+    # 保存モデルの原bytesは不変だが、今回の新候補政策の意味は別identityで固定する。
     publication = read_publication(path=arguments["runs"])
     assert publication.selection.generation_id == "models-new-release"
     with sqlite3.connect(arguments["runs"]) as connection:
@@ -176,15 +171,32 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
         ).fetchone()[0]
     saved_payload = json.loads(gzip.decompress(payload))
     assert saved_payload.pop("price_inputs") == result["screening_price_inputs"]
-    assert hashlib.sha256(canonical_json(saved_payload).encode()).hexdigest() == expected_sha256
+    assert saved_payload["result"]["summary"] == {
+        "planned_stocks": 0 if empty else 4,
+        "technical": {"matched": 0, "not_matched": 0, "unavailable": 0 if empty else 4},
+        "financial_gate": {
+            "research_candidate": 0,
+            "not_selected": 0,
+            "input_unresolved": 0 if empty else 4,
+            "not_evaluated": 0,
+        },
+        "display_pool_count": 0 if empty else 2,
+        "screening_lanes": {
+            "growth_research": 0,
+            "input_review": 0 if empty else 2,
+            "alternative_financial_research": 0,
+            "no_current_hypothesis": 0 if empty else 2,
+        },
+    }
     assert publication.selection.price_inputs == result["screening_price_inputs"]
     assert result["screening_price_inputs"] == {
+        "basis": "technical_price_path_readiness_not_all_pricing",
         "universe_count": 0 if empty else 4,
-        "valid_count": 0 if empty else 3,
+        "valid_count": 0,
         "date_mismatch_count": 0,
-        "invalid_count": 0 if empty else 1,
-        "price_dates": {} if empty else {"2026-01-05": 3, "missing": 1},
-        "expected_price_dates": {} if empty else {"2026-01-05": 3, "missing": 1},
+        "invalid_count": 0 if empty else 4,
+        "price_dates": {} if empty else {"missing": 4},
+        "expected_price_dates": {} if empty else {"missing": 4},
     }
     if not empty:
         assert publication.selection.result.tickers == ("1001", "1002")
@@ -195,7 +207,7 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
             )
             is not None
         )
-        assert publication.selection.result.cards[0].paths[0].price_population > 1
+        assert len(publication.selection.result.rows) == 4
 
 
 @pytest.mark.parametrize("failure", ["projection", "writer", "noncontiguous"])
@@ -217,14 +229,14 @@ def test_stream_failure_rolls_back_models_and_never_publishes_policy(
         pytest.fail("failed stream reached policy publication or pruning")
 
     monkeypatch.setattr(job, "read_and_generate_models", generate_stream)
-    monkeypatch.setattr(job, "evaluate_economic_coordinates", forbidden)
+    monkeypatch.setattr(job, "evaluate_technical_financial_rows", forbidden)
     monkeypatch.setattr(job, "prune_model_cache", forbidden)
     if failure == "projection":
 
         def fail(*_args, **_kwargs):
             raise ValueError("projection failed")
 
-        monkeypatch.setattr(job, "project_company", fail)
+        monkeypatch.setattr(job, "project_technical_financial_row", fail)
     message = {
         "projection": "projection failed",
         "writer": "Out of range float",
@@ -266,7 +278,7 @@ def test_retry_keeps_saved_bytes_and_conflict_stops_before_policy(integration, m
         pytest.fail("conflicting saved identity reached policy publication")
 
     monkeypatch.setattr(job, "read_and_generate_models", changed)
-    monkeypatch.setattr(job, "evaluate_economic_coordinates", forbidden)
+    monkeypatch.setattr(job, "evaluate_technical_financial_rows", forbidden)
     with pytest.raises(GenerationConflictError, match="different model content"):
         job.integrate_models(**arguments)
     assert rows(arguments["runs"]) == before
@@ -309,3 +321,47 @@ def test_full_models_are_released_as_companies_are_consumed(tmp_path):
     assert saved.model_count == len(tickers) * 5 + 1
     assert set(coordinates) == set(tickers)
     assert all(reference() is None for _, reference in references)
+
+
+def test_normal_job_publishes_all_t_g_states_without_old_economic_ranking(
+    integration, tmp_path, monkeypatch
+):
+    from tests.tools.test_technical_financial_candidates import _seed
+
+    from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
+
+    arguments, _ = integration
+    fixed = _seed(tmp_path / "synthetic-source")
+    arguments["as_of"] = fixed.as_of
+    metadata = GenerationMetadata.model_validate(fixed.model_dump(exclude={"models"})).model_copy(
+        update={"generation_id": "models-new-release"}
+    )
+    tickers = tuple(t for t, plan in metadata.subject_plan.items() if plan.scope == "stock")
+    # The fixture uses the same full source models as the pure T/G connection test.
+    # Only generation plumbing is substituted; the actual T/G owners run in the writer stream.
+    monkeypatch.setattr(
+        job,
+        "read_and_generate_models",
+        lambda **kwargs: ModelGenerationStream(
+            metadata, tickers, iter(sorted(fixed.models, key=lambda model: model.subject))
+        ),
+    )
+    import baibai_engine.machine_analysis.screening.policies.economic_paths as old
+
+    monkeypatch.setattr(
+        old, "select_economic_paths", lambda *args, **kwargs: pytest.fail("old rank used")
+    )
+    result = job.integrate_models(**arguments)
+    publication = read_publication(path=arguments["runs"])
+    selected = publication.selection.result
+    assert tuple(row.ticker for row in selected.rows) == tuple(sorted(tickers))
+    assert selected.tickers == ("1234", "3456", "4567", "5678", "6789")
+    assert result["screening_summary"]["financial_gate"] == {
+        "research_candidate": 3,
+        "input_unresolved": 2,
+        "not_selected": 1,
+        "not_evaluated": 0,
+    }
+    assert result["candidate_count"] == 5
+    assert publication.selection.generation_id == metadata.generation_id
+    assert {row.technical["policy_id"] for row in selected.rows} == {"technical-discovery-v1"}

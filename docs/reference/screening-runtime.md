@@ -1,9 +1,25 @@
 # Screening
 
-保存モデルから調査候補を抽出する。候補外もInvestment Judgmentから読め、順位は注意配分であって経済的reject・価値評価・買付採否ではない。
+保存モデルの技術・市場環境・財務を探索に使い、財務・成長を軸に理由付き少数Researchへ進む。候補や表示順は価値評価・買付採否ではなく、機能受入と投資効果の検証を分ける。採用方針・残る本番受入は[#2184](https://github.com/koumatsumoto/baibai-loop/issues/2184)に残す。
+
+## 複数の発見根拠から財務仮説・L3へ
+
+通常生成の同じstock plan全社で[TA owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/technical_discovery.py)、[財務・成長 owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/financial_growth.py)、既存4財務経路の座標を読む。T非合致・価格不足でも財務の発見理由を落とさず、Gを全企業の普遍的な合否にしない。旧財務上位候補や経済順位を入口・再足切りに使わない。SMA75/200・当日価格と活動、市場下落日の底堅さは探索理由で、クロス成立、機関買い、買い時を認定しない。市場条件別代金と価格経路の形状は同世代の詳細に残り、別々の平均を同日の価格×活動の交差へ変換しない。
+
+新しい保存政策は全社のT/G状態、条件、既知非充足・不足とmodel revisionを残す。原数値・測定窓・財務比較の元観測は同じGenerationの完全モデルを明示詳細で読む。Gの`research_candidate`は利益成長/営業回復の調査仮説、`input_unresolved`は業種・比較・欠測を確かめる予備調査で、自動合格ではない。`not_selected`はこの成長/回復条件で非合致であり、会社不適格やProposal actionではない。財務経路のeligibleも割安・健全性や採用推奨でなく、原観測と制約を持つ別の仮説である。資金耐久・資金化・希薄化・将来成長はL3で調べる。
+
+表示は経路巡回、各経路内のコード順、企業重複除去による決定的な注意順。36はページの最大件数で、候補足切り、投資順位、最適配分、深掘り予算ではない。枠消化の補充や合致数の加点はしない。これは仮の有限表示方式であり、経路の独立性・機会の均等な抽出・優位は主張しない。
+
+三つのレーンを分ける。通常表示は `growth_research`（Gの成長/回復仮説）。`input_review` はG未確定かつ技術/市場または財務経路に調べる根拠がある予備調査、`alternative_financial_research` はG非合致でも別の財務経路がある代替仮説である。後二者は同じ画面に件数と `--screening-lane` の切替を示し、隠れた除外にしない。代替でもGの既知悪化・不足を残し、技術の強さや別経路の存在で成長合格へ変更しない。どのレーンも正式Research採択や買付判断ではない。
+
+この分離は、T必須による財務候補の漏れと、全経路ORによる無差別な拡大を避けて比較できるようにする設計仮説である。既存の本番由来断面で両方の残差を確認したが、古いrecipeの観測差・後日の再生を当時の公開政策や利益優位へ読み替えない。未知/非合致の全状態は保存し、レーン外も明示詳細で調べられる。閾値・レーン・表示順の最適性は未検証で、通常データとL3判断差から改善する。
+
+初回の`selection-context`が返すSelection IDとcutoffを固定して、同じ `--screening-lane` の `--screening-page <next>`で容量外も読む。`candidate_tickers`は表示中のページ、`summary`は全stock planの分母。`--compare-ticker`は表示外・G非合致・T非合致も、保存した状態/理由と同世代の完全モデルを読む。ページ読取で政策の再適用、入力の再生成、Research開始は行わない。
+
+L3は同世代詳細・既存調査・市場/業界/世界動向・外部評価のずれから、既存容量の最大3対象を理由付きで選ぶ。未確定を選ぶなら先に答える問い、既知非充足の例外を選ぶなら根拠を明示する。TAの値動きと新しい事業根拠を分け、価値・買値・待機・最強反証・資金/共通リスクを既存Assessment/Review/Proposalへつなぐ。新しい人物score・一律MA撤退・自動売買は設けない。
 
 <a id="rule-purpose"></a>
-## 候補抽出の意味
+## 保存済み経済経路政策の意味
 
 収益力・事業拡大・営業回復・資本活用ごとに価格と事業を組み合わせる。計算・容量・同順位は[順位付け](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_paths.py)、座標・期間・参照群は[入力投影](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_path_inputs.py)が所有する。
 
@@ -26,7 +42,7 @@
 
 ## TA探索と財務・成長案の有限診断
 
-通常政策を変更する前に、[読取専用の実験caller](../../tools/experiments/inspect_technical_financial_candidates.py)で同じ保存Generationの広いstock planを調べられる。TAの入口に合致した企業だけ財務・成長案へ渡し、非合致・未判定・財務未評価も分母に残す。旧財務候補への所属は前提にせず、複数入口への合致で企業を重複評価しない。順位・固定配分・候補数を埋める補充は行わない。
+旧五入口の比較を再生する[読取専用の実験caller](../../tools/experiments/inspect_technical_financial_candidates.py)で同じ保存Generationの広いstock planを調べられる。TAの入口に合致した企業だけ財務・成長案へ渡し、非合致・未判定・財務未評価も分母に残す。旧財務候補への所属は前提にせず、複数入口への合致で企業を重複評価しない。順位・固定配分・候補数を埋める補充は行わない。
 
 ```bash
 uv run python -m tools.experiments.inspect_technical_financial_candidates \
@@ -34,7 +50,7 @@ uv run python -m tools.experiments.inspect_technical_financial_candidates \
   --out <NEW_PRIVATE_JSON>
 ```
 
-これは未採択の候補政策の比較であり、日次ScreeningSelectionを再適用・保存する機能ではない。TAの現状態を新規イベント検出と呼ばず、対市場プラスを個社上昇と読み替えない。財務の`research_candidate`は原典調査を続ける仮説であり、財務健全性・有機成長の合格や買付採否ではない。成長モデルだけで仮説が成立しても、財務モデル未生成やCF・負債の欠測は残る。観測された悪化と未確定operandを併記し、未評価・見送り・未確定をProposalのactionへ変換しない。
+これは旧研究条件の比較であり、日次ScreeningSelectionを再適用・保存する機能ではない。研究wrapperの既存labelはこの比較callerを識別するもので、同じ財務条件を採用した新しい通常政策の状態を表すものではない。TAの現状態を新規イベント検出と呼ばず、対市場プラスを個社上昇と読み替えない。財務の`research_candidate`は原典調査を続ける仮説であり、財務健全性・有機成長の合格や買付採否ではない。成長モデルだけで仮説が成立しても、財務モデル未生成やCF・負債の欠測は残る。観測された悪化と未確定operandを併記し、未評価・見送り・未確定をProposalのactionへ変換しない。
 
 経路ごとの不足は、L2が記録した業種不適用・比較可能性未確定・その他の利用不能へ分ける。これは保存L2の適用規則の説明であり、その会社に利益率の経済的意味がないとの新判断ではない。その他には未観測だけでなく非正の分母等もあり、全て追加取得で埋まる欠測とはせず、元のreason・既知非充足も読む。銀行等の不適用を赤字へ変換せず、同じOP/利益率の再取得を待つだけにもせず、業種に合う利益・資本・資金構造を有限調査の問いへ残す。親会社利益や経常利益をOPへ代入せず、業種名だけの自動合格/除外は行わない。不使用の回復経路で利益率がN/Aでも、通常利益成長経路の成立は消さない。
 
@@ -44,7 +60,7 @@ uv run python -m tools.experiments.inspect_technical_financial_candidates \
 
 後続は既存の`selection-context --compare-ticker`で同じ世代とcutoffの候補外詳細を読む。`discover_new`では対応する保存Selectionを`--screening-selection-id`で明示し、generation_id一致を確認する。残す対象・問い・最強反証を理由付きResearch Selectionへ明示し、保存財務Selectionは比較元のまま保持してTA診断の保存結果と偽装しない。深掘り容量は既存Research policyの範囲で、診断の合致件数をそのままOperationへ渡さない。市場・世界/業界・外部評価との差、資金耐久力・普通株価値・価格はL3で調べる。callerはResearch開始・保存・売買を行わない。
 
-保存as_of、期待価格日、計算時刻は別の時計である。出力は消費者への配布/受領証跡、完全PIT、前向き登録、成熟した将来成績を証明しない。旧世代の未記録fieldを現在の値で埋めず、本番採用や利益改善は別途検証する。
+保存as_of、期待価格日、計算時刻は別の時計である。出力は消費者への配布/受領証跡、完全PIT、前向き登録、成熟した将来成績を証明しない。旧世代の未記録fieldを現在の値で埋めず、新政策の本番受入や利益改善とは別に扱う。
 
 ### 保存TAの状態と遷移を分ける
 
@@ -68,7 +84,7 @@ uv run python -m tools.experiments.inspect_technical_transitions \
 
 候補カードの保存価格basis・不足と通常生成時の価格入力集計を使い、個別の詳細は前述の`--compare-ticker`へ進む。新規Selectionには日次通知と同じ集計を保存し、初回比較と固定Researchへ渡す。旧成果の集計欠落は未記録であり、0や現在の値で補完しない。
 
-集計は保存世代の価格入力の状態で、現在の鮮度や全財務入力の充足を保証しない。候補0件でも価格入力不足・母集団0件を区別し、価格入力が有効というだけで「投資機会なし」とは判断しない。
+新政策の`price_inputs.basis`はTA価格経路の準備状態を示し、財務モデルの価格basisや現在の取引可否とは別である。集計は保存世代の価格入力の状態で、現在の鮮度や全財務入力の充足を保証しない。候補0件でも価格入力不足・母集団0件を区別し、価格入力が有効というだけで「投資機会なし」とは判断しない。
 
 ## 保存と読取
 

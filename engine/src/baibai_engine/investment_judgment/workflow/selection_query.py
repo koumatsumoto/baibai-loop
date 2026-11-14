@@ -14,11 +14,18 @@ from baibai_engine.investment_judgment.company_research.context import company_c
 from baibai_engine.investment_judgment.company_research.query import read_company_contexts
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
-from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
+from baibai_engine.investment_judgment.workflow.screening_brief import (
+    economic_screening_brief,
+    technical_financial_screening_brief,
+)
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.screening.contracts import ScreeningResult, ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    ResearchLane,
+    TechnicalFinancialSelection,
+)
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
 from baibai_engine.primitives.stocks import normalize_ticker
@@ -37,6 +44,8 @@ def load_generated_selection_context(
     runs_path: Path,
     db_path: Path | None,
     comparison_tickers: tuple[str, ...] = (),
+    screening_page: int = 0,
+    screening_lane: ResearchLane = "growth_research",
 ) -> dict[str, Any]:
     """保存された政策結果と同じ生成を読む。contextの取得で再選定しない。"""
     from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
@@ -49,6 +58,8 @@ def load_generated_selection_context(
 
     if known_at.utcoffset() is None:
         raise ValueError("input cutoff must have a timezone")
+    if screening_page < 0:
+        raise ValueError("screening page must be nonnegative")
     as_of = research_as_of or known_at.astimezone(JST).date()
     if as_of > known_at.astimezone(JST).date():
         raise ValueError("Research date/cutoff is invalid")
@@ -96,8 +107,20 @@ def load_generated_selection_context(
                 )
     requested = request.requested_tickers or (held if request.scope == "review_positions" else ())
     candidates = () if screening is None else screening.result.tickers
+    technical_screening = screening is not None and isinstance(
+        screening.result, TechnicalFinancialSelection
+    )
+    if technical_screening:
+        assert screening is not None
+        assert isinstance(screening.result, TechnicalFinancialSelection)
+        start = screening_page * screening.result.policy.page_size
+        candidates = screening.result.lane_tickers(screening_lane)[
+            start : start + screening.result.policy.page_size
+        ]
+    elif screening_page or screening_lane != "growth_research":
+        raise ValueError("screening pagination requires a technical-financial selection")
     compact_screening = screening is not None and isinstance(
-        screening.result, EconomicPathSelection
+        screening.result, (EconomicPathSelection, TechnicalFinancialSelection)
     )
     detail_targets = set(requested) | {normalize_ticker(ticker) for ticker in comparison_tickers}
     if compact_screening:
@@ -178,10 +201,19 @@ def load_generated_selection_context(
         "generation_id": generation_id,
         "screening_selection_id": screening_selection_id,
         "capacity": CURRENT_RESEARCH_CAPACITY.model_dump(mode="json"),
-        "screening": None if screening is None else _project_screening(screening),
+        "screening": None
+        if screening is None
+        else _project_screening(
+            screening,
+            page=screening_page,
+            lane=screening_lane,
+            comparison_tickers=tuple(sorted(detail_targets)),
+        ),
         "candidate_tickers": list(candidates),
         "candidate_order_semantics": (
-            "ticker_code_order_attention_priority_in_screening_cards_rank"
+            "saved_route_round_robin_page_not_investment_ranking"
+            if technical_screening
+            else "ticker_code_order_attention_priority_in_screening_cards_rank"
             if compact_screening
             else "per_view_rank_not_a_union_investment_ranking"
         ),
@@ -205,12 +237,23 @@ def load_generated_selection_context(
     }
 
 
-def _project_screening(selection: ScreeningSelection) -> dict[str, Any]:
+def _project_screening(
+    selection: ScreeningSelection,
+    *,
+    page: int = 0,
+    lane: ResearchLane = "growth_research",
+    comparison_tickers: tuple[str, ...] = (),
+) -> dict[str, Any]:
     result = selection.result
-    adapter = TypeAdapter[ScreeningResult](ScreeningResult)
-    projection = cast(dict[str, Any], adapter.dump_python(result, mode="json"))
-    if isinstance(result, EconomicPathSelection):
-        projection = economic_screening_brief(projection)
+    if isinstance(result, TechnicalFinancialSelection):
+        projection = technical_financial_screening_brief(
+            result, page=page, lane=lane, comparison_tickers=comparison_tickers
+        )
+    else:
+        adapter = TypeAdapter[ScreeningResult](ScreeningResult)
+        projection = cast(dict[str, Any], adapter.dump_python(result, mode="json"))
+        if isinstance(result, EconomicPathSelection):
+            projection = economic_screening_brief(projection)
     if selection.price_inputs is not None:
         projection["price_inputs"] = deepcopy(selection.price_inputs)
     return projection

@@ -12,6 +12,9 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
     project_company_growth,
 )
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
+from baibai_engine.investment_judgment.workflow.screening_brief import (
+    technical_financial_screening_brief,
+)
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,
     GeneratedResearchSelectionV4,
@@ -24,6 +27,9 @@ from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import 
     forecast_sources_from_analysis,
     machine_valuation_from_analysis,
     valuation_metrics_from_analysis,
+)
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    TechnicalFinancialSelection,
 )
 
 
@@ -61,7 +67,18 @@ def project_research_inputs(
                     if selection.inputs.screening_selection.price_inputs is not None
                     else {}
                 ),
-                "result": selection.inputs.model_dump(mode="json", include={"screening_selection"})[
+                "result": {
+                    **technical_financial_screening_brief(
+                        selection.inputs.screening_selection.result,
+                        page=None,
+                        comparison_tickers=tuple(target.ticker for target in selection.targets),
+                    ),
+                    "full_result_ref": "/inputs/screening_selection/result",
+                }
+                if isinstance(
+                    selection.inputs.screening_selection.result, TechnicalFinancialSelection
+                )
+                else selection.inputs.model_dump(mode="json", include={"screening_selection"})[
                     "screening_selection"
                 ]["result"],
             },

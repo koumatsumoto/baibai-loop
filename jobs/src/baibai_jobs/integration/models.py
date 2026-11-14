@@ -43,14 +43,15 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import (
     InputRelease as ModelInputRelease,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
-from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
-    economic_selection_id,
-    evaluate_economic_coordinates,
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    TechnicalFinancialPolicy,
+    TechnicalFinancialRow,
+    TechnicalFinancialSelection,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    CompanyCoordinates,
-    EconomicPathPolicy,
+from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
+    evaluate_technical_financial_rows,
+    project_technical_financial_row,
+    technical_financial_selection_id,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.json import write_json_atomic
@@ -75,18 +76,18 @@ def _phase_progress(phase: str, started: float | None = None) -> float:
 
 
 def _project_company_models(
-    generation: ModelGenerationStream, coordinates: dict[str, CompanyCoordinates]
+    generation: ModelGenerationStream, rows: dict[str, TechnicalFinancialRow]
 ) -> Iterator[GeneratedModel]:
     # 通常assemblyは個社の全モデルを続けて返し、その後に共有subjectを返す。
-    # 順序が変わった列を部分座標で選ばず、writerのtransaction内で止める。
+    # 順序が変わった列を部分判定で選ばず、writerのtransaction内で止める。
     subjects = set(generation.subjects)
     models: list[GeneratedModel] = []
 
     def project() -> None:
         if models:
             subject = models[0].subject
-            coordinates[subject] = project_company(
-                subject, models=models, metadata=generation.metadata
+            rows[subject] = project_technical_financial_row(
+                subject, models=tuple(models), metadata=generation.metadata
             )
             models.clear()
 
@@ -94,7 +95,7 @@ def _project_company_models(
         if models and models[0].subject != model.subject:
             project()
         if model.subject in subjects:
-            if not models and model.subject in coordinates:
+            if not models and model.subject in rows:
                 raise ValueError("model integration requires contiguous company models")
             models.append(model)
         yield model
@@ -111,7 +112,7 @@ def integrate_models(
     as_of: date,
     lease_handle: Path,
     growth_start: date | None,
-    policy: EconomicPathPolicy,
+    policy: TechnicalFinancialPolicy,
     edinet_input: InputSnapshot | None = None,
     preserve_generation_ids: tuple[str, ...] = (),
 ) -> dict[str, object]:
@@ -195,9 +196,9 @@ def integrate_models(
         _phase_progress("model_inputs", phase_started)
         phase_started = _phase_progress("model_generation")
         generations = ModelGenerationStore(runs)
-        coordinates: dict[str, CompanyCoordinates] = {}
+        rows: dict[str, TechnicalFinancialRow] = {}
         saved = generations.publish_stream(
-            replace(generation, models=_project_company_models(generation, coordinates))
+            replace(generation, models=_project_company_models(generation, rows))
         )
         try:
             storage_totals = read_generation_storage_totals(
@@ -217,11 +218,13 @@ def integrate_models(
         _phase_progress("model_generation", phase_started)
         subjects = generation.subjects
         phase_started = _phase_progress("screening")
-        evaluation = evaluate_economic_coordinates(
-            generation.metadata, tickers=subjects, coordinates=coordinates, policy=policy
+        selection = evaluate_technical_financial_rows(
+            generation.metadata, tickers=subjects, rows=rows, policy=policy
         )
-        selection = evaluation.selection
-        selection_id = economic_selection_id(generation.metadata.generation_id, policy=policy)
+        assert isinstance(selection.result, TechnicalFinancialSelection)
+        selection_id = technical_financial_selection_id(
+            generation.metadata.generation_id, policy=policy
+        )
         ScreeningSelectionStore(runs).publish(selection_id, selection)
         _phase_progress("screening", phase_started)
         phase_started = _phase_progress("lake_publish")
@@ -255,7 +258,8 @@ def integrate_models(
         "company_count": len(subjects),
         "model_count": saved.model_count,
         "candidate_count": len(selection.result.tickers),
-        "screening_price_inputs": evaluation.price_inputs,
+        "screening_price_inputs": selection.price_inputs,
+        "screening_summary": selection.result.summary,
         "growth_start": None if growth_start is None else growth_start.isoformat(),
         "economic_input_sha256": economic_input.identity.sha256,
         "lake": publication.as_dict(),
@@ -276,7 +280,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=date.fromisoformat,
         help="optional accounting-period start; omitted retains all available periods",
     )
-    parser.add_argument("--candidate-limit", type=int, default=36)
+    parser.add_argument("--screening-page-size", type=int, default=36)
     parser.add_argument("--integration-report", type=Path)
     parser.add_argument(
         "--preserve-existing-generations",
@@ -308,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
             as_of=args.asof,
             lease_handle=args.lease_handle,
             growth_start=args.growth_start,
-            policy=EconomicPathPolicy(candidate_limit=args.candidate_limit),
+            policy=TechnicalFinancialPolicy(page_size=args.screening_page_size),
             edinet_input=edinet_input,
             preserve_generation_ids=preserve_generation_ids,
         )

@@ -200,13 +200,25 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
     if any(type(value) is not int or value < 0 for value in counts):
         return ["モデル生成: 完了 / 件数未確認", *cache_warning]
     companies, models, candidates = counts
-    lines = [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社", *cache_warning]
+    integrated = notice.get("selection_method") == "technical-financial-discovery-v1"
+    pool_label = "探索閲覧（予備・代替含む）" if integrated else "候補"
+    lines = [f"モデル生成: {companies}社 / {models}件 / {pool_label}{candidates}社", *cache_warning]
+    summary = notice.get("screening_summary")
+    gate = summary.get("financial_gate") if isinstance(summary, dict) else None
+    if integrated and isinstance(gate, dict):
+        states = [
+            gate.get(key) for key in ("research_candidate", "input_unresolved", "not_selected")
+        ]
+        if all(type(value) is int and value >= 0 for value in states):
+            accepted, unresolved, unmatched = states
+            lines.append(f"財務成長: 仮説合致{accepted} / 未確定{unresolved} / 非合致{unmatched}社")
     coverage = notice.get("screening_price_inputs")
     if isinstance(coverage, dict):
         valid, universe = coverage.get("valid_count"), coverage.get("universe_count")
         if type(valid) is int and type(universe) is int and 0 <= valid <= universe:
-            lines.append(f"候補抽出の価格入力: 適格{valid}/{universe}社")
-            if candidates == 0 and universe > 0 and valid == 0:
+            price_label = "TA価格経路入力" if integrated else "候補抽出の価格入力"
+            lines.append(f"{price_label}: 適格{valid}/{universe}社")
+            if not integrated and candidates == 0 and universe > 0 and valid == 0:
                 lines.append("候補0の要因: 適格な価格入力なし（投資機会なしの判定ではない）")
     return lines
 

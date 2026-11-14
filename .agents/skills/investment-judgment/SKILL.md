@@ -71,6 +71,8 @@ lookupは元lineageや旧release全体の再読でない。Research source.ref�
 3. `independent-review-scaffold`から別作業者が[独立検証](../../../docs/reference/stock-assessment.md#independent-second-pass)する。
 4. `stock-assessment-evaluate <DRAFT> --review <REVIEW>`でpairを確認し、`stock-assessment-promote`で保存する。
 
+探索で選んだ対象は、選択時の同世代の技術・市場・財務/成長の観測と留保が、事業価値・価格経路・待機のどこへ効いたか、変化なしも含めて記す。価格回復と新しい事業根拠を分け、需要到来の遅延は資金耐久・追加資本・普通株主帰属と併せて検討する。価格経路の不成立だけで事業仮説をbrokenにせず、小口や価格ストップで未成立の価値根拠を補わない。
+
 scaffoldの`--from-research-id`は元日付/ID/hash付き素材コピー、`--from-assessment-id`はAssessmentの差分refresh。併用せず、コピーを評価済みとしない。
 
 ### 途中成果の保存と再訪
@@ -98,6 +100,8 @@ uv run baibai-engine investment-judgment trade-proposal-context \
 ```
 
 contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って比較し、`trade-proposal-check <DRAFT> --db <APP_DB>`→別作業者の内容Review→`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。
+
+新規購入の待機は、現quote未満の指値で買う意思が完成した`buy / wait_limit`、追加情報を見て採否を決める未完の`defer`、経済比較を終えて現金維持を選ぶ`no_action`を分ける。MA回復待ちを買い指値やstop注文へ変換しない。確認後は残期間・今後分配・新根拠・現在価格を見直し、共通要因の重複、流動性、残cashと他案を既存の比較へ結ぶ。値上がりだけで許容価格を上げず、投稿上の損切り率や保有比率を共通規則にしない。
 
 全対象が理由/参照付きunfinishedで、公開済みProposalも束縛参照もない場合だけProposalを省ける。resultに確認範囲/評価未完、nextに未解決の問い/再調査条件を記す。reviewedや未束縛の公開済みProposalがあれば通常経路を使い、経済的見送り/保有判断をunfinishedにしない。0対象は選定理由を残し空Proposalなしで完了する。
 

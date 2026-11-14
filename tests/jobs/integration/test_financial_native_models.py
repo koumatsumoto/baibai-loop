@@ -135,7 +135,9 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     import baibai_jobs.integration.models as job
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
+    from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+        TechnicalFinancialPolicy,
+    )
     from baibai_engine.storage.snapshots.duck import lake_session
     from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
     from baibai_engine.storage.snapshots.objects import LakeObjectCache
@@ -245,7 +247,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
         as_of=DAY,
         lease_handle=tmp_path / "lease",
         growth_start=None,
-        policy=EconomicPathPolicy(candidate_limit=36),
+        policy=TechnicalFinancialPolicy(page_size=36),
     )
     saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     metadata_reads = Counter(

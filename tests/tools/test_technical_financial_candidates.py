@@ -6,8 +6,8 @@ from contextlib import contextmanager
 from copy import deepcopy
 
 import pytest
+from tests.engine.machine_analysis.screening.test_financial_growth import payloads
 from tests.helpers.model_generation import publish_generation
-from tests.tools.test_financial_growth_gate import payloads
 from tests.tools.test_technical_discovery import _metadata, _models
 from tools.experiments import inspect_technical_financial_candidates as integration
 

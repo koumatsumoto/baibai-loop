@@ -7,6 +7,107 @@ from collections import Counter
 from copy import deepcopy
 from typing import Any
 
+from pydantic import TypeAdapter
+
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    RESEARCH_LANES,
+    ResearchLane,
+    TechnicalFinancialRow,
+    TechnicalFinancialSelection,
+)
+
+
+def technical_financial_screening_brief(
+    result: TechnicalFinancialSelection,
+    *,
+    page: int | None = 0,
+    lane: ResearchLane = "growth_research",
+    comparison_tickers: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """保存済みの注意順をページ化するだけ。capacity外の状態も明示詳細で読める。"""
+    if page is not None and page < 0:
+        raise ValueError("screening page must be nonnegative")
+    index = {row.ticker: row for row in result.rows}
+    lane_tickers = result.lane_tickers(lane)
+    start = 0 if page is None else page * result.policy.page_size
+    visible = () if page is None else lane_tickers[start : start + result.policy.page_size]
+    codec = TypeAdapter(TechnicalFinancialRow)
+    cards = []
+    for ticker in visible:
+        row = codec.dump_python(index[ticker], mode="json")
+        cards.append(
+            {
+                **_pick(row, "ticker", "name", "sector", "screening_lane"),
+                "technical": _pick(row["technical"], "state", "matched_routes", "routes"),
+                "financial_paths": {
+                    "matched_routes": row["financial_paths"]["matched_routes"],
+                    "coordinates": [
+                        _pick(
+                            path,
+                            "path_id",
+                            "variant",
+                            "price_value",
+                            "business_value",
+                            "price_group",
+                            "business_group",
+                        )
+                        for path in row["financial_paths"]["paths"]
+                        if path["eligible"]
+                    ],
+                },
+                "financial_gate": _pick(
+                    row["financial_gate"], "state", "matched_routes", "routes", "checks"
+                ),
+            }
+        )
+    return {
+        "policy": result.policy.model_dump(mode="json"),
+        "technical_policy_id": result.technical_policy_id,
+        "financial_policy_id": result.financial_policy_id,
+        "summary": deepcopy(result.summary),
+        "interpretation": (
+            "multiple_discovery_sources_and_financial_hypotheses_not_investment_acceptance"
+        ),
+        "lanes": {
+            name: {
+                "count": sum(row.screening_lane == name for row in result.rows),
+                "read": (
+                    f"selection-context --screening-selection-id <same-id> --screening-lane {name}"
+                ),
+            }
+            for name in RESEARCH_LANES
+        },
+        "active_lane": lane if page is not None else None,
+        "presentation": {
+            "kind": "saved_route_round_robin_not_investment_ranking",
+            "ties": "ticker_code_order_not_quality_or_return",
+            "capacity": "page_size_is_not_a_candidate_cutoff_or_research_budget",
+            "unresolved": "preliminary_research_not_financial_clearance_or_rejection",
+            "detail": "same_generation_models_required_before_reasoned_research_selection",
+        },
+        "page": None
+        if page is None
+        else {
+            "index": page,
+            "size": result.policy.page_size,
+            "total": len(lane_tickers),
+            "next": page + 1 if start + result.policy.page_size < len(lane_tickers) else None,
+        },
+        "cards": cards,
+        "comparison_rows": [
+            codec.dump_python(index[ticker], mode="json")
+            for ticker in sorted(set(comparison_tickers))
+            if ticker in index
+        ],
+        "detail_read": (
+            "selection-context --screening-selection-id <same-id> --compare-ticker <ticker>"
+        ),
+        "next_page_read": (
+            f"selection-context --screening-selection-id <same-id> --screening-lane {lane} "
+            "--screening-page <next>"
+        ),
+    }
+
 
 def economic_screening_brief(result: dict[str, Any]) -> dict[str, Any]:
     cards = [_card(card) for card in result["cards"]]
