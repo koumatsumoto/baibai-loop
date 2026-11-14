@@ -159,8 +159,59 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
                 "window_start_date",
                 "window_end_date",
             ),
+            **_pick(context, "moving_averages"),
+            **(
+                {"price_path": _price_path(_object(context["price_path"]))}
+                if "price_path" in context
+                else {}
+            ),
             "market_relative": _market_relative(_object(context.get("market_relative"))),
             "external_assessment": _external(_object(context.get("external_assessment"))),
+        },
+    }
+
+
+def _price_path(path: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **_pick(
+            path,
+            "calculation_revision",
+            "as_of",
+            "price_basis",
+            "adjustment_as_of",
+            "row_state_basis",
+            "no_trade_reason",
+            "read_semantics",
+            "expected_price_date",
+            "latest_observed_price_date",
+            "current_row_state",
+            "freshness",
+        ),
+        "observations": {
+            ref: {
+                **_pick(
+                    _object(item),
+                    "kind",
+                    "calendar_differences",
+                    "window_start_date",
+                    "window_end_date",
+                    "value",
+                    "unavailable_reason",
+                    "observed_peak_date",
+                    "window_return",
+                    "window_return_unavailable_reason",
+                    "path_statistics",
+                ),
+                "coverage": _pick(
+                    _object(_object(item).get("coverage")),
+                    "calendar_status",
+                    "expected_dates",
+                    "row_counts",
+                    "complete",
+                ),
+            }
+            for ref, item in _object(path.get("observations")).items()
+            if ref in {"R20", "G60"}
         },
     }
 
