@@ -51,6 +51,7 @@ from baibai_engine.storage.objects.r2 import (
 from baibai_engine.storage.sqlite.merge import MergeError
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
+from baibai_jobs.observability.discord import is_expected_pmi_refusal
 from baibai_jobs.schedule import acquisition_target_date
 
 
@@ -100,6 +101,10 @@ def acquire(
             row["status"] = "failed"
             if outcome.http_status is not None:
                 row["http_status"] = outcome.http_status
+            if outcome.error_types:
+                row["error_types"] = list(outcome.error_types)
+            if outcome.blocked_by_source_id is not None:
+                row["blocked_by_source_id"] = outcome.blocked_by_source_id
         else:
             row.update(
                 status="ok",
@@ -119,15 +124,12 @@ def acquire(
         "asof": asof.isoformat(),
         "sources": rows,
     }
-    failures = [item for item in outcomes if isinstance(item, EconomicSourceRefreshFailure)]
     # Only the already-observed PMI HTTP refusal is a non-actionable notice.
     # Keep failure exit/status/receipts; empty bodies and other errors still alert.
-    expected_unavailable = (
-        group in {"spglobal_pmi", "tradingeconomics_pmi"}
-        and bool(failures)
-        and all(item.http_status == 403 for item in failures)
+    expected_unavailable = is_expected_pmi_refusal(
+        "economic-" + group, [row for row in rows if row["status"] == "failed"]
     )
-    # Provider error text stays local; the handoff keeps source identity/ranges/counts.
+    # Provider error text stays private; only exception class names cross into logs.
     write_json_atomic(directory / "result.json", report)
     if output := os.environ.get("GITHUB_OUTPUT"):
         with Path(output).open("a", encoding="utf-8") as stream:

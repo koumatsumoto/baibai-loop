@@ -225,6 +225,31 @@ def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:
     return lines[:4]
 
 
+def is_expected_pmi_refusal(source: str, failures: object) -> bool:
+    """Keep the existing notice policy without counting stopped siblings as HTTP replies."""
+    if source not in EXPECTED_PMI_SOURCES or not isinstance(failures, list) or not failures:
+        return False
+    refusals = {
+        row["source_id"]
+        for row in failures
+        if isinstance(row, dict)
+        and isinstance(row.get("source_id"), str)
+        and row.get("blocked_by_source_id") is None
+        and row.get("http_status") == 403
+    }
+    return all(
+        isinstance(row, dict)
+        and (
+            row.get("http_status") == 403
+            if row.get("blocked_by_source_id") is None
+            else isinstance(row["blocked_by_source_id"], str)
+            and row["blocked_by_source_id"] in refusals
+            and "http_status" not in row
+        )
+        for row in failures
+    )
+
+
 def render_source_failures(report: Mapping[str, object]) -> list[str]:
     """受領・native投影・意味抽出の故障箇所を分け、原文やURLは通知へ出さない。"""
     grouped: dict[str, list[int]] = {}
@@ -241,15 +266,7 @@ def render_source_failures(report: Mapping[str, object]) -> list[str]:
         if item.get("failed"):
             issues.setdefault(source, set()).add("統合要確認")
         acquisition_failures = result.get("acquisition_failures")
-        expected_unavailable = (
-            source in EXPECTED_PMI_SOURCES
-            and isinstance(acquisition_failures, list)
-            and bool(acquisition_failures)
-            and all(
-                isinstance(item, dict) and item.get("http_status") == 403
-                for item in acquisition_failures
-            )
-        )
+        expected_unavailable = is_expected_pmi_refusal(source, acquisition_failures)
         codes = result.get("acquisition_issues")
         if isinstance(codes, list) and not expected_unavailable:
             issues.setdefault(source, set()).update(sanitize_one_line(code) for code in codes)

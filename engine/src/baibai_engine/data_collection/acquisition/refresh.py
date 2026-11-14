@@ -56,6 +56,8 @@ class SourceRefreshFailure:
     source_id: str
     message: str
     http_status: int | None = None
+    error_types: tuple[str, ...] = ()
+    blocked_by_source_id: str | None = None
 
 
 type SourceRefreshOutcome = SourceRefreshSuccess | SourceRefreshFailure
@@ -79,7 +81,7 @@ def refresh_sources(
         raise ValueError("end must be on or after start")
     catalog = load_sources()
     outcomes: list[SourceRefreshOutcome] = []
-    stopped_groups: dict[str, int | None] = {}
+    stopped_groups: dict[str, str] = {}
     selected = list(dict.fromkeys(source_ids))
     if not any(source_id in catalog for source_id in selected):
         return tuple(
@@ -101,7 +103,7 @@ def refresh_sources(
                         SourceRefreshFailure(
                             source_id,
                             "acquisition group stopped earlier in this run",
-                            stopped_groups[policy.acquisition_group],
+                            blocked_by_source_id=stopped_groups[policy.acquisition_group],
                         )
                     )
                     continue
@@ -152,20 +154,25 @@ def refresh_sources(
             except Exception as error:
                 cause: BaseException | None = error
                 http_status = None
+                error_types = []
                 while cause is not None:
-                    if isinstance(cause, requests.HTTPError) and cause.response is not None:
+                    error_types.append(type(cause).__name__)
+                    if (
+                        http_status is None
+                        and isinstance(cause, requests.HTTPError)
+                        and cause.response is not None
+                    ):
                         http_status = cause.response.status_code
-                        break
                     cause = cause.__cause__
                 if isinstance(error, ProviderRateLimitError) or (
                     isinstance(error, ProviderFetchStoppedError)
                     and catalog[source_id].provider in {"spglobal_pmi", "tradingeconomics_pmi"}
                 ):
-                    stopped_groups[source_policy(catalog[source_id]).acquisition_group] = (
-                        http_status
-                    )
+                    stopped_groups[source_policy(catalog[source_id]).acquisition_group] = source_id
                 outcomes.append(
-                    SourceRefreshFailure(source_id, redact_credentials(str(error)), http_status)
+                    SourceRefreshFailure(
+                        source_id, redact_credentials(str(error)), http_status, tuple(error_types)
+                    )
                 )
     return tuple(outcomes)
 

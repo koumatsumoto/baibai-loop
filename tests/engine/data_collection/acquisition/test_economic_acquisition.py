@@ -308,6 +308,10 @@ def test_pmi_rate_limit_stops_new_requests_to_sibling_series(tmp_path, monkeypat
     )
     assert len(calls) == 1
     assert all(isinstance(item, acquisition.SourceRefreshFailure) for item in outcomes)
+    assert outcomes[0].blocked_by_source_id is None
+    assert outcomes[0].error_types == ("ProviderRateLimitError",)
+    assert all(item.blocked_by_source_id == outcomes[0].source_id for item in outcomes[1:])
+    assert all(item.http_status is None and not item.error_types for item in outcomes[1:])
 
 
 def test_pmi_refusal_stops_this_route_without_changing_other_provider_fallbacks(
@@ -336,6 +340,8 @@ def test_pmi_refusal_stops_this_route_without_changing_other_provider_fallbacks(
     )
     assert len(calls) == 1
     assert all(isinstance(item, acquisition.SourceRefreshFailure) for item in outcomes[:-1])
+    assert outcomes[0].blocked_by_source_id is None
+    assert all(item.blocked_by_source_id == outcomes[0].source_id for item in outcomes[1:-1])
     assert isinstance(outcomes[-1], acquisition.SourceRefreshSuccess)
 
 

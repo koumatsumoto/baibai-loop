@@ -720,3 +720,30 @@ def test_daily_keeps_expected_pmi_refusal_notice_policy(source, codes, projectio
     before = json.dumps(report)
     assert bool(discord.render_source_failures(report)) is notified
     assert json.dumps(report) == before
+
+
+@pytest.mark.parametrize("blocking_status", [403, 429, 500, None])
+def test_daily_resolves_unattempted_pmi_siblings_to_the_actual_refusal(blocking_status):
+    failures = [
+        {"source_id": "first", "http_status": blocking_status},
+        {"source_id": "sibling", "blocked_by_source_id": "first"},
+    ]
+    assert discord.is_expected_pmi_refusal("economic-spglobal_pmi", failures) is (
+        blocking_status == 403
+    )
+
+
+@pytest.mark.parametrize(
+    "failures",
+    [
+        [{"source_id": "sibling", "blocked_by_source_id": "missing"}],
+        [{"source_id": "self", "blocked_by_source_id": "self", "http_status": 403}],
+        [
+            {"source_id": "first", "http_status": 403},
+            {"source_id": "sibling", "blocked_by_source_id": "first", "http_status": 500},
+        ],
+        [{"source_id": "sibling", "blocked_by_source_id": []}],
+    ],
+)
+def test_unresolved_or_contradictory_pmi_stop_is_not_quieted(failures):
+    assert not discord.is_expected_pmi_refusal("economic-spglobal_pmi", failures)
