@@ -23,6 +23,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
 )
 from baibai_engine.investment_judgment.workflow.operation.models import (
+    OperationHeader,
     OperationPayload,
     OperationSession,
     OperationStatus,
@@ -364,15 +365,18 @@ class OperationService:
             raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
         return _from_row(row)
 
-    def list(self, *, status: OperationStatus | None = None) -> list[OperationSession]:
-        sql = "SELECT * FROM operation_session"
+    def list(self, *, status: OperationStatus | None = None) -> list[OperationHeader]:
+        sql = (
+            "SELECT operation_id, session_kind, status, as_of, ticker, started_at, completed_at "
+            "FROM operation_session"
+        )
         parameters: tuple[object, ...] = ()
         if status is not None:
             sql += " WHERE status = ?"
             parameters = (status,)
         rows = read_rows(database_path(self._db_path), sql, parameters, connector=connect_read_only)
         return sorted(
-            (_from_row(row) for row in rows),
+            (OperationHeader.model_validate(dict(row)) for row in rows),
             key=lambda operation: (operation.started_at, operation.operation_id),
             reverse=True,
         )

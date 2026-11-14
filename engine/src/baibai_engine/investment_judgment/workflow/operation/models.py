@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal, cast
+from typing import Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
@@ -26,7 +26,9 @@ class OperationPayload(BaseModel):
     next: str | None = Field(default=None, min_length=1)
 
 
-class OperationSession(BaseModel):
+class OperationHeader(BaseModel):
+    """History identity and lifecycle, without validating or copying the saved payload."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation_id: str = Field(pattern=r"^research-op-[0-9a-f]{32}$")
@@ -36,10 +38,9 @@ class OperationSession(BaseModel):
     ticker: str | None = Field(default=None, pattern=r"^[0-9A-Z]{4}$")
     started_at: datetime
     completed_at: datetime | None = None
-    payload: OperationPayload
 
     @model_validator(mode="after")
-    def validate_completion_time(self) -> OperationSession:
+    def validate_completion_time(self) -> Self:
         if self.started_at.utcoffset() is None:
             raise ValueError("started_at must include a UTC offset")
         if (self.status == "completed") != (self.completed_at is not None):
@@ -54,6 +55,10 @@ class OperationSession(BaseModel):
         return cast(dict[str, JsonValue], self.model_dump(mode="json"))
 
 
+class OperationSession(OperationHeader):
+    payload: OperationPayload
+
+
 SESSION_KINDS: tuple[SessionKind, ...] = (
     "capital-allocation",
     "position-review",
@@ -62,6 +67,7 @@ SESSION_KINDS: tuple[SessionKind, ...] = (
 
 __all__ = [
     "SESSION_KINDS",
+    "OperationHeader",
     "OperationPayload",
     "OperationSession",
     "OperationStatus",

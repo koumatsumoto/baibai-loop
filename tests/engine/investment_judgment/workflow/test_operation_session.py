@@ -14,8 +14,10 @@ from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.research_selection import historical_operation, selection
 
 from baibai_engine.cli.operation import main as operation_main
+from baibai_engine.investment_judgment.workflow.operation import service as operation_service
 from baibai_engine.investment_judgment.workflow.operation.models import (
     SESSION_KINDS,
+    OperationHeader,
     OperationPayload,
 )
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
@@ -288,6 +290,104 @@ def test_operation_lists_sort_by_instant_not_offset_text(tmp_path: Path) -> None
     assert OperationService(db).list(status="active") == []
 
 
+def test_operation_list_reads_only_headers_and_keeps_full_detail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = tmp_path / "app.sqlite"
+    operation = historical_operation(selection(now=NOW, tickers=("1234",)))
+    seed_historical_operation(db, operation)
+    before = db.read_bytes()
+    connect = operation_service.connect_read_only
+
+    def connect_without_payload(path: Path) -> sqlite3.Connection:
+        connection = connect(path)
+        connection.set_authorizer(
+            lambda action, table, column, _database, _source: (
+                sqlite3.SQLITE_DENY
+                if action == sqlite3.SQLITE_READ
+                and table == "operation_session"
+                and column == "payload"
+                else sqlite3.SQLITE_OK
+            )
+        )
+        return connection
+
+    with monkeypatch.context() as patch:
+        patch.setattr(operation_service, "connect_read_only", connect_without_payload)
+        listed = OperationService(db).list(status=operation.status)
+
+    assert len(listed) == 1
+    assert type(listed[0]) is OperationHeader
+    assert listed[0].public() == operation.model_dump(mode="json", exclude={"payload"})
+    assert OperationService(db).get(operation.operation_id) == operation
+    assert db.read_bytes() == before
+
+
+def test_operation_header_is_not_payload_validation(tmp_path: Path) -> None:
+    db = tmp_path / "app.sqlite"
+    operation = historical_operation(selection(now=NOW, tickers=("1234",)))
+    seed_historical_operation(db, operation)
+    with closing(connect_rw(db)) as connection, connection:
+        connection.execute("UPDATE operation_session SET payload = '{}' ")
+    before = db.read_bytes()
+
+    assert len(OperationService(db).list()) == 1
+    with pytest.raises(ValidationError, match="checkpoint"):
+        OperationService(db).get(operation.operation_id)
+    assert db.read_bytes() == before
+
+
+def test_operation_list_still_rejects_invalid_header(tmp_path: Path) -> None:
+    db = tmp_path / "app.sqlite"
+    operation = historical_operation(selection(now=NOW, tickers=("1234",)))
+    seed_historical_operation(db, operation)
+    with closing(connect_rw(db)) as connection, connection:
+        connection.execute("UPDATE operation_session SET started_at = '2026-07-19T12:00:00'")
+    before = db.read_bytes()
+
+    with pytest.raises(ValidationError, match="UTC offset"):
+        OperationService(db).list()
+    assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("output_format", ["json", "yaml"])
+@pytest.mark.parametrize("status", [None, "active", "completed"])
+def test_operation_cli_history_headers_and_status(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], output_format: str, status: str | None
+) -> None:
+    db = tmp_path / "app.sqlite"
+    operation = historical_operation(selection(now=NOW, tickers=("1234",)))
+    seed_historical_operation(db, operation)
+    before = db.read_bytes()
+    arguments = ["--db", str(db), "--format", output_format, "show"]
+    if status is not None:
+        arguments.extend(("--status", status))
+
+    assert operation_main(arguments, now=NOW) == 0
+
+    captured = capsys.readouterr()
+    expected = (
+        [operation.model_dump(mode="json", exclude={"payload"})]
+        if status is None or status == operation.status
+        else []
+    )
+    assert yaml.safe_load(captured.out) == {"operations": expected}
+    assert captured.err == ""
+    assert db.read_bytes() == before
+
+
+def test_operation_cli_rejects_status_with_id_and_invalid_status(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "unwritten.sqlite"
+    assert operation_main(["--db", str(db), "show", "id", "--status", "active"]) == 1
+    assert "--status cannot be combined" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as error:
+        operation_main(["--db", str(db), "show", "--status", "active' OR 1=1 --"])
+    assert error.value.code == 2
+    assert not db.exists()
+
+
 def test_operation_start_requires_the_explicit_payload_at_the_cli_boundary(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -327,8 +427,9 @@ def test_operation_cli_reports_malformed_payload_without_echoing_its_content(
 
 
 @pytest.mark.parametrize("state", ["corrupt", "obsolete"])
+@pytest.mark.parametrize("identifiers", [[], ["unknown-operation"]])
 def test_operation_cli_reports_unreadable_stores_without_changing_them(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], state: str
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], state: str, identifiers: list[str]
 ) -> None:
     db = tmp_path / "app.sqlite"
     if state == "corrupt":
@@ -338,7 +439,7 @@ def test_operation_cli_reports_unreadable_stores_without_changing_them(
             connection.execute("PRAGMA user_version=1")
     before = db.read_bytes()
 
-    assert operation_main(["--db", str(db), "show", "unknown-operation"], now=NOW) == 1
+    assert operation_main(["--db", str(db), "show", *identifiers], now=NOW) == 1
 
     captured = capsys.readouterr()
     assert captured.out == ""
