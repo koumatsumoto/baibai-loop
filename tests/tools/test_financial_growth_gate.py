@@ -413,3 +413,197 @@ def test_rejects_misattributed_growth_payload():
     data["company_growth"]["ticker"] = "9999"
     with pytest.raises(ValueError, match="different subject"):
         evaluate(data)
+
+
+def mark_financial_margin_inapplicable(data, *, missing_op=False):
+    for measurement in ("quarter", "annual_ttm"):
+        current(data, measurement)["metrics"]["operating_margin"].update(
+            value=None, reason="not_applicable_to_financial_sector"
+        )
+        if missing_op:
+            current(data, measurement)["metrics"]["operating_profit"].update(
+                value=None, reason="not_observed"
+            )
+    change(data, "operating_margin").update(
+        difference=None, reason="not_applicable_to_financial_sector"
+    )
+    if missing_op:
+        change(data, "operating_profit").update(difference=None, reason="operand_unavailable")
+
+
+def test_banking_shape_separates_inapplicability_without_substituting_other_income():
+    data = payloads()
+    mark_financial_margin_inapplicable(data, missing_op=True)
+    baseline = evaluate(data)
+    data["company_financials"]["financial"].update(
+        operating_profit=999.0, operating_profit_source="ordinary_profit"
+    )
+    current(data, "quarter")["metrics"]["parent_profit"] = {"value": 1234.0}
+    result = evaluate(data)
+    assert result["state"] == "input_unresolved"
+    assert result["routes"] == baseline["routes"]
+    assert result["checks"] == baseline["checks"]
+    assert result["routes"]["profit_growth"]["missing_by_kind"]["not_applicable"] == []
+    recovery = result["routes"]["operating_recovery"]
+    assert recovery["missing_by_kind"]["not_applicable"] == [
+        "quarter_operating_margin_observed",
+        "quarter_operating_margin_increase",
+    ]
+    assert recovery["missing_by_kind"]["other_unavailable"] == [
+        "quarter_operating_profit_observed",
+        "quarter_operating_profit_increase",
+    ]
+    assert recovery["failures"] == []
+    assert recovery["profitability"] is None
+    assert result["observations"]["quarter"]["metrics"]["parent_profit"]["value"] == 1234.0
+
+
+def test_finance_ordinary_growth_is_not_vetoed_by_unused_inapplicable_margin():
+    data = payloads()
+    mark_financial_margin_inapplicable(data)
+    result = evaluate(data)
+    assert result["state"] == "research_candidate"
+    assert result["matched_routes"] == ["profit_growth"]
+    assert all(not group for group in result["routes"]["profit_growth"]["missing_by_kind"].values())
+    assert result["routes"]["operating_recovery"]["missing_by_kind"]["not_applicable"]
+
+
+def test_inapplicability_does_not_rescue_known_negative_equity_or_erase_missing():
+    data = payloads()
+    mark_financial_margin_inapplicable(data, missing_op=True)
+    current(data, "balance")["metrics"]["net_assets"]["value"] = -1.0
+    result = evaluate(data)
+    assert result["state"] == "not_selected"
+    for route in result["routes"].values():
+        assert route["failures"] == ["positive_net_assets"]
+        assert route["missing"]
+    assert result["routes"]["operating_recovery"]["missing_by_kind"]["not_applicable"]
+
+
+@pytest.mark.parametrize("mode", ["not_generated", "generated_unavailable", "operand_missing"])
+def test_missing_is_not_assumed_industry_inapplicability_from_sector_name(mode):
+    data = payloads()
+    data["market_context"] = {"master": {"sector_33": "銀行業"}}
+    if mode == "not_generated":
+        del data["company_growth"]
+    elif mode == "generated_unavailable":
+        data["company_growth"].update(status="unavailable", periods=[], changes=[])
+    else:
+        change(data, "operating_profit").update(difference=None, reason="operand_unavailable")
+    result = evaluate(data)
+    assert result["state"] == "input_unresolved"
+    assert all(
+        not route["missing_by_kind"]["not_applicable"] for route in result["routes"].values()
+    )
+
+
+def test_all_missing_checks_partition_without_changing_reason_or_failure():
+    data = payloads()
+    mark_financial_margin_inapplicable(data, missing_op=True)
+    current(data, "balance")["accounting_standard"] = None
+    current(data, "balance")["metrics"]["net_assets"]["value"] = -1.0
+    result = evaluate(data)
+    for route in result["routes"].values():
+        groups = route["missing_by_kind"]
+        flat = [name for group in groups.values() for name in group]
+        assert sorted(flat) == sorted(route["missing"])
+        assert len(flat) == len(set(flat))
+        assert groups["unresolved_comparability"] == ["balance_quarter_basis"]
+        assert route["failures"] == ["positive_net_assets"]
+    assert result["checks"]["balance_quarter_basis"]["reason"] == "basis_or_period_unaligned"
+    assert result["checks"]["quarter_operating_profit_observed"]["reason"] == "not_observed"
+
+
+@pytest.mark.parametrize(
+    ("reason", "kind"),
+    [
+        ("statement_basis_incomparable", "unresolved_comparability"),
+        ("accounting_standard_incomparable", "unresolved_comparability"),
+        ("operand_unavailable", "other_unavailable"),
+        ("comparable_prior_period_not_observed", "other_unavailable"),
+        ("future_reason_not_yet_classified", "other_unavailable"),
+    ],
+)
+def test_unavailable_reason_partition_is_narrow_and_unknown_is_not_rewritten(reason, kind):
+    data = payloads()
+    change(data, "operating_profit").update(difference=None, reason=reason)
+    result = evaluate(data)
+    assert result["checks"]["quarter_operating_profit_increase"]["reason"] == reason
+    for route in result["routes"].values():
+        assert "quarter_operating_profit_increase" in route["missing_by_kind"][kind]
+
+
+def test_nonpositive_margin_denominator_is_neither_sector_na_nor_a_fetch_gap():
+    data = payloads()
+    current(data, "quarter")["metrics"]["sales"]["value"] = 0.0
+    current(data, "quarter")["metrics"]["operating_margin"].update(
+        value=None, reason="nonpositive_sales"
+    )
+    change(data, "operating_margin").update(difference=None, reason="operand_unavailable")
+    result = evaluate(data)
+    groups = result["routes"]["operating_recovery"]["missing_by_kind"]
+    assert groups["not_applicable"] == []
+    assert "quarter_operating_margin_observed" in groups["other_unavailable"]
+    assert result["checks"]["quarter_operating_margin_observed"]["reason"] == "nonpositive_sales"
+    assert result["observations"]["quarter"]["metrics"]["sales"]["value"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "prior_sign", "current_sign"),
+    [
+        (-30.0, -10.0, "negative", "negative"),
+        (-30.0, 0.0, "negative", "zero"),
+        (-30.0, 10.0, "negative", "positive"),
+        (0.0, 10.0, "zero", "positive"),
+        (10.0, 20.0, "positive", "positive"),
+    ],
+)
+def test_recovery_profitability_does_not_erase_annual_loss_or_funding_gaps(
+    before, after, prior_sign, current_sign
+):
+    data = payloads()
+    current(data, "annual_ttm")["metrics"]["operating_profit"]["value"] = -100.0
+    current(data, "quarter")["metrics"]["operating_profit"]["value"] = after
+    current(data, "quarter")["metrics"]["operating_margin"]["value"] = after / 1000
+    change(data, "operating_profit").update(
+        from_value=before, to_value=after, difference=after - before
+    )
+    change(data, "operating_margin").update(
+        from_value=before / 900, to_value=after / 1000, difference=after / 1000 - before / 900
+    )
+    result = evaluate(data)
+    assert result["matched_routes"] == ["operating_recovery"]
+    assert result["routes"]["operating_recovery"]["profitability"] == {
+        "current_quarter": current_sign,
+        "comparison_prior_quarter": prior_sign,
+    }
+    assert "positive_annual_operating_profit" in result["routes"]["profit_growth"]["failures"]
+    assert result["financial_context"]["debt"] is None
+    assert result["financial_context"]["fcf_ttm"] == -20.0
+
+
+def test_recovery_prior_sign_is_not_backfilled_from_current_minus_change():
+    data = payloads()
+    change(data, "operating_profit")["from_value"] = None
+    result = evaluate(data)
+    assert result["routes"]["operating_recovery"]["state"] == "matched"
+    assert result["routes"]["operating_recovery"]["profitability"] == {
+        "current_quarter": "positive",
+        "comparison_prior_quarter": None,
+    }
+
+
+def test_worsening_and_basis_gaps_do_not_get_a_recovery_profile_or_forecast_rescue():
+    data = payloads()
+    change(data, "operating_profit")["difference"] = -1.0
+    current(data, "balance")["accounting_standard"] = None
+    data["company_financials"]["financial"].update(
+        forecast_profit_yen=99999.0, forecast_full_year_loss_flag=False
+    )
+    data["technical_analysis"] = {"arbitrary_score": 999999.0}
+    result = evaluate(data)
+    assert result["state"] == "not_selected"
+    route = result["routes"]["operating_recovery"]
+    assert route["profitability"] is None
+    assert route["failures"] == ["quarter_operating_profit_increase"]
+    assert route["missing_by_kind"]["unresolved_comparability"] == ["balance_quarter_basis"]

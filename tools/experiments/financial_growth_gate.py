@@ -21,6 +21,14 @@ from baibai_engine.machine_analysis.screening.policies.economic_path_inputs impo
 
 POLICY_ID = "financial-growth-research-trial-v1"
 _MODELS = ("company_financials", "company_growth")
+_COMPARABILITY_REASONS = {
+    "accounting_periods_incomparable",
+    "accounting_standard_incomparable",
+    "statement_basis_incomparable",
+    "basis_or_period_unaligned",
+    "comparison_intervals_unaligned",
+    "ambiguous_growth_comparison",
+}
 _FINANCIAL_CONTEXT = (
     "cash",
     "debt",
@@ -123,6 +131,16 @@ def evaluate_financial_growth_gate(
         "profit_growth": _route(ordinary, checks),
         "operating_recovery": _route(recovery, checks),
     }
+    routes["operating_recovery"]["profitability"] = (
+        {
+            "current_quarter": _profit_sign(checks["quarter_operating_profit_observed"]["value"]),
+            "comparison_prior_quarter": _profit_sign(
+                _object(changes["operating_profit"]).get("from_value")
+            ),
+        }
+        if routes["operating_recovery"]["state"] == "matched"
+        else None
+    )
     matched = [name for name, route in routes.items() if route["state"] == "matched"]
     state = (
         "research_candidate"
@@ -275,9 +293,33 @@ def _fy_reversal_check(
 def _route(names: tuple[str, ...], checks: dict[str, dict[str, JsonValue]]) -> dict[str, JsonValue]:
     failures = [name for name in names if checks[name]["state"] == "not_met"]
     missing = [name for name in names if checks[name]["state"] == "unavailable"]
+    # Saved N/A describes the model's scope, not a failed acquisition. Keep it
+    # route-local; it neither vetoes a matched route nor clears a known failure.
+    missing_by_kind: dict[str, list[JsonValue]] = {
+        "not_applicable": [],
+        "unresolved_comparability": [],
+        "other_unavailable": [],
+    }
+    for name in missing:
+        reason = checks[name]["reason"]
+        kind = (
+            "not_applicable"
+            if reason == "not_applicable_to_financial_sector"
+            else "unresolved_comparability"
+            if isinstance(reason, str) and reason in _COMPARABILITY_REASONS
+            else "other_unavailable"
+        )
+        missing_by_kind[kind].append(name)
     return {
         "state": "not_matched" if failures else "unresolved" if missing else "matched",
         "checks": list(names),
         "failures": list(failures),
         "missing": list(missing),
+        "missing_by_kind": dict(missing_by_kind),
     }
+
+
+def _profit_sign(value: JsonValue | None) -> JsonValue:
+    if not isinstance(value, (float, int)) or isinstance(value, bool):
+        return None
+    return "positive" if value > 0 else "negative" if value < 0 else "zero"
