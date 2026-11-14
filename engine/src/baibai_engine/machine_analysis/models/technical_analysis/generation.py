@@ -41,7 +41,7 @@ def generate_technical_analysis(
         "read_semantics": "retained_prices_at_date_cutoff_not_original_publication_vintage",
         "moving_averages": {
             f"sma_{window}bar": simple_moving_average(bars, window_bars=window)
-            for window in (20, 50, 200)
+            for window in (20, 50, 75, 200)
         },
         "bollinger_20bar": bollinger_20bar(bars),
         "rsi_14bar": rsi_14bar(bars),

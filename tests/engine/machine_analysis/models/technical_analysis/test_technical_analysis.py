@@ -152,6 +152,83 @@ def test_sma_requires_its_own_window_and_reports_price_distance():
     )
 
 
+@pytest.mark.parametrize("count", [0, 74, 75, 76, 200])
+def test_sma75_uses_its_observed_prefix_and_keeps_other_periods(count):
+    bars = observed(list(range(100, 100 + count)))
+    result = generate_technical_analysis(
+        [PriceBar(ASOF + timedelta(days=1), 999999.0, None), *reversed(bars)],
+        ticker="1234",
+        as_of=ASOF,
+        trading_dates=(),
+    )
+    averages = result["moving_averages"]
+    assert set(averages) == {"sma_20bar", "sma_50bar", "sma_75bar", "sma_200bar"}
+    assert result["calculation_revision"] == "sma20-50-75-200-bb20-wilder-rsi14-price-path-v4"
+    for period in (20, 50, 75, 200):
+        selected = bars[-period:]
+        sma = averages[f"sma_{period}bar"]
+        assert sma["window_bars"] == min(count, period)
+        assert sma["window_start_date"] == (selected[0].traded_at.isoformat() if selected else None)
+        assert sma["window_end_date"] == (ASOF.isoformat() if count else None)
+        if count < period:
+            assert sma["status"] == "insufficient_history"
+            assert sma["value"] is sma["gap_ratio"] is None
+        else:
+            expected = (selected[0].price + selected[-1].price) / 2
+            assert sma["status"] == "available"
+            assert sma["value"] == expected
+            assert sma["gap_ratio"] == pytest.approx(selected[-1].price / expected - 1)
+
+
+@pytest.mark.parametrize("invalid", [0.0, -1.0, float("nan"), float("inf")])
+@pytest.mark.parametrize("offset", [-76, -75])
+def test_sma75_invalid_close_is_local_to_its_window(invalid, offset):
+    prices = [100.0] * 76
+    prices[offset] = invalid
+    result = generate_technical_analysis(
+        observed(prices), ticker="1234", as_of=ASOF, trading_dates=()
+    )["moving_averages"]
+    sma = result["sma_75bar"]
+    if offset == -75:
+        assert sma["status"] == "invalid_price"
+        assert sma["value"] is sma["gap_ratio"] is None
+    else:
+        assert sma["status"] == "available"
+        assert sma["value"] == 100
+        assert sma["gap_ratio"] == 0
+    assert result["sma_50bar"]["status"] == "available"
+    assert result["sma_50bar"]["value"] == 100
+
+
+def test_sma75_observed_bars_keep_null_day_gap_and_asof_adjustment_basis(tmp_path):
+    path = tmp_path / "market.sqlite"
+    insert_daily_bars_from_closes(path, "1234", [200] * 75 + [120], end_date=ASOF)
+    with closing(open_connection(path)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET close=NULL, adjustment_factor=0.5 "
+            "WHERE ticker='1234' AND traded_at=?",
+            ((ASOF - timedelta(days=1)).isoformat(),),
+        )
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) "
+            "VALUES('1234',?,9999,0.1)",
+            ((ASOF + timedelta(days=1)).isoformat(),),
+        )
+    before = path.read_bytes()
+    result = technical_analysis(path, ticker="1234", as_of=ASOF)
+    assert result["bar_count"] == 75
+    for period in (50, 75):
+        sma = result["moving_averages"][f"sma_{period}bar"]
+        assert sma["status"] == "available"
+        assert sma["window_bars"] == period
+        assert sma["window_start_date"] == (ASOF - timedelta(days=period)).isoformat()
+        assert sma["window_end_date"] == ASOF.isoformat()
+        expected = (100 * (period - 1) + 120) / period
+        assert sma["value"] == pytest.approx(expected)
+        assert sma["gap_ratio"] == pytest.approx(120 / expected - 1)
+    assert path.read_bytes() == before
+
+
 def test_query_does_not_truncate_wilder_seed_to_market_context_lookback(tmp_path):
     path = tmp_path / "market.sqlite"
     insert_daily_bars_from_closes(

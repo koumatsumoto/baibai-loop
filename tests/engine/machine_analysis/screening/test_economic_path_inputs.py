@@ -317,7 +317,15 @@ def test_activity_reaches_brief_without_changing_rank_or_mutating_saved_inputs()
 
 
 @pytest.mark.parametrize(
-    "state", ["complete", "missing_interval", "old_model", "old_path_statistics", "old_selection"]
+    "state",
+    [
+        "complete",
+        "missing_interval",
+        "old_model",
+        "old_moving_averages",
+        "old_path_statistics",
+        "old_selection",
+    ],
 )
 def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_backfill(
     tmp_path, state
@@ -345,6 +353,9 @@ def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_b
     elif state == "old_path_statistics":
         del path["observations"]["G60"]["path_statistics"]["drawdown_episodes"]
         path["calculation_revision"] = "common-calendar-observed-close-path-v2"
+    elif state == "old_moving_averages":
+        del technical["moving_averages"]["sma_75bar"]
+        technical["calculation_revision"] = "sma20-50-200-bb20-wilder-rsi14-price-path-v4"
     data["technical_analysis"] = technical
     original = deepcopy(data)
     projected = project(data)
@@ -378,6 +389,11 @@ def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_b
     else:
         assert brief["moving_averages"] == technical["moving_averages"]
         assert brief["moving_averages"]["sma_200bar"]["status"] == "insufficient_history"
+        assert brief["moving_averages"]["sma_50bar"]["status"] == "available"
+        if state == "old_moving_averages":
+            assert "sma_75bar" not in brief["moving_averages"]
+        else:
+            assert brief["moving_averages"]["sma_75bar"]["status"] == "available"
         shown = brief["price_path"]
         assert shown["read_semantics"] == path["read_semantics"]
         assert set(shown["observations"]) == {"R20", "G60"}
