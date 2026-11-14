@@ -20,6 +20,8 @@ from baibai_engine.primitives.time import JST
 from baibai_web.readmodel.proposal_models import (
     LatestProposalView,
     SavedAssessmentReviewView,
+    SavedAssessmentRisksView,
+    SavedAssessmentSourceView,
     SavedAssessmentView,
     SavedBuyItemView,
     SavedDeferItemView,
@@ -29,7 +31,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedLiquidityView,
     SavedModelPerspectiveView,
     SavedNoActionItemView,
-    SavedPerspectiveSourceView,
+    SavedPermanentLossRiskView,
     SavedPortfolioExposureView,
     SavedProposalItemView,
     SavedProposalView,
@@ -110,6 +112,9 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
     perspective_sources = {
         source_id for item in document.model_perspectives for source_id in item.source_ids
     }
+    risk_sources = {
+        source_id for item in document.permanent_loss_risks for source_id in item.source_ids
+    }
     return SavedAssessmentView(
         assessment_id=pair.assessment_id,
         core_sha256=pair.core_sha256,
@@ -125,10 +130,22 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
             for item in document.model_perspectives
         ],
         model_perspective_sources=[
-            SavedPerspectiveSourceView.model_validate(source.model_dump(mode="json"))
+            SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
             for source in document.input_snapshot.sources
             if source.source_id in perspective_sources
         ],
+        risk_analysis=SavedAssessmentRisksView(
+            risks=[
+                SavedPermanentLossRiskView.model_validate(risk.model_dump(mode="json"))
+                for risk in document.permanent_loss_risks
+            ],
+            unresolved_questions=list(document.findings.unresolved_questions),
+            sources=[
+                SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
+                for source in document.input_snapshot.sources
+                if source.source_id in risk_sources
+            ],
+        ),
         valuation=_valuation(pair),
         review=SavedAssessmentReviewView(
             reviewed_at=review.reviewed_at,

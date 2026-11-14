@@ -15,6 +15,7 @@ import type {
   SavedSellItemView,
 } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
+import { AssessmentRisks } from '../components/AssessmentRisks'
 import { ModelPerspectives } from '../components/ModelPerspectives'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
@@ -128,6 +129,7 @@ function AssessmentExcerpt({ assessment, showCountercase = true }: { assessment:
       <div><p className="mb-1 text-sm font-medium">投資理由</p><Prose>{assessment.investment_case_explanation}</Prose></div>
       <div><p className="mb-1 text-sm font-medium">状態の理由</p><Prose>{assessment.investment_case_status_reason}</Prose></div>
       <TextList items={assessment.invalidation_conditions} title="投資理由の反証条件" />
+      <AssessmentRisks assessment={assessment} />
       <div className="grid gap-4 border-t pt-4">
         <p className="text-sm font-medium">独立検証の範囲</p>
         <p className="text-xs leading-6 text-muted-foreground">Reviewの存在は、すべての事実の確認や現在の注文資格を示しません。</p>

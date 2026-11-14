@@ -28,7 +28,7 @@ class SavedModelPerspectiveView(BaseModel):
     source_ids: list[str]
 
 
-class SavedPerspectiveSourceView(BaseModel):
+class SavedAssessmentSourceView(BaseModel):
     source_id: str
     source_tier: Literal["primary", "secondary", "local_data"]
     ref: str | None
@@ -37,6 +37,29 @@ class SavedPerspectiveSourceView(BaseModel):
     as_of: date
     retrieved_at: datetime
     used_for: str
+
+
+class SavedPermanentLossRiskView(BaseModel):
+    axis: Literal[
+        "funding_liquidity",
+        "debt_repayment",
+        "cash_flow",
+        "dilution",
+        "customer_concentration",
+        "structural_decline",
+        "governance_accounting",
+    ]
+    assessment: Literal["acceptable", "adverse", "unknown"]
+    evidence_status: Literal["verified", "partially_verified", "unverified"]
+    summary: str
+    as_of: date
+    source_ids: list[str]
+
+
+class SavedAssessmentRisksView(BaseModel):
+    risks: list[SavedPermanentLossRiskView]
+    unresolved_questions: list[str]
+    sources: list[SavedAssessmentSourceView]
 
 
 class SavedAssessmentReviewView(BaseModel):
@@ -82,7 +105,8 @@ class SavedAssessmentView(BaseModel):
     investment_case_status_reason: str
     invalidation_conditions: list[str]
     model_perspectives: list[SavedModelPerspectiveView] = Field(default_factory=list)
-    model_perspective_sources: list[SavedPerspectiveSourceView] = Field(default_factory=list)
+    model_perspective_sources: list[SavedAssessmentSourceView] = Field(default_factory=list)
+    risk_analysis: SavedAssessmentRisksView | None = None
     valuation: (
         Annotated[
             SavedResolvedValuationView | SavedUnresolvedValuationView,
