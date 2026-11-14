@@ -23,6 +23,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
 )
 from baibai_engine.investment_judgment.workflow.operation.models import (
+    OperationHeader,
     OperationPayload,
     OperationSession,
     OperationStatus,
@@ -51,7 +52,7 @@ from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import RUNS_DB_PATH
 from baibai_engine.storage.sqlite.application.paths import database_path
@@ -126,7 +127,7 @@ class OperationService:
             targets=tuple(target.ticker for target in selection.targets),
             path=self._runs_path,
         )
-        if canonical is None or canonical_json(canonical.model_dump(mode="json")) != canonical_json(
+        if canonical is None or encode_json(canonical.model_dump(mode="json")) != encode_json(
             selection.inputs.generation.model_dump(mode="json")
         ):
             raise ValueError("model input slice differs from its canonical generation")
@@ -140,8 +141,8 @@ class OperationService:
             if (
                 publication is None
                 or selection.inputs.screening_selection is None
-                or canonical_json(_SCREENING_CODEC.dump_python(publication.selection, mode="json"))
-                != canonical_json(
+                or encode_json(_SCREENING_CODEC.dump_python(publication.selection, mode="json"))
+                != encode_json(
                     _SCREENING_CODEC.dump_python(selection.inputs.screening_selection, mode="json")
                 )
                 or publication.published_at != selection.inputs.screening_published_at
@@ -261,6 +262,7 @@ class OperationService:
             proposal_ref=progress.proposal_ref,
         )
         payload = with_progress(operation.payload, updated)
+        del selected
         return self._replace_active(
             operation_id,
             payload=payload,
@@ -342,6 +344,7 @@ class OperationService:
         target = next((item for item in selection.targets if item.ticker == ticker), None)
         if target is None:
             raise OperationConflictError("ticker is outside the fixed selection")
+        del selection
         return self.record_outcome(
             operation_id,
             UnfinishedTarget(
@@ -364,15 +367,18 @@ class OperationService:
             raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
         return _from_row(row)
 
-    def list(self, *, status: OperationStatus | None = None) -> list[OperationSession]:
-        sql = "SELECT * FROM operation_session"
+    def list(self, *, status: OperationStatus | None = None) -> list[OperationHeader]:
+        sql = (
+            "SELECT operation_id, session_kind, status, as_of, ticker, started_at, completed_at "
+            "FROM operation_session"
+        )
         parameters: tuple[object, ...] = ()
         if status is not None:
             sql += " WHERE status = ?"
             parameters = (status,)
         rows = read_rows(database_path(self._db_path), sql, parameters, connector=connect_read_only)
         return sorted(
-            (_from_row(row) for row in rows),
+            (OperationHeader.model_validate(dict(row)) for row in rows),
             key=lambda operation: (operation.started_at, operation.operation_id),
             reverse=True,
         )
@@ -471,7 +477,7 @@ class OperationService:
                     _validate_complete(before.session_kind, payload)
                 operation = OperationSession.model_validate(
                     {
-                        **before.public(),
+                        **before.model_dump(mode="json", exclude={"payload"}),
                         "status": "completed" if completed_at is not None else "active",
                         "completed_at": completed_at,
                         "payload": payload,
@@ -486,7 +492,7 @@ class OperationService:
                     (
                         operation.status,
                         None if completed_at is None else completed_at.isoformat(),
-                        canonical_json(payload.model_dump(mode="json")),
+                        encode_json(payload.model_dump(mode="json")),
                         operation_id,
                         str(row["payload"]),
                     ),
@@ -570,7 +576,7 @@ def _insert(connection: sqlite3.Connection, operation: OperationSession) -> None
             operation.ticker,
             operation.started_at.isoformat(),
             None,
-            canonical_json(operation.payload.model_dump(mode="json")),
+            encode_json(operation.payload.model_dump(mode="json")),
         ),
     )
 

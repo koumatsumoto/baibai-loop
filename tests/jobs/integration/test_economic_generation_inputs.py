@@ -30,7 +30,9 @@ from baibai_engine.machine_analysis.generation.economic_inputs import (
     retain_economic_input,
 )
 from baibai_engine.machine_analysis.generation.query import read_generation
-from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    TechnicalFinancialPolicy,
+)
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -82,7 +84,7 @@ def integration(tmp_path, monkeypatch):
         as_of=DAY,
         lease_handle=tmp_path / "lease",
         growth_start=None,
-        policy=EconomicPathPolicy(),
+        policy=TechnicalFinancialPolicy(),
     )
 
 

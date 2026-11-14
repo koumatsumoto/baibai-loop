@@ -44,7 +44,7 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --runs-path stores/screening/runs.sqlite
 ```
 
-prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。
+prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。IDなしの`show`は履歴ヘッダだけを返し、全snapshotを反復展開しない。payloadの検証・詳細はIDを指定して読む。
 
 nativeは保存descriptorから[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)へ進みsummary/latestで代用しない。候補/省略/未生成/欠測と時点・Reading・保存範囲は[観測reference](../../../docs/reference/model-observations.md#judgment-use)に従う。
 
@@ -71,6 +71,8 @@ lookupは元lineageや旧release全体の再読でない。Research source.ref�
 3. `independent-review-scaffold`から別作業者が[独立検証](../../../docs/reference/stock-assessment.md#independent-second-pass)する。
 4. `stock-assessment-evaluate <DRAFT> --review <REVIEW>`でpairを確認し、`stock-assessment-promote`で保存する。
 
+探索で選んだ対象は、選択時の同世代の技術・市場・財務/成長の観測と留保が、事業価値・価格経路・待機のどこへ効いたか、変化なしも含めて記す。価格回復と新しい事業根拠を分け、需要到来の遅延は資金耐久・追加資本・普通株主帰属と併せて検討する。価格経路の不成立だけで事業仮説をbrokenにせず、小口や価格ストップで未成立の価値根拠を補わない。
+
 scaffoldの`--from-research-id`は元日付/ID/hash付き素材コピー、`--from-assessment-id`はAssessmentの差分refresh。併用せず、コピーを評価済みとしない。
 
 ### 途中成果の保存と再訪
@@ -81,12 +83,12 @@ as_ofは情報境界で全内容の再検証日でない。元source/fact時刻�
 
 ## Trade Proposal
 
-`investment-judgment status --workspace <WORKSPACE> --db <APP_DB>`とOperationを読む。評価保存とOperation束縛は別transactionで、再利用/束縛失敗だけなら`operation --db <APP_DB> record-assessment <OPERATION_ID> --assessment-id <ID>`で回復する。
+`investment-judgment status --workspace <WORKSPACE> --db <APP_DB>`とOperationを読む。評価保存とOperation束縛は別transactionで、再利用/束縛失敗だけなら`operation --db <APP_DB> --format json record-assessment <OPERATION_ID> --assessment-id <ID>`で回復する。
 
 未完対象だけを記録し、自動補充しない。
 
 ```bash
-uv run baibai-engine operation --db <APP_DB> record-unfinished \
+uv run baibai-engine operation --db <APP_DB> --format json record-unfinished \
   <OPERATION_ID> --ticker <TICKER> --reason '<REASON>' --ref <REF>
 ```
 
@@ -98,6 +100,8 @@ uv run baibai-engine investment-judgment trade-proposal-context \
 ```
 
 contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って比較し、`trade-proposal-check <DRAFT> --db <APP_DB>`→別作業者の内容Review→`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。
+
+新規購入の待機は、現quote未満の指値で買う意思が完成した`buy / wait_limit`、追加情報を見て採否を決める未完の`defer`、経済比較を終えて現金維持を選ぶ`no_action`を分ける。MA回復待ちを買い指値やstop注文へ変換しない。確認後は残期間・今後分配・新根拠・現在価格を見直し、共通要因の重複、流動性、残cashと他案を既存の比較へ結ぶ。値上がりだけで許容価格を上げず、投稿上の損切り率や保有比率を共通規則にしない。
 
 全対象が理由/参照付きunfinishedで、公開済みProposalも束縛参照もない場合だけProposalを省ける。resultに確認範囲/評価未完、nextに未解決の問い/再調査条件を記す。reviewedや未束縛の公開済みProposalがあれば通常経路を使い、経済的見送り/保有判断をunfinishedにしない。0対象は選定理由を残し空Proposalなしで完了する。
 
@@ -122,13 +126,13 @@ as_ofは元発行日以降のJST情報境界で保存時計ではない。後日
 ## 完了と再開
 
 ```bash
-uv run baibai-engine operation --db <APP_DB> record-proposal <OPERATION_ID> --proposal-id <ID>
-uv run baibai-engine operation --db <APP_DB> complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'
+uv run baibai-engine operation --db <APP_DB> --format json record-proposal <OPERATION_ID> --proposal-id <ID>
+uv run baibai-engine operation --db <APP_DB> --format json complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'
 uv run baibai-engine investment-judgment prepare \
   --operation-id <OPERATION_ID> --db <APP_DB> --workspace .cache/research/<ASOF> --force
 ```
 
-record-proposalは公開済み提案の束縛。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> show <ID>`で読み、workspaceのincompleteと区別する。
+record-proposalは公開済み提案の束縛。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> --format json show <ID>`で読み、workspaceのincompleteと区別する。
 
 Operationに保存された[Research Selection](../../../docs/architecture.md#store-authority)から再開し、selection-contextで選び直さない。forceは表示を再投影し執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
 

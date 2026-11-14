@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import json
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -19,12 +20,17 @@ from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 _CODEC = TypeAdapter(ScreeningSelection)
 
 
+def _decode_selection(payload: bytes) -> ScreeningSelection:
+    # 全社結果の直接JSON型検証による一時メモリ増を避ける。検証schemaは同じ。
+    return _CODEC.validate_python(json.loads(gzip.decompress(payload).decode("utf-8")))
+
+
 def read_selection(selection_id: str, *, path: Path | None = None) -> ScreeningSelection | None:
     with closing(connect_read_only(path)) as connection:
         row = connection.execute(
             "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (selection_id,)
         ).fetchone()
-        return None if row is None else _CODEC.validate_json(gzip.decompress(row[0]))
+        return None if row is None else _decode_selection(row[0])
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,5 +79,5 @@ def read_publication(
             selection_id=row[0],
             published_at=datetime.fromisoformat(row[1]),
             generation=GenerationMetadata.model_validate_json(row[2]),
-            selection=_CODEC.validate_json(gzip.decompress(row[3])),
+            selection=_decode_selection(row[3]),
         )

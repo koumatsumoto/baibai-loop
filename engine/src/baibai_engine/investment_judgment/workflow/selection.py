@@ -31,7 +31,7 @@ from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice,
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
 )
-from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.time import JST
 
@@ -339,7 +339,7 @@ def selection_targets(selection: ResearchSelectionRecord) -> tuple[ResearchTarge
 
 
 def selection_sha256(selection: ResearchSelectionRecord) -> str:
-    return sha256(canonical_json(selection.model_dump(mode="json")).encode()).hexdigest()
+    return sha256(encode_json(selection.model_dump(mode="json")).encode()).hexdigest()
 
 
 def saved_market_assessment(selection: ResearchSelectionRecord) -> JsonValue:

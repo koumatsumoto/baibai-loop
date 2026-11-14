@@ -615,7 +615,9 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
+    from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+        TechnicalFinancialPolicy,
+    )
     from baibai_jobs.acquisition.economic_staging import save_handoff
     from baibai_jobs.acquisition.receipts import available_handoffs
     from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -717,7 +719,7 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
         as_of=DAY,
         lease_handle=tmp_path / "lease",
         growth_start=None,
-        policy=EconomicPathPolicy(candidate_limit=36),
+        policy=TechnicalFinancialPolicy(page_size=36),
     )
     assert generated["company_count"] == 1
     metadata = read_generation(generated["generation_id"], path=tmp_path / "runs")

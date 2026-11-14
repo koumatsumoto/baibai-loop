@@ -747,3 +747,25 @@ def test_daily_resolves_unattempted_pmi_siblings_to_the_actual_refusal(blocking_
 )
 def test_unresolved_or_contradictory_pmi_stop_is_not_quieted(failures):
     assert not discord.is_expected_pmi_refusal("economic-spglobal_pmi", failures)
+
+
+def test_technical_financial_notice_does_not_call_unresolved_approved():
+    notice = {
+        "models_ready": True,
+        "company_count": 6,
+        "model_count": 25,
+        "candidate_count": 3,
+        "selection_method": "technical-financial-discovery-v1",
+        "screening_summary": {
+            "financial_gate": {
+                "research_candidate": 1,
+                "input_unresolved": 2,
+                "not_selected": 1,
+                "not_evaluated": 2,
+            }
+        },
+    }
+    assert discord.render_generation(notice) == [
+        "モデル生成: 6社 / 25件 / 探索閲覧（予備・代替含む）3社",
+        "財務成長: 仮説合致1 / 未確定2 / 非合致1社",
+    ]

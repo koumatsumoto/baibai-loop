@@ -99,6 +99,18 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument("--known-at", type=datetime.fromisoformat)
     context_parser.add_argument("--generation-id")
     context_parser.add_argument("--screening-selection-id")
+    context_parser.add_argument(
+        "--screening-lane",
+        choices=("growth_research", "input_review", "alternative_financial_research"),
+        default="growth_research",
+        help="saved growth, unresolved, or alternative-financial research lane",
+    )
+    context_parser.add_argument(
+        "--screening-page",
+        type=int,
+        default=0,
+        help="zero-based page of the same saved technical-financial discovery pool",
+    )
     context_parser.add_argument("--db", type=Path)
     context_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     context_parser.add_argument("--out", type=Path)
@@ -262,6 +274,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     runs_path=args.runs_path,
                     db_path=args.db,
                     comparison_tickers=tuple(args.compare_ticker),
+                    screening_page=args.screening_page,
+                    screening_lane=args.screening_lane,
                 )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:

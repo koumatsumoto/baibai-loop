@@ -14,7 +14,7 @@ from pydantic import TypeAdapter
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
 )
-from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.json import encode_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_rw, initialize_run_store
 
 from .selection_query import read_selection
@@ -32,7 +32,7 @@ class ScreeningSelectionStore:
             raise ValueError("selection_id must not be empty")
         if not set(selection.result.tickers).issubset(selection.universe_tickers):
             raise ValueError("selected companies must belong to the explicit universe")
-        payload = canonical_json(_CODEC.dump_python(selection, mode="json")).encode()
+        payload = encode_json(_CODEC.dump_python(selection, mode="json")).encode()
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")

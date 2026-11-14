@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     show = commands.add_parser(
         "show",
-        help="print one session, or list sessions filtered by status",
+        help="print one complete session by ID, or list history headers filtered by status",
     )
     show.add_argument("operation_id", nargs="?")
     show.add_argument("--status", choices=("active", "completed"))

@@ -114,7 +114,9 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
     from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
     from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
+    from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+        TechnicalFinancialPolicy,
+    )
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
     names = ("jquants.master_snapshots", "jquants.daily_bars")
@@ -184,7 +186,7 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
         as_of=generation_day,
         lease_handle=tmp_path / "lease",
         growth_start=None,
-        policy=EconomicPathPolicy(candidate_limit=36),
+        policy=TechnicalFinancialPolicy(page_size=36),
     )
     saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     expected = SUNDAY if generation_day > SUNDAY and response == "matching-date" else FRIDAY
