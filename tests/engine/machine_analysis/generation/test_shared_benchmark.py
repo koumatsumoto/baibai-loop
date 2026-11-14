@@ -160,7 +160,7 @@ def test_new_and_legacy_saved_shapes_survive_correction_and_detached_l3_read(tmp
     assert [item.model_dump_json() for item in saved] == encoded
 
 
-def test_fixed_prices_feed_activity_and_survive_detached_l3_read(tmp_path):
+def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tmp_path):
     calendar = {
         ASOF - timedelta(days=n): (ASOF - timedelta(days=n)).weekday() < 5 for n in range(100)
     }
@@ -193,13 +193,36 @@ def test_fixed_prices_feed_activity_and_survive_detached_l3_read(tmp_path):
         assert comparison["down"]["days"] == 1
         assert comparison["down"]["mean_excess_return"] == 0
     assert market["price"]["turnover_activity_20d"]["current_to_prior_mean_ratio"] == 10
+    technical = result.result("technical_analysis", "1001").payload
+    episodes = technical["price_path"]["observations"]["G60"]["path_statistics"][
+        "drawdown_episodes"
+    ]
+    assert episodes["current"] is None
+    assert episodes["latest_recovered"]["peak_date"] == dates[-3].isoformat()
+    assert episodes["latest_recovered"]["trough_date"] == dates[-2].isoformat()
+    assert episodes["latest_recovered"]["recovery_date"] == ASOF.isoformat()
     assert path.read_bytes() == before
     runs = tmp_path / "runs.sqlite"
     publish_generation(result, path=runs)
     fixed = read_research_model_inputs(result.generation_id, targets=("1001",), path=runs)
     encoded = fixed.model_dump_json()
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=100 WHERE ticker='1001'")
+    corrected = generate(path, identity="corrected", tickers=("1001",))
+    new_path = corrected.result("technical_analysis", "1001").payload["price_path"]
+    assert new_path["observations"]["G60"]["path_statistics"]["drawdown_episodes"] == {
+        "current": None,
+        "latest_recovered": None,
+    }
+    assert (
+        read_research_model_inputs(
+            result.generation_id, targets=("1001",), path=runs
+        ).model_dump_json()
+        == encoded
+    )
     path.unlink()
     runs.unlink()
-    projected = project_generated_inputs(fixed)["securities"]["1001"]["models"]["market_context"]
-    assert projected == market
+    projected = project_generated_inputs(fixed)["securities"]["1001"]["models"]
+    assert projected["market_context"] == market
+    assert projected["technical_analysis"] == technical
     assert fixed.model_dump_json() == encoded

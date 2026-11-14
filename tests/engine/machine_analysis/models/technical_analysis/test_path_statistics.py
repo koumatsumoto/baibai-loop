@@ -120,6 +120,7 @@ def test_missing_calendar_interval_never_becomes_a_smooth_filled_path(state):
     assert result["path_statistics"]["status"] == "incomplete_price_window"
     assert result["path_statistics"]["log_path_efficiency"] is None
     assert result["path_statistics"]["turnover_comparison"] is None
+    assert result["path_statistics"]["drawdown_episodes"] is None
 
 
 @pytest.mark.parametrize("state", ["mixed", "invalid"])
@@ -160,7 +161,9 @@ def test_split_price_adjustment_does_not_rescale_traded_yen_or_use_future_action
 def test_invalid_price_is_not_a_flat_observation(price):
     bars = {day: PriceBar(day, 100.0, 1000.0) for day in WINDOW}
     bars[WINDOW[2]] = PriceBar(WINDOW[2], price, 1000.0)
-    assert close_path_statistics(bars, window=WINDOW)["status"] == "invalid_price"
+    result = close_path_statistics(bars, window=WINDOW)
+    assert result["status"] == "invalid_price"
+    assert result["drawdown_episodes"] is None
 
 
 def test_unknown_calendar_has_no_invented_shape():
@@ -168,3 +171,4 @@ def test_unknown_calendar_has_no_invented_shape():
     assert result["status"] == "insufficient_calendar"
     assert result["up_days"] is None
     assert result["log_path_efficiency"] is None
+    assert result["drawdown_episodes"] is None

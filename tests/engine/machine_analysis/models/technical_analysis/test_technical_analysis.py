@@ -296,17 +296,26 @@ def test_common_calendar_path_reads_retained_turnover_without_extra_source_or_fu
     before = path.read_bytes()
     result = technical_analysis(path, ticker="1234", as_of=ASOF)
     observation = result["price_path"]["observations"]["G60"]
-    assert result["calculation_revision"].endswith("price-path-v3")
+    assert result["calculation_revision"].endswith("price-path-v4")
+    assert result["price_path"]["calculation_revision"] == "common-calendar-observed-close-path-v3"
     assert observation["coverage"]["row_counts"]["priced"] == (61 if missing is None else 60)
     stats = observation["path_statistics"]
     if missing in {"close", "no_trade", "absent"}:
         assert stats["status"] == "incomplete_price_window"
         assert stats["log_path_efficiency"] is None
+        assert stats["drawdown_episodes"] is None
     else:
         assert stats["status"] == "available"
         assert stats["up_days"] == 1
         assert stats["down_days"] == 1
         assert stats["log_path_efficiency"] == 0
+        current = stats["drawdown_episodes"]["current"]
+        assert stats["drawdown_episodes"]["latest_recovered"] is None
+        assert current["peak_date"] == traded[-2].isoformat()
+        assert current["trough_price"] == 100
+        assert current["depth"] == pytest.approx(100 / 110 - 1)
+        assert current["recovery_date"] is None
+        assert current["peak_to_observation_trading_days"] == 1
         activity = stats["turnover_comparison"]
         if missing == "turnover_value":
             assert activity["up_down_mean_ratio"] is None
