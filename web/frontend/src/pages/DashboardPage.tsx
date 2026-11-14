@@ -367,7 +367,7 @@ export function DashboardPage() {
       .then(value => { if (!controller.signal.aborted) setData(value) })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return
-        setError(reason instanceof Error ? reason.message : 'Dashboard を読み込めませんでした')
+        setError(reason instanceof Error ? reason.message : '資産状況を読み込めませんでした')
       })
     fetchJson<OutcomesView>('/api/outcomes', { signal: controller.signal })
       .then(value => { if (!controller.signal.aborted) setOutcomes(value) })
@@ -387,7 +387,7 @@ export function DashboardPage() {
         <span>表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>
         {data.ledger_as_of !== null && <span>台帳最終記録 <time dateTime={data.ledger_as_of}>{formatJstDateTime(data.ledger_as_of)} JST</time></span>}
       </div>
-    )} title="Dashboard">
+    )} title="資産状況">
       {data === null && error === null && <p className="text-sm text-muted-foreground" role="status">資産状況を読み込んでいます</p>}
       {error !== null && (
         <Alert><CircleAlert /><AlertTitle>資産・保有・未約定注文を読み込めません</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
