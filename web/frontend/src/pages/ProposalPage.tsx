@@ -1,7 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Copy } from 'lucide-react'
 
-import { fetchJson } from '../api/client'
 import type {
   LatestProposalView,
   SavedAssessmentView,
@@ -24,6 +23,7 @@ import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { formatJstDateTime, formatPct } from '../lib/format'
+import { ACTION_LABEL, isCorrectedProposal } from '../lib/proposal-history'
 
 type ProposalItem = SavedProposalView['items'][number]
 
@@ -31,13 +31,6 @@ const SCOPE_LABEL: Record<SavedProposalView['request_scope'], string> = {
   discover_new: '新規探索',
   specified_stocks: '指定銘柄',
   review_positions: '保有見直し',
-}
-const ACTION_LABEL: Record<ProposalItem['action'], string> = {
-  buy: '買付（指値）',
-  hold: '保有継続',
-  sell: '全量売却',
-  no_action: '経済的見送り',
-  defer: '判断保留',
 }
 const TIMING_LABEL: Record<SavedBuyItemView['timing'], string> = {
   at_current_limit: '保存終値の呼値切下げに一致する指値',
@@ -337,29 +330,19 @@ function PortfolioExposure({ exposure }: { exposure: SavedPortfolioExposureView 
   </details>
 }
 
-export function ProposalPage() {
-  const [data, setData] = useState<LatestProposalView | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchJson<LatestProposalView>('/api/proposal/latest', { signal: controller.signal })
-      .then(value => { if (!controller.signal.aborted) setData(value) })
-      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '売買提案を読み込めませんでした。') })
-    return () => controller.abort()
-  }, [])
-  if (error !== null) return <PageState message={error} title="売買提案の通信エラー" />
-  return <ProposalReport data={data} />
-}
-
-export function ProposalReport({ data }: { data: LatestProposalView | null }) {
+export function ProposalReport({ data, ticker, above }: { data: LatestProposalView | null; ticker?: string; above?: ReactNode }) {
   if (data === null) return <LoadingPage label="売買提案を読み込んでいます" />
   if (data.status === 'unavailable') return <PageState message={data.error ?? '保存済み提案を読み取れませんでした。'} title="売買提案の読取不能" />
   if (data.status === 'empty') return <PageShell lead="最新基準日の保存済み提案を読みます。" meta={<span className="text-xs text-muted-foreground">表示データ生成 <SavedTime value={data.generated_at} /></span>} title="売買提案" width="reading"><SectionCard padded title="保存済み提案はありません"><Prose>表示データ生成時点で、正式に保存された提案はありません。</Prose></SectionCard></PageShell>
   const proposal = data.proposal
   if (proposal === null) return <PageState message="保存済み提案を読み取れませんでした。" title="売買提案の読取不能" />
+  const selected = ticker === undefined ? null : proposal.items.find(item => item.ticker === ticker)
+  if (selected === undefined) return <PageState message="指定された銘柄はこの保存提案にありません。" title="レポートを表示できません" />
+  const items = selected === null ? proposal.items : [selected]
   return (
-    <PageShell lead="最新基準日の保存済み提案を、保存順のまま表示します。" meta={<Badge variant="outline">{SCOPE_LABEL[proposal.request_scope]}</Badge>} title="売買提案" width="reading">
-      <SectionCard padded title="サマリ">
+    <PageShell above={above} lead={selected === null ? '保存済み提案を、保存順のまま表示します。' : `${selected.ticker} · ${selected.sector ?? '業種未記録'} · ${formatJstDateTime(proposal.published_at)} JST 発行`} meta={<Badge variant="outline">{SCOPE_LABEL[proposal.request_scope]}</Badge>} title={selected === null ? "売買提案" : (selected.company_name ?? selected.ticker)} width="reading">
+      {selected !== null && <p className="text-xs leading-6 text-muted-foreground">保存時点のレポートです。現在の注文条件の再確認・採否・発注は別です。</p>}
+      {selected === null && <SectionCard padded title="サマリ">
         <div className="grid gap-4">
           <ReportSummary text={proposal.headline} />
           <p className="text-xs leading-6 text-muted-foreground">保存時点の提案です。現在の注文条件の再確認・採否・発注は別です。</p>
@@ -377,12 +360,12 @@ export function ProposalReport({ data }: { data: LatestProposalView | null }) {
             </div>
           </details>
         </div>
-      </SectionCard>
+      </SectionCard>}
       <section aria-labelledby="proposal-items-heading" className="grid min-w-0 gap-4">
         {(proposal.corrections ?? []).length > 0 && <SectionCard padded title="提案履歴の訂正">
           {(proposal.corrections ?? []).map((correction) => <div key={correction.correction_id} className="grid gap-2">
             <Prose>{correction.reason}</Prose>
-            <p>誤って保存した提案を最新候補から除外しました。表示中の提案の根拠・条件・発行時刻は当時のままです。現在の再推奨や人間の採用ではありません。</p>
+            <p>{isCorrectedProposal(proposal) ? "表示中は訂正済みの旧提案です。採用候補ではありません。" : "誤って保存した提案を最新候補から除外しました。"}表示中の提案の根拠・条件・発行時刻は当時のままです。現在の再推奨や人間の採用ではありません。</p>
             <Identifier label="訂正対象" value={correction.erroneous_ref.proposal_id} />
             <SavedTime value={correction.recorded_at} />
           </div>)}
@@ -399,11 +382,21 @@ export function ProposalReport({ data }: { data: LatestProposalView | null }) {
           </div>)}
         </SectionCard>}
         <h2 className="text-lg font-semibold" id="proposal-items-heading">銘柄別の行動と条件</h2>
-        {proposal.items.map((item) => <ProposalItemCard item={item} key={`${proposal.proposal_id}-${item.ticker}`} />)}
+        {items.map((item) => <ProposalItemCard item={item} key={`${proposal.proposal_id}-${item.ticker}`} />)}
       </section>
       <details className="rounded-lg border bg-card p-5 sm:p-6">
         <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">全体の比較・見送りと注意事項</summary>
         <div className="mt-5 grid gap-5">
+          {selected !== null && <div className="grid gap-3">
+            <p className="text-sm font-medium">この銘柄を含む保存提案のサマリ</p><Prose>{proposal.headline}</Prose>
+            <dl className="grid gap-4 sm:grid-cols-2">
+              <Field label="提案基準日"><time dateTime={proposal.as_of}>{proposal.as_of}</time></Field>
+              <Field label="提案本文の準備時刻"><SavedTime value={proposal.prepared_at} /></Field>
+              <Field label="提案の発行時刻"><SavedTime value={proposal.published_at} /></Field>
+              <Field label="表示データ生成時刻"><SavedTime value={data.generated_at} /></Field>
+            </dl>
+            <Identifier label="proposal_id" value={proposal.proposal_id} />
+          </div>}
           <div><p className="mb-2 text-sm font-medium">全体の比較</p><Prose>{proposal.comparison}</Prose></div>
           <div><p className="mb-2 text-sm font-medium">採らなかった案・機会損失</p><Prose>{proposal.forgone}</Prose></div>
           <TextList items={proposal.warnings} title="提案の保存時の注意事項" />

@@ -2,7 +2,8 @@
   "routes": {
     "/api/dashboard": "views/portfolio-dashboard.json",
     "/api/outcomes": "views/outcomes.json",
-    "/api/proposal/latest": "views/latest-proposal.json"
+    "/api/proposal/latest": "views/latest-proposal.json",
+    "/api/proposal/history": "views/proposal-history.json"
   },
   "computed": [
     "/api/health"

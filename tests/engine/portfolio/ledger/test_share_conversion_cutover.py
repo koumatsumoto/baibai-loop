@@ -226,7 +226,7 @@ def test_expand_keeps_normal_writes_readonly_views_and_stale_draft_guard(tmp_pat
     assert PortfolioOutcomeStore(path).publish(publication)
     assert not PortfolioOutcomeStore(path).publish(publication)
     before_read = path.read_bytes()
-    assert len(export_read_models(tmp_path, tmp_path / "views-output")) == 3
+    assert len(export_read_models(tmp_path, tmp_path / "views-output")) == 4
     with closing(connect_read_only(path)) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == version
         assert connection.execute("PRAGMA query_only").fetchone()[0] == 1

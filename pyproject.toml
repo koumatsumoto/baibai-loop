@@ -691,6 +691,7 @@ ignore_imports = [
   # Saved readers, their pure input types and return arithmetic; no current preview or writers.
   "baibai_web.readmodel.proposal_models -> baibai_engine.investment_judgment.trade_proposal.record_contracts",
   "baibai_web.sources.proposal -> baibai_engine.investment_judgment.trade_proposal.query",
+  "baibai_web.sources.proposal -> baibai_engine.investment_judgment.trade_proposal.contracts",
   "baibai_web.sources.proposal -> baibai_engine.investment_judgment.stock_assessment.store",
   "baibai_web.readmodel.builders.proposal -> baibai_engine.investment_judgment.trade_proposal.contracts",
   "baibai_web.readmodel.builders.proposal -> baibai_engine.investment_judgment.stock_assessment.store",

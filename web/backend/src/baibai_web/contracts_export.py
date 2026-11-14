@@ -29,11 +29,11 @@ from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
 from baibai_web.readmodel.models import DashboardView, OutcomesView
-from baibai_web.readmodel.proposal_models import LatestProposalView
+from baibai_web.readmodel.proposal_models import LatestProposalView, ProposalHistoryView
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
 TYPES_PATH = Path("web/frontend/src/api/types.ts")
-CONTRACT_SCHEMA_VERSION = 11
+CONTRACT_SCHEMA_VERSION = 12
 
 # Every artifact the UI reads through `/api`, and the model that writes it. The keys are
 # the serving paths `web/contracts/routes.json` maps those routes to, and a test pins
@@ -42,6 +42,7 @@ ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "views/portfolio-dashboard.json": DashboardView,
     "views/outcomes.json": OutcomesView,
     "views/latest-proposal.json": LatestProposalView,
+    "views/proposal-history.json": ProposalHistoryView,
 }
 
 _GENERATED_HEADER = """\

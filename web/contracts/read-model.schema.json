@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "roots": {
     "views/latest-proposal.json": "#/$defs/LatestProposalView",
     "views/outcomes.json": "#/$defs/OutcomesView",
-    "views/portfolio-dashboard.json": "#/$defs/DashboardView"
+    "views/portfolio-dashboard.json": "#/$defs/DashboardView",
+    "views/proposal-history.json": "#/$defs/ProposalHistoryView"
   },
   "$defs": {
     "DashboardView": {
@@ -574,6 +575,59 @@
       "title": "ProposalCorrection",
       "type": "object"
     },
+    "ProposalHistoryView": {
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "empty",
+            "partial",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/SavedProposalView"
+          },
+          "title": "Proposals",
+          "type": "array"
+        },
+        "unavailable_proposal_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unavailable Proposal Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "generated_at",
+        "status",
+        "error",
+        "proposals",
+        "unavailable_proposal_ids"
+      ],
+      "title": "ProposalHistoryView",
+      "type": "object"
+    },
     "ProposalReference": {
       "additionalProperties": false,
       "properties": {
@@ -965,6 +1019,30 @@
           "title": "Ticker",
           "type": "string"
         },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Name"
+        },
+        "sector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sector"
+        },
         "rationale": {
           "title": "Rationale",
           "type": "string"
@@ -1061,6 +1139,8 @@
       },
       "required": [
         "ticker",
+        "company_name",
+        "sector",
         "rationale",
         "review_conditions",
         "assessment",
@@ -1081,6 +1161,30 @@
         "ticker": {
           "title": "Ticker",
           "type": "string"
+        },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Name"
+        },
+        "sector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sector"
         },
         "rationale": {
           "title": "Rationale",
@@ -1155,6 +1259,8 @@
       },
       "required": [
         "ticker",
+        "company_name",
+        "sector",
         "rationale",
         "review_conditions",
         "assessment",
@@ -1196,6 +1302,30 @@
         "ticker": {
           "title": "Ticker",
           "type": "string"
+        },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Name"
+        },
+        "sector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sector"
         },
         "rationale": {
           "title": "Rationale",
@@ -1321,6 +1451,8 @@
       },
       "required": [
         "ticker",
+        "company_name",
+        "sector",
         "rationale",
         "review_conditions",
         "assessment",
@@ -1527,6 +1659,30 @@
           "title": "Ticker",
           "type": "string"
         },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Name"
+        },
+        "sector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sector"
+        },
         "rationale": {
           "title": "Rationale",
           "type": "string"
@@ -1586,6 +1742,8 @@
       },
       "required": [
         "ticker",
+        "company_name",
+        "sector",
         "rationale",
         "review_conditions",
         "assessment",
@@ -1978,6 +2136,30 @@
           "title": "Ticker",
           "type": "string"
         },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Name"
+        },
+        "sector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sector"
+        },
         "rationale": {
           "title": "Rationale",
           "type": "string"
@@ -2108,6 +2290,8 @@
       },
       "required": [
         "ticker",
+        "company_name",
+        "sector",
         "rationale",
         "review_conditions",
         "assessment",

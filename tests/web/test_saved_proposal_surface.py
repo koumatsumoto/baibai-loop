@@ -64,7 +64,7 @@ def test_export_replaces_old_ready_with_unavailable_when_latest_is_corrupt(tmp_p
         )
     before = app.read_bytes()
     paths = export_read_models(tmp_path, output)
-    assert len(paths) == 3
+    assert len(paths) == 4
     damaged = json.loads(proposal_path.read_text())
     assert damaged["status"] == "unavailable"
     assert damaged["proposal"] is None

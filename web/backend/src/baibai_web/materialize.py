@@ -13,7 +13,7 @@ from baibai_engine.storage.paths import (
 )
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.outcomes import build_outcomes
-from baibai_web.readmodel.builders.proposal import build_latest_proposal
+from baibai_web.readmodel.builders.proposal import build_latest_proposal, build_proposal_history
 from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource
 from baibai_web.sources.proposal import DbProposalSource
 
@@ -29,6 +29,7 @@ def export_read_models(root: Path, output_dir: Path) -> list[Path]:
         "portfolio-dashboard": build_dashboard(ledger, market),
         "outcomes": build_outcomes(app),
         "latest-proposal": build_latest_proposal(DbProposalSource(app)),
+        "proposal-history": build_proposal_history(DbProposalSource(app)),
     }
     directory = output_dir / "views"
     directory.mkdir(parents=True, exist_ok=True)

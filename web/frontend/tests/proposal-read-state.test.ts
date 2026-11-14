@@ -2,14 +2,17 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { fetchJson } from '../src/api/client'
-import type { LatestProposalView } from '../src/api/types'
-import { ProposalPage } from '../src/pages/ProposalPage'
-import { proposalViewFixture } from './fixtures/proposals'
+import type { ProposalHistoryView } from '../src/api/types'
+import { ProposalPage } from '../src/pages/ProposalHistoryPage'
+import { newProposalFixture } from './fixtures/proposals'
+
+const proposalViewFixture = (): ProposalHistoryView => ({ generated_at: '2026-11-14T03:00:00Z', status: 'ready', error: null, proposals: [newProposalFixture], unavailable_proposal_ids: [] })
 
 const hooks = vi.hoisted(() => ({
   values: new Map<number, unknown>(),
   setters: [] as ReturnType<typeof vi.fn>[],
   effects: [] as (() => () => void)[],
+  params: new URLSearchParams(),
 }))
 vi.mock('react', async original => ({
   ...await original<typeof import('react')>(),
@@ -21,25 +24,37 @@ vi.mock('react', async original => ({
   },
   useEffect: (setup: () => () => void) => { hooks.effects.push(setup) },
 }))
+vi.mock('react-router', async original => ({ ...await original<typeof import('react-router')>(), useSearchParams: () => [hooks.params] }))
 vi.mock('../src/api/client', () => ({ fetchJson: vi.fn() }))
 
 function resetHooks() {
   hooks.values.clear()
   hooks.setters = []
   hooks.effects = []
+  hooks.params = new URLSearchParams()
 }
 
 afterEach(() => {
   vi.resetAllMocks()
+  vi.unstubAllGlobals()
   resetHooks()
+})
+
+it('opens a selected report at its summary rather than inheriting the list scroll position', () => {
+  const scrollTo = vi.fn()
+  vi.stubGlobal('window', { scrollTo })
+  hooks.params = new URLSearchParams({ proposal: 'saved-proposal', ticker: '4755' })
+  ProposalPage()
+  hooks.effects[1]()
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 0)
 })
 
 it('loads only the saved report through the normal API client', async () => {
   const view = proposalViewFixture()
   vi.mocked(fetchJson).mockResolvedValue(view)
-  expect(renderToStaticMarkup(ProposalPage())).toContain('売買提案を読み込んでいます')
+  expect(renderToStaticMarkup(ProposalPage())).toContain('売買提案の履歴を読み込んでいます')
   const cleanup = hooks.effects[0]()
-  expect(fetchJson).toHaveBeenCalledExactlyOnceWith('/api/proposal/latest', { signal: expect.any(AbortSignal) })
+  expect(fetchJson).toHaveBeenCalledExactlyOnceWith('/api/proposal/history', { signal: expect.any(AbortSignal) })
   await Promise.resolve()
   expect(hooks.setters[0]).toHaveBeenCalledExactlyOnceWith(view)
   expect(hooks.setters[1]).not.toHaveBeenCalled()
@@ -62,7 +77,7 @@ it('keeps a transport failure distinct from a valid empty report', async () => {
 })
 
 it.each(['success', 'failure'] as const)('ignores an old %s after leaving and re-entering the page', async result => {
-  let resolveOld!: (view: LatestProposalView) => void
+  let resolveOld!: (view: ProposalHistoryView) => void
   let rejectOld!: (error: Error) => void
   vi.mocked(fetchJson).mockReturnValueOnce(new Promise((resolve, reject) => {
     resolveOld = resolve
@@ -76,7 +91,7 @@ it.each(['success', 'failure'] as const)('ignores an old %s after leaving and re
   expect(oldSignal?.aborted).toBe(true)
 
   resetHooks()
-  const newView: LatestProposalView = { ...proposalViewFixture(), status: 'empty', proposal: null }
+  const newView: ProposalHistoryView = { ...proposalViewFixture(), status: 'empty', proposals: [] }
   vi.mocked(fetchJson).mockResolvedValueOnce(newView)
   ProposalPage()
   hooks.effects[0]()

@@ -697,6 +697,8 @@ uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
 
 これはlocal生成だけ。公開はworkflow内の`jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving`を使い、全viewの全bytes読戻しを同lease内で確認する。
 
+履歴UIの導入では`views/proposal-history.json`を含む表示データを先に再生成・公開し、全bytes読戻しで履歴の保存IDと読取不能件数を確認する。履歴データの追加は旧latest API/UIを壊さず、applicationの保存提案を変更しない。
+
 必要な表示データを公開・読戻しした成功main runを確認後、[web workflow](../.github/workflows/web.yml)をmainで明示dispatchする。push/PRのweb runは検証だけで、Worker/UIを配備しない。
 
 ```bash

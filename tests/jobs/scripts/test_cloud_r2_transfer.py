@@ -1517,7 +1517,7 @@ def test_shared_transfer_stops_the_next_write_after_release(
         env["GITHUB_ACTIONS"] = "true"
         views = tmp_path / "serving/views"
         views.mkdir(parents=True)
-        for name in ("portfolio-dashboard", "outcomes", "latest-proposal"):
+        for name in ("portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history"):
             (views / f"{name}.json").write_text('{"synthetic": true}')
         args.append(views.parent)
     result = subprocess.run(args, env=env, cwd=root, capture_output=True, text=True)
@@ -1575,7 +1575,9 @@ def test_transfer_lease_verifies_the_selected_stores_bucket_not_a_late_env_overr
     assert all("--bucket selected-stores " in line for line in _remote_writes(log))
 
 
-@pytest.mark.parametrize("missing", [None, "portfolio-dashboard", "outcomes", "latest-proposal"])
+@pytest.mark.parametrize(
+    "missing", [None, "portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history"]
+)
 @pytest.mark.parametrize("in_actions", [False, True])
 def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     tmp_path, missing, in_actions
@@ -1589,7 +1591,14 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     views = export / "views"
     views.mkdir(parents=True)
     # Even a stale artifact in a reused export directory must not reach the old key.
-    for name in ("dashboard", "tasks", "portfolio-dashboard", "outcomes", "latest-proposal"):
+    for name in (
+        "dashboard",
+        "tasks",
+        "portfolio-dashboard",
+        "outcomes",
+        "latest-proposal",
+        "proposal-history",
+    ):
         if name != missing:
             (views / f"{name}.json").write_text('{"synthetic": true}\n')
     completed = subprocess.run(
@@ -1619,7 +1628,7 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     assert completed.returncode == 0, completed.stderr
     assert [command.split()[3] for command in uploads] == [
         f"s3://baibai-serving/views/{name}.json"
-        for name in ("portfolio-dashboard", "outcomes", "latest-proposal")
+        for name in ("portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history")
     ]
     assert not any("views/dashboard.json" in command for command in commands)
     assert not any("views/tasks.json" in command for command in commands)
@@ -1627,15 +1636,17 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     downloads = [command for command in commands if command.startswith("s3 cp s3://")]
     assert [command.split()[2] for command in downloads] == [
         f"s3://baibai-serving/views/{name}.json"
-        for name in ("portfolio-dashboard", "outcomes", "latest-proposal")
+        for name in ("portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history")
     ]
-    assert "portfolio views verified from remote readback: 3" in completed.stdout
+    assert "portfolio views verified from remote readback: 4" in completed.stdout
     assert '"synthetic": true' not in completed.stdout + completed.stderr
     assert not list(root.glob(".r2-transfer.*"))
 
 
 @pytest.mark.parametrize("failure", ["FAIL", "CORRUPT", "RELEASE"])
-@pytest.mark.parametrize("name", ["portfolio-dashboard", "outcomes", "latest-proposal"])
+@pytest.mark.parametrize(
+    "name", ["portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history"]
+)
 def test_portfolio_publication_refuses_failed_or_different_readback(tmp_path, failure, name):
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
@@ -1648,7 +1659,7 @@ def test_portfolio_publication_refuses_failed_or_different_readback(tmp_path, fa
     export = tmp_path / "export"
     views = export / "views"
     views.mkdir(parents=True)
-    for view in ("portfolio-dashboard", "outcomes", "latest-proposal"):
+    for view in ("portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history"):
         (views / f"{view}.json").write_text('{"private": "synthetic-private-value"}\n')
     completed = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "upload-portfolio-views", str(export)],

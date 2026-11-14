@@ -96,6 +96,16 @@ def load_investment_proposal(connection: sqlite3.Connection, proposal_id: str) -
     return proposal
 
 
+def published_proposal_ids(connection: sqlite3.Connection) -> tuple[str, ...]:
+    """List immutable publications, including corrected originals, for exact history reads."""
+    return tuple(
+        str(row[0])
+        for row in connection.execute(
+            "SELECT proposal_id FROM investment_proposal ORDER BY proposal_id"
+        )
+    )
+
+
 def load_latest_investment_proposal(connection: sqlite3.Connection) -> TradeProposal | None:
     """全scopeから最大の(as_of, aware published_at, ID)を読み、破損版を飛ばさない。"""
 
