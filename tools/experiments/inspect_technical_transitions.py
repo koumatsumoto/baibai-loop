@@ -20,7 +20,7 @@ from tools.experiments.technical_discovery import inspect_technical_discovery
 
 from baibai_engine.storage.filesystem import write_text_new
 
-COMPARISON_REVISION = "technical-state-transitions-research-v1"
+COMPARISON_REVISION = "technical-state-transitions-research-v2"
 _HEADER_FIELDS = ("generation_id", "as_of", "evaluation_time", "policy_id")
 _KNOWN_TRANSITIONS = {
     ("not_matched", "matched"): "new_match",
@@ -164,16 +164,30 @@ def inspect_technical_transitions(
                 _object(left_routes.get(name)),
                 _object(right_routes.get(name)),
             )
-            transition = _route_transition(left_route, right_route, comparable=comparable)
+            route_reasons = []
+            if comparable and name == "market_outperformance":
+                benchmarks = tuple(
+                    _object(row).get("market_relative_benchmark") for row in (left, right)
+                )
+                if any(not isinstance(value, str) or not value.strip() for value in benchmarks):
+                    route_reasons.append("market_relative_benchmark_unavailable")
+                elif benchmarks[0] != benchmarks[1]:
+                    route_reasons.append("market_relative_benchmark_mismatch")
+            transition = _route_transition(
+                left_route, right_route, comparable=comparable and not route_reasons
+            )
             counts = route_counts.setdefault(name, Counter())
             counts[transition] += 1
             counts["previous_matched"] += left_route.get("state") == "matched"
             counts["current_matched"] += right_route.get("state") == "matched"
-            changes[name] = {
+            change: dict[str, JsonValue] = {
                 "transition": transition,
                 "previous_state": left_route.get("state"),
                 "current_state": right_route.get("state"),
             }
+            if route_reasons:
+                change["comparison_reasons"] = list(route_reasons)
+            changes[name] = change
             if transition == "new_match":
                 new_routes.append(name)
         current_match = right is not None and bool(right["matched_routes"])
