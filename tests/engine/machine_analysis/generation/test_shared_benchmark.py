@@ -2,6 +2,7 @@
 
 import sqlite3
 from contextlib import closing
+from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -226,3 +227,69 @@ def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tm
     assert projected["market_context"] == market
     assert projected["technical_analysis"] == technical
     assert fixed.model_dump_json() == encoded
+
+
+def test_sma75_fixed_generation_survives_correction_without_legacy_backfill(tmp_path):
+    path = source(tmp_path, 300)
+    current = generate(path, tickers=("1001",))
+    technical = current.result("technical_analysis", "1001")
+    revision = "sma20-50-75-200-bb20-wilder-rsi14-price-path-v4"
+    assert technical.calculation_revision == technical.payload["calculation_revision"] == revision
+    assert technical.payload["moving_averages"]["sma_75bar"] == {
+        "status": "available",
+        "window_bars": 75,
+        "window_start_date": (ASOF - timedelta(days=76)).isoformat(),
+        "window_end_date": (ASOF - timedelta(days=2)).isoformat(),
+        "value": 100.0,
+        "gap_ratio": 0.0,
+    }
+    legacy_payload = deepcopy(technical.payload)
+    del legacy_payload["moving_averages"]["sma_75bar"]
+    legacy_revision = "sma20-50-200-bb20-wilder-rsi14-price-path-v4"
+    legacy_payload["calculation_revision"] = legacy_revision
+    legacy_model = technical.model_copy(
+        update={"payload": legacy_payload, "calculation_revision": legacy_revision}
+    )
+    legacy = current.model_copy(
+        update={
+            "generation_id": "legacy",
+            "models": tuple(
+                legacy_model if model is technical else model for model in current.models
+            ),
+        }
+    )
+    runs = tmp_path / "runs.sqlite"
+    for original in (legacy, current):
+        publish_generation(original, path=runs)
+    fixed = [
+        read_research_model_inputs(original.generation_id, targets=("1001",), path=runs)
+        for original in (legacy, current)
+    ]
+    encoded = [item.model_dump_json() for item in fixed]
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET close=80 WHERE ticker='1001' AND traded_at=?",
+            ((ASOF - timedelta(days=2)).isoformat(),),
+        )
+    corrected = generate(path, identity="corrected", tickers=("1001",))
+    assert corrected.result("technical_analysis", "1001").payload["moving_averages"]["sma_75bar"][
+        "value"
+    ] == pytest.approx((74 * 100 + 80) / 75)
+    for original, before in zip((legacy, current), encoded, strict=True):
+        assert (
+            read_research_model_inputs(
+                original.generation_id, targets=("1001",), path=runs
+            ).model_dump_json()
+            == before
+        )
+    path.unlink()
+    runs.unlink()
+    for saved, expected in zip(fixed, (legacy_model, technical), strict=True):
+        projected = project_generated_inputs(saved)["securities"]["1001"]
+        assert (
+            projected["calculation_revisions"]["technical_analysis"]
+            == expected.calculation_revision
+        )
+        assert projected["models"]["technical_analysis"] == expected.payload
+    assert "sma_75bar" not in legacy_model.payload["moving_averages"]
+    assert [item.model_dump_json() for item in fixed] == encoded
