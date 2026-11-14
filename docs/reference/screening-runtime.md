@@ -90,6 +90,10 @@ uv run python -m tools.experiments.inspect_technical_transitions \
 
 ModelGenerationとScreeningSelectionは別identity。候補政策は通常モデル生成時に適用する。保存Generationへの現政策の再適用と、保存母集団全社の価格/株数不足一覧診断は提供しない。日次再実行は固定Generationへの再適用の代替ではない。候補0件も正常に公開し、過去の非空候補へ戻さない。保存/時点選択は[store](../../engine/src/baibai_engine/machine_analysis/screening/selection_store.py)と[query](../../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)、L3再開/cache寿命は[保存責務](../architecture.md#store-authority)、取得/retry/発行/整理は[日次運用](../../jobs/OPERATIONS.md#日次実行と結果確認)へ。
 
+新政策の初回本番受入は、既存runの終端・writer/lease・実行commitを確認し、[日次の明示保持](../../jobs/OPERATIONS.md#日次実行と結果確認)で既存全Generation/Selectionを残す。保持はその実行だけなので、受入後の通常cache整理と長期保管を同一視しない。
+
+新しい政策結果を保存した後は、それを解釈できない旧codeへ全体を戻さない。切戻す場合も新結果と固定Researchのreader・現行lease ownerを維持し、次回以降の政策変更を別の検証済み差分にする。旧bundleの盲復元、新Selection削除、同じidentityへの旧政策上書きで切戻さない。
+
 <a id="decision-cohort-diagnostic"></a>
 ## 現行判断の比較前診断
 
