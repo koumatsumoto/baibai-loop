@@ -36,7 +36,7 @@ describe('保存評価の見返り', () => {
     expect(html).toContain('投資家税・費用前、配当再投資なし。期待値・勝率ではなく、下方ケースも最大損失を示しません。')
     expect(html).toContain('1300.0000000000000001 円')
     expect(html).toContain('1200.0000 円')
-    expect(html.indexOf('保存評価の見返り')).toBeLessThan(html.indexOf('7モデルの観点'))
+    expect(html.indexOf('7モデルの観点')).toBeLessThan(html.indexOf('保存評価の見返り'))
     expect(html.match(/buyの反対論：利益率改善が一過性の可能性。/g)).toHaveLength(1)
     expect(html).toContain('仮定・計算と最も強い反対論')
   })

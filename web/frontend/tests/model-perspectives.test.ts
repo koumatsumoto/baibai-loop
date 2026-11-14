@@ -15,10 +15,11 @@ describe('モデル別の保存判断', () => {
     const html = render(assessmentFixture('legacy'))
     for (const label of ['企業財務', '企業成長', '市場環境', '外部評価', 'テクニカル分析', '産業動向', '社会動向']) expect(html).toContain(label)
     expect(html.match(/scope="row"/g)).toHaveLength(7)
-    expect(html.match(/>未記録</g)).toHaveLength(7)
-    expect(html).not.toContain('>中立<')
-    expect(html).not.toContain('>支持<')
-    expect(html).not.toContain('>情報不足<')
+    expect(html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>')).match(/>未記録</g)).toHaveLength(7)
+    const chartRows = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>'))
+    expect(chartRows).not.toContain('>中立<')
+    expect(chartRows).not.toContain('>支持<')
+    expect(chartRows).not.toContain('>情報不足<')
     expect(html).not.toContain('0 / 7')
     expect(html).not.toContain('総合点')
   })
@@ -41,7 +42,7 @@ describe('モデル別の保存判断', () => {
     expect(html).toContain('>支持・相反<')
     expect(html).toContain('>情報不足<')
     expect(html).toContain('>対象外<')
-    expect(html.match(/>未記録</g)).toHaveLength(4)
+    expect(html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>')).match(/>未記録</g)).toHaveLength(4)
     for (const row of assessment.model_perspectives) expect(html).toContain(row.summary)
     expect(html).toContain('参照先の表示情報なし')
     expect(html).not.toContain('変化なし')
@@ -83,4 +84,25 @@ describe('モデル別の保存判断', () => {
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;\n実績成長と予想を区別。')
     expect(html).not.toContain('<script>')
   })
+})
+
+it('分類チャートには一観点につき一判断を置き、説明と出典は閉じた詳細へ残す', () => {
+  const assessment = assessmentFixture('chart')
+  assessment.model_perspectives = [
+    { model: 'company_financials', assessment: 'supportive', summary: '本文は折りたたみ内にだけ置く。', source_ids: [] },
+    { model: 'company_growth', assessment: 'mixed', summary: '成長と希薄化を併せて検討。', source_ids: [] },
+    { model: 'technical_analysis', assessment: 'insufficient', summary: '価格窓が足りない。', source_ids: [] },
+  ]
+  const html = render(assessment)
+  const chart = html.slice(0, html.indexOf('<details'))
+  const financialRow = chart.split('data-model="company_financials"')[1].split('</tr>')[0]
+  expect(financialRow.match(/sr-only/g)).toHaveLength(1)
+  expect(financialRow).toContain('>支持<')
+  expect(chart).toContain('colSpan="4"')
+  expect(chart).toContain('>情報不足<')
+  expect(chart).not.toContain(assessment.model_perspectives[0].summary)
+  expect(html.slice(html.indexOf('<details'))).toContain(assessment.model_perspectives[0].summary)
+  expect(html).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/)
+  expect(html).not.toContain('総合点')
+  expect(html).not.toContain('勝率')
 })
