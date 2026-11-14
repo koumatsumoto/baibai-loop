@@ -316,7 +316,9 @@ def test_activity_reaches_brief_without_changing_rank_or_mutating_saved_inputs()
     assert data == original
 
 
-@pytest.mark.parametrize("state", ["complete", "missing_interval", "old_model", "old_selection"])
+@pytest.mark.parametrize(
+    "state", ["complete", "missing_interval", "old_model", "old_path_statistics", "old_selection"]
+)
 def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_backfill(
     tmp_path, state
 ):
@@ -340,6 +342,9 @@ def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_b
     if state == "old_model":
         del path["observations"]["G60"]["path_statistics"]
         path["calculation_revision"] = "common-calendar-observed-close-path-v1"
+    elif state == "old_path_statistics":
+        del path["observations"]["G60"]["path_statistics"]["drawdown_episodes"]
+        path["calculation_revision"] = "common-calendar-observed-close-path-v2"
     data["technical_analysis"] = technical
     original = deepcopy(data)
     projected = project(data)
@@ -388,6 +393,14 @@ def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_b
             )
             if state == "missing_interval":
                 assert g60["coverage"]["row_counts"]["absent"] == 1
+                assert g60["path_statistics"]["drawdown_episodes"] is None
+            elif state == "old_path_statistics":
+                assert "drawdown_episodes" not in g60["path_statistics"]
+            else:
+                episodes = g60["path_statistics"]["drawdown_episodes"]
+                assert episodes["current"] is not None
+                assert episodes["latest_recovered"] is not None
+                episodes["current"]["peak_price"] = -1
             g60["path_statistics"]["status"] = "display-only-mutation"
         brief["moving_averages"]["sma_20bar"]["value"] = -1
     assert canonical_json(saved) == canonical_before

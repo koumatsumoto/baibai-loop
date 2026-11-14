@@ -19,7 +19,7 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
     PriceDayState,
 )
 
-PRICE_PATH_REVISION = "common-calendar-observed-close-path-v2"
+PRICE_PATH_REVISION = "common-calendar-observed-close-path-v3"
 ANNOTATION_POLICY_REVISION = "research-price-note-b-v1"
 _THRESHOLDS = {"R1": -0.08, "R20": -0.20, "G60": -0.20}
 _STATES = ("priced", "no_trade", "absent", "mixed", "invalid")

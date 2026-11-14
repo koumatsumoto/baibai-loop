@@ -24,6 +24,7 @@ def close_path_statistics(
         "largest_absolute_log_change_share": None,
         "efficiency_unavailable_reason": None,
         "max_close_drawdown": None,
+        "drawdown_episodes": None,
         "turnover_comparison": None,
     }
     if window is None or any(day not in bars for day in window):
@@ -51,7 +52,49 @@ def close_path_statistics(
         "efficiency_unavailable_reason": None if length else "constant_price",
         "largest_absolute_log_change_share": max(map(abs, changes)) / length if length else None,
         "max_close_drawdown": drawdown,
+        "drawdown_episodes": _drawdown_episodes(selected),
         "turnover_comparison": _turnover_comparison(up, down),
+    }
+
+
+def _drawdown_episodes(bars: list[PriceBar]) -> dict[str, object]:
+    peak = 0
+    trough: int | None = None
+    recovered = None
+    for index in range(1, len(bars)):
+        if bars[index].price < bars[peak].price:
+            if trough is None or bars[index].price < bars[trough].price:
+                trough = index
+        else:
+            if trough is not None:
+                recovered = _drawdown_episode(bars, peak=peak, trough=trough, recovery=index)
+                trough = None
+            # The last equal peak anchors a new episode; equal troughs keep the first low.
+            peak = index
+    return {
+        "current": None
+        if trough is None
+        else _drawdown_episode(bars, peak=peak, trough=trough, recovery=None),
+        "latest_recovered": recovered,
+    }
+
+
+def _drawdown_episode(
+    bars: list[PriceBar], *, peak: int, trough: int, recovery: int | None
+) -> dict[str, object]:
+    end = len(bars) - 1 if recovery is None else recovery
+    return {
+        "peak_date": bars[peak].traded_at.isoformat(),
+        "peak_price": bars[peak].price,
+        "peak_at_window_start": peak == 0,
+        "trough_date": bars[trough].traded_at.isoformat(),
+        "trough_price": bars[trough].price,
+        "depth": bars[trough].price / bars[peak].price - 1,
+        "peak_to_trough_trading_days": trough - peak,
+        "recovery_date": None if recovery is None else bars[recovery].traded_at.isoformat(),
+        "trough_to_recovery_trading_days": None if recovery is None else recovery - trough,
+        "observed_through_date": bars[end].traded_at.isoformat(),
+        "peak_to_observation_trading_days": end - peak,
     }
 
 
