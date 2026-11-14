@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router'
-import { ExternalLink, Settings } from 'lucide-react'
+import { ExternalLink, FileText, LayoutDashboard, Settings } from 'lucide-react'
 
 import { BrandMark } from './BrandMark'
 import { Badge } from './ui/badge'
@@ -40,29 +40,30 @@ export function AppShell() {
   return (
     <header className="sticky top-0 z-40 border-b bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/88">
       <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-2 px-4 sm:gap-6 sm:px-6 lg:px-8">
-        <Link aria-label="Baibai Loop ホーム" className="flex shrink-0 items-center gap-2.5 font-semibold tracking-tight" to="/">
+        <Link aria-label="Baibai Loop ホーム" className="flex shrink-0 items-center gap-2.5 rounded-md font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" to="/">
           <BrandMark />
           <span className="hidden sm:inline">Baibai Loop</span>
         </Link>
-        <nav className="flex h-full min-w-0 flex-1 items-center gap-0 overflow-x-auto sm:gap-1" aria-label="メインナビゲーション">
+        <nav className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg bg-muted p-1 sm:w-64 sm:flex-none" aria-label="メインナビゲーション">
           {NAV_TABS.map((item) => {
             const active = item.match(pathname)
             return (
               <Link
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'relative flex h-full items-center px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-primary sm:px-3',
-                  active && 'text-primary after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary',
+                  'flex min-h-10 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4',
+                  active ? 'bg-surface text-primary shadow-sm' : 'text-muted-foreground hover:bg-surface/60 hover:text-foreground',
                 )}
                 key={item.to}
                 to={item.to}
               >
+                {item.to === '/' ? <LayoutDashboard aria-hidden="true" className="size-4 shrink-0" /> : <FileText aria-hidden="true" className="size-4 shrink-0" />}
                 {item.label}
               </Link>
             )
           })}
         </nav>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="ml-auto flex shrink-0 items-center gap-3">
           <Badge className="hidden font-mono text-[10px] tracking-wider sm:inline-flex" variant="secondary">READ ONLY</Badge>
           <DevMenu />
         </div>
