@@ -69,6 +69,8 @@ export function ProposalPage() {
   const [data, setData] = useState<ProposalHistoryView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [params] = useSearchParams()
+  const proposalId = params.get('proposal')
+  const ticker = params.get('ticker')
   useEffect(() => {
     const controller = new AbortController()
     fetchJson<ProposalHistoryView>('/api/proposal/history', { signal: controller.signal })
@@ -76,6 +78,8 @@ export function ProposalPage() {
       .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '売買提案を読み込めませんでした。') })
     return () => controller.abort()
   }, [])
+  // A report chosen near the bottom of a long list must open at its summary.
+  useEffect(() => { window.scrollTo(0, 0) }, [proposalId, ticker])
   if (error !== null) return <PageState message={error} title="売買提案の通信エラー" />
-  return <ProposalHistory data={data} proposalId={params.get('proposal')} ticker={params.get('ticker')} />
+  return <ProposalHistory data={data} proposalId={proposalId} ticker={ticker} />
 }

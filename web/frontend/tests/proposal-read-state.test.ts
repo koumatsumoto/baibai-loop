@@ -12,6 +12,7 @@ const hooks = vi.hoisted(() => ({
   values: new Map<number, unknown>(),
   setters: [] as ReturnType<typeof vi.fn>[],
   effects: [] as (() => () => void)[],
+  params: new URLSearchParams(),
 }))
 vi.mock('react', async original => ({
   ...await original<typeof import('react')>(),
@@ -23,18 +24,29 @@ vi.mock('react', async original => ({
   },
   useEffect: (setup: () => () => void) => { hooks.effects.push(setup) },
 }))
-vi.mock('react-router', async original => ({ ...await original<typeof import('react-router')>(), useSearchParams: () => [new URLSearchParams()] }))
+vi.mock('react-router', async original => ({ ...await original<typeof import('react-router')>(), useSearchParams: () => [hooks.params] }))
 vi.mock('../src/api/client', () => ({ fetchJson: vi.fn() }))
 
 function resetHooks() {
   hooks.values.clear()
   hooks.setters = []
   hooks.effects = []
+  hooks.params = new URLSearchParams()
 }
 
 afterEach(() => {
   vi.resetAllMocks()
+  vi.unstubAllGlobals()
   resetHooks()
+})
+
+it('opens a selected report at its summary rather than inheriting the list scroll position', () => {
+  const scrollTo = vi.fn()
+  vi.stubGlobal('window', { scrollTo })
+  hooks.params = new URLSearchParams({ proposal: 'saved-proposal', ticker: '4755' })
+  ProposalPage()
+  hooks.effects[1]()
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 0)
 })
 
 it('loads only the saved report through the normal API client', async () => {
