@@ -136,6 +136,97 @@ def test_route_state_transitions_keep_static_matches_and_source_evidence(
 
 
 @pytest.mark.parametrize(
+    ("previous_benchmark", "current_benchmark", "reason"),
+    [
+        ("1321", "1306", "market_relative_benchmark_mismatch"),
+        ("1306", "1321", "market_relative_benchmark_mismatch"),
+        (None, "1321", "market_relative_benchmark_unavailable"),
+        ("1321", None, "market_relative_benchmark_unavailable"),
+        (None, None, "market_relative_benchmark_unavailable"),
+        ("", "", "market_relative_benchmark_unavailable"),
+        ("1321", "  ", "market_relative_benchmark_unavailable"),
+        (1321, 1321, "market_relative_benchmark_unavailable"),
+    ],
+)
+def test_relative_basis_change_is_not_a_price_transition(
+    monkeypatch, previous_benchmark, current_benchmark, reason
+):
+    before_models, after_models = _models(), _models()
+    _relative(before_models, -0.1)
+    for models, benchmark in (
+        (before_models, previous_benchmark),
+        (after_models, current_benchmark),
+    ):
+        models[1].payload["price_path_relative"]["benchmark_ticker"] = benchmark
+    before, after = (
+        _generation("before", days=-1, models=before_models),
+        _generation("after", models=after_models),
+    )
+    original = deepcopy((before, after))
+    result = _inspect(monkeypatch, before, after)
+    row = result["rows"][0]
+    relative = row["route_changes"]["market_outperformance"]
+    assert relative == {
+        "transition": "not_comparable",
+        "previous_state": "not_matched",
+        "current_state": "matched",
+        "comparison_reasons": [reason],
+    }
+    assert row["comparison"] == {"comparable": True, "reasons": []}
+    assert row["newly_matched_routes"] == []
+    assert row["route_changes"]["trend_continuation"]["transition"] == "continuing_match"
+    assert row["route_changes"]["turnover_expansion"]["transition"] == "continuing_match"
+    assert result["summary"]["comparable_price_pairs"] == 1
+    assert result["summary"]["current_matched_any_route"] == 1
+    assert result["summary"]["new_match_any_route"] == 0
+    counts = result["summary"]["routes"]["market_outperformance"]
+    assert counts["current_matched"] == 1
+    assert counts["known_state_pairs"] == 0
+    assert counts["transitions"]["not_comparable"] == 1
+    assert sum(counts["transitions"].values()) == 1
+    assert (before, after) == original
+
+
+@pytest.mark.parametrize("benchmark", ["1321", "1306"])
+def test_same_relative_basis_keeps_transition_without_restricting_to_one_index(
+    monkeypatch, benchmark
+):
+    before_models, after_models = _models(), _models()
+    _relative(before_models, -0.1)
+    for models in (before_models, after_models):
+        models[1].payload["price_path_relative"]["benchmark_ticker"] = benchmark
+    result = _inspect(
+        monkeypatch,
+        _generation("before", days=-1, models=before_models),
+        _generation("after", models=after_models),
+    )
+    assert result["rows"][0]["route_changes"]["market_outperformance"] == {
+        "transition": "new_match",
+        "previous_state": "not_matched",
+        "current_state": "matched",
+    }
+    assert result["summary"]["routes"]["market_outperformance"]["known_state_pairs"] == 1
+    assert result["summary"]["new_match_any_route"] == 1
+
+
+def test_relative_basis_change_does_not_hide_other_new_routes(monkeypatch):
+    before_models, after_models = _models(), _models()
+    _relative(before_models, -0.1)
+    before_models[0].payload["price_momentum"]["value"] = -0.1
+    after_models[1].payload["price_path_relative"]["benchmark_ticker"] = "1306"
+    result = _inspect(
+        monkeypatch,
+        _generation("before", days=-1, models=before_models),
+        _generation("after", models=after_models),
+    )
+    row = result["rows"][0]
+    assert row["route_changes"]["market_outperformance"]["transition"] == "not_comparable"
+    assert row["newly_matched_routes"] == ["trend_continuation"]
+    assert result["summary"]["new_match_any_route"] == 1
+    assert result["summary"]["routes"]["trend_continuation"]["known_state_pairs"] == 1
+
+
+@pytest.mark.parametrize(
     ("left_missing", "right_missing", "expected"),
     [
         (True, False, "input_became_observable"),
