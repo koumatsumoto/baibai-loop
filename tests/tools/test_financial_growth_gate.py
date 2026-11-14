@@ -607,3 +607,199 @@ def test_worsening_and_basis_gaps_do_not_get_a_recovery_profile_or_forecast_resc
     assert route["profitability"] is None
     assert route["failures"] == ["quarter_operating_profit_increase"]
     assert route["missing_by_kind"]["unresolved_comparability"] == ["balance_quarter_basis"]
+
+
+def add_prior_quarter(data):
+    prior = PeriodState(
+        fiscal_period="3Q",
+        fiscal_year_end=date(2025, 12, 31),
+        period_start=date(2025, 1, 1),
+        period_end=date(2025, 9, 30),
+        observations=(
+            observation(
+                "quarter",
+                "2025-07-01",
+                "2025-09-30",
+                {"sales": 900.0, "operating_profit": 80.0, "operating_margin": 0.08},
+            ),
+        ),
+    ).model_dump(mode="json")
+    data["company_growth"]["periods"].insert(0, prior)
+    return prior["observations"][0]
+
+
+def without_comparison_priors(result):
+    result = deepcopy(result)
+    del result["observations"]["quarter_comparison_prior_observations"]
+    return result
+
+
+def prior_evidence(observed, metrics=None):
+    return {
+        "comparison_metrics": metrics or ["sales", "operating_profit", "operating_margin"],
+        "observation": observed,
+    }
+
+
+@pytest.mark.parametrize(
+    ("metric", "reason"),
+    [
+        ("operating_profit", "inconsistent_cumulative_revision"),
+        ("operating_profit", "statement_basis_incomparable"),
+        ("operating_margin", "nonpositive_sales"),
+        ("operating_margin", "not_applicable_to_financial_sector"),
+    ],
+)
+def test_prior_operand_reason_is_evidence_not_a_replacement_check(metric, reason):
+    data = payloads()
+    change(data, metric).update(from_value=None, difference=None, reason="operand_unavailable")
+    baseline = evaluate(data)
+    prior = add_prior_quarter(data)
+    prior["metrics"][metric] = {"value": None, "reason": reason, "documents": []}
+    before = deepcopy(data)
+    result = evaluate(data)
+    assert without_comparison_priors(result) == without_comparison_priors(baseline)
+    assert result["observations"]["quarter_comparison_prior_observations"] == [
+        prior_evidence(prior)
+    ]
+    assert result["observations"]["quarter_changes"][metric]["reason"] == "operand_unavailable"
+    assert data == before
+
+
+def test_observed_prior_does_not_backfill_saved_missing_comparison():
+    data = payloads()
+    change(data, "operating_profit").update(
+        from_value=None, difference=None, reason="operand_unavailable"
+    )
+    prior = add_prior_quarter(data)
+    result = evaluate(data)
+    assert result["state"] == "input_unresolved"
+    assert result["checks"]["quarter_operating_profit_increase"]["state"] == "unavailable"
+    assert result["observations"]["quarter_changes"]["operating_profit"]["from_value"] is None
+    assert result["observations"]["quarter_comparison_prior_observations"] == [
+        prior_evidence(prior)
+    ]
+
+
+def test_prior_evidence_retains_absent_fields_integer_and_copy_boundary():
+    data = payloads()
+    prior = add_prior_quarter(data)
+    for field in ("period_status", "share_basis", "accounting_standard"):
+        prior.pop(field)
+    prior["metrics"]["sales"] = {"value": 900}
+    before = deepcopy(data)
+    result = evaluate(data)
+    (entry,) = result["observations"]["quarter_comparison_prior_observations"]
+    saved = entry["observation"]
+    assert saved == prior
+    assert type(saved["metrics"]["sales"]["value"]) is int
+    assert "reason" not in saved["metrics"]["sales"]
+    assert "accounting_standard" not in saved
+    saved["metrics"]["sales"]["value"] = 999999
+    assert data == before
+
+
+def test_one_saved_prior_is_shared_but_distinct_prior_observations_are_not_coalesced():
+    data = payloads()
+    prior = add_prior_quarter(data)
+    second = deepcopy(prior)
+    second.pop("share_basis")
+    data["company_growth"]["periods"][0]["observations"].append(second)
+    result = evaluate(data)
+    assert result["observations"]["quarter_comparison_prior_observations"] == [
+        prior_evidence(prior),
+        prior_evidence(second),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("measurement", "reported"),
+        ("statement_basis", "nonconsolidated"),
+        ("period_start", "2025-01-01"),
+        ("period_end", "2025-08-31"),
+    ],
+)
+def test_prior_lookup_does_not_fall_back_to_another_measurement_basis_or_interval(field, value):
+    data = payloads()
+    baseline = evaluate(data)
+    add_prior_quarter(data)[field] = value
+    result = evaluate(data)
+    assert result["observations"]["quarter_comparison_prior_observations"] == []
+    assert without_comparison_priors(result) == without_comparison_priors(baseline)
+
+
+def test_accounting_standard_difference_is_visible_not_comparability_clearance():
+    data = payloads()
+    data["company_growth"]["changes"] = [change(data, "operating_profit")]
+    change(data, "operating_profit").update(
+        difference=None, reason="accounting_standard_incomparable"
+    )
+    prior = add_prior_quarter(data)
+    prior["accounting_standard"] = "IFRS"
+    result = evaluate(data)
+    assert result["state"] == "input_unresolved"
+    assert result["observations"]["quarter_comparison_prior_observations"] == [
+        prior_evidence(prior, ["operating_profit"])
+    ]
+    assert result["checks"]["quarter_operating_profit_increase"]["reason"] == (
+        "accounting_standard_incomparable"
+    )
+
+
+@pytest.mark.parametrize("mode", ["ambiguous", "pdf_source", "comparison_not_recorded"])
+def test_non_native_or_unselected_comparison_does_not_choose_an_unrelated_prior(mode):
+    data = payloads()
+    data["company_growth"]["changes"] = [change(data, "operating_profit")]
+    if mode == "ambiguous":
+        duplicate = deepcopy(change(data, "operating_profit"))
+        duplicate["difference"] = -1.0
+        data["company_growth"]["changes"].append(duplicate)
+    elif mode == "pdf_source":
+        change(data, "operating_profit")["source_sha256"] = "a" * 64
+    else:
+        change(data, "operating_profit").pop("comparison")
+    baseline = evaluate(data)
+    add_prior_quarter(data)
+    result = evaluate(data)
+    assert result["observations"]["quarter_comparison_prior_observations"] == []
+    assert without_comparison_priors(result) == without_comparison_priors(baseline)
+
+
+def test_prior_evidence_cannot_hide_known_failure_or_unused_financial_na():
+    data = payloads()
+    mark_financial_margin_inapplicable(data)
+    change(data, "operating_margin")["reason"] = "operand_unavailable"
+    change(data, "operating_profit")["difference"] = -1.0
+    baseline = evaluate(data)
+    prior = add_prior_quarter(data)
+    prior["metrics"]["operating_margin"].update(
+        value=None, reason="not_applicable_to_financial_sector"
+    )
+    result = evaluate(data)
+    assert result["state"] == "not_selected"
+    assert without_comparison_priors(result) == without_comparison_priors(baseline)
+    change(data, "operating_profit")["difference"] = 20.0
+    result = evaluate(data)
+    assert result["state"] == "research_candidate"
+    assert result["matched_routes"] == ["profit_growth"]
+    assert result["observations"]["quarter_comparison_prior_observations"] == [
+        prior_evidence(prior)
+    ]
+
+
+@pytest.mark.parametrize("mode", ["ambiguous", "pdf_source"])
+def test_prior_shown_for_other_metrics_does_not_claim_the_excluded_comparison(mode):
+    data = payloads()
+    if mode == "ambiguous":
+        duplicate = deepcopy(change(data, "operating_profit"))
+        duplicate["difference"] = -1.0
+        data["company_growth"]["changes"].append(duplicate)
+    else:
+        change(data, "operating_profit")["source_sha256"] = "a" * 64
+    prior = add_prior_quarter(data)
+    result = evaluate(data)
+    assert result["observations"]["quarter_comparison_prior_observations"] == [
+        prior_evidence(prior, ["sales", "operating_margin"])
+    ]

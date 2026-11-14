@@ -176,6 +176,9 @@ def evaluate_financial_growth_gate(
                     reader.observation(reader.latest_period, "annual_ttm")
                 ),
                 "quarter_changes": changes,
+                "quarter_comparison_prior_observations": _comparison_priors(
+                    reader, quarter, changes
+                ),
                 "growth_status": projected.get("growth_status"),
                 "growth_reason": projected.get("growth_reason"),
                 "comparison_basis": projected.get("growth_comparison_basis"),
@@ -192,6 +195,31 @@ def evaluate_financial_growth_gate(
             ],
         }
     )
+
+
+def _comparison_priors(
+    reader: CompanyGrowthReader,
+    quarter: Observation | None,
+    changes: dict[str, JsonValue | None],
+) -> list[JsonValue]:
+    if quarter is None:
+        return []
+    priors: dict[int, dict[str, JsonValue]] = {}
+    for metric in ("sales", "operating_profit", "operating_margin"):
+        for change in reader.year_over_year(quarter, metric):
+            # Follow the already selected comparison, not a second selection rule.
+            # PDF-derived priors are not raw observations in periods.observations.
+            if change.source_sha256 is not None or reader.saved_change(change) != changes[metric]:
+                continue
+            for prior in reader.comparison_prior(quarter, change):
+                entry = priors.setdefault(
+                    id(prior),
+                    {"comparison_metrics": [], "observation": reader.saved_observation(prior)},
+                )
+                metrics = cast(list[JsonValue], entry["comparison_metrics"])
+                if metric not in metrics:
+                    metrics.append(metric)
+    return list(priors.values())
 
 
 def _object(value: JsonValue | None) -> dict[str, JsonValue]:
