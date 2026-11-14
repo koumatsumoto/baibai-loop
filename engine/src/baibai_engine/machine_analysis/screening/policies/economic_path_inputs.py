@@ -365,6 +365,11 @@ def project_company(
             if "turnover_window" in _object(market.get("price"))
             else {}
         ),
+        **(
+            {"turnover_activity_20d": _object(market.get("price"))["turnover_activity_20d"]}
+            if "turnover_activity_20d" in _object(market.get("price"))
+            else {}
+        ),
         "growth_comparison_basis": growth.get("comparison_basis"),
         "growth_status": growth.get("status"),
         "growth_reason": growth.get("reason"),
