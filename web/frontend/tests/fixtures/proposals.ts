@@ -49,6 +49,8 @@ export const termsFixture: SavedLimitTermsView = {
 
 export const buyFixture: SavedBuyItemView = {
   ticker: '1111',
+  company_name: '合成会社',
+  sector: '情報・通信業',
   action: 'buy',
   rationale: '合成の買付理由。回収経路と損失経路を比較して指値を採った。',
   review_conditions: ['未約定・部分約定後は残注文を確認する。'],
@@ -74,6 +76,8 @@ export const partialBuyFixture: SavedBuyItemView = {
 
 const noActionFixture: SavedNoActionItemView = {
   ticker: '2222',
+  company_name: '合成会社',
+  sector: '情報・通信業',
   action: 'no_action',
   rationale: '完成した経済比較の結果、現金維持を選択する。',
   review_conditions: ['企業価値の見積りが変われば比較を再開する。'],
@@ -85,6 +89,8 @@ const noActionFixture: SavedNoActionItemView = {
 
 export const reviewedDeferFixture: SavedDeferItemView = {
   ticker: '3333',
+  company_name: '合成会社',
+  sector: '情報・通信業',
   action: 'defer',
   rationale: '確認範囲が限られるため、今回の判断は保留する。',
   review_conditions: ['契約更新率の一次資料を確認する。'],
@@ -104,6 +110,8 @@ export const reviewedDeferFixture: SavedDeferItemView = {
 export const unassessedDeferFixture: SavedDeferItemView = {
   ...reviewedDeferFixture,
   ticker: '3334',
+  company_name: null,
+  sector: null,
   rationale: '調査が未完了のため、評価を作らず保留した。',
   assessment: null,
   unfinished: { reason: '合成の未完了理由：必要な一次資料が未入手。', references: ['synthetic:research-missing-document'] },
@@ -113,6 +121,8 @@ export const unassessedDeferFixture: SavedDeferItemView = {
 
 export const holdFixture: SavedHoldItemView = {
   ticker: '4444',
+  company_name: '合成会社',
+  sector: '情報・通信業',
   action: 'hold',
   rationale: '今回の評価で当初の仮説維持を確認した。',
   review_conditions: ['主要顧客の離脱時に当初理由を再点検する。'],
@@ -131,6 +141,8 @@ export const holdFixture: SavedHoldItemView = {
 
 export const sellFixture: SavedSellItemView = {
   ticker: '5555',
+  company_name: '合成会社',
+  sector: '情報・通信業',
   action: 'sell',
   rationale: '主要契約の終了によって当初の利益経路が成立しなくなった。',
   review_conditions: ['数量basisと注文状況を再確認する。'],

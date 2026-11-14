@@ -19,6 +19,7 @@ from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.primitives.time import JST
 from baibai_web.readmodel.proposal_models import (
     LatestProposalView,
+    ProposalHistoryView,
     SavedAssessmentReviewView,
     SavedAssessmentRisksView,
     SavedAssessmentSourceView,
@@ -45,7 +46,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedValuationProjectionView,
     UnfinishedResearchView,
 )
-from baibai_web.sources.protocols import ProposalSource
+from baibai_web.sources.protocols import ProposalHistorySource, ProposalSource
 
 
 def build_latest_proposal(
@@ -68,6 +69,32 @@ def build_latest_proposal(
         status="empty" if proposal is None else "ready",
         error=None,
         proposal=proposal,
+    )
+
+
+def build_proposal_history(
+    source: ProposalHistorySource, *, generated_at: datetime | None = None
+) -> ProposalHistoryView:
+    now = generated_at if generated_at is not None else datetime.now(JST)
+    try:
+        history = source.history()
+    except (OSError, ValueError, RuntimeError, sqlite3.Error):
+        return ProposalHistoryView(
+            generated_at=now,
+            status="unavailable",
+            error="保存済み提案の履歴を読み取れません。",
+            proposals=[],
+            unavailable_proposal_ids=[],
+        )
+    missing = history.unavailable_proposal_ids
+    return ProposalHistoryView(
+        generated_at=now,
+        status=("partial" if history.proposals else "unavailable")
+        if missing
+        else ("ready" if history.proposals else "empty"),
+        error="一部の保存済み提案を読み取れません。" if missing else None,
+        proposals=list(history.proposals),
+        unavailable_proposal_ids=list(missing),
     )
 
 
@@ -223,9 +250,13 @@ def _item(
     quote = next((row for row in proposal.inputs.quotes if row.ticker == item.ticker), None)
     outcome = next(row for row in proposal.research_scope.outcomes if row.ticker == item.ticker)
     liquidity = next((row for row in proposal.liquidity_context if row.ticker == item.ticker), None)
+    current = None if item.assessment_ref is None else pairs[item.assessment_ref.assessment_id]
+    snapshot = None if current is None else current.document.input_snapshot
     common: dict[str, object] = {
         "action": item.action,
         "ticker": item.ticker,
+        "company_name": None if snapshot is None else snapshot.company_name,
+        "sector": None if snapshot is None else snapshot.sector,
         "rationale": item.rationale,
         "review_conditions": list(item.review_conditions),
         "assessment": (

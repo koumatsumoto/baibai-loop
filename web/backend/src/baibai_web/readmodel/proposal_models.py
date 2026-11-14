@@ -181,6 +181,8 @@ class SavedPortfolioExposureView(BaseModel):
 
 class _SavedProposalItemView(BaseModel):
     ticker: str
+    company_name: str | None = None
+    sector: str | None = None
     rationale: str
     review_conditions: list[str]
     assessment: SavedAssessmentView | None
@@ -259,3 +261,11 @@ class LatestProposalView(BaseModel):
     status: Literal["ready", "empty", "unavailable"]
     error: str | None
     proposal: SavedProposalView | None
+
+
+class ProposalHistoryView(BaseModel):
+    generated_at: datetime
+    status: Literal["ready", "empty", "partial", "unavailable"]
+    error: str | None
+    proposals: list[SavedProposalView]
+    unavailable_proposal_ids: list[str]

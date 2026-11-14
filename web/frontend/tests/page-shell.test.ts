@@ -8,7 +8,7 @@ import { PageShell } from '../src/components/PageShell'
 import { PageState } from '../src/components/PageState'
 import { RouteErrorBoundary } from '../src/components/RouteErrorBoundary'
 import { DashboardPage } from '../src/pages/DashboardPage'
-import { ProposalPage } from '../src/pages/ProposalPage'
+import { ProposalPage } from '../src/pages/ProposalHistoryPage'
 
 function renderInLayout(page: ReactNode): string {
   return renderToStaticMarkup(createElement(MemoryRouter, null,
@@ -22,7 +22,7 @@ function renderInLayout(page: ReactNode): string {
 
 it.each<[string, ReactNode, string]>([
   ['dashboard loading', createElement(DashboardPage), '資産状況を読み込んでいます'],
-  ['proposal loading', createElement(ProposalPage), '売買提案を読み込んでいます'],
+  ['proposal loading', createElement(ProposalPage), '売買提案の履歴を読み込んでいます'],
   ['read error', createElement(PageState, { message: '読取失敗' }), '読取失敗'],
   ['ready content', createElement(PageShell, { title: '表示内容', children: '用件' }), '用件'],
 ])('keeps one navigation and one main through %s', (_name, page, content) => {

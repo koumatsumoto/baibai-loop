@@ -7,7 +7,7 @@ import { TooltipProvider } from './components/ui/tooltip'
 import './styles.css'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
-const ProposalPage = lazy(() => import('./pages/ProposalPage').then((module) => ({ default: module.ProposalPage })))
+const ProposalPage = lazy(() => import('./pages/ProposalHistoryPage').then((module) => ({ default: module.ProposalPage })))
 
 function App() {
   return (

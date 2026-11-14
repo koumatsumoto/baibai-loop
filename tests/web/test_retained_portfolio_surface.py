@@ -51,6 +51,7 @@ def test_export_reads_retained_sources_without_recreating_legacy_stores(tmp_path
         "portfolio-dashboard.json",
         "outcomes.json",
         "latest-proposal.json",
+        "proposal-history.json",
     }
     dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
     assert dashboard["ledger_exists"] is True
@@ -114,6 +115,7 @@ def test_retired_task_data_remains_untouched_and_cannot_block_portfolio_views(tm
         "portfolio-dashboard.json",
         "outcomes.json",
         "latest-proposal.json",
+        "proposal-history.json",
     }
     assert old_view.read_text() == '{"retired_private_view":true}\n'
     assert all("SYNTHETIC_RETIRED_TASK" not in path.read_text() for path in paths)
@@ -329,6 +331,7 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
         "portfolio-dashboard.json",
         "outcomes.json",
         "latest-proposal.json",
+        "proposal-history.json",
     }
     dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
     assert dashboard["ledger_error"] is None
@@ -375,7 +378,7 @@ def test_outcome_read_failure_does_not_block_independent_views(tmp_path, damage)
     output = tmp_path / "export"
     paths = export_read_models(tmp_path, output)
 
-    assert len(paths) == 3
+    assert len(paths) == 4
     dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
     assert dashboard["ledger_error"] is None
     assert dashboard["holdings"][0]["quantity"] == 200

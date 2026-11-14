@@ -502,6 +502,8 @@ def test_reviewed_defer_and_unassessed_unfinished_are_distinct_and_keep_order(pa
     )
     assert first.unfinished is None
     assert unfinished.assessment is None
+    assert unfinished.company_name is None
+    assert unfinished.sector is None
     assert unfinished.unfinished.reason == "一次資料確認未了"
     assert unfinished.unfinished.references == ["fixture:unfinished"]
     assert unfinished.blockers[0].code == "research_unfinished"

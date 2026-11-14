@@ -184,6 +184,7 @@ def test_real_materialize_protects_private_validation_and_preserves_success(
             "portfolio-dashboard.json",
             "outcomes.json",
             "latest-proposal.json",
+            "proposal-history.json",
         }
     for source in (tmp_path / "direct/views").iterdir():
         assert canary not in source.read_text()

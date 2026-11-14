@@ -90,6 +90,14 @@ export interface ProposalCorrection {
   recorded_at: string
 }
 
+export interface ProposalHistoryView {
+  generated_at: string
+  status: 'ready' | 'empty' | 'partial' | 'unavailable'
+  error: string | null
+  proposals: SavedProposalView[]
+  unavailable_proposal_ids: string[]
+}
+
 export interface ProposalReference {
   proposal_id: NonEmptyStr
   draft_sha256: SHA256
@@ -154,6 +162,8 @@ export interface SavedAssessmentView {
 
 export interface SavedBuyItemView {
   ticker: string
+  company_name: string | null
+  sector: string | null
   rationale: string
   review_conditions: string[]
   assessment: SavedAssessmentView | null
@@ -169,6 +179,8 @@ export interface SavedBuyItemView {
 
 export interface SavedDeferItemView {
   ticker: string
+  company_name: string | null
+  sector: string | null
   rationale: string
   review_conditions: string[]
   assessment: SavedAssessmentView | null
@@ -188,6 +200,8 @@ export interface SavedExposureRowView {
 
 export interface SavedHoldItemView {
   ticker: string
+  company_name: string | null
+  sector: string | null
   rationale: string
   review_conditions: string[]
   assessment: SavedAssessmentView | null
@@ -232,6 +246,8 @@ export interface SavedModelPerspectiveView {
 
 export interface SavedNoActionItemView {
   ticker: string
+  company_name: string | null
+  sector: string | null
   rationale: string
   review_conditions: string[]
   assessment: SavedAssessmentView | null
@@ -306,6 +322,8 @@ export interface SavedResolvedValuationView {
 
 export interface SavedSellItemView {
   ticker: string
+  company_name: string | null
+  sector: string | null
   rationale: string
   review_conditions: string[]
   assessment: SavedAssessmentView | null

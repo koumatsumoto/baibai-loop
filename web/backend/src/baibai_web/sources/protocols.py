@@ -25,7 +25,19 @@ class MarketSource(Protocol):
     def security_names(self, *, as_of: date) -> Mapping[str, str]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ProposalHistoryRead:
+    proposals: tuple[SavedProposalView, ...]
+    unavailable_proposal_ids: tuple[str, ...]
+
+
 class ProposalSource(Protocol):
     def latest(self) -> SavedProposalView | None:
         """Return None only for a valid store with no saved proposal; read failures raise."""
+        ...
+
+
+class ProposalHistorySource(Protocol):
+    def history(self) -> ProposalHistoryRead:
+        """Read each saved publication independently; no ticker-based replacement."""
         ...
