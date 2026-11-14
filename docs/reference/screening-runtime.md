@@ -24,6 +24,22 @@
 
 保有は現在台帳を発生時刻でreplayするため、過去の注文/約定の後追記で同じcutoffでも保有と依頼対象が変わり得る。context再読を保存Operationの固定入力からの再開と分け、後日取得を当時既知の証拠にしない。
 
+## TA探索と財務・成長案の有限診断
+
+通常政策を変更する前に、[読取専用の実験caller](../../tools/experiments/inspect_technical_financial_candidates.py)で同じ保存Generationの広いstock planを調べられる。TAの入口に合致した企業だけ財務・成長案へ渡し、非合致・未判定・財務未評価も分母に残す。旧財務候補への所属は前提にせず、複数入口への合致で企業を重複評価しない。順位・固定配分・候補数を埋める補充は行わない。
+
+```bash
+uv run python -m tools.experiments.inspect_technical_financial_candidates \
+  --generation-id <FIXED_GENERATION_ID> --runs-path <READ_ONLY_RUNS_COPY> \
+  --out <NEW_PRIVATE_JSON>
+```
+
+これは未採択の候補政策の比較であり、日次ScreeningSelectionを再適用・保存する機能ではない。TAの現状態を新規イベント検出と呼ばず、対市場プラスを個社上昇と読み替えない。財務の`research_candidate`は原典調査を続ける仮説であり、財務健全性・有機成長の合格や買付採否ではない。成長モデルだけで仮説が成立しても、財務モデル未生成やCF・負債の欠測は残る。観測された悪化と未確定operandを併記し、未評価・見送り・未確定をProposalのactionへ変換しない。
+
+後続は既存の`selection-context --compare-ticker`で同じ世代とcutoffの候補外詳細を読む。`discover_new`では対応する保存Selectionを`--screening-selection-id`で明示し、generation_id一致を確認する。残す対象・問い・最強反証を理由付きResearch Selectionへ明示し、保存財務Selectionは比較元のまま保持してTA診断の保存結果と偽装しない。深掘り容量は既存Research policyの範囲で、診断の合致件数をそのままOperationへ渡さない。市場・世界/業界・外部評価との差、資金耐久力・普通株価値・価格はL3で調べる。callerはResearch開始・保存・売買を行わない。
+
+保存as_of、期待価格日、計算時刻は別の時計である。出力は消費者への配布/受領証跡、完全PIT、前向き登録、成熟した将来成績を証明しない。旧世代の未記録fieldを現在の値で埋めず、本番採用や利益改善は別途検証する。
+
 ## 入力不足と品質
 
 不足は[観測の規則](model-observations.md#source-owners)に従い局所化し、[期間/株式basis](model-observations.md#financial-periods)を揃える。要求範囲の取得coverageを全銘柄充足、不足による候補減を機会減としない。
