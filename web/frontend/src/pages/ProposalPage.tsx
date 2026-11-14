@@ -17,12 +17,14 @@ import type {
 import { LoadingPage } from '../components/LoadingIndicator'
 import { AssessmentRisks } from '../components/AssessmentRisks'
 import { ModelPerspectives } from '../components/ModelPerspectives'
+import { ReportSummary } from '../components/ReportSummary'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { formatJstDateTime, formatPct } from '../lib/format'
+import { reportExcerpt } from '../lib/report-excerpt'
 
 type ProposalItem = SavedProposalView['items'][number]
 
@@ -251,54 +253,60 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
   return (
     <SectionCard headingLevel={3} meta={<Badge variant="secondary">{ACTION_LABEL[item.action]} · {item.action}</Badge>} padded title={item.ticker}>
       <div className="grid min-w-0 gap-5">
-        <Prose>{item.rationale}</Prose>
-        {item.assessment !== null && <AssessmentValue assessment={item.assessment} />}
+        <ReportSummary text={item.rationale} />
         {item.assessment !== null && <ModelPerspectives assessment={item.assessment} />}
-        {item.saved_quote !== null && <dl className="grid gap-4 sm:grid-cols-2">
-          <Field label="保存株価（未調整終値）">{item.saved_quote.price_yen} 円</Field>
-          <Field label="保存株価の基準日"><time dateTime={item.saved_quote.price_as_of}>{item.saved_quote.price_as_of}</time></Field>
-        </dl>}
-        {item.action === 'buy' && <p className="text-sm text-muted-foreground">保存時の指値区分：{TIMING_LABEL[item.timing]}（{item.timing}）</p>}
-        {(item.action === 'buy' || item.action === 'sell') && (item.terms !== null ? <SavedTerms terms={item.terms} /> : <div className="grid gap-3">
-          <p className="text-sm font-medium">具体条件未確定</p>
-          {item.action === 'buy' && item.proposed_limit_yen !== null && <dl><Field label="作者指定の上限（具体条件未確定）">{item.proposed_limit_yen} 円</Field></dl>}
-          <Reasons reasons={item.terms_unavailable_reasons} title="具体条件が不足する理由" />
-        </div>)}
-        {(item.action === 'hold' || item.action === 'sell') && <HoldingReason item={item} />}
-        {item.action === 'defer' && <>
-          <Reasons reasons={item.blockers} title="判断を保留した不足理由" />
-          <TextList items={item.resume_conditions} title="再開条件" />
-        </>}
-        <TextList items={item.review_conditions} title="再確認条件" />
-        {item.unfinished !== null && <div className="grid gap-3 rounded-lg bg-muted p-4">
-          <p className="text-sm font-medium">保存scopeの未完了調査</p>
-          <Prose>{item.unfinished.reason}</Prose>
-          <TextList items={item.unfinished.references} title="未完了の参照" />
-        </div>}
-        {item.liquidity !== null && <details className="rounded-lg border p-4">
-          <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">保存された流動性の補足</summary>
-          <div className="mt-4 grid gap-3">
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <Field label="保存ADV（平均売買代金）">{item.liquidity.adv_yen === null ? '保存値なし' : `${item.liquidity.adv_yen} 円`}</Field>
-              <Field label="流動性の分析基準日">{item.liquidity.analysis_as_of === null ? '保存値なし' : <time dateTime={item.liquidity.analysis_as_of}>{item.liquidity.analysis_as_of}</time>}</Field>
-              <Field label="ADVの価格窓終端日">{item.liquidity.price_window_end == null ? '保存値なし' : <time dateTime={item.liquidity.price_window_end}>{item.liquidity.price_window_end}</time>}</Field>
-              {item.liquidity.turnover_window != null && <>
-                <Field label="同じ窓の売買代金中央値">{item.liquidity.turnover_window.median_yen === null ? '算出に必要な有効観測数なし' : `${item.liquidity.turnover_window.median_yen} 円`}</Field>
-                <Field label="売買代金の有効観測">{item.liquidity.turnover_window.valid_turnover_count} / {item.liquidity.turnover_window.price_bar_count} 本の価格bar</Field>
-                <Field label="売買代金の価格窓">{item.liquidity.turnover_window.start_date} ～ {item.liquidity.turnover_window.end_date}</Field>
-              </>}
-            </dl>
-            {item.liquidity.turnover_window == null && <p className="text-sm text-muted-foreground">売買代金窓の本数・中央値は保存値なし。</p>}
-            <p className="text-sm text-muted-foreground">実在価格barの窓であり、共通営業日数とは限りません。欠落日を無出来高0に補完していません。</p>
-            <p className="text-sm text-muted-foreground">価格窓の終端であり、売買代金の最終有効日や鮮度の保証ではありません。</p>
-            {item.liquidity.unavailable_reason !== null && <Prose>{item.liquidity.unavailable_reason}</Prose>}
-            <p className="text-xs leading-6 text-muted-foreground">保存値であり、現在の板や約定可能性を示しません。</p>
+        <details className="rounded-lg border p-4" data-proposal-details>
+          <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">価格・条件と判断の詳細を読む</summary>
+          <div className="mt-5 grid min-w-0 gap-5">
+            {reportExcerpt(item.rationale) !== item.rationale && <div><p className="mb-2 text-sm font-medium">判断理由の全文</p><Prose>{item.rationale}</Prose></div>}
+            {item.assessment !== null && <AssessmentValue assessment={item.assessment} />}
+            {item.saved_quote !== null && <dl className="grid gap-4 sm:grid-cols-2">
+              <Field label="保存株価（未調整終値）">{item.saved_quote.price_yen} 円</Field>
+              <Field label="保存株価の基準日"><time dateTime={item.saved_quote.price_as_of}>{item.saved_quote.price_as_of}</time></Field>
+            </dl>}
+            {item.action === 'buy' && <p className="text-sm text-muted-foreground">保存時の指値区分：{TIMING_LABEL[item.timing]}（{item.timing}）</p>}
+            {(item.action === 'buy' || item.action === 'sell') && (item.terms !== null ? <SavedTerms terms={item.terms} /> : <div className="grid gap-3">
+              <p className="text-sm font-medium">具体条件未確定</p>
+              {item.action === 'buy' && item.proposed_limit_yen !== null && <dl><Field label="作者指定の上限（具体条件未確定）">{item.proposed_limit_yen} 円</Field></dl>}
+              <Reasons reasons={item.terms_unavailable_reasons} title="具体条件が不足する理由" />
+            </div>)}
+            {(item.action === 'hold' || item.action === 'sell') && <HoldingReason item={item} />}
+            {item.action === 'defer' && <>
+              <Reasons reasons={item.blockers} title="判断を保留した不足理由" />
+              <TextList items={item.resume_conditions} title="再開条件" />
+            </>}
+            <TextList items={item.review_conditions} title="再確認条件" />
+            {item.unfinished !== null && <div className="grid gap-3 rounded-lg bg-muted p-4">
+              <p className="text-sm font-medium">保存scopeの未完了調査</p>
+              <Prose>{item.unfinished.reason}</Prose>
+              <TextList items={item.unfinished.references} title="未完了の参照" />
+            </div>}
+            {item.liquidity !== null && <details className="rounded-lg border p-4">
+              <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">保存された流動性の補足</summary>
+              <div className="mt-4 grid gap-3">
+                <dl className="grid gap-4 sm:grid-cols-2">
+                  <Field label="保存ADV（平均売買代金）">{item.liquidity.adv_yen === null ? '保存値なし' : `${item.liquidity.adv_yen} 円`}</Field>
+                  <Field label="流動性の分析基準日">{item.liquidity.analysis_as_of === null ? '保存値なし' : <time dateTime={item.liquidity.analysis_as_of}>{item.liquidity.analysis_as_of}</time>}</Field>
+                  <Field label="ADVの価格窓終端日">{item.liquidity.price_window_end == null ? '保存値なし' : <time dateTime={item.liquidity.price_window_end}>{item.liquidity.price_window_end}</time>}</Field>
+                  {item.liquidity.turnover_window != null && <>
+                    <Field label="同じ窓の売買代金中央値">{item.liquidity.turnover_window.median_yen === null ? '算出に必要な有効観測数なし' : `${item.liquidity.turnover_window.median_yen} 円`}</Field>
+                    <Field label="売買代金の有効観測">{item.liquidity.turnover_window.valid_turnover_count} / {item.liquidity.turnover_window.price_bar_count} 本の価格bar</Field>
+                    <Field label="売買代金の価格窓">{item.liquidity.turnover_window.start_date} ～ {item.liquidity.turnover_window.end_date}</Field>
+                  </>}
+                </dl>
+                {item.liquidity.turnover_window == null && <p className="text-sm text-muted-foreground">売買代金窓の本数・中央値は保存値なし。</p>}
+                <p className="text-sm text-muted-foreground">実在価格barの窓であり、共通営業日数とは限りません。欠落日を無出来高0に補完していません。</p>
+                <p className="text-sm text-muted-foreground">価格窓の終端であり、売買代金の最終有効日や鮮度の保証ではありません。</p>
+                {item.liquidity.unavailable_reason !== null && <Prose>{item.liquidity.unavailable_reason}</Prose>}
+                <p className="text-xs leading-6 text-muted-foreground">保存値であり、現在の板や約定可能性を示しません。</p>
+              </div>
+            </details>}
+            {item.assessment === null ? <p className="text-sm text-muted-foreground">未評価：この項目には保存評価への参照がありません。</p> : <details className="rounded-lg border p-4">
+              <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">今回の保存評価・独立検証の抜粋</summary>
+              <div className="mt-4"><AssessmentExcerpt assessment={item.assessment} showCountercase={false} /></div>
+            </details>}
           </div>
-        </details>}
-        {item.assessment === null ? <p className="text-sm text-muted-foreground">未評価：この項目には保存評価への参照がありません。</p> : <details className="rounded-lg border p-4">
-          <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">今回の保存評価・独立検証の抜粋</summary>
-          <div className="mt-4"><AssessmentExcerpt assessment={item.assessment} showCountercase={false} /></div>
-        </details>}
+        </details>
       </div>
     </SectionCard>
   )
@@ -353,20 +361,24 @@ export function ProposalReport({ data }: { data: LatestProposalView | null }) {
   if (proposal === null) return <PageState message="保存済み提案を読み取れませんでした。" title="売買提案の読取不能" />
   return (
     <PageShell lead="最新基準日の保存済み提案を、保存順のまま表示します。" meta={<Badge variant="outline">{SCOPE_LABEL[proposal.request_scope]}</Badge>} title="売買提案" width="reading">
-      <aside className="rounded-lg border bg-muted px-5 py-4 text-sm leading-7">
-        保存時点の提案です。現在の注文条件の再確認・採否・発注は別です。対象取引日は実注文の期限ではありません。
-      </aside>
-      <SectionCard padded title="保存された結論">
-        <div className="grid gap-5">
-          <Prose>{proposal.headline}</Prose>
-          <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Field label="提案基準日"><time dateTime={proposal.as_of}>{proposal.as_of}</time></Field>
-            <Field label="提案本文の準備時刻"><SavedTime value={proposal.prepared_at} /></Field>
-            <Field label="提案の発行時刻"><SavedTime value={proposal.published_at} /></Field>
-            <Field label="表示データ生成時刻"><SavedTime value={data.generated_at} /></Field>
-          </dl>
-          <Identifier key={proposal.proposal_id} label="proposal_id" value={proposal.proposal_id} />
-          <p className="text-xs leading-6 text-muted-foreground">表示データ生成時点の保存集合で、提案基準日・発行時刻・提案IDの順に最新の1件です。現在の注文可否は判定していません。</p>
+      <SectionCard padded title="サマリ">
+        <div className="grid gap-4">
+          <ReportSummary text={proposal.headline} />
+          <p className="text-xs leading-6 text-muted-foreground">保存時点の提案です。現在の注文条件の再確認・採否・発注は別です。</p>
+          <details className="border-t pt-3">
+            <summary className="cursor-pointer text-sm text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-4">結論の全文・保存日時</summary>
+            <div className="mt-4 grid gap-4">
+              {reportExcerpt(proposal.headline) !== proposal.headline && <Prose>{proposal.headline}</Prose>}
+              <dl className="grid gap-4 sm:grid-cols-2">
+                <Field label="提案基準日"><time dateTime={proposal.as_of}>{proposal.as_of}</time></Field>
+                <Field label="提案本文の準備時刻"><SavedTime value={proposal.prepared_at} /></Field>
+                <Field label="提案の発行時刻"><SavedTime value={proposal.published_at} /></Field>
+                <Field label="表示データ生成時刻"><SavedTime value={data.generated_at} /></Field>
+              </dl>
+              <Identifier key={proposal.proposal_id} label="proposal_id" value={proposal.proposal_id} />
+              <p className="text-xs leading-6 text-muted-foreground">表示データ生成時点の保存集合で、提案基準日・発行時刻・提案IDの順に最新の1件です。現在の注文可否は判定していません。対象取引日は実注文の期限ではありません。</p>
+            </div>
+          </details>
         </div>
       </SectionCard>
       <section aria-labelledby="proposal-items-heading" className="grid min-w-0 gap-4">
@@ -392,9 +404,14 @@ export function ProposalReport({ data }: { data: LatestProposalView | null }) {
         <h2 className="text-lg font-semibold" id="proposal-items-heading">銘柄別の行動と条件</h2>
         {proposal.items.map((item) => <ProposalItemCard item={item} key={`${proposal.proposal_id}-${item.ticker}`} />)}
       </section>
-      <SectionCard padded title="全体の比較"><Prose>{proposal.comparison}</Prose></SectionCard>
-      <SectionCard padded title="採らなかった案・機会損失"><Prose>{proposal.forgone}</Prose></SectionCard>
-      {proposal.warnings.length > 0 && <SectionCard padded title="提案の保存時の注意事項"><TextList items={proposal.warnings} title="保存されたwarnings" /></SectionCard>}
+      <details className="rounded-lg border bg-card p-5 sm:p-6">
+        <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">全体の比較・見送りと注意事項</summary>
+        <div className="mt-5 grid gap-5">
+          <div><p className="mb-2 text-sm font-medium">全体の比較</p><Prose>{proposal.comparison}</Prose></div>
+          <div><p className="mb-2 text-sm font-medium">採らなかった案・機会損失</p><Prose>{proposal.forgone}</Prose></div>
+          <TextList items={proposal.warnings} title="提案の保存時の注意事項" />
+        </div>
+      </details>
       <PortfolioExposure exposure={proposal.portfolio_exposure} />
     </PageShell>
   )
