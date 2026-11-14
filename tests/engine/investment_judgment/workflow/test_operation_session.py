@@ -19,6 +19,7 @@ from baibai_engine.investment_judgment.workflow.operation.models import (
     SESSION_KINDS,
     OperationHeader,
     OperationPayload,
+    OperationSession,
 )
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import (
@@ -77,7 +78,10 @@ def test_operation_kinds_are_limited_to_multi_step_workflows(
 
 @pytest.mark.parametrize("generated", [False, True], ids=["legacy", "generated"])
 def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifacts(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], generated: bool
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    generated: bool,
 ) -> None:
     db = tmp_path / "app.sqlite"
     selected = (
@@ -94,14 +98,22 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
     )
     operation = operation.model_copy(update={"payload": payload})
     seed_historical_operation(db, operation)
-    for ticker in ("1234", "5678"):
-        operation = OperationService(db).record_unfinished(
-            operation.operation_id,
-            ticker=ticker,
-            reason="一次資料が不足し評価未完了",
-            references=(f"synthetic-research-{ticker}", "saved-research-digest"),
-            now=NOW,
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            OperationSession,
+            "public",
+            lambda _self: pytest.fail(
+                "writer must not expand a full public snapshot to replace it"
+            ),
         )
+        for ticker in ("1234", "5678"):
+            operation = OperationService(db).record_unfinished(
+                operation.operation_id,
+                ticker=ticker,
+                reason="一次資料が不足し評価未完了",
+                references=(f"synthetic-research-{ticker}", "saved-research-digest"),
+                now=NOW,
+            )
     payload = operation.payload
 
     assert (

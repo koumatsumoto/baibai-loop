@@ -83,12 +83,12 @@ as_ofは情報境界で全内容の再検証日でない。元source/fact時刻�
 
 ## Trade Proposal
 
-`investment-judgment status --workspace <WORKSPACE> --db <APP_DB>`とOperationを読む。評価保存とOperation束縛は別transactionで、再利用/束縛失敗だけなら`operation --db <APP_DB> record-assessment <OPERATION_ID> --assessment-id <ID>`で回復する。
+`investment-judgment status --workspace <WORKSPACE> --db <APP_DB>`とOperationを読む。評価保存とOperation束縛は別transactionで、再利用/束縛失敗だけなら`operation --db <APP_DB> --format json record-assessment <OPERATION_ID> --assessment-id <ID>`で回復する。
 
 未完対象だけを記録し、自動補充しない。
 
 ```bash
-uv run baibai-engine operation --db <APP_DB> record-unfinished \
+uv run baibai-engine operation --db <APP_DB> --format json record-unfinished \
   <OPERATION_ID> --ticker <TICKER> --reason '<REASON>' --ref <REF>
 ```
 
@@ -126,13 +126,13 @@ as_ofは元発行日以降のJST情報境界で保存時計ではない。後日
 ## 完了と再開
 
 ```bash
-uv run baibai-engine operation --db <APP_DB> record-proposal <OPERATION_ID> --proposal-id <ID>
-uv run baibai-engine operation --db <APP_DB> complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'
+uv run baibai-engine operation --db <APP_DB> --format json record-proposal <OPERATION_ID> --proposal-id <ID>
+uv run baibai-engine operation --db <APP_DB> --format json complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'
 uv run baibai-engine investment-judgment prepare \
   --operation-id <OPERATION_ID> --db <APP_DB> --workspace .cache/research/<ASOF> --force
 ```
 
-record-proposalは公開済み提案の束縛。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> show <ID>`で読み、workspaceのincompleteと区別する。
+record-proposalは公開済み提案の束縛。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> --format json show <ID>`で読み、workspaceのincompleteと区別する。
 
 Operationに保存された[Research Selection](../../../docs/architecture.md#store-authority)から再開し、selection-contextで選び直さない。forceは表示を再投影し執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
 

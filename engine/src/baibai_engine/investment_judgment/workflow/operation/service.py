@@ -262,6 +262,7 @@ class OperationService:
             proposal_ref=progress.proposal_ref,
         )
         payload = with_progress(operation.payload, updated)
+        del selected
         return self._replace_active(
             operation_id,
             payload=payload,
@@ -343,6 +344,7 @@ class OperationService:
         target = next((item for item in selection.targets if item.ticker == ticker), None)
         if target is None:
             raise OperationConflictError("ticker is outside the fixed selection")
+        del selection
         return self.record_outcome(
             operation_id,
             UnfinishedTarget(
@@ -475,7 +477,7 @@ class OperationService:
                     _validate_complete(before.session_kind, payload)
                 operation = OperationSession.model_validate(
                     {
-                        **before.public(),
+                        **before.model_dump(mode="json", exclude={"payload"}),
                         "status": "completed" if completed_at is not None else "active",
                         "completed_at": completed_at,
                         "payload": payload,
