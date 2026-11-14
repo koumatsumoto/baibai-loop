@@ -83,6 +83,7 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
                 "turnover_20d_oku",
                 "turnover_observation_date",
                 "turnover_window",
+                "turnover_activity_20d",
                 "related_subjects",
                 "full_result_reference",
             ),
@@ -396,6 +397,7 @@ def _market_relative(relative: dict[str, Any]) -> dict[str, Any]:
             "relative_60d",
             "window_basis",
             "comparison_windows",
+            "market_conditioned_60d",
         ),
         "sector": _pick(
             _object(relative.get("sector")),

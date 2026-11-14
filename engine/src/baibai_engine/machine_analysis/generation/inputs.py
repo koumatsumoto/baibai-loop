@@ -30,6 +30,11 @@ from baibai_engine.machine_analysis.generation.runners.security_context import (
 from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.models.market_context.activity import (
+    ETF_PRICE_BENCHMARKS,
+    market_conditioned_returns,
+    turnover_activity,
+)
 from baibai_engine.machine_analysis.models.market_context.benchmark import NIKKEI225_ETF_PROXY
 from baibai_engine.machine_analysis.models.market_context.price_path import compare_price_path
 from baibai_engine.machine_analysis.models.technical_analysis.price_path import observe_price_path
@@ -284,6 +289,12 @@ def read_and_generate_models(
         for bar in prices.get(prepared.benchmark_ticker, ())
         if day_states.get(prepared.benchmark_ticker, {}).get(bar.traded_at) == "priced"
     }
+    # These observations need valid closes, not complete OHLCV rows. Each ETF remains
+    # independent; a missing TOPIX proxy must not silently become the Nikkei proxy.
+    activity_benchmarks = {
+        ticker: {bar.traded_at: bar.price for bar in prices.get(ticker, ())}
+        for ticker in ETF_PRICE_BENCHMARKS
+    }
     price_paths = {}
     for ticker in subjects:
         path_observation = observe_price_path(
@@ -298,6 +309,19 @@ def read_and_generate_models(
             as_of=as_of,
             benchmark_ticker=prepared.benchmark_ticker,
         )
+        relative = contexts[ticker].get("relative")
+        if isinstance(relative, dict):
+            relative["market_conditioned_60d"] = market_conditioned_returns(
+                prices={bar.traded_at: bar.price for bar in prices.get(ticker, ())},
+                benchmark_prices=activity_benchmarks,
+                calendar=path_calendar,
+            )
+        price = contexts[ticker].get("price")
+        if isinstance(price, dict):
+            price["turnover_activity_20d"] = turnover_activity(
+                turnover={bar.traded_at: bar.turnover_value for bar in prices.get(ticker, ())},
+                calendar=path_calendar,
+            )
     histories = read_observation_population(
         path,
         tickers=subjects,
@@ -395,7 +419,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-v11-relative-windows",
+        market_context_revision="shared-market-context-v12-conditional-activity",
         growth_start=growth_start,
         trends=trends,
     )

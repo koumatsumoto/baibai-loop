@@ -63,7 +63,7 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
     result = generate(path)
     shared = result.result("market_context", "market")
     benchmark = shared.payload["benchmark_trend"]
-    assert shared.calculation_revision == "shared-market-context-v11-relative-windows"
+    assert shared.calculation_revision == "shared-market-context-v12-conditional-activity"
     if not benchmark_count:
         assert benchmark is None
     else:
@@ -158,3 +158,48 @@ def test_new_and_legacy_saved_shapes_survive_correction_and_detached_l3_read(tmp
     runs.unlink()
     assert [project_generated_inputs(item) for item in saved] == projected
     assert [item.model_dump_json() for item in saved] == encoded
+
+
+def test_fixed_prices_feed_activity_and_survive_detached_l3_read(tmp_path):
+    calendar = {
+        ASOF - timedelta(days=n): (ASOF - timedelta(days=n)).weekday() < 5 for n in range(100)
+    }
+    dates = sorted(day for day, business in calendar.items() if business)[-61:]
+    rows = [
+        (ticker, day.isoformat(), 98.0 if day == dates[-2] else 100.0, 1000.0)
+        for ticker in ("1001", "1321", "1306")
+        for day in dates
+    ]
+    rows.append(("1001", (ASOF + timedelta(days=1)).isoformat(), 1e6, 1e6))
+    path = market_store(tmp_path / "market.sqlite", daily_bars=rows)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?,?)",
+            [(day.isoformat(), "1" if business else "0") for day, business in calendar.items()],
+        )
+        connection.execute("UPDATE jquants_daily_bars SET turnover_value=100000")
+        connection.execute(
+            "UPDATE jquants_daily_bars SET turnover_value=1000000 WHERE ticker='1001' AND traded_at=?",
+            (ASOF.isoformat(),),
+        )
+    before = path.read_bytes()
+    result = generate(path, tickers=("1001",))
+    market = result.result("market_context", "1001").payload
+    conditional = market["relative"]["market_conditioned_60d"]
+    assert conditional["window_end_date"] == ASOF.isoformat()
+    for ticker in ("1321", "1306"):
+        comparison = conditional["benchmarks"][ticker]
+        assert comparison["status"] == "available"
+        assert comparison["down"]["days"] == 1
+        assert comparison["down"]["mean_excess_return"] == 0
+    assert market["price"]["turnover_activity_20d"]["current_to_prior_mean_ratio"] == 10
+    assert path.read_bytes() == before
+    runs = tmp_path / "runs.sqlite"
+    publish_generation(result, path=runs)
+    fixed = read_research_model_inputs(result.generation_id, targets=("1001",), path=runs)
+    encoded = fixed.model_dump_json()
+    path.unlink()
+    runs.unlink()
+    projected = project_generated_inputs(fixed)["securities"]["1001"]["models"]["market_context"]
+    assert projected == market
+    assert fixed.model_dump_json() == encoded

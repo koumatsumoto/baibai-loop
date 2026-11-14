@@ -278,6 +278,42 @@ def test_old_model_does_not_gain_a_turnover_window_or_change_selection_hash():
     brief = economic_screening_brief(saved)["cards"][0]["context"]
     assert "moving_averages" not in brief
     assert "price_path" not in brief
+    assert "turnover_activity_20d" not in brief
+    assert "market_conditioned_60d" not in brief["market_relative"]
+
+
+def test_activity_reaches_brief_without_changing_rank_or_mutating_saved_inputs():
+    from baibai_engine.machine_analysis.models.market_context.activity import (
+        market_conditioned_returns,
+        turnover_activity,
+    )
+
+    days = tuple(date(2026, 1, 5) - timedelta(days=n) for n in range(60, -1, -1))
+    calendar = price_calendar(dict.fromkeys(days, True), as_of=days[-1])
+    prices = dict.fromkeys(days, 100.0)
+    conditional = market_conditioned_returns(
+        prices=prices, benchmark_prices={"1321": prices}, calendar=calendar
+    )
+    activity = turnover_activity(turnover=prices, calendar=calendar)
+    data = payloads()
+    baseline = project(data)
+    data["market_context"]["price"] = {"turnover_activity_20d": activity}
+    data["market_context"]["relative"] = {"market_conditioned_60d": conditional}
+    original = deepcopy(data)
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    baseline_selection = select_economic_paths((baseline,), policy=EconomicPathPolicy())
+    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
+    old = TypeAdapter(EconomicPathSelection).dump_python(baseline_selection, mode="json")
+    for key in ("rank", "priority", "strongest_path", "paths"):
+        assert saved["cards"][0][key] == old["cards"][0][key]
+    shown = economic_screening_brief(saved)["cards"][0]["context"]
+    assert shown["market_relative"]["market_conditioned_60d"] == conditional
+    assert shown["turnover_activity_20d"] == activity
+    shown["turnover_activity_20d"]["status"] = "display-only"
+    assert saved["cards"][0]["context"]["turnover_activity_20d"]["status"] == "available"
+    assert data == original
 
 
 @pytest.mark.parametrize("state", ["complete", "missing_interval", "old_model", "old_selection"])
