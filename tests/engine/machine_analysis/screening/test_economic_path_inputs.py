@@ -282,7 +282,10 @@ def test_old_model_does_not_gain_a_turnover_window_or_change_selection_hash():
     assert "market_conditioned_60d" not in brief["market_relative"]
 
 
-def test_activity_reaches_brief_without_changing_rank_or_mutating_saved_inputs():
+@pytest.mark.parametrize("include_conditioned_turnover", [True, False])
+def test_activity_reaches_brief_without_changing_rank_or_mutating_saved_inputs(
+    include_conditioned_turnover,
+):
     from baibai_engine.machine_analysis.models.market_context.activity import (
         market_conditioned_returns,
         turnover_activity,
@@ -292,8 +295,11 @@ def test_activity_reaches_brief_without_changing_rank_or_mutating_saved_inputs()
     calendar = price_calendar(dict.fromkeys(days, True), as_of=days[-1])
     prices = dict.fromkeys(days, 100.0)
     conditional = market_conditioned_returns(
-        prices=prices, benchmark_prices={"1321": prices}, calendar=calendar
+        prices=prices, turnover=prices, benchmark_prices={"1321": prices}, calendar=calendar
     )
+    if not include_conditioned_turnover:
+        for benchmark in conditional["benchmarks"].values():
+            del benchmark["turnover"]
     activity = turnover_activity(turnover=prices, calendar=calendar)
     data = payloads()
     baseline = project(data)
@@ -310,6 +316,9 @@ def test_activity_reaches_brief_without_changing_rank_or_mutating_saved_inputs()
         assert saved["cards"][0][key] == old["cards"][0][key]
     shown = economic_screening_brief(saved)["cards"][0]["context"]
     assert shown["market_relative"]["market_conditioned_60d"] == conditional
+    assert (
+        "turnover" in shown["market_relative"]["market_conditioned_60d"]["benchmarks"]["1321"]
+    ) is include_conditioned_turnover
     assert shown["turnover_activity_20d"] == activity
     shown["turnover_activity_20d"]["status"] = "display-only"
     assert saved["cards"][0]["context"]["turnover_activity_20d"]["status"] == "available"

@@ -313,6 +313,7 @@ def read_and_generate_models(
         if isinstance(relative, dict):
             relative["market_conditioned_60d"] = market_conditioned_returns(
                 prices={bar.traded_at: bar.price for bar in prices.get(ticker, ())},
+                turnover={bar.traded_at: bar.turnover_value for bar in prices.get(ticker, ())},
                 benchmark_prices=activity_benchmarks,
                 calendar=path_calendar,
             )
@@ -419,7 +420,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-v12-conditional-activity",
+        market_context_revision="shared-market-context-v13-conditional-turnover",
         growth_start=growth_start,
         trends=trends,
     )

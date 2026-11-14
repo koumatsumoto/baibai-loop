@@ -64,7 +64,7 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
     result = generate(path)
     shared = result.result("market_context", "market")
     benchmark = shared.payload["benchmark_trend"]
-    assert shared.calculation_revision == "shared-market-context-v12-conditional-activity"
+    assert shared.calculation_revision == "shared-market-context-v13-conditional-turnover"
     if not benchmark_count:
         assert benchmark is None
     else:
@@ -193,6 +193,11 @@ def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tm
         assert comparison["status"] == "available"
         assert comparison["down"]["days"] == 1
         assert comparison["down"]["mean_excess_return"] == 0
+        turnover = comparison["turnover"]
+        assert turnover["market_direction_status"] == "available"
+        assert turnover["down"]["days"] == turnover["down"]["valid_turnover_days"] == 1
+        assert turnover["down"]["mean_yen"] == turnover["down"]["median_yen"] == 100000
+        assert turnover["up"]["mean_yen"] == turnover["up"]["median_yen"] == 1000000
     assert market["price"]["turnover_activity_20d"]["current_to_prior_mean_ratio"] == 10
     technical = result.result("technical_analysis", "1001").payload
     episodes = technical["price_path"]["observations"]["G60"]["path_statistics"][

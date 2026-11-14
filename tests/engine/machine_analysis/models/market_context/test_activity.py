@@ -17,9 +17,10 @@ DATES = FIXED.windows[60]
 assert DATES is not None
 
 
-def observe(own, nikkei, topix=None, *, calendar=FIXED):
+def observe(own, nikkei, topix=None, *, turnover=None, calendar=FIXED):
     return market_conditioned_returns(
         prices=own,
+        turnover={} if turnover is None else turnover,
         benchmark_prices={"1321": nikkei, **({} if topix is None else {"1306": topix})},
         calendar=calendar,
     )
