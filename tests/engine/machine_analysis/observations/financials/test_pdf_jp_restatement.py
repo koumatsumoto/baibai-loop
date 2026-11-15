@@ -545,9 +545,9 @@ def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(cha
         metric_value(reader.observation(reader.latest_period, "quarter"), "parent_profit")
         == 247_000_000
     )
-    assert "v15-known-restated-annual-operand" in financial.calculation_revision
+    assert "v16-ifrs-interim-display" in financial.calculation_revision
     assert growth.payload["calculation_method"] == (
-        "company_growth_retrospective_v15-known-restated-annual-operand"
+        "company_growth_retrospective_v16-ifrs-interim-display"
     )
 
 
