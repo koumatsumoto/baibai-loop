@@ -85,7 +85,11 @@ def project_company_with_input_reviews(
         sector is not None
         and earnings_read is not None
         and earnings_read.unavailable_reason
-        in {"missing_capital_basis", "indeterminate_treasury_after_later_issued_observation"}
+        in {
+            "missing_capital_basis",
+            "indeterminate_treasury_after_later_issued_observation",
+            "indeterminate_treasury_after_capital_action",
+        }
         and earnings_read.shares_ex_treasury is None
         and earnings_read.market_cap_yen is None
         and _positive(earnings_read.price_yen) is not None
