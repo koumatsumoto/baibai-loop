@@ -38,7 +38,12 @@ class ModelGenerationStore:
 
     def publish_stream(self, generation: ModelGenerationStream) -> GenerationPublication:
         """全生成列を一回消費し、途中失敗ではheaderを含め一切公開しない。"""
-        metadata = generation.metadata
+        # Typed copies and mutable nested inputs can invalidate a once-checked header.
+        metadata = GenerationMetadata.model_validate(
+            generation.metadata.model_dump(
+                mode="python", include=set(GenerationMetadata.model_fields)
+            )
+        )
         validate_full_plan(metadata)
         header = canonical_json(
             metadata.model_dump(mode="json", include=set(GenerationMetadata.model_fields))
