@@ -76,6 +76,13 @@ class SavedValueGapView(BaseModel):
     findings_sources: list[SavedAssessmentSourceView]
 
 
+class SavedValueRealizationView(BaseModel):
+    mechanism: str
+    timing: Literal["known", "uncertain"]
+    timing_reason: str
+    delay_risk: str
+
+
 class SavedValuationProjectionView(BaseModel):
     terminal_value_per_share_yen: str
     cash_distribution_per_share_yen: str
@@ -110,6 +117,8 @@ class SavedAssessmentView(BaseModel):
     investment_case_status: Literal["intact", "broken", "uncertain"]
     investment_case_status_reason: str
     invalidation_conditions: list[str]
+    strongest_countercase: str | None = None
+    realization: SavedValueRealizationView | None = None
     value_gap: SavedValueGapView | None = None
     model_perspectives: list[SavedModelPerspectiveView] = Field(default_factory=list)
     model_perspective_sources: list[SavedAssessmentSourceView] = Field(default_factory=list)

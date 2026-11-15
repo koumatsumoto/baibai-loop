@@ -50,6 +50,8 @@ def _pair(
     questions=(),
     acceptance=None,
     value_gap=None,
+    countercase=None,
+    realization=None,
 ):
     raw, review_raw = pair_payload(review_number=number + 1)
     raw["model_perspectives"] = list(perspectives)
@@ -58,6 +60,10 @@ def _pair(
     raw["findings"]["unresolved_questions"] = list(questions)
     if value_gap is not None:
         raw["findings"]["value_gap_explanation"] = value_gap
+    if countercase is not None:
+        raw["conclusion"]["strongest_countercase"] = countercase
+    if realization is not None:
+        raw["findings"]["realization"] = realization
     if acceptance is not None:
         review_raw["uncertainty_acceptance_reason"] = acceptance
     if price is not None:
@@ -485,6 +491,13 @@ def test_holding_keeps_original_reason_separate_from_current_assessment(
             questions=[f"評価{n}に残った問い"],
             acceptance=f"評価{n}の合成の引受理由。",
             value_gap=f"評価{n}の価値差説明。比較期は未確認。",
+            countercase=f"評価{n}の作者反証。",
+            realization={
+                "mechanism": f"評価{n}の実現経路。",
+                "timing": "uncertain",
+                "timing_reason": f"評価{n}の時期は未確定。",
+                "delay_risk": f"評価{n}の遅延リスク。",
+            },
         )
         for n in (1, 10, 20)
     )
@@ -502,6 +515,9 @@ def test_holding_keeps_original_reason_separate_from_current_assessment(
     assert item.assessment.investment_case_explanation == "評価10の理由"
     assert item.assessment.value_gap.explanation == "評価10の価値差説明。比較期は未確認。"
     assert item.assessment.risk_analysis.unresolved_questions == ["評価10に残った問い"]
+    assert item.assessment.strongest_countercase == "評価10の作者反証。"
+    assert item.assessment.realization.mechanism == "評価10の実現経路。"
+    assert "評価20の" not in item.model_dump_json()
     assert item.case_reassessment_reason == "今回の根拠で当初仮説の変化を検討した。"
     if original_kind == "reference":
         assert item.original_assessment.assessment_id == original.assessment_id
@@ -512,6 +528,8 @@ def test_holding_keeps_original_reason_separate_from_current_assessment(
         assert item.original_assessment.core_sha256 == original.core_sha256
         assert item.original_assessment.review_id == original.review.review_id
         assert item.original_assessment.risk_analysis.unresolved_questions == ["評価1に残った問い"]
+        assert item.original_assessment.strongest_countercase == "評価1の作者反証。"
+        assert item.original_assessment.realization.mechanism == "評価1の実現経路。"
     else:
         assert item.original_assessment is None
         assert getattr(item, next(iter(origin))) == next(iter(origin.values()))
