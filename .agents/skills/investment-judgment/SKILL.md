@@ -117,6 +117,8 @@ uv run baibai-engine investment-judgment judgment-retrospective save <DRAFT> --d
 
 Assessment-onlyはproposal-id/tickerを`--assessment-id`へ替える。返されたexact原判断/Review/固定台帳を読み、節目理由・比較・lessonを書く。action/hash/eventを手転記せず、Assessment-onlyへ採否/注文を補わない。
 
+Proposal由来の市場補助は、元Selectionのhashに一致する当時の投影だけを読む。旧記録の未保存と参照不可を分け、現在headや未記録時計で補わない。当時の反証・未知・伝達条件を見送り/待機理由と照合する補助であり、現在の鮮度や原判断の妥当性を再認定しない。
+
 元主張の対象/条件/期と後日観測をexact文書内のsource/factで結び、比較理由を残す。支持/反証はその主張に限り、提案全体の勝敗ではない。同名source/旧supportedを今回確認にせず、不足は理由付きunresolvedとする。注文/約定/Reviewはcontext/lessonへ記し、架空Research sourceを作らない。台帳未記録はunknown、遅延報告は新scaffold/新IDで照合する。
 
 後日値上がり/公表は当時の価格条件/未公表を反証しない。利益があってもbasis誤りは改善対象、受容済み不利経路の損失なら手順不変も正常。損益と判断過程を分け、次回変える/変えない確認と理由を残す。
