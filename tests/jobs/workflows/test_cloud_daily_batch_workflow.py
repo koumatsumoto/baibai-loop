@@ -64,6 +64,58 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
     assert "steps.batch.outcome == 'success'" in by_id["source-seal"]["if"]
 
 
+def test_optional_edinet_acceptance_is_before_any_model_publication(workflow, steps, by_id):
+    declaration = workflow["on"]["workflow_dispatch"]["inputs"]["edinet_metrics_acceptance"]
+    assert declaration["type"] == "string"
+    assert declaration["required"] == "false"
+    gate = by_id["edinet-metrics-acceptance"]
+    assert gate["if"] == "${{ inputs.edinet_metrics_acceptance != '' }}"
+    ids = [step.get("id") for step in steps]
+    assert (
+        ids.index("source-integration")
+        < ids.index("edinet-metrics-acceptance")
+        < ids.index("batch")
+    )
+    assert "continue-on-error" not in gate
+    assert gate["env"]["R2_STOP_ON_REJECTION"] == "1"
+    assert gate["run"].index("integration.sources check") < gate["run"].index(
+        "integration.edinet_metric_acceptance"
+    )
+    assert "${{ inputs." not in gate["run"]
+    assert '"$RUNNER_TEMP/integration/applied.json"' in gate["run"]
+    assert "if" not in by_id["batch"]  # GitHub's normal success condition, never always().
+
+
+@pytest.mark.parametrize(
+    ("source_exit", "acceptance_exit", "calls"), [(41, 0, 1), (0, 42, 2), (0, 0, 2)]
+)
+def test_acceptance_phase_does_not_continue_after_a_failed_check(
+    tmp_path, by_id, source_exit, acceptance_exit, calls
+):
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    uv = binary / "uv"
+    uv.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/calls"\n'
+        f'case "$*" in *integration.sources*) exit {source_exit};; *) exit {acceptance_exit};; esac\n'
+    )
+    uv.chmod(0o755)
+    completed = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", by_id["edinet-metrics-acceptance"]["run"]],
+        env={
+            **os.environ,
+            "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+            "RUNNER_TEMP": str(tmp_path),
+            "EDINET_METRICS_ACCEPTANCE": '{"quoted":"$(exit 99)"}',
+        },
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == (source_exit or acceptance_exit)
+    assert len((tmp_path / "calls").read_text().splitlines()) == calls
+    assert (tmp_path / "edinet-metrics-acceptance.json").read_text() == '{"quoted":"$(exit 99)"}'
+
+
 def test_notifications_and_credentials_remain_scoped(steps, by_id):
     notify = by_id["notify"]
     assert notify["if"] == "${{ always() }}"
