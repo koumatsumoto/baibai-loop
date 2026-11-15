@@ -371,6 +371,7 @@ class ProposalAuthoringContext:
     calculations: dict[str, dict[str, object]]
     saved_market_context_assessment: JsonValue
     saved_analysis_context: JsonValue
+    saved_selection_context: dict[str, JsonValue]
 
     def payload(self) -> dict[str, object]:
         return {
@@ -393,6 +394,7 @@ class ProposalAuthoringContext:
             "market_context_assessment_id": self.market_context_assessment_id,
             "saved_market_context_assessment": deepcopy(self.saved_market_context_assessment),
             "saved_analysis_context": deepcopy(self.saved_analysis_context),
+            "saved_selection_context": deepcopy(self.saved_selection_context),
             "next_order_session": None
             if self.next_order_session is None
             else self.next_order_session.isoformat(),
@@ -580,4 +582,12 @@ def build_proposal_context(
             project_generated_inputs(selection.inputs.generation, model_ids=_ENVIRONMENT_MODELS)
             if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4))
             else None,
+            {
+                "role": "selection_time_rationale_not_final_judgment",
+                "selection_sha256": scope.selection_sha256,
+                "research_as_of": selection.research_as_of.isoformat(),
+                "input_known_at": selection.input_known_at.isoformat(),
+                "selection_summary": selection.selection_summary,
+                "targets": [target.model_dump(mode="json") for target in selection.targets],
+            },
         )
