@@ -13,11 +13,13 @@ from contextlib import AbstractContextManager, closing, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from baibai_engine.storage.objects.r2 import R2OperationStopped
 from baibai_engine.storage.snapshots.models import LakeObject
 from baibai_engine.storage.snapshots.objects import (
     MAX_BUFFERED_OBJECT_BYTES,
     LakeObjectCache,
     LakeObjectError,
+    LakeObjectRejected,
     LakeObjectSource,
     R2ObjectSource,
     R2ReadCredentials,
@@ -108,6 +110,7 @@ class PrefetchingSource:
         self._stop = threading.Event()
         self._budget = threading.Semaphore(buffer_slots)
         self._degraded_note = threading.Event()
+        self._terminal_error: LakeObjectRejected | R2OperationStopped | None = None
         self._threads = [
             threading.Thread(
                 target=self._work,
@@ -121,17 +124,20 @@ class PrefetchingSource:
             thread.start()
 
     def read_bytes(self, key: str) -> bytes:
+        self._raise_terminal_error()
         with self._lock:
             slot = self._slots.pop(key, None)
         if slot is None:
             return self._base.read_bytes(key)
         if not slot.ready.wait(self._wait_seconds):
+            self._raise_terminal_error()
             # The fetch this key was reserved into never finished. Waiting longer
             # trades a bounded fallback for an unbounded hang, so the prefetch is
             # abandoned and the fill continues on the base read it started from.
             self._note_degraded(f"waited {self._wait_seconds:.0f}s for {key}")
             self._wind_down()
             return self._base.read_bytes(key)
+        self._raise_terminal_error()
         payload = slot.payload
         if payload is None:
             # Skipped: already mirrored, or the workers wound down. The base source
@@ -144,6 +150,7 @@ class PrefetchingSource:
         return payload
 
     def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
+        self._raise_terminal_error()
         # Large planned objects are deliberately absent from the in-memory slots.
         with self._lock:
             self._slots.pop(key, None)
@@ -192,13 +199,19 @@ class PrefetchingSource:
                     item, slot = taken
                     if not self._fetch(source, item, slot):
                         return
-        except Exception as error:  # degrade to the sequential read, never fail the fill
+        except (LakeObjectRejected, R2OperationStopped) as error:
+            self._abort(error)
+        except Exception as error:  # A connection/setup failure can still use the base read.
             self._note_degraded(error)
             self._wind_down()
 
     def _take(self) -> tuple[LakeObject, _Slot] | None:
         with self._lock:
-            if self._stop.is_set() or self._next_index >= len(self._plan):
+            if (
+                self._terminal_error is not None
+                or self._stop.is_set()
+                or self._next_index >= len(self._plan)
+            ):
                 return None
             taken = self._plan[self._next_index]
             self._next_index += 1
@@ -223,6 +236,11 @@ class PrefetchingSource:
                 slot.resolve(None)
                 return True
             payload = source.read_bytes(item.key)
+        except (LakeObjectRejected, R2OperationStopped) as error:
+            self._budget.release()
+            self._abort(error)
+            slot.resolve(None)
+            return False
         except Exception as error:
             self._budget.release()
             slot.resolve(None)
@@ -231,6 +249,20 @@ class PrefetchingSource:
             return False
         slot.resolve(payload)
         return True
+
+    def _abort(self, error: LakeObjectRejected | R2OperationStopped) -> None:
+        # Carry the refusal to the consumer instead of losing it in a worker or
+        # converting it into a sequential retry. Already in-flight reads may finish.
+        with self._lock:
+            if self._terminal_error is None:
+                self._terminal_error = error
+        self._wind_down()
+
+    def _raise_terminal_error(self) -> None:
+        with self._lock:
+            error = self._terminal_error
+        if error is not None:
+            raise error
 
     def _wind_down(self) -> None:
         self._stop.set()
@@ -251,6 +283,9 @@ class PrefetchingSource:
 
         if self._degraded_note.is_set():
             return
+        with self._lock:
+            if self._terminal_error is not None:
+                return
         self._degraded_note.set()
         print(f"lake prefetch disabled; reads continue sequentially: {cause}", file=sys.stderr)
 
