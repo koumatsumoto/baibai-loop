@@ -510,6 +510,9 @@ def evaluate_assessment(
     ):
         errors.append("refresh check must be on/after as_of and before assessment")
     for fact in snapshot.facts:
+        # Historical pairs keep their recorded content and canonical identity.
+        if identity is UnpublishedAssessment.DRAFT and (error := fact.share_count_error()):
+            errors.append(error)
         if any(sources[ref].as_of < fact.as_of for ref in fact.source_ids if ref in sources):
             errors.append(f"fact {fact.fact_id} postdates its source")
         if fact.fact_kind == "market_price":
