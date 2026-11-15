@@ -80,6 +80,7 @@ def project_technical_financial_row(
         "state",
         "matched_routes",
         "routes",
+        "observations",
         "price_context",
         "expected_price_date",
         "market_relative_benchmark",
@@ -136,7 +137,7 @@ def evaluate_technical_financial_rows(
     rows: Mapping[str, TechnicalFinancialRow],
     policy: TechnicalFinancialPolicy,
 ) -> ScreeningSelection:
-    if policy.method != "technical-financial-discovery-v9":
+    if policy.method != "technical-financial-discovery-v10":
         raise ValueError("historical technical-financial policy is read-only")
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not set(rows).issubset(subjects):

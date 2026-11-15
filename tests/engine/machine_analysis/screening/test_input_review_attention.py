@@ -45,7 +45,7 @@ def review(ticker, routes=("a",), *, share_gap=False):
     )
 
 
-def result(rows, *, method="technical-financial-discovery-v9", order=None):
+def result(rows, *, method="technical-financial-discovery-v10", order=None):
     return TechnicalFinancialSelection(
         TechnicalFinancialPolicy(method=method),
         "T",
