@@ -103,7 +103,16 @@ def technical_financial_screening_brief(
         cards.append(
             {
                 **_pick(row, "ticker", "name", "sector", "screening_lane"),
-                "technical": _pick(row["technical"], "state", "matched_routes", "routes"),
+                "technical": _pick(
+                    row["technical"],
+                    "state",
+                    "matched_routes",
+                    "routes",
+                    "observation_failures",
+                    "market_relative_benchmark",
+                    "price_context",
+                    "expected_price_date",
+                ),
                 "financial_paths": {
                     "matched_routes": row["financial_paths"]["matched_routes"],
                     **_pick(row["financial_paths"], "input_review_reasons"),

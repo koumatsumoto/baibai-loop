@@ -66,7 +66,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v51-partial-split-basis"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v52-capital-event-forward-basis"
 
 
 def _reported_cfo_source(row: JQuantsFinancialSummary | None) -> dict[str, str | None] | None:
@@ -170,13 +170,11 @@ def build_financial_snapshot(
         capital_basis_barrier=capital_basis_barrier,
         capital_actions=capital_actions,
     )
-    if (
-        capital_basis.failure_reason == "indeterminate_treasury_after_capital_action"
-        and forecast is not None
-        and any(action.effective_date > forecast.disclosed_at for action in capital_actions)
+    if forecast is not None and any(
+        action.effective_date > forecast.disclosed_at for action in capital_actions
     ):
-        # A pre-action per-share forecast is not automatically valid after a
-        # new share issuance; retain the original document, not a synthetic EPS.
+        # Later complete capital establishes today's share count, not the
+        # basis of a pre-event forecast. Keep its amounts and source, not EPS.
         forecast_eps = None
         per_forward = None
     shares_outstanding = capital_basis.issued
