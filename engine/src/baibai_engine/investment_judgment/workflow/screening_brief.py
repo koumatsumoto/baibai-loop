@@ -28,7 +28,10 @@ def technical_financial_screening_brief(
     if page is not None and page < 0:
         raise ValueError("screening page must be nonnegative")
     index = {row.ticker: row for row in result.rows}
-    lane_local_review = result.policy.method == "technical-financial-discovery-v3"
+    lane_local_review = result.policy.method in {
+        "technical-financial-discovery-v3",
+        "technical-financial-discovery-v4",
+    }
     hash_page = lane_local_review and lane == "input_review" and page is not None
     mixed_order = lane_local_review and page is None
     lane_tickers = result.lane_tickers(lane)

@@ -51,7 +51,7 @@ from baibai_engine.machine_analysis.screening.selection_store import ScreeningSe
 from baibai_engine.primitives.json import encode_json
 
 
-def seed(path):
+def seed(path, *, stale=False):
     payloads = {
         "1234": case(reason="missing_capital_basis", technical=False),
         "2345": case(expansion=True, reason="missing_capital_basis", technical=False),
@@ -61,6 +61,14 @@ def seed(path):
     payloads["2345"]["company_growth"]["periods"][-1]["observations"][-1]["metrics"]["net_assets"][
         "value"
     ] = -22.0
+    if stale:
+        for ticker in ("1234", "2345"):
+            payloads[ticker]["company_financials"]["earnings_price"].update(
+                unavailable_reason="stale_price",
+                price_date="2026-11-12",
+                shares_ex_treasury=100.0,
+                market_cap_yen=10000.0,
+            )
     generated = []
     for ticker, data in payloads.items():
         data["company_growth"]["ticker"] = ticker
@@ -94,11 +102,12 @@ def seed(path):
     return fixed, selection, identity, publication.published_at + timedelta(seconds=1)
 
 
+@pytest.mark.parametrize("stale", [False, True])
 def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_resume(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, stale
 ):
     path = tmp_path / "runs"
-    fixed, selected, identity, now = seed(path)
+    fixed, selected, identity, now = seed(path, stale=stale)
     original_bytes = path.read_bytes()
     kwargs = dict(
         request=ResearchRequest(text="株数基準の確認", scope="discover_new"),
@@ -123,7 +132,10 @@ def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_res
         assert card["financial_paths"]["coordinates"] == []
         reason = card["financial_paths"]["input_review_reasons"][0]
         assert reason["generation_id"] == fixed.generation_id
-        assert reason["reason"] == "missing_capital_basis"
+        assert reason["reason"] == ("stale_price" if stale else "missing_capital_basis")
+        if stale:
+            assert reason["price_date"] == "2026-11-12"
+            assert reason["expected_price_date"] == "2026-11-13"
     detail = load_generated_selection_context(**kwargs, comparison_tickers=("1234", "2345", "4567"))
     saved_rows = {row.ticker: row for row in selected.result.rows}
     for row in detail["screening"]["comparison_rows"]:
@@ -211,41 +223,54 @@ def test_new_review_queue_is_company_unique_and_reaches_all_pages():
     assert discovery_display_order(tuple(reversed(rows))) == result.display_order
 
 
-def test_historical_v1_decodes_without_new_fields_and_is_not_recomputed(tmp_path):
+@pytest.mark.parametrize("revision", ["v1", "v2", "v3"])
+def test_historical_policy_keeps_canonical_fields_and_is_not_recomputed(tmp_path, revision):
     fixed, current, _, _ = seed(tmp_path / "runs")
-    rows = tuple(
-        replace(
-            row,
-            financial_paths={
-                key: value
-                for key, value in row.financial_paths.items()
-                if key != "input_review_reasons"
-            },
-            screening_lane="no_current_hypothesis"
-            if "input_review_reasons" in row.financial_paths
-            else row.screening_lane,
+    rows = (
+        tuple(
+            replace(
+                row,
+                financial_paths={
+                    key: value
+                    for key, value in row.financial_paths.items()
+                    if key != "input_review_reasons"
+                },
+                screening_lane="no_current_hypothesis"
+                if "input_review_reasons" in row.financial_paths
+                else row.screening_lane,
+            )
+            for row in current.result.rows
         )
-        for row in current.result.rows
+        if revision == "v1"
+        else current.result.rows
     )
     legacy = replace(
         current,
         result=replace(
             current.result,
-            policy=TechnicalFinancialPolicy(method="technical-financial-discovery-v1"),
+            policy=TechnicalFinancialPolicy(method=f"technical-financial-discovery-{revision}"),
             rows=rows,
             display_order=discovery_display_order(rows),
         ),
     )
     codec = TypeAdapter(ScreeningSelection)
     payload = encode_json(codec.dump_python(legacy, mode="json"))
-    assert "input_review_reasons" not in payload
+    assert ("input_review_reasons" in payload) is (revision != "v1")
     parsed = codec.validate_json(payload)
     assert encode_json(codec.dump_python(parsed, mode="json")) == payload
-    assert parsed.result.lane_tickers("input_review") == ()
+    assert bool(parsed.result.lane_tickers("input_review")) is (revision != "v1")
     assert (
         technical_financial_screening_brief(parsed.result)["policy"]["method"]
-        == "technical-financial-discovery-v1"
+        == f"technical-financial-discovery-{revision}"
     )
+    identity = technical_financial_selection_id(fixed.generation_id, policy=legacy.result.policy)
+    store = ScreeningSelectionStore(tmp_path / "runs")
+    store.publish(identity, legacy)
+    before_retry = (tmp_path / "runs").read_bytes()
+    store.publish(identity, legacy)
+    assert (tmp_path / "runs").read_bytes() == before_retry
+    restored = read_publication(path=tmp_path / "runs", selection_id=identity).selection
+    assert encode_json(codec.dump_python(restored, mode="json")) == payload
     with pytest.raises(ValueError, match=r"historical.*read-only"):
         evaluate_technical_financial_rows(
             fixed,

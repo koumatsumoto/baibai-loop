@@ -45,7 +45,7 @@ def review(ticker, routes=("a",), *, share_gap=False):
     )
 
 
-def result(rows, *, method="technical-financial-discovery-v3", order=None):
+def result(rows, *, method="technical-financial-discovery-v4", order=None):
     return TechnicalFinancialSelection(
         TechnicalFinancialPolicy(method=method),
         "T",
@@ -179,7 +179,12 @@ def test_brief_explains_only_the_new_input_lane_and_counts_companies_not_routes(
 
 
 @pytest.mark.parametrize(
-    "method", ["technical-financial-discovery-v1", "technical-financial-discovery-v2"]
+    "method",
+    [
+        "technical-financial-discovery-v1",
+        "technical-financial-discovery-v2",
+        "technical-financial-discovery-v3",
+    ],
 )
 def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(method):
     rows = (review("1001"), review("1002"), review("1003"))
@@ -187,8 +192,14 @@ def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(
     saved = result(rows, method=method, order=stored_order)
     brief = technical_financial_screening_brief(saved, lane="input_review")
     assert tuple(c["ticker"] for c in brief["cards"]) == stored_order
-    assert brief["presentation"]["ties"] == "ticker_code_order_not_quality_or_return"
-    assert "financial_gate_states" not in brief["lanes"]["input_review"]
+    if method == "technical-financial-discovery-v3":
+        assert (
+            brief["presentation"]["ties"] == "stable_company_hash_then_ticker_not_quality_or_return"
+        )
+        assert "financial_gate_states" in brief["lanes"]["input_review"]
+    else:
+        assert brief["presentation"]["ties"] == "ticker_code_order_not_quality_or_return"
+        assert "financial_gate_states" not in brief["lanes"]["input_review"]
     with pytest.raises(ValueError, match=r"historical.*read-only"):
         evaluate_technical_financial_rows(_metadata(), tickers=(), rows={}, policy=saved.policy)
     assert technical_financial_selection_id(

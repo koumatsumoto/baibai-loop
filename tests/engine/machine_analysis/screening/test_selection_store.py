@@ -101,7 +101,7 @@ def test_invalid_policy_copy_is_rejected_before_any_store_write(
         *(EconomicPathPolicy(method=f"best-economic-path-v{version}") for version in range(1, 5)),
         *(
             TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}")
-            for version in range(1, 4)
+            for version in range(1, 5)
         ),
     ],
 )
