@@ -172,6 +172,12 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
         investment_case_status=case.status,
         investment_case_status_reason=case.status_reason,
         invalidation_conditions=list(case.invalidation_conditions),
+        investment_case_source_ids=list(case.source_ids),
+        investment_case_sources=[
+            SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
+            for source in document.input_snapshot.sources
+            if source.source_id in case.source_ids
+        ],
         refresh=(
             None
             if document.refresh is None

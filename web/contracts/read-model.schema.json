@@ -1013,6 +1013,36 @@
           "title": "Invalidation Conditions",
           "type": "array"
         },
+        "investment_case_source_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Investment Case Source Ids"
+        },
+        "investment_case_sources": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SavedAssessmentSourceView"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Investment Case Sources"
+        },
         "refresh": {
           "anyOf": [
             {
@@ -1123,6 +1153,8 @@
         "investment_case_status",
         "investment_case_status_reason",
         "invalidation_conditions",
+        "investment_case_source_ids",
+        "investment_case_sources",
         "refresh",
         "strongest_countercase",
         "realization",
