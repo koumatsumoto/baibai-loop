@@ -939,6 +939,29 @@
           "title": "Invalidation Conditions",
           "type": "array"
         },
+        "strongest_countercase": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strongest Countercase"
+        },
+        "realization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedValueRealizationView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "value_gap": {
           "anyOf": [
             {
@@ -1015,6 +1038,8 @@
         "investment_case_status",
         "investment_case_status_reason",
         "invalidation_conditions",
+        "strongest_countercase",
+        "realization",
         "value_gap",
         "model_perspectives",
         "model_perspective_sources",
@@ -2440,6 +2465,38 @@
         "findings_sources"
       ],
       "title": "SavedValueGapView",
+      "type": "object"
+    },
+    "SavedValueRealizationView": {
+      "properties": {
+        "mechanism": {
+          "title": "Mechanism",
+          "type": "string"
+        },
+        "timing": {
+          "enum": [
+            "known",
+            "uncertain"
+          ],
+          "title": "Timing",
+          "type": "string"
+        },
+        "timing_reason": {
+          "title": "Timing Reason",
+          "type": "string"
+        },
+        "delay_risk": {
+          "title": "Delay Risk",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mechanism",
+        "timing",
+        "timing_reason",
+        "delay_risk"
+      ],
+      "title": "SavedValueRealizationView",
       "type": "object"
     },
     "UnfinishedResearchView": {

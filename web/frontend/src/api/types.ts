@@ -153,6 +153,8 @@ export interface SavedAssessmentView {
   investment_case_status: 'intact' | 'broken' | 'uncertain'
   investment_case_status_reason: string
   invalidation_conditions: string[]
+  strongest_countercase: string | null
+  realization: SavedValueRealizationView | null
   value_gap: SavedValueGapView | null
   model_perspectives: SavedModelPerspectiveView[]
   model_perspective_sources: SavedAssessmentSourceView[]
@@ -366,6 +368,13 @@ export interface SavedValueGapView {
   explanation: string
   findings_source_ids: string[]
   findings_sources: SavedAssessmentSourceView[]
+}
+
+export interface SavedValueRealizationView {
+  mechanism: string
+  timing: 'known' | 'uncertain'
+  timing_reason: string
+  delay_risk: string
 }
 
 export interface UnfinishedResearchView {
