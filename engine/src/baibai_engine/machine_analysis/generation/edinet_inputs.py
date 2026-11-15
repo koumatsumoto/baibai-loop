@@ -138,7 +138,7 @@ def retain_edinet_input(
 
 
 def read_edinet_input(store: ObjectStore, saved: InputSnapshot) -> EdinetModelInput:
-    """Recover the saved membership and clocks without current heads, L2, or HTTP."""
+    """現行head・L2・提供元の再取得に頼らず、保持済みobjectから組と時計を復元する。"""
     saved = InputSnapshot.model_validate_json(saved.model_dump_json())
     if saved.kind != "native_l1" or saved.reference != "edinet-" + saved.sha256:
         raise ValueError("a digest-verified native EDINET input is required")
