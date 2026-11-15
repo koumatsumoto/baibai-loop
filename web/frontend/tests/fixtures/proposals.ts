@@ -35,6 +35,8 @@ export function assessmentFixture(label: string): SavedAssessmentView {
     risk_analysis: null,
     valuation: null,
     review: {
+      checked_source_ids: null,
+      checked_sources: null,
       reviewed_at: '2026-10-26T08:15:30+09:00',
       primary_source_check: 'partially_verified',
       review_scope: `${label}の検証範囲：公開資料の売上・利益。未開示の契約更新率は未確認。`,

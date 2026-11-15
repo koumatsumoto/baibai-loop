@@ -283,6 +283,12 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
             review_scope=review.review_scope,
             strongest_countercase=review.strongest_countercase,
             uncertainty_acceptance_reason=review.uncertainty_acceptance_reason,
+            checked_source_ids=list(review.checked_source_ids),
+            checked_sources=[
+                SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
+                for source in document.input_snapshot.sources
+                if source.source_id in review.checked_source_ids
+            ],
         ),
     )
 

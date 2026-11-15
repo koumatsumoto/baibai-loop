@@ -141,6 +141,8 @@ export interface SavedAssessmentReviewView {
   review_scope: string
   strongest_countercase: string
   uncertainty_acceptance_reason: string | null
+  checked_source_ids: string[] | null
+  checked_sources: SavedAssessmentSourceView[] | null
 }
 
 export interface SavedAssessmentRisksView {

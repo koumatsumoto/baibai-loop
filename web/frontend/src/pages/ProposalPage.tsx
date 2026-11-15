@@ -208,6 +208,17 @@ function AssessmentExcerpt({ assessment, showCountercase = true }: { assessment:
           <Field label="独立検証時刻"><SavedTime value={review.reviewed_at} /></Field>
         </dl>
         <Prose>{review.review_scope}</Prose>
+        <div>
+          <p className="text-sm font-medium">独立検証の保存確認資料</p>
+          {review.checked_source_ids == null || review.checked_sources == null
+            ? <p className="text-xs text-muted-foreground">この表示データには確認資料の対応が含まれていません。未確認や確認済みとは補いません。</p>
+            : <>
+              <p className="text-xs leading-6 text-muted-foreground">検証者が確認対象として記録した当時の資料です。作者の引用や資料全体の一覧とは別で、全記述の検証・資料間の独立性・現在の安全性を保証しません。上の確認範囲と部分確認・不確実性の留保を合わせて読みます。</p>
+              {review.checked_source_ids.length === 0
+                ? <p className="text-xs text-muted-foreground">この表示データの確認資料は空です。別の引用から補っていません。</p>
+                : <AssessmentSources sourceIds={review.checked_source_ids} sources={review.checked_sources} />}
+            </>}
+        </div>
         {showCountercase && <AssessmentCountercases assessment={assessment} />}
         {review.uncertainty_acceptance_reason !== null && <div><p className="mb-1 text-sm font-medium">不確実性を引き受けた理由</p><Prose>{review.uncertainty_acceptance_reason}</Prose></div>}
       </div>

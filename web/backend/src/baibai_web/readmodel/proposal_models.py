@@ -76,6 +76,8 @@ class SavedAssessmentReviewView(BaseModel):
     review_scope: str
     strongest_countercase: str
     uncertainty_acceptance_reason: str | None
+    checked_source_ids: list[str] | None = None
+    checked_sources: list[SavedAssessmentSourceView] | None = None
 
 
 class SavedValueGapView(BaseModel):
