@@ -17,8 +17,8 @@ function assessment(label = '今回') {
   result.valuation = {
     status: 'resolved', price_yen: '1000', price_as_of: '2026-10-26', price_observed_at: null,
     price_basis: 'last_close_unadjusted', horizon_months: 12, required_annual_return_pct: '6',
-    base: { terminal_value_per_share_yen: '1100', cash_distribution_per_share_yen: '0', annualized_return_pct: '10', calculation: '合成の中心条件' },
-    downside: { terminal_value_per_share_yen: '700', cash_distribution_per_share_yen: '0', annualized_return_pct: '-30', calculation: '合成の下方条件' },
+    base: { source_ids: null, sources: null, terminal_value_per_share_yen: '1100', cash_distribution_per_share_yen: '0', annualized_return_pct: '10', calculation: '合成の中心条件' },
+    downside: { source_ids: null, sources: null, terminal_value_per_share_yen: '700', cash_distribution_per_share_yen: '0', annualized_return_pct: '-30', calculation: '合成の下方条件' },
   }
   return result
 }

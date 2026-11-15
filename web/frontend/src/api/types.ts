@@ -386,6 +386,8 @@ export interface SavedValuationProjectionView {
   cash_distribution_per_share_yen: string
   annualized_return_pct: string
   calculation: string
+  source_ids: string[] | null
+  sources: SavedAssessmentSourceView[] | null
 }
 
 export interface SavedValueGapView {

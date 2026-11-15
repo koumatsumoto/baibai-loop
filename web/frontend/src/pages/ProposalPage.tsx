@@ -15,6 +15,7 @@ import type {
 } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { AssessmentRisks } from '../components/AssessmentRisks'
+import { AssessmentSources } from '../components/AssessmentSources'
 import { AssessmentValueGap } from '../components/AssessmentValueGap'
 import { ModelPerspectives } from '../components/ModelPerspectives'
 import { ReportSummary } from '../components/ReportSummary'
@@ -219,6 +220,12 @@ function AssessmentValue({ assessment }: { assessment: SavedAssessmentView }) {
               <Field label="期間内の累積分配（1株）">{value.cash_distribution_per_share_yen} 円</Field>
             </dl>
             <Prose>{value.calculation}</Prose>
+            {value.source_ids == null || value.sources == null
+              ? <p className="text-xs text-muted-foreground">この表示データには、このケースの引用対応が含まれていません。根拠がないことを示しません。</p>
+              : <div>
+                <p className="text-xs leading-6 text-muted-foreground">このケースの仮定に作者が引用した保存資料です。引用の存在は将来値の確定・予測の的中や独立した支持票を意味しません。</p>
+                <AssessmentSources sourceIds={value.source_ids} sources={value.sources} />
+              </div>}
           </div>)}
           <AssessmentCountercases assessment={assessment} />
         </div>
