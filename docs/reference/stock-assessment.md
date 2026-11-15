@@ -129,6 +129,8 @@ supportedには未破綻以上の積極的な価値根拠が必要。不明点�
 
 評価/ReviewとProposalは同じexact core pairへ束縛する。最新のunsupported/unresolvedを避けて旧supportedへ戻らず、保存読取へ現在cash/価格条件を適用しない。
 
+保存提案には同じReviewが確認対象とした資料とその時計を、作者引用とは別に表示する。確認対象の記録を全記述の検証・資料間の独立性・現在の確認へ広げず、一次資料の確認状態・検証範囲・残る不確実性と併読する。旧表示の未収録を作者引用や全資料から補わない。
+
 <a id="assessment-refresh"></a>
 ## 差分refreshと文章編集
 

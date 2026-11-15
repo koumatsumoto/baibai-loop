@@ -841,6 +841,36 @@
             }
           ],
           "title": "Uncertainty Acceptance Reason"
+        },
+        "checked_source_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked Source Ids"
+        },
+        "checked_sources": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SavedAssessmentSourceView"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked Sources"
         }
       },
       "required": [
@@ -848,7 +878,9 @@
         "primary_source_check",
         "review_scope",
         "strongest_countercase",
-        "uncertainty_acceptance_reason"
+        "uncertainty_acceptance_reason",
+        "checked_source_ids",
+        "checked_sources"
       ],
       "title": "SavedAssessmentReviewView",
       "type": "object"
