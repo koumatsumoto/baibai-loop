@@ -6,7 +6,9 @@ import hashlib
 import sqlite3
 import time
 from collections.abc import Collection, Iterable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
+from threading import Lock
 from typing import TYPE_CHECKING, TextIO
 
 from pydantic import JsonValue
@@ -191,8 +193,9 @@ def read_comparison_population(
         population.setdefault(item.ticker, []).append(item)
     if diagnostics is not None:
         # Iterator time includes fixed-body GET and size/hash validation (or SQL
-        # reads), not network time alone. Seed time includes local L2 decoding and
-        # validation. Neither measurement belongs in saved input/model identity.
+        # reads), not network time alone or the sum of concurrent worker times.
+        # Seed time includes local L2 decoding and validation. Neither measurement
+        # belongs in saved input/model identity.
         print(
             "model inputs: edinet_comparisons "
             f"selected={len(observations)} ready={len(ready)} "
@@ -217,12 +220,7 @@ def _archive_contents(
     if not doc_ids:
         return
     if archives is not None:
-        retained = archives.archive_keys
-        for doc_id in doc_ids:
-            if (doc_id, 1) in retained:
-                # Blocked vintages still require the real bytes, not a metadata
-                # hash that could hide a missing or damaged retained original.
-                yield doc_id, archives.read_xbrl_zip(doc_id)
+        yield from _native_archive_contents(archives, doc_ids)
         return
     statement = "SELECT doc_id, zip_content FROM edinet_source_archives WHERE source_type = 1"
     parameters: tuple[str, ...] = ()
@@ -235,3 +233,60 @@ def _archive_contents(
         for doc_id, content in batch:
             if doc_id in doc_ids:
                 yield doc_id, bytes(content)
+
+
+def _native_archive_contents(
+    archives: FixedEdinetArchives, doc_ids: Collection[str]
+) -> Iterator[tuple[str, bytes]]:
+    failure: Exception | None = None
+    admission = Lock()
+
+    def read(doc_id: str) -> tuple[str, bytes] | None:
+        nonlocal failure
+        with admission:
+            if failure is not None:
+                return None
+        try:
+            # Blocked vintages and warm seeds still require the real fixed bytes.
+            return doc_id, archives.read_xbrl_zip(doc_id)
+        except Exception as error:
+            with admission:
+                if failure is None:
+                    failure = error
+            return None
+
+    with ThreadPoolExecutor(max_workers=4) as workers:
+
+        def read_batch(batch: list[str]) -> Iterator[tuple[str, bytes]]:
+            # Join this batch before yielding or admitting another one. A failure
+            # stops new reads; at most four already admitted reads can finish.
+            results = list(workers.map(read, batch))
+            if failure is not None:
+                raise failure
+            for item in results:
+                assert item is not None
+                yield item
+
+        batch: list[str] = []
+        size = 0
+        first = True
+        retained = archives.archive_keys
+        for doc_id in doc_ids:
+            if (doc_id, 1) not in retained:
+                continue
+            metadata = archives.metadata(doc_id, 1)
+            assert metadata is not None
+            if first:
+                # Preserve the initial failure boundary and initialize the
+                # store's reusable client before concurrent reads begin.
+                yield doc_id, archives.read_xbrl_zip(doc_id)
+                first = False
+                continue
+            # Bound normal retained bodies, not wire bytes or whole-process RSS.
+            # A larger single ZIP keeps the existing reader's validation path.
+            if batch and (len(batch) == 4 or size + metadata.size > 32 * 1024**2):
+                yield from read_batch(batch)
+                batch, size = [], 0
+            batch.append(doc_id)
+            size += metadata.size
+        yield from read_batch(batch)

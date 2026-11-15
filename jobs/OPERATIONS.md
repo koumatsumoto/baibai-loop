@@ -58,6 +58,8 @@ EDINETの意味revisionを明示反映するときは、固定原本の隔離比
 
 停止時は最後の未完phase、store/release・generation/selection・lease解放を確認する。logのdoneや通知成功は反映の証明でなく、限定source成功を全体成功にしない。候補0を投資機会なしとせず、[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を確認する。既定読取は発行時計より新しいas_ofを優先する。過去計算はexact IDで読み、古い非空候補へfallbackしない。
 
+所要時間はsource planの段階別stderrとmodel integrationのphase経過を分けて読む。EDINET比較の読取時間は固定ZIPの検証を待つ呼出側の経過で、並列workerの通信時間の総和ではない。有限batchの宣言サイズは異常bodyの転送量やprocess全体RSSの上限を保証せず、実際の短縮は同条件の本番phaseで確認する。経過ログは固定入力・モデルidentityに含めない。
+
 経済固定metadataのretain/rebuildは、検証済みbytesの同一実行内handoffと、その区間だけの逐次・間隔付きR2転送を使う。転送量の削減はquota保証ではない。429ではそのscopeの待機requestも止め、Retry-Afterは次回判断の最早時刻として扱い、自動でpassを再実行しない。
 
 取得期限にはexport/stageの余白を残す。Retry-Afterを短縮せず、認証/403/解析失敗へretryを広げない。継続不能429は同quota groupのそのpassを止める。H.15のbrowser起動不能とsource拒否を分ける。
