@@ -20,17 +20,26 @@ class Element:
 
     @property
     def text(self) -> str:
-        return "".join(child if isinstance(child, str) else child.text for child in self.children)
+        parts: list[str] = []
+        pending: list[Element | str] = list(reversed(self.children))
+        while pending:
+            child = pending.pop()
+            if isinstance(child, str):
+                parts.append(child)
+            else:
+                pending.extend(reversed(child.children))
+        return "".join(parts)
 
     def find(self, tag: str | None = None, **attrs: str) -> list[Element]:
         found = []
-        if (tag is None or self.tag == tag) and all(
-            self.attrs.get(key) == value for key, value in attrs.items()
-        ):
-            found.append(self)
-        for child in self.children:
-            if isinstance(child, Element):
-                found.extend(child.find(tag, **attrs))
+        pending = [self]
+        while pending:
+            node = pending.pop()
+            if (tag is None or node.tag == tag) and all(
+                node.attrs.get(key) == value for key, value in attrs.items()
+            ):
+                found.append(node)
+            pending.extend(child for child in reversed(node.children) if isinstance(child, Element))
         return found
 
     def has_class(self, value: str) -> bool:
@@ -39,11 +48,17 @@ class Element:
 
 def numeric_text(element: Element) -> str:
     """Preserve explicit line breaks without adding gaps between inline elements."""
-    if element.tag == "br":
-        return "\n"
-    return "".join(
-        child if isinstance(child, str) else numeric_text(child) for child in element.children
-    )
+    parts: list[str] = []
+    pending: list[Element | str] = [element]
+    while pending:
+        child = pending.pop()
+        if isinstance(child, str):
+            parts.append(child)
+        elif child.tag == "br":
+            parts.append("\n")
+        else:
+            pending.extend(reversed(child.children))
+    return "".join(parts)
 
 
 class _Document(HTMLParser):
