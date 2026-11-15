@@ -163,7 +163,7 @@ def apply_pdf_periods(
 def apply_pdf_changes(
     changes: Sequence[Change], selected: PdfFinancialSelection | None, *, sector: str | None
 ) -> tuple[Change, ...]:
-    if selected is None:
+    if selected is None or not selected.comparative_verified:
         return tuple(changes)
     if selected.current is None:
         if not selected.blocks_legacy_ttm:
@@ -185,8 +185,6 @@ def apply_pdf_changes(
             else change
             for change in changes
         )
-    if not selected.comparative_verified:
-        return tuple(changes)
     current = selected.current
     assert current.current_start is not None
     assert current.current_end is not None

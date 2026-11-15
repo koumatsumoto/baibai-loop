@@ -36,7 +36,7 @@ type AnnualRevisionBasis = Literal[
     "same_disclosure", "latest_reconfirmed_unchanged_amounts", "same_day_restated_reference_actual"
 ]
 
-REVISION = "retained-pdf-restatement-selection-v4"
+REVISION = "retained-pdf-restatement-selection-v5"
 _FIELDS: dict[Metric, str] = {
     "sales": "sales",
     "operating_profit": "operating_profit",
@@ -237,6 +237,62 @@ def _annual_statement_order_reason(
     )
 
 
+def _known_annual_conflict(
+    current: JQuantsFinancialSummary,
+    rows: Sequence[JQuantsFinancialSummary],
+    statements: Sequence[PdfStatement],
+    documents: Sequence[JQuantsFinancialSummary],
+) -> tuple[JQuantsFinancialSummary, PdfStatement] | None:
+    if accounting_standard(current) != "JP" or statement_basis(current) != "consolidated":
+        return None
+    assert current.period_start is not None
+    annual = _latest(
+        [
+            row
+            for row in rows
+            if row.period_start is not None
+            and row.period_end is not None
+            and row.period_end == current.period_start - timedelta(days=1)
+            and is_annual_period(row.period_start, row.period_end)
+            and accounting_standard(row) == accounting_standard(current)
+            and statement_basis(row) == statement_basis(current)
+        ]
+    )
+    if annual is None:
+        return None
+    references = [
+        item
+        for item in statements
+        if item.reason is None
+        and item.annual_reference is not None
+        and item.annual_reference.fiscal_year_end == annual.period_end
+        and item.published_on is not None
+        and item.accounting_standard in {None, "JP"}
+        and item.statement_basis == statement_basis(annual)
+        and item.unit == "JPY_million"
+        and _annual_reference_order_reason(annual, item, documents)
+        != "annual_revised_after_reference_disclosure"
+    ]
+    latest_day = max((item.published_on or date.min for item in references), default=None)
+    for reference in sorted(
+        (item for item in references if item.published_on == latest_day),
+        key=lambda item: item.source_sha256,
+    ):
+        assert reference.annual_reference is not None
+        for metric, field in _FIELDS.items():
+            amount = getattr(annual, field)
+            displayed = reference.annual_reference.amounts.get(metric)
+            # 丸め規則が不明な表示同士の一単位差を、再表示の確定差にしない。
+            if (
+                amount is not None
+                and field not in annual.unresolved_actual_fields
+                and displayed is not None
+                and abs(Decimal(str(amount)) - displayed * 1_000_000) > 1_000_000
+            ):
+                return annual, reference
+    return None
+
+
 def select_pdf_financials(
     documents: Sequence[JQuantsFinancialSummary], statements: Sequence[PdfStatement], *, as_of: date
 ) -> PdfFinancialSelection | None:
@@ -273,17 +329,35 @@ def select_pdf_financials(
     if current is None and current_is_annual:
         current = _unchanged_annual_pdf(current_row, rows, retained)
     if current is None:
+        current_pdf_retained = any(
+            (item.current_start, item.current_end)
+            == (current_row.period_start, current_row.period_end)
+            for item in retained
+        )
+        conflict = (
+            _known_annual_conflict(current_row, rows, retained, projected)
+            if not current_is_annual and not current_pdf_retained
+            else None
+        )
+        if conflict is not None:
+            conflicting_annual, reference = conflict
+            # 年度の矛盾は残すが、最新中間期の比較値を参考年度だけで補作しない。
+            return PdfFinancialSelection(
+                status="unavailable",
+                reason="known_restated_annual_operand_conflict",
+                blocks_legacy_ttm=True,
+                comparative_verified=False,
+                period_start=current_row.period_start,
+                period_end=current_row.period_end,
+                annual=reference,
+                annual_latest_disclosure_number=conflicting_annual.disclosure_number,
+            )
         return PdfFinancialSelection(
             status="unavailable",
             reason=reason,
             period_start=current_row.period_start,
             period_end=current_row.period_end,
-            blocks_legacy_ttm=not current_is_annual
-            and any(
-                (item.current_start, item.current_end)
-                == (current_row.period_start, current_row.period_end)
-                for item in retained
-            ),
+            blocks_legacy_ttm=not current_is_annual and current_pdf_retained,
         )
     assert current.current_start is not None
     assert current.current_end is not None
