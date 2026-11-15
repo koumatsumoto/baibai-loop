@@ -23,12 +23,12 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.primitives.time import JST
 
-REVISION = "pdf-restated-display-statements-v3"
+REVISION = "pdf-restated-display-statements-v4-ifrs-interim"
 type Metric = Literal["sales", "operating_profit", "parent_profit"]
-_ROWS: dict[Metric, str] = {
-    "sales": "売上高",
-    "operating_profit": "営業利益",
-    "parent_profit": "親会社の所有者",
+_ROWS: dict[Metric, tuple[str, ...]] = {
+    "sales": ("売上高", "売上収益"),
+    "operating_profit": ("営業利益",),
+    "parent_profit": ("親会社の所有者",),
 }
 _DATE = r"(\d{4})年(\d{1,2})月(\d{1,2})日"
 
@@ -161,7 +161,10 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
             return _extract_jp_quarter(base, normalized)
         if "通期連結業績予想値の修正" in compact:
             return _extract_annual_reference(base, normalized)
-        _require("決算短信〔IFRS〕(連結)" in compact, "pdf_accounting_basis_unsupported")
+        _require(
+            re.search(r"決算短信〔IFRS(?:会計基準)?〕\(連結\)", compact) is not None,
+            "pdf_accounting_basis_unsupported",
+        )
         _require(f"コード番号{base.ticker}" in compact, "pdf_issuer_mismatch")
         _require("百万円未満切捨て" in compact, "pdf_precision_unknown")
         title = first.split("上場会社名", 1)[0]
@@ -176,7 +179,11 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
             for number, page in enumerate(normalized, 1)
             if any(
                 label in _compact(page)
-                for label in ("(連結損益計算書)", "(要約四半期連結損益計算書)")
+                for label in (
+                    "(連結損益計算書)",
+                    "(要約四半期連結損益計算書)",
+                    "(要約中間連結損益計算書)",
+                )
             )
         ]
         _require(len(candidates) == 1, "pdf_statement_missing_or_ambiguous")
@@ -201,30 +208,45 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
             ),
             "pdf_comparative_period_mismatch",
         )
-        # Native labels establish left prior/right current, not numerical date sorting.
-        _require(
-            re.search(r"前(?:第1四半期連結累計期間|連結会計年度)", table) is not None
-            and re.search(r"当(?:第1四半期連結累計期間|連結会計年度)", table) is not None,
-            "pdf_column_roles_unsupported",
-        )
+        # Half-year comparisons cannot borrow an annual or Q1 restatement note.
+        interim = current_end == add_months_clamped(current_start, 6) - timedelta(days=1)
+        if interim:
+            _require(
+                re.findall(
+                    r"(?:前|当)(?:第1四半期連結累計期間|中間連結会計期間|連結会計年度)",
+                    table,
+                )
+                == ["前中間連結会計期間", "当中間連結会計期間"],
+                "pdf_column_roles_unsupported",
+            )
+            basis_pattern = (
+                r"前中間連結会計期間(?:及び前連結会計年度)?の(?:財務)?数値についても、?"
+                r"IFRS(?:会計基準)?(?:ベース)?に組(?:み)?替えて(?:比較分析|表示)"
+            )
+        else:
+            # Native labels establish left prior/right current, not date sorting.
+            _require(
+                re.search(r"前(?:第1四半期連結累計期間|連結会計年度)", table) is not None
+                and re.search(r"当(?:第1四半期連結累計期間|連結会計年度)", table) is not None,
+                "pdf_column_roles_unsupported",
+            )
+            basis_pattern = (
+                r"前(?:第1四半期連結累計期間|連結会計年度)の数値についても、"
+                r"IFRS(?:会計基準)?ベースに組み替えて比較分析"
+            )
         basis = [
             (index, match[0])
             for index, page in enumerate(normalized, 1)
-            if (
-                match := re.search(
-                    r"前(?:第1四半期連結累計期間|連結会計年度)の数値についても、"
-                    r"IFRS(?:会計基準)?ベースに組み替えて比較分析",
-                    _compact(page),
-                )
-            )
-            is not None
+            if (match := re.search(basis_pattern, _compact(page))) is not None
         ]
         _require(bool(basis), "pdf_comparative_basis_not_explicit")
         heading = first.split("基本的1株当たり", 1)[0]
         headline = []
         for line in heading.splitlines():
             tokens = line.split()
-            if len(tokens) == 13 and re.fullmatch(r"\d{4}年\d+月期(?:第1四半期)?", tokens[0]):
+            if len(tokens) == 13 and re.fullmatch(
+                r"\d{4}年\d+月期(?:第1四半期|中間期)?", tokens[0]
+            ):
                 headline.append(tokens)
         _require(len(headline) == 2, "pdf_headline_columns_unknown")
         _require(headline[0][0] > headline[1][0], "pdf_headline_order_unknown")
@@ -232,25 +254,29 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
             (headline[0], current_start, current_end),
             (headline[1], prior_start, prior_end),
         ):
-            header = re.fullmatch(r"(\d{4})年(\d+)月期(第1四半期)?", row[0])
+            header = re.fullmatch(r"(\d{4})年(\d+)月期(第1四半期|中間期)?", row[0])
             assert header is not None
             year, month = int(header[1]), int(header[2])
             fiscal_end = date(year, month, monthrange(year, month)[1])
             fiscal_start = add_months_clamped(fiscal_end, -12) + timedelta(days=1)
-            expected_end = (
-                add_months_clamped(fiscal_start, 3) - timedelta(days=1) if header[3] else fiscal_end
-            )
+            months = {"第1四半期": 3, "中間期": 6, None: 12}[header[3]]
+            expected_end = add_months_clamped(fiscal_start, months) - timedelta(days=1)
             _require(start == fiscal_start and end == expected_end, "pdf_headline_period_conflict")
         pairs = []
-        for metric, label in _ROWS.items():
+        for metric, labels in _ROWS.items():
             matched = re.findall(
-                r"^\s*" + re.escape(label) + r"\s+([△-]?[\d,]+)\s+([△-]?[\d,]+)\s*$",
+                r"^\s*("
+                + "|".join(map(re.escape, labels))
+                + r")\s+([△-]?[\d,]+)\s+([△-]?[\d,]+)\s*$",
                 table,
                 re.MULTILINE,
             )
             _require(len(matched) == 1, "pdf_metric_missing_or_ambiguous:" + metric)
-            prior_text, current_text = matched[0]
-            prior, current = (int(value.replace(",", "").replace("△", "-")) for value in matched[0])
+            label, prior_text, current_text = matched[0]
+            prior, current = (
+                int(value.replace(",", "").replace("△", "-"))
+                for value in (prior_text, current_text)
+            )
             column = {"sales": 1, "operating_profit": 3, "parent_profit": 9}[metric]
             _require(
                 [int(row[column].replace(",", "").replace("△", "-")) for row in headline]
