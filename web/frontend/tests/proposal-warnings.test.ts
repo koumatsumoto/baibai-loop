@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { ProposalItemCard, ProposalReport } from '../src/pages/ProposalPage'
-import { buyFixture, newProposalFixture, proposalViewFixture, sellFixture, termsFixture } from './fixtures/proposals'
+import { buyFixture, holdingProposalFixture, newProposalFixture, proposalViewFixture, sellFixture, termsFixture } from './fixtures/proposals'
 
 function renderTerms(warnings: string[], sell = false) {
   const item = sell
@@ -13,6 +13,39 @@ function renderTerms(warnings: string[], sell = false) {
 }
 
 describe('保存注意の意味と元記録', () => {
+  it('保有判断と台帳予約を区別し、holdを取消命令や売買阻止に変えない', () => {
+    const warnings = ['hold_active_reservation_requires_confirmation:1234']
+    const before = JSON.stringify(holdingProposalFixture)
+    const html = renderToStaticMarkup(createElement(ProposalReport, {
+      data: proposalViewFixture({ ...holdingProposalFixture, warnings }),
+    }))
+    expect(html).toContain('保有継続 · hold')
+    expect(html).toContain('保存入力の台帳に、保有継続を提案した銘柄の未完了予約が残っています。')
+    expect(html).toContain('保有判断は既存注文の取消・失効確認ではありません。')
+    expect(html).toContain('現在の注文状態は別に確認してください。')
+    expect(html).toContain('対象：1234')
+    expect(html).toContain(warnings[0])
+    expect(JSON.stringify(holdingProposalFixture)).toBe(before)
+  })
+
+  it('予約注意のない旧表示へ現在の予約や取消済みを補わない', () => {
+    const html = renderToStaticMarkup(createElement(ProposalReport, {
+      data: proposalViewFixture({ ...holdingProposalFixture, warnings: [] }),
+    }))
+    expect(html).not.toContain('hold_active_reservation_requires_confirmation')
+    expect(html).not.toContain('未完了予約が残っています。')
+    expect(html).not.toContain('取消済み')
+  })
+
+  it('予約注意の対象もescapeし、空の対象は未知codeのまま残す', () => {
+    const html = renderTerms(['hold_active_reservation_requires_confirmation:<script>x</script>'])
+    expect(html).toContain('対象：&lt;script&gt;x&lt;/script&gt;')
+    expect(html).not.toContain('<script>')
+    const malformed = renderTerms(['hold_active_reservation_requires_confirmation:'])
+    expect(malformed).toContain('hold_active_reservation_requires_confirmation:')
+    expect(malformed).not.toContain('未完了予約が残っています。')
+  })
+
   it.each([false, true])('ADV超過と未評価を日本語で区別し、buy/sellを変更しない: %s', sell => {
     const exceeded = renderTerms(['adv_participation_exceeds_warning'], sell)
     const unknown = renderTerms(['adv_participation_unassessed'], sell)

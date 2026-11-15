@@ -46,6 +46,13 @@ def build_proposal_warnings(
     checked_date = inputs.checked_at.astimezone(JST).date()
     values: dict[str, Decimal] = {}
     warnings: list[str] = []
+    active_tickers = {reservation.ticker for reservation in inputs.active_reservations}
+    # hold は経済判断であり、台帳に残る既存注文の取消・失効確認ではない。
+    warnings.extend(
+        f"hold_active_reservation_requires_confirmation:{item.ticker}"
+        for item in items
+        if item.action == "hold" and item.ticker in active_tickers
+    )
     for position in inputs.positions:
         quote = quotes.get(position.ticker)
         if (
