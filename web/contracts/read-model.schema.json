@@ -1396,6 +1396,29 @@
       "title": "SavedCapitalScenarioView",
       "type": "object"
     },
+    "SavedConditionalReturnView": {
+      "properties": {
+        "total_value_per_share_yen": {
+          "title": "Total Value Per Share Yen",
+          "type": "string"
+        },
+        "total_return_pct": {
+          "title": "Total Return Pct",
+          "type": "string"
+        },
+        "annualized_return_pct": {
+          "title": "Annualized Return Pct",
+          "type": "string"
+        }
+      },
+      "required": [
+        "total_value_per_share_yen",
+        "total_return_pct",
+        "annualized_return_pct"
+      ],
+      "title": "SavedConditionalReturnView",
+      "type": "object"
+    },
     "SavedDeferItemView": {
       "properties": {
         "ticker": {
@@ -1687,6 +1710,17 @@
             }
           ],
           "title": "Return Calculation Unavailable Reason"
+        },
+        "saved_hold_quote_comparison": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedHoldQuoteComparisonView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1706,9 +1740,62 @@
         "remaining_reward",
         "action",
         "holding_basis",
-        "return_calculation_unavailable_reason"
+        "return_calculation_unavailable_reason",
+        "saved_hold_quote_comparison"
       ],
       "title": "SavedHoldItemView",
+      "type": "object"
+    },
+    "SavedHoldQuoteComparisonView": {
+      "properties": {
+        "price_context": {
+          "const": "saved_hold_quote",
+          "default": "saved_hold_quote",
+          "title": "Price Context",
+          "type": "string"
+        },
+        "calculation_price_yen": {
+          "title": "Calculation Price Yen",
+          "type": "string"
+        },
+        "price_as_of": {
+          "format": "date",
+          "title": "Price As Of",
+          "type": "string"
+        },
+        "price_basis": {
+          "const": "last_close_unadjusted",
+          "title": "Price Basis",
+          "type": "string"
+        },
+        "horizon_months": {
+          "title": "Horizon Months",
+          "type": "integer"
+        },
+        "return_basis": {
+          "const": "conditional_pretax_without_reinvestment",
+          "default": "conditional_pretax_without_reinvestment",
+          "title": "Return Basis",
+          "type": "string"
+        },
+        "base": {
+          "$ref": "#/$defs/SavedConditionalReturnView"
+        },
+        "downside": {
+          "$ref": "#/$defs/SavedConditionalReturnView"
+        }
+      },
+      "required": [
+        "price_context",
+        "calculation_price_yen",
+        "price_as_of",
+        "price_basis",
+        "horizon_months",
+        "return_basis",
+        "base",
+        "downside"
+      ],
+      "title": "SavedHoldQuoteComparisonView",
       "type": "object"
     },
     "SavedLimitTermsView": {
@@ -2586,10 +2673,10 @@
           "type": "string"
         },
         "base": {
-          "$ref": "#/$defs/SavedSellLimitReturnView"
+          "$ref": "#/$defs/SavedConditionalReturnView"
         },
         "downside": {
-          "$ref": "#/$defs/SavedSellLimitReturnView"
+          "$ref": "#/$defs/SavedConditionalReturnView"
         }
       },
       "required": [
@@ -2601,29 +2688,6 @@
         "downside"
       ],
       "title": "SavedSellLimitComparisonView",
-      "type": "object"
-    },
-    "SavedSellLimitReturnView": {
-      "properties": {
-        "total_value_per_share_yen": {
-          "title": "Total Value Per Share Yen",
-          "type": "string"
-        },
-        "total_return_pct": {
-          "title": "Total Return Pct",
-          "type": "string"
-        },
-        "annualized_return_pct": {
-          "title": "Annualized Return Pct",
-          "type": "string"
-        }
-      },
-      "required": [
-        "total_value_per_share_yen",
-        "total_return_pct",
-        "annualized_return_pct"
-      ],
-      "title": "SavedSellLimitReturnView",
       "type": "object"
     },
     "SavedTurnoverWindowView": {

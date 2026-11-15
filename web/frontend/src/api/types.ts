@@ -222,6 +222,12 @@ export interface SavedCapitalScenarioView {
   capital_total_value_yen: string
 }
 
+export interface SavedConditionalReturnView {
+  total_value_per_share_yen: string
+  total_return_pct: string
+  annualized_return_pct: string
+}
+
 export interface SavedDeferItemView {
   ticker: string
   company_name: string | null
@@ -261,6 +267,18 @@ export interface SavedHoldItemView {
   action: 'hold'
   holding_basis: 'investment_case_intact' | 'sufficient_remaining_reward'
   return_calculation_unavailable_reason: string | null
+  saved_hold_quote_comparison: SavedHoldQuoteComparisonView | null
+}
+
+export interface SavedHoldQuoteComparisonView {
+  price_context: 'saved_hold_quote'
+  calculation_price_yen: string
+  price_as_of: string
+  price_basis: 'last_close_unadjusted'
+  horizon_months: number
+  return_basis: 'conditional_pretax_without_reinvestment'
+  base: SavedConditionalReturnView
+  downside: SavedConditionalReturnView
 }
 
 export interface SavedLimitTermsView {
@@ -392,14 +410,8 @@ export interface SavedSellLimitComparisonView {
   calculation_price_yen: string
   horizon_months: number
   return_basis: 'conditional_pretax_without_reinvestment'
-  base: SavedSellLimitReturnView
-  downside: SavedSellLimitReturnView
-}
-
-export interface SavedSellLimitReturnView {
-  total_value_per_share_yen: string
-  total_return_pct: string
-  annualized_return_pct: string
+  base: SavedConditionalReturnView
+  downside: SavedConditionalReturnView
 }
 
 export interface SavedTurnoverWindowView {

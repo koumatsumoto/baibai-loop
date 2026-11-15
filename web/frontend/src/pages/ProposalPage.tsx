@@ -347,6 +347,34 @@ function SavedSellLimitComparison({ item }: { item: SavedSellItemView }) {
   </section>
 }
 
+function SavedHoldQuoteComparison({ item }: { item: SavedHoldItemView }) {
+  const comparison = item.saved_hold_quote_comparison
+  return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存終値で確認した保有の見返り">
+    <h4 className="text-sm font-semibold">保存終値で確認した保有の見返り</h4>
+    {comparison == null
+      ? <p className="text-sm text-muted-foreground">この表示データには、保存終値で十分性を確認した比較がありません。旧表示・仮説維持だけの保有・条件不足を、見返り0や十分な収益率へ補っていません。</p>
+      : <>
+        <p className="text-xs leading-6 text-muted-foreground">保有提案時の終値を機会費用として、同じ保存価値・今後分配・期間で保有を続ける場合の条件付き試算です。元評価の株価での年率、購入原価からの損益や売却できる価格とは別です。</p>
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <Field label="比較に用いた保存終値">{comparison.calculation_price_yen} 円</Field>
+          <Field label="その終値の基準日"><time dateTime={comparison.price_as_of}>{comparison.price_as_of}</time></Field>
+          <Field label="保存評価の比較期間">{comparison.horizon_months} か月</Field>
+        </dl>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[{ label: '中心ケース（Base）', value: comparison.base }, { label: '下方ケース（Downside）', value: comparison.downside }].map(({ label, value }) => <div className="grid min-w-0 gap-3 rounded-md bg-muted p-4" key={label}>
+            <p className="text-sm font-medium">{label}の保有継続</p>
+            <dl className="grid gap-3">
+              <Field label="今後の総受取額（1株）">{value.total_value_per_share_yen} 円</Field>
+              <Field label="保存終値に対する総見返り">{value.total_return_pct} %</Field>
+              <Field label="保存終値に対する条件付き年率">{value.annualized_return_pct} %</Field>
+            </dl>
+          </div>)}
+        </div>
+        <p className="text-xs leading-6 text-muted-foreground">十分性は保存された作者の比較判断です。投資家税・売買費用・配当再投資は含みません。期待値・最大損失や現在の見返りを保証せず、数値だけで保有や売却へ変更しません。</p>
+      </>}
+  </section>
+}
+
 function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }) {
   return (
     <div className="grid gap-4">
@@ -397,6 +425,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
             </div>)}
             {item.action === 'buy' && <SavedBuyComparison item={item} />}
             {item.action === 'sell' && <SavedSellLimitComparison item={item} />}
+            {item.action === 'hold' && <SavedHoldQuoteComparison item={item} />}
             {(item.action === 'hold' || item.action === 'sell') && <HoldingReason item={item} />}
             {item.action === 'defer' && <>
               <Reasons reasons={item.blockers} title="判断を保留した不足理由" />

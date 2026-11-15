@@ -267,16 +267,30 @@ class _SavedHoldingItemView(_SavedProposalItemView):
     remaining_reward: SavedRemainingRewardView | None
 
 
+class SavedConditionalReturnView(BaseModel):
+    total_value_per_share_yen: str
+    total_return_pct: str
+    annualized_return_pct: str
+
+
+class SavedHoldQuoteComparisonView(BaseModel):
+    price_context: Literal["saved_hold_quote"] = "saved_hold_quote"
+    calculation_price_yen: str
+    price_as_of: date
+    price_basis: Literal["last_close_unadjusted"]
+    horizon_months: int
+    return_basis: Literal["conditional_pretax_without_reinvestment"] = (
+        "conditional_pretax_without_reinvestment"
+    )
+    base: SavedConditionalReturnView
+    downside: SavedConditionalReturnView
+
+
 class SavedHoldItemView(_SavedHoldingItemView):
     action: Literal["hold"]
     holding_basis: Literal["investment_case_intact", "sufficient_remaining_reward"]
     return_calculation_unavailable_reason: str | None
-
-
-class SavedSellLimitReturnView(BaseModel):
-    total_value_per_share_yen: str
-    total_return_pct: str
-    annualized_return_pct: str
+    saved_hold_quote_comparison: SavedHoldQuoteComparisonView | None = None
 
 
 class SavedSellLimitComparisonView(BaseModel):
@@ -286,8 +300,8 @@ class SavedSellLimitComparisonView(BaseModel):
     return_basis: Literal["conditional_pretax_without_reinvestment"] = (
         "conditional_pretax_without_reinvestment"
     )
-    base: SavedSellLimitReturnView
-    downside: SavedSellLimitReturnView
+    base: SavedConditionalReturnView
+    downside: SavedConditionalReturnView
 
 
 class SavedSellItemView(_SavedHoldingItemView):

@@ -125,6 +125,7 @@ export const unassessedDeferFixture: SavedDeferItemView = {
 }
 
 export const holdFixture: SavedHoldItemView = {
+  saved_hold_quote_comparison: null,
   ticker: '4444',
   company_name: '合成会社',
   sector: '情報・通信業',
