@@ -119,7 +119,7 @@ ModelGenerationとScreeningSelectionは別identity。候補政策は通常モデ
 <a id="decision-cohort-diagnostic"></a>
 ## 現行判断の比較前診断
 
-[読取専用tool](../../tools/experiments/inspect_decision_cohort.py)は完了した一回のOperationの保存入力・評価pair・Proposalを照合する。行は候補と調査対象のunionで、0対象でも候補を保つ。行の入力は運用用Selectionであり、公開時ProposalのSelectionとは役割とhashを分けて示す。正当なID移行は既存receiptで照合し、原公開canonicalを現行モデルや経済政策の証拠へ読み替えない。未選定・未完・経済的見送りを区別し、全開始Operationを分母にした比較、第二の判断正本や旧較正の再生成には使わない。
+[読取専用tool](../../tools/experiments/inspect_decision_cohort.py)は完了した一回のOperationの保存入力・評価pair・Proposalを照合する。行は候補と調査対象のunionで、0対象でも候補を保つ。行の入力は運用用Selectionであり、公開時ProposalのSelectionとは役割とhashを分けて示す。正当なID移行は既存receiptで照合し、原公開canonicalを現行モデルや経済政策の証拠へ読み替えない。未選定・未完・経済的見送りを区別し、全開始Operationを分母にした比較、第二の判断正本や旧較正の再生成には使わない。 技術・財務統合政策は保存した全レーンの閲覧集合と順序を使い、予備を経済的適格へ数え替えない。集合外の明示調査は候補に格上げせず、その銘柄の保存診断を併記する。旧政策も再適用せず、当時未選定だった理由を後から推測しない。
 
 ```bash
 uv run python -m tools.experiments.inspect_decision_cohort \
