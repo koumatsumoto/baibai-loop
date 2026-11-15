@@ -96,6 +96,16 @@ def scaffold_assessment(
         manifest, ticker=ticker, action="scaffold research", db_path=db_path
     )
     _validate_editable_drafts(workspace, manifest, gate=gate)
+    if out is not None and any(
+        paths_refer_to_same_file(out, source)
+        for source in (
+            workspace / "manifest.yaml",
+            workspace / str(manifest.get("domain_inputs_ref") or "domain-inputs.yaml"),
+        )
+    ):
+        raise ResearchWorkspaceConflictError(
+            "assessment export must not replace a fixed workspace input"
+        )
     directory = _research_ticker_dir(workspace, ticker)
     path = directory / "assessment-draft.yaml"
     identity_path = directory / "assessment-publication.yaml"
