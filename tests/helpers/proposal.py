@@ -53,6 +53,7 @@ def backend_case(
     assessment_as_of="2026-10-14",
     assessment_quote_as_of=None,
     valuation_unresolved=False,
+    stance=None,
     required_rate=None,
     horizon_months=None,
     tickers=("1234",),
@@ -178,6 +179,9 @@ def backend_case(
         )
         document["conclusion"]["stance"] = "unsupported" if broken else "uncertain"
         review["recalculated_projections"] = []
+        update_review_hash(document, review)
+    if stance is not None:
+        document["conclusion"]["stance"] = stance
         update_review_hash(document, review)
     pair = AssessmentStoreService(
         app, clock=lambda: datetime.fromisoformat(f"{assessment_as_of}T16:06:00+09:00")

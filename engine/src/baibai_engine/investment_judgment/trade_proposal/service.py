@@ -354,6 +354,15 @@ def _check_proposal(
                     message="参照評価の独立Reviewは、提案の独立Review以前である必要があります。",
                 )
             )
+        # No-action is a concluded economic comparison, not an unfinished assessment.
+        # Unsupported cases may still be rejected without a numeric valuation.
+        if item.action == "no_action" and pair.document.conclusion.stance == "uncertain":
+            blockers.append(
+                GateReason(
+                    code="no_action_assessment_uncertain",
+                    message="評価の採否が未確定です。deferと再確認条件を使うか、評価・Reviewを更新してください。",
+                )
+            )
         if item.action in {"buy", "hold", "sell"}:
             action_blockers, calculation = _validate_action(
                 connection,

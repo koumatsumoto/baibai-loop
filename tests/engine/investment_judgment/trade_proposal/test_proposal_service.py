@@ -30,6 +30,7 @@ from baibai_engine.investment_judgment.trade_proposal.service import TradePropos
 from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationCompletionError
 from baibai_engine.investment_judgment.workflow.selection import selection_sha256
+from baibai_engine.primitives.json import canonical_json
 
 
 @pytest.fixture
@@ -592,6 +593,87 @@ def test_nonbuy_has_no_binding_and_date_clock_guard_even_with_same_facts(case):
     )
     with pytest.raises(ProposalError, match="基準日は本日"):
         tomorrow.publish(proposal)
+
+
+@pytest.mark.parametrize("valuation_unresolved", [False, True])
+def test_uncertain_assessment_requires_defer_not_completed_no_action(
+    tmp_path, valuation_unresolved
+):
+    case = backend_case(tmp_path, stance="uncertain", valuation_unresolved=valuation_unresolved)
+    proposal = reviewed_proposal(case, action="no_action")
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    before = _counts(case.app)
+    ledger_before = _ledger_snapshot(case.app)
+    checked = service.check(proposal)
+    assert not checked.valid
+    assert [reason.code for reason in checked.blockers] == ["no_action_assessment_uncertain"]
+    with pytest.raises(ProposalError, match="採否が未確定"):
+        service.publish(proposal)
+    assert _counts(case.app) == before
+    deferred = reviewed_proposal(case, action="defer")
+    assert service.check(deferred).valid
+    assert service.publish(deferred).items[0].action == "defer"
+    assert _ledger_snapshot(case.app) == ledger_before
+
+
+@pytest.mark.parametrize(
+    ("stance", "broken", "valuation_unresolved"),
+    [
+        ("supported", False, False),
+        ("unsupported", False, False),
+        ("unsupported", False, True),
+        ("unsupported", True, True),
+    ],
+)
+def test_concluded_no_action_does_not_require_supported_or_numeric_value(
+    tmp_path, stance, broken, valuation_unresolved
+):
+    case = backend_case(
+        tmp_path, stance=stance, broken=broken, valuation_unresolved=valuation_unresolved
+    )
+    proposal = reviewed_proposal(case, action="no_action")
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    ledger_before = _ledger_snapshot(case.app)
+    assert service.check(proposal).valid
+    published = service.publish(proposal)
+    assert published.items[0].action == "no_action"
+    assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
+    assert _ledger_snapshot(case.app) == ledger_before
+
+
+def test_old_uncertain_no_action_keeps_exact_read_and_retry(tmp_path):
+    case = backend_case(tmp_path, valuation_unresolved=True)
+    proposal = reviewed_proposal(case, action="no_action")
+    historical = TradeProposal.model_validate(
+        {**proposal.model_dump(mode="python"), "published_at": PUBLISHED}
+    )
+    # A prior writer accepted this payload. New policy must not rewrite its saved meaning.
+    with closing(sqlite3.connect(case.app)) as connection, connection:
+        connection.execute(
+            "INSERT INTO investment_proposal(proposal_id,as_of,prepared_at,published_at,"
+            "request_scope,payload,draft_sha256) VALUES (?,?,?,?,?,?,?)",
+            (
+                historical.proposal_id,
+                historical.as_of.isoformat(),
+                historical.prepared_at.isoformat(),
+                historical.published_at.isoformat(),
+                historical.request_scope,
+                canonical_json(historical.payload()),
+                proposal_draft_sha256(proposal),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO investment_proposal_item(proposal_id,item_index,ticker,action,"
+            "assessment_id) VALUES (?,0,?,'no_action',?)",
+            (historical.proposal_id, "1234", case.pair.assessment_id),
+        )
+    before = _counts(case.app)
+    assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == historical
+    service = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(days=1)
+    )
+    assert service.publish(proposal) == historical
+    assert _counts(case.app) == before
 
 
 def test_live_latest_gate_applies_to_buy_but_not_no_action(case):
