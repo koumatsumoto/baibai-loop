@@ -946,3 +946,112 @@ def test_scaffold_force_still_replaces_a_separate_export(case):
     assert output.read_bytes() == (workspace / "1234/assessment-draft.yaml").read_bytes()
     assert second["assessment_id"] == first["assessment_id"]
     assert db.read_bytes() == before
+
+
+@pytest.fixture(params=["new", "holding"])
+def workspace_export_case(case, tmp_path, request):
+    if request.param == "new":
+        db, workspace, _ = case
+        return db, workspace, workspace, "1234"
+    root = tmp_path / "holding"
+    root.mkdir()
+    db = root / "app"
+    seed_ledger(
+        db, load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    )
+    value = seed_generated_selection(
+        runs=root / "runs", now=NOW, tickers=("2331",), scope="review_positions"
+    )
+    prepared = prepare_selected_workspace(
+        draft=generated_draft_for(value),
+        db_path=db,
+        workspace=root / "workspace",
+        runs_path=root / "runs",
+        now=NOW,
+    )
+    return db, prepared.workspace / "holdings/2331", prepared.workspace, "2331"
+
+
+@pytest.mark.parametrize("source", ["manifest", "domain_inputs"])
+@pytest.mark.parametrize("alias", ["direct", "relative", "symlink", "hardlink"])
+def test_forced_scaffold_export_cannot_replace_fixed_workspace_input(
+    workspace_export_case, tmp_path, monkeypatch, capsys, source, alias
+):
+    db, workspace, root, ticker = workspace_export_case
+    target = workspace / "manifest.yaml" if source == "manifest" else root / "domain-inputs.yaml"
+    output = target
+    if alias == "relative":
+        monkeypatch.chdir(tmp_path)
+        output = target.relative_to(tmp_path)
+    elif alias != "direct":
+        output = tmp_path / "input-alias.yaml"
+        if alias == "symlink":
+            output.symlink_to(target)
+        else:
+            output.hardlink_to(target)
+    runs = root.parent / "runs"
+    before_db = db.read_bytes(), runs.read_bytes()
+    before_output = output.read_bytes()
+    before_files = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+    assert (
+        main(
+            [
+                "stock-assessment-scaffold",
+                "--workspace",
+                str(workspace),
+                "--db",
+                str(db),
+                "--ticker",
+                ticker,
+                "--sqlite-path",
+                str(root / "absent"),
+                "--asof",
+                NOW.date().isoformat(),
+                "--out",
+                str(output),
+                "--force",
+            ],
+            now=NOW,
+        )
+        == 4
+    )
+
+    assert "assessment export must not replace a fixed workspace input" in capsys.readouterr().err
+    assert (db.read_bytes(), runs.read_bytes()) == before_db
+    assert output.read_bytes() == before_output
+    assert output.is_symlink() == (alias == "symlink")
+    assert {path: path.read_bytes() for path in root.rglob("*") if path.is_file()} == before_files
+
+
+@pytest.mark.parametrize("alias", ["direct", "relative", "symlink"])
+def test_scaffold_export_keeps_its_canonical_draft_and_force(
+    workspace_export_case, tmp_path, monkeypatch, alias
+):
+    db, workspace, root, ticker = workspace_export_case
+    canonical = workspace / ticker / "assessment-draft.yaml"
+    output = canonical
+    if alias == "relative":
+        monkeypatch.chdir(tmp_path)
+        output = canonical.relative_to(tmp_path)
+        workspace = workspace.relative_to(tmp_path)
+    elif alias == "symlink":
+        output = tmp_path / "draft-alias.yaml"
+        output.symlink_to(canonical)
+    before = db.read_bytes(), (root / "domain-inputs.yaml").read_bytes()
+    identifiers = []
+    for force in (False, True):
+        result = scaffold_assessment(
+            workspace=workspace,
+            ticker=ticker,
+            sqlite_path=root / "absent",
+            as_of=NOW.date(),
+            retrieved_at=NOW,
+            db_path=db,
+            out=output,
+            force=force,
+        )
+        identifiers.append(result["assessment_id"])
+        assert output.read_bytes() == canonical.read_bytes()
+    assert identifiers[0] == identifiers[1]
+    assert (db.read_bytes(), (root / "domain-inputs.yaml").read_bytes()) == before
