@@ -7,7 +7,7 @@ from datetime import date
 from baibai_engine.machine_analysis.models.trend_payload import claim_record, finish_payload
 from baibai_engine.machine_analysis.observations.trends.inputs import FixedTrendInputs
 
-REVISION = "social-trends-v1"
+REVISION = "social-trends-v2"
 
 
 def calculate_social_trends(fixed: FixedTrendInputs, *, as_of: date) -> dict[str, object]:
@@ -56,6 +56,8 @@ def calculate_social_trends(fixed: FixedTrendInputs, *, as_of: date) -> dict[str
                     "current": record,
                     "baseline": claim_record(previous, selected.baseline),
                     "changed": (
+                        claim.kind,
+                        claim.occurred_on,
                         claim.quantity,
                         claim.status,
                         claim.negated,
@@ -64,6 +66,8 @@ def calculate_social_trends(fixed: FixedTrendInputs, *, as_of: date) -> dict[str
                         claim.uncertainty,
                     )
                     != (
+                        previous.kind,
+                        previous.occurred_on,
                         previous.quantity,
                         previous.status,
                         previous.negated,
