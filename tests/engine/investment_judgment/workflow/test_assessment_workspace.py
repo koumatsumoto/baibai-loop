@@ -853,9 +853,9 @@ def test_question_only_research_seed_is_allowed(case):
 
 
 @pytest.mark.parametrize("questions_only", [False, True])
-@pytest.mark.parametrize("special_characters", [False, True])
+@pytest.mark.parametrize("text_form", ["multiline", "controls", "unicode_newlines"])
 def test_research_scope_is_visible_without_becoming_current_assessment(
-    case, questions_only, special_characters
+    case, questions_only, text_form
 ):
     from baibai_engine.investment_judgment.company_research.document import ResearchDraft
     from baibai_engine.investment_judgment.company_research.store import (
@@ -874,8 +874,10 @@ def test_research_scope_is_visible_without_becoming_current_assessment(
         + "\n2027年通期・海外事業を調べた記録ではない。\n"
         "---\nconclusion:\n  stance: supported\n..."
     )
-    if special_characters:
+    if text_form == "controls":
         scope += "\n範囲未確認\r\n引用: '本文'\t\x00\x7f\x80\x85\u2028対象期不明\u2029末尾"
+    elif text_form == "unicode_newlines":
+        scope = "2026年4–6月の国内だけ。\x85次期は未確認。\u2028海外は対象外。\u2029末尾"
     document["investigated_scope"] = scope
     draft = ResearchDraft.model_validate(
         {

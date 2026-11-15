@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import get_args
 from uuid import uuid4
 
+import yaml
 from pydantic import BaseModel
 
 from baibai_engine.investment_judgment.company_research.document import ResearchRecord
@@ -299,8 +300,10 @@ def scaffold_assessment(
             f"# 元Researchの調査範囲（{research.document.as_of} 時点・未採択の補助）:\n"
             + "".join(
                 f"# {line}\n"
-                for line in _dump_yaml(
-                    {"investigated_scope": research.document.investigated_scope}
+                for line in yaml.safe_dump(
+                    {"investigated_scope": research.document.investigated_scope},
+                    allow_unicode=True,
+                    default_style='"',
                 ).splitlines()
             )
             + "# 当時の調査範囲であり、今回の評価範囲・再確認済みを意味しない。\n"
