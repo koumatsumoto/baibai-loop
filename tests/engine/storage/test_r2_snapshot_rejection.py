@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError
 from baibai_engine.storage.objects import r2
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_engine.storage.snapshots.objects import (
-    LakeObjectError,
+    LakeObjectRejected,
     R2ObjectSource,
     R2ReadCredentials,
 )
@@ -58,7 +58,7 @@ def test_snapshot_adapter_preserves_strict_rejection_and_default(
         else:
             source.read_bytes(key)
 
-    expected = r2.R2OperationStopped if strict else LakeObjectError
+    expected = r2.R2OperationStopped if strict else LakeObjectRejected
     for _ in range(2):
         with pytest.raises(expected):
             read()

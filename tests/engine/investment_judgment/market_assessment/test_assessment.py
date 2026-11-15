@@ -6,11 +6,14 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
+from pydantic import ValidationError
 from tests.helpers.assessment_history import historical_context_payload as historical_payload
 from tests.helpers.assessment_history import seed_history
 
 from baibai_engine.cli.market_assessment import main
 from baibai_engine.investment_judgment.market_assessment.models import (
+    AssessmentClaim,
+    AssessmentInput,
     MarketContextAssessment,
     StoredAssessment,
 )
@@ -24,6 +27,7 @@ from baibai_engine.investment_judgment.market_assessment.service import (
     AssessmentConflictError,
     AssessmentService,
 )
+from baibai_engine.primitives.json import canonical_json
 
 
 def document(
@@ -90,6 +94,69 @@ def test_writer_preserves_old_payload_and_head_across_schemas(tmp_path):
         service.publish(
             document(context_id="market-context-assessment-2026-07-17-other"), expected_head=None
         )
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("invalid", ["summary", "version", "time", "input", "claim", "construct"])
+def test_writer_revalidates_updated_models_before_touching_store(tmp_path, existing, invalid):
+    db = tmp_path / "app.sqlite"
+    service = AssessmentService(db)
+    prior = document(context_id="market-context-assessment-2026-07-17-prior")
+    if existing:
+        service.publish(prior, expected_head=None)
+    before = db.read_bytes() if existing else None
+    candidate = document()
+    if invalid == "summary":
+        candidate = candidate.model_copy(update={"summary": " "})
+    elif invalid == "version":
+        candidate = candidate.model_copy(update={"schema_version": 5})
+    elif invalid == "time":
+        candidate = candidate.model_copy(update={"known_at": datetime(2026, 7, 20, tzinfo=UTC)})
+    elif invalid == "input":
+        source = AssessmentInput(
+            input_id="fixed",
+            reference="retained-input",
+            layer="L2",
+            available_at=datetime(2026, 7, 17, 5, tzinfo=UTC),
+        ).model_copy(
+            update={"available_at": datetime(2026, 7, 17, 5, tzinfo=UTC).replace(tzinfo=None)}
+        )
+        candidate = candidate.model_copy(update={"inputs": (source,)})
+    elif invalid == "claim":
+        claim = AssessmentClaim(summary="反証").model_copy(update={"summary": " "})
+        candidate = candidate.model_copy(update={"counter_evidence": (claim,)})
+    else:
+        payload = candidate.model_dump(mode="python")
+        del payload["summary"]
+        candidate = MarketContextAssessment.model_construct(**payload)
+    with pytest.raises(ValidationError):
+        service.publish(candidate, expected_head=prior.context_id if existing else None)
+    assert (db.read_bytes() if db.exists() else None) == before
+    if existing:
+        assert service.head_id() == prior.context_id
+        assert assessment_by_id(db, context_id=prior.context_id).document == prior.payload()
+
+
+def test_writer_valid_copy_keeps_canonical_retry_and_publication_identity(tmp_path):
+    db = tmp_path / "app.sqlite"
+    service = AssessmentService(db)
+    original = document()
+    copied = original.model_copy(update={"summary": "追加の反証を確認した。"})
+    expected = document(summary=copied.summary)
+    assert service.publish(copied, expected_head=None) == expected
+    before = db.read_bytes()
+    assert service.publish(copied, expected_head=None) == expected
+    assert db.read_bytes() == before
+    assert service.head_id() == expected.context_id
+    assert assessment_by_id(db, context_id=expected.context_id).document == expected.payload()
+    assert latest_assessment(db, as_of=expected.as_of, known_at=expected.published_at) == stored(
+        expected
+    )
+    with closing(sqlite3.connect(db)) as connection:
+        row = connection.execute(
+            "SELECT payload, supersedes_id FROM market_context_assessment"
+        ).fetchone()
+    assert row == (canonical_json(expected.payload()), None)
 
 
 def test_known_at_normal_historical_and_weekend_selection(tmp_path):
