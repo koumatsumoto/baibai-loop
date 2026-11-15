@@ -84,7 +84,7 @@ session/見直し時点はbroker期限でなく、実期限は人間確認の取
 
 sell limitは作者の一株回収下限。実quoteの上下とも可能だがgridに合わせ、黙って切り下げない。全量notionalは税費用前の回収下限で予想約定額/確定cashではない。下限回収・高値待ち・継続と未約定後の再確認を記す。
 
-`remaining_reward` sellは実quoteでの不足に加え、同評価・期間・今後分配を作者下限で保有する機会費用（`sell_limit_projection`）も比べる。観測quote/売却後収益ではない。下限で保有が魅力的なら下限引上げ/hold/再確認と比較してなお回収する理由をReviewする。自動Pmin・Pmax sell gate・現在十分なのにTarget到達時だけ売る条件を作らず、broken sellには無効valuationの下限算術を課さない。
+`remaining_reward` sellは実quoteでの不足に加え、同評価・期間・今後分配を作者下限で保有する機会費用（`sell_limit_projection`）も比べる。観測quote/売却後収益ではない。下限で保有が魅力的なら下限引上げ/hold/再確認と比較してなお回収する理由をReviewする。自動Pmin・Pmax sell gate・現在十分なのにTarget到達時だけ売る条件を作らず、broken sellには無効valuationの下限算術を課さない。保存表示でも、残存見返り不足の売却に同日起点の確定評価と下限が揃う場合だけ、同じ算術を保有継続との比較として示す。元評価株価や売却後の収益と分け、旧表示・条件不足・仮説不成立を0や保有推奨で補わない。
 
 価格下落・期間経過・回復遅延・Target到達・新規購入条件未達・他候補/集中warning単独では売らず、次候補も必須にしない。全量sellの端株/不明数量は丸めない。active予約の注文処理を別確認し、人間報告を台帳反映してtermsを再確認する。
 

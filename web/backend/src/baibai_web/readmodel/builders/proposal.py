@@ -46,6 +46,8 @@ from baibai_web.readmodel.proposal_models import (
     SavedRemainingRewardView,
     SavedResolvedValuationView,
     SavedSellItemView,
+    SavedSellLimitComparisonView,
+    SavedSellLimitReturnView,
     SavedTurnoverWindowView,
     SavedUnresolvedValuationView,
     SavedValuationProjectionView,
@@ -403,7 +405,48 @@ def _item(
                     ),
                 }
             )
-        return SavedSellItemView.model_validate({**common, "reason_code": item.reason_code})
+        sell_comparison = None
+        if (
+            item.reason_code == "insufficient_remaining_reward"
+            and current is not None
+            and current.document.investment_case.status == "intact"
+            and item.terms is not None
+            and current.document.valuation.status == "resolved"
+            and current.document.input_snapshot.as_of == proposal.as_of
+        ):
+            valuation = current.document.valuation
+            assert valuation.base is not None
+            assert valuation.downside is not None
+            assert valuation.horizon_months is not None
+            returns = [
+                project_return(
+                    projection,
+                    price_yen=item.terms.limit_price_yen,
+                    horizon_months=valuation.horizon_months,
+                )
+                for projection in (valuation.base, valuation.downside)
+            ]
+            projected = [
+                SavedSellLimitReturnView(
+                    total_value_per_share_yen=str(value.total_value_yen),
+                    total_return_pct=str(round(value.total_return_pct, 4)),
+                    annualized_return_pct=str(round(value.annualized_return_pct, 4)),
+                )
+                for value in returns
+            ]
+            sell_comparison = SavedSellLimitComparisonView(
+                calculation_price_yen=str(item.terms.limit_price_yen),
+                horizon_months=valuation.horizon_months,
+                base=projected[0],
+                downside=projected[1],
+            )
+        return SavedSellItemView.model_validate(
+            {
+                **common,
+                "reason_code": item.reason_code,
+                "saved_sell_limit_comparison": sell_comparison,
+            }
+        )
     if item.action == "no_action":
         return SavedNoActionItemView.model_validate(common)
     return SavedDeferItemView.model_validate(
