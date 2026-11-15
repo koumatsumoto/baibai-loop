@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date
+from typing import Literal
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     ENTITY_SCALE_MISMATCH,
@@ -66,11 +67,13 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v55-dividend-actual-source"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v56-cash-equivalent-source"
 
 
-def _reported_cfo_source(row: JQuantsFinancialSummary | None) -> dict[str, str | None] | None:
-    if row is None or row.cfo is None:
+def _reported_source(
+    row: JQuantsFinancialSummary | None, field: Literal["cfo", "cash_eq"]
+) -> dict[str, str | None] | None:
+    if row is None or getattr(row, field) is None:
         return None
     return {
         "period_type": row.fiscal_period,
@@ -369,8 +372,9 @@ def build_financial_snapshot(
         ocf_ttm_period=_ttm_period(summaries, "cfo", ttm_rules),
         sales=sales_row.sales if sales_row else None,
         cfo=cfo_row.cfo if cfo_row else None,
-        cfo_source=_reported_cfo_source(cfo_row),
+        cfo_source=_reported_source(cfo_row, "cfo"),
         cash_eq=cash_eq,
+        cash_eq_source=_reported_source(_latest_non_null_row(summaries, "cash_eq"), "cash_eq"),
         total_assets=total_assets,
         same_state_equity_yen=same_state_equity_yen,
         book_equity=book_equity,

@@ -384,7 +384,7 @@ def test_actual_dividend_source_survives_generation_and_l3_without_claiming_fore
         documents=(replace(document(), dps_actual_annual=0.0),),
         bars=(PriceBar(ASOF, 10.0, None),),
     )
-    assert models[0].calculation_revision.startswith("continuous-annual-input-v55-")
+    assert models[0].calculation_revision.startswith("continuous-annual-input-v56-")
     generation = ModelGeneration(
         generation_id="actual-dividend-source",
         as_of=ASOF,
@@ -922,6 +922,7 @@ def test_saved_old_model_retains_its_payload_without_new_period_defaults():
     assert "ocf_ttm_period" not in saved
     assert "cfo_source" not in saved
     assert "dividend_actual_source" not in saved
+    assert "cash_eq_source" not in saved
 
 
 def test_holder_report_is_retained_as_attributed_evidence_without_rewriting_capital():
@@ -967,3 +968,158 @@ def test_holder_report_is_retained_as_attributed_evidence_without_rewriting_capi
             **arguments,
             holder_capital=(replace(holder, submitted_at=datetime(2027, 1, 1, tzinfo=UTC)),),
         )
+
+
+@pytest.mark.parametrize("cash_eq", [100.0, 0.0, None])
+def test_cash_equivalent_source_keeps_unknown_dates_and_zero(cash_eq):
+    row = replace(
+        document(),
+        cash_eq=cash_eq,
+        period_start=None,
+        period_end=None,
+        document_type=None,
+        disclosure_number=None,
+    )
+    financial = generate(documents=(row,), bars=())[0].payload["financial"]
+    assert financial["cash_eq"] == cash_eq
+    if cash_eq is None:
+        assert financial["cash_eq_source"] is None
+    else:
+        assert financial["cash_eq_source"] == {
+            "period_type": "FY",
+            "period_start": None,
+            "period_end": None,
+            "statement_basis": "primary_unknown",
+            "accounting_standard": None,
+            "disclosure_number": None,
+            "disclosed_at": "2026-05-15",
+            "disclosed_time": None,
+            "document_type": None,
+        }
+
+
+def test_cash_equivalent_source_is_not_the_latest_or_maximum_carry_date():
+    annual, current, _ = cash_flow_documents()
+    annual = replace(annual, cash_eq=100.0, bps=2.0)
+    current = replace(current, cash_eq=200.0, cfo=None)
+    later = replace(
+        current,
+        disclosed_at=date(2026, 8, 10),
+        disclosure_number="later-partial-report",
+        cash_eq=None,
+    )
+    financial = generate(documents=(annual, current, later), bars=())[0].payload["financial"]
+    assert financial["latest_financial_disclosure_date"] == "2026-08-10"
+    assert financial["bs_carry_forward_fields"] == "bps,cash_eq"
+    assert financial["bs_carry_forward_lag_days"] == 87
+    assert financial["cash_eq"] == 200.0
+    assert financial["cash_eq_source"]["disclosed_at"] == "2026-08-06"
+    assert financial["cash_eq_source"]["disclosure_number"] == "current-quarter"
+    assert financial["cash_eq_source"]["period_end"] == "2026-06-30"
+    assert financial["cfo_source"]["period_end"] == "2026-03-31"
+
+
+@pytest.mark.parametrize("correction", ["omitted", "changed", "new_basis", "conflict"])
+def test_cash_equivalent_trace_follows_existing_field_selection(correction):
+    annual, current, prior = cash_flow_documents()
+    current = replace(current, cash_eq=200.0)
+    revised = replace(
+        current,
+        disclosed_at=date(2026, 8, 10),
+        disclosed_time="15:31:00",
+        disclosure_number="revised-cash-equivalent",
+        cash_eq=300.0 if correction in {"changed", "conflict"} else None,
+        document_type=(
+            "1QFinancialStatements_Consolidated_IFRS"
+            if correction == "new_basis"
+            else current.document_type
+        ),
+    )
+    documents = (annual, current, prior, revised)
+    if correction == "conflict":
+        documents += (replace(revised, disclosure_number="conflicting-cash", cash_eq=400.0),)
+    financial = generate(documents=documents, bars=())[0].payload["financial"]
+    if correction in {"new_basis", "conflict"}:
+        assert financial["cash_eq"] is None
+        assert financial["cash_eq_source"] is None
+    else:
+        selected = revised if correction == "changed" else current
+        assert financial["cash_eq"] == selected.cash_eq
+        assert financial["cash_eq_source"]["disclosure_number"] == selected.disclosure_number
+        assert financial["cash_eq_source"]["disclosed_at"] == selected.disclosed_at.isoformat()
+        assert financial["cash_eq_source"]["disclosed_time"] == selected.disclosed_time
+        assert financial["cash_eq_source"]["period_start"] == "2026-04-01"
+        assert financial["cash_eq_source"]["period_end"] == "2026-06-30"
+
+
+def test_cash_equivalent_source_uses_latest_period_and_respects_cutoff():
+    annual, current, _ = cash_flow_documents()
+    current = replace(current, cash_eq=200.0)
+    late_annual = replace(
+        annual,
+        disclosed_at=date(2026, 8, 20),
+        disclosure_number="late-annual",
+        cash_eq=300.0,
+    )
+    future = replace(
+        current,
+        disclosed_at=date(2026, 9, 1),
+        disclosure_number="future-correction",
+        cash_eq=400.0,
+    )
+    financial = generate(documents=(current, late_annual, future), bars=())[0].payload["financial"]
+    assert financial["cash_eq"] == 200.0
+    assert financial["cash_eq_source"]["disclosure_number"] == "current-quarter"
+    assert financial["cash_eq_source"]["disclosed_at"] == "2026-08-06"
+
+
+def test_cash_equivalent_source_survives_l3_without_becoming_edinet_cash():
+    annual, current, _ = cash_flow_documents()
+    annual = replace(annual, cash_eq=100.0)
+    current = replace(current, cash_eq=None)
+    record = reported_edinet(
+        kind="160", start=date(2026, 1, 1), end=date(2026, 12, 31), ocf=200.0, capex=30.0
+    )
+    models = generate(documents=(annual, current), bars=(), edinet=record)
+    generation = ModelGeneration(
+        generation_id="cash-equivalent-source",
+        as_of=ASOF,
+        evaluation_time=datetime(2026, 9, 1, tzinfo=UTC),
+        inputs={
+            "market": InputSnapshot(
+                kind="lake_release", reference=RELEASE.release_id, sha256=RELEASE.manifest_sha256
+            )
+        },
+        models=models,
+    )
+    saved = ModelGeneration.model_validate_json(generation.model_dump_json())
+    selected = ModelInputSlice(**saved.model_dump(), subjects=("1001",))
+    financial = project_generated_inputs(selected)["securities"]["1001"]["company_financials"][
+        "financial"
+    ]
+    assert financial == models[0].payload["financial"]
+    assert financial["cash_eq"] == 100.0
+    assert financial["cash_eq_source"]["period_end"] == "2026-03-31"
+    assert financial["cash_eq_source"]["disclosure_number"] == "synthetic-annual"
+    assert financial["cash"] == record.cash
+    assert financial["edinet_reported_balances"]["measurement_date"]["date"] is None
+    assert "v56-cash-equivalent-source" in models[0].calculation_revision
+
+
+def test_old_cash_equivalent_payload_is_not_backfilled_with_a_source():
+    old = GeneratedModel(
+        model_id="company_financials",
+        subject="1001",
+        calculation_revision="continuous-annual-input-v55-dividend-actual-source",
+        payload={
+            "financial": {
+                "cash_eq": 100.0,
+                "latest_financial_disclosure_date": "2026-08-10",
+                "bs_carry_forward_fields": "bps,cash_eq",
+                "bs_carry_forward_lag_days": 87,
+            }
+        },
+    )
+    saved = old.model_dump_json()
+    assert GeneratedModel.model_validate_json(saved).model_dump_json() == saved
+    assert "cash_eq_source" not in saved
