@@ -113,6 +113,203 @@ def reference_document(disclosed_time):
     )
 
 
+def later_interim_docs():
+    current, annual = docs()
+    return [
+        current,
+        annual,
+        replace(
+            current,
+            disclosed_at=date(2026, 11, 4),
+            disclosure_number="later-interim",
+            document_type="2QFinancialStatements_Consolidated_JP",
+            period_end=date(2026, 9, 30),
+            fiscal_period="2Q",
+            sales=2869_000_000,
+            operating_profit=654_000_000,
+            profit=440_000_000,
+        ),
+        replace(
+            annual,
+            disclosed_at=date(2025, 11, 6),
+            disclosure_number="prior-interim",
+            document_type="2QFinancialStatements_Consolidated_JP",
+            period_end=date(2025, 9, 30),
+            fiscal_period="2Q",
+            sales=2473_000_000,
+            operating_profit=54_000_000,
+            profit=3_000_000,
+        ),
+    ]
+
+
+def test_later_missing_pdf_does_not_forget_known_restated_annual():
+    selected = select_pdf_financials(
+        later_interim_docs(), [pdf(), pdf(True)], as_of=date(2026, 11, 14)
+    )
+    assert selected.blocks_legacy_ttm
+    assert selected.reason == "known_restated_annual_operand_conflict"
+    assert selected.current is None
+    assert selected.annual == pdf(True)
+    assert not selected.amounts_yen
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "no_reference",
+        "invalid_reference",
+        "other_year",
+        "other_basis",
+        "future_reference",
+        "short_annual",
+        "annual_gap",
+        "ifrs",
+        "current_annual",
+        "new_annual",
+        "same_amounts",
+    ],
+)
+def test_pdf_absence_is_not_itself_a_restatement_conflict(case):
+    rows = later_interim_docs()
+    reference = pdf(True)
+    if case == "invalid_reference":
+        reference = reference.model_copy(update={"reason": "pdf_comparative_basis_not_explicit"})
+    elif case == "other_year":
+        reference = reference.model_copy(
+            update={
+                "annual_reference": reference.annual_reference.model_copy(
+                    update={"fiscal_year_end": date(2025, 3, 31)}
+                )
+            }
+        )
+    elif case == "other_basis":
+        reference = reference.model_copy(update={"statement_basis": None})
+    elif case == "future_reference":
+        reference = reference.model_copy(update={"published_on": date(2026, 11, 15)})
+    elif case == "short_annual":
+        rows[1] = replace(rows[1], period_start=date(2025, 5, 1))
+    elif case == "annual_gap":
+        rows[1] = replace(rows[1], period_end=date(2026, 3, 30))
+    elif case == "ifrs":
+        rows = [
+            replace(row, document_type=row.document_type.replace("_JP", "_IFRS")) for row in rows
+        ]
+    elif case == "current_annual":
+        rows[2] = replace(
+            rows[2],
+            period_end=date(2027, 3, 31),
+            disclosed_at=date(2027, 5, 14),
+            fiscal_period="FY",
+        )
+    elif case == "new_annual":
+        rows.append(replace(rows[1], disclosed_at=date(2026, 9, 1), disclosure_number="new-annual"))
+    elif case == "same_amounts":
+        rows[1] = replace(rows[1], operating_profit=685_000_000, profit=801_000_000)
+    selected = select_pdf_financials(
+        rows,
+        [pdf()] + ([] if case == "no_reference" else [reference]),
+        as_of=date(2027, 5, 15) if case == "current_annual" else date(2026, 11, 14),
+    )
+    assert not selected.blocks_legacy_ttm
+
+
+@pytest.mark.parametrize(
+    ("annual_time", "reference_time", "blocked"),
+    [("14:00:00", "15:00:00", True), ("15:00:00", "14:00:00", False), (None, None, True)],
+)
+def test_known_annual_conflict_does_not_guess_same_day_order(annual_time, reference_time, blocked):
+    rows = later_interim_docs()
+    rows[1] = replace(rows[1], disclosed_at=date(2026, 8, 5), disclosed_time=annual_time)
+    rows.append(reference_document(reference_time))
+    selected = select_pdf_financials(rows, [pdf(), pdf(True)], as_of=date(2026, 11, 14))
+    assert selected.blocks_legacy_ttm is blocked
+
+
+@pytest.mark.parametrize(
+    ("amount", "display", "blocked"),
+    [
+        (774_999_999, 775, False),
+        (-774_999_999, -775, False),
+        (774_000_000, 775, False),
+        (-774_000_000, -775, False),
+        (773_000_000, 775, True),
+        (-773_000_000, -775, True),
+    ],
+)
+def test_unspecified_display_rounding_is_not_exact_conflict(amount, display, blocked):
+    rows = later_interim_docs()
+    rows[1] = replace(rows[1], operating_profit=685_000_000, profit=amount)
+    reference = pdf(True)
+    reference = reference.model_copy(
+        update={
+            "annual_reference": reference.annual_reference.model_copy(
+                update={"amounts": {**reference.annual_reference.amounts, "parent_profit": display}}
+            )
+        }
+    )
+    selected = select_pdf_financials(rows, [pdf(), reference], as_of=date(2026, 11, 14))
+    assert selected.blocks_legacy_ttm is blocked
+
+
+def test_later_restated_reference_can_reconfirm_native_annual_amounts():
+    reference = pdf(True)
+    later = reference.model_copy(
+        update={
+            "published_on": date(2026, 9, 1),
+            "source_sha256": "c" * 64,
+            "disclosure_number": "later-reference",
+            "annual_reference": reference.annual_reference.model_copy(
+                update={"amounts": {"sales": 5122, "operating_profit": 657, "parent_profit": 774}}
+            ),
+        }
+    )
+    selected = select_pdf_financials(
+        later_interim_docs(), [pdf(), reference, later], as_of=date(2026, 11, 14)
+    )
+    assert not selected.blocks_legacy_ttm
+
+
+def test_known_annual_conflict_blocks_only_ttm_and_preserves_observed_periods():
+    kwargs = dict(
+        ticker="9127",
+        documents=later_interim_docs(),
+        adjusted_bars=[PriceBar(date(2026, 11, 13), 3295, None)],
+        adjustment_events=[],
+        trading_dates=[date(2026, 11, 13)],
+        expected_price_date=date(2026, 11, 13),
+        sector="海運業",
+        as_of=date(2026, 11, 14),
+        input_release=InputRelease(release_id="synthetic", manifest_sha256="a" * 64),
+        ttm_rules=DEFAULT_TTM_RULES,
+    )
+    legacy, legacy_growth, *_ = generate_financial_and_price_models(**kwargs)
+    financial, growth, *_ = generate_financial_and_price_models(
+        **kwargs, pdf_statements=[pdf(), pdf(True)]
+    )
+    assert legacy.payload["earnings_price"]["profit_ttm_yen"] == 1211_000_000
+    assert financial.payload["earnings_price"]["profit_ttm_yen"] is None
+    assert financial.payload["earnings_price"]["earnings_yield"] is None
+    assert financial.payload["earnings_price"]["market_cap_yen"] == 5_041_251_150
+    assert financial.payload["financial"]["pdf_selection"] == growth.payload["pdf_selection"]
+    assert [c for c in growth.payload["changes"] if c["measurement"] != "annual_ttm"] == [
+        c for c in legacy_growth.payload["changes"] if c["measurement"] != "annual_ttm"
+    ]
+    reader = CompanyGrowthReader(growth.payload)
+    assert (
+        metric_value(reader.observation(reader.latest_period, "annual_ttm"), "parent_profit")
+        is None
+    )
+    assert (
+        metric_value(reader.observation(reader.latest_period, "reported"), "parent_profit")
+        == 440_000_000
+    )
+    assert (
+        metric_value(reader.observation(reader.latest_period, "quarter"), "parent_profit")
+        == 193_000_000
+    )
+
+
 def test_actual_reference_not_forecast_or_old_annual():
     c, a = pdf(), pdf(True)
     assert c.reason is a.reason is None
@@ -348,9 +545,9 @@ def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(cha
         metric_value(reader.observation(reader.latest_period, "quarter"), "parent_profit")
         == 247_000_000
     )
-    assert "v14-pdf-operand-disclosure-order" in financial.calculation_revision
+    assert "v15-known-restated-annual-operand" in financial.calculation_revision
     assert growth.payload["calculation_method"] == (
-        "company_growth_retrospective_v14-pdf-operand-disclosure-order"
+        "company_growth_retrospective_v15-known-restated-annual-operand"
     )
 
 
