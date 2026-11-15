@@ -1641,6 +1641,17 @@
             }
           ]
         },
+        "saved_position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedHoldingPositionView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "original_assessment": {
           "anyOf": [
             {
@@ -1733,6 +1744,7 @@
         "saved_quote",
         "liquidity",
         "unfinished",
+        "saved_position",
         "original_assessment",
         "original_investment_reason",
         "original_reason_unavailable_reason",
@@ -1796,6 +1808,41 @@
         "downside"
       ],
       "title": "SavedHoldQuoteComparisonView",
+      "type": "object"
+    },
+    "SavedHoldingPositionView": {
+      "properties": {
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "quantity_basis_confirmed": {
+          "title": "Quantity Basis Confirmed",
+          "type": "boolean"
+        },
+        "cost_yen": {
+          "title": "Cost Yen",
+          "type": "string"
+        },
+        "inputs_checked_at": {
+          "format": "date-time",
+          "title": "Inputs Checked At",
+          "type": "string"
+        },
+        "ledger_as_of": {
+          "format": "date-time",
+          "title": "Ledger As Of",
+          "type": "string"
+        }
+      },
+      "required": [
+        "quantity",
+        "quantity_basis_confirmed",
+        "cost_yen",
+        "inputs_checked_at",
+        "ledger_as_of"
+      ],
+      "title": "SavedHoldingPositionView",
       "type": "object"
     },
     "SavedLimitTermsView": {
@@ -2538,6 +2585,17 @@
             }
           ]
         },
+        "saved_position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedHoldingPositionView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "original_assessment": {
           "anyOf": [
             {
@@ -2636,6 +2694,7 @@
         "saved_quote",
         "liquidity",
         "unfinished",
+        "saved_position",
         "original_assessment",
         "original_investment_reason",
         "original_reason_unavailable_reason",

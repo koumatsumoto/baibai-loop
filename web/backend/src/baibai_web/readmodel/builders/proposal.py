@@ -34,6 +34,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedConditionalReturnView,
     SavedDeferItemView,
     SavedExposureRowView,
+    SavedHoldingPositionView,
     SavedHoldItemView,
     SavedHoldQuoteComparisonView,
     SavedLimitTermsView,
@@ -391,6 +392,13 @@ def _item(
         position = item.position
         original = position.original_assessment_ref
         common.update(
+            saved_position=SavedHoldingPositionView(
+                quantity=position.quantity,
+                quantity_basis_confirmed=position.quantity_basis_confirmed,
+                cost_yen=str(position.cost_yen),
+                inputs_checked_at=proposal.inputs.checked_at,
+                ledger_as_of=proposal.inputs.ledger_as_of,
+            ),
             original_assessment=(
                 None if original is None else _assessment(pairs[original.assessment_id])
             ),

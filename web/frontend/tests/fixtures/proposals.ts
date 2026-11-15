@@ -125,6 +125,7 @@ export const unassessedDeferFixture: SavedDeferItemView = {
 }
 
 export const holdFixture: SavedHoldItemView = {
+  saved_position: null,
   saved_hold_quote_comparison: null,
   ticker: '4444',
   company_name: '合成会社',
@@ -146,6 +147,7 @@ export const holdFixture: SavedHoldItemView = {
 }
 
 export const sellFixture: SavedSellItemView = {
+  saved_position: null,
   saved_sell_limit_comparison: null,
   ticker: '5555',
   company_name: '合成会社',

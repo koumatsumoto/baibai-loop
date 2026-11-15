@@ -259,7 +259,16 @@ class SavedBuyItemView(_SavedProposalItemView):
     saved_buy_comparison: SavedBuyCapitalComparisonView | None = None
 
 
+class SavedHoldingPositionView(BaseModel):
+    quantity: int
+    quantity_basis_confirmed: bool
+    cost_yen: str
+    inputs_checked_at: datetime
+    ledger_as_of: datetime
+
+
 class _SavedHoldingItemView(_SavedProposalItemView):
+    saved_position: SavedHoldingPositionView | None = None
     original_assessment: SavedAssessmentView | None
     original_investment_reason: str | None
     original_reason_unavailable_reason: str | None

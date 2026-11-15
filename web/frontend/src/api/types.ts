@@ -259,6 +259,7 @@ export interface SavedHoldItemView {
   saved_quote: SavedQuoteView | null
   liquidity: SavedLiquidityView | null
   unfinished: UnfinishedResearchView | null
+  saved_position: SavedHoldingPositionView | null
   original_assessment: SavedAssessmentView | null
   original_investment_reason: string | null
   original_reason_unavailable_reason: string | null
@@ -279,6 +280,14 @@ export interface SavedHoldQuoteComparisonView {
   return_basis: 'conditional_pretax_without_reinvestment'
   base: SavedConditionalReturnView
   downside: SavedConditionalReturnView
+}
+
+export interface SavedHoldingPositionView {
+  quantity: number
+  quantity_basis_confirmed: boolean
+  cost_yen: string
+  inputs_checked_at: string
+  ledger_as_of: string
 }
 
 export interface SavedLimitTermsView {
@@ -393,6 +402,7 @@ export interface SavedSellItemView {
   saved_quote: SavedQuoteView | null
   liquidity: SavedLiquidityView | null
   unfinished: UnfinishedResearchView | null
+  saved_position: SavedHoldingPositionView | null
   original_assessment: SavedAssessmentView | null
   original_investment_reason: string | null
   original_reason_unavailable_reason: string | null
