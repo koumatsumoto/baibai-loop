@@ -50,7 +50,7 @@ class BuyTermsEvaluation:
     capital_comparison: dict[str, object] | None
 
 
-def _capital_comparison(
+def project_buy_capital(
     valuation: Valuation,
     *,
     limit: Decimal,
@@ -239,7 +239,7 @@ def evaluate_buy_terms(
         limit_projection,
         None
         if blockers
-        else _capital_comparison(
+        else project_buy_capital(
             valuation,
             limit=limit,
             cash=cash,

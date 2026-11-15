@@ -15,6 +15,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalItem,
     TradeProposal,
 )
+from baibai_engine.investment_judgment.trade_proposal.entry_policy import project_buy_capital
 from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.primitives.time import JST
 from baibai_web.readmodel.proposal_models import (
@@ -24,6 +25,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedAssessmentRisksView,
     SavedAssessmentSourceView,
     SavedAssessmentView,
+    SavedBuyCapitalComparisonView,
     SavedBuyItemView,
     SavedDeferItemView,
     SavedExposureRowView,
@@ -327,6 +329,22 @@ def _item(
             ],
         )
     if item.action == "buy":
+        comparison = None
+        if (
+            current is not None
+            and item.terms is not None
+            and current.document.valuation.status == "resolved"
+            and current.document.input_snapshot.as_of == proposal.as_of
+        ):
+            comparison = SavedBuyCapitalComparisonView.model_validate(
+                project_buy_capital(
+                    current.document.valuation,
+                    limit=item.terms.limit_price_yen,
+                    cash=proposal.inputs.available_cash_yen,
+                    quantity=item.terms.quantity,
+                    author_selected=True,
+                )
+            )
         return SavedBuyItemView.model_validate(
             {
                 **common,
@@ -334,6 +352,7 @@ def _item(
                 "proposed_limit_yen": (
                     None if item.proposed_limit_yen is None else str(item.proposed_limit_yen)
                 ),
+                "saved_buy_comparison": comparison,
             }
         )
     if item.action == "hold" or item.action == "sell":

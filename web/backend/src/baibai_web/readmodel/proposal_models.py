@@ -207,12 +207,36 @@ class _SavedProposalItemView(BaseModel):
     unfinished: UnfinishedResearchView | None
 
 
+class SavedCapitalScenarioView(BaseModel):
+    investment_total_value_yen: str
+    profit_loss_yen: str
+    capital_total_value_yen: str
+
+
+class SavedBuyCapitalComparisonView(BaseModel):
+    scope: Literal["available_cash_only"]
+    execution_assumption: Literal["full_fill_at_limit"]
+    return_basis: Literal["conditional_pretax_without_reinvestment"]
+    investor_taxes_and_fees_included: Literal[False]
+    cash_basis: Literal["constant_nominal_without_interest"]
+    horizon_months: int
+    quantity_basis: Literal["author_selected"]
+    quantity: int
+    limit_price_yen: str
+    notional_yen: str
+    unspent_cash_yen: str
+    cash_only_terminal_value_yen: str
+    base: SavedCapitalScenarioView
+    downside: SavedCapitalScenarioView
+
+
 class SavedBuyItemView(_SavedProposalItemView):
     action: Literal["buy"]
     timing: Literal["at_current_limit", "wait_limit", "place_limit"]
     terms: SavedLimitTermsView | None
     proposed_limit_yen: str | None
     terms_unavailable_reasons: list[SavedReasonView]
+    saved_buy_comparison: SavedBuyCapitalComparisonView | None = None
 
 
 class _SavedHoldingItemView(_SavedProposalItemView):

@@ -247,6 +247,37 @@ function SavedTerms({ terms }: { terms: SavedLimitTermsView }) {
   )
 }
 
+function SavedBuyComparison({ item }: { item: SavedBuyItemView }) {
+  const comparison = item.saved_buy_comparison
+  return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存指値・選択数量の金額比較">
+    <h4 className="text-sm font-semibold">保存指値・選択数量の金額比較</h4>
+    {comparison == null
+      ? <p className="text-sm text-muted-foreground">この表示データには金額比較がありません。旧表示データや価値・具体条件・起点が揃わない場合を、損益0や最大数量で補っていません。</p>
+      : <>
+        <p className="text-xs leading-6 text-muted-foreground">この銘柄だけが保存指値で全量約定した条件付き比較です。保存時の未拘束cashを共通の元手とし、他の買付・既保有を含むNAVではありません。銘柄間で残cashや終期合計を足し合わせません。</p>
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <Field label="比較の指値">{comparison.limit_price_yen} 円</Field>
+          <Field label="作者が選んだ数量">{comparison.quantity} 株</Field>
+          <Field label="保存評価の比較期間">{comparison.horizon_months} か月</Field>
+          <Field label="この銘柄への投下額">{comparison.notional_yen} 円</Field>
+          <Field label="この銘柄だけを買った後の残cash">{comparison.unspent_cash_yen} 円</Field>
+          <Field label="現金維持だけの終期額">{comparison.cash_only_terminal_value_yen} 円</Field>
+        </dl>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[{ label: '中心ケース（Base）', value: comparison.base }, { label: '下方ケース（Downside）', value: comparison.downside }].map(({ label, value }) => <div className="grid min-w-0 gap-3 rounded-md bg-muted p-4" key={label}>
+            <p className="text-sm font-medium">{label}の金額</p>
+            <dl className="grid gap-3">
+              <Field label="この買付の損益（現金維持との差）"><span className="break-all">{value.profit_loss_yen} 円</span></Field>
+              <Field label="この買付の総受取額"><span className="break-all">{value.investment_total_value_yen} 円</span></Field>
+              <Field label="残cashを含む終期合計"><span className="break-all">{value.capital_total_value_yen} 円</span></Field>
+            </dl>
+          </div>)}
+        </div>
+        <p className="text-xs leading-6 text-muted-foreground">投資家税・売買費用は含まず、配当再投資なし・cash利息なし。保存仮定の算術で、実績・期待値・最大損失・約定保証ではありません。現在の採否や新たな買付推奨を示しません。</p>
+      </>}
+  </section>
+}
+
 function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }) {
   return (
     <div className="grid gap-4">
@@ -295,6 +326,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
               {item.action === 'buy' && item.proposed_limit_yen !== null && <dl><Field label="作者指定の上限（具体条件未確定）">{item.proposed_limit_yen} 円</Field></dl>}
               <Reasons reasons={item.terms_unavailable_reasons} title="具体条件が不足する理由" />
             </div>)}
+            {item.action === 'buy' && <SavedBuyComparison item={item} />}
             {(item.action === 'hold' || item.action === 'sell') && <HoldingReason item={item} />}
             {item.action === 'defer' && <>
               <Reasons reasons={item.blockers} title="判断を保留した不足理由" />

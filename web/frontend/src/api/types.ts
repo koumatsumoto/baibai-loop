@@ -163,6 +163,23 @@ export interface SavedAssessmentView {
   review: SavedAssessmentReviewView
 }
 
+export interface SavedBuyCapitalComparisonView {
+  scope: 'available_cash_only'
+  execution_assumption: 'full_fill_at_limit'
+  return_basis: 'conditional_pretax_without_reinvestment'
+  investor_taxes_and_fees_included: false
+  cash_basis: 'constant_nominal_without_interest'
+  horizon_months: number
+  quantity_basis: 'author_selected'
+  quantity: number
+  limit_price_yen: string
+  notional_yen: string
+  unspent_cash_yen: string
+  cash_only_terminal_value_yen: string
+  base: SavedCapitalScenarioView
+  downside: SavedCapitalScenarioView
+}
+
 export interface SavedBuyItemView {
   ticker: string
   company_name: string | null
@@ -178,6 +195,13 @@ export interface SavedBuyItemView {
   terms: SavedLimitTermsView | null
   proposed_limit_yen: string | null
   terms_unavailable_reasons: SavedReasonView[]
+  saved_buy_comparison: SavedBuyCapitalComparisonView | null
+}
+
+export interface SavedCapitalScenarioView {
+  investment_total_value_yen: string
+  profit_loss_yen: string
+  capital_total_value_yen: string
 }
 
 export interface SavedDeferItemView {
