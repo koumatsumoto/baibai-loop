@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from baibai_engine.investment_judgment.company_research.document import ResearchRef
 from baibai_engine.investment_judgment.company_research.store import require_research_ref
@@ -25,7 +25,10 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
     proposal_draft_sha256,
 )
-from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
+from baibai_engine.investment_judgment.trade_proposal.query import (
+    load_investment_proposal,
+    proposal_records,
+)
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -87,6 +90,38 @@ def _market_context(connection: sqlite3.Connection, proposal: TradeProposal) -> 
     return {**result, "status": "retained", "assessment": deepcopy(assessment)}
 
 
+def _proposal_record_context(
+    connection: sqlite3.Connection, proposal_id: str, *, recorded_at: datetime
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "source": "proposal_receipts",
+        "scope": "whole_proposal",
+        "recorded_through": recorded_at.astimezone(UTC).isoformat(),
+        "status": "unavailable",
+        "records": None,
+    }
+    try:
+        records = proposal_records(connection, proposal_id)
+    except (ValueError, TypeError, FileNotFoundError):
+        # Optional later receipts must not invalidate the exact original judgment.
+        return result
+    return {
+        **result,
+        "status": "retained",
+        "records": {
+            key: [
+                record
+                for record in group
+                if datetime.fromisoformat(str(record["recorded_at"])) <= recorded_at
+            ]
+            for key, group in (
+                ("corrections", records["corrections"]),
+                ("human_reports", records["human_reports"]),
+            )
+        },
+    }
+
+
 def origin_context(
     connection: sqlite3.Connection,
     origin: RetrospectiveOrigin,
@@ -96,6 +131,7 @@ def origin_context(
     recorded_at: datetime,
 ) -> dict[str, object]:
     proposal_context: dict[str, object] | None = None
+    record_context: dict[str, object] | None = None
     market_context: dict[str, object] | None = None
     pair = None
     if isinstance(origin, ProposalItemRef):
@@ -109,6 +145,9 @@ def origin_context(
         proposal_context = proposal.model_dump(mode="json", exclude={"items"})
         proposal_context["item"] = item.model_dump(mode="json")
         market_context = _market_context(connection, proposal)
+        record_context = _proposal_record_context(
+            connection, proposal.proposal_id, recorded_at=recorded_at
+        )
         if item.assessment_ref is not None:
             pair = require_assessment_ref(connection, item.assessment_ref)
     else:
@@ -126,6 +165,7 @@ def origin_context(
         "proposal": proposal_context,
         "assessment": None if pair is None else _assessment_context(pair),
         "market_context": market_context,
+        "proposal_records": record_context,
     }
 
 
