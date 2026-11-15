@@ -34,4 +34,6 @@ uv run baibai-engine investment-judgment market-context latest --asof <YYYY-MM-D
 
 as_of以下かつknown_atまでの実発行一件を選び、週末発行を対象日末cutoffで落とさない。provider公表時計をavailable_atへ捏造せず、新判断は実発行後のSelectionに固定する。
 
+個社判断へ渡す保存判断の情報締切は、その発行時刻や今回Selectionの締切とは別に読む。未収録の旧本文では不明のままとし、発行までの新情報を確認済みへ補完しない。旧Selectionの再開は元の固定投影を保持する。
+
 exact ID/historyは保存本文・入力・引用・supersedesを検証し、新writer/cutoff/projectionで書換えない。旧抽出を新判断の必須構造にせず、旧runner入力がなければ本文の範囲だけを示す。latestは選択一件の不整合を旧値で埋めず、全L3履歴検査を前提にしない。
