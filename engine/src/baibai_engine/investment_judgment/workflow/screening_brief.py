@@ -17,6 +17,64 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
 )
 
 
+def technical_financial_exclusion_diagnostic(
+    result: TechnicalFinancialSelection, *, page: int = 0
+) -> dict[str, Any]:
+    """保存された技術合致の除外理由を読む。候補や財務仮説へ復帰させない。"""
+    if page < 0:
+        raise ValueError("screening page must be nonnegative")
+    technical = [row for row in result.rows if row.technical["state"] == "matched"]
+    excluded = sorted(
+        (row for row in technical if row.screening_lane == "no_current_hypothesis"),
+        key=lambda row: row.ticker,
+    )
+    failures: Counter[str] = Counter()
+    missing: Counter[str] = Counter()
+    for row in excluded:
+        routes = _object(row.financial_gate.get("routes"))
+        for field, counts in (("failures", failures), ("missing", missing)):
+            # 一つの会社の同じ不足が複数経路へ効いても重複票にしない。
+            counts.update(
+                {name for route in routes.values() for name in _object(route).get(field, [])}
+            )
+    start = page * result.policy.page_size
+    codec = TypeAdapter(TechnicalFinancialRow)
+    return {
+        "interpretation": (
+            "saved_technical_matches_without_current_financial_hypothesis_not_investment_rejection"
+        ),
+        "order_semantics": "ticker_code_order_not_research_priority",
+        "summary": {
+            "saved_stock_rows": len(result.rows),
+            "technical_matched_stocks": len(technical),
+            "excluded_stocks": len(excluded),
+            "financial_gate_states": dict(
+                sorted(Counter(str(row.financial_gate["state"]) for row in excluded).items())
+            ),
+            "growth_route_failure_company_counts": dict(sorted(failures.items())),
+            "growth_route_missing_company_counts": dict(sorted(missing.items())),
+            "reason_counts_are_nonadditive": True,
+        },
+        "page": {
+            "index": page,
+            "size": result.policy.page_size,
+            "total": len(excluded),
+            "next": page + 1 if start + result.policy.page_size < len(excluded) else None,
+        },
+        "rows": [
+            codec.dump_python(row, mode="json")
+            for row in excluded[start : start + result.policy.page_size]
+        ],
+        "detail_read": (
+            "selection-context --screening-selection-id <same-id> --compare-ticker <ticker>"
+        ),
+        "next_page_read": (
+            "selection-context --screening-selection-id <same-id> "
+            "--screening-excluded --screening-page <next>"
+        ),
+    }
+
+
 def technical_financial_screening_brief(
     result: TechnicalFinancialSelection,
     *,

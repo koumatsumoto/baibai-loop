@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from baibai_engine.investment_judgment.company_research.contracts import (
+    HypothesisCheck,
     ObservedFact,
     ResearchFindings,
     Source,
@@ -73,14 +74,7 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
             "recorded_at": record.recorded_at.isoformat(),
             "investigated_scope": document.investigated_scope[:400],
             "unresolved_questions": [text[:240] for text in document.unresolved_questions[:3]],
-            "hypotheses": [
-                {
-                    "statement": item.statement[:240],
-                    "result": item.result,
-                    "reason": item.reason[:240],
-                }
-                for item in document.hypotheses[:3]
-            ],
+            "hypotheses": _hypotheses_brief(document.hypotheses, document.sources),
             # Retained old sources must not hide newly added evidence on revisit.
             "source_dates": sorted({item.as_of.isoformat() for item in document.sources})[-3:],
             "display": "brief_only; use exact reference for all evidence and counterarguments",
@@ -97,14 +91,7 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
             "published_at": assessment.published_at.isoformat(),
             "stance": assessment.stance,
             "business_understanding": assessment.findings.business_understanding[:400],
-            "hypotheses": [
-                {
-                    "statement": item.statement[:240],
-                    "result": item.result,
-                    "reason": item.reason[:240],
-                }
-                for item in assessment.findings.hypotheses[:3]
-            ],
+            "hypotheses": _hypotheses_brief(assessment.findings.hypotheses, assessment.sources),
             "unresolved_questions": [
                 text[:240] for text in assessment.findings.unresolved_questions[:3]
             ],
@@ -114,6 +101,30 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
     else:
         result["assessment"] = _absence_brief(assessment)
     return result
+
+
+def _hypotheses_brief(
+    hypotheses: tuple[HypothesisCheck, ...], sources: tuple[Source, ...]
+) -> list[dict[str, object]]:
+    by_id = {source.source_id: source for source in sources}
+    return [
+        {
+            "statement": item.statement[:240],
+            "result": item.result,
+            "reason": item.reason[:240],
+            # A shared citation is not an independent vote; its own clocks matter.
+            "sources": [
+                {
+                    "source_id": source_id,
+                    "as_of": by_id[source_id].as_of.isoformat(),
+                    "retrieved_at": by_id[source_id].retrieved_at.isoformat(),
+                }
+                for source_id in item.source_ids[:3]
+            ],
+            "sources_omitted": max(0, len(item.source_ids) - 3),
+        }
+        for item in hypotheses[:3]
+    ]
 
 
 def _absence_brief(value: NotFound | Unreadable) -> dict[str, object]:

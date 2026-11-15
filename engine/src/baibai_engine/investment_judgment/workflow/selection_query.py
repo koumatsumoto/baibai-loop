@@ -16,6 +16,7 @@ from baibai_engine.investment_judgment.market_assessment.projection import asses
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     economic_screening_brief,
+    technical_financial_exclusion_diagnostic,
     technical_financial_screening_brief,
 )
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
@@ -46,6 +47,7 @@ def load_generated_selection_context(
     comparison_tickers: tuple[str, ...] = (),
     screening_page: int = 0,
     screening_lane: ResearchLane = "growth_research",
+    screening_excluded: bool = False,
 ) -> dict[str, Any]:
     """保存された政策結果と同じ生成を読む。contextの取得で再選定しない。"""
     from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
@@ -60,6 +62,10 @@ def load_generated_selection_context(
         raise ValueError("input cutoff must have a timezone")
     if screening_page < 0:
         raise ValueError("screening page must be nonnegative")
+    if screening_excluded and (
+        request.scope != "discover_new" or screening_lane != "growth_research"
+    ):
+        raise ValueError("excluded diagnostic requires discovery and no lane override")
     as_of = research_as_of or known_at.astimezone(JST).date()
     if as_of > known_at.astimezone(JST).date():
         raise ValueError("Research date/cutoff is invalid")
@@ -116,10 +122,14 @@ def load_generated_selection_context(
         assert screening is not None
         assert isinstance(screening.result, TechnicalFinancialSelection)
         start = screening_page * screening.result.policy.page_size
-        candidates = screening.result.lane_tickers(screening_lane)[
-            start : start + screening.result.policy.page_size
-        ]
-    elif screening_page or screening_lane != "growth_research":
+        candidates = (
+            ()
+            if screening_excluded
+            else screening.result.lane_tickers(screening_lane)[
+                start : start + screening.result.policy.page_size
+            ]
+        )
+    elif screening_page or screening_lane != "growth_research" or screening_excluded:
         raise ValueError("screening pagination requires a technical-financial selection")
     compact_screening = screening is not None and isinstance(
         screening.result, (EconomicPathSelection, TechnicalFinancialSelection)
@@ -210,10 +220,13 @@ def load_generated_selection_context(
             page=screening_page,
             lane=screening_lane,
             comparison_tickers=tuple(sorted(detail_targets)),
+            excluded=screening_excluded,
         ),
         "candidate_tickers": list(candidates),
         "candidate_order_semantics": (
-            "saved_route_round_robin_page_not_investment_ranking"
+            "diagnostic_rows_are_not_candidate_tickers"
+            if screening_excluded
+            else "saved_route_round_robin_page_not_investment_ranking"
             if technical_screening
             else "ticker_code_order_attention_priority_in_screening_cards_rank"
             if compact_screening
@@ -245,12 +258,20 @@ def _project_screening(
     page: int = 0,
     lane: ResearchLane = "growth_research",
     comparison_tickers: tuple[str, ...] = (),
+    excluded: bool = False,
 ) -> dict[str, Any]:
     result = selection.result
     if isinstance(result, TechnicalFinancialSelection):
         projection = technical_financial_screening_brief(
-            result, page=page, lane=lane, comparison_tickers=comparison_tickers
+            result,
+            page=None if excluded else page,
+            lane=lane,
+            comparison_tickers=comparison_tickers,
         )
+        if excluded:
+            projection["excluded_diagnostic"] = technical_financial_exclusion_diagnostic(
+                result, page=page
+            )
     else:
         adapter = TypeAdapter[ScreeningResult](ScreeningResult)
         projection = cast(dict[str, Any], adapter.dump_python(result, mode="json"))
