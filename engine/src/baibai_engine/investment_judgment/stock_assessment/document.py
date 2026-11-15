@@ -527,11 +527,11 @@ def evaluate_assessment(
         if any(sources[ref].as_of < fact.as_of for ref in fact.source_ids if ref in sources):
             errors.append(f"fact {fact.fact_id} postdates its source")
         if fact.fact_kind == "market_price":
-            if fact.unit != "JPY_per_share" or fact.price_basis not in {
-                "realtime",
-                "last_close_unadjusted",
-            }:
-                errors.append("market_price requires unadjusted JPY_per_share basis")
+            if (
+                fact.fact_id != document.valuation.market_price_fact_id
+                and fact.unit != "JPY_per_share"
+            ):
+                errors.append("market_price requires JPY_per_share")
             if isinstance(fact.value, (bool, str)) or finite_decimal(fact.value) <= 0:
                 errors.append("market_price must be a positive number")
             if fact.observed_at is not None and (
@@ -542,10 +542,10 @@ def evaluate_assessment(
             # Historical publications remain exact records, not new authoring attempts.
             if identity is UnpublishedAssessment.DRAFT and fact.postdates_cited_retrievals(sources):
                 errors.append(f"market_price {fact.fact_id} postdates all cited source retrievals")
-            if (
-                fact.price_basis == "last_close_unadjusted"
-                and fact.as_of > latest_eligible_close_date(proposed)
-            ):
+            if fact.price_basis in {
+                "last_close_unadjusted",
+                "last_close_adjusted",
+            } and fact.as_of > latest_eligible_close_date(proposed):
                 errors.append("market_price close date follows the available session")
         if fact.fact_kind == "valuation_metric" and (
             fact.unit not in {"ratio", "percent", "JPY_per_share"}
@@ -557,6 +557,12 @@ def evaluate_assessment(
         price_fact = facts.get(valuation.market_price_fact_id)
         if price_fact is None or price_fact.fact_kind != "market_price":
             errors.append("valuation price fact does not resolve")
+        elif price_fact.unit != "JPY_per_share" or price_fact.price_basis not in {
+            "realtime",
+            "last_close_unadjusted",
+        }:
+            # Analytical prices can remain evidence, never the selected valuation price.
+            errors.append("market_price requires unadjusted JPY_per_share basis")
     for projection in (valuation.base, valuation.downside):
         if projection is not None:
             required_sources.update(projection.source_ids)
