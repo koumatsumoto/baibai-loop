@@ -5,6 +5,13 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 
+def paths_refer_to_same_file(first: Path, second: Path) -> bool:
+    """Compare absent paths as well as existing symlink/hardlink aliases."""
+    return first.resolve() == second.resolve() or (
+        first.exists() and second.exists() and first.samefile(second)
+    )
+
+
 def write_text_atomic(path: Path, content: str) -> None:
     """Write UTF-8 text through the shared atomic byte replacement."""
     write_bytes_atomic(path, content.encode("utf-8"))

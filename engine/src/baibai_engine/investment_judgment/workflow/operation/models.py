@@ -25,6 +25,10 @@ class OperationPayload(BaseModel):
     result: str | None = Field(default=None, min_length=1)
     next: str | None = Field(default=None, min_length=1)
 
+    def validate_metadata(self) -> None:
+        # Typed copies bypass field validation; do not copy the fixed input tree again.
+        OperationPayload.model_validate(self.model_dump(mode="python", exclude={"artifacts"}))
+
 
 class OperationHeader(BaseModel):
     """History identity and lifecycle, without validating or copying the saved payload."""

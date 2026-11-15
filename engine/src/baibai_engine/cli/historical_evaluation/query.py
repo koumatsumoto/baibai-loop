@@ -14,7 +14,7 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_s
     ScreeningRunReader,
 )
 from baibai_engine.primitives.yaml import NoAliasSafeDumper as _NoAliasDumper
-from baibai_engine.storage.filesystem import write_text_atomic
+from baibai_engine.storage.filesystem import paths_refer_to_same_file, write_text_atomic
 from baibai_engine.storage.sqlite.machine_analysis import run_store_path
 
 from ...machine_analysis.historical_evaluation.legacy_screening.discovery.projection import (
@@ -43,10 +43,7 @@ def run_show_command(
     out = stdout if stdout is not None else sys.stdout
     try:
         source = run_store_path(runs_db_path)
-        if output_path is not None and (
-            output_path.resolve() == source.resolve()
-            or (output_path.exists() and source.exists() and output_path.samefile(source))
-        ):
+        if output_path is not None and paths_refer_to_same_file(output_path, source):
             raise ValueError("export output must not replace the input run store")
         run = ScreeningRunReader(source).get_run(run_revision_id)
         if run is None:
