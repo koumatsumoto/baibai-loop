@@ -207,7 +207,11 @@ class PrefetchingSource:
 
     def _take(self) -> tuple[LakeObject, _Slot] | None:
         with self._lock:
-            if self._stop.is_set() or self._next_index >= len(self._plan):
+            if (
+                self._terminal_error is not None
+                or self._stop.is_set()
+                or self._next_index >= len(self._plan)
+            ):
                 return None
             taken = self._plan[self._next_index]
             self._next_index += 1
