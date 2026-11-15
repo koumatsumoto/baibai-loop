@@ -49,13 +49,26 @@ def test_completed_conversion_keeps_source_and_does_not_manufacture_treasury(mon
 
 
 @pytest.mark.parametrize(
+    "overview", [COMPLETED, "本日、本株式交付の効力が発生し、完全子会社となりました。"]
+)
+def test_repeated_completion_with_one_final_total_is_one_observation(monkeypatch, overview):
+    action = parse(monkeypatch, HEADER + overview + COMPLETED + TOTAL)
+    assert action is not None
+    assert (action.issued_shares, action.effective_date, action.published_on) == (
+        223936153,
+        date(2026, 10, 1),
+        date(2026, 10, 1),
+    )
+
+
+@pytest.mark.parametrize(
     "content",
     [
         HEADER + TOTAL,
         HEADER + "本日、本株式交付の効力が発生する予定です。" + TOTAL,
         HEADER + "本日、本株式交付の効力が発生します。" + TOTAL,
         HEADER + COMPLETED + TOTAL + TOTAL,
-        HEADER + COMPLETED + COMPLETED + TOTAL,
+        HEADER + COMPLETED + COMPLETED + TOTAL + TOTAL.replace("223,936,153", "300,000,000"),
         HEADER.replace("5838", "9999") + COMPLETED + TOTAL,
     ],
 )
@@ -64,9 +77,8 @@ def test_unconfirmed_or_ambiguous_action_is_not_observed(monkeypatch, content):
 
 
 def test_reader_only_uses_retained_evidence_known_at_cutoff(tmp_path, monkeypatch):
-    action = parse(monkeypatch, HEADER + COMPLETED + TOTAL)
+    action = parse(monkeypatch, HEADER + COMPLETED + COMPLETED + TOTAL)
     assert action is not None
-    monkeypatch.setattr(subject, "extract_completed_conversion", lambda *args, **kwargs: action)
     with open_connection(tmp_path / "market.sqlite") as conn:
         bundle = create_bundle(
             conn, "capital_actions", CLOCK.date(), CLOCK, (("pdf:20260930543771", URL),)
@@ -75,7 +87,7 @@ def test_reader_only_uses_retained_evidence_known_at_cutoff(tmp_path, monkeypatc
             conn,
             bundle,
             "pdf:20260930543771",
-            JPXResponse(URL, CLOCK, "application/pdf", b"%PDF-fake"),
+            JPXResponse(URL, CLOCK, "application/pdf", b"%PDF-synthetic"),
         )
         complete_bundle(conn, bundle)
         assert not subject.read_capital_actions(

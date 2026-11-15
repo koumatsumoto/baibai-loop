@@ -22,7 +22,7 @@ from baibai_engine.machine_analysis.observations.financials.pdf_statements impor
 )
 from baibai_engine.primitives.time import JST
 
-CAPITAL_ACTION_REVISION = "capital-actions-v2-post-period-completion"
+CAPITAL_ACTION_REVISION = "capital-actions-v3-repeated-completion"
 _DATE = r"(20\d{2})年(\d{1,2})月(\d{1,2})日"
 
 if TYPE_CHECKING:
@@ -135,7 +135,9 @@ def extract_completed_conversion(
         values = re.findall(
             r"本転換の結果、当(?:行|社)普通株式の発行済株式数は([\d,]+)株となり", text
         )
-        if len(same_day) != 1 or len(values) != 1 or "重要な後発事象" in text:
+        # The overview and results can repeat completion of the same share
+        # delivery. Count final totals, not mentions of that completion.
+        if len(values) != 1 or "重要な後発事象" in text:
             return None
         issued, effective = int(values[0].replace(",", "")), published
         description = "completed_common_share_conversion_total"

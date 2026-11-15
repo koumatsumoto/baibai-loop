@@ -18,6 +18,7 @@ from baibai_engine.machine_analysis.generation.financial_models import (
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.observations.financials import capital_action_pdf
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import (
     parse_csv_zip_metric_record,
@@ -103,7 +104,10 @@ def test_financial_generation_rejects_post_asof_capital_disclosure():
         )
 
 
-def test_capital_action_reaches_saved_financial_model_without_claiming_current_treasury():
+@pytest.mark.parametrize("from_pdf", [False, True])
+def test_capital_action_reaches_saved_financial_model_without_claiming_current_treasury(
+    monkeypatch, from_pdf
+):
     event = CapitalAction(
         ticker="1001",
         issued_shares=130,
@@ -115,6 +119,27 @@ def test_capital_action_reaches_saved_financial_model_without_claiming_current_t
         description="completed",
         published_on=date(2026, 7, 2),
     )
+    if from_pdf:
+
+        class Page:
+            def extract_text(self):
+                return (
+                    "2026年7月2日（コード：1001 東証プライム市場）"
+                    "本日、本株式交付の効力が発生し、完全子会社となりました。"
+                    "本日、本株式交付の効力が発生いたしました。"
+                    "本転換の結果、当社普通株式の発行済株式数は130株となり"
+                )
+
+        monkeypatch.setattr(
+            capital_action_pdf, "PdfReader", lambda _: type("Reader", (), {"pages": [Page()]})()
+        )
+        event = capital_action_pdf.extract_completed_conversion(
+            b"%PDF-synthetic",
+            source_url="https://www2.jpx.co.jp/disc/10010/140120260701123456.pdf",
+            received_at=datetime(2026, 7, 2, tzinfo=UTC),
+            as_of=ASOF,
+        )
+        assert event is not None
     models = generate_financial_and_price_models(
         ticker="1001",
         documents=(document(),),
@@ -137,6 +162,11 @@ def test_capital_action_reaches_saved_financial_model_without_claiming_current_t
         == "indeterminate_treasury_after_capital_action"
     )
     assert payload["financial"]["market_cap"] is None
+    assert payload["financial"]["shares_ex_treasury"] is None
+    assert payload["earnings_price"]["profit_ttm_yen"] == 100
+    assert payload["earnings_price"]["earnings_yield"] is None
+    unmodified = generate(documents=(document(),), bars=[PriceBar(ASOF, 10.0, None)])
+    assert models[1:] == unmodified[1:]
 
 
 @pytest.mark.parametrize("profit", [-100.0, 0.0, 100.0])
@@ -316,7 +346,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1-balance-context-v1-cfo-source-v1-capital-actions-v2-post-period-completion"
+        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1-balance-context-v1-cfo-source-v1-capital-actions-v3-repeated-completion"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
