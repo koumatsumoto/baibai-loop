@@ -109,6 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="saved growth, unresolved, or alternative-financial research lane",
     )
     context_parser.add_argument(
+        "--screening-excluded",
+        action="store_true",
+        help="diagnose saved technical matches outside financial lanes without selecting them",
+    )
+    context_parser.add_argument(
         "--screening-page",
         type=int,
         default=0,
@@ -284,6 +289,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     comparison_tickers=tuple(args.compare_ticker),
                     screening_page=args.screening_page,
                     screening_lane=args.screening_lane,
+                    screening_excluded=args.screening_excluded,
                 )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:
