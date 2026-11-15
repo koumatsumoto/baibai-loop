@@ -257,7 +257,9 @@ def _period(record: Mapping[str, Any], slot: str) -> tuple[date, date] | None:
     return (start, end) if start is not None and end is not None and start <= end else None
 
 
-def _annual_earnings_revision(record: Mapping[str, Any], keys: tuple[str, ...]) -> bool:
+def _annual_earnings_revision(
+    record: Mapping[str, Any], keys: tuple[str, ...], *, slot: str, basis: str
+) -> bool:
     """An explicit revision with no usable annual value must not revive old guidance.
 
     Half-year-only revisions leave annual guidance untouched. Empty annual revisions
@@ -265,7 +267,14 @@ def _annual_earnings_revision(record: Mapping[str, Any], keys: tuple[str, ...]) 
     """
     if record.get("DocType") != "EarnForecastRevision":
         return False
-    annual_keys = (*keys, "FNCSales", "FNCOP") if keys[0] == "FNCEPS" else (*keys, "FSales", "FOP")
+    prefix = keys[0].removesuffix("EPS")
+    annual_keys = (*keys, f"{prefix}Sales", f"{prefix}OP")
+    if slot == "next":
+        # An old-year revision with empty Nx fields says nothing about next year.
+        # Supplemental NC scope cannot withdraw consolidated guidance.
+        if basis == "nonconsolidated":
+            annual_keys = (*annual_keys, "NxFNCSales", "NxFNCOP")
+        return any(has_period_slot(record, key) for key in annual_keys)
     half_year_keys = (
         "FSales2Q",
         "FOP2Q",
@@ -390,9 +399,10 @@ def project_financial_documents(
                         else "missing"
                     )
                     unresolved_revision = scope_conflict or (
-                        selected_slot == "current"
-                        and earnings_status == "missing"
-                        and _annual_earnings_revision(record, keys)
+                        earnings_status == "missing"
+                        and _annual_earnings_revision(
+                            record, keys, slot=selected_slot, basis=target_basis
+                        )
                     )
                     if unresolved_revision:
                         earnings_status = "unresolved"

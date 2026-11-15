@@ -1553,3 +1553,128 @@ def test_previous_year_dividend_revision_does_not_withdraw_next_year_guidance():
 def test_forecast_loss_flag_preserves_unknown(profit, ordinary, expected):
     result = snapshot(decode([document("partial-loss", FNP=profit, FOdP=ordinary)]))
     assert result.forecast_full_year_loss_flag is expected
+
+
+def _next_year_earnings_records(basis="Consolidated", **fields):
+    old = _scope_forecast_statement(basis)
+    old.update(NP="1000", ShOutFY="100", TrShFY="0")
+    revised = {
+        **old,
+        "DiscNo": "next-year-annual-revision",
+        "DiscDate": "2026-09-14",
+        "DocType": "EarnForecastRevision",
+        "NxFEPS": "",
+        "NxFNp": "",
+        "NxFOdP": "",
+        "NxFDivAnn": "",
+        **fields,
+    }
+    return [old, revised]
+
+
+@pytest.mark.parametrize(
+    ("basis", "prefix"),
+    [("Consolidated", "NxF"), ("NonConsolidated", "NxF"), ("NonConsolidated", "NxFNC")],
+)
+@pytest.mark.parametrize("field", ["Sales", "OP"])
+@pytest.mark.parametrize("value", ["0", "100", "NaN"])
+def test_next_year_annual_revision_does_not_revive_old_earnings(basis, prefix, field, value):
+    records = _next_year_earnings_records(basis, **{prefix + field: value})
+    original = decode(records)
+    baseline = snapshot(original[:1])
+    for rows in (original, list(reversed(original))):
+        result = snapshot(rows)
+        assert result.forecast_eps_yen is None
+        assert result.forecast_profit_yen is None
+        assert result.forecast_ordinary_profit_yen is None
+        assert result.forecast_full_year_loss_flag is None
+        assert result.per_forward is None
+        assert result.dps_forecast_annual == baseline.dps_forecast_annual == 7
+        assert result.market_cap == baseline.market_cap == 107400
+        source = result.earnings_forecast_source
+        assert source["status"] == "unresolved"
+        assert source["disclosure_number"] == "next-year-annual-revision"
+        assert source["period_start"] == "2026-07-01"
+        assert source["period_end"] == "2027-06-30"
+        for name in ("forecast_eps", "forecast_profit", "forecast_ordinary_profit"):
+            assert source[f"{name}_source_records"] == "next-year-annual-revision"
+    projected = project_financial_documents(original, ASOF)
+    assert [r.document_payload for r in projected] == [r.document_payload for r in original]
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {},
+        {"FSales": "100", "FOP": "10"},
+        {"NxFEPS2Q": "5"},
+        {"NxFNCOP2Q": "5"},
+        {"NxFNCSales": "100"},
+        {"NxFSales": "100", "DocType": "FYFinancialStatements_Consolidated_JP"},
+        {"NxFSales": "100", "DiscDate": "2026-10-14"},
+    ],
+)
+def test_next_year_without_applicable_annual_revision_keeps_guidance(fields):
+    result = snapshot(decode(_next_year_earnings_records(**fields)))
+    assert result.forecast_eps_yen == 20
+    assert result.per_forward == 53.7
+    assert result.forecast_profit_yen == 100
+    assert result.earnings_forecast_source["disclosure_number"] == "scope-statement"
+
+
+@pytest.mark.parametrize("value", ["0", "-10", "30"])
+def test_next_year_new_point_estimate_recovers_guidance(value):
+    records = _next_year_earnings_records(NxFSales="100")
+    recovered = {
+        **records[-1],
+        "DiscNo": "new-point-estimate",
+        "DiscDate": "2026-10-01",
+        "NxFEPS": value,
+        "NxFNp": value,
+        "NxFOdP": value,
+    }
+    result = snapshot(decode([*records, recovered]))
+    assert result.forecast_eps_yen == float(value)
+    assert result.forecast_profit_yen == float(value)
+    assert result.forecast_ordinary_profit_yen == float(value)
+    assert result.earnings_forecast_source["status"] == "confirmed"
+    assert result.earnings_forecast_source["disclosure_number"] == "new-point-estimate"
+
+
+def test_next_year_annual_revision_reaches_generated_financials(tmp_path):
+    from baibai_engine.machine_analysis.generation.financial_models import (
+        generate_financial_and_price_models,
+    )
+    from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+    from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+
+    records = _next_year_earnings_records(NxFSales="1000", NxFOP="100")
+    db = tmp_path / "market.sqlite"
+    store_jquants_fin_summaries(db, records, requested_start=date(2026, 8, 1), requested_end=ASOF)
+    before = db.read_bytes()
+    with closing(sqlite3.connect(db)) as conn:
+        rows = read_financial_documents(conn, start=date.min, end=ASOF)
+    models = generate_financial_and_price_models(
+        ticker="9999",
+        documents=rows,
+        adjusted_bars=(PriceBar(traded_at=ASOF, price=1074, turnover_value=1000000),),
+        adjustment_events=(),
+        trading_dates=(ASOF,),
+        expected_price_date=ASOF,
+        sector=None,
+        as_of=ASOF,
+        input_release=InputRelease(release_id="synthetic-release", manifest_sha256="a" * 64),
+        ttm_rules=DEFAULT_TTM_RULES,
+    )
+    model = next(item for item in models if item.model_id == "company_financials")
+    assert model.calculation_revision.startswith("continuous-annual-input-v54-")
+    financial = model.payload["financial"]
+    assert financial["forecast_eps_yen"] is None
+    assert financial["per_forward"] is None
+    assert financial["forecast_profit_yen"] is None
+    assert financial["forecast_full_year_loss_flag"] is None
+    assert financial["earnings_forecast_source"]["status"] == "unresolved"
+    assert financial["earnings_forecast_source"]["disclosure_number"] == "next-year-annual-revision"
+    assert financial["market_cap"] == 107400
+    assert financial["dps_forecast_annual"] == 7
+    assert db.read_bytes() == before
