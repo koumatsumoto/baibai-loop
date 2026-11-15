@@ -86,6 +86,45 @@ def test_optional_edinet_acceptance_is_before_any_model_publication(workflow, st
     assert "if" not in by_id["batch"]  # GitHub's normal success condition, never always().
 
 
+def test_article_semantic_refresh_is_opt_in_inside_normal_publication_lease(workflow, steps, by_id):
+    declaration = workflow["on"]["workflow_dispatch"]["inputs"]["article_semantic_recovery"]
+    assert declaration["required"] == "false"
+    assert declaration["type"] == "string"
+    assert declaration.get("default", "") == ""
+    ids = [step.get("id") for step in steps]
+    assert (
+        ids.index("lease-acquire")
+        < ids.index("hydrate")
+        < ids.index("source-integration")
+        < ids.index("article-semantic-recovery")
+        < ids.index("batch")
+    )
+    assert (
+        ids.index("upload-stores")
+        < ids.index("article-semantic-readback")
+        < ids.index("lease-release")
+    )
+    refresh = by_id["article-semantic-recovery"]
+    assert refresh["if"] == "${{ inputs.article_semantic_recovery != '' }}"
+    assert "continue-on-error" not in refresh
+    assert "${{ inputs." not in refresh["run"]
+    assert "--article-semantic-recovery" in by_id["validate-input"]["run"]
+    for name in ("article-semantic-recovery", "article-semantic-readback"):
+        assert by_id[name]["env"]["R2_STOP_ON_REJECTION"] == "1"
+        assert '--lease-handle "$RUNNER_TEMP/publication-lease-handle.json"' in by_id[name]["run"]
+    assert (
+        "steps.upload-stores.outputs.machine == 'success'"
+        in by_id["article-semantic-readback"]["if"]
+    )
+    assert (
+        "steps.article-semantic-recovery.outcome == 'success'"
+        in by_id["article-semantic-readback"]["if"]
+    )
+    assert (
+        "extract_observations" not in by_id["batch"]["run"]
+    )  # No automatic all-history migration.
+
+
 @pytest.mark.parametrize(
     ("source_exit", "acceptance_exit", "calls"), [(41, 0, 1), (0, 42, 2), (0, 0, 2)]
 )
