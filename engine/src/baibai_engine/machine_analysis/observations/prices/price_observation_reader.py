@@ -48,3 +48,36 @@ def read_price_day_states(
             dates[row[1]] = day
         result[row[0]][day] = classify_price_day(row[2:])
     return dict(result)
+
+
+def read_turnover_values(
+    connection: sqlite3.Connection,
+    *,
+    start: date,
+    end: date,
+    tickers: Collection[str],
+) -> dict[str, dict[date, float | None]]:
+    """Read yen values independently of close availability or corporate-action basis.
+
+    A partial price row can still contain a valid traded value. Keep zero, null
+    and absent rows distinct; the activity owner decides numeric eligibility.
+    """
+    subjects = tuple(sorted(set(tickers)))
+    if not subjects:
+        return {}
+    query = (
+        "SELECT ticker,traded_at,turnover_value "  # nosec B608
+        "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? AND ticker IN ("
+        + ",".join("?" for _ in subjects)
+        + ") ORDER BY ticker,traded_at"
+    )
+    rows = connection.execute(query, (start.isoformat(), end.isoformat(), *subjects))
+    result: dict[str, dict[date, float | None]] = defaultdict(dict)
+    dates: dict[str, date] = {}
+    for ticker, recorded_day, value in rows:
+        day = dates.get(recorded_day)
+        if day is None:
+            day = date.fromisoformat(recorded_day)
+            dates[recorded_day] = day
+        result[ticker][day] = float(value) if isinstance(value, (int, float)) else None
+    return dict(result)
