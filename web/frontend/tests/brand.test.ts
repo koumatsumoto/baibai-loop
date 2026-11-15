@@ -126,15 +126,16 @@ describe('brand assets', () => {
     expect(source('src/components/BrandMark.tsx')).toContain('src="/logo.png"')
   })
 
-  it('provides installable Android home-screen metadata', () => {
+  it('declares home-screen metadata without opting this logo into masking', () => {
     const manifest = JSON.parse(source('public/manifest.webmanifest')) as {
       display: string
       start_url: string
-      icons: { sizes: string }[]
+      icons: { sizes: string; purpose: string }[]
     }
     expect(manifest.display).toBe('standalone')
     expect(manifest.start_url).toBe('/')
     expect(manifest.icons.map((icon) => icon.sizes)).toEqual(['192x192', '512x512'])
+    expect(manifest.icons.map((icon) => icon.purpose)).toEqual(['any', 'any'])
   })
 })
 
