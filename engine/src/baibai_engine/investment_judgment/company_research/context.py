@@ -74,7 +74,7 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
             "recorded_at": record.recorded_at.isoformat(),
             "investigated_scope": document.investigated_scope[:400],
             "unresolved_questions": [text[:240] for text in document.unresolved_questions[:3]],
-            "hypotheses": _hypotheses_brief(document.hypotheses, document.sources),
+            **_hypotheses_brief(document.hypotheses, document.sources),
             # Retained old sources must not hide newly added evidence on revisit.
             "source_dates": sorted({item.as_of.isoformat() for item in document.sources})[-3:],
             "display": "brief_only; use exact reference for all evidence and counterarguments",
@@ -105,7 +105,7 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
                 "timing_reason": assessment.findings.realization.timing_reason[:240],
                 "delay_risk": assessment.findings.realization.delay_risk[:240],
             },
-            "hypotheses": _hypotheses_brief(assessment.findings.hypotheses, assessment.sources),
+            **_hypotheses_brief(assessment.findings.hypotheses, assessment.sources),
             "unresolved_questions": [
                 text[:240] for text in assessment.findings.unresolved_questions[:3]
             ],
@@ -119,16 +119,26 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
 
 def _hypotheses_brief(
     hypotheses: tuple[HypothesisCheck, ...], sources: tuple[Source, ...]
-) -> list[dict[str, object]]:
-    return [
-        {
-            "statement": item.statement[:240],
-            "result": item.result,
-            "reason": item.reason[:240],
-            **_source_brief(item.source_ids, sources),
-        }
-        for item in hypotheses[:3]
-    ]
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "hypotheses": [
+            {
+                "statement": item.statement[:240],
+                "result": item.result,
+                "reason": item.reason[:240],
+                **_source_brief(item.source_ids, sources),
+            }
+            for item in hypotheses[:3]
+        ]
+    }
+    omitted = hypotheses[3:]
+    if omitted:
+        # 先頭の支持だけを全体の結論にせず、反証の存在から同じexactへ戻せるようにする。
+        result.update(
+            hypotheses_omitted=len(omitted),
+            omitted_hypothesis_results=sorted({item.result for item in omitted}),
+        )
+    return result
 
 
 def _source_brief(source_ids: tuple[str, ...], sources: tuple[Source, ...]) -> dict[str, object]:
