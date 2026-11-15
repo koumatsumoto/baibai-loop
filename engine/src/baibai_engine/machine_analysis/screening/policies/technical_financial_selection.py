@@ -66,6 +66,13 @@ def project_technical_financial_row(
         "model_revisions": dict(coordinates.model_revisions),
         "not_generated": list(coordinates.not_generated),
     }
+    # 元fieldが未記録なら、型の既定空配列を「変更なし」の観測へ昇格しない。
+    if any(
+        model.model_id == "company_financials"
+        and "accounting_disclosures" in _object(model.payload.get("earnings_price"))
+        for model in models
+    ):
+        financial_paths.update(_pick(coordinates.context, "accounting_change_context"))
     if (
         gate["state"] in {"not_selected", "input_unresolved"}
         and not financial_paths["matched_routes"]
@@ -137,7 +144,7 @@ def evaluate_technical_financial_rows(
     rows: Mapping[str, TechnicalFinancialRow],
     policy: TechnicalFinancialPolicy,
 ) -> ScreeningSelection:
-    if policy.method != "technical-financial-discovery-v10":
+    if policy.method != "technical-financial-discovery-v11":
         raise ValueError("historical technical-financial policy is read-only")
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not set(rows).issubset(subjects):
