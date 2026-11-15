@@ -64,7 +64,7 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
     result = generate(path)
     shared = result.result("market_context", "market")
     benchmark = shared.payload["benchmark_trend"]
-    assert shared.calculation_revision == "shared-market-context-v14-independent-turnover"
+    assert shared.calculation_revision == "shared-market-context-v15-down-own-direction-turnover"
     if not benchmark_count:
         assert benchmark is None
     else:
@@ -203,6 +203,9 @@ def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tm
         assert turnover["down"]["days"] == turnover["down"]["valid_turnover_days"] == 1
         assert turnover["down"]["mean_yen"] == turnover["down"]["median_yen"] == 100000
         assert turnover["up"]["mean_yen"] == turnover["up"]["median_yen"] == 1000000
+        joint = comparison["down_own_direction_turnover"]
+        assert joint["own_up"]["days"] == 0
+        assert joint["own_nonpositive"]["mean_yen"] == 100000
     assert market["price"]["turnover_activity_20d"]["current_to_prior_mean_ratio"] == 10
     technical = result.result("technical_analysis", "1001").payload
     episodes = technical["price_path"]["observations"]["G60"]["path_statistics"][
@@ -236,6 +239,42 @@ def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tm
     projected = project_generated_inputs(fixed)["securities"]["1001"]["models"]
     assert projected["market_context"] == market
     assert projected["technical_analysis"] == technical
+    assert fixed.model_dump_json() == encoded
+
+
+def test_saved_v14_does_not_gain_direction_turnover_from_new_code(tmp_path):
+    path, _ = activity_source(tmp_path)
+    current = generate(path, tickers=("1001",))
+    models = []
+    for model in current.models:
+        if model.model_id == "market_context":
+            payload = deepcopy(model.payload)
+            if model.subject == "1001":
+                for comparison in payload["relative"]["market_conditioned_60d"][
+                    "benchmarks"
+                ].values():
+                    comparison.pop("down_own_direction_turnover")
+            model = model.model_copy(
+                update={
+                    "payload": payload,
+                    "calculation_revision": "shared-market-context-v14-independent-turnover",
+                }
+            )
+        models.append(model)
+    legacy = current.model_copy(update={"generation_id": "v14", "models": tuple(models)})
+    runs = tmp_path / "runs.sqlite"
+    publish_generation(legacy, path=runs)
+    fixed = read_research_model_inputs("v14", targets=("1001",), path=runs)
+    encoded = fixed.model_dump_json()
+    assert read_generation("v14", path=runs) == legacy
+    path.unlink()
+    runs.unlink()
+    market = project_generated_inputs(fixed)["securities"]["1001"]["models"]["market_context"]
+    assert market == legacy.result("market_context", "1001").payload
+    assert all(
+        "down_own_direction_turnover" not in item
+        for item in market["relative"]["market_conditioned_60d"]["benchmarks"].values()
+    )
     assert fixed.model_dump_json() == encoded
 
 
