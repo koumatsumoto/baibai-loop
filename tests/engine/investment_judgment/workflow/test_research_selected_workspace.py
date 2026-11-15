@@ -932,3 +932,31 @@ def test_historical_capacity_and_hash_survive_current_policy_change(tmp_path, mo
         selection_binding(OperationService(tmp_path / "app").get(operation.operation_id).payload)
         == saved
     )
+
+
+def test_prepare_retry_releases_manifest_selection_before_resume(tmp_path, monkeypatch):
+    import gc
+    import weakref
+
+    value = seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("1234",))
+    first = prepare(tmp_path, value=value)
+    original = selected_prepare.workspace_selection
+    resume = selected_prepare.resume_selected_workspace
+    selections = []
+
+    def observe(*args, **kwargs):
+        result = original(*args, **kwargs)
+        selections.append(weakref.ref(result))
+        return result
+
+    def resume_after_release(*args, **kwargs):
+        gc.collect()
+        assert selections[0]() is None
+        return resume(*args, **kwargs)
+
+    monkeypatch.setattr(selected_prepare, "workspace_selection", observe)
+    monkeypatch.setattr(selected_prepare, "resume_selected_workspace", resume_after_release)
+    retried = prepare(tmp_path, value=value)
+    assert retried.status == "resumed"
+    assert retried.operation_id == first.operation_id
+    assert retried.selection_sha256 == first.selection_sha256

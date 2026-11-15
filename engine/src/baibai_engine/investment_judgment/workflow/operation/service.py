@@ -292,19 +292,18 @@ class OperationService:
         )
         if target is None:
             raise OperationConflictError("ticker is outside the fixed selection")
-        return self.record_outcome(
-            operation_id,
-            ReviewedTarget(
-                ticker=target.ticker,
-                purpose=target.purpose,
-                assessment_ref=AssessmentRef(
-                    assessment_id=pair.assessment_id,
-                    core_sha256=pair.core_sha256,
-                    review_id=pair.review.review_id,
-                ),
+        outcome = ReviewedTarget(
+            ticker=target.ticker,
+            purpose=target.purpose,
+            assessment_ref=AssessmentRef(
+                assessment_id=pair.assessment_id,
+                core_sha256=pair.core_sha256,
+                review_id=pair.review.review_id,
             ),
-            now=now,
         )
+        # The progress writer rereads and validates the fixed snapshot under CAS.
+        del operation, selection
+        return self.record_outcome(operation_id, outcome, now=now)
 
     def record_proposal(
         self, operation_id: str, proposal_id: str, *, now: datetime

@@ -17,6 +17,9 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
 from baibai_engine.investment_judgment.stock_assessment.store import (
     load_reviewed_assessment,
 )
+from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelectionRecord as ResearchSelection,
+)
 from baibai_engine.investment_judgment.workflow.workspace.admission import (
     workspace_selection,
 )
@@ -49,18 +52,23 @@ def compute_status(
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = workspace_selection(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
-    status = _draft_status(workspace, manifest, db_path=db_path, now=now or datetime.now(JST))
-    selection = gate
-    status["request_scope"] = selection.request.scope
-    status["selection_summary"] = selection.selection_summary
+    status = _draft_status(
+        workspace, manifest, selection=gate, db_path=db_path, now=now or datetime.now(JST)
+    )
+    status["request_scope"] = gate.request.scope
+    status["selection_summary"] = gate.selection_summary
     return status
 
 
 def _draft_status(
-    workspace: Path, manifest: Mapping[str, object], *, db_path: Path | None, now: datetime
+    workspace: Path,
+    manifest: Mapping[str, object],
+    *,
+    selection: ResearchSelection,
+    db_path: Path | None,
+    now: datetime,
 ) -> dict[str, object]:
     asof = _parse_date(str(manifest.get("research_as_of")), label="manifest research_as_of")
-    selection = workspace_selection(manifest, db_path=db_path)
     holding = manifest.get("holding_ticker")
     cases = []
     for target in selection.targets:
