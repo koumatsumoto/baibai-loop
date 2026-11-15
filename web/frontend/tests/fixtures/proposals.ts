@@ -24,6 +24,8 @@ export function assessmentFixture(label: string): SavedAssessmentView {
     invalidation_conditions: [`${label}の反証条件：主要顧客の離脱`],
     investment_case_source_ids: null,
     investment_case_sources: null,
+    hypothesis_checks: null,
+    hypothesis_sources: null,
     refresh: null,
     strongest_countercase: null,
     realization: null,

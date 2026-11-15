@@ -37,6 +37,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedHoldingPositionView,
     SavedHoldItemView,
     SavedHoldQuoteComparisonView,
+    SavedHypothesisCheckView,
     SavedLimitTermsView,
     SavedLiquidityView,
     SavedModelPerspectiveView,
@@ -162,6 +163,9 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
     risk_sources = {
         source_id for item in document.permanent_loss_risks for source_id in item.source_ids
     }
+    hypothesis_sources = {
+        source_id for item in document.findings.hypotheses for source_id in item.source_ids
+    }
     return SavedAssessmentView(
         assessment_id=pair.assessment_id,
         core_sha256=pair.core_sha256,
@@ -177,6 +181,15 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
             SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
             for source in document.input_snapshot.sources
             if source.source_id in case.source_ids
+        ],
+        hypothesis_checks=[
+            SavedHypothesisCheckView.model_validate(item.model_dump(mode="json"))
+            for item in document.findings.hypotheses
+        ],
+        hypothesis_sources=[
+            SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
+            for source in document.input_snapshot.sources
+            if source.source_id in hypothesis_sources
         ],
         refresh=(
             None

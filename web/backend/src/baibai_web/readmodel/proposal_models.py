@@ -62,6 +62,14 @@ class SavedAssessmentRisksView(BaseModel):
     sources: list[SavedAssessmentSourceView]
 
 
+class SavedHypothesisCheckView(BaseModel):
+    statement: str
+    origin: Literal["user", "research"]
+    result: Literal["supported", "refuted", "unresolved"]
+    reason: str
+    source_ids: list[str]
+
+
 class SavedAssessmentReviewView(BaseModel):
     reviewed_at: datetime
     primary_source_check: Literal["verified", "partially_verified", "unverified"]
@@ -138,6 +146,8 @@ class SavedAssessmentView(BaseModel):
     invalidation_conditions: list[str]
     investment_case_source_ids: list[str] | None = None
     investment_case_sources: list[SavedAssessmentSourceView] | None = None
+    hypothesis_checks: list[SavedHypothesisCheckView] | None = None
+    hypothesis_sources: list[SavedAssessmentSourceView] | None = None
     refresh: SavedAssessmentRefreshView | None = None
     strongest_countercase: str | None = None
     realization: SavedValueRealizationView | None = None

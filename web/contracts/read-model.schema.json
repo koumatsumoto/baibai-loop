@@ -1043,6 +1043,36 @@
           "default": null,
           "title": "Investment Case Sources"
         },
+        "hypothesis_checks": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SavedHypothesisCheckView"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis Checks"
+        },
+        "hypothesis_sources": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SavedAssessmentSourceView"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis Sources"
+        },
         "refresh": {
           "anyOf": [
             {
@@ -1155,6 +1185,8 @@
         "invalidation_conditions",
         "investment_case_source_ids",
         "investment_case_sources",
+        "hypothesis_checks",
+        "hypothesis_sources",
         "refresh",
         "strongest_countercase",
         "realization",
@@ -1875,6 +1907,51 @@
         "ledger_as_of"
       ],
       "title": "SavedHoldingPositionView",
+      "type": "object"
+    },
+    "SavedHypothesisCheckView": {
+      "properties": {
+        "statement": {
+          "title": "Statement",
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "user",
+            "research"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "result": {
+          "enum": [
+            "supported",
+            "refuted",
+            "unresolved"
+          ],
+          "title": "Result",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "statement",
+        "origin",
+        "result",
+        "reason",
+        "source_ids"
+      ],
+      "title": "SavedHypothesisCheckView",
       "type": "object"
     },
     "SavedLimitTermsView": {

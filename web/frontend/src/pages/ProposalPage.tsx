@@ -16,6 +16,7 @@ import type {
 import { LoadingPage } from '../components/LoadingIndicator'
 import { AssessmentRisks } from '../components/AssessmentRisks'
 import { AssessmentSources } from '../components/AssessmentSources'
+import { AssessmentHypotheses } from '../components/AssessmentHypotheses'
 import { AssessmentValueGap } from '../components/AssessmentValueGap'
 import { ModelPerspectives } from '../components/ModelPerspectives'
 import { ReportSummary } from '../components/ReportSummary'
@@ -195,6 +196,7 @@ function AssessmentExcerpt({ assessment, showCountercase = true }: { assessment:
             <AssessmentSources sourceIds={assessment.investment_case_source_ids} sources={assessment.investment_case_sources} />
           </>}
       </div>
+      <AssessmentHypotheses assessment={assessment} />
       <AssessmentRefresh assessment={assessment} />
       <AssessmentRisks assessment={assessment} />
       <div className="grid gap-4 border-t pt-4">
