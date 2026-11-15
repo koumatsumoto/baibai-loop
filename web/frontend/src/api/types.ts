@@ -200,6 +200,7 @@ export interface SavedBuyCapitalComparisonView {
   cash_only_terminal_value_yen: string
   base: SavedCapitalScenarioView
   downside: SavedCapitalScenarioView
+  time_sensitivity: SavedBuyTimeSensitivityView | null
 }
 
 export interface SavedBuyItemView {
@@ -218,6 +219,14 @@ export interface SavedBuyItemView {
   proposed_limit_yen: string | null
   terms_unavailable_reasons: SavedReasonView[]
   saved_buy_comparison: SavedBuyCapitalComparisonView | null
+}
+
+export interface SavedBuyTimeSensitivityView {
+  assumption: 'terminal_and_cumulative_cash_unchanged'
+  additional_months: number
+  horizon_months: number
+  base: SavedScenarioTimeSensitivityView
+  downside: SavedScenarioTimeSensitivityView
 }
 
 export interface SavedCapitalScenarioView {
@@ -402,6 +411,11 @@ export interface SavedResolvedValuationView {
   required_annual_return_pct: string
   base: SavedValuationProjectionView
   downside: SavedValuationProjectionView
+}
+
+export interface SavedScenarioTimeSensitivityView {
+  annualized_return_pct: string
+  delayed_annualized_return_pct: string
 }
 
 export interface SavedSellItemView {

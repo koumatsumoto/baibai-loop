@@ -1261,6 +1261,17 @@
         },
         "downside": {
           "$ref": "#/$defs/SavedCapitalScenarioView"
+        },
+        "time_sensitivity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedBuyTimeSensitivityView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1277,7 +1288,8 @@
         "unspent_cash_yen",
         "cash_only_terminal_value_yen",
         "base",
-        "downside"
+        "downside",
+        "time_sensitivity"
       ],
       "title": "SavedBuyCapitalComparisonView",
       "type": "object"
@@ -1435,6 +1447,38 @@
         "saved_buy_comparison"
       ],
       "title": "SavedBuyItemView",
+      "type": "object"
+    },
+    "SavedBuyTimeSensitivityView": {
+      "properties": {
+        "assumption": {
+          "const": "terminal_and_cumulative_cash_unchanged",
+          "title": "Assumption",
+          "type": "string"
+        },
+        "additional_months": {
+          "title": "Additional Months",
+          "type": "integer"
+        },
+        "horizon_months": {
+          "title": "Horizon Months",
+          "type": "integer"
+        },
+        "base": {
+          "$ref": "#/$defs/SavedScenarioTimeSensitivityView"
+        },
+        "downside": {
+          "$ref": "#/$defs/SavedScenarioTimeSensitivityView"
+        }
+      },
+      "required": [
+        "assumption",
+        "additional_months",
+        "horizon_months",
+        "base",
+        "downside"
+      ],
+      "title": "SavedBuyTimeSensitivityView",
       "type": "object"
     },
     "SavedCapitalScenarioView": {
@@ -2611,6 +2655,24 @@
         "downside"
       ],
       "title": "SavedResolvedValuationView",
+      "type": "object"
+    },
+    "SavedScenarioTimeSensitivityView": {
+      "properties": {
+        "annualized_return_pct": {
+          "title": "Annualized Return Pct",
+          "type": "string"
+        },
+        "delayed_annualized_return_pct": {
+          "title": "Delayed Annualized Return Pct",
+          "type": "string"
+        }
+      },
+      "required": [
+        "annualized_return_pct",
+        "delayed_annualized_return_pct"
+      ],
+      "title": "SavedScenarioTimeSensitivityView",
       "type": "object"
     },
     "SavedSellItemView": {

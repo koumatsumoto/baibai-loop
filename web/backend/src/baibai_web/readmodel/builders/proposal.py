@@ -5,11 +5,15 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Mapping
 from datetime import datetime
+from decimal import Decimal
 
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    FIXED_VALUE_DELAY_MONTHS,
+    Projection,
     ReturnProjection,
     project_buy_capital,
     project_return,
+    valuation_conditions,
 )
 from baibai_engine.investment_judgment.stock_assessment.store import ReviewedAssessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -31,6 +35,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedAssessmentView,
     SavedBuyCapitalComparisonView,
     SavedBuyItemView,
+    SavedBuyTimeSensitivityView,
     SavedConditionalReturnView,
     SavedDeferItemView,
     SavedExposureRowView,
@@ -50,6 +55,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedReasonView,
     SavedRemainingRewardView,
     SavedResolvedValuationView,
+    SavedScenarioTimeSensitivityView,
     SavedSellItemView,
     SavedSellLimitComparisonView,
     SavedTurnoverWindowView,
@@ -145,6 +151,39 @@ def _conditional_return(value: ReturnProjection) -> SavedConditionalReturnView:
         total_value_per_share_yen=str(value.total_value_yen),
         total_return_pct=str(round(value.total_return_pct, 4)),
         annualized_return_pct=str(round(value.annualized_return_pct, 4)),
+    )
+
+
+def _buy_time_sensitivity(
+    base: Projection,
+    downside: Projection,
+    *,
+    price_yen: Decimal,
+    horizon_months: int,
+    required_annual_return_pct: Decimal,
+) -> SavedBuyTimeSensitivityView:
+    cases = []
+    for projection in (base, downside):
+        value = valuation_conditions(
+            projection,
+            price_yen=price_yen,
+            horizon_months=horizon_months,
+            required_annual_return_pct=required_annual_return_pct,
+        )
+        cases.append(
+            SavedScenarioTimeSensitivityView(
+                annualized_return_pct=str(round(value.returns.annualized_return_pct, 4)),
+                delayed_annualized_return_pct=str(
+                    round(value.delayed_returns.annualized_return_pct, 4)
+                ),
+            )
+        )
+    return SavedBuyTimeSensitivityView(
+        assumption="terminal_and_cumulative_cash_unchanged",
+        additional_months=FIXED_VALUE_DELAY_MONTHS,
+        horizon_months=horizon_months + FIXED_VALUE_DELAY_MONTHS,
+        base=cases[0],
+        downside=cases[1],
     )
 
 
@@ -396,6 +435,14 @@ def _item(
                     quantity=item.terms.quantity,
                     author_selected=True,
                 )
+            )
+            assert valuation.required_annual_return_pct is not None
+            comparison.time_sensitivity = _buy_time_sensitivity(
+                valuation.base,
+                valuation.downside,
+                price_yen=item.terms.limit_price_yen,
+                horizon_months=valuation.horizon_months,
+                required_annual_return_pct=valuation.required_annual_return_pct,
             )
         return SavedBuyItemView.model_validate(
             {

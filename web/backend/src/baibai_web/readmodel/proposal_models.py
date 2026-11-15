@@ -245,6 +245,19 @@ class SavedCapitalScenarioView(BaseModel):
     capital_total_value_yen: str
 
 
+class SavedScenarioTimeSensitivityView(BaseModel):
+    annualized_return_pct: str
+    delayed_annualized_return_pct: str
+
+
+class SavedBuyTimeSensitivityView(BaseModel):
+    assumption: Literal["terminal_and_cumulative_cash_unchanged"]
+    additional_months: int
+    horizon_months: int
+    base: SavedScenarioTimeSensitivityView
+    downside: SavedScenarioTimeSensitivityView
+
+
 class SavedBuyCapitalComparisonView(BaseModel):
     scope: Literal["available_cash_only"]
     execution_assumption: Literal["full_fill_at_limit"]
@@ -260,6 +273,7 @@ class SavedBuyCapitalComparisonView(BaseModel):
     cash_only_terminal_value_yen: str
     base: SavedCapitalScenarioView
     downside: SavedCapitalScenarioView
+    time_sensitivity: SavedBuyTimeSensitivityView | None = None
 
 
 class SavedBuyItemView(_SavedProposalItemView):

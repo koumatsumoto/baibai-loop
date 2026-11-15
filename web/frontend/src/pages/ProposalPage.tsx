@@ -302,6 +302,7 @@ function SavedTerms({ terms }: { terms: SavedLimitTermsView }) {
 
 function SavedBuyComparison({ item }: { item: SavedBuyItemView }) {
   const comparison = item.saved_buy_comparison
+  const sensitivity = comparison?.time_sensitivity
   return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存指値・選択数量の金額比較">
     <h4 className="text-sm font-semibold">保存指値・選択数量の金額比較</h4>
     {comparison == null
@@ -325,6 +326,24 @@ function SavedBuyComparison({ item }: { item: SavedBuyItemView }) {
               <Field label="残cashを含む終期合計"><span className="break-all">{value.capital_total_value_yen} 円</span></Field>
             </dl>
           </div>)}
+        </div>
+        <div className="grid min-w-0 gap-3 border-t pt-4">
+          <h5 className="text-sm font-medium">保存指値での年率と遅延感応度</h5>
+          {sensitivity == null
+            ? <p className="text-sm text-muted-foreground">この表示データには指値での時間感応度が未収録です。遅延リスクなしとは判定しません。</p>
+            : <>
+              <p className="text-xs leading-6 text-muted-foreground">同じ指値・終期価値・累積分配で、比較期間だけを {comparison.horizon_months} か月から {sensitivity.horizon_months} か月へ延ばす条件例です。元評価株価の年率や残cashを含む元手全体の年率ではありません。</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[{ label: '中心ケース（Base）', value: sensitivity.base }, { label: '下方ケース（Downside）', value: sensitivity.downside }].map(({ label, value }) => <div className="grid min-w-0 gap-3" key={label}>
+                  <p className="text-sm font-medium">{label}の時間比較</p>
+                  <dl className="grid gap-3">
+                    <Field label="保存指値での条件付き年率"><span className="break-all">{value.annualized_return_pct} %</span></Field>
+                    <Field label={`${sensitivity.additional_months}か月遅延・総受取額不変の年率`}><span className="break-all">{value.delayed_annualized_return_pct} %</span></Field>
+                  </dl>
+                </div>)}
+              </div>
+              <p className="text-xs leading-6 text-muted-foreground">遅延予測・保有期限・新しい評価期間の採択ではありません。損失年率が0へ近づいても上の損失額は減りません。分配の増加や利息、遅延による事業価値・費用の変化は仮定していません。</p>
+            </>}
         </div>
         <p className="text-xs leading-6 text-muted-foreground">投資家税・売買費用は含まず、配当再投資なし・cash利息なし。保存仮定の算術で、実績・期待値・最大損失・約定保証ではありません。現在の採否や新たな買付推奨を示しません。</p>
       </>}

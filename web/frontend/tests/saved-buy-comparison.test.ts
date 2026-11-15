@@ -15,6 +15,7 @@ const comparison: SavedBuyCapitalComparisonView = {
   notional_yen: '120000.0000', unspent_cash_yen: '180000.0000', cash_only_terminal_value_yen: '300000.0000',
   base: { investment_total_value_yen: '140000.0000', profit_loss_yen: '20000.0000', capital_total_value_yen: '320000.0000' },
   downside: { investment_total_value_yen: '90000.0000', profit_loss_yen: '-30000.0000', capital_total_value_yen: '270000.0000' },
+  time_sensitivity: null,
 }
 
 function render(item: SavedBuyItemView) {
