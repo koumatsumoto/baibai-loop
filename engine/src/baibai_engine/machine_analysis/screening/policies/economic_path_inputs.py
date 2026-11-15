@@ -56,7 +56,7 @@ def project_company(
 def project_company_with_input_reviews(
     ticker: str, *, models: Sequence[GeneratedModel], metadata: GenerationMetadata
 ) -> tuple[CompanyCoordinates, tuple[dict[str, JsonValue], ...]]:
-    """価格座標は埋めず、選択済み事業仮説の株数確認だけを別に返す。"""
+    """価格座標は埋めず、選択済み事業仮説の価格入力確認を別に返す。"""
     index = {model.model_id: model for model in models}
     payloads = {key: model.payload for key, model in index.items()}
     valuation = payloads.get("company_financials", {})
@@ -92,6 +92,19 @@ def project_company_with_input_reviews(
         and _text(valuation.get("expected_price_date")) is not None
         and earnings.get("price_date") == valuation.get("expected_price_date")
     )
+    expected_price_date = _date(valuation.get("expected_price_date"))
+    stale_price_gap = (
+        sector is not None
+        and earnings_read is not None
+        and earnings_read.unavailable_reason == "stale_price"
+        and _positive(earnings_read.price_yen) is not None
+        and _positive(earnings_read.shares_ex_treasury) is not None
+        and _positive(earnings_read.market_cap_yen) is not None
+        and earnings_read.price_date is not None
+        and expected_price_date is not None
+        and earnings_read.price_date < expected_price_date <= metadata.as_of
+    )
+    price_input_gap = share_input_gap or stale_price_gap
     input_review_paths: list[tuple[str, str]] = []
     y = _number(earnings.get("earnings_yield")) if pricing_valid else None
     anchor = growth_read.latest_period
@@ -156,7 +169,7 @@ def project_company_with_input_reviews(
             else None
         )
         if (
-            share_input_gap
+            price_input_gap
             and variant == annual_variant
             and income_aligned
             and _is_positive(profit)
@@ -236,7 +249,7 @@ def project_company_with_input_reviews(
         sales_change = change["sales"]
         rate = _number(sales_change.get("rate"))
         if (
-            share_input_gap
+            price_input_gap
             and variant == expansion_variant
             and _is_positive(sales)
             and _is_positive(rate)
@@ -506,12 +519,24 @@ def project_company_with_input_reviews(
             "path_id": path_id,
             "variant": variant,
             "reason": earnings.get("unavailable_reason"),
-            "source_field": "earnings_price.shares_ex_treasury",
+            "source_field": "earnings_price.price_date"
+            if stale_price_gap
+            else "earnings_price.shares_ex_treasury",
             "source_model_id": "company_financials",
             "source_model_revision": index["company_financials"].calculation_revision,
             "generation_id": metadata.generation_id,
             "subject": ticker,
-            "interpretation": "share_basis_review_not_price_or_financial_clearance",
+            "interpretation": "stale_price_review_not_current_price_or_financial_clearance"
+            if stale_price_gap
+            else "share_basis_review_not_price_or_financial_clearance",
+            **(
+                {
+                    "price_date": earnings.get("price_date"),
+                    "expected_price_date": valuation.get("expected_price_date"),
+                }
+                if stale_price_gap
+                else {}
+            ),
         }
         for path_id, variant in input_review_paths
     )
@@ -663,6 +688,13 @@ def _ratio(numerator: float | None, denominator: float | None) -> float | None:
 
 def _date_text(value: date | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def _date(value: JsonValue | None) -> date | None:
+    try:
+        return date.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
 
 
 def _observation(observation: dict[str, JsonValue], name: str) -> dict[str, JsonValue]:
