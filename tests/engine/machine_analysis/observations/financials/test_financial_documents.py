@@ -17,6 +17,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.capital im
     _resolve_capital_basis,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
+    VALUATION_CALCULATION_REVISION,
     build_financial_snapshot,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
@@ -1667,7 +1668,7 @@ def test_next_year_annual_revision_reaches_generated_financials(tmp_path):
         ttm_rules=DEFAULT_TTM_RULES,
     )
     model = next(item for item in models if item.model_id == "company_financials")
-    assert model.calculation_revision.startswith("continuous-annual-input-v54-")
+    assert model.calculation_revision.startswith(VALUATION_CALCULATION_REVISION + "-")
     financial = model.payload["financial"]
     assert financial["forecast_eps_yen"] is None
     assert financial["per_forward"] is None
