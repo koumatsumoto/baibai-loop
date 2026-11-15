@@ -412,3 +412,10 @@ def test_common_calendar_path_reads_retained_turnover_without_extra_source_or_fu
         100 if missing in {"close", "no_trade", "absent"} else 100.5
     )
     assert path.read_bytes() == before
+
+
+def test_cli_help_lists_supported_sma75(capsys):
+    with pytest.raises(SystemExit) as ended:
+        main(["--help"])
+    assert ended.value.code == 0
+    assert "SMA20/50/75/200" in capsys.readouterr().out

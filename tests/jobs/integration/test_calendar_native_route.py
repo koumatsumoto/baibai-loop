@@ -1,4 +1,4 @@
-"""Independent calendar is committed before release-dependent market acquisition."""
+"""Native calendar commits without prior release/L2; quota halts later sources."""
 
 import json
 from datetime import timedelta
