@@ -31,8 +31,12 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     RequestScope,
     ReservationInput,
     SecurityClassification,
+    proposal_draft_sha256,
 )
-from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
+from baibai_engine.investment_judgment.trade_proposal.query import (
+    load_investment_proposal,
+    proposal_records,
+)
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
 from baibai_engine.investment_judgment.workflow.operation.progress import (
@@ -356,6 +360,69 @@ def proposal_liquidity_context(
     return tuple(result)
 
 
+def _reported_buy_proposal_records(
+    connection: sqlite3.Connection,
+    scope: ProposalResearchScope,
+    inputs: ProposalInputs,
+    *,
+    now: datetime,
+) -> dict[str, JsonValue]:
+    holdings: list[JsonValue] = []
+    result: dict[str, JsonValue] = {
+        "role": "reported_buy_reference_records_not_current_judgment",
+        "recorded_through": now.isoformat(),
+        "holdings": holdings,
+    }
+    targets = {target.ticker for target in scope.targets if target.purpose == "holding"}
+    tickers = sorted(targets & {position.ticker for position in inputs.positions})
+    if not tickers:
+        return result
+    ledger, _ = load_ledger_in_transaction(connection)
+    for ticker in tickers:
+        bought, _ = holding_episode(ledger, ticker, now)
+        reference = None if bought is None else bought.decision_reference
+        if reference is None:
+            continue
+        binding = connection.execute(
+            "SELECT origin,proposal_id FROM position_decision_reference WHERE reference=?",
+            (reference,),
+        ).fetchone()
+        if binding is None or binding[0] != "proposal" or binding[1] is None:
+            continue
+        # The collector has verified this exact binding on the same App snapshot.
+        proposal = load_investment_proposal(connection, str(binding[1]))
+        row: dict[str, JsonValue] = {
+            "ticker": ticker,
+            "decision_reference": reference,
+            "proposal_ref": {
+                "proposal_id": proposal.proposal_id,
+                "draft_sha256": proposal_draft_sha256(proposal),
+            },
+            "scope": "whole_proposal",
+            "status": "available",
+            "records": None,
+            "unavailable_reason": None,
+        }
+        try:
+            records = proposal_records(connection, proposal.proposal_id)
+        except (ValueError, FileNotFoundError) as error:
+            row.update(status="unavailable", unavailable_reason=str(error))
+        else:
+            row["records"] = {
+                kind: [
+                    record
+                    for record in values
+                    if datetime.fromisoformat(str(record["recorded_at"])) <= now
+                ]
+                for kind, values in (
+                    ("corrections", records["corrections"]),
+                    ("human_reports", records["human_reports"]),
+                )
+            }
+        holdings.append(row)
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class ProposalAuthoringContext:
     operation_id: str
@@ -372,6 +439,7 @@ class ProposalAuthoringContext:
     saved_market_context_assessment: JsonValue
     saved_analysis_context: JsonValue
     saved_selection_context: dict[str, JsonValue]
+    reported_buy_proposal_records: dict[str, JsonValue]
 
     def payload(self) -> dict[str, object]:
         return {
@@ -395,6 +463,7 @@ class ProposalAuthoringContext:
             "saved_market_context_assessment": deepcopy(self.saved_market_context_assessment),
             "saved_analysis_context": deepcopy(self.saved_analysis_context),
             "saved_selection_context": deepcopy(self.saved_selection_context),
+            "reported_buy_proposal_records": deepcopy(self.reported_buy_proposal_records),
             "next_order_session": None
             if self.next_order_session is None
             else self.next_order_session.isoformat(),
@@ -590,4 +659,5 @@ def build_proposal_context(
                 "selection_summary": selection.selection_summary,
                 "targets": [target.model_dump(mode="json") for target in selection.targets],
             },
+            _reported_buy_proposal_records(connection, scope, inputs, now=now),
         )
