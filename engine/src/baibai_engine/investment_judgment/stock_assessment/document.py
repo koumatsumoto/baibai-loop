@@ -41,6 +41,7 @@ from baibai_engine.investment_judgment.independent_review.contracts import (
     ReviewedProjection,
 )
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    FIXED_VALUE_DELAY_MONTHS,
     project_return,
     valuation_conditions,
 )
@@ -295,10 +296,22 @@ def current_price_projection(
         "horizon_months": valuation.horizon_months,
         "return_basis": "conditional_pretax_without_reinvestment",
     }
+    delay: dict[str, object] = {
+        "additional_months": FIXED_VALUE_DELAY_MONTHS,
+        "horizon_months": valuation.horizon_months + FIXED_VALUE_DELAY_MONTHS,
+        "assumption": "terminal_and_cumulative_cash_unchanged",
+    }
     for name, projection in (("base", valuation.base), ("downside", valuation.downside)):
         returns = project_return(
             projection, price_yen=price_yen, horizon_months=valuation.horizon_months
         )
+        # 観測quote/作者指値の各計算価格を保ち、遅延を新しい評価期間へ採択しない。
+        delayed = project_return(
+            projection,
+            price_yen=price_yen,
+            horizon_months=valuation.horizon_months + FIXED_VALUE_DELAY_MONTHS,
+        )
+        delay[f"{name}_annualized_return_pct"] = float(round(delayed.annualized_return_pct, 4))
         result[name] = {
             "terminal_value_per_share_yen": decimal_to_number(
                 projection.terminal_value_per_share_yen
@@ -310,6 +323,7 @@ def current_price_projection(
             "total_return_pct": float(round(returns.total_return_pct, 4)),
             "annualized_return_pct": float(round(returns.annualized_return_pct, 4)),
         }
+    result["fixed_value_delay"] = delay
     return result
 
 
@@ -385,8 +399,8 @@ def assessment_valuation_context(
         "return_basis": "conditional_pretax_without_reinvestment",
     }
     delay: dict[str, object] = {
-        "additional_months": 12,
-        "horizon_months": valuation.horizon_months + 12,
+        "additional_months": FIXED_VALUE_DELAY_MONTHS,
+        "horizon_months": valuation.horizon_months + FIXED_VALUE_DELAY_MONTHS,
         "assumption": "terminal_and_cumulative_cash_unchanged",
     }
     for name, projection in (("base", valuation.base), ("downside", valuation.downside)):

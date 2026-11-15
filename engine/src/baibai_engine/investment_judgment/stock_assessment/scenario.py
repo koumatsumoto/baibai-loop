@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from baibai_engine.primitives.numbers import finite_decimal
 
+FIXED_VALUE_DELAY_MONTHS = 12
+
 
 class Projection(BaseModel):
     """起点の未調整価格一株に対応する分配後の残余価値と期間内累積分配。"""
@@ -173,7 +175,9 @@ def valuation_conditions(
         returns = project_return(projection, price_yen=price_yen, horizon_months=horizon_months)
         # 価値固定の時間感応度であり、遅延による利益・資金の悪化は仮定しない。
         delayed = project_return(
-            projection, price_yen=price_yen, horizon_months=horizon_months + 12
+            projection,
+            price_yen=price_yen,
+            horizon_months=horizon_months + FIXED_VALUE_DELAY_MONTHS,
         )
         return ValuationConditions(
             required,

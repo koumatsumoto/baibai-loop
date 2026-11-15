@@ -50,6 +50,8 @@ contextの市場判断はOperationのSelectionに固定した当時の投影で�
 
 context/check/previewの指値試算は計算条件の上限と実quoteを分ける。観測日・価格basisは実quoteに属し、指値やPmaxへ付け替えない。contextの自動候補試算は作者による採択済み指値ではない。
 
+価格ごとの試算には、終期価値・累積分配を据え置く既存の遅延感応度も示す。元評価株価の結果を指値へ転用せず、期間延長を採択した評価・遅延予測・保有期限や新しい採否gateにしない。損失ケースの年率が0へ近づいても損失額が減るわけではなく、資金拘束、遅延で変わる価値/分配・費用は別に検討する。
+
 [資本方針](../doctrine.md#required-return-policy)に従い、小口・上限量・現金維持の損益金額/残cashを比較する。同じ一株returnでも集中・ADV・no-addの放棄利益は異なる。
 
 context/check/previewは同じ未拘束cashで指値全量成立する条件例で、数量未指定の上限量は採用量でない。[分配/税費用の算術](stock-assessment.md#scenario-arithmetic)に従い残cash/現金維持は無利息。全体NAV/約定予測ではなく、待機後の買付・cash利回り・費用が採否を変えるなら同一終期の別案へ反映する。
