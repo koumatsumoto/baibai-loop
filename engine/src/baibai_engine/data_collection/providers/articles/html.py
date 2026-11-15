@@ -30,22 +30,38 @@ class Node:
     children: list[Node | str] = field(default_factory=list)
 
     def walk(self) -> list[Node]:
-        return [
-            self,
-            *(node for child in self.children if isinstance(child, Node) for node in child.walk()),
-        ]
+        # Source nesting is not bounded by Python's call stack. Keep native preorder.
+        result = []
+        pending = [self]
+        while pending:
+            node = pending.pop()
+            result.append(node)
+            pending.extend(child for child in reversed(node.children) if isinstance(child, Node))
+        return result
 
     def text(self) -> str:
-        if self.tag in {"script", "style", "nav", "aside"}:
-            return ""
         parts = []
-        for child in self.children:
-            if isinstance(child, str):
-                parts.append(child)
-            else:
-                parts.append(child.text())
-                if child.tag in {"p", "div", "h1", "h2", "h3", "li", "br", "tr"}:
-                    parts.append("\n")
+        pending: list[Node | str] = [self]
+        while pending:
+            item = pending.pop()
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if item.tag in {"script", "style", "nav", "aside"}:
+                continue
+            for child in reversed(item.children):
+                if isinstance(child, Node) and child.tag in {
+                    "p",
+                    "div",
+                    "h1",
+                    "h2",
+                    "h3",
+                    "li",
+                    "br",
+                    "tr",
+                }:
+                    pending.append("\n")
+                pending.append(child)
         return "".join(parts)
 
     def has_class(self, name: str) -> bool:
