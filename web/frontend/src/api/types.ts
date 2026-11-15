@@ -235,6 +235,12 @@ export interface SavedCapitalScenarioView {
   capital_total_value_yen: string
 }
 
+export interface SavedCashView {
+  available_cash_yen: string
+  inputs_checked_at: string
+  ledger_as_of: string
+}
+
 export interface SavedConditionalReturnView {
   total_value_per_share_yen: string
   total_return_pct: string
@@ -382,6 +388,7 @@ export interface SavedProposalView {
   warnings: string[]
   items: SavedProposalItemView[]
   portfolio_exposure: SavedPortfolioExposureView
+  saved_cash: SavedCashView | null
   corrections: ProposalCorrection[]
   human_reports: HumanProposalReport[]
 }

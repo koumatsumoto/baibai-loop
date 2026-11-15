@@ -37,6 +37,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedBuyCapitalComparisonView,
     SavedBuyItemView,
     SavedBuyTimeSensitivityView,
+    SavedCashView,
     SavedConditionalReturnView,
     SavedDeferItemView,
     SavedExposureRowView,
@@ -134,6 +135,11 @@ def project_saved_proposal(
         comparison=proposal.comparison,
         forgone=proposal.forgone,
         warnings=list(proposal.warnings),
+        saved_cash=SavedCashView(
+            available_cash_yen=str(proposal.inputs.available_cash_yen),
+            inputs_checked_at=proposal.inputs.checked_at,
+            ledger_as_of=proposal.inputs.ledger_as_of,
+        ),
         items=[_item(item, proposal, pairs) for item in proposal.items],
         portfolio_exposure=SavedPortfolioExposureView(
             total_capital_yen=(

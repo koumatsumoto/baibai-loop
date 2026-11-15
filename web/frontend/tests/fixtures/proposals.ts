@@ -175,6 +175,7 @@ export const sellFixture: SavedSellItemView = {
 }
 
 const proposalBase: Omit<SavedProposalView, 'request_scope' | 'items'> = {
+  saved_cash: null,
   corrections: [],
   human_reports: [],
   proposal_id: 'investment-proposal-00000000-0000-4000-8000-000000000001',

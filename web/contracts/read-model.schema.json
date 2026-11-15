@@ -1504,6 +1504,31 @@
       "title": "SavedCapitalScenarioView",
       "type": "object"
     },
+    "SavedCashView": {
+      "properties": {
+        "available_cash_yen": {
+          "title": "Available Cash Yen",
+          "type": "string"
+        },
+        "inputs_checked_at": {
+          "format": "date-time",
+          "title": "Inputs Checked At",
+          "type": "string"
+        },
+        "ledger_as_of": {
+          "format": "date-time",
+          "title": "Ledger As Of",
+          "type": "string"
+        }
+      },
+      "required": [
+        "available_cash_yen",
+        "inputs_checked_at",
+        "ledger_as_of"
+      ],
+      "title": "SavedCashView",
+      "type": "object"
+    },
     "SavedConditionalReturnView": {
       "properties": {
         "total_value_per_share_yen": {
@@ -2501,6 +2526,17 @@
         "portfolio_exposure": {
           "$ref": "#/$defs/SavedPortfolioExposureView"
         },
+        "saved_cash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedCashView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "corrections": {
           "items": {
             "$ref": "#/$defs/ProposalCorrection"
@@ -2528,6 +2564,7 @@
         "warnings",
         "items",
         "portfolio_exposure",
+        "saved_cash",
         "corrections",
         "human_reports"
       ],
