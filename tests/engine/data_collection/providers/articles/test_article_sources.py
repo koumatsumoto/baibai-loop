@@ -586,3 +586,66 @@ def test_xml_decoded_ampersand_at_end_of_headline_is_flushed(source):
     assert article.title == "Synthetic policy (Q&A)"
     assert article.content_scope == "headline"
     assert article.text == ""
+
+
+def test_html_walk_and_text_preserve_native_order_and_skipped_regions():
+    from baibai_engine.data_collection.providers.articles.html import parse_html
+
+    tree = parse_html(
+        "lead<p>A<span>B</span><br>C</p><script>script</script><style>style</style>"
+        "<nav><p>navigation</p></nav><aside>aside</aside><ul><li>D<div>E</div>F</li></ul>tail"
+    )
+    assert [node.tag for node in tree.walk()] == [
+        "root",
+        "p",
+        "span",
+        "br",
+        "script",
+        "style",
+        "nav",
+        "p",
+        "aside",
+        "ul",
+        "li",
+        "div",
+    ]
+    assert tree.text() == "leadAB\nC\nDE\nF\ntail"
+    for node in tree.walk():
+        if node.tag in {"script", "style", "nav", "aside"}:
+            assert node.text() == ""
+
+
+@pytest.mark.parametrize("depth", [1200, 2400])
+def test_deep_html_walk_and_text_do_not_depend_on_python_recursion_depth(depth):
+    from baibai_engine.data_collection.providers.articles.html import parse_html
+
+    tree = parse_html("<div>" * depth + "合成本文" + "</div>" * depth + "末尾")
+    assert [node.tag for node in tree.walk()] == ["root", *(["div"] * depth)]
+    assert tree.text() == "合成本文" + "\n" * depth + "末尾"
+
+
+@pytest.mark.parametrize("source", ["tsr_data", "boj_news", "minkabu_news"])
+def test_deep_html_projects_native_text_without_changing_scope(source):
+    nested = "<div>" * 1200 + "Synthetic text" + "</div>" * 1200
+    if source == "tsr_data":
+        body = json.dumps(
+            [{"url": "/synthetic.htm", "title": "Synthetic", "list_text": nested}]
+        ).encode()
+        (item,) = parse_index(source, body, url=SOURCES[source].entry_url)
+        assert item.content_scope == "summary"
+        assert item.text == "Synthetic text"
+    elif source == "minkabu_news":
+        body = ("<a href='/news/123'>" + nested + "</a>").encode()
+        (item,) = parse_index(source, body, url=SOURCES[source].entry_url)
+        assert item.content_scope == "headline"
+        assert item.title == "Synthetic text"
+        assert item.text == ""
+    else:
+        item = parse_document(
+            source,
+            ("<main>" + nested + "</main>").encode(),
+            url="https://www.boj.or.jp/synthetic.htm",
+        )
+        assert item.content_scope == "partial_text"
+        assert item.text == "Synthetic text"
+        assert item.missing_parts == ("images_tables_attachments_or_other_pages",)
