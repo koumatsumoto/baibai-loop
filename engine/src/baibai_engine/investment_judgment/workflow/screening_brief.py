@@ -95,6 +95,7 @@ def technical_financial_screening_brief(
         "technical-financial-discovery-v8",
         "technical-financial-discovery-v9",
         "technical-financial-discovery-v10",
+        "technical-financial-discovery-v11",
     }
     hash_page = lane_local_review and lane == "input_review" and page is not None
     mixed_order = lane_local_review and page is None
@@ -122,7 +123,9 @@ def technical_financial_screening_brief(
                 ),
                 "financial_paths": {
                     "matched_routes": row["financial_paths"]["matched_routes"],
-                    **_pick(row["financial_paths"], "input_review_reasons"),
+                    **_pick(
+                        row["financial_paths"], "input_review_reasons", "accounting_change_context"
+                    ),
                     "coordinates": [
                         _pick(
                             path,
