@@ -2,6 +2,7 @@ from contextlib import closing
 from datetime import timedelta
 
 import pytest
+from pydantic import ValidationError
 from tests.helpers.tradingview_market import CLOCK, capture
 
 from baibai_engine.data_collection.providers.tradingview.market_models import MarketToolCapture
@@ -13,6 +14,66 @@ from baibai_engine.data_collection.receipts.native_sources.store import initiali
 from baibai_engine.machine_analysis.observations.prices.tradingview_market import (
     read_market_observation,
 )
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize(
+    "invalid", ["symbols", "duplicates", "clock", "naive_clock", "tool", "bar_count"]
+)
+def test_mutated_capture_metadata_cannot_commit_an_unreadable_receipt(tmp_path, existing, invalid):
+    path = tmp_path / "native.sqlite"
+    changed = capture(bars=invalid == "bar_count")
+    if invalid == "symbols":
+        changed.request_parameters["symbols"].clear()
+    elif invalid == "duplicates":
+        changed.request_parameters["symbols"] *= 2
+    elif invalid == "clock":
+        changed = changed.model_copy(update={"requested_at_utc": CLOCK + timedelta(seconds=1)})
+    elif invalid == "naive_clock":
+        changed = changed.model_copy(update={"requested_at_utc": CLOCK.replace(tzinfo=None)})
+    elif invalid == "tool":
+        changed = changed.model_copy(update={"tool_name": "unsupported-tool"})
+    else:
+        changed.request_parameters["count"] = True
+    prior = capture(receipt_id="prior")
+    with closing(initialize_database(path)) as conn:
+        if existing:
+            retain_market_capture(conn, prior)
+        before = path.read_bytes()
+        statements = []
+        conn.set_trace_callback(statements.append)
+        with pytest.raises(ValidationError):
+            retain_market_capture(conn, changed)
+        assert statements == []
+        assert not conn.in_transaction
+        assert path.read_bytes() == before
+        assert conn.execute("SELECT COUNT(*) FROM economic_source_documents").fetchone()[0] == int(
+            existing
+        )
+        if existing:
+            assert (
+                read_market_capture(conn, prior.receipt_id, expected_sha256=prior.digest()) == prior
+            )
+
+
+@pytest.mark.parametrize("bars", [False, True])
+@pytest.mark.parametrize("error", [False, True])
+def test_valid_capture_copy_preserves_native_bytes_digest_and_retry(tmp_path, bars, error):
+    path = tmp_path / "native.sqlite"
+    original = capture(bars=bars, error=error).model_copy(
+        update={"receipt_id": "valid-copy", "requested_at_utc": CLOCK - timedelta(seconds=3)}
+    )
+    native = original.result_bytes()
+    digest = original.digest()
+    with closing(initialize_database(path)) as conn:
+        assert retain_market_capture(conn, original)
+        before = path.read_bytes()
+        assert not retain_market_capture(conn, original)
+        assert path.read_bytes() == before
+        restored = read_market_capture(conn, original.receipt_id, expected_sha256=digest)
+        assert restored == original
+        assert restored.result_bytes() == native
+        assert restored.digest() == digest
 
 
 def test_native_sdk_and_request_parameters_survive_idempotent_storage(tmp_path):
