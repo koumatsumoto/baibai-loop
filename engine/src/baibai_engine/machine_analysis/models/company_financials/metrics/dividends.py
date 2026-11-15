@@ -14,6 +14,8 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _accounting_observation_key,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    accounting_period_identity,
+    latest_disclosure_candidates,
     latest_forecast_source,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
@@ -47,6 +49,7 @@ class _DividendCarry:
     dps_forecast_annual: float | None
     basis: str
     split_factor: float | None
+    actual_source: dict[str, object] | None
 
 
 def _forecast_annual_dps(
@@ -70,6 +73,34 @@ def _actual_dps_rows(
         key=_accounting_observation_key,
         reverse=True,
     )
+
+
+def _actual_dps_source(rows: Sequence[JQuantsFinancialSummary]) -> dict[str, object] | None:
+    if not rows:
+        return None
+    selected = rows[0]
+    period = accounting_period_identity(selected)
+    sources = latest_disclosure_candidates(
+        [row for row in rows if accounting_period_identity(row) == period]
+    )
+    return {
+        "period_type": selected.fiscal_period,
+        "period_start": selected.period_start.isoformat() if selected.period_start else None,
+        "period_end": selected.period_end.isoformat() if selected.period_end else None,
+        "basis": "issuer_dividend",
+        "documents": [
+            {
+                "disclosure_number": row.disclosure_number,
+                "disclosed_at": row.disclosed_at.isoformat(),
+                "disclosed_time": row.disclosed_time,
+                "document_type": row.document_type,
+            }
+            for row in sorted(
+                sources,
+                key=lambda row: (row.disclosed_time or "", row.disclosure_number or ""),
+            )
+        ],
+    }
 
 
 def _dividend_basis_requires_resolution(
@@ -108,6 +139,7 @@ def _resolve_dividend_carry(
     Zero or unavailable actual DPS does not impose that spike ceiling.
     """
     actual_rows = _actual_dps_rows(summaries)
+    actual_source = _actual_dps_source(actual_rows)
     forecast = _forecast_annual_dps(summaries)
     basis_factor: float | None = None
     requires_resolution = False
@@ -154,6 +186,7 @@ def _resolve_dividend_carry(
             dps_forecast_annual=forecast,
             basis="forecast_annual",
             split_factor=recorded_factor,
+            actual_source=actual_source,
         )
     elif actual_annual is not None and actual_annual >= 0:
         return _DividendCarry(
@@ -162,6 +195,7 @@ def _resolve_dividend_carry(
             dps_forecast_annual=forecast,
             basis="actual_reported",
             split_factor=recorded_factor,
+            actual_source=actual_source,
         )
     elif actual_unresolved:
         basis = UNRESOLVED_ACTUAL_DIVIDEND_BASIS
@@ -177,4 +211,5 @@ def _resolve_dividend_carry(
         dps_forecast_annual=forecast,
         basis=basis,
         split_factor=recorded_factor,
+        actual_source=actual_source,
     )

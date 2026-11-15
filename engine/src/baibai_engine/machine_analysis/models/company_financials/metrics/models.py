@@ -75,6 +75,8 @@ class FinancialSnapshot:
     forecast_ordinary_profit_yen: float | None = None
     earnings_forecast_source: dict[str, str | None] | None = None
     dividend_forecast_source: dict[str, str | None] | None = None
+    # 実績の報告期・文書。最新予想年度や配当権利/支払日ではない。
+    dividend_actual_source: dict[str, object] | None = None
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
     dividend_yield: float | None = None
