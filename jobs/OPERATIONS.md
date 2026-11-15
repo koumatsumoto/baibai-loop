@@ -54,6 +54,8 @@ asof空欄は元run作成JST日。寄前/場中に完了済み日次が必要な
 
 既存の全Generation/Selectionを残す実行は、上のdispatchへ`-f preserve_existing_generations=true`を加える。localの`model-integration`では`--preserve-existing-generations`を使う。生成前にrunsの既存IDをread-onlyで固定し、読取不能は空扱いせず停止する。通常のschedule/省略時のcache整理は変わらず、この指定は将来の実行へ継承されない。保持が必要な次回も明示し、単一世代の`.bak`を恒久的な履歴保管と扱わない。
 
+EDINETの意味revisionを明示反映するときは、固定原本の隔離比較後に`edinet_metrics_acceptance`へ[受入owner](src/baibai_jobs/integration/edinet_metric_acceptance.py)のJSON条件を渡せる。明示asofと全世代保持が必須。通常の空欄は変更せず、指定時だけsource-checkと固定list/archive・revision・有限sampleの元原本/保存結果digestをmodel-integration前に照合する。deferred/partial、入力交代、異なる結果では新L2生成とcore公開へ進まない。先行する経済L1公開やplanの不変原本保持は既に起こり得るため、run全体の無書込や全公開の原子性を保証しない。受入条件を現在結果から後付けせず、旧条件のticker/docID/hashを期待値へ書き換えて通さない。新しいselection時計は原本再受領でないためlist/archive identityで比較する。公開後のexact readbackとL3受入は別途必要。
+
 停止時は最後の未完phase、store/release・generation/selection・lease解放を確認する。logのdoneや通知成功は反映の証明でなく、限定source成功を全体成功にしない。候補0を投資機会なしとせず、[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を確認する。既定読取は発行時計より新しいas_ofを優先する。過去計算はexact IDで読み、古い非空候補へfallbackしない。
 
 経済固定metadataのretain/rebuildは、検証済みbytesの同一実行内handoffと、その区間だけの逐次・間隔付きR2転送を使う。転送量の削減はquota保証ではない。429ではそのscopeの待機requestも止め、Retry-Afterは次回判断の最早時刻として扱い、自動でpassを再実行しない。

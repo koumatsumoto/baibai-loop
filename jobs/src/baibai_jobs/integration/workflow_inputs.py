@@ -23,11 +23,24 @@ def _validate_optional_date(value: str, *, label: str) -> None:
         raise WorkflowInputError(f"{label} must use YYYY-MM-DD")
 
 
-def validate_daily_input(*, asof: str, preserve_existing_generations: str = "") -> None:
+def validate_daily_input(
+    *, asof: str, preserve_existing_generations: str = "", edinet_metrics_acceptance: str = ""
+) -> None:
     """Validate the manual daily-batch date and explicit retention choice."""
     _validate_optional_date(asof, label="asof")
     if preserve_existing_generations not in ("", "true", "false"):
         raise WorkflowInputError("preserve_existing_generations must be empty, true, or false")
+    if edinet_metrics_acceptance:
+        from baibai_jobs.integration.edinet_metric_acceptance import decode_acceptance
+
+        try:
+            acceptance = decode_acceptance(edinet_metrics_acceptance)
+        except (ValueError, TypeError) as exc:
+            raise WorkflowInputError("EDINET metric acceptance input is invalid") from exc
+        if acceptance["as_of"] != asof or preserve_existing_generations != "true":
+            raise WorkflowInputError(
+                "EDINET acceptance requires the explicit date and generation retention"
+            )
 
 
 def validate_watchdog_input(*, check_date: str) -> None:
@@ -47,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     daily = subparsers.add_parser("daily")
     daily.add_argument("--asof", default="")
     daily.add_argument("--preserve-existing-generations", default="")
+    daily.add_argument("--edinet-metrics-acceptance", default="")
 
     watchdog = subparsers.add_parser("watchdog")
     watchdog.add_argument("--check-date", default="")
@@ -60,7 +74,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "daily":
             validate_daily_input(
-                asof=args.asof, preserve_existing_generations=args.preserve_existing_generations
+                asof=args.asof,
+                preserve_existing_generations=args.preserve_existing_generations,
+                edinet_metrics_acceptance=args.edinet_metrics_acceptance,
             )
         elif args.command == "watchdog":
             validate_watchdog_input(check_date=args.check_date)
