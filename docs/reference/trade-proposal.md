@@ -87,6 +87,8 @@ sell limitは作者の一株回収下限。実quoteの上下とも可能だがgr
 
 公開時に固定scope・exact評価pair・現入力を照合する。previewは保存案と現在再試算を分け、旧保存を下限比較済みとせず、現在上限超でもlimit/数量を書換えない。利用不能を当時の誤りと即断せず、過去本文/hashへ現在条件を適用しない。
 
+見送り・保留の参照評価が更新された場合も、現在previewは変更と最新評価IDを示す。旧評価の価値を現在の見送り算術へ使わず、新評価の採否・価格へ自動付替えもしない。評価参照のない未完deferは、後発評価の存在だけで完成へ進めない。
+
 saved/current warningを分け、人間へ示す。既知factor比率が下限ならcoverageを示す。保有時価/NAVと取引は[Ledger](../../.agents/skills/ledger-record/SKILL.md)に従う。
 
 ## 提案の訂正と人間の報告
