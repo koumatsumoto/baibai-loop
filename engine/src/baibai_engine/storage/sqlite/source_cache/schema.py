@@ -138,7 +138,8 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
-        if _existing_tables(conn):
+        # Missing tables do not turn an already written schema into a fresh database.
+        if conn.execute("PRAGMA user_version").fetchone()[0] != 0 or _existing_tables(conn):
             validate_current_schema(conn)
         else:
             conn.executescript(
