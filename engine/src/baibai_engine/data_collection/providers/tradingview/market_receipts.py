@@ -24,6 +24,13 @@ def retain_market_capture(conn: sqlite3.Connection, capture: MarketToolCapture) 
     """Commit one reception; a reused receipt ID must describe the exact same reception."""
     if conn.in_transaction:
         raise ValueError("market receipt requires no pending transaction")
+    # Typed copies and mutable request metadata can invalidate a once-checked capture.
+    capture = MarketToolCapture.model_validate(
+        {
+            **capture.model_dump(mode="python", exclude={"result"}),
+            "result": capture.result,
+        }
+    )
     conn.execute("BEGIN IMMEDIATE")
     try:
         prior = conn.execute(
