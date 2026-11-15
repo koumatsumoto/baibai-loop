@@ -19,7 +19,7 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
     PriceDayState,
 )
 
-PRICE_PATH_REVISION = "common-calendar-observed-close-path-v3"
+PRICE_PATH_REVISION = "common-calendar-observed-close-path-v4-short-recovery"
 ANNOTATION_POLICY_REVISION = "research-price-note-b-v1"
 _THRESHOLDS = {"R1": -0.08, "R20": -0.20, "G60": -0.20}
 _STATES = ("priced", "no_trade", "absent", "mixed", "invalid")
@@ -102,10 +102,10 @@ def observe_price_path(
             value=value,
             unavailable_reason=reason,
         )
-        if differences == 60:
+        if differences in (20, 60):
             # Other OHLCV fields can be partial without invalidating a real close.
             # Keep the existing six-field coverage and annotation contract above.
-            item["path_statistics"] = close_path_statistics(
+            statistics = close_path_statistics(
                 {
                     bar.traded_at: bar
                     for bar in bars
@@ -113,6 +113,15 @@ def observe_price_path(
                     and day_states.get(bar.traded_at) in ("priced", "mixed", "invalid")
                 },
                 window=window,
+            )
+            # R20 needs only recent recovery/failure, not another shape score.
+            item["path_statistics"] = (
+                statistics
+                if differences == 60
+                else {
+                    key: statistics[key]
+                    for key in ("status", "price_row_basis", "drawdown_episodes")
+                }
             )
         observations[ref] = item
         if value is not None:

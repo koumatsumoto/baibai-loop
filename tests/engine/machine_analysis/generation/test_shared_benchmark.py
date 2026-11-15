@@ -10,6 +10,8 @@ from tests.helpers.lake_release import market_store
 from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
+from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
+from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
 from baibai_engine.machine_analysis.generation.query import (
     read_generation,
@@ -20,6 +22,10 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
     DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
+from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
+    project_technical_financial_row,
+)
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 
 ASOF = date(2026, 10, 23)
@@ -432,7 +438,7 @@ def test_sma75_fixed_generation_survives_correction_without_legacy_backfill(tmp_
     path = source(tmp_path, 300)
     current = generate(path, tickers=("1001",))
     technical = current.result("technical_analysis", "1001")
-    revision = "sma20-50-75-200-bb20-wilder-rsi14-price-path-v4"
+    revision = "sma20-50-75-200-bb20-wilder-rsi14-price-path-v5-short-recovery"
     assert technical.calculation_revision == technical.payload["calculation_revision"] == revision
     assert technical.payload["moving_averages"]["sma_75bar"] == {
         "status": "available",
@@ -492,3 +498,80 @@ def test_sma75_fixed_generation_survives_correction_without_legacy_backfill(tmp_
         assert projected["models"]["technical_analysis"] == expected.payload
     assert "sma_75bar" not in legacy_model.payload["moving_averages"]
     assert [item.model_dump_json() for item in fixed] == encoded
+
+
+def test_short_recovery_generation_keeps_policy_and_legacy_detached_inputs(tmp_path):
+    path, dates = activity_source(tmp_path)
+    current = generate(path, tickers=("1001",))
+    technical = current.result("technical_analysis", "1001")
+    short = technical.payload["price_path"]["observations"]["R20"]["path_statistics"]
+    assert short["status"] == "available"
+    assert short["drawdown_episodes"]["latest_recovered"]["recovery_date"] == ASOF.isoformat()
+    assert short["drawdown_episodes"]["latest_recovered"]["trough_date"] == dates[-2].isoformat()
+    legacy_payload = deepcopy(technical.payload)
+    del legacy_payload["price_path"]["observations"]["R20"]["path_statistics"]
+    legacy_revision = "sma20-50-75-200-bb20-wilder-rsi14-price-path-v4"
+    legacy_payload["calculation_revision"] = legacy_revision
+    legacy_payload["price_path"]["calculation_revision"] = "common-calendar-observed-close-path-v3"
+    legacy_model = technical.model_copy(
+        update={"payload": legacy_payload, "calculation_revision": legacy_revision}
+    )
+    legacy = current.model_copy(
+        update={
+            "generation_id": "legacy-short-recovery-absent",
+            "models": tuple(
+                legacy_model if model is technical else model for model in current.models
+            ),
+        }
+    )
+    rows = []
+    for generation in (legacy, current):
+        metadata = GenerationMetadata.model_validate(generation.model_dump(exclude={"models"}))
+        models = tuple(model for model in generation.models if model.subject == "1001")
+        row = project_technical_financial_row("1001", models=models, metadata=metadata)
+        row.technical.pop("model_revisions")
+        row.financial_paths.pop("model_revisions")
+        rows.append(row)
+        coordinates = project_company("1001", models=models, metadata=metadata)
+        brief = economic_screening_brief(
+            {
+                "policy": {},
+                "eligible_count": 0,
+                "cards": [{"ticker": "1001", "paths": [], "context": coordinates.context}],
+            }
+        )
+        observed = brief["cards"][0]["context"]["price_path"]["observations"]["R20"]
+        if generation is current:
+            assert observed["path_statistics"] == short
+        else:
+            assert "path_statistics" not in observed
+    assert rows[0] == rows[1]
+    runs = tmp_path / "runs.sqlite"
+    for generation in (legacy, current):
+        publish_generation(generation, path=runs)
+    saved = [
+        read_research_model_inputs(g.generation_id, targets=("1001",), path=runs)
+        for g in (legacy, current)
+    ]
+    encoded = [item.model_dump_json() for item in saved]
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=100 WHERE ticker='1001'")
+    corrected = generate(path, identity="corrected-short-recovery", tickers=("1001",))
+    assert corrected.result("technical_analysis", "1001").payload["price_path"]["observations"][
+        "R20"
+    ]["path_statistics"]["drawdown_episodes"] == {"current": None, "latest_recovered": None}
+    for generation, before in zip((legacy, current), encoded, strict=True):
+        assert (
+            read_research_model_inputs(
+                generation.generation_id, targets=("1001",), path=runs
+            ).model_dump_json()
+            == before
+        )
+    path.unlink()
+    runs.unlink()
+    for fixed, model in zip(saved, (legacy_model, technical), strict=True):
+        projected = project_generated_inputs(fixed)["securities"]["1001"]["models"][
+            "technical_analysis"
+        ]
+        assert projected == model.payload
+    assert [item.model_dump_json() for item in saved] == encoded
