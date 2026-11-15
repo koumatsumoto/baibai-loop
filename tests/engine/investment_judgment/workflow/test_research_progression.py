@@ -714,3 +714,41 @@ def test_naive_progress_instant_is_rejected_without_recording_an_assessment(case
     with pytest.raises(ValueError, match="UTC offset"):
         service.record_assessment(operation.operation_id, reference, now=NOW.replace(tzinfo=None))
     assert service.get(operation.operation_id) == operation
+
+
+def test_record_assessment_releases_outer_snapshot_before_progress_writer(case, monkeypatch):
+    import gc
+    import weakref
+
+    from baibai_engine.investment_judgment.workflow.operation import service as owner
+
+    service, operation = start(case, ("1234",))
+    reference = seed_assessment(case[0])
+    snapshots, selections = [], []
+    get = service.get
+    bind = owner.selection_binding
+    record = service.record_outcome
+
+    def observed_get(identifier):
+        value = get(identifier)
+        snapshots.append(weakref.ref(value))
+        return value
+
+    def observed_binding(payload):
+        value = bind(payload)
+        if value is not None:
+            selections.append(weakref.ref(value))
+        return value
+
+    def record_after_release(*args, **kwargs):
+        gc.collect()
+        assert snapshots[0]() is None
+        assert selections[0]() is None
+        return record(*args, **kwargs)
+
+    monkeypatch.setattr(service, "get", observed_get)
+    monkeypatch.setattr(owner, "selection_binding", observed_binding)
+    monkeypatch.setattr(service, "record_outcome", record_after_release)
+    saved = service.record_assessment(operation.operation_id, reference, now=NOW)
+    assert progress_binding(saved.payload).outcomes[0].assessment_ref.assessment_id == reference
+    assert selection_binding(saved.payload) == selection_binding(operation.payload)

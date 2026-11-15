@@ -798,3 +798,50 @@ def test_research_seed_rejects_wrong_identity_or_time_before_writing(case, inval
             from_assessment_id="unused" if invalid == "both" else None,
         )
     assert not (case[1] / "1234/assessment-draft.yaml").exists()
+
+
+def test_promote_releases_validated_selection_before_binding_publication(case, monkeypatch):
+    import gc
+    import weakref
+
+    from baibai_engine.investment_judgment.workflow.workspace import publication
+
+    db, workspace, _ = case
+    author(case)
+    original = publication.require_authoring_selection
+    record = OperationService.record_assessment
+    references = []
+
+    def observe(*args, **kwargs):
+        selection = original(*args, **kwargs)
+        references.append(weakref.ref(selection))
+        return selection
+
+    def bind_after_release(self, *args, **kwargs):
+        gc.collect()
+        assert references[0]() is None
+        return record(self, *args, **kwargs)
+
+    monkeypatch.setattr(publication, "require_authoring_selection", observe)
+    monkeypatch.setattr(OperationService, "record_assessment", bind_after_release)
+    result = promote(workspace=workspace, ticker="1234", db_path=db, now=NOW)
+    assert result.assessment_id == assessment_id()
+
+
+def test_status_reuses_the_validated_workspace_selection_once(case, monkeypatch):
+    from baibai_engine.investment_judgment.workflow.workspace import status
+
+    db, workspace, _ = case
+    original = status.workspace_selection
+    calls = []
+
+    def observe(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(status, "workspace_selection", observe)
+    before = db.read_bytes()
+    result = compute_status(workspace, db_path=db, now=NOW)
+    assert result["workspace_status"] == "incomplete"
+    assert len(calls) == 1
+    assert db.read_bytes() == before
