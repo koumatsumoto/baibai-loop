@@ -6,7 +6,10 @@ import sqlite3
 from collections.abc import Mapping
 from datetime import datetime
 
-from baibai_engine.investment_judgment.stock_assessment.scenario import project_return
+from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    project_buy_capital,
+    project_return,
+)
 from baibai_engine.investment_judgment.stock_assessment.store import ReviewedAssessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ExposureRow,
@@ -15,7 +18,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalItem,
     TradeProposal,
 )
-from baibai_engine.investment_judgment.trade_proposal.entry_policy import project_buy_capital
 from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.primitives.time import JST
 from baibai_web.readmodel.proposal_models import (
@@ -336,9 +338,15 @@ def _item(
             and current.document.valuation.status == "resolved"
             and current.document.input_snapshot.as_of == proposal.as_of
         ):
+            valuation = current.document.valuation
+            assert valuation.base is not None
+            assert valuation.downside is not None
+            assert valuation.horizon_months is not None
             comparison = SavedBuyCapitalComparisonView.model_validate(
                 project_buy_capital(
-                    current.document.valuation,
+                    valuation.base,
+                    valuation.downside,
+                    horizon_months=valuation.horizon_months,
                     limit=item.terms.limit_price_yen,
                     cash=proposal.inputs.available_cash_yen,
                     quantity=item.terms.quantity,

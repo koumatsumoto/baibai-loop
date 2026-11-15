@@ -76,6 +76,50 @@ def project_return(
         )
 
 
+def project_buy_capital(
+    base: Projection,
+    downside: Projection,
+    *,
+    horizon_months: int,
+    limit: Decimal,
+    cash: Decimal,
+    quantity: int,
+    author_selected: bool,
+) -> dict[str, object]:
+    """同じ未拘束cashの全量指値成立例。既保有/予約の価値や約定確率は含めない。"""
+    with localcontext() as arithmetic:
+        arithmetic.prec = 50
+        notional = limit * quantity
+        unspent = cash - notional
+        result: dict[str, object] = {
+            "scope": "available_cash_only",
+            "execution_assumption": "full_fill_at_limit",
+            "return_basis": "conditional_pretax_without_reinvestment",
+            "investor_taxes_and_fees_included": False,
+            "cash_basis": "constant_nominal_without_interest",
+            "horizon_months": horizon_months,
+            "quantity_basis": "author_selected" if author_selected else "quantity_ceiling",
+            "quantity": quantity,
+            "limit_price_yen": str(limit),
+            "notional_yen": str(notional),
+            "unspent_cash_yen": str(unspent),
+            "cash_only_terminal_value_yen": str(cash),
+        }
+        for name, projection in (("base", base), ("downside", downside)):
+            total = (
+                project_return(
+                    projection, price_yen=limit, horizon_months=horizon_months
+                ).total_value_yen
+                * quantity
+            )
+            result[name] = {
+                "investment_total_value_yen": str(total),
+                "profit_loss_yen": str(total - notional),
+                "capital_total_value_yen": str(unspent + total),
+            }
+        return result
+
+
 def maximum_entry_price(
     projection: Projection, *, horizon_months: int, required_annual_return_pct: Decimal
 ) -> Decimal:
