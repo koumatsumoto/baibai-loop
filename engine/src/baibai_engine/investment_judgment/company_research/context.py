@@ -91,6 +91,12 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
             "published_at": assessment.published_at.isoformat(),
             "stance": assessment.stance,
             "business_understanding": assessment.findings.business_understanding[:400],
+            "realization": {
+                "mechanism": assessment.findings.realization.mechanism[:400],
+                "timing": assessment.findings.realization.timing,
+                "timing_reason": assessment.findings.realization.timing_reason[:240],
+                "delay_risk": assessment.findings.realization.delay_risk[:240],
+            },
             "hypotheses": _hypotheses_brief(assessment.findings.hypotheses, assessment.sources),
             "unresolved_questions": [
                 text[:240] for text in assessment.findings.unresolved_questions[:3]
