@@ -1,8 +1,12 @@
 import sqlite3
 from contextlib import closing
+from datetime import date
 
 import pytest
 
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
+    store_edinet_metrics,
+)
 from baibai_engine.storage.sqlite.source_cache import schema
 
 
@@ -10,6 +14,50 @@ def test_connect_current_does_not_create_missing_file(tmp_path):
     path = tmp_path / "missing.sqlite"
     assert schema.connect_current(path) is None
     assert not path.exists()
+
+
+@pytest.mark.parametrize("shape", ["missing", "zero_bytes", "sqlite_unwritten"])
+def test_unwritten_market_can_be_initialized_by_normal_writer(tmp_path, shape):
+    path = tmp_path / "market.sqlite"
+    if shape == "zero_bytes":
+        path.touch()
+    elif shape == "sqlite_unwritten":
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("PRAGMA user_version = 0")
+    assert (
+        store_edinet_metrics(
+            path, date(2026, 11, 14), [{"ticker": "7203", "extractor_revision": "test-revision"}]
+        )
+        == 1
+    )
+    with closing(schema.connect_current(path)) as connection:
+        assert connection is not None
+        schema.validate_current_schema(connection)
+        assert connection.execute("SELECT ticker FROM edinet_metrics").fetchall() == [("7203",)]
+
+
+@pytest.mark.parametrize("version", [50, schema.SQLITE_SCHEMA_VERSION, 52])
+@pytest.mark.parametrize("opener", [schema.open_connection, schema.connect_current])
+def test_versioned_empty_market_is_not_an_unwritten_database(tmp_path, version, opener):
+    path = tmp_path / "market.sqlite"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(f"PRAGMA user_version = {version}")
+    before = path.read_bytes()
+    with pytest.raises(schema.SQLiteSchemaError), closing(opener(path)):
+        pass
+    assert path.read_bytes() == before
+
+
+def test_normal_writer_does_not_repair_a_versioned_empty_market(tmp_path):
+    path = tmp_path / "market.sqlite"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(f"PRAGMA user_version = {schema.SQLITE_SCHEMA_VERSION}")
+    before = path.read_bytes()
+    with pytest.raises(schema.SQLiteSchemaError):
+        store_edinet_metrics(
+            path, date(2026, 11, 14), [{"ticker": "7203", "extractor_revision": "test-revision"}]
+        )
+    assert path.read_bytes() == before
 
 
 def test_failed_market_initialization_rolls_back_and_can_retry(tmp_path, monkeypatch):
