@@ -66,7 +66,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v54-next-year-forecast-revision"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v55-dividend-actual-source"
 
 
 def _reported_cfo_source(row: JQuantsFinancialSummary | None) -> dict[str, str | None] | None:
@@ -359,6 +359,7 @@ def build_financial_snapshot(
         pcfr=_safe_ratio(latest_market_cap, ocf_ttm if ocf_ttm and ocf_ttm > 0 else None),
         eps=eps_ttm,
         dps_actual_annual=dps_actual_annual,
+        dividend_actual_source=dividend.actual_source,
         dps_forecast_annual=dps_forecast_annual,
         dividend_yield=dividend_yield,
         dividend_basis=dividend.basis,

@@ -379,6 +379,38 @@ def test_selected_book_survives_generation_serialization_and_l3_projection():
     assert projected["securities"]["1001"]["company_financials"]["financial"]["book_equity"] == book
 
 
+def test_actual_dividend_source_survives_generation_and_l3_without_claiming_forecast_zero():
+    models = generate(
+        documents=(replace(document(), dps_actual_annual=0.0),),
+        bars=(PriceBar(ASOF, 10.0, None),),
+    )
+    assert models[0].calculation_revision.startswith("continuous-annual-input-v55-")
+    generation = ModelGeneration(
+        generation_id="actual-dividend-source",
+        as_of=ASOF,
+        evaluation_time=datetime(2026, 9, 1, tzinfo=UTC),
+        inputs={
+            "market": InputSnapshot(
+                kind="lake_release", reference=RELEASE.release_id, sha256=RELEASE.manifest_sha256
+            )
+        },
+        models=models,
+    )
+    saved = ModelGeneration.model_validate_json(generation.model_dump_json())
+    selected = ModelInputSlice(**saved.model_dump(), subjects=("1001",))
+    financial = project_generated_inputs(selected)["securities"]["1001"]["company_financials"][
+        "financial"
+    ]
+    assert financial == models[0].payload["financial"]
+    assert financial["dps_actual_annual"] == 0.0
+    assert financial["dps_forecast_annual"] is None
+    assert financial["dividend_basis"] == "actual_reported"
+    assert financial["dividend_actual_source"]["period_end"] == "2026-03-31"
+    assert financial["dividend_actual_source"]["documents"][0]["disclosure_number"] == (
+        "synthetic-annual"
+    )
+
+
 def test_edinet_entity_mismatch_keeps_provenance_without_filling_financial_values():
     record = EdinetMetricRecord(
         ticker="1001",
@@ -889,6 +921,7 @@ def test_saved_old_model_retains_its_payload_without_new_period_defaults():
     assert "edinet_reported_flows" not in saved
     assert "ocf_ttm_period" not in saved
     assert "cfo_source" not in saved
+    assert "dividend_actual_source" not in saved
 
 
 def test_holder_report_is_retained_as_attributed_evidence_without_rewriting_capital():
