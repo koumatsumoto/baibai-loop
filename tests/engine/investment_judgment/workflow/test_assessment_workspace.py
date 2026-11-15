@@ -763,6 +763,13 @@ def test_research_seed_preserves_evidence_without_authoring_value_or_review(case
     assert raw["valuation"]["base"] is None
     assert raw["conclusion"]["stance"] == "uncertain"
     assert raw["findings"]["value_gap_explanation"] is None
+    assert raw["investment_case"] == {
+        "explanation": "未採択のResearch価値仮説（今回の評価で検証）:\n採算改善の可能性",
+        "source_ids": ["research_market_close"],
+        "invalidation_conditions": [],
+        "status": "uncertain",
+        "status_reason": None,
+    }
     assert raw["findings"]["business_understanding"] == "継続契約が中心"
     assert raw["findings"]["hypotheses"][0]["source_ids"] == ["research_market_close"]
     assert raw["findings"]["unresolved_questions"] == ["更新契約の採算は維持されるか"]
@@ -771,12 +778,76 @@ def test_research_seed_preserves_evidence_without_authoring_value_or_review(case
         assert load_research(connection, "seed-r1") == record
 
 
+@pytest.mark.parametrize("value_only", [False, True])
+def test_research_value_capture_material_survives_with_its_own_sources(case, value_only):
+    from copy import deepcopy
+
+    from baibai_engine.investment_judgment.company_research.document import ResearchDraft
+    from baibai_engine.investment_judgment.company_research.store import (
+        ResearchStoreService,
+        load_research,
+    )
+    from baibai_engine.storage.sqlite.application.read import connect_read_only
+
+    original = save_research_seed(case)
+    document = original.document.model_dump(mode="json")
+    separate = deepcopy(document["sources"][0])
+    separate.update(source_id="industry", used_for="費用変化から普通株cashへの仮説")
+    document["sources"].append(separate)
+    # A later counterargument and multiline text must remain material, not parsed
+    # instructions or an automatically adopted investment conclusion.
+    text = (
+        "投入費用の低下が更新契約のcashへ届くか。" * 30
+        + "\nただし価格転嫁で還元されるなら採算改善は反証される。"
+    )
+    document["value_capture_hypothesis"] = {"text": text, "source_ids": ["industry"]}
+    if value_only:
+        document.update(
+            business_understanding=None, facts=[], hypotheses=[], unresolved_questions=[]
+        )
+    record = ResearchStoreService(case[0], clock=lambda: NOW).save(
+        ResearchDraft.model_validate(
+            {
+                "research_id": "seed-r2",
+                "prior_research_ref": original.reference.model_dump(mode="json"),
+                "document": document,
+            }
+        )
+    )
+    before = case[0].read_bytes()
+    result = scaffold(case, from_research_id="seed-r2")
+    raw = yaml.safe_load(Path(result["assessment_draft"]).read_text())
+    assert raw["investment_case"]["explanation"] == (
+        "未採択のResearch価値仮説（今回の評価で検証）:\n" + text
+    )
+    assert raw["investment_case"]["source_ids"] == ["research_industry"]
+    assert raw["investment_case"]["status"] == "uncertain"
+    assert raw["investment_case"]["status_reason"] is None
+    assert raw["investment_case"]["invalidation_conditions"] == []
+    assert raw["valuation"]["status"] == "unresolved"
+    assert raw["valuation"]["base"] is None
+    assert raw["findings"]["value_gap_explanation"] is None
+    assert raw["findings"]["hypotheses"] == [
+        {**item, "source_ids": ["research_" + ref for ref in item["source_ids"]]}
+        for item in document["hypotheses"]
+    ]
+    with pytest.raises(ValidationError):
+        StockAssessmentDocument.model_validate(raw)
+    with closing(connect_read_only(case[0])) as connection:
+        assert load_research(connection, "seed-r1") == original
+        assert load_research(connection, "seed-r2") == record
+    assert case[0].read_bytes() == before
+    assert not (case[1] / "1234/assessment-review.yaml").exists()
+
+
 def test_question_only_research_seed_is_allowed(case):
     save_research_seed(case, questions_only=True)
     result = scaffold(case, from_research_id="seed-r1")
     raw = yaml.safe_load(Path(result["assessment_draft"]).read_text())
     assert raw["input_snapshot"]["sources"] == []
     assert raw["findings"]["business_understanding"] is None
+    assert raw["investment_case"]["explanation"] is None
+    assert raw["investment_case"]["source_ids"] == []
     assert raw["findings"]["unresolved_questions"] == ["更新契約の採算は維持されるか"]
 
 
