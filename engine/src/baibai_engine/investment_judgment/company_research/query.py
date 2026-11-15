@@ -62,6 +62,7 @@ def _assessment_context(
             sources=snapshot.sources,
             facts=snapshot.facts,
             findings=pair.document.findings,
+            strongest_countercase=pair.document.conclusion.strongest_countercase,
         )
     except ValueError as error:
         return Unreadable(record_id=identity, reason=str(error))
