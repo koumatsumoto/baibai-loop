@@ -54,13 +54,15 @@ def _score(text: str, maximum: int) -> float | None:
 
 
 def _visible_text(node: Element) -> str:
-    if node.tag in {"head", "script", "style", "template"}:
-        return ""
-    return compact(
-        "".join(
-            child if isinstance(child, str) else _visible_text(child) for child in node.children
-        )
-    )
+    parts: list[str] = []
+    pending: list[Element | str] = [node]
+    while pending:
+        child = pending.pop()
+        if isinstance(child, str):
+            parts.append(child)
+        elif child.tag not in {"head", "script", "style", "template"}:
+            pending.extend(reversed(child.children))
+    return compact("".join(parts))
 
 
 def _score_date(page: Element, parser_version: str) -> date | None:
