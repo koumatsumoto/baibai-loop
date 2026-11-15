@@ -733,6 +733,80 @@
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
     },
+    "SavedAssessmentRefView": {
+      "properties": {
+        "assessment_id": {
+          "title": "Assessment Id",
+          "type": "string"
+        },
+        "core_sha256": {
+          "title": "Core Sha256",
+          "type": "string"
+        },
+        "review_id": {
+          "title": "Review Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assessment_id",
+        "core_sha256",
+        "review_id"
+      ],
+      "title": "SavedAssessmentRefView",
+      "type": "object"
+    },
+    "SavedAssessmentRefreshView": {
+      "properties": {
+        "prior_assessment_ref": {
+          "$ref": "#/$defs/SavedAssessmentRefView"
+        },
+        "checked_at": {
+          "format": "date-time",
+          "title": "Checked At",
+          "type": "string"
+        },
+        "changed_sections": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Sections",
+          "type": "array"
+        },
+        "material_information_check": {
+          "title": "Material Information Check",
+          "type": "string"
+        },
+        "unchanged_assumptions_reason": {
+          "title": "Unchanged Assumptions Reason",
+          "type": "string"
+        },
+        "horizon_reason": {
+          "title": "Horizon Reason",
+          "type": "string"
+        },
+        "distribution_reason": {
+          "title": "Distribution Reason",
+          "type": "string"
+        },
+        "corporate_action_reason": {
+          "title": "Corporate Action Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prior_assessment_ref",
+        "checked_at",
+        "changed_sections",
+        "material_information_check",
+        "unchanged_assumptions_reason",
+        "horizon_reason",
+        "distribution_reason",
+        "corporate_action_reason"
+      ],
+      "title": "SavedAssessmentRefreshView",
+      "type": "object"
+    },
     "SavedAssessmentReviewView": {
       "properties": {
         "reviewed_at": {
@@ -939,6 +1013,17 @@
           "title": "Invalidation Conditions",
           "type": "array"
         },
+        "refresh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentRefreshView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "strongest_countercase": {
           "anyOf": [
             {
@@ -1038,6 +1123,7 @@
         "investment_case_status",
         "investment_case_status_reason",
         "invalidation_conditions",
+        "refresh",
         "strongest_countercase",
         "realization",
         "value_gap",

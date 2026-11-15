@@ -118,6 +118,23 @@ export interface ReservationView {
 
 export type SHA256 = string
 
+export interface SavedAssessmentRefView {
+  assessment_id: string
+  core_sha256: string
+  review_id: string
+}
+
+export interface SavedAssessmentRefreshView {
+  prior_assessment_ref: SavedAssessmentRefView
+  checked_at: string
+  changed_sections: string[]
+  material_information_check: string
+  unchanged_assumptions_reason: string
+  horizon_reason: string
+  distribution_reason: string
+  corporate_action_reason: string
+}
+
 export interface SavedAssessmentReviewView {
   reviewed_at: string
   primary_source_check: 'verified' | 'partially_verified' | 'unverified'
@@ -153,6 +170,7 @@ export interface SavedAssessmentView {
   investment_case_status: 'intact' | 'broken' | 'uncertain'
   investment_case_status_reason: string
   invalidation_conditions: string[]
+  refresh: SavedAssessmentRefreshView | null
   strongest_countercase: string | null
   realization: SavedValueRealizationView | null
   value_gap: SavedValueGapView | null

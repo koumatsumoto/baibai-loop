@@ -140,6 +140,39 @@ function AssessmentRealization({ assessment }: { assessment: SavedAssessmentView
   </section>
 }
 
+function AssessmentRefresh({ assessment }: { assessment: SavedAssessmentView }) {
+  const refresh = assessment.refresh
+  const sections: Record<string, string> = {
+    findings: '事業・価値仮説', valuation: '価値算定', investment_case: '投資理由',
+    risks: '恒久損失リスク', sources: '資料', model_perspectives: 'モデル別観点',
+  }
+  return <details className="rounded-lg border p-4">
+    <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">評価を更新した根拠</summary>
+    <div className="mt-4 grid min-w-0 gap-4">
+      <p className="text-xs leading-6 text-muted-foreground">この保存評価を作成した時の差分確認です。現在の確認・全資料の再取得・判断の有効性を保証しません。</p>
+      {refresh == null
+        ? <p className="text-sm text-muted-foreground">この表示データには差分確認の記録がありません。未実施・不要とは判定しません。</p>
+        : <>
+          <Field label="差分確認時刻"><SavedTime value={refresh.checked_at} /></Field>
+          <Field label="今回変更した範囲">{refresh.changed_sections.map(section => sections[section] ?? section).join('、') || '変更区画の記載なし'}</Field>
+          {([
+            ['material_information_check', '重要情報の確認'],
+            ['unchanged_assumptions_reason', '変更しなかった前提の理由'],
+            ['horizon_reason', '残期間の理由'],
+            ['distribution_reason', '今後の分配の理由'],
+            ['corporate_action_reason', '株式・権利単位の確認'],
+          ] as const).map(([key, label]) => <div key={key}><p className="mb-1 text-sm font-medium">{label}</p><Prose>{refresh[key]}</Prose></div>)}
+          <div className="grid min-w-0 gap-2 border-t pt-4">
+            <p className="text-xs text-muted-foreground">素材にした旧評価の固定参照です。当初の購入理由や最新評価とは限りません。</p>
+            <Identifier label="更新元 assessment_id" value={refresh.prior_assessment_ref.assessment_id} />
+            <Identifier label="更新元 core_sha256" value={refresh.prior_assessment_ref.core_sha256} />
+            <Identifier label="更新元 review_id" value={refresh.prior_assessment_ref.review_id} />
+          </div>
+        </>}
+    </div>
+  </details>
+}
+
 function AssessmentExcerpt({ assessment, showCountercase = true }: { assessment: SavedAssessmentView; showCountercase?: boolean }) {
   const review = assessment.review
   return (
@@ -152,6 +185,7 @@ function AssessmentExcerpt({ assessment, showCountercase = true }: { assessment:
       <div><p className="mb-1 text-sm font-medium">投資理由</p><Prose>{assessment.investment_case_explanation}</Prose></div>
       <div><p className="mb-1 text-sm font-medium">状態の理由</p><Prose>{assessment.investment_case_status_reason}</Prose></div>
       <TextList items={assessment.invalidation_conditions} title="投資理由の反証条件" />
+      <AssessmentRefresh assessment={assessment} />
       <AssessmentRisks assessment={assessment} />
       <div className="grid gap-4 border-t pt-4">
         <p className="text-sm font-medium">独立検証の範囲</p>

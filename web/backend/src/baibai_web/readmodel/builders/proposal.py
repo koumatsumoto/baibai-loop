@@ -23,6 +23,7 @@ from baibai_engine.primitives.time import JST
 from baibai_web.readmodel.proposal_models import (
     LatestProposalView,
     ProposalHistoryView,
+    SavedAssessmentRefreshView,
     SavedAssessmentReviewView,
     SavedAssessmentRisksView,
     SavedAssessmentSourceView,
@@ -158,6 +159,11 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
         investment_case_status=case.status,
         investment_case_status_reason=case.status_reason,
         invalidation_conditions=list(case.invalidation_conditions),
+        refresh=(
+            None
+            if document.refresh is None
+            else SavedAssessmentRefreshView.model_validate(document.refresh.model_dump(mode="json"))
+        ),
         strongest_countercase=document.conclusion.strongest_countercase,
         realization=SavedValueRealizationView.model_validate(
             document.findings.realization.model_dump(mode="json")

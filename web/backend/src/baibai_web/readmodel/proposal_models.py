@@ -109,6 +109,23 @@ class SavedUnresolvedValuationView(BaseModel):
     reason: str
 
 
+class SavedAssessmentRefView(BaseModel):
+    assessment_id: str
+    core_sha256: str
+    review_id: str
+
+
+class SavedAssessmentRefreshView(BaseModel):
+    prior_assessment_ref: SavedAssessmentRefView
+    checked_at: datetime
+    changed_sections: list[str]
+    material_information_check: str
+    unchanged_assumptions_reason: str
+    horizon_reason: str
+    distribution_reason: str
+    corporate_action_reason: str
+
+
 class SavedAssessmentView(BaseModel):
     assessment_id: str
     core_sha256: str
@@ -119,6 +136,7 @@ class SavedAssessmentView(BaseModel):
     investment_case_status: Literal["intact", "broken", "uncertain"]
     investment_case_status_reason: str
     invalidation_conditions: list[str]
+    refresh: SavedAssessmentRefreshView | None = None
     strongest_countercase: str | None = None
     realization: SavedValueRealizationView | None = None
     value_gap: SavedValueGapView | None = None
