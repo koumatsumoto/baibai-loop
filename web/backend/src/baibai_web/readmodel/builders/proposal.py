@@ -232,6 +232,12 @@ def _valuation(
                 cash_distribution_per_share_yen=str(projection.cash_distribution_per_share_yen),
                 annualized_return_pct=str(round(returns.annualized_return_pct, 4)),
                 calculation=projection.calculation,
+                source_ids=list(projection.source_ids),
+                sources=[
+                    SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
+                    for source in pair.document.input_snapshot.sources
+                    if source.source_id in projection.source_ids
+                ],
             )
         )
     return SavedResolvedValuationView(

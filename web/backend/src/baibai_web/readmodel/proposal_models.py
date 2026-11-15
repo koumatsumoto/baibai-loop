@@ -88,6 +88,8 @@ class SavedValuationProjectionView(BaseModel):
     cash_distribution_per_share_yen: str
     annualized_return_pct: str
     calculation: str
+    source_ids: list[str] | None = None
+    sources: list[SavedAssessmentSourceView] | None = None
 
 
 class SavedResolvedValuationView(BaseModel):

@@ -2544,13 +2544,45 @@
         "calculation": {
           "title": "Calculation",
           "type": "string"
+        },
+        "source_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ids"
+        },
+        "sources": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SavedAssessmentSourceView"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sources"
         }
       },
       "required": [
         "terminal_value_per_share_yen",
         "cash_distribution_per_share_yen",
         "annualized_return_pct",
-        "calculation"
+        "calculation",
+        "source_ids",
+        "sources"
       ],
       "title": "SavedValuationProjectionView",
       "type": "object"

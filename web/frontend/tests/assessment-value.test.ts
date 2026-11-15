@@ -14,8 +14,8 @@ const value: SavedResolvedValuationView = {
   price_basis: 'last_close_unadjusted',
   horizon_months: 24,
   required_annual_return_pct: '9.5',
-  base: { terminal_value_per_share_yen: '1210.0000000000000001', cash_distribution_per_share_yen: '0', annualized_return_pct: '10.0000', calculation: '合成中心：利益と倍率を固定。\n追加の成長は見込まない。' },
-  downside: { terminal_value_per_share_yen: '810', cash_distribution_per_share_yen: '0', annualized_return_pct: '-10.0000', calculation: '合成下方：需要減と採算悪化。' },
+  base: { source_ids: null, sources: null, terminal_value_per_share_yen: '1210.0000000000000001', cash_distribution_per_share_yen: '0', annualized_return_pct: '10.0000', calculation: '合成中心：利益と倍率を固定。\n追加の成長は見込まない。' },
+  downside: { source_ids: null, sources: null, terminal_value_per_share_yen: '810', cash_distribution_per_share_yen: '0', annualized_return_pct: '-10.0000', calculation: '合成下方：需要減と採算悪化。' },
 }
 
 function withValue() {
