@@ -49,6 +49,14 @@ _INCOME_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin", "
 def project_company(
     ticker: str, *, models: Sequence[GeneratedModel], metadata: GenerationMetadata
 ) -> CompanyCoordinates:
+    coordinates, _ = project_company_with_input_reviews(ticker, models=models, metadata=metadata)
+    return coordinates
+
+
+def project_company_with_input_reviews(
+    ticker: str, *, models: Sequence[GeneratedModel], metadata: GenerationMetadata
+) -> tuple[CompanyCoordinates, tuple[dict[str, JsonValue], ...]]:
+    """価格座標は埋めず、選択済み事業仮説の株数確認だけを別に返す。"""
     index = {model.model_id: model for model in models}
     payloads = {key: model.payload for key, model in index.items()}
     valuation = payloads.get("company_financials", {})
@@ -73,6 +81,18 @@ def project_company(
     )
     if not pricing_valid:
         cap = None
+    share_input_gap = (
+        sector is not None
+        and earnings_read is not None
+        and earnings_read.unavailable_reason
+        in {"missing_capital_basis", "indeterminate_treasury_after_later_issued_observation"}
+        and earnings_read.shares_ex_treasury is None
+        and earnings_read.market_cap_yen is None
+        and _positive(earnings_read.price_yen) is not None
+        and _text(valuation.get("expected_price_date")) is not None
+        and earnings.get("price_date") == valuation.get("expected_price_date")
+    )
+    input_review_paths: list[tuple[str, str]] = []
     y = _number(earnings.get("earnings_yield")) if pricing_valid else None
     anchor = growth_read.latest_period
     annual = growth_read.observation(anchor, "annual_ttm")
@@ -127,6 +147,23 @@ def project_company(
             and earnings_read.accounting_standard is not None
             and earnings_read.accounting_standard == observation.accounting_standard
         )
+        profit = (
+            metric_value(observation, "parent_profit", disclosed_by=metadata.as_of)
+            if fy
+            else earnings_read.profit_ttm_yen
+            if earnings_read is not None
+            and all(item.disclosed_at <= metadata.as_of for item in earnings_read.profit_components)
+            else None
+        )
+        if (
+            share_input_gap
+            and variant == annual_variant
+            and income_aligned
+            and _is_positive(profit)
+            and _is_positive(margin)
+            and (not fy or not full_fy_income_adverse)
+        ):
+            input_review_paths.append(("earning_power", variant))
         paths.append(
             PathCoordinates(
                 path_id="earning_power",
@@ -198,6 +235,13 @@ def project_company(
         change = changes[variant]
         sales_change = change["sales"]
         rate = _number(sales_change.get("rate"))
+        if (
+            share_input_gap
+            and variant == expansion_variant
+            and _is_positive(sales)
+            and _is_positive(rate)
+        ):
+            input_review_paths.append(("business_expansion", variant))
         paths.append(
             PathCoordinates(
                 path_id="business_expansion",
@@ -448,7 +492,7 @@ def project_company(
         ],
         "full_result_reference": {"generation_id": metadata.generation_id, "subject": ticker},
     }
-    return CompanyCoordinates(
+    coordinates = CompanyCoordinates(
         ticker=ticker,
         name=_text(master.get("name")),
         sector=sector,
@@ -456,6 +500,20 @@ def project_company(
         context=context,
         model_revisions={key: model.calculation_revision for key, model in index.items()},
         not_generated=tuple(model for model in expected if model not in index),
+    )
+    return coordinates, tuple(
+        {
+            "path_id": path_id,
+            "variant": variant,
+            "reason": earnings.get("unavailable_reason"),
+            "source_field": "earnings_price.shares_ex_treasury",
+            "source_model_id": "company_financials",
+            "source_model_revision": index["company_financials"].calculation_revision,
+            "generation_id": metadata.generation_id,
+            "subject": ticker,
+            "interpretation": "share_basis_review_not_price_or_financial_clearance",
+        }
+        for path_id, variant in input_review_paths
     )
 
 

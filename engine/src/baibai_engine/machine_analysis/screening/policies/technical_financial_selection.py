@@ -11,7 +11,9 @@ from pydantic import JsonValue, TypeAdapter
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
+from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
+    project_company_with_input_reviews,
+)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import PathCoordinates
 from baibai_engine.machine_analysis.screening.policies.financial_growth import (
     POLICY_ID as FINANCIAL_POLICY_ID,
@@ -51,7 +53,9 @@ def project_technical_financial_row(
         ),
         metadata=metadata,
     )
-    coordinates = project_company(ticker, models=models, metadata=metadata)
+    coordinates, input_reviews = project_company_with_input_reviews(
+        ticker, models=models, metadata=metadata
+    )
     paths = TypeAdapter(tuple[PathCoordinates, ...]).dump_python(coordinates.paths, mode="json")
     financial_paths: dict[str, JsonValue] = {
         "source": "saved_model_economic_path_coordinates_not_ranking",
@@ -62,6 +66,8 @@ def project_technical_financial_row(
         "model_revisions": dict(coordinates.model_revisions),
         "not_generated": list(coordinates.not_generated),
     }
+    if gate["state"] == "not_selected" and not financial_paths["matched_routes"] and input_reviews:
+        financial_paths["input_review_reasons"] = cast(list[JsonValue], list(input_reviews))
     # 状態/条件/不足は全社保存する。元の財務観測と価格時系列はGenerationが正本で、
     # 選定contextの明示詳細とResearch保存時に同じsubjectの完全モデルを読む。
     compact_technical = _pick(
@@ -110,6 +116,7 @@ def project_technical_financial_row(
             growth_state=cast(str, gate["state"]),
             technical_match=technical["state"] == "matched",
             financial_path_match=bool(financial_paths["matched_routes"]),
+            financial_input_review=bool(financial_paths.get("input_review_reasons")),
         ),
     )
 
@@ -121,6 +128,8 @@ def evaluate_technical_financial_rows(
     rows: Mapping[str, TechnicalFinancialRow],
     policy: TechnicalFinancialPolicy,
 ) -> ScreeningSelection:
+    if policy.method != "technical-financial-discovery-v2":
+        raise ValueError("historical technical-financial policy is read-only")
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not set(rows).issubset(subjects):
         raise ValueError("technical-financial screening requires unique planned companies")

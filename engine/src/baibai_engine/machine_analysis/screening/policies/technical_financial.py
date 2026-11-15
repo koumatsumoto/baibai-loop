@@ -21,7 +21,9 @@ type ScreeningLane = ResearchLane | Literal["no_current_hypothesis"]
 class TechnicalFinancialPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    method: Literal["technical-financial-discovery-v1"] = "technical-financial-discovery-v1"
+    method: Literal["technical-financial-discovery-v1", "technical-financial-discovery-v2"] = (
+        "technical-financial-discovery-v2"
+    )
     page_size: Annotated[int, Field(ge=1, le=36)] = 36
 
 
@@ -58,7 +60,11 @@ class TechnicalFinancialSelection:
 
 
 def financial_screening_lane(
-    *, growth_state: str, technical_match: bool, financial_path_match: bool
+    *,
+    growth_state: str,
+    technical_match: bool,
+    financial_path_match: bool,
+    financial_input_review: bool = False,
 ) -> ScreeningLane:
     if growth_state == "research_candidate":
         return "growth_research"
@@ -66,6 +72,8 @@ def financial_screening_lane(
         return "input_review"
     if growth_state == "not_selected" and financial_path_match:
         return "alternative_financial_research"
+    if growth_state == "not_selected" and financial_input_review:
+        return "input_review"
     return "no_current_hypothesis"
 
 
@@ -86,6 +94,13 @@ def discovery_display_order(rows: Sequence[TechnicalFinancialRow]) -> tuple[str,
             for route in routes:
                 assert isinstance(route, str)
                 queues.setdefault(f"{prefix}:{route}", deque()).append(row.ticker)
+        reviews = row.financial_paths.get("input_review_reasons", [])
+        assert isinstance(reviews, list)
+        for review in reviews:
+            assert isinstance(review, dict)
+            route = review["path_id"]
+            assert isinstance(route, str)
+            queues.setdefault(f"financial_input_review:{route}", deque()).append(row.ticker)
     order: list[str] = []
     selected: set[str] = set()
     while any(queues.values()):
