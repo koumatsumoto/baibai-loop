@@ -102,6 +102,8 @@ class ResearchStoreService:
         self._clock = clock or (lambda: datetime.now(JST))
 
     def save(self, draft: ResearchDraft) -> ResearchRecord:
+        # model_copy/model_construct can bypass nested document/source validation.
+        draft = ResearchDraft.model_validate(draft.model_dump(mode="python"))
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
