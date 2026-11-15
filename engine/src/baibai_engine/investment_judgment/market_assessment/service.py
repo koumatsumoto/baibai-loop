@@ -35,6 +35,8 @@ class AssessmentService:
     def publish(
         self, document: MarketContextAssessment, *, expected_head: str | None
     ) -> MarketContextAssessment:
+        # Typed copies can bypass nested validation; do not publish an unreadable head.
+        document = MarketContextAssessment.model_validate(document.model_dump(mode="python"))
         initialize_database(self._db_path)
         payload = canonical_json(document.payload())
         with closing(connect_rw(self._db_path)) as connection:
