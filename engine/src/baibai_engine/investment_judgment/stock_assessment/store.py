@@ -204,6 +204,9 @@ def publish_reviewed_assessment(
     review = AssessmentReview.model_validate(review_payload)
     assessment_json = canonical_json(assessment.model_dump(mode="json"))
     review_json = canonical_json(review.model_dump(mode="json"))
+    # Mapping inputs may contain copied child models; validate the exact stored form.
+    assessment = StockAssessmentDocument.model_validate_json(assessment_json)
+    review = AssessmentReview.model_validate_json(review_json)
     existing = connection.execute(
         "SELECT payload, supersedes_id FROM stock_assessment WHERE assessment_id = ?",
         (assessment_id,),
