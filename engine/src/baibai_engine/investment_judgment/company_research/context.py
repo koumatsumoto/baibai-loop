@@ -14,6 +14,7 @@ from baibai_engine.investment_judgment.company_research.contracts import (
     Source,
 )
 from baibai_engine.investment_judgment.company_research.document import ResearchRecord
+from baibai_engine.investment_judgment.contracts import NonEmptyStr
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
 
 
@@ -50,6 +51,10 @@ class AvailableAssessment(_Context):
     sources: tuple[Source, ...]
     facts: tuple[ObservedFact, ...]
     findings: ResearchFindings
+    # 旧固定 Selection は未記録のまま保持し、現在の評価から補完しない。
+    strongest_countercase: NonEmptyStr | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class CompanyContext(_Context):
@@ -98,6 +103,14 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
             "as_of": assessment.as_of.isoformat(),
             "published_at": assessment.published_at.isoformat(),
             "stance": assessment.stance,
+            **(
+                {
+                    "strongest_countercase": assessment.strongest_countercase[:400],
+                    "strongest_countercase_truncated": len(assessment.strongest_countercase) > 400,
+                }
+                if assessment.strongest_countercase is not None
+                else {}
+            ),
             "business_understanding": assessment.findings.business_understanding[:400],
             "realization": {
                 "mechanism": assessment.findings.realization.mechanism[:400],
