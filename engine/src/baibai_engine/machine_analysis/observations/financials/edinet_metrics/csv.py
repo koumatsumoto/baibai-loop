@@ -76,7 +76,8 @@ def parse_csv_zip_metric_record(
     investment_securities = _single_metric(rows, _TAGS["investment_securities"])
     equity = _single_metric(rows, _TAGS["equity"])
     total_assets = _single_metric(rows, _TAGS["total_assets"])
-    debt = _debt_metric(rows)
+    debt, debt_failures = _debt_metric(rows)
+    failures.extend(debt_failures)
     depreciation = _depreciation_metric(rows)
     capex = _capex_metric(rows)
     capex_abs = abs(capex) if capex is not None else None
@@ -206,6 +207,13 @@ _TAGS: dict[str, tuple[str, ...]] = {
         "jppfs_cor:LongTermLoansPayable",
         "jppfs_cor:LeaseObligationsCL",
         "jppfs_cor:LeaseObligationsNCL",
+    ),
+    # These balances occur beside the supported debt components in bank-style
+    # statements. Their presence does not define complete bank debt or justify
+    # treating deposits and other funding as ordinary corporate debt.
+    "unsupported_debt_components": (
+        "jppfs_cor:BorrowedMoneyLiabilitiesBNK",
+        "jppfs_cor:ShortTermBondsPayable",
     ),
     "ifrs_debt_components": _IFRS_DEBT_COMPONENTS,
     "depreciation": (
@@ -397,7 +405,7 @@ def _sum_metric(rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]) -> flo
     return sum(value for value in values.values() if value is not None)
 
 
-def _debt_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
+def _debt_metric(rows: Sequence[Mapping[str, str]]) -> tuple[float | None, tuple[str, ...]]:
     values = _metric_values(rows, _IFRS_DEBT_COMPONENTS)
     if values:
         # IFRS may put leases in other financial liabilities. Borrowings alone
@@ -406,9 +414,24 @@ def _debt_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
         if len(values) != len(_IFRS_DEBT_COMPONENTS) or any(
             value is None for value in values.values()
         ):
-            return None
-        return sum(value for value in values.values() if value is not None)
-    return _sum_metric(rows, _TAGS["debt_components"])
+            return None, ()
+        return sum(value for value in values.values() if value is not None), ()
+    balances = [
+        row
+        for row in rows
+        if _row_context(row).removesuffix("_NonConsolidatedMember").endswith("Instant")
+    ]
+    unsupported = _metric_values(balances, _TAGS["unsupported_debt_components"])
+    failures = tuple(
+        f"unsupported_debt_component:{tag}"
+        for tag, value in sorted(unsupported.items())
+        if value is None or value != 0
+    )
+    if failures:
+        # Ignoring a known nonzero/unresolved balance would turn a supported
+        # subtotal into complete debt and an exact cash-minus-debt result.
+        return None, failures
+    return _sum_metric(rows, _TAGS["debt_components"]), ()
 
 
 def _depreciation_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
