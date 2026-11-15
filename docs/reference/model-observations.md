@@ -20,6 +20,8 @@
 
 [開示選択](../../engine/src/baibai_engine/machine_analysis/observations/financials/financial_documents.py)は期/連結区分/基準を先に定め、訂正/競合をfield単位で扱う。番号・投入順・未知時刻で順序を作らず、空欄を撤回、過年度訂正を現在区分変更としない。時刻不明だけで不変観測を捨てず、flag/空一覧/修正再表示「無」だけで比較可否を決めない。未確定basisを旧FYで迂回しない。
 
+適用翌期の年間業績修正は、同じ会計範囲の翌期年間欄で対象を確認する。利益の点予想がなければ旧EPSを最新として復活させず、撤回/ゼロと断定せず未確定と出典を残す。旧年度のみ・翌期半期のみの修正や通常短信の空欄を年間予想の撤回とはしない。
+
 累計・単独四半期・TTM・期末残高を分ける。EPS/平均株数/営業CFの四半期差分や、異分母EPSの加減算、丸め/basis不明EPSからの総額復元はしない。計算は[財務owner](../../engine/src/baibai_engine/machine_analysis/models/company_financials/metrics/)へ。
 
 主`cfo`は採用した報告期間の金額で、最新開示がCFを含まなければ旧通期などを保持する。`cfo_source`の期間・開示・会計範囲で読み、最新開示日、`ocf_ttm`の合成期間、EDINETの別期フローを付け替えない。既存世代の出典や未知日付は補作せず、報告CFを反復可能な普通株主cashと認定しない。

@@ -66,7 +66,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v53-capital-event-book-basis"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v54-next-year-forecast-revision"
 
 
 def _reported_cfo_source(row: JQuantsFinancialSummary | None) -> dict[str, str | None] | None:
