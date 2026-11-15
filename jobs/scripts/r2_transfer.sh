@@ -129,8 +129,8 @@ hydrate_market() {
 }
 
 publish_lake() {
-  # Derive every partition from the store, seal a release, and switch the pointer. The
-  # publication refuses when the origin embedded in that same SQLite file differs from
+  # Build from fixed native inputs and one sealed store, then switch the pointer.
+  # Publication refuses when the origin embedded in that same SQLite file differs from
   # current, so no detached identity file can authorize stale rows. The JSON report is
   # stdout only; the durable identity lives in market.sqlite.
   (
