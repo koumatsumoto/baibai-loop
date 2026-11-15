@@ -6,10 +6,13 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
+
+from pydantic import JsonValue
 
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment.store import (
@@ -362,6 +365,7 @@ class ProposalAuthoringContext:
     latest_assessment_ids: dict[str, str | None]
     next_order_session: date | None
     calculations: dict[str, dict[str, object]]
+    saved_market_context_assessment: JsonValue
 
     def payload(self) -> dict[str, object]:
         return {
@@ -382,6 +386,7 @@ class ProposalAuthoringContext:
             "latest_assessment_ids": self.latest_assessment_ids,
             "liquidity_context": [item.model_dump(mode="json") for item in self.liquidity_context],
             "market_context_assessment_id": self.market_context_assessment_id,
+            "saved_market_context_assessment": deepcopy(self.saved_market_context_assessment),
             "next_order_session": None
             if self.next_order_session is None
             else self.next_order_session.isoformat(),
@@ -564,4 +569,5 @@ def build_proposal_context(
                 session=session,
                 market_connection=market_connection,
             ),
+            saved_context,
         )
