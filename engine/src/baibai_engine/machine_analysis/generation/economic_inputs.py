@@ -50,7 +50,7 @@ from baibai_engine.machine_analysis.observations.prices.tradingview_market impor
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.objects.json import MAX_PRIVATE_OBJECT_BYTES, put_private
-from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
+from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore, VerifiedObjectReader
 from baibai_engine.storage.sqlite.read import connect_read_only
 
 _PREFIX = "fixed-inputs/economic/v1/"
@@ -186,6 +186,8 @@ def _retain_verified(store: ObjectStore, value: Any) -> tuple[str, bytes]:
 
 def _find(store: ObjectStore, digest: str) -> bytes | None:
     key = _key(digest)
+    if isinstance(store, VerifiedObjectReader):
+        return store.get_verified_bytes(key, sha256=digest, max_bytes=MAX_PRIVATE_OBJECT_BYTES)
     metadata = store.head(key)
     if metadata is None:
         return None

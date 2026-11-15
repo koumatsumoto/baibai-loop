@@ -105,3 +105,21 @@ def test_expected_content_is_valid_even_if_an_etag_changes_after_receipt():
     store = NewEtag()
     digest = inputs._retain(store, {"fixture": "exact"})
     assert hashlib.sha256(inputs._read(store, digest)).hexdigest() == digest
+
+
+@pytest.mark.parametrize("error", [R2Error("read failed"), LakePublishError("integrity failed")])
+def test_verified_read_failure_never_falls_back_or_rewrites(error):
+    calls = []
+
+    class VerifiedStore(MemoryR2Store):
+        def get_verified_bytes(self, key, *, sha256, max_bytes):
+            calls.append((key, sha256, max_bytes))
+            raise error
+
+    store = VerifiedStore()
+    digest = "a" * 64
+    with pytest.raises(type(error)) as caught:
+        inputs._read(store, digest)
+    assert caught.value is error
+    assert calls == [(inputs._key(digest), digest, MAX_PRIVATE_OBJECT_BYTES)]
+    assert store.head_keys == store.get_keys == store.put_keys == []

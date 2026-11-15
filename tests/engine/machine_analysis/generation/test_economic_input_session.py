@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing
+from io import BytesIO
 
 import pytest
 from tests.engine.machine_analysis.generation.test_economic_fixed_inputs import (
@@ -26,7 +27,7 @@ from baibai_engine.data_collection.receipts.native_sources.store import initiali
 from baibai_engine.machine_analysis.generation import economic_inputs as inputs
 from baibai_engine.machine_analysis.generation.runners.reading_rules import DEFAULT_RULES_PATH
 from baibai_engine.storage.objects.json import MAX_PRIVATE_OBJECT_BYTES
-from baibai_engine.storage.objects.r2 import LakePublishError, R2Error
+from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, R2Error
 
 
 def retain(session, path, **kwargs):
@@ -70,6 +71,60 @@ def test_session_preserves_identity_context_and_halves_warm_metadata_reads(tmp_p
     later = inputs.EconomicInputSession(store)
     assert later.rebuild(path, retain(later, path)) == expected
     assert len(store.head_keys) == len(store.get_keys) == count * 2
+
+
+def test_verified_response_halves_warm_requests_without_changing_saved_input_or_cold_context(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "economic.sqlite"
+    seed_months(path)
+    run(path, "latest-failed")
+    before = path.read_bytes()
+    memory = MemoryR2Store()
+    saved = freeze(memory, path)
+    expected = inputs.rebuild_economic_input(memory, path, saved)
+    count = len(root(memory, saved)["months"]) + 1
+    store = Boto3R2Store(
+        bucket="test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "fake",
+            "R2_SECRET_ACCESS_KEY": "fake",
+        },
+    )
+    calls, bodies = [], []
+
+    class Client:
+        def get_object(self, **kwargs):
+            calls.append(kwargs["Key"])
+            item = memory.values[kwargs["Key"]]
+            body = BytesIO(item.body)
+            bodies.append(body)
+            return {
+                "Body": body,
+                "ETag": item.etag,
+                "ContentLength": len(item.body),
+                "Metadata": item.metadata,
+                "ContentType": item.content_type,
+            }
+
+        def head_object(self, **kwargs):
+            pytest.fail("fixed metadata GET must not add HEAD")
+
+        def put_object(self, **kwargs):
+            pytest.fail("unchanged objects must not be rewritten")
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    session = inputs.EconomicInputSession(store)
+    assert retain(session, path) == saved
+    assert len(calls) == count
+    assert session.rebuild(path, saved) == expected
+    assert len(calls) == count
+    assert_closed(session)
+    assert inputs.rebuild_economic_input(store, path, saved) == expected
+    assert len(calls) == count * 2
+    assert all(body.closed for body in bodies)
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize("capacity", [0, 1, 2500])
