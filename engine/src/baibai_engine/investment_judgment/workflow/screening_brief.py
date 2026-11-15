@@ -28,6 +28,9 @@ def technical_financial_screening_brief(
     if page is not None and page < 0:
         raise ValueError("screening page must be nonnegative")
     index = {row.ticker: row for row in result.rows}
+    lane_local_review = result.policy.method == "technical-financial-discovery-v3"
+    hash_page = lane_local_review and lane == "input_review" and page is not None
+    mixed_order = lane_local_review and page is None
     lane_tickers = result.lane_tickers(lane)
     start = 0 if page is None else page * result.policy.page_size
     visible = () if page is None else lane_tickers[start : start + result.policy.page_size]
@@ -75,13 +78,40 @@ def technical_financial_screening_brief(
                 "read": (
                     f"selection-context --screening-selection-id <same-id> --screening-lane {name}"
                 ),
+                **(
+                    {
+                        "financial_gate_states": dict(
+                            sorted(
+                                Counter(
+                                    str(row.financial_gate["state"])
+                                    for row in result.rows
+                                    if row.screening_lane == name
+                                ).items()
+                            )
+                        )
+                    }
+                    if lane_local_review and name == "input_review"
+                    else {}
+                ),
             }
             for name in RESEARCH_LANES
         },
         "active_lane": lane if page is not None else None,
         "presentation": {
-            "kind": "saved_route_round_robin_not_investment_ranking",
-            "ties": "ticker_code_order_not_quality_or_return",
+            "kind": (
+                "saved_route_order_with_lane_local_input_review_not_investment_ranking"
+                if mixed_order
+                else "saved_lane_local_route_round_robin_not_investment_ranking"
+                if hash_page
+                else "saved_route_round_robin_not_investment_ranking"
+            ),
+            "ties": (
+                "input_review_company_hash_other_lanes_ticker_code_not_quality_or_return"
+                if mixed_order
+                else "stable_company_hash_then_ticker_not_quality_or_return"
+                if hash_page
+                else "ticker_code_order_not_quality_or_return"
+            ),
             "capacity": "page_size_is_not_a_candidate_cutoff_or_research_budget",
             "unresolved": "preliminary_research_not_financial_clearance_or_rejection",
             "detail": "same_generation_models_required_before_reasoned_research_selection",

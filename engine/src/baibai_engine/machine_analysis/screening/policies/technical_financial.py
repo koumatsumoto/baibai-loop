@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -21,9 +22,11 @@ type ScreeningLane = ResearchLane | Literal["no_current_hypothesis"]
 class TechnicalFinancialPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    method: Literal["technical-financial-discovery-v1", "technical-financial-discovery-v2"] = (
-        "technical-financial-discovery-v2"
-    )
+    method: Literal[
+        "technical-financial-discovery-v1",
+        "technical-financial-discovery-v2",
+        "technical-financial-discovery-v3",
+    ] = "technical-financial-discovery-v3"
     page_size: Annotated[int, Field(ge=1, le=36)] = 36
 
 
@@ -78,9 +81,29 @@ def financial_screening_lane(
 
 
 def discovery_display_order(rows: Sequence[TechnicalFinancialRow]) -> tuple[str, ...]:
-    """経路を巡回する注意順。コード順は同順位の固定化であり優位の推定でない。"""
+    """予備だけlane内で巡回し、他laneの注意順と候補集合を変えない。"""
+    order = _route_display_order(rows)
+    review_rows = tuple(row for row in rows if row.screening_lane == "input_review")
+    review_tickers = {row.ticker for row in review_rows}
+    review_order = iter(_route_display_order(review_rows, company_hash=True))
+    return tuple(next(review_order) if ticker in review_tickers else ticker for ticker in order)
+
+
+def _company_attention_key(row: TechnicalFinancialRow) -> tuple[bytes, str]:
+    # 経路ごとの独立したくじにせず、正準tickerに一つの再読可能な注意順を与える。
+    digest = sha256(f"baibai-loop/attention-control/v1\0{row.ticker}".encode()).digest()
+    return digest, row.ticker
+
+
+def _route_display_order(
+    rows: Sequence[TechnicalFinancialRow], *, company_hash: bool = False
+) -> tuple[str, ...]:
     queues: dict[str, deque[str]] = {}
-    for row in sorted(rows, key=lambda row: row.ticker):
+    ordered = sorted(
+        rows,
+        key=_company_attention_key if company_hash else lambda row: (b"", row.ticker),
+    )
+    for row in ordered:
         if row.screening_lane == "no_current_hypothesis":
             continue
         technical_match = row.technical["state"] == "matched"
