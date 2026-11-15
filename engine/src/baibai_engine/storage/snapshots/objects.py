@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from baibai_engine.storage.objects.r2 import Boto3R2Store
+from baibai_engine.storage.objects.r2 import Boto3R2Store, R2Error
 from baibai_engine.storage.snapshots.duck import LakeSession, lake_session
 from baibai_engine.storage.snapshots.keys import validate_lake_object_key
 from baibai_engine.storage.snapshots.models import LakeObject
@@ -80,6 +80,16 @@ class LakeObjectError(RuntimeError):
     """An object is missing, unreadable, or does not match its manifest identity."""
 
 
+class LakeObjectRejected(LakeObjectError):
+    """A verified remote refusal must not fall back to another request in this fill."""
+
+
+def _read_error(key: str, error: Exception) -> LakeObjectError:
+    if isinstance(error, R2Error) and error.http_status in {403, 429}:
+        return LakeObjectRejected(f"lake object request rejected: HTTP {error.http_status}")
+    return LakeObjectError(f"lake object is not readable: {key}")
+
+
 class LakeObjectSource(Protocol):
     """Read one object by its exact key."""
 
@@ -145,17 +155,17 @@ class R2ObjectSource:
         validate_lake_object_key(key)
         try:
             return self._store.get_bytes(key)
-        except Exception:
+        except Exception as error:
             # Provider exceptions can contain credentials or the account endpoint.
-            raise LakeObjectError(f"lake object is not readable: {key}") from None
+            raise _read_error(key, error) from None
 
     def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
         """Stream one exact R2 key to disk without materializing its body in memory."""
         validate_lake_object_key(key)
         try:
             self._store.download_file(key, destination, expect_bytes=max_bytes, max_bytes=max_bytes)
-        except Exception:
-            raise LakeObjectError(f"lake object is not readable: {key}") from None
+        except Exception as error:
+            raise _read_error(key, error) from None
 
 
 def mirror_path(root: Path, key: str) -> Path:

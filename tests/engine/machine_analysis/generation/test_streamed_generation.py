@@ -1,16 +1,19 @@
 """逐次生成は保存の原子性・不変identity・候補政策を変えない。"""
 
 import gzip
+import hashlib
 import sqlite3
 from contextlib import closing
 
 import pytest
+from pydantic import ValidationError
 from tests.helpers.model_generation import generation, materialize_generation, publish_generation
 
 import baibai_engine.machine_analysis.generation.store as generation_store
 from baibai_engine.machine_analysis.generation.contracts import (
     GenerationMetadata,
     GenerationSubject,
+    InputSnapshot,
     ModelGenerationStream,
 )
 from baibai_engine.machine_analysis.generation.query import read_generation
@@ -228,6 +231,103 @@ def test_stream_rejects_incomplete_fixed_plan_before_consuming_models(tmp_path):
             ModelGenerationStream(metadata, ("1234",), rows())
         )
     assert not path.exists()
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize(
+    "invalid", ["inputs", "clock", "version", "native_descriptor", "plan", "missing_plan"]
+)
+def test_mutated_metadata_is_rejected_before_store_or_stream_access(tmp_path, existing, invalid):
+    path = tmp_path / "runs.sqlite"
+    original = generation()
+    prior = original.model_copy(update={"generation_id": "prior"})
+    if existing:
+        publish_generation(prior, path=path)
+    before = path.read_bytes() if existing else None
+    metadata = stream(original).metadata
+    if invalid == "inputs":
+        metadata.inputs.clear()
+    elif invalid == "clock":
+        metadata = metadata.model_copy(
+            update={"evaluation_time": metadata.evaluation_time.replace(tzinfo=None)}
+        )
+    elif invalid == "version":
+        metadata = metadata.model_copy(update={"schema_version": 99})
+    elif invalid == "native_descriptor":
+        descriptor = {"selected": "original"}
+        native = InputSnapshot(
+            kind="native_l1",
+            reference="fixed-native",
+            sha256=hashlib.sha256(canonical_json(descriptor).encode()).hexdigest(),
+            descriptor=descriptor,
+        )
+        metadata.inputs["native"] = native
+        native.descriptor["selected"] = "changed-after-validation"
+    elif invalid == "plan":
+        plan = GenerationSubject(scope="stock", model_ids=("company_financials",))
+        metadata = metadata.model_copy(
+            update={
+                "schema_version": 2,
+                "subject_plan": {
+                    "1234": plan.model_copy(
+                        update={"model_ids": ("company_financials", "company_financials")}
+                    )
+                },
+            }
+        )
+    else:
+        metadata = metadata.model_copy(update={"schema_version": 2})
+
+    def rows():
+        raise AssertionError("invalid metadata must not consume the model stream")
+        yield from original.models
+
+    with pytest.raises(ValidationError):
+        ModelGenerationStore(path).publish_stream(
+            ModelGenerationStream(metadata, ("1234",), rows())
+        )
+    assert (path.read_bytes() if path.exists() else None) == before
+    if existing:
+        assert read_generation(prior.generation_id, path=path) == prior
+        assert read_generation(original.generation_id, path=path) is None
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_valid_metadata_copy_preserves_fixed_header_and_retry(tmp_path, schema_version):
+    path = tmp_path / "runs.sqlite"
+    original = generation()
+    metadata = stream(original).metadata
+    if schema_version == 2:
+        metadata = metadata.model_copy(
+            update={
+                "schema_version": 2,
+                "subject_plan": {
+                    "1234": GenerationSubject(
+                        scope="stock", model_ids=("company_financials", "technical_analysis")
+                    ),
+                    "market": GenerationSubject(scope="market", model_ids=("market_context",)),
+                },
+            }
+        )
+    metadata = metadata.model_copy(
+        update={"evaluation_time": metadata.evaluation_time.replace(hour=1)}
+    )
+    store = ModelGenerationStore(path)
+    assert store.publish_stream(
+        ModelGenerationStream(metadata, ("1234",), iter(original.models))
+    ).created
+    before = path.read_bytes()
+    assert not store.publish_stream(
+        ModelGenerationStream(metadata, ("1234",), iter(reversed(original.models)))
+    ).created
+    assert path.read_bytes() == before
+    assert read_generation(original.generation_id, path=path) == original.model_copy(
+        update=dict(metadata)
+    )
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("SELECT header FROM model_generation").fetchone()[
+            0
+        ] == canonical_json(metadata.model_dump(mode="json"))
 
 
 def test_finite_fixture_materialization_preserves_inputs_clock_and_single_pass():
