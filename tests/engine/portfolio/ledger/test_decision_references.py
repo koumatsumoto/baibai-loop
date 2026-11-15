@@ -175,6 +175,57 @@ def test_reference_namespace_cannot_overwrite_unknown_old_decision() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"origin": "retained_reference"},
+        {"source_id": "not-the-reported-source"},
+        {"source_digest": "a" * 64},
+        {
+            "reference": "capital-allocation-assessment-unknown",
+            "source_id": "capital-allocation-assessment-unknown",
+        },
+    ],
+)
+@pytest.mark.parametrize("through_draft", [False, True])
+def test_typed_binding_is_revalidated_before_ledger_or_reference_write(
+    tmp_path: Path, change, through_draft: bool
+) -> None:
+    service, path = _service(tmp_path)
+    draft = _draft(service)
+    assert draft.binding_addition is not None
+    binding = draft.binding_addition.model_copy(update=change)
+    event = draft.replacement.events[-1].model_copy(
+        update={"decision_reference": binding.reference}
+    )
+    replacement = draft.replacement.model_copy(
+        update={"events": (*draft.replacement.events[:-1], event)}
+    )
+    before = path.read_bytes()
+
+    if through_draft:
+        with pytest.raises(ValidationError):
+            apply_draft(
+                service,
+                draft.model_copy(update={"binding_addition": binding, "replacement": replacement}),
+                human_confirmed=True,
+            )
+    else:
+        with pytest.raises(ValidationError):
+            service.apply_document(
+                expected_head=draft.expected_head,
+                expected_document=draft.source,
+                replacement=replacement,
+                binding_addition=binding,
+            )
+
+    assert path.read_bytes() == before
+    assert service.load_with_head() == (draft.source, draft.expected_head)
+    assert _binding_count(path) == 0
+    with pytest.raises(ValueError, match="unavailable"):
+        resolve_buy_reference(binding.reference, db_path=path)
+
+
 def test_unknown_reference_is_read_only_and_never_resolves_a_ticker(tmp_path: Path) -> None:
     _service_instance, path = _service(tmp_path)
     before = path.read_bytes()
