@@ -42,6 +42,8 @@ PmaxはBase・期間・[要求率](../doctrine.md#required-return-policy)から�
 
 [同context](../../engine/src/baibai_engine/investment_judgment/trade_proposal/inputs.py)と購入算術を使い、鮮度は実quote、支出/利回りは作者limit、価格/株数basisはsnapshotへ揃える。入力変更時は比較を取り直す。
 
+contextの市場判断はOperationのSelectionに固定した当時の投影で、反証・不確実性・個社への伝達条件をcash/待機案と併読する。現在の判断への差替えや鮮度の再認定はせず、未保存や旧投影の未記録時計を補わない。重要な後発情報や未評価の個社影響は評価/Reviewへ戻し、市場判断の存在だけで価格条件や採否を変えない。
+
 context/check/previewの指値試算は計算条件の上限と実quoteを分ける。観測日・価格basisは実quoteに属し、指値やPmaxへ付け替えない。contextの自動候補試算は作者による採択済み指値ではない。
 
 [資本方針](../doctrine.md#required-return-policy)に従い、小口・上限量・現金維持の損益金額/残cashを比較する。同じ一株returnでも集中・ADV・no-addの放棄利益は異なる。
