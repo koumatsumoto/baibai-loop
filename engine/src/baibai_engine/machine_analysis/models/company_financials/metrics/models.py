@@ -90,6 +90,8 @@ class FinancialSnapshot:
     # 主cfoが採った報告行。最新開示日やTTM/EDINETの期間で置き換えない。
     cfo_source: dict[str, str | None] | None = None
     cash_eq: float | None = None
+    # 採用した短信の報告期・文書。最新開示日や他BS項目の最大carry日数とは別。
+    cash_eq_source: dict[str, str | None] | None = None
     total_assets: float | None = None
     # Reinvestment用。最新のcomplete actual rowのTAとEqARの積であり、PBRのBPS fallbackは使わない。
     same_state_equity_yen: float | None = None
