@@ -57,9 +57,9 @@ def exclusive_lock(lock_path: Path, *, subject: str) -> Iterator[None]:
 
 @contextmanager
 def lake_writer_lock(mirror_root: Path) -> Iterator[None]:
-    """Serialize local publication and retention finalization.
+    """Serialize local GC applies, not publication or other mirror writers.
 
-    GC apply and publication must inspect and change the same locked mirror state.
+    Only GC uses this lock. The operator must keep the mirror idle during apply.
     """
 
     mirror_root.mkdir(parents=True, exist_ok=True)
@@ -315,7 +315,7 @@ def _reachable_identity(mirror_root: Path, key: str) -> tuple[int, str] | None:
 def apply_gc(mirror_root: Path, plan: GcPlan, *, plan_hash: str) -> tuple[str, ...]:
     """承認したplanと現在のroot・候補が一致する場合だけ削除する。
 
-    公開と同じlock内で再計画し、計画後に採用されたobjectを消さない。
+    GC同士のlock内で再計画する。公開等はこのlockを使わないため、静止mirrorが前提。
     """
 
     if plan_hash != plan.plan_hash:
