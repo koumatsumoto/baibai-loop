@@ -86,6 +86,8 @@ def project_technical_financial_row(
         "missing_models",
         "model_revisions",
     )
+    # 相対的な活動条件だけでなく、同じ観測の円規模・窓・不足を初回比較へ残す。
+    compact_technical.update(_pick(coordinates.context, "turnover_activity_20d"))
     compact_technical["observation_failures"] = {
         name: _pick(
             _object(raw),
@@ -133,7 +135,7 @@ def evaluate_technical_financial_rows(
     rows: Mapping[str, TechnicalFinancialRow],
     policy: TechnicalFinancialPolicy,
 ) -> ScreeningSelection:
-    if policy.method != "technical-financial-discovery-v7":
+    if policy.method != "technical-financial-discovery-v8":
         raise ValueError("historical technical-financial policy is read-only")
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not set(rows).issubset(subjects):
