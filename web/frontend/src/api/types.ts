@@ -172,6 +172,8 @@ export interface SavedAssessmentView {
   invalidation_conditions: string[]
   investment_case_source_ids: string[] | null
   investment_case_sources: SavedAssessmentSourceView[] | null
+  hypothesis_checks: SavedHypothesisCheckView[] | null
+  hypothesis_sources: SavedAssessmentSourceView[] | null
   refresh: SavedAssessmentRefreshView | null
   strongest_countercase: string | null
   realization: SavedValueRealizationView | null
@@ -290,6 +292,14 @@ export interface SavedHoldingPositionView {
   cost_yen: string
   inputs_checked_at: string
   ledger_as_of: string
+}
+
+export interface SavedHypothesisCheckView {
+  statement: string
+  origin: 'user' | 'research'
+  result: 'supported' | 'refuted' | 'unresolved'
+  reason: string
+  source_ids: string[]
 }
 
 export interface SavedLimitTermsView {
