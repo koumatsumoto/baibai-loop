@@ -223,6 +223,11 @@ def preview_current_terms(
     ):
         connection.execute("BEGIN")
         proposal = load_investment_proposal(connection, proposal_id)
+        records = proposal_records(connection, proposal_id)
+        corrected = any(
+            record["erroneous_ref"]["proposal_id"] == proposal_id
+            for record in records["corrections"]
+        )
         inputs = input_reader.collect_proposal_inputs(
             connection,
             tickers=tuple(item.ticker for item in proposal.items),
@@ -261,7 +266,16 @@ def preview_current_terms(
         rows: list[dict[str, object]] = []
         assessments = {}
         for item in proposal.items:
-            blockers: list[GateReason] = []
+            blockers = (
+                [
+                    GateReason(
+                        code="proposal_corrected",
+                        message="この保存提案は誤記録として訂正済みです。原本は履歴として保持し、現在条件へ適用しません。",
+                    )
+                ]
+                if corrected
+                else []
+            )
             row: dict[str, object] = {
                 "ticker": item.ticker,
                 "saved_action": item.action,
@@ -297,7 +311,7 @@ def preview_current_terms(
                             ),
                         )
                     )
-                if item.action == "buy":
+                if item.action == "buy" and not corrected:
                     calculation, blockers = _preview_buy(
                         item,
                         pair,
@@ -308,7 +322,7 @@ def preview_current_terms(
                         market_connection=market_connection,
                     )
                     row.update(calculation)
-                elif item.action in {"hold", "sell"}:
+                elif item.action in {"hold", "sell"} and not corrected:
                     calculation, blockers = _preview_holding(
                         item,
                         pair,
@@ -319,7 +333,7 @@ def preview_current_terms(
                         market_connection=market_connection,
                     )
                     row.update(calculation)
-                elif item.action == "no_action" and latest:
+                elif item.action == "no_action" and latest and not corrected:
                     quote = next(
                         (quote for quote in inputs.quotes if quote.ticker == item.ticker), None
                     )
@@ -391,5 +405,5 @@ def preview_current_terms(
             tuple(changes),
             warnings.warnings,
             warnings.portfolio_exposure.model_dump(mode="json"),
-            proposal_records(connection, proposal_id),
+            records,
         )
