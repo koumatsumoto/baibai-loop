@@ -153,7 +153,7 @@ jobs:
         run: uv run python -m baibai_jobs.integration.sources apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
 
       # Core publication owns one fixed market release and native economic selection.
-      - name: Verify explicitly requested EDINET metric acceptance before publication
+      - name: Verify explicitly requested EDINET metric acceptance before core publication
         id: edinet-metrics-acceptance
         if: ${{ inputs.edinet_metrics_acceptance != '' }}
         env:

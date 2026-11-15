@@ -1,4 +1,4 @@
-"""Opt-in publication acceptance of previously compared EDINET metric results."""
+"""Opt-in core publication acceptance of previously compared EDINET metric results."""
 
 from __future__ import annotations
 
