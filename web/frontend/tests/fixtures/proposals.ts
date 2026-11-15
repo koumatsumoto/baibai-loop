@@ -145,6 +145,7 @@ export const holdFixture: SavedHoldItemView = {
 }
 
 export const sellFixture: SavedSellItemView = {
+  saved_sell_limit_comparison: null,
   ticker: '5555',
   company_name: '合成会社',
   sector: '情報・通信業',

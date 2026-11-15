@@ -384,6 +384,22 @@ export interface SavedSellItemView {
   reason_code: 'economic_invalidation' | 'insufficient_remaining_reward'
   terms: SavedLimitTermsView | null
   terms_unavailable_reasons: SavedReasonView[]
+  saved_sell_limit_comparison: SavedSellLimitComparisonView | null
+}
+
+export interface SavedSellLimitComparisonView {
+  price_context: 'author_sell_minimum'
+  calculation_price_yen: string
+  horizon_months: number
+  return_basis: 'conditional_pretax_without_reinvestment'
+  base: SavedSellLimitReturnView
+  downside: SavedSellLimitReturnView
+}
+
+export interface SavedSellLimitReturnView {
+  total_value_per_share_yen: string
+  total_return_pct: string
+  annualized_return_pct: string
 }
 
 export interface SavedTurnoverWindowView {

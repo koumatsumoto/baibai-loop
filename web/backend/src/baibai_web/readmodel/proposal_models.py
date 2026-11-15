@@ -273,11 +273,29 @@ class SavedHoldItemView(_SavedHoldingItemView):
     return_calculation_unavailable_reason: str | None
 
 
+class SavedSellLimitReturnView(BaseModel):
+    total_value_per_share_yen: str
+    total_return_pct: str
+    annualized_return_pct: str
+
+
+class SavedSellLimitComparisonView(BaseModel):
+    price_context: Literal["author_sell_minimum"] = "author_sell_minimum"
+    calculation_price_yen: str
+    horizon_months: int
+    return_basis: Literal["conditional_pretax_without_reinvestment"] = (
+        "conditional_pretax_without_reinvestment"
+    )
+    base: SavedSellLimitReturnView
+    downside: SavedSellLimitReturnView
+
+
 class SavedSellItemView(_SavedHoldingItemView):
     action: Literal["sell"]
     reason_code: Literal["economic_invalidation", "insufficient_remaining_reward"]
     terms: SavedLimitTermsView | None
     terms_unavailable_reasons: list[SavedReasonView]
+    saved_sell_limit_comparison: SavedSellLimitComparisonView | None = None
 
 
 class SavedNoActionItemView(_SavedProposalItemView):

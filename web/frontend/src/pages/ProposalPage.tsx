@@ -319,6 +319,33 @@ function SavedBuyComparison({ item }: { item: SavedBuyItemView }) {
   </section>
 }
 
+function SavedSellLimitComparison({ item }: { item: SavedSellItemView }) {
+  const comparison = item.saved_sell_limit_comparison
+  return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存売却下限と保有継続の比較">
+    <h4 className="text-sm font-semibold">保存売却下限と保有継続の比較</h4>
+    {comparison == null
+      ? <p className="text-sm text-muted-foreground">この表示データには下限での比較がありません。旧表示・条件未確定・仮説不成立の売却などを、見返り0や保有継続の支持に置き換えていません。</p>
+      : <>
+        <p className="text-xs leading-6 text-muted-foreground">作者の売却下限で回収する代わりに、同じ保存価値・今後分配・期間で保有を続ける場合の条件付き試算です。保存終値や購入原価での損益、売却後の運用収益ではありません。</p>
+        <dl className="grid gap-4 sm:grid-cols-2">
+          <Field label="比較に用いた売却下限">{comparison.calculation_price_yen} 円</Field>
+          <Field label="保存評価の比較期間">{comparison.horizon_months} か月</Field>
+        </dl>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[{ label: '中心ケース（Base）', value: comparison.base }, { label: '下方ケース（Downside）', value: comparison.downside }].map(({ label, value }) => <div className="grid min-w-0 gap-3 rounded-md bg-muted p-4" key={label}>
+            <p className="text-sm font-medium">{label}の保有継続</p>
+            <dl className="grid gap-3">
+              <Field label="終期価値と期間内分配の合計（一株）">{value.total_value_per_share_yen} 円</Field>
+              <Field label="売却下限に対する総見返り">{value.total_return_pct} %</Field>
+              <Field label="売却下限に対する条件付き年率">{value.annualized_return_pct} %</Field>
+            </dl>
+          </div>)}
+        </div>
+        <p className="text-xs leading-6 text-muted-foreground">投資家税・売買費用・配当再投資は含みません。約定・価値実現・現在の採否を保証せず、数値だけで売却や保有へ変更しません。下限引上げ・保有・未約定時の再確認と、保存された作者の理由を併読してください。</p>
+      </>}
+  </section>
+}
+
 function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }) {
   return (
     <div className="grid gap-4">
@@ -368,6 +395,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
               <Reasons reasons={item.terms_unavailable_reasons} title="具体条件が不足する理由" />
             </div>)}
             {item.action === 'buy' && <SavedBuyComparison item={item} />}
+            {item.action === 'sell' && <SavedSellLimitComparison item={item} />}
             {(item.action === 'hold' || item.action === 'sell') && <HoldingReason item={item} />}
             {item.action === 'defer' && <>
               <Reasons reasons={item.blockers} title="判断を保留した不足理由" />
