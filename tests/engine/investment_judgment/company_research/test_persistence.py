@@ -472,3 +472,52 @@ def test_unwritten_store_is_absence_but_missing_current_table_is_not(tmp_path):
         connection.execute("DROP TABLE company_research")
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         read(path)
+
+
+@pytest.mark.parametrize("change", ["schema_version", "investigated_scope", "source_ref"])
+def test_save_revalidates_copied_document_before_advancing_research_chain(tmp_path, change):
+    path = tmp_path / "app"
+    first = ResearchStoreService(path, clock=lambda: NOW).save(draft(evidence=True))
+    proposed = draft("r2", prior=first.reference, evidence=True)
+    if change == "source_ref":
+        copied_source = proposed.document.sources[0].model_copy(
+            update={"ref": "javascript:alert(1)"}
+        )
+        copied_document = proposed.document.model_copy(update={"sources": (copied_source,)})
+    else:
+        copied_document = proposed.document.model_copy(
+            update={change: 99 if change == "schema_version" else ""}
+        )
+    invalid = proposed.model_copy(update={"document": copied_document})
+    before = path.read_bytes()
+    service = ResearchStoreService(path, clock=lambda: NOW + timedelta(seconds=1))
+    error = r"HTTP\(S\)" if change == "source_ref" else change
+    with pytest.raises(ValueError, match=error):
+        service.save(invalid)
+    assert path.read_bytes() == before
+    assert read(path, known_at=NOW + timedelta(seconds=1)).research.record == first
+    saved = service.save(proposed)
+    with closing(connect_read_only(path)) as connection:
+        assert load_research(connection, "r2") == saved
+        assert connection.execute("SELECT COUNT(*) FROM company_research").fetchone()[0] == 2
+
+
+def test_valid_copied_research_keeps_canonical_content_and_idempotent_retry(tmp_path):
+    path = tmp_path / "app"
+    service = ResearchStoreService(path, clock=lambda: NOW)
+    first = service.save(draft(evidence=True))
+    original = draft("r2", prior=first.reference, evidence=True)
+    copied = original.model_copy(
+        update={
+            "document": original.document.model_copy(
+                update={"investigated_scope": "追加検索したが新しい根拠は未確認"}
+            )
+        }
+    )
+    saved = service.save(copied)
+    with closing(connect_read_only(path)) as connection:
+        assert load_research(connection, "r2") == saved
+    assert saved.document.model_dump(mode="json") == copied.document.model_dump(mode="json")
+    before = path.read_bytes()
+    assert ResearchStoreService(path, clock=lambda: NOW + timedelta(days=1)).save(copied) == saved
+    assert path.read_bytes() == before
