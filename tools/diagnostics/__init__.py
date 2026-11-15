@@ -1,1 +1,1 @@
-"""Runtime diagnostics and explicit development-environment provisioning tools."""
+"""保持済み入力の診断ツール。"""
