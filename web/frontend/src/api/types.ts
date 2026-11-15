@@ -163,13 +163,6 @@ export interface SavedAssessmentView {
   review: SavedAssessmentReviewView
 }
 
-export interface SavedValueRealizationView {
-  mechanism: string
-  timing: 'known' | 'uncertain'
-  timing_reason: string
-  delay_risk: string
-}
-
 export interface SavedBuyItemView {
   ticker: string
   company_name: string | null
@@ -375,6 +368,13 @@ export interface SavedValueGapView {
   explanation: string
   findings_source_ids: string[]
   findings_sources: SavedAssessmentSourceView[]
+}
+
+export interface SavedValueRealizationView {
+  mechanism: string
+  timing: 'known' | 'uncertain'
+  timing_reason: string
+  delay_risk: string
 }
 
 export interface UnfinishedResearchView {

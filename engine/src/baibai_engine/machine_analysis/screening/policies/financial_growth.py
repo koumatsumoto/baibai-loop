@@ -43,6 +43,12 @@ _FINANCIAL_CONTEXT = (
     "earnings_forecast_source",
     "net_share_change_yoy",
 )
+_FORECAST_CONTEXT = (
+    "forecast_profit_yen",
+    "forecast_ordinary_profit_yen",
+    "forecast_full_year_loss_flag",
+    "earnings_forecast_source",
+)
 type CheckState = Literal["met", "not_met", "unavailable"]
 
 
@@ -184,6 +190,16 @@ def evaluate_financial_growth_gate(
                 "coverage": projected.get("growth_coverage"),
             },
             "financial_context": {key: financial.get(key) for key in _FINANCIAL_CONTEXT},
+            # 成長/回復の実績とは別の会社予想。未記録やscopeの未確定を補完しない。
+            **(
+                {
+                    "forecast_context": {
+                        key: financial[key] for key in _FORECAST_CONTEXT if key in financial
+                    }
+                }
+                if financial_model is not None
+                else {}
+            ),
             "missing_models": [name for name in _MODELS if name not in index],
             "model_revisions": {name: model.calculation_revision for name, model in index.items()},
             "limits": [
