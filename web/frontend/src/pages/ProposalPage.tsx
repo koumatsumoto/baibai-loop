@@ -5,6 +5,7 @@ import type {
   LatestProposalView,
   SavedAssessmentView,
   SavedBuyItemView,
+  SavedDeferItemView,
   SavedExposureRowView,
   SavedHoldItemView,
   SavedLimitTermsView,
@@ -405,7 +406,7 @@ function SavedHoldQuoteComparison({ item }: { item: SavedHoldItemView }) {
   </section>
 }
 
-function SavedHoldingPosition({ item }: { item: SavedHoldItemView | SavedSellItemView }) {
+function SavedHoldingPosition({ item }: { item: SavedHoldItemView | SavedSellItemView | SavedDeferItemView }) {
   const position = item.saved_position
   return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="判断対象の保存保有">
     <h4 className="text-sm font-semibold">判断対象の保存保有</h4>
@@ -480,6 +481,8 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
               <HoldingReason item={item} />
             </>}
             {item.action === 'defer' && <>
+              <p className="text-sm text-muted-foreground">判断保留は、保有なし・売却済み・保有継続の推奨を意味しません。</p>
+              {item.saved_position != null && <SavedHoldingPosition item={item} />}
               <Reasons reasons={item.blockers} title="判断を保留した不足理由" />
               <TextList items={item.resume_conditions} title="再開条件" />
             </>}

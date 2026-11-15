@@ -252,6 +252,7 @@ export interface SavedDeferItemView {
   liquidity: SavedLiquidityView | null
   unfinished: UnfinishedResearchView | null
   action: 'defer'
+  saved_position: SavedHoldingPositionView | null
   blockers: SavedReasonView[]
   resume_conditions: string[]
 }
