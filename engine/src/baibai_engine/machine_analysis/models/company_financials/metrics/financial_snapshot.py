@@ -66,7 +66,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v52-capital-event-forward-basis"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v53-capital-event-book-basis"
 
 
 def _reported_cfo_source(row: JQuantsFinancialSummary | None) -> dict[str, str | None] | None:
@@ -252,6 +252,16 @@ def build_financial_snapshot(
         bps=bps,
         shares_ex_treasury=shares_ex_treasury,
     )
+    if (
+        equity is not None
+        and equity[1] == "bps_times_current_shares"
+        and bps_row is not None
+        and bps_row.period_end is not None
+        and any(action.effective_date > bps_row.period_end for action in capital_actions)
+    ):
+        # A new share count cannot remeasure old BPS after an issuance/conversion.
+        # Reject only the selected route, not a separately established yen book.
+        equity = None
     book_equity: dict[str, object] | None = None
     if equity is not None:
         equity_yen, method = equity

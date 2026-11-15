@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import get_args
 from uuid import uuid4
 
+import yaml
 from pydantic import BaseModel
 
 from baibai_engine.investment_judgment.company_research.document import ResearchRecord
@@ -163,6 +164,7 @@ def scaffold_assessment(
                 item["fact_id"] = f"research_{fact.fact_id}"
                 item["source_ids"] = [f"research_{ref}" for ref in fact.source_ids]
                 facts.append(item)
+        value_capture = None if research is None else research.document.value_capture_hypothesis
         if quote is not None:
             sources.append(
                 {
@@ -212,11 +214,20 @@ def scaffold_assessment(
                 "unresolved_reason": "企業価値未評価" if quote else "quote未取得・企業価値未評価",
             },
             "investment_case": {
-                "explanation": None,
+                # Keep the causal material without adopting it as a reviewed thesis.
+                "explanation": (
+                    None
+                    if value_capture is None
+                    else f"未採択のResearch価値仮説（今回の評価で検証）:\n{value_capture.text}"
+                ),
                 "invalidation_conditions": [],
                 "status": "uncertain",
                 "status_reason": None,
-                "source_ids": [],
+                "source_ids": (
+                    []
+                    if value_capture is None
+                    else [f"research_{ref}" for ref in value_capture.source_ids]
+                ),
             },
             "permanent_loss_risks": [],
             "findings": {
@@ -286,6 +297,16 @@ def scaffold_assessment(
             f"# 転記元Research: {research.reference.research_id!r} "
             f"sha256={research.reference.payload_sha256}\n"
             "# 原資料の確認時刻を保持した転記。価値・結論・Reviewは別途作成する。\n"
+            f"# 元Researchの調査範囲（{research.document.as_of} 時点・未採択の補助）:\n"
+            + "".join(
+                f"# {line}\n"
+                for line in yaml.safe_dump(
+                    {"investigated_scope": research.document.investigated_scope},
+                    allow_unicode=True,
+                    default_style='"',
+                ).splitlines()
+            )
+            + "# 当時の調査範囲であり、今回の評価範囲・再確認済みを意味しない。\n"
         )
     )
     content = _ASSESSMENT_DRAFT_HEADER + seed_header + _dump_yaml(payload)

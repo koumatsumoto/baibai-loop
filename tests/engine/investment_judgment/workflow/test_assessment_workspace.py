@@ -95,6 +95,7 @@ def test_initial_scaffold_has_new_contract_and_stable_writer_identity(case):
     text = Path(first["assessment_draft"]).read_text()
     raw = yaml.safe_load(text)
     assert "docs/reference/model-observations.md#public-research-reports" in text
+    assert "# 元Researchの調査範囲" not in text
     reference = Path(__file__).resolve().parents[4] / "docs/reference/model-observations.md"
     assert '<a id="public-research-reports"></a>' in reference.read_text()
     assert raw["kind"] == "stock_assessment"
@@ -763,6 +764,13 @@ def test_research_seed_preserves_evidence_without_authoring_value_or_review(case
     assert raw["valuation"]["base"] is None
     assert raw["conclusion"]["stance"] == "uncertain"
     assert raw["findings"]["value_gap_explanation"] is None
+    assert raw["investment_case"] == {
+        "explanation": "未採択のResearch価値仮説（今回の評価で検証）:\n採算改善の可能性",
+        "source_ids": ["research_market_close"],
+        "invalidation_conditions": [],
+        "status": "uncertain",
+        "status_reason": None,
+    }
     assert raw["findings"]["business_understanding"] == "継続契約が中心"
     assert raw["findings"]["hypotheses"][0]["source_ids"] == ["research_market_close"]
     assert raw["findings"]["unresolved_questions"] == ["更新契約の採算は維持されるか"]
@@ -771,13 +779,159 @@ def test_research_seed_preserves_evidence_without_authoring_value_or_review(case
         assert load_research(connection, "seed-r1") == record
 
 
+@pytest.mark.parametrize("value_only", [False, True])
+def test_research_value_capture_material_survives_with_its_own_sources(case, value_only):
+    from copy import deepcopy
+
+    from baibai_engine.investment_judgment.company_research.document import ResearchDraft
+    from baibai_engine.investment_judgment.company_research.store import (
+        ResearchStoreService,
+        load_research,
+    )
+    from baibai_engine.storage.sqlite.application.read import connect_read_only
+
+    original = save_research_seed(case)
+    document = original.document.model_dump(mode="json")
+    separate = deepcopy(document["sources"][0])
+    separate.update(source_id="industry", used_for="費用変化から普通株cashへの仮説")
+    document["sources"].append(separate)
+    # A later counterargument and multiline text must remain material, not parsed
+    # instructions or an automatically adopted investment conclusion.
+    text = (
+        "投入費用の低下が更新契約のcashへ届くか。" * 30
+        + "\nただし価格転嫁で還元されるなら採算改善は反証される。"
+    )
+    document["value_capture_hypothesis"] = {"text": text, "source_ids": ["industry"]}
+    if value_only:
+        document.update(
+            business_understanding=None, facts=[], hypotheses=[], unresolved_questions=[]
+        )
+    record = ResearchStoreService(case[0], clock=lambda: NOW).save(
+        ResearchDraft.model_validate(
+            {
+                "research_id": "seed-r2",
+                "prior_research_ref": original.reference.model_dump(mode="json"),
+                "document": document,
+            }
+        )
+    )
+    before = case[0].read_bytes()
+    result = scaffold(case, from_research_id="seed-r2")
+    raw = yaml.safe_load(Path(result["assessment_draft"]).read_text())
+    assert raw["investment_case"]["explanation"] == (
+        "未採択のResearch価値仮説（今回の評価で検証）:\n" + text
+    )
+    assert raw["investment_case"]["source_ids"] == ["research_industry"]
+    assert raw["investment_case"]["status"] == "uncertain"
+    assert raw["investment_case"]["status_reason"] is None
+    assert raw["investment_case"]["invalidation_conditions"] == []
+    assert raw["valuation"]["status"] == "unresolved"
+    assert raw["valuation"]["base"] is None
+    assert raw["findings"]["value_gap_explanation"] is None
+    assert raw["findings"]["hypotheses"] == [
+        {**item, "source_ids": ["research_" + ref for ref in item["source_ids"]]}
+        for item in document["hypotheses"]
+    ]
+    with pytest.raises(ValidationError):
+        StockAssessmentDocument.model_validate(raw)
+    with closing(connect_read_only(case[0])) as connection:
+        assert load_research(connection, "seed-r1") == original
+        assert load_research(connection, "seed-r2") == record
+    assert case[0].read_bytes() == before
+    assert not (case[1] / "1234/assessment-review.yaml").exists()
+
+
 def test_question_only_research_seed_is_allowed(case):
     save_research_seed(case, questions_only=True)
     result = scaffold(case, from_research_id="seed-r1")
     raw = yaml.safe_load(Path(result["assessment_draft"]).read_text())
     assert raw["input_snapshot"]["sources"] == []
     assert raw["findings"]["business_understanding"] is None
+    assert raw["investment_case"]["explanation"] is None
+    assert raw["investment_case"]["source_ids"] == []
     assert raw["findings"]["unresolved_questions"] == ["更新契約の採算は維持されるか"]
+
+
+@pytest.mark.parametrize("questions_only", [False, True])
+@pytest.mark.parametrize("text_form", ["multiline", "controls", "unicode_newlines"])
+def test_research_scope_is_visible_without_becoming_current_assessment(
+    case, questions_only, text_form
+):
+    from baibai_engine.investment_judgment.company_research.document import ResearchDraft
+    from baibai_engine.investment_judgment.company_research.store import (
+        ResearchStoreService,
+        load_research,
+    )
+    from baibai_engine.storage.sqlite.application.read import connect_read_only
+
+    original = save_research_seed(case, questions_only=questions_only)
+    document = original.document.model_dump(mode="json")
+    # Only the original scope carries these period/industry limits. Content that
+    # resembles YAML must remain commentary, not rewrite the author's payload.
+    scope = (
+        "2026年4–6月の国内部品群だけ。世界動向の企業への転嫁は未確認。\n"
+        + "原典検索範囲。" * 60
+        + "\n2027年通期・海外事業を調べた記録ではない。\n"
+        "---\nconclusion:\n  stance: supported\n..."
+    )
+    if text_form == "controls":
+        scope += "\n範囲未確認\r\n引用: '本文'\t\x00\x7f\x80\x85\u2028対象期不明\u2029末尾"
+    elif text_form == "unicode_newlines":
+        scope = "2026年4–6月の国内だけ。\x85次期は未確認。\u2028海外は対象外。\u2029末尾"
+    document["investigated_scope"] = scope
+    draft = ResearchDraft.model_validate(
+        {
+            "research_id": "scope-r2",
+            "prior_research_ref": original.reference.model_dump(mode="json"),
+            "document": document,
+        }
+    )
+    service = ResearchStoreService(case[0], clock=lambda: NOW + timedelta(seconds=1))
+    record = service.save(draft)
+    later = NOW + timedelta(days=1)
+    first = scaffold(case, now=later, from_research_id="seed-r1")
+    original_payload = yaml.safe_load(Path(first["assessment_draft"]).read_text())
+    before = case[0].read_bytes()
+    exported = case[1] / "scope-export.yaml"
+    result = scaffold(case, now=later, from_research_id="scope-r2", force=True, out=exported)
+    text = Path(result["assessment_draft"]).read_text()
+    raw = yaml.safe_load(text)
+
+    header = f"# 元Researchの調査範囲（{record.document.as_of} 時点・未採択の補助）:\n"
+    disclaimer = "# 当時の調査範囲であり、今回の評価範囲・再確認済みを意味しない。\n"
+    assert header in text
+    assert disclaimer in text
+    comment = text.split(header, 1)[1].split(disclaimer, 1)[0]
+    assert all(line.startswith("# ") for line in comment.splitlines())
+    restored_scope = yaml.safe_load("\n".join(line[2:] for line in comment.splitlines()))
+    assert restored_scope == {"investigated_scope": scope}
+    assert record.reference.research_id in text
+    assert record.reference.payload_sha256 in text
+    assert exported.read_text() == text
+    assert raw == original_payload  # Scope commentary cannot author a current conclusion.
+    assert raw["valuation"]["status"] == "unresolved"
+    assert raw["conclusion"]["stance"] == "uncertain"
+    with pytest.raises(ValidationError):
+        StockAssessmentDocument.model_validate(raw)
+    with closing(connect_read_only(case[0])) as connection:
+        assert load_research(connection, original.reference.research_id) == original
+        assert load_research(connection, record.reference.research_id) == record
+    assert case[0].read_bytes() == before
+    assert service.save(draft) == record
+    assert not (case[1] / "1234/assessment-review.yaml").exists()
+
+
+@pytest.mark.parametrize("scope", ["", " \t\r\n"])
+def test_empty_research_scope_remains_invalid_before_assessment_seeding(scope):
+    from baibai_engine.investment_judgment.company_research.document import ResearchDocument
+
+    with pytest.raises(ValidationError, match="investigated_scope"):
+        ResearchDocument(
+            ticker="1234",
+            as_of=NOW.date(),
+            investigated_scope=scope,
+            unresolved_questions=("対象期は未確認",),
+        )
 
 
 @pytest.mark.parametrize("invalid", ["ticker", "future", "both", "unknown"])

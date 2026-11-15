@@ -112,6 +112,33 @@ function Identifier({ label, value }: { label: string; value: string }) {
   )
 }
 
+function AssessmentCountercases({ assessment }: { assessment: SavedAssessmentView }) {
+  return <div className="grid gap-4">
+    <div><p className="mb-1 text-sm font-medium">評価作者の最も強い反対論</p>
+      {assessment.strongest_countercase == null
+        ? <p className="text-sm text-muted-foreground">この表示データには評価作者の反対論が含まれていません。反証がないことを示しません。</p>
+        : <Prose>{assessment.strongest_countercase}</Prose>}
+    </div>
+    <div><p className="mb-1 text-sm font-medium">独立検証の最も強い反対論</p><Prose>{assessment.review.strongest_countercase}</Prose></div>
+  </div>
+}
+
+function AssessmentRealization({ assessment }: { assessment: SavedAssessmentView }) {
+  const realization = assessment.realization
+  return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="価値実現の機序と時間">
+    <h4 className="text-sm font-semibold">価値実現の機序と時間</h4>
+    <p className="text-xs leading-6 text-muted-foreground">保存評価の作者仮説です。評価の比較期間とは別で、実現や現在の裏付けを保証しません。</p>
+    {realization == null
+      ? <p className="text-sm text-muted-foreground">この表示データには価値実現の条件が含まれていません。遅延リスクがないことを示しません。</p>
+      : <>
+        <div><p className="mb-1 text-sm font-medium">価値が届く経路</p><Prose>{realization.mechanism}</Prose></div>
+        <Field label="実現時期の判断">{realization.timing === 'known' ? '作者が時期を把握と記録' : '未確定'}（{realization.timing}）</Field>
+        <div><p className="mb-1 text-sm font-medium">時期の根拠・留保</p><Prose>{realization.timing_reason}</Prose></div>
+        <div><p className="mb-1 text-sm font-medium">遅延した場合のリスク</p><Prose>{realization.delay_risk}</Prose></div>
+      </>}
+  </section>
+}
+
 function AssessmentExcerpt({ assessment, showCountercase = true }: { assessment: SavedAssessmentView; showCountercase?: boolean }) {
   const review = assessment.review
   return (
@@ -133,7 +160,7 @@ function AssessmentExcerpt({ assessment, showCountercase = true }: { assessment:
           <Field label="独立検証時刻"><SavedTime value={review.reviewed_at} /></Field>
         </dl>
         <Prose>{review.review_scope}</Prose>
-        {showCountercase && <div><p className="mb-1 text-sm font-medium">独立検証の最も強い反対論</p><Prose>{review.strongest_countercase}</Prose></div>}
+        {showCountercase && <AssessmentCountercases assessment={assessment} />}
         {review.uncertainty_acceptance_reason !== null && <div><p className="mb-1 text-sm font-medium">不確実性を引き受けた理由</p><Prose>{review.uncertainty_acceptance_reason}</Prose></div>}
       </div>
       <div className="grid min-w-0 gap-2 border-t pt-4">
@@ -193,7 +220,7 @@ function AssessmentValue({ assessment }: { assessment: SavedAssessmentView }) {
             </dl>
             <Prose>{value.calculation}</Prose>
           </div>)}
-          <div><p className="mb-1 text-sm font-medium">独立検証の最も強い反対論</p><Prose>{assessment.review.strongest_countercase}</Prose></div>
+          <AssessmentCountercases assessment={assessment} />
         </div>
       </details>
     </section>
@@ -235,6 +262,7 @@ function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }
         <div className="mt-4 grid gap-4">
           {item.original_assessment !== null && <>
             <AssessmentValueGap assessment={item.original_assessment} />
+            <AssessmentRealization assessment={item.original_assessment} />
             <AssessmentExcerpt assessment={item.original_assessment} />
           </>}
           {item.original_investment_reason !== null && <Prose>{item.original_investment_reason}</Prose>}
@@ -255,6 +283,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
           <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">価格・条件と判断の詳細を読む</summary>
           <div className="mt-5 grid min-w-0 gap-5">
             {item.assessment !== null && <AssessmentValueGap assessment={item.assessment} />}
+            {item.assessment !== null && <AssessmentRealization assessment={item.assessment} />}
             {item.assessment !== null && <AssessmentValue assessment={item.assessment} />}
             {item.saved_quote !== null && <dl className="grid gap-4 sm:grid-cols-2">
               <Field label="保存株価（未調整終値）">{item.saved_quote.price_yen} 円</Field>

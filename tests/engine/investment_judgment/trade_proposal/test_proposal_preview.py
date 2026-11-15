@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.proposal import (
+    PREPARED,
     PUBLISHED,
     backend_case,
     bind_review,
@@ -14,6 +16,7 @@ from tests.helpers.proposal import (
     reviewed_proposal,
 )
 
+from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 
@@ -157,6 +160,121 @@ def test_preview_does_not_require_active_operation_or_compare_current_progress(t
         ).status
         == "unchanged"
     )
+
+
+@pytest.mark.parametrize("action", ["no_action", "defer"])
+@pytest.mark.parametrize("changed_value", [False, True])
+def test_nontrading_preview_reports_new_assessment_without_replacing_saved_decision(
+    tmp_path, action, changed_value
+):
+    case = backend_case(tmp_path)
+    proposal = reviewed_proposal(case, action=action)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    saved = service.publish(proposal)
+    before = preview_current_terms(
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=1),
+    )
+    assert before.status == "unchanged"
+    assert (before.items[0]["current_quote_calculation"] is not None) == (action == "no_action")
+
+    document, review = pair_payload(review_number=3)
+    if changed_value:
+        document["valuation"]["base"]["terminal_value_per_share_yen"] = "2200"
+        review["recalculated_projections"][0]["terminal_value_per_share_yen"] = "2200"
+        update_review_hash(document, review)
+    newer = AssessmentStoreService(
+        case.app, clock=lambda: PUBLISHED + timedelta(minutes=2)
+    ).publish_reviewed_assessment(
+        assessment_id(2), document, review, supersedes_id=case.pair.assessment_id
+    )
+    snapshot = _snapshot(case.app)
+    preview = preview_current_terms(
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=3),
+    )
+    assert preview.status == "changed"
+    assert [reason.code for reason in preview.change_reasons] == ["assessment_revision_changed"]
+    row = preview.items[0]
+    assert row["latest_assessment_id"] == newer.assessment_id
+    assert row["saved_action"] == action
+    assert row["current_quote_calculation"] is None
+    assert row["blockers"] == []
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    assert service.publish(proposal) == saved
+    assert _snapshot(case.app) == snapshot
+
+
+def test_nontrading_preview_uses_existing_instant_order_not_text_or_id_order(tmp_path):
+    case = backend_case(tmp_path)
+    saved = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(reviewed_proposal(case, action="no_action"))
+    prior = case.pair.assessment_id
+    for number, instant in (
+        (8, "2026-10-14T16:24:00.000100+09:00"),
+        (3, "2026-10-14T07:24:00.000400+00:00"),
+    ):
+        document, review = pair_payload(review_number=number + 100)
+        pair = AssessmentStoreService(
+            case.app, clock=lambda instant=instant: datetime.fromisoformat(instant)
+        ).publish_reviewed_assessment(assessment_id(number), document, review, supersedes_id=prior)
+        prior = pair.assessment_id
+    preview = preview_current_terms(
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=5),
+    )
+    assert preview.status == "changed"
+    assert preview.items[0]["latest_assessment_id"] == assessment_id(3)
+
+
+@pytest.mark.parametrize("unreferenced", [False, True])
+def test_other_ticker_and_unreferenced_defer_do_not_replace_saved_assessment(
+    tmp_path, unreferenced
+):
+    case = backend_case(tmp_path)
+    if unreferenced:
+        case.operations.record_unfinished(
+            case.operation.operation_id,
+            ticker="1234",
+            reason="評価を今回の判断に採用する調査が未完了。",
+            references=("synthetic-pending-source",),
+            now=PREPARED,
+        )
+    saved = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(reviewed_proposal(case, action="defer" if unreferenced else "no_action"))
+    document, review = pair_payload(ticker="1234" if unreferenced else "5678", review_number=3)
+    AssessmentStoreService(
+        case.app, clock=lambda: PUBLISHED + timedelta(minutes=1)
+    ).publish_reviewed_assessment(
+        assessment_id(2),
+        document,
+        review,
+        supersedes_id=case.pair.assessment_id if unreferenced else None,
+    )
+    preview = preview_current_terms(
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=5),
+    )
+    assert preview.status == "unchanged"
+    assert preview.change_reasons == ()
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    if unreferenced:
+        assert saved.items[0].assessment_ref is None
+        assert "latest_assessment_id" not in preview.items[0]
+        assert preview.items[0]["current_quote_calculation"] is None
+    else:
+        assert preview.items[0]["latest_assessment_id"] == case.pair.assessment_id
+        assert preview.items[0]["current_quote_calculation"] is not None
 
 
 @pytest.mark.parametrize("with_remaining_reward", [False, True])
