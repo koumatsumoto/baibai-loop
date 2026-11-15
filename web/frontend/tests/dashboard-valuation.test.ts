@@ -114,6 +114,20 @@ describe('Dashboard valuation display', () => {
     }
   })
 
+  it('describes ticker concentration as a holding risk without suggesting an additional purchase', () => {
+    const html = renderToStaticMarkup(createElement(TooltipProvider, null,
+      createElement(MemoryRouter, null, createElement(HoldingsTable, {
+        holdings: [holding('1234')],
+        warnings: [{ code: 'portfolio.ticker-concentration', scope: 'ticker', key: '1234',
+          actual_pct: 30, warning_pct: 20, overridden: false }],
+      })),
+    ))
+    expect(html).toContain('銘柄集中度 · 1234')
+    expect(html).toContain('構成比 30.00% が目安 20.00% を上回っています。')
+    expect(html).toContain('保有全体の集中リスクを確認してください。')
+    expect(html).not.toContain('追加購入')
+  })
+
   it('requires the total as well as every allocation part', () => {
     const html = render(dashboard({ total_capital_yen: null }))
     expect(html).toContain('配分データなし')

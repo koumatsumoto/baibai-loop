@@ -155,7 +155,7 @@ function warningCopy(warning: WarningView) {
   if (warning.code === 'portfolio.ticker-concentration') {
     return {
       title: `銘柄集中度 · ${warning.key}`,
-      description: `構成比 ${actual} が目安 ${threshold} を上回っています。追加購入時に集中度を確認してください。`,
+      description: `構成比 ${actual} が目安 ${threshold} を上回っています。保有全体の集中リスクを確認してください。`,
     }
   }
   if (warning.code === 'portfolio.sector-concentration') {
