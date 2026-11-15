@@ -22,6 +22,8 @@ v5では、同じ財務入力確認の根拠をG非合致だけでなくG未確�
 
 初回の`selection-context`が返すSelection IDとcutoffを固定して、同じ `--screening-lane` の `--screening-page <next>`で容量外も読む。`candidate_tickers`は表示中のページ、`summary`は全stock planの分母。`--compare-ticker`は表示外・G非合致・T非合致も、保存した状態/理由と同世代の完全モデルを読む。ページ読取で政策の再適用、入力の再生成、Research開始は行わない。
 
+技術合致が財務絞込みで残らなかった理由は、同じID/cutoffの`selection-context --scope discover_new --screening-excluded --screening-page <next>`で有限に読む。保存T合致かつ`no_current_hypothesis`だけをコード順で示し、通常3レーンや`candidate_tickers`へ復帰させない。全保存行/T合致/該当社を分母にし、G経路の失敗・不足は同社同条件を一度だけ数える。条件間は重複するので加算不可であり、件数を損失機会・棄却の正しさや全F経路の独立票にしない。旧政策も保存結果のまま読むため、現在の入力確認理由を後補完しない。既知悪化と未確定を元の行で確認し、調べる反例だけ既存`--compare-ticker`へ渡す。旧研究callerの全Generation再診断とは別で、買付不適格やProposalの`no_action`を発行する入口ではない。
+
 L3は同世代詳細・既存調査・市場/業界/世界動向・外部評価のずれから、既存容量の最大3対象を理由付きで選ぶ。未確定を選ぶなら先に答える問い、既知非充足の例外を選ぶなら根拠を明示する。TAの値動きと新しい事業根拠を分け、価値・買値・待機・最強反証・資金/共通リスクを既存Assessment/Review/Proposalへつなぐ。新しい人物score・一律MA撤退・自動売買は設けない。
 
 <a id="rule-purpose"></a>
