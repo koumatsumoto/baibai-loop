@@ -140,6 +140,7 @@ def prepare_selected_workspace(
         manifest_selection = workspace_selection(manifest, db_path=db_path)
         if not _same_draft(manifest_selection, draft):
             raise ResearchWorkspaceConflictError("workspace has a different fixed selection")
+        del manifest_selection
         return resume_selected_workspace(
             operation_id=str(manifest["operation_id"]),
             db_path=db_path,
