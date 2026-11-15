@@ -153,6 +153,7 @@ export interface SavedAssessmentView {
   investment_case_status: 'intact' | 'broken' | 'uncertain'
   investment_case_status_reason: string
   invalidation_conditions: string[]
+  value_gap: SavedValueGapView | null
   model_perspectives: SavedModelPerspectiveView[]
   model_perspective_sources: SavedAssessmentSourceView[]
   risk_analysis: SavedAssessmentRisksView | null
@@ -359,6 +360,12 @@ export interface SavedValuationProjectionView {
   cash_distribution_per_share_yen: string
   annualized_return_pct: string
   calculation: string
+}
+
+export interface SavedValueGapView {
+  explanation: string
+  findings_source_ids: string[]
+  findings_sources: SavedAssessmentSourceView[]
 }
 
 export interface UnfinishedResearchView {

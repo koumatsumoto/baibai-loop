@@ -15,6 +15,7 @@ import type {
 } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { AssessmentRisks } from '../components/AssessmentRisks'
+import { AssessmentValueGap } from '../components/AssessmentValueGap'
 import { ModelPerspectives } from '../components/ModelPerspectives'
 import { ReportSummary } from '../components/ReportSummary'
 import { PageShell } from '../components/PageShell'
@@ -232,7 +233,10 @@ function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }
       <details className="rounded-lg border p-4">
         <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">当初の投資理由</summary>
         <div className="mt-4 grid gap-4">
-          {item.original_assessment !== null && <AssessmentExcerpt assessment={item.original_assessment} />}
+          {item.original_assessment !== null && <>
+            <AssessmentValueGap assessment={item.original_assessment} />
+            <AssessmentExcerpt assessment={item.original_assessment} />
+          </>}
           {item.original_investment_reason !== null && <Prose>{item.original_investment_reason}</Prose>}
           {item.original_reason_unavailable_reason !== null && <div><p className="mb-1 text-sm font-medium">当初理由を確認できない理由</p><Prose>{item.original_reason_unavailable_reason}</Prose></div>}
         </div>
@@ -250,6 +254,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
         <details className="rounded-lg border p-4" data-proposal-details>
           <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">価格・条件と判断の詳細を読む</summary>
           <div className="mt-5 grid min-w-0 gap-5">
+            {item.assessment !== null && <AssessmentValueGap assessment={item.assessment} />}
             {item.assessment !== null && <AssessmentValue assessment={item.assessment} />}
             {item.saved_quote !== null && <dl className="grid gap-4 sm:grid-cols-2">
               <Field label="保存株価（未調整終値）">{item.saved_quote.price_yen} 円</Field>
