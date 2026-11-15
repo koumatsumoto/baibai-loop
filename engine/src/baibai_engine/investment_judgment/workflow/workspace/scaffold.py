@@ -41,7 +41,11 @@ from baibai_engine.investment_judgment.workflow.workspace.validation import (
 )
 from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.filesystem import write_text_atomic, write_text_new
+from baibai_engine.storage.filesystem import (
+    paths_refer_to_same_file,
+    write_text_atomic,
+    write_text_new,
+)
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
@@ -81,6 +85,10 @@ def scaffold_assessment(
     from_research_id: str | None = None,
     out: Path | None = None,
 ) -> dict[str, object]:
+    if out is not None and any(
+        paths_refer_to_same_file(out, source) for source in (database_path(db_path), sqlite_path)
+    ):
+        raise ResearchWorkspaceConflictError("assessment export must not replace an input database")
     if from_assessment_id is not None and from_research_id is not None:
         raise ResearchWorkspaceConflictError("choose Research seed or Assessment refresh, not both")
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")

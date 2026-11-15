@@ -845,3 +845,104 @@ def test_status_reuses_the_validated_workspace_selection_once(case, monkeypatch)
     assert result["workspace_status"] == "incomplete"
     assert len(calls) == 1
     assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("source", ["app", "market"])
+@pytest.mark.parametrize("alias", ["direct", "relative", "symlink", "hardlink"])
+def test_forced_scaffold_export_cannot_replace_input_database(
+    case, tmp_path, monkeypatch, capsys, source, alias
+):
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+
+    db, workspace, _ = case
+    market = tmp_path / "market.sqlite"
+    open_connection(market).close()
+    target = db if source == "app" else market
+    output = target
+    if alias == "relative":
+        monkeypatch.chdir(tmp_path)
+        output = Path(target.name)
+    elif alias != "direct":
+        output = tmp_path / "alias.sqlite"
+        if alias == "symlink":
+            output.symlink_to(target)
+        else:
+            output.hardlink_to(target)
+    before = db.read_bytes(), market.read_bytes(), output.read_bytes()
+    saved_files = {path: path.read_bytes() for path in workspace.rglob("*") if path.is_file()}
+
+    assert (
+        main(
+            [
+                "stock-assessment-scaffold",
+                "--workspace",
+                str(workspace),
+                "--db",
+                str(db),
+                "--ticker",
+                "1234",
+                "--asof",
+                NOW.date().isoformat(),
+                "--sqlite-path",
+                str(market),
+                "--out",
+                str(output),
+                "--force",
+            ],
+            now=NOW,
+        )
+        == 4
+    )
+
+    assert "assessment export must not replace an input database" in capsys.readouterr().err
+    assert (db.read_bytes(), market.read_bytes(), output.read_bytes()) == before
+    assert output.is_symlink() == (alias == "symlink")
+    assert {
+        path: path.read_bytes() for path in workspace.rglob("*") if path.is_file()
+    } == saved_files
+
+
+@pytest.mark.parametrize("path_source", ["environment", "default"])
+def test_scaffold_export_protects_resolved_application_path(case, monkeypatch, path_source):
+    from baibai_engine.storage.sqlite.application import paths
+
+    db, workspace, _ = case
+    if path_source == "environment":
+        monkeypatch.setenv("BAIBAI_DB", str(db))
+    else:
+        monkeypatch.delenv("BAIBAI_DB", raising=False)
+        monkeypatch.setattr(paths, "DEFAULT_DB_PATH", db)
+    before = db.read_bytes()
+    with pytest.raises(ResearchWorkspaceConflictError, match="input database"):
+        scaffold_assessment(
+            workspace=workspace,
+            ticker="1234",
+            sqlite_path=workspace / "absent",
+            as_of=NOW.date(),
+            retrieved_at=NOW,
+            out=db,
+            force=True,
+        )
+    assert db.read_bytes() == before
+    assert not (workspace / "1234").exists()
+
+
+def test_scaffold_export_cannot_create_yaml_at_an_absent_market_input(case):
+    _db, workspace, _ = case
+    market = workspace / "absent"
+    with pytest.raises(ResearchWorkspaceConflictError, match="input database"):
+        scaffold(case, out=market, force=True)
+    assert not market.exists()
+    assert not (workspace / "1234").exists()
+
+
+def test_scaffold_force_still_replaces_a_separate_export(case):
+    db, workspace, _ = case
+    output = workspace.parent / "separate.yaml"
+    first = scaffold(case, out=output)
+    before = db.read_bytes()
+    output.write_text("synthetic previous export")
+    second = scaffold(case, out=output, force=True)
+    assert output.read_bytes() == (workspace / "1234/assessment-draft.yaml").read_bytes()
+    assert second["assessment_id"] == first["assessment_id"]
+    assert db.read_bytes() == before
