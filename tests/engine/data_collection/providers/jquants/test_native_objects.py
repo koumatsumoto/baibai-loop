@@ -50,7 +50,7 @@ def expect_put(stub, *, previous=None, failure=None):
             "content-md5": md5,
             "integrity": "content-md5-v1",
         },
-        **({"IfNoneMatch": "*"} if previous is None else {"IfMatch": previous}),
+        **({"IfNoneMatch": "*"} if previous is None else {"IfMatch": f'"{previous}"'}),
     }
     if failure in {"RequestTimeout", "PreconditionFailed"}:
         stub.add_client_error(

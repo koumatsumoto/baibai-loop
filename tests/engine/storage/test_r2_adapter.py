@@ -118,9 +118,49 @@ def test_r2_adapter_sends_conditional_put_and_classifies_404(
         if_match="start-etag",
     )
 
-    assert requests[0]["IfMatch"] == "start-etag"
+    assert requests[0]["IfMatch"] == '"start-etag"'
     assert "IfNoneMatch" not in requests[0]
     assert requests[0]["ContentMD5"] == "md5"
+
+
+@pytest.mark.parametrize("etag", [None, "a" * 32, "a" * 32 + "-3", "opaque-generation-2"])
+def test_r2_conditional_header_survives_sdk_serialization(tmp_path, monkeypatch, etag):
+    from botocore.serialize import create_serializer
+    from botocore.session import get_session
+
+    store = metadata_store()
+    model = get_session().get_service_model("s3")
+    serializer = create_serializer(model.metadata["protocol"])
+    headers = []
+
+    class Client:
+        def put_object(self, **kwargs):
+            request = serializer.serialize_to_request(kwargs, model.operation_model("PutObject"))
+            headers.append(request["headers"])
+            return {"ETag": '"next"'}
+
+        def head_object(self, **kwargs):
+            return {"ETag": '"next"', "ContentLength": 3}
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    payload = tmp_path / "payload"
+    payload.write_bytes(b"one")
+    store.put_file(
+        "key",
+        payload,
+        sha256="sha",
+        content_md5="md5",
+        content_type="application/json",
+        if_match=etag,
+        if_none_match=etag is None,
+    )
+    assert len(headers) == 1
+    if etag is None:
+        assert headers[0]["If-None-Match"] == "*"
+        assert "If-Match" not in headers[0]
+    else:
+        assert headers[0]["If-Match"] == f'"{etag}"'
+        assert "If-None-Match" not in headers[0]
 
 
 @pytest.mark.parametrize("existing", [False, True])

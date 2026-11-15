@@ -76,7 +76,7 @@ class S3Client:
             assert prior is None
         else:
             assert prior is not None
-            assert kwargs["IfMatch"] == prior[3].strip('"')
+            assert kwargs["IfMatch"] == prior[3]
         etag = f'"opaque-generation-{self.puts}"'
         self.objects[Key] = body, Metadata, ContentType, etag
         if self.put_fault == (self.puts, "lost_response"):
