@@ -123,12 +123,8 @@ def build_proposal_warnings(
         adv = None if context is None else context.adv_yen
         with localcontext() as arithmetic:
             arithmetic.prec = 50
-            if adv is None or adv <= 0:
-                buy_warnings.append("adv_participation_unassessed")
-            elif notional * 100 / adv > finite_decimal(
-                PORTFOLIO_POLICY["risk_budget"]["max_adv_participation_pct"]
-            ):
-                buy_warnings.append("adv_participation_exceeds_warning")
+            if warning := _adv_warning(notional, adv):
+                buy_warnings.append(warning)
             if assessable:
                 assert nav is not None
                 snapshot = assessments[buy.assessment_ref.assessment_id].input_snapshot
@@ -186,4 +182,25 @@ def build_proposal_warnings(
                 ):
                     buy_warnings.append("dry_powder_below_floor")
         terms_warnings[buy.ticker] = tuple(buy_warnings)
+    for sell in (item for item in items if item.action == "sell" and item.terms is not None):
+        assert sell.terms is not None
+        # A sell floor is not the observed order scale; lowering it must not hide liquidity risk.
+        reference_notional = (
+            quotes[sell.ticker].price_yen * sell.terms.quantity if sell.ticker in values else None
+        )
+        context = liquidity.get(sell.ticker)
+        warning = _adv_warning(reference_notional, None if context is None else context.adv_yen)
+        terms_warnings[sell.ticker] = () if warning is None else (warning,)
     return ProposalWarnings(terms_warnings, tuple(sorted(warnings)), exposure)
+
+
+def _adv_warning(notional: Decimal | None, adv: Decimal | None) -> str | None:
+    if notional is None or adv is None or adv <= 0:
+        return "adv_participation_unassessed"
+    with localcontext() as arithmetic:
+        arithmetic.prec = 50
+        if notional * 100 / adv > finite_decimal(
+            PORTFOLIO_POLICY["risk_budget"]["max_adv_participation_pct"]
+        ):
+            return "adv_participation_exceeds_warning"
+    return None
