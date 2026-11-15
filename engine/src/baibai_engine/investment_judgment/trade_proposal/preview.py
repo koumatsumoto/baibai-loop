@@ -284,7 +284,19 @@ def preview_current_terms(
             if item.assessment_ref is not None:
                 pair = require_assessment_ref(connection, item.assessment_ref)
                 assessments[pair.assessment_id] = pair.document
-                latest = latest_assessment_id(connection, item.ticker) == pair.assessment_id
+                current_assessment_id = latest_assessment_id(connection, item.ticker)
+                latest = current_assessment_id == pair.assessment_id
+                row["latest_assessment_id"] = current_assessment_id
+                if item.action in {"no_action", "defer"} and not latest:
+                    changes.append(
+                        GateReason(
+                            code="assessment_revision_changed",
+                            message=(
+                                f"{item.ticker} の参照評価より新しい評価があります。"
+                                "保存時の行動は変更せず、見送り・保留の理由と条件を再確認してください。"
+                            ),
+                        )
+                    )
                 if item.action == "buy":
                     calculation, blockers = _preview_buy(
                         item,
@@ -307,7 +319,7 @@ def preview_current_terms(
                         market_connection=market_connection,
                     )
                     row.update(calculation)
-                elif item.action == "no_action":
+                elif item.action == "no_action" and latest:
                     quote = next(
                         (quote for quote in inputs.quotes if quote.ticker == item.ticker), None
                     )
