@@ -368,6 +368,12 @@ type SavedProposalItemView = Annotated[
 ]
 
 
+class SavedCashView(BaseModel):
+    available_cash_yen: str
+    inputs_checked_at: datetime
+    ledger_as_of: datetime
+
+
 class SavedProposalView(BaseModel):
     proposal_id: str
     as_of: date
@@ -380,6 +386,7 @@ class SavedProposalView(BaseModel):
     warnings: list[str]
     items: list[SavedProposalItemView]
     portfolio_exposure: SavedPortfolioExposureView
+    saved_cash: SavedCashView | None = None
     corrections: list[ProposalCorrection] = Field(default_factory=list)
     human_reports: list[HumanProposalReport] = Field(default_factory=list)
 

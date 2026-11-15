@@ -523,6 +523,22 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
   )
 }
 
+function SavedCash({ cash }: { cash: SavedProposalView['saved_cash'] }) {
+  return <section className="grid gap-3 rounded-lg border p-4" aria-label="比較の出発点となる保存cash">
+    <h3 className="text-sm font-semibold">比較の出発点となる保存cash</h3>
+    {cash == null
+      ? <p className="text-sm text-muted-foreground">この表示データには未拘束cashと確認時刻がありません。0円や全体資本から補っていません。</p>
+      : <>
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <Field label="保存時の未拘束cash">{cash.available_cash_yen} 円</Field>
+          <Field label="cash入力の収集時刻"><SavedTime value={cash.inputs_checked_at} /></Field>
+          <Field label="cashの台帳基準時刻"><SavedTime value={cash.ledger_as_of} /></Field>
+        </dl>
+        <p className="text-xs leading-6 text-muted-foreground">保存提案全体に共通する比較前の未拘束額です。総資産や買付後の残cashではなく、銘柄別に加算しません。既存の資金拘束は控除済みなので再控除せず、予定入金・未約定売却代金や現在残高を補っていません。全額投資・現金維持の推奨や現在の注文可能額ではありません。</p>
+      </>}
+  </section>
+}
+
 function ExposureRow({ label, row }: { label: string; row: SavedExposureRowView }) {
   return <div className="grid gap-2 rounded-lg bg-muted p-4">
     <p className="break-words text-sm font-medium">{label}：{row.key}</p>
@@ -617,6 +633,7 @@ export function ProposalReport({ data, ticker, above }: { data: LatestProposalVi
             </dl>
             <Identifier label="proposal_id" value={proposal.proposal_id} />
           </div>}
+          <SavedCash cash={proposal.saved_cash} />
           <div><p className="mb-2 text-sm font-medium">全体の比較</p><Prose>{proposal.comparison}</Prose></div>
           <div><p className="mb-2 text-sm font-medium">採らなかった案・機会損失</p><Prose>{proposal.forgone}</Prose></div>
           <ProposalWarnings warnings={proposal.warnings} title="提案の保存時の注意事項" />
