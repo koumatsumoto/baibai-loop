@@ -170,6 +170,8 @@ export interface SavedAssessmentView {
   investment_case_status: 'intact' | 'broken' | 'uncertain'
   investment_case_status_reason: string
   invalidation_conditions: string[]
+  investment_case_source_ids: string[] | null
+  investment_case_sources: SavedAssessmentSourceView[] | null
   refresh: SavedAssessmentRefreshView | null
   strongest_countercase: string | null
   realization: SavedValueRealizationView | null

@@ -136,6 +136,8 @@ class SavedAssessmentView(BaseModel):
     investment_case_status: Literal["intact", "broken", "uncertain"]
     investment_case_status_reason: str
     invalidation_conditions: list[str]
+    investment_case_source_ids: list[str] | None = None
+    investment_case_sources: list[SavedAssessmentSourceView] | None = None
     refresh: SavedAssessmentRefreshView | None = None
     strongest_countercase: str | None = None
     realization: SavedValueRealizationView | None = None

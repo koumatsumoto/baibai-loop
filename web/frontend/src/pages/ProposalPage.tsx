@@ -186,6 +186,15 @@ function AssessmentExcerpt({ assessment, showCountercase = true }: { assessment:
       <div><p className="mb-1 text-sm font-medium">投資理由</p><Prose>{assessment.investment_case_explanation}</Prose></div>
       <div><p className="mb-1 text-sm font-medium">状態の理由</p><Prose>{assessment.investment_case_status_reason}</Prose></div>
       <TextList items={assessment.invalidation_conditions} title="投資理由の反証条件" />
+      <div>
+        <p className="text-sm font-medium">投資理由の保存引用</p>
+        {assessment.investment_case_source_ids == null || assessment.investment_case_sources == null
+          ? <p className="text-xs text-muted-foreground">この表示データには投資理由の引用対応が含まれていません。根拠がないことを示しません。</p>
+          : <>
+            <p className="text-xs leading-6 text-muted-foreground">作者が投資理由の区画に引用した当時の資料です。各文の裏付けや仮説維持の確認、独立した支持票を意味しません。</p>
+            <AssessmentSources sourceIds={assessment.investment_case_source_ids} sources={assessment.investment_case_sources} />
+          </>}
+      </div>
       <AssessmentRefresh assessment={assessment} />
       <AssessmentRisks assessment={assessment} />
       <div className="grid gap-4 border-t pt-4">
