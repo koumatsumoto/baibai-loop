@@ -12,6 +12,7 @@ import json
 import sqlite3
 import sys
 from contextlib import closing
+from copy import deepcopy
 from dataclasses import asdict
 from hashlib import sha256
 from pathlib import Path
@@ -36,6 +37,9 @@ from baibai_engine.investment_judgment.workflow.selection import (
 )
 from baibai_engine.investment_judgment.workflow.selection_evidence import read_selection_evidence
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    TechnicalFinancialSelection,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.filesystem import write_text_new
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -51,8 +55,10 @@ def inspect_decision_cohort(*, db_path: Path, operation_id: str) -> dict[str, ob
     if not isinstance(selected, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
         raise ValueError("decision cohort requires saved generated-model Selection inputs")
     screening = selected.inputs.screening_selection
-    if screening is not None and not isinstance(screening.result, EconomicPathSelection):
-        raise ValueError("legacy screening results are not current economic-path evidence")
+    if screening is not None and not isinstance(
+        screening.result, (EconomicPathSelection, TechnicalFinancialSelection)
+    ):
+        raise ValueError("legacy screening results are not supported decision-cohort evidence")
     progress = progress_binding(operation.payload)
     require_coverage(selection_targets(selected), progress.outcomes, complete=True)
     scope = proposal_scope(operation_id, operation.payload) if selected.targets else None
@@ -92,8 +98,21 @@ def inspect_decision_cohort(*, db_path: Path, operation_id: str) -> dict[str, ob
 
     generation = selected.inputs.generation
     result = None if screening is None else screening.result
-    assert result is None or isinstance(result, EconomicPathSelection)
-    cards = {} if result is None else {card.ticker: card for card in result.cards}
+    assert result is None or isinstance(
+        result, (EconomicPathSelection, TechnicalFinancialSelection)
+    )
+    saved_rows = (
+        {row.ticker: row for row in result.rows}
+        if isinstance(result, TechnicalFinancialSelection)
+        else {}
+    )
+    cards = (
+        {ticker: asdict(saved_rows[ticker]) for ticker in result.display_order}
+        if isinstance(result, TechnicalFinancialSelection)
+        else {}
+        if result is None
+        else {card.ticker: asdict(card) for card in result.cards}
+    )
     targets = {target.ticker: target for target in selected.targets}
     outcomes = {outcome.ticker: outcome for outcome in progress.outcomes}
     items = {} if proposal is None else {item.ticker: item for item in proposal.items}
@@ -121,7 +140,13 @@ def inspect_decision_cohort(*, db_path: Path, operation_id: str) -> dict[str, ob
                 "in_screening_universe": None
                 if screening is None
                 else ticker in screening.universe_tickers,
-                "candidate": None if card is None else asdict(card),
+                "candidate": card,
+                # 閲覧集合外の明示調査は候補へ格上げせず、保存済みの不合格/不足を残す。
+                **(
+                    {"screening_diagnostic": asdict(saved_rows[ticker])}
+                    if card is None and ticker in saved_rows
+                    else {}
+                ),
                 "research_target": None if target is None else target.model_dump(mode="json"),
                 "research_status": "not_selected" if outcome is None else outcome.status,
                 "research_outcome": None if outcome is None else outcome.model_dump(mode="json"),
@@ -173,7 +198,18 @@ def inspect_decision_cohort(*, db_path: Path, operation_id: str) -> dict[str, ob
         else selected.inputs.screening_published_at.isoformat(),
         "screening_policy": None if result is None else result.policy.model_dump(mode="json"),
         "screening_universe_tickers": None if screening is None else screening.universe_tickers,
-        "eligible_count": None if result is None else result.eligible_count,
+        "eligible_count": result.eligible_count
+        if isinstance(result, EconomicPathSelection)
+        else None,
+        # 予備を含む閲覧件数を、経済経路の適格件数へ読み替えない。
+        **(
+            {
+                "screening_display_count": len(result.display_order),
+                "screening_summary": deepcopy(result.summary),
+            }
+            if isinstance(result, TechnicalFinancialSelection)
+            else {}
+        ),
         "proposal_ref": None
         if progress.proposal_ref is None
         else progress.proposal_ref.model_dump(mode="json"),

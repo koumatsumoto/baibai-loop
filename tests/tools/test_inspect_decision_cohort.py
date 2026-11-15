@@ -47,7 +47,7 @@ def _assessment(db, *, number=1, now=NOW, supersedes_id=None):
     return assessment_id(number)
 
 
-def _start(tmp_path, tickers=("1234", "5678")):
+def _start(tmp_path, tickers=("1234", "5678"), *, screening_result=None):
     db, runs = tmp_path / "app.sqlite", tmp_path / "runs.sqlite"
     initialize_database(db)
     universe = ("1234", "5678", "9012", "3456")
@@ -70,6 +70,8 @@ def _start(tmp_path, tickers=("1234", "5678")):
         ],
         policy=EconomicPathPolicy(candidate_limit=3),
     )
+    if screening_result is not None:
+        result = screening_result
     full = seed_generated_selection(runs=runs, db=db, now=NOW, tickers=tickers)
     identity = "synthetic-complete-universe"
     ScreeningSelectionStore(runs).publish(
