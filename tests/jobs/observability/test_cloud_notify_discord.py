@@ -749,13 +749,14 @@ def test_unresolved_or_contradictory_pmi_stop_is_not_quieted(failures):
     assert not discord.is_expected_pmi_refusal("economic-spglobal_pmi", failures)
 
 
-def test_technical_financial_notice_does_not_call_unresolved_approved():
+@pytest.mark.parametrize("revision", ["v1", "v2"])
+def test_technical_financial_notice_does_not_call_unresolved_approved(revision):
     notice = {
         "models_ready": True,
         "company_count": 6,
         "model_count": 25,
         "candidate_count": 3,
-        "selection_method": "technical-financial-discovery-v1",
+        "selection_method": f"technical-financial-discovery-{revision}",
         "screening_summary": {
             "financial_gate": {
                 "research_candidate": 1,

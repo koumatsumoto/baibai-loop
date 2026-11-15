@@ -200,7 +200,10 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
     if any(type(value) is not int or value < 0 for value in counts):
         return ["モデル生成: 完了 / 件数未確認", *cache_warning]
     companies, models, candidates = counts
-    integrated = notice.get("selection_method") == "technical-financial-discovery-v1"
+    integrated = notice.get("selection_method") in {
+        "technical-financial-discovery-v1",
+        "technical-financial-discovery-v2",
+    }
     pool_label = "探索閲覧（予備・代替含む）" if integrated else "候補"
     lines = [f"モデル生成: {companies}社 / {models}件 / {pool_label}{candidates}社", *cache_warning]
     summary = notice.get("screening_summary")

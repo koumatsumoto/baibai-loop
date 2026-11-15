@@ -41,6 +41,7 @@ def technical_financial_screening_brief(
                 "technical": _pick(row["technical"], "state", "matched_routes", "routes"),
                 "financial_paths": {
                     "matched_routes": row["financial_paths"]["matched_routes"],
+                    **_pick(row["financial_paths"], "input_review_reasons"),
                     "coordinates": [
                         _pick(
                             path,
