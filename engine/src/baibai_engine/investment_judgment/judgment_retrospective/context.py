@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from copy import deepcopy
 from datetime import date, datetime
 
 from baibai_engine.investment_judgment.company_research.document import ResearchRef
@@ -19,8 +21,17 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     ReviewedAssessment,
     require_assessment_ref,
 )
-from baibai_engine.investment_judgment.trade_proposal.contracts import proposal_draft_sha256
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
+    TradeProposal,
+    proposal_draft_sha256,
+)
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
+from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
+from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
+from baibai_engine.investment_judgment.workflow.selection import (
+    saved_market_assessment,
+    selection_sha256,
+)
 from baibai_engine.portfolio.ledger.read import load_ledger_events, related_decision_events
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
@@ -43,6 +54,39 @@ def _assessment_context(pair: ReviewedAssessment) -> dict[str, object]:
     }
 
 
+def _market_context(connection: sqlite3.Connection, proposal: TradeProposal) -> dict[str, object]:
+    scope = proposal.research_scope
+    result: dict[str, object] = {
+        "source": "proposal_fixed_selection",
+        "selection_sha256": scope.selection_sha256,
+        "status": "unavailable",
+        "assessment": None,
+    }
+    # This optional historical evidence must not reapply active/current-progress admission.
+    row = connection.execute(
+        "SELECT payload FROM operation_session WHERE operation_id=?", (scope.operation_id,)
+    ).fetchone()
+    if row is None:
+        return {**result, "reason": "operation_not_found"}
+    try:
+        selection = selection_binding(OperationPayload.model_validate(json.loads(str(row[0]))))
+    except (ValueError, TypeError):
+        return {**result, "reason": "selection_unreadable"}
+    if selection is None:
+        return {**result, "reason": "selection_not_recorded"}
+    if selection_sha256(selection) != scope.selection_sha256:
+        return {**result, "reason": "selection_hash_mismatch"}
+    assessment = saved_market_assessment(selection)
+    if assessment is None and proposal.market_context_assessment_id is None:
+        return {**result, "status": "not_recorded"}
+    if (
+        not isinstance(assessment, dict)
+        or assessment.get("context_id") != proposal.market_context_assessment_id
+    ):
+        return {**result, "reason": "market_context_reference_mismatch"}
+    return {**result, "status": "retained", "assessment": deepcopy(assessment)}
+
+
 def origin_context(
     connection: sqlite3.Connection,
     origin: RetrospectiveOrigin,
@@ -52,6 +96,7 @@ def origin_context(
     recorded_at: datetime,
 ) -> dict[str, object]:
     proposal_context: dict[str, object] | None = None
+    market_context: dict[str, object] | None = None
     pair = None
     if isinstance(origin, ProposalItemRef):
         proposal = load_investment_proposal(connection, origin.proposal_id)
@@ -63,6 +108,7 @@ def origin_context(
         published_at = proposal.published_at
         proposal_context = proposal.model_dump(mode="json", exclude={"items"})
         proposal_context["item"] = item.model_dump(mode="json")
+        market_context = _market_context(connection, proposal)
         if item.assessment_ref is not None:
             pair = require_assessment_ref(connection, item.assessment_ref)
     else:
@@ -79,6 +125,7 @@ def origin_context(
         "published_at": published_at.isoformat(),
         "proposal": proposal_context,
         "assessment": None if pair is None else _assessment_context(pair),
+        "market_context": market_context,
     }
 
 
