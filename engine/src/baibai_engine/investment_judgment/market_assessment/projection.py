@@ -16,6 +16,7 @@ def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> di
         return {
             "status": "missing",
             "context_id": None,
+            "known_at": None,
             "summary": None,
             "changes": [],
             "counter_evidence": [],
@@ -112,6 +113,7 @@ def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> di
         "context_id": record.context_id,
         "schema_version": record.schema_version,
         "as_of": record.as_of.isoformat(),
+        "known_at": body.get("known_at"),
         "published_at": record.published_at.isoformat(),
         "age_days": age,
         "summary": record.summary,
