@@ -439,7 +439,8 @@ def _context_calculations(
                 price_yen=None if quote is None else quote.price_yen,
                 price_as_of=None if quote is None else quote.price_as_of,
                 as_of=now.astimezone(JST).date(),
-                basis_confirmed=basis,
+                # 固定pairは資料として残し、旧版を現在適用の算術へ昇格させない。
+                basis_confirmed=basis and latest[outcome.ticker] == pair.assessment_id,
                 max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
             ),
             "case_reassessment_required": outcome.purpose == "holding",
