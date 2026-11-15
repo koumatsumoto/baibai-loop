@@ -41,11 +41,14 @@ from baibai_engine.investment_judgment.workflow.workspace import (
 )
 from baibai_engine.primitives.time import JST
 from baibai_engine.primitives.yaml import safe_load
+from baibai_engine.storage.filesystem import paths_refer_to_same_file
 from baibai_engine.storage.paths import (
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
 )
+from baibai_engine.storage.sqlite.application.paths import database_path
+from baibai_engine.storage.sqlite.machine_analysis import run_store_path
 
 
 def _emit(payload: object, out: TextIO) -> None:
@@ -265,6 +268,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     parser.error(str(error))
                 known_at = args.known_at or resolved_now
                 validate_input_known_at(known_at, now=resolved_now)
+                if args.out is not None and any(
+                    paths_refer_to_same_file(args.out, source)
+                    for source in (run_store_path(args.runs_path), database_path(args.db))
+                ):
+                    raise ValueError("selection context export must not replace an input database")
                 payload = load_generated_selection_context(
                     request=request,
                     research_as_of=args.research_asof,
