@@ -24,12 +24,16 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
     if source not in SOURCES:
         raise ValueError("unsupported article handoff source")
     report = json.loads((directory / "result.json").read_text())
-    if report["source"] != source:
+    if not isinstance(report, dict) or report.get("source") != source:
         raise ValueError("article handoff source mismatch")
-    identities = report["receipt_ids"]
+    identities = report.get("receipt_ids")
     if not isinstance(identities, list) or any(not isinstance(item, str) for item in identities):
         raise ValueError("invalid article handoff receipt identities")
-    kinds = report["projection_kinds"]
+    kinds = report.get("projection_kinds")
+    if not isinstance(kinds, dict) or any(
+        not isinstance(kinds.get(identity), str) for identity in identities
+    ):
+        raise ValueError("invalid article projection kinds")
     evidence = report.get("document_evidence", {})
     if not isinstance(evidence, dict):
         raise ValueError("invalid article document evidence")

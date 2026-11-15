@@ -329,3 +329,110 @@ def test_explicit_semantic_recovery_keeps_selected_native_version_and_publicatio
         new_native.artifact_id,
         recovered.artifact_id,
     }
+
+
+@pytest.mark.parametrize("damage", ["missing", "empty", "null", "list", "non_string"])
+def test_invalid_projection_metadata_is_local_and_later_article_still_integrates(
+    tmp_path, monkeypatch, damage
+):
+    import sqlite3
+
+    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+    from tests.helpers.r2_store import MemoryR2Store
+
+    from baibai_jobs.acquisition.article_evidence import exact_entry
+    from baibai_jobs.acquisition.economic_staging import save_handoff
+    from baibai_jobs.integration import sources
+
+    remote = MemoryR2Store()
+    stamp = datetime(2026, 10, 29, tzinfo=UTC)
+    entries, originals = [], []
+    for number, source in enumerate(("boj_news", "minkabu_news")):
+        packet = tmp_path / f"packet-{number}"
+        original = _packet(packet, f"original-{number}", stamp, source=source)
+        report = json.loads((packet / "result.json").read_text())
+        report.update(started_at=stamp.isoformat(), asof=stamp.date().isoformat())
+        if number == 0:
+            if damage == "missing":
+                del report["projection_kinds"]
+            else:
+                report["projection_kinds"] = {
+                    "empty": {},
+                    "null": None,
+                    "list": [],
+                    "non_string": {original.receipt_id: 1},
+                }[damage]
+        (packet / "result.json").write_text(json.dumps(report))
+        originals.append((packet / "receipts.sqlite", (packet / "receipts.sqlite").read_bytes()))
+        stage_id = f"article-{number}"
+        save_handoff(remote, stage_id, packet, namespace="article-sources")
+        manifest = remote.values[f"coordination/article-sources/{stage_id}/handoff.json"].body
+        entries.append(
+            exact_entry(
+                remote,
+                source=source,
+                stage_id=stage_id,
+                manifest_sha256=hashlib.sha256(manifest).hexdigest(),
+            )
+        )
+    work = tmp_path / "integration"
+    work.mkdir()
+    (work / "plan.json").write_text(
+        json.dumps(
+            {
+                "handoffs": entries,
+                "edinet_input": empty_edinet_input(remote, tmp_path).model_dump(mode="json"),
+            }
+        )
+    )
+    market = tmp_path / "market.sqlite"
+    with closing(open_connection(market)):
+        pass
+    seed_calendar(remote, market, tmp_path / "native-calendar", as_of=stamp.date())
+    seed_master(remote, market, tmp_path / "native-master", as_of=stamp.date())
+    monkeypatch.setattr(sources, "extract_saved_edinet", lambda *_, **__: {})
+    before = {key: value.body for key, value in remote.values.items()}
+    for _ in range(2):
+        applied = sources.apply(remote, work, market=market, asof=stamp.date())
+        bad, good = applied["handoffs"]
+        assert bad["result"] == {"reason": "ValueError"}
+        assert bad["applied"] is False
+        assert bad["failed"] is bad["recovery"] is True
+        assert good["applied"] is True
+        assert good["failed"] is good["recovery"] is False
+        assert good["article_delta"]["articles.source_receipts"]
+        assert (work / "applied.json").exists()
+        with closing(sqlite3.connect(market)) as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM article_source_receipts"
+            ).fetchone() == (1,)
+    assert all(path.read_bytes() == body for path, body in originals)
+    assert all(remote.values[key].body == body for key, body in before.items())
+
+
+@pytest.mark.parametrize(
+    "report",
+    [None, [], {"source": "boj_news"}, {"receipt_ids": [], "projection_kinds": {}}],
+)
+def test_invalid_article_report_is_rejected_before_opening_the_target(tmp_path, report):
+    packet = tmp_path / "packet"
+    _packet(packet, "original", datetime(2026, 10, 29, tzinfo=UTC))
+    (packet / "result.json").write_text(json.dumps(report))
+    target = tmp_path / "market.sqlite"
+    with pytest.raises(ValueError, match="article"):
+        import_handoff("boj_news", target, packet)
+    assert not target.exists()
+
+
+def test_unknown_projection_kind_keeps_the_original_and_explicit_projection_failure(tmp_path):
+    packet = tmp_path / "packet"
+    _packet(packet, "original", datetime(2026, 10, 29, tzinfo=UTC))
+    report = json.loads((packet / "result.json").read_text())
+    report["projection_kinds"] = {"original": "unknown-kind"}
+    (packet / "result.json").write_text(json.dumps(report))
+    database = tmp_path / "market.sqlite"
+    result = import_handoff("boj_news", database, packet)
+    assert result.complete is False
+    assert result.report["projection_failures"] == ["original"]
+    assert result.report["acquisition_failures"] == []
+    assert capture_delta(database, result.report["receipt_ids"])["articles.source_receipts"]
