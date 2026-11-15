@@ -77,7 +77,10 @@ def _analysis_source(saved: ModelInputSlice) -> dict[str, JsonValue]:
 
 
 def project_generated_inputs(
-    saved: ModelInputSlice, *, company_growth_periods: int | None = 12
+    saved: ModelInputSlice,
+    *,
+    company_growth_periods: int | None = 12,
+    model_ids: frozenset[str] | None = None,
 ) -> dict[str, JsonValue]:
     """モデル固有の意味を維持し、未生成と生成内の欠測を区別して提示する。"""
     securities: dict[str, object] = {}
@@ -90,8 +93,11 @@ def project_generated_inputs(
         scope = "stock" if definition is None else definition.scope
         models: dict[str, JsonValue] = {}
         revisions: dict[str, str] = {}
+        available = {model.model_id for model in saved.models if model.subject == ticker}
         for index, model in enumerate(saved.models):
             if model.subject != ticker:
+                continue
+            if model_ids is not None and model.model_id not in model_ids:
                 continue
             if scope == "stock" and model.model_id == "company_growth":
                 payload = project_company_growth(
@@ -113,8 +119,10 @@ def project_generated_inputs(
         )
         row: dict[str, object] = {
             "calculation_revisions": revisions,
-            "not_generated": [name for name in expected if name not in models],
+            "not_generated": [name for name in expected if name not in available],
         }
+        if model_ids is not None:
+            row["omitted_from_view"] = sorted(available - model_ids)
         if plan is None:
             securities[ticker] = {**models, **row}
         else:
@@ -138,7 +146,11 @@ def project_generated_inputs(
                 "shared_subjects": shared_subjects,
             },
         )
-    common = saved.result("market_context", "market")
+    common = (
+        saved.result("market_context", "market")
+        if model_ids is None or "market_context" in model_ids
+        else None
+    )
     return cast(
         dict[str, JsonValue],
         {
