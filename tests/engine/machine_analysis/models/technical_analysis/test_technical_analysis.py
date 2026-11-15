@@ -163,7 +163,10 @@ def test_sma75_uses_its_observed_prefix_and_keeps_other_periods(count):
     )
     averages = result["moving_averages"]
     assert set(averages) == {"sma_20bar", "sma_50bar", "sma_75bar", "sma_200bar"}
-    assert result["calculation_revision"] == "sma20-50-75-200-bb20-wilder-rsi14-price-path-v4"
+    assert (
+        result["calculation_revision"]
+        == "sma20-50-75-200-bb20-wilder-rsi14-price-path-v5-short-recovery"
+    )
     for period in (20, 50, 75, 200):
         selected = bars[-period:]
         sma = averages[f"sma_{period}bar"]
@@ -373,8 +376,11 @@ def test_common_calendar_path_reads_retained_turnover_without_extra_source_or_fu
     before = path.read_bytes()
     result = technical_analysis(path, ticker="1234", as_of=ASOF)
     observation = result["price_path"]["observations"]["G60"]
-    assert result["calculation_revision"].endswith("price-path-v4")
-    assert result["price_path"]["calculation_revision"] == "common-calendar-observed-close-path-v3"
+    assert result["calculation_revision"].endswith("price-path-v5-short-recovery")
+    assert (
+        result["price_path"]["calculation_revision"]
+        == "common-calendar-observed-close-path-v4-short-recovery"
+    )
     assert observation["coverage"]["row_counts"]["priced"] == (61 if missing is None else 60)
     stats = observation["path_statistics"]
     if missing in {"close", "no_trade", "absent"}:
