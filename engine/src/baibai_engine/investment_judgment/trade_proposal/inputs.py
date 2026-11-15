@@ -33,6 +33,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     SecurityClassification,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
+from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     proposal_scope,
@@ -76,6 +77,9 @@ from baibai_engine.storage.sqlite.source_cache.read import (
 DEFAULT_BUDGET_MIN_YEN = 200_000
 DEFAULT_BUDGET_MAX_YEN = 300_000
 PROPOSAL_TERMS_POLICY_REVISION = "author-selected-terms-v1"
+_ENVIRONMENT_MODELS = frozenset(
+    {"external_assessment", "market_context", "industry_trends", "social_trends"}
+)
 
 
 def proposal_input_policy_id() -> str:
@@ -366,6 +370,7 @@ class ProposalAuthoringContext:
     next_order_session: date | None
     calculations: dict[str, dict[str, object]]
     saved_market_context_assessment: JsonValue
+    saved_analysis_context: JsonValue
 
     def payload(self) -> dict[str, object]:
         return {
@@ -387,6 +392,7 @@ class ProposalAuthoringContext:
             "liquidity_context": [item.model_dump(mode="json") for item in self.liquidity_context],
             "market_context_assessment_id": self.market_context_assessment_id,
             "saved_market_context_assessment": deepcopy(self.saved_market_context_assessment),
+            "saved_analysis_context": deepcopy(self.saved_analysis_context),
             "next_order_session": None
             if self.next_order_session is None
             else self.next_order_session.isoformat(),
@@ -570,4 +576,7 @@ def build_proposal_context(
                 market_connection=market_connection,
             ),
             saved_context,
+            project_generated_inputs(selection.inputs.generation, model_ids=_ENVIRONMENT_MODELS)
+            if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4))
+            else None,
         )
