@@ -66,7 +66,7 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
     if isinstance(research, AvailableResearch):
         record = research.record
         document = record.document
-        result["research"] = {
+        research_brief: dict[str, object] = {
             "status": research.status,
             "role": research.role,
             "reference": record.reference.model_dump(mode="json"),
@@ -79,6 +79,14 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
             "source_dates": sorted({item.as_of.isoformat() for item in document.sources})[-3:],
             "display": "brief_only; use exact reference for all evidence and counterarguments",
         }
+        if document.value_capture_hypothesis is not None:
+            note = document.value_capture_hypothesis
+            research_brief["value_capture_hypothesis"] = {
+                "text": note.text[:400],
+                "text_truncated": len(note.text) > 400,
+                **_source_brief(note.source_ids, document.sources),
+            }
+        result["research"] = research_brief
     else:
         result["research"] = _absence_brief(research)
     assessment = context.assessment
@@ -112,25 +120,31 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
 def _hypotheses_brief(
     hypotheses: tuple[HypothesisCheck, ...], sources: tuple[Source, ...]
 ) -> list[dict[str, object]]:
-    by_id = {source.source_id: source for source in sources}
     return [
         {
             "statement": item.statement[:240],
             "result": item.result,
             "reason": item.reason[:240],
-            # A shared citation is not an independent vote; its own clocks matter.
-            "sources": [
-                {
-                    "source_id": source_id,
-                    "as_of": by_id[source_id].as_of.isoformat(),
-                    "retrieved_at": by_id[source_id].retrieved_at.isoformat(),
-                }
-                for source_id in item.source_ids[:3]
-            ],
-            "sources_omitted": max(0, len(item.source_ids) - 3),
+            **_source_brief(item.source_ids, sources),
         }
         for item in hypotheses[:3]
     ]
+
+
+def _source_brief(source_ids: tuple[str, ...], sources: tuple[Source, ...]) -> dict[str, object]:
+    # A shared citation is not an independent vote; its own clocks matter.
+    by_id = {source.source_id: source for source in sources}
+    return {
+        "sources": [
+            {
+                "source_id": source_id,
+                "as_of": by_id[source_id].as_of.isoformat(),
+                "retrieved_at": by_id[source_id].retrieved_at.isoformat(),
+            }
+            for source_id in source_ids[:3]
+        ],
+        "sources_omitted": max(0, len(source_ids) - 3),
+    }
 
 
 def _absence_brief(value: NotFound | Unreadable) -> dict[str, object]:
