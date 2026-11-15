@@ -423,7 +423,8 @@ class Boto3R2Store:
             "ContentMD5": content_md5,
         }
         if if_match is not None:
-            request["IfMatch"] = if_match
+            # Store identities omit quotes; HTTP entity-tags require them on the wire.
+            request["IfMatch"] = f'"{if_match}"'
         if if_none_match:
             request["IfNoneMatch"] = "*"
         try:
