@@ -97,6 +97,7 @@ const noActionFixture: SavedNoActionItemView = {
 }
 
 export const reviewedDeferFixture: SavedDeferItemView = {
+  saved_position: null,
   ticker: '3333',
   company_name: '合成会社',
   sector: '情報・通信業',

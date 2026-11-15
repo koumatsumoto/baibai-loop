@@ -20,6 +20,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ExposureRow,
     GeneratedLiquidityContext,
     LimitTerms,
+    PositionInput,
     ProposalItem,
     TradeProposal,
 )
@@ -346,6 +347,16 @@ def _terms(terms: LimitTerms | None) -> SavedLimitTermsView | None:
     )
 
 
+def _saved_position(position: PositionInput, proposal: TradeProposal) -> SavedHoldingPositionView:
+    return SavedHoldingPositionView(
+        quantity=position.quantity,
+        quantity_basis_confirmed=position.quantity_basis_confirmed,
+        cost_yen=str(position.cost_yen),
+        inputs_checked_at=proposal.inputs.checked_at,
+        ledger_as_of=proposal.inputs.ledger_as_of,
+    )
+
+
 def _item(
     item: ProposalItem, proposal: TradeProposal, pairs: Mapping[str, ReviewedAssessment]
 ) -> SavedProposalItemView:
@@ -458,13 +469,7 @@ def _item(
         position = item.position
         original = position.original_assessment_ref
         common.update(
-            saved_position=SavedHoldingPositionView(
-                quantity=position.quantity,
-                quantity_basis_confirmed=position.quantity_basis_confirmed,
-                cost_yen=str(position.cost_yen),
-                inputs_checked_at=proposal.inputs.checked_at,
-                ledger_as_of=proposal.inputs.ledger_as_of,
-            ),
+            saved_position=_saved_position(position, proposal),
             original_assessment=(
                 None if original is None else _assessment(pairs[original.assessment_id])
             ),
@@ -561,9 +566,17 @@ def _item(
         )
     if item.action == "no_action":
         return SavedNoActionItemView.model_validate(common)
+    deferred_position = next(
+        (row for row in proposal.inputs.positions if row.ticker == item.ticker), None
+    )
     return SavedDeferItemView.model_validate(
         {
             **common,
+            "saved_position": (
+                _saved_position(deferred_position, proposal)
+                if outcome.purpose == "holding" and deferred_position is not None
+                else None
+            ),
             "blockers": [
                 SavedReasonView(code=reason.code, message=reason.message)
                 for reason in item.blockers

@@ -353,6 +353,7 @@ class SavedNoActionItemView(_SavedProposalItemView):
 
 class SavedDeferItemView(_SavedProposalItemView):
     action: Literal["defer"]
+    saved_position: SavedHoldingPositionView | None = None
     blockers: list[SavedReasonView]
     resume_conditions: list[str]
 

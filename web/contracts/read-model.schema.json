@@ -1613,6 +1613,17 @@
           "title": "Action",
           "type": "string"
         },
+        "saved_position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedHoldingPositionView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "blockers": {
           "items": {
             "$ref": "#/$defs/SavedReasonView"
@@ -1639,6 +1650,7 @@
         "liquidity",
         "unfinished",
         "action",
+        "saved_position",
         "blockers",
         "resume_conditions"
       ],
