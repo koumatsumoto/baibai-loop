@@ -19,6 +19,7 @@ import { AssessmentSources } from '../components/AssessmentSources'
 import { AssessmentValueGap } from '../components/AssessmentValueGap'
 import { ModelPerspectives } from '../components/ModelPerspectives'
 import { ReportSummary } from '../components/ReportSummary'
+import { ProposalWarnings } from '../components/ProposalWarnings'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
@@ -283,7 +284,7 @@ function SavedTerms({ terms }: { terms: SavedLimitTermsView }) {
       </dl>
       {terms.maximum_entry_price_yen !== null && <p className="text-xs leading-6 text-muted-foreground">Pmaxは保存評価の条件付き上限です。適正価格・勝率・約定価格ではありません。</p>}
       <TextList items={terms.conditions} title="保存条件" />
-      <TextList items={terms.warnings} title="具体条件の保存時の注意事項" />
+      <ProposalWarnings warnings={terms.warnings} title="具体条件の保存時の注意事項" />
     </div>
   )
 }
@@ -534,7 +535,7 @@ export function ProposalReport({ data, ticker, above }: { data: LatestProposalVi
           </div>}
           <div><p className="mb-2 text-sm font-medium">全体の比較</p><Prose>{proposal.comparison}</Prose></div>
           <div><p className="mb-2 text-sm font-medium">採らなかった案・機会損失</p><Prose>{proposal.forgone}</Prose></div>
-          <TextList items={proposal.warnings} title="提案の保存時の注意事項" />
+          <ProposalWarnings warnings={proposal.warnings} title="提案の保存時の注意事項" />
         </div>
       </details>
       <PortfolioExposure exposure={proposal.portfolio_exposure} />
