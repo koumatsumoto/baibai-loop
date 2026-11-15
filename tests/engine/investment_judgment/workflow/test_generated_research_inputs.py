@@ -384,7 +384,8 @@ def test_v1_generation_metadata_and_fixed_slice_do_not_gain_new_default_fields(t
     assert ModelInputSlice.model_validate(raw).model_dump(mode="json") == raw
 
 
-def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
+@pytest.mark.parametrize("legacy_social", [False, True])
+def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path, legacy_social):
     import sqlite3
     from contextlib import closing
 
@@ -395,6 +396,7 @@ def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
         GenerationSubject,
     )
     from baibai_engine.machine_analysis.models.social_trends.calculations import (
+        REVISION,
         calculate_social_trends,
     )
     from baibai_engine.machine_analysis.observations.trends.parsers import extract_boj_decision
@@ -426,7 +428,20 @@ def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
     old_bytes = stored_old_rows()
     old_decoded = read_generation(old.generation_id, path=runs).model_dump_json()
     artifact = extract_boj_decision(document(BOJ, source="boj"), created_at=NOW)
-    social = calculate_social_trends(fixed(artifact, cutoff=NOW), as_of=AS_OF)
+    prior = artifact.model_copy(
+        update={
+            "claims": (artifact.claims[0].model_copy(update={"occurred_on": date(2026, 7, 1)}),)
+        }
+    )
+    social = calculate_social_trends(fixed(artifact, baseline=prior, cutoff=NOW), as_of=AS_OF)
+    revision = REVISION
+    assert revision == "social-trends-v2"
+    assert social["comparisons"][0]["changed"] is True
+    if legacy_social:
+        # Frozen synthetic v1 semantics: equal amounts hid the different occurrence
+        # date. Saved readers must keep this flag, not upgrade it with current rules.
+        revision = "social-trends-v1"
+        social["comparisons"][0]["changed"] = False
     planned = tuple(model.model_id for model in old.models if model.subject == "1234")
     new = old.model_copy(
         update={
@@ -443,7 +458,7 @@ def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
                 GeneratedModel(
                     model_id="social_trends",
                     subject="market:global",
-                    calculation_revision="social-trends-v1",
+                    calculation_revision=revision,
                     payload=social,
                 ),
             ),
@@ -469,6 +484,11 @@ def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
     before = project_research_inputs(saved)
     shared = before["shared_subjects"]["market:global"]["models"]["social_trends"]
+    assert shared == social
+    assert (
+        before["shared_subjects"]["market:global"]["calculation_revisions"]["social_trends"]
+        == revision
+    )
     assert shared["input_manifest"]["selected"] == [artifact.ref.model_dump(mode="json")]
     assert any(row["claim"]["kind"] == "announced_plan" for row in shared["observations"])
     assert stored_old_rows() == old_bytes
