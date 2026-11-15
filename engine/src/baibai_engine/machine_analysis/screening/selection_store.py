@@ -30,6 +30,9 @@ class ScreeningSelectionStore:
         """本DBの運用結果として発行する。比較実験は別の作業DBへ保存する。"""
         if not selection_id:
             raise ValueError("selection_id must not be empty")
+        # model_copyは制約を迂回する。全社snapshotを再構築せず政策設定だけ再検証する。
+        policy = selection.result.policy
+        type(policy).model_validate(policy.model_dump(mode="python"))
         if not set(selection.result.tickers).issubset(selection.universe_tickers):
             raise ValueError("selected companies must belong to the explicit universe")
         payload = encode_json(_CODEC.dump_python(selection, mode="json")).encode()
