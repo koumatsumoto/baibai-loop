@@ -58,6 +58,11 @@ def project_company_growth(
         missing = {name: value.reason for name, value in metrics.items() if value.reason}
         if missing:
             row["missing"] = missing
+        precision = {
+            name: value.precision for name, value in metrics.items() if value.precision is not None
+        }
+        if precision:
+            row["metric_precision"] = precision
         if any(value.documents != sources for value in metrics.values()):
             row["metric_sources"] = {
                 name: references(value.documents) for name, value in metrics.items()
@@ -99,6 +104,19 @@ def project_company_growth(
         if observation.measurement == "reported"
     ]
     shown_periods = {(period.period_start, period.period_end) for period in shown}
+    displayed_changes = [
+        change
+        for change in result.changes
+        if (change.to_start, change.to_end) in shown_periods
+        and change.measurement == "reported"
+        and change.metric in _METRICS[:-1]
+    ]
+    # Old saves have no precision/hash fields; keep their table shape unchanged.
+    annotations = [
+        field
+        for field in ("precision", "source_sha256")
+        if any(getattr(change, field) is not None for change in displayed_changes)
+    ]
     changes = [
         [
             change.to_start.isoformat(),
@@ -112,11 +130,9 @@ def project_company_growth(
             change.margin_points,
             change.sign_change,
             change.reason,
+            *(getattr(change, field) for field in annotations),
         ]
-        for change in result.changes
-        if (change.to_start, change.to_end) in shown_periods
-        and change.measurement == "reported"
-        and change.metric in _METRICS[:-1]
+        for change in displayed_changes
     ]
     header_fields = (
         "ticker",
@@ -175,6 +191,7 @@ def project_company_growth(
                     "margin_points",
                     "sign_change",
                     "reason",
+                    *annotations,
                 ],
                 "to_values_ref": "reported.rows by period_start/period_end and metric column",
                 "rows": changes,
