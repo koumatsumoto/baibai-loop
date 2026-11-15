@@ -567,7 +567,7 @@ def evaluate_assessment(
     if stance == "supported" and valuation.status != "resolved":
         errors.append("supported requires resolved valuation")
     _check_derived_metrics(
-        document, errors, check_input_dates=identity is UnpublishedAssessment.DRAFT
+        document, errors, check_new_inputs=identity is UnpublishedAssessment.DRAFT
     )
     core_hash = assessment_core_hash(document)
     if identity is not UnpublishedAssessment.DRAFT and identity != core_hash:
@@ -633,6 +633,7 @@ def ratio_value_from_facts(
     unit: str,
     facts: Mapping[str, ObservedFact],
     as_of: date | None = None,
+    check_share_facts: bool = True,
 ) -> tuple[Decimal | None, list[str]]:
     """One ratio-v1 calculation, shared by generation and the unchanged checks."""
     errors: list[str] = []
@@ -650,6 +651,15 @@ def ratio_value_from_facts(
             errors.append(f"metric {metric_id} input facts must be numeric")
             break
         value = Decimal(str(item.value))
+        if (
+            check_share_facts
+            and item.fact_kind == "shares_outstanding"
+            and (item.unit != "shares" or value < 0)
+        ):
+            errors.append(
+                f"metric {metric_id} shares_outstanding input {item.fact_id} "
+                "must be non-negative and measured in shares"
+            )
         if abs(value) > Decimal("1e30"):
             errors.append(f"metric {metric_id} input fact magnitude is too large")
             break
@@ -675,7 +685,7 @@ def ratio_value_from_facts(
 
 
 def _check_derived_metrics(
-    document: StockAssessmentDocument, errors: list[str], *, check_input_dates: bool
+    document: StockAssessmentDocument, errors: list[str], *, check_new_inputs: bool
 ) -> None:
     facts = {fact.fact_id: fact for fact in document.input_snapshot.facts}
     metric_ids = {metric.metric_id for metric in document.derived.metrics}
@@ -688,7 +698,8 @@ def _check_derived_metrics(
             unit=metric.unit,
             facts=facts,
             # Historical publications keep their recorded dates and canonical identity.
-            as_of=metric.as_of if check_input_dates else None,
+            as_of=metric.as_of if check_new_inputs else None,
+            check_share_facts=check_new_inputs,
         )
         errors.extend(ratio_errors)
         if expected is None:
