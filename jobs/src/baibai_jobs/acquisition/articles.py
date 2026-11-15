@@ -71,7 +71,7 @@ from baibai_jobs.acquisition.article_planning import (
 from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
 from baibai_jobs.acquisition.receipts import download_fixed
 
-# トウシルは外部評価の楽天host queueを共有し、公的sourceはその待機に巻き込まない。
+# トウシルは記事用rakuten queueで直列化し、公的sourceをその待機に巻き込まない。
 GROUPS = {
     "public": tuple(
         source for source in COLLECTION_SOURCES if source not in WORLD_NEWS_SOURCES | {"toushiru"}

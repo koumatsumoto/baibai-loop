@@ -21,8 +21,8 @@ jobs:
       fail-fast: false
       matrix:
         group: [public, world, rakuten]
-    # Toushiru uses exactly the external collector's existing Rakuten host queue. No global
-    # provider barrier, publication lease, or machine model calculation here.
+    # Article groups serialize independently; Toushiru keeps the rakuten queue.
+    # No global provider barrier, publication lease, or model calculation here.
     concurrency:
       group: source-host-${{ matrix.group == 'public' && 'article-public' || matrix.group }}
       queue: max
