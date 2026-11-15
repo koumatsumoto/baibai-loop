@@ -672,6 +672,8 @@ uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> selection-evidenc
 
 GCはlocal lake mirrorだけ。grace後の到達不能prefixをplanし、apply時の再plan hash一致で削除する。native L1/共有固定input/旧較正成果は別寿命で、R2は削除しない。
 
+rootはlocal currentだけで、保存run/Researchが参照する旧releaseを自動保護しない。必要な旧releaseを保持するmirrorではapplyしない。またlockはGC同士だけを直列化し、公開・hydrate等は共有しない。同じmirrorの読取・生成・公開を止めた状態でplan/applyし、再planの後も静止を保つ。R2のcurrentやpublication leaseをlocal mirrorの排他保証に読み替えない。
+
 ```bash
 uv run baibai-jobs snapshots inventory --root stores
 uv run baibai-jobs snapshots gc --mirror stores
