@@ -422,6 +422,8 @@ prepareはprovider取得やcanonical公開をせず、指定一件とその時�
 
 この場合は隔離copyで[既存抽出owner](../engine/src/baibai_engine/machine_analysis/observations/trends/extraction.py)の`extract_observations`へ明示した有限observation IDだけを渡す。native再投影・再GET・日次全件移行はせず、現在UTCの生成時計で新artifactを追記する。同内容/同revisionは再利用し、原受領/本文・旧artifactを保持する。対象IDと手順は私有の一回作業に固定し、source全体を暗黙選択しない。抽出後のartifact IDを[公開読戻しowner](src/baibai_jobs/publication/article_verification.py)へ渡して原本closureも照合する。原本/投影不変と新旧cutoffの選択を隔離copyで確認後、明示承認されたfresh canonical/同一leaseの[共通公開](#machine-publication)へ進む。旧Generationは書き換えず、新しいGenerationの採用を別に読戻す。並行publisherへ割り込まず、CLI/fixture成功を本番反映としない。
 
+次の単一dailyへ同梱するときだけ、既定空の`article_semantic_recovery`へ[有限契約](src/baibai_jobs/integration/article_semantic_recovery.py)を渡す。`as_of`と1〜16件の`observation_id`/`observation_sha256`/`article_version_id`/現行`extractor_revision`/比較済み`result_sha256`を固定し、明示asofと`preserve_existing_generations=true`を必要とする。result hashは既存抽出結果のstatus/method/revision/payloadを固定し、新artifactの生成時計を含めない。未対応結果も固定したまま許し、0件の意味を無出来事へ変えない。取得済みrawを現在のnative parserへ再投影せず、通常hydrate/apply後に対象だけ再抽出し、同じモデル生成/公開の後に原本closureを読戻す。失敗時は新しい全件移行・再GET・盲目的再dispatchをしない。現runの入力や過去のGenerationへ遡及適用しない。
+
 BOJ/MOFのoffline再発見はregister-discoveryへstage/hashと--receipt-idを渡す。HTTPなしのplanning CAS書込で、同要求はno-op。元受領/validator/slot/未処理workを保ち、登録後に通常取得を続ける。
 
 <a id="edinet-source-archives"></a>
