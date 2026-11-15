@@ -27,7 +27,8 @@ class TechnicalFinancialPolicy(BaseModel):
         "technical-financial-discovery-v2",
         "technical-financial-discovery-v3",
         "technical-financial-discovery-v4",
-    ] = "technical-financial-discovery-v4"
+        "technical-financial-discovery-v5",
+    ] = "technical-financial-discovery-v5"
     page_size: Annotated[int, Field(ge=1, le=36)] = 36
 
 
@@ -72,7 +73,9 @@ def financial_screening_lane(
 ) -> ScreeningLane:
     if growth_state == "research_candidate":
         return "growth_research"
-    if growth_state == "input_unresolved" and (technical_match or financial_path_match):
+    if growth_state == "input_unresolved" and (
+        technical_match or financial_path_match or financial_input_review
+    ):
         return "input_review"
     if growth_state == "not_selected" and financial_path_match:
         return "alternative_financial_research"

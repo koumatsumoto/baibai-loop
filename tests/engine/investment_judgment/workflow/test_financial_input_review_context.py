@@ -8,6 +8,9 @@ import pytest
 from pydantic import TypeAdapter
 from tests.engine.machine_analysis.screening.test_financial_input_review import case
 from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
+from tests.engine.machine_analysis.screening.test_unresolved_financial_input_review import (
+    unresolved_case,
+)
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.tools.test_technical_discovery import _metadata
@@ -51,7 +54,7 @@ from baibai_engine.machine_analysis.screening.selection_store import ScreeningSe
 from baibai_engine.primitives.json import encode_json
 
 
-def seed(path, *, stale=False):
+def seed(path, *, stale=False, unresolved=False):
     payloads = {
         "1234": case(reason="missing_capital_basis", technical=False),
         "2345": case(expansion=True, reason="missing_capital_basis", technical=False),
@@ -69,6 +72,8 @@ def seed(path, *, stale=False):
                 shares_ex_treasury=100.0,
                 market_cap_yen=10000.0,
             )
+    if unresolved:
+        payloads["1234"] = unresolved_case(stale=stale)
     generated = []
     for ticker, data in payloads.items():
         data["company_growth"]["ticker"] = ticker
@@ -103,11 +108,12 @@ def seed(path, *, stale=False):
 
 
 @pytest.mark.parametrize("stale", [False, True])
+@pytest.mark.parametrize("unresolved", [False, True])
 def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_resume(
-    tmp_path, monkeypatch, stale
+    tmp_path, monkeypatch, stale, unresolved
 ):
     path = tmp_path / "runs"
-    fixed, selected, identity, now = seed(path, stale=stale)
+    fixed, selected, identity, now = seed(path, stale=stale, unresolved=unresolved)
     original_bytes = path.read_bytes()
     kwargs = dict(
         request=ResearchRequest(text="株数基準の確認", scope="discover_new"),
@@ -127,7 +133,9 @@ def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_res
     assert len(selected.result.display_order) == len(set(selected.result.display_order)) == 3
     for page in pages[:2]:
         card = page["screening"]["cards"][0]
-        assert card["financial_gate"]["state"] == "not_selected"
+        assert card["financial_gate"]["state"] == (
+            "input_unresolved" if unresolved and card["ticker"] == "1234" else "not_selected"
+        )
         assert card["financial_paths"]["matched_routes"] == []
         assert card["financial_paths"]["coordinates"] == []
         reason = card["financial_paths"]["input_review_reasons"][0]
@@ -223,7 +231,7 @@ def test_new_review_queue_is_company_unique_and_reaches_all_pages():
     assert discovery_display_order(tuple(reversed(rows))) == result.display_order
 
 
-@pytest.mark.parametrize("revision", ["v1", "v2", "v3"])
+@pytest.mark.parametrize("revision", ["v1", "v2", "v3", "v4"])
 def test_historical_policy_keeps_canonical_fields_and_is_not_recomputed(tmp_path, revision):
     fixed, current, _, _ = seed(tmp_path / "runs")
     rows = (
