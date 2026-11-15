@@ -75,22 +75,34 @@ def _conditioned(
             reason=benchmark_reason,
         ),
     }
-    if window is None:
-        return result
-    if None in own or None in bench:
-        return {**result, "unavailable_reason": "incomplete_price_window"}
     # Completeness is required before forming adjacent returns; no filtered-date pairing.
     own_returns = _returns(own)
-    if own_returns is None or benchmark_returns is None:
-        return {**result, "unavailable_reason": "nonfinite_return"}
-    pairs = list(zip(own_returns, benchmark_returns, strict=True))
+    reason = (
+        "insufficient_calendar"
+        if window is None
+        else "incomplete_price_window"
+        if None in own or None in bench
+        else "nonfinite_return"
+        if own_returns is None or benchmark_returns is None
+        else None
+    )
+    pairs = None
+    if reason is None:
+        assert own_returns is not None
+        assert benchmark_returns is not None
+        pairs = list(zip(own_returns, benchmark_returns, strict=True))
     return {
         **result,
-        "status": "available",
-        "unavailable_reason": None,
-        "up": _condition([pair for pair in pairs if pair[1] > 0]),
-        "down": _condition([pair for pair in pairs if pair[1] < 0]),
-        "flat_market_days": sum(value == 0 for value in benchmark_returns),
+        "status": "unavailable" if reason is not None else "available",
+        "unavailable_reason": reason,
+        "up": None if pairs is None else _condition([pair for pair in pairs if pair[1] > 0]),
+        "down": None if pairs is None else _condition([pair for pair in pairs if pair[1] < 0]),
+        "flat_market_days": None
+        if pairs is None
+        else sum(benchmark == 0 for _, benchmark in pairs),
+        "down_own_direction_turnover": _down_own_turnover(
+            turnover, window=window, pairs=pairs, reason=reason
+        ),
     }
 
 
@@ -149,6 +161,32 @@ def _turnover_condition(values: list[float | None]) -> dict[str, object]:
         "status": "available" if complete else "unavailable",
         "unavailable_reason": reason,
     }
+
+
+def _down_own_turnover(
+    turnover: Mapping[date, float | None],
+    *,
+    window: tuple[date, ...] | None,
+    pairs: list[tuple[float, float]] | None,
+    reason: str | None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "basis": "traded_value_yen_not_share_volume",
+        "window_basis": "return_end_dates_in_common_trading_window",
+        "direction_status": "unavailable" if reason is not None else "available",
+        "direction_unavailable_reason": reason,
+        "own_up": None,
+        "own_nonpositive": None,
+    }
+    if reason is not None:
+        return result
+    assert window is not None
+    assert pairs is not None
+    groups: dict[str, list[float | None]] = {"own_up": [], "own_nonpositive": []}
+    for day, (own, benchmark) in zip(window[1:], pairs, strict=True):
+        if benchmark < 0:
+            groups["own_up" if own > 0 else "own_nonpositive"].append(turnover.get(day))
+    return {**result, **{name: _turnover_condition(values) for name, values in groups.items()}}
 
 
 def _condition(pairs: list[tuple[float, float]]) -> dict[str, object]:

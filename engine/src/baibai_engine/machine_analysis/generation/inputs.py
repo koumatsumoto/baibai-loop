@@ -441,7 +441,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-v14-independent-turnover",
+        market_context_revision="shared-market-context-v15-down-own-direction-turnover",
         growth_start=growth_start,
         trends=trends,
     )
