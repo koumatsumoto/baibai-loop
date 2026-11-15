@@ -14,6 +14,8 @@
 
 固定Operation全対象をnew/holding別に被覆する。未調査はunfinishedの理由/参照に対応する評価参照なしdefer、Review済みuncertain/unresolvedは参照付きdeferにできる。0対象に空提案は作らない。
 
+結論が`uncertain`の評価から新規`no_action`は発行しない。条件不足の保留を経済的見送りにせず、`defer`と再確認条件を残す。一方、理由付きで不利と結論した`unsupported`は数値価値が未算定でも見送れ、`supported`も価格・代替比較で見送れる。不明点の全解消を要求する規則ではない。
+
 <a id="report-summary"></a>
 ## 人間向けの要点
 
