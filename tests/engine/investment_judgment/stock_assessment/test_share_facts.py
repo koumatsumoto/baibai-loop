@@ -45,7 +45,11 @@ def test_new_assessment_and_calculation_reject_invalid_explicit_share_counts(val
     document["input_snapshot"]["facts"][-1].update(value=value, unit=unit)
     if value == -1_000_000:
         document["input_snapshot"]["facts"][-2]["value"] = -120_000_000
-    message = "shares_outstanding fact shares must be a non-negative number in shares"
+    message = (
+        "metric eps input facts must be numeric"
+        if isinstance(value, bool | str)
+        else "metric eps shares_outstanding input shares must be non-negative and measured in shares"
+    )
     assert message in evaluation(document, review).errors
     with pytest.raises(ValueError, match=message):
         calculate(_calculation(document))
@@ -79,14 +83,25 @@ def test_zero_count_can_be_a_fact_but_cannot_be_a_ratio_denominator():
     assert evaluation(document, review).errors == ()
 
 
-def test_invalid_unused_share_count_is_not_hidden_by_omitting_a_ratio():
+@pytest.mark.parametrize(("value", "unit"), [("未確認", "shares"), (1000, "thousand_shares")])
+def test_unresolved_assessment_keeps_unused_unknown_or_original_unit(value, unit):
     document, review = ratio_pair()
-    document["input_snapshot"]["facts"][-1]["value"] = -1
+    document["input_snapshot"]["facts"][-1].update(value=value, unit=unit)
     document["derived"]["metrics"] = []
-    message = "shares_outstanding fact shares must be a non-negative number in shares"
-    assert evaluation(document, review).errors == (message,)
-    with pytest.raises(ValueError, match=message):
-        calculate(_calculation(document))
+    document["valuation"].update(
+        status="unresolved",
+        market_price_fact_id=None,
+        horizon_months=None,
+        required_annual_return_pct=None,
+        base=None,
+        downside=None,
+        unresolved_reason="株数基準をまだ原典照合していないため、価値を未算定とする",
+    )
+    document["conclusion"]["stance"] = "uncertain"
+    review["recalculated_projections"] = []
+    assert calculate(_calculation(document))["derived"]["metrics"] == []
+    assert evaluation(document, review).errors == ()
+    assert StockAssessmentDocument.model_validate(document).input_snapshot.facts[-1].value == value
 
 
 def test_negative_count_new_publication_is_rejected_but_old_exact_read_and_retry_survive():
@@ -104,7 +119,7 @@ def test_negative_count_new_publication_is_rejected_but_old_exact_read_and_retry
     with closing(sqlite3.connect(":memory:")) as connection:
         connection.executescript(SCHEMA_SQL)
         connection.execute("BEGIN")
-        with pytest.raises(ResearchValidationError, match="shares_outstanding fact shares"):
+        with pytest.raises(ResearchValidationError, match="shares_outstanding input shares"):
             publish_reviewed_assessment(
                 connection, assessment_id(), document, review, published_at=NOW
             )

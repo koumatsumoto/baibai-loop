@@ -121,14 +121,6 @@ class ObservedFact(BaseModel):
             )
         )
 
-    def share_count_error(self) -> str | None:
-        """New authoring checks a count, not a signed change or financial adequacy."""
-        if self.fact_kind == "shares_outstanding" and (
-            self.unit != "shares" or isinstance(self.value, bool | str) or self.value < 0
-        ):
-            return f"shares_outstanding fact {self.fact_id} must be a non-negative number in shares"
-        return None
-
 
 class InputSnapshot(BaseModel):
     model_config = _CONFIG

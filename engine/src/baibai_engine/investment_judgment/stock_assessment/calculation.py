@@ -148,9 +148,6 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
     facts = {fact.fact_id: fact for fact in snapshot.facts}
     if len(facts) != len(snapshot.facts):
         raise ValueError("fact_id must be unique")
-    for fact in snapshot.facts:
-        if error := fact.share_count_error():
-            raise ValueError(error)
     metrics = inputs.derived.metrics
     if len({metric.metric_id for metric in metrics}) != len(metrics):
         raise ValueError("derived metric_id must be unique")
