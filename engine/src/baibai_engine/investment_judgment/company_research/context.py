@@ -78,7 +78,7 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
             "as_of": document.as_of.isoformat(),
             "recorded_at": record.recorded_at.isoformat(),
             "investigated_scope": document.investigated_scope[:400],
-            "unresolved_questions": [text[:240] for text in document.unresolved_questions[:3]],
+            **_questions_brief(document.unresolved_questions),
             **_hypotheses_brief(document.hypotheses, document.sources),
             # Retained old sources must not hide newly added evidence on revisit.
             "source_dates": sorted({item.as_of.isoformat() for item in document.sources})[-3:],
@@ -119,15 +119,20 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
                 "delay_risk": assessment.findings.realization.delay_risk[:240],
             },
             **_hypotheses_brief(assessment.findings.hypotheses, assessment.sources),
-            "unresolved_questions": [
-                text[:240] for text in assessment.findings.unresolved_questions[:3]
-            ],
+            **_questions_brief(assessment.findings.unresolved_questions),
             "source_dates": sorted({item.as_of.isoformat() for item in assessment.sources})[-3:],
             "display": "brief_only; use exact reference for all evidence and counterarguments",
         }
     else:
         result["assessment"] = _absence_brief(assessment)
     return result
+
+
+def _questions_brief(questions: tuple[str, ...]) -> dict[str, object]:
+    return {
+        "unresolved_questions": [text[:240] for text in questions[:3]],
+        **({"unresolved_questions_omitted": len(questions) - 3} if len(questions) > 3 else {}),
+    }
 
 
 def _hypotheses_brief(
