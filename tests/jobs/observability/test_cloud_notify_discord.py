@@ -749,7 +749,7 @@ def test_unresolved_or_contradictory_pmi_stop_is_not_quieted(failures):
     assert not discord.is_expected_pmi_refusal("economic-spglobal_pmi", failures)
 
 
-@pytest.mark.parametrize("revision", ["v1", "v2", "v3", "v4", "v5", "v6", "v7"])
+@pytest.mark.parametrize("revision", ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"])
 def test_technical_financial_notice_does_not_call_unresolved_approved(revision):
     notice = {
         "models_ready": True,

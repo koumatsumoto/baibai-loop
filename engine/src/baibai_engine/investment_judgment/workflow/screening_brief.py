@@ -92,6 +92,7 @@ def technical_financial_screening_brief(
         "technical-financial-discovery-v5",
         "technical-financial-discovery-v6",
         "technical-financial-discovery-v7",
+        "technical-financial-discovery-v8",
     }
     hash_page = lane_local_review and lane == "input_review" and page is not None
     mixed_order = lane_local_review and page is None
@@ -112,6 +113,7 @@ def technical_financial_screening_brief(
                     "routes",
                     "observation_failures",
                     "market_relative_benchmark",
+                    "turnover_activity_20d",
                     "price_context",
                     "expected_price_date",
                 ),
