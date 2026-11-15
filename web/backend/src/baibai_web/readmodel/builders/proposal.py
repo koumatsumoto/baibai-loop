@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from datetime import datetime
 
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    ReturnProjection,
     project_buy_capital,
     project_return,
 )
@@ -30,9 +31,11 @@ from baibai_web.readmodel.proposal_models import (
     SavedAssessmentView,
     SavedBuyCapitalComparisonView,
     SavedBuyItemView,
+    SavedConditionalReturnView,
     SavedDeferItemView,
     SavedExposureRowView,
     SavedHoldItemView,
+    SavedHoldQuoteComparisonView,
     SavedLimitTermsView,
     SavedLiquidityView,
     SavedModelPerspectiveView,
@@ -47,7 +50,6 @@ from baibai_web.readmodel.proposal_models import (
     SavedResolvedValuationView,
     SavedSellItemView,
     SavedSellLimitComparisonView,
-    SavedSellLimitReturnView,
     SavedTurnoverWindowView,
     SavedUnresolvedValuationView,
     SavedValuationProjectionView,
@@ -133,6 +135,14 @@ def project_saved_proposal(
             common_factors=[_exposure(row) for row in exposure.common_factors],
             common_factor_unclassified_tickers=list(exposure.common_factor_unclassified_tickers),
         ),
+    )
+
+
+def _conditional_return(value: ReturnProjection) -> SavedConditionalReturnView:
+    return SavedConditionalReturnView(
+        total_value_per_share_yen=str(value.total_value_yen),
+        total_return_pct=str(round(value.total_return_pct, 4)),
+        annualized_return_pct=str(round(value.annualized_return_pct, 4)),
     )
 
 
@@ -396,10 +406,45 @@ def _item(
             ),
         )
         if item.action == "hold":
+            hold_comparison = None
+            # intact-only保存は価格basis確認を保証しないため、十分性確認を補作しない。
+            if (
+                item.holding_basis == "sufficient_remaining_reward"
+                and item.return_calculation_unavailable_reason is None
+                and position.quantity_basis_confirmed
+                and quote is not None
+                and current is not None
+                and current.document.investment_case.status == "intact"
+                and current.document.valuation.status == "resolved"
+                and current.document.input_snapshot.as_of == proposal.as_of
+            ):
+                valuation = current.document.valuation
+                assert valuation.base is not None
+                assert valuation.downside is not None
+                assert valuation.horizon_months is not None
+                hold_returns = [
+                    _conditional_return(
+                        project_return(
+                            projection,
+                            price_yen=quote.price_yen,
+                            horizon_months=valuation.horizon_months,
+                        )
+                    )
+                    for projection in (valuation.base, valuation.downside)
+                ]
+                hold_comparison = SavedHoldQuoteComparisonView(
+                    calculation_price_yen=str(quote.price_yen),
+                    price_as_of=quote.price_as_of,
+                    price_basis=quote.price_basis,
+                    horizon_months=valuation.horizon_months,
+                    base=hold_returns[0],
+                    downside=hold_returns[1],
+                )
             return SavedHoldItemView.model_validate(
                 {
                     **common,
                     "holding_basis": item.holding_basis,
+                    "saved_hold_quote_comparison": hold_comparison,
                     "return_calculation_unavailable_reason": (
                         item.return_calculation_unavailable_reason
                     ),
@@ -426,14 +471,7 @@ def _item(
                 )
                 for projection in (valuation.base, valuation.downside)
             ]
-            projected = [
-                SavedSellLimitReturnView(
-                    total_value_per_share_yen=str(value.total_value_yen),
-                    total_return_pct=str(round(value.total_return_pct, 4)),
-                    annualized_return_pct=str(round(value.annualized_return_pct, 4)),
-                )
-                for value in returns
-            ]
+            projected = [_conditional_return(value) for value in returns]
             sell_comparison = SavedSellLimitComparisonView(
                 calculation_price_yen=str(item.terms.limit_price_yen),
                 horizon_months=valuation.horizon_months,
