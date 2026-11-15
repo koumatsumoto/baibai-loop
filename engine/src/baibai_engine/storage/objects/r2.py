@@ -43,6 +43,10 @@ class LakePublishError(RuntimeError):
 class R2Error(LakePublishError):
     """R2 operation failed; source-contract errors keep the broader base type."""
 
+    def __init__(self, message: str, *, http_status: int | None = None) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+
 
 class LakeCASConflict(LakePublishError):
     pass
@@ -503,7 +507,7 @@ def _raise_r2_error(operation: str, error: ClientError, *, key: str | None = Non
         412,
     ):
         raise LakeCASConflict(f"R2 conditional write conflict: {operation}") from error
-    raise R2Error(f"R2 {operation} failed") from error
+    raise R2Error(f"R2 {operation} failed", http_status=_http_status(error)) from error
 
 
 def _operation_timeout(payload_bytes: int | None) -> int:

@@ -127,6 +127,7 @@ def test_actual_operation_and_http_status_are_logged_once(
     with pytest.raises(r2.R2Error) as caught:
         invoke(store, method, tmp_path)
     assert caught.value.__cause__ is error
+    assert caught.value.http_status == status
     assert str(caught.value) == f"R2 {operation} failed"
     assert len(calls) == 1
     assert calls[0][0] == operation
@@ -171,6 +172,7 @@ def test_transport_failures_have_unknown_status(
     with pytest.raises(r2.R2Error) as caught:
         invoke(store, method, tmp_path)
     assert caught.value.__cause__ is error
+    assert caught.value.http_status is None
     assert len(calls) == 1
     operation = calls[0][0]
     assert_diagnostic(caplog, operation, "unknown", key=None if method == "iter_objects" else KEY)
@@ -205,14 +207,16 @@ def test_malformed_status_is_unknown_without_parsing_service_message(
     with pytest.raises(r2.R2Error) as caught:
         store.head(KEY)
     assert caught.value.__cause__ is error
+    assert caught.value.http_status is None
     assert_diagnostic(caplog, "head-object", "unknown")
 
 
 @pytest.mark.parametrize("status", [403, "403", 429, "429", 503, "503"])
 def test_canonical_integer_or_ascii_status_only(store, monkeypatch, caplog, status):
     install_failure(store, monkeypatch, failure(status))
-    with pytest.raises(r2.R2Error):
+    with pytest.raises(r2.R2Error) as caught:
         store.head(KEY)
+    assert caught.value.http_status == int(status)
     assert_diagnostic(caplog, "head-object", int(status))
 
 
