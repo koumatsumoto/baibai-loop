@@ -1050,6 +1050,88 @@
       "title": "SavedAssessmentView",
       "type": "object"
     },
+    "SavedBuyCapitalComparisonView": {
+      "properties": {
+        "scope": {
+          "const": "available_cash_only",
+          "title": "Scope",
+          "type": "string"
+        },
+        "execution_assumption": {
+          "const": "full_fill_at_limit",
+          "title": "Execution Assumption",
+          "type": "string"
+        },
+        "return_basis": {
+          "const": "conditional_pretax_without_reinvestment",
+          "title": "Return Basis",
+          "type": "string"
+        },
+        "investor_taxes_and_fees_included": {
+          "const": false,
+          "title": "Investor Taxes And Fees Included",
+          "type": "boolean"
+        },
+        "cash_basis": {
+          "const": "constant_nominal_without_interest",
+          "title": "Cash Basis",
+          "type": "string"
+        },
+        "horizon_months": {
+          "title": "Horizon Months",
+          "type": "integer"
+        },
+        "quantity_basis": {
+          "const": "author_selected",
+          "title": "Quantity Basis",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "limit_price_yen": {
+          "title": "Limit Price Yen",
+          "type": "string"
+        },
+        "notional_yen": {
+          "title": "Notional Yen",
+          "type": "string"
+        },
+        "unspent_cash_yen": {
+          "title": "Unspent Cash Yen",
+          "type": "string"
+        },
+        "cash_only_terminal_value_yen": {
+          "title": "Cash Only Terminal Value Yen",
+          "type": "string"
+        },
+        "base": {
+          "$ref": "#/$defs/SavedCapitalScenarioView"
+        },
+        "downside": {
+          "$ref": "#/$defs/SavedCapitalScenarioView"
+        }
+      },
+      "required": [
+        "scope",
+        "execution_assumption",
+        "return_basis",
+        "investor_taxes_and_fees_included",
+        "cash_basis",
+        "horizon_months",
+        "quantity_basis",
+        "quantity",
+        "limit_price_yen",
+        "notional_yen",
+        "unspent_cash_yen",
+        "cash_only_terminal_value_yen",
+        "base",
+        "downside"
+      ],
+      "title": "SavedBuyCapitalComparisonView",
+      "type": "object"
+    },
     "SavedBuyItemView": {
       "properties": {
         "ticker": {
@@ -1172,6 +1254,17 @@
           },
           "title": "Terms Unavailable Reasons",
           "type": "array"
+        },
+        "saved_buy_comparison": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedBuyCapitalComparisonView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1188,9 +1281,33 @@
         "timing",
         "terms",
         "proposed_limit_yen",
-        "terms_unavailable_reasons"
+        "terms_unavailable_reasons",
+        "saved_buy_comparison"
       ],
       "title": "SavedBuyItemView",
+      "type": "object"
+    },
+    "SavedCapitalScenarioView": {
+      "properties": {
+        "investment_total_value_yen": {
+          "title": "Investment Total Value Yen",
+          "type": "string"
+        },
+        "profit_loss_yen": {
+          "title": "Profit Loss Yen",
+          "type": "string"
+        },
+        "capital_total_value_yen": {
+          "title": "Capital Total Value Yen",
+          "type": "string"
+        }
+      },
+      "required": [
+        "investment_total_value_yen",
+        "profit_loss_yen",
+        "capital_total_value_yen"
+      ],
+      "title": "SavedCapitalScenarioView",
       "type": "object"
     },
     "SavedDeferItemView": {

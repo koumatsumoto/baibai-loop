@@ -6,7 +6,10 @@ import sqlite3
 from collections.abc import Mapping
 from datetime import datetime
 
-from baibai_engine.investment_judgment.stock_assessment.scenario import project_return
+from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    project_buy_capital,
+    project_return,
+)
 from baibai_engine.investment_judgment.stock_assessment.store import ReviewedAssessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ExposureRow,
@@ -24,6 +27,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedAssessmentRisksView,
     SavedAssessmentSourceView,
     SavedAssessmentView,
+    SavedBuyCapitalComparisonView,
     SavedBuyItemView,
     SavedDeferItemView,
     SavedExposureRowView,
@@ -327,6 +331,28 @@ def _item(
             ],
         )
     if item.action == "buy":
+        comparison = None
+        if (
+            current is not None
+            and item.terms is not None
+            and current.document.valuation.status == "resolved"
+            and current.document.input_snapshot.as_of == proposal.as_of
+        ):
+            valuation = current.document.valuation
+            assert valuation.base is not None
+            assert valuation.downside is not None
+            assert valuation.horizon_months is not None
+            comparison = SavedBuyCapitalComparisonView.model_validate(
+                project_buy_capital(
+                    valuation.base,
+                    valuation.downside,
+                    horizon_months=valuation.horizon_months,
+                    limit=item.terms.limit_price_yen,
+                    cash=proposal.inputs.available_cash_yen,
+                    quantity=item.terms.quantity,
+                    author_selected=True,
+                )
+            )
         return SavedBuyItemView.model_validate(
             {
                 **common,
@@ -334,6 +360,7 @@ def _item(
                 "proposed_limit_yen": (
                     None if item.proposed_limit_yen is None else str(item.proposed_limit_yen)
                 ),
+                "saved_buy_comparison": comparison,
             }
         )
     if item.action == "hold" or item.action == "sell":

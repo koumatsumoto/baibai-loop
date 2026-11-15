@@ -65,6 +65,7 @@ export const buyFixture: SavedBuyItemView = {
   terms: termsFixture,
   proposed_limit_yen: null,
   terms_unavailable_reasons: [],
+  saved_buy_comparison: null,
 }
 
 export const partialBuyFixture: SavedBuyItemView = {
