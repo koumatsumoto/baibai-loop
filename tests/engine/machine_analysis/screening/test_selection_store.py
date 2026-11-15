@@ -12,6 +12,14 @@ from pydantic import TypeAdapter, ValidationError
 from tests.helpers.model_generation import empty_selection, generation, publish_generation
 
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    EconomicPathPolicy,
+    EconomicPathSelection,
+)
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    TechnicalFinancialPolicy,
+    TechnicalFinancialSelection,
+)
 from baibai_engine.machine_analysis.screening.policies.two_views import (
     CandidateView,
     RankedCompany,
@@ -20,6 +28,127 @@ from baibai_engine.machine_analysis.screening.policies.two_views import (
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
+
+
+def _empty_result(policy):
+    if isinstance(policy, TechnicalFinancialPolicy):
+        return TechnicalFinancialSelection(policy, "synthetic-t", "synthetic-g", (), (), {})
+    if isinstance(policy, EconomicPathPolicy):
+        return EconomicPathSelection(policy, 0, ())
+    return ViewSelection(policy, ())
+
+
+@pytest.mark.parametrize(
+    ("policy", "update"),
+    [
+        (TechnicalFinancialPolicy(), {"page_size": 0}),
+        (TechnicalFinancialPolicy(), {"page_size": 37}),
+        (TechnicalFinancialPolicy(), {"page_size": "36"}),
+        (TechnicalFinancialPolicy(), {"method": "unknown-policy"}),
+        (EconomicPathPolicy(), {"candidate_limit": -1}),
+        (EconomicPathPolicy(), {"candidate_limit": 37}),
+        (TwoViewPolicy(earnings_limit=1, combined_limit=1), {"earnings_limit": -1}),
+        (TwoViewPolicy(earnings_limit=1, combined_limit=1), {"earnings_scale": 0.0}),
+        (TwoViewPolicy(earnings_limit=1, combined_limit=1), {"earnings_weight": 1.1}),
+    ],
+)
+def test_invalid_policy_copy_is_rejected_before_any_store_write(
+    tmp_path, monkeypatch, policy, update
+):
+    from baibai_engine.machine_analysis.screening.selection_query import read_publication
+
+    path = tmp_path / "runs.sqlite"
+    source = generation()
+    publish_generation(source, path=path)
+    selected = ScreeningSelection(source.generation_id, ("1234",), _empty_result(policy))
+    store = ScreeningSelectionStore(path)
+    assert store.publish("valid", selected)
+    first = read_publication(path=path)
+    before = path.read_bytes()
+    invalid = replace(
+        selected, result=replace(selected.result, policy=policy.model_copy(update=update))
+    )
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("invalid policy must be rejected before store initialization")
+
+    uninitialized = tmp_path / "uninitialized.sqlite"
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            "baibai_engine.machine_analysis.screening.selection_store.initialize_run_store",
+            forbidden,
+        )
+        with pytest.raises(ValidationError):
+            store.publish("rejected", invalid)
+        with pytest.raises(ValidationError):
+            ScreeningSelectionStore(uninitialized).publish("rejected", invalid)
+    assert not uninitialized.exists()
+    assert path.read_bytes() == before
+    assert read_publication(path=path) == first
+    assert store.read("valid") == selected
+    assert store.read("rejected") is None
+    assert not store.publish("valid", selected)
+    assert read_publication(path=path) == first
+    assert store.publish("rejected", selected)
+    assert read_publication(path=path).selection_id == "rejected"
+    assert store.read("rejected") == selected
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        TwoViewPolicy(earnings_limit=2, combined_limit=3),
+        *(EconomicPathPolicy(method=f"best-economic-path-v{version}") for version in range(1, 5)),
+        *(
+            TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}")
+            for version in range(1, 4)
+        ),
+    ],
+)
+def test_valid_policy_copy_revalidates_only_settings_and_preserves_saved_bytes(
+    tmp_path, monkeypatch, policy
+):
+    import baibai_engine.machine_analysis.screening.selection_store as storage
+    from baibai_engine.machine_analysis.screening.selection_query import read_publication
+
+    path = tmp_path / "runs.sqlite"
+    source = generation()
+    publish_generation(source, path=path)
+    settings = policy.model_dump(mode="python")
+    copied = policy.model_copy(update=settings)
+    selected = ScreeningSelection(
+        source.generation_id,
+        ("1234",),
+        _empty_result(copied),
+        price_inputs={"independent_context": {"observations": [1, None, 0.0]}},
+    )
+    expected = canonical_json(TypeAdapter(ScreeningSelection).dump_python(selected, mode="json"))
+    validate_policy = type(policy).model_validate
+    validated = []
+
+    def validate_settings(cls, value, **kwargs):
+        validated.append(value)
+        assert value == settings
+        return validate_policy(value, **kwargs)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("saving must not reconstruct the full company snapshot for policy validation")
+
+    monkeypatch.setattr(type(policy), "model_validate", classmethod(validate_settings))
+    monkeypatch.setattr(storage._CODEC, "validate_python", forbidden)
+    monkeypatch.setattr(storage._CODEC, "validate_json", forbidden)
+    store = ScreeningSelectionStore(path)
+    assert store.publish("fixed", selected)
+    first = read_publication(path=path)
+    with sqlite3.connect(path) as connection:
+        blob = connection.execute("SELECT payload_gzip FROM screening_selection").fetchone()[0]
+    assert blob == gzip.compress(expected.encode(), mtime=0)
+    before = path.read_bytes()
+    assert not store.publish("fixed", selected)
+    assert validated == [settings, settings]
+    assert path.read_bytes() == before
+    assert read_publication(path=path) == first
+    assert store.read("fixed") == selected
 
 
 def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp_path, monkeypatch):
