@@ -34,7 +34,8 @@ class TechnicalFinancialPolicy(BaseModel):
         "technical-financial-discovery-v9",
         "technical-financial-discovery-v10",
         "technical-financial-discovery-v11",
-    ] = "technical-financial-discovery-v11"
+        "technical-financial-discovery-v12",
+    ] = "technical-financial-discovery-v12"
     page_size: Annotated[int, Field(ge=1, le=36)] = 36
 
 
@@ -91,12 +92,14 @@ def financial_screening_lane(
 
 
 def discovery_display_order(rows: Sequence[TechnicalFinancialRow]) -> tuple[str, ...]:
-    """予備だけlane内で巡回し、他laneの注意順と候補集合を変えない。"""
+    """lane位置を保ち、コード番号の大小を調査価値の代理にしない。"""
     order = _route_display_order(rows)
-    review_rows = tuple(row for row in rows if row.screening_lane == "input_review")
-    review_tickers = {row.ticker for row in review_rows}
-    review_order = iter(_route_display_order(review_rows, company_hash=True))
-    return tuple(next(review_order) if ticker in review_tickers else ticker for ticker in order)
+    for lane in RESEARCH_LANES:
+        lane_rows = tuple(row for row in rows if row.screening_lane == lane)
+        lane_tickers = {row.ticker for row in lane_rows}
+        lane_order = iter(_route_display_order(lane_rows, company_hash=True))
+        order = tuple(next(lane_order) if ticker in lane_tickers else ticker for ticker in order)
+    return order
 
 
 def _company_attention_key(row: TechnicalFinancialRow) -> tuple[bytes, str]:
