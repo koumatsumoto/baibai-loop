@@ -375,6 +375,25 @@ function SavedHoldQuoteComparison({ item }: { item: SavedHoldItemView }) {
   </section>
 }
 
+function SavedHoldingPosition({ item }: { item: SavedHoldItemView | SavedSellItemView }) {
+  const position = item.saved_position
+  return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="判断対象の保存保有">
+    <h4 className="text-sm font-semibold">判断対象の保存保有</h4>
+    {position == null
+      ? <p className="text-sm text-muted-foreground">この表示データには対象保有の数量・原価が未収録です。保有なし・0円・確認済みへ補っていません。</p>
+      : <>
+        <dl className="grid gap-4 sm:grid-cols-2">
+          <Field label="保存された保有数量">{position.quantity} 株</Field>
+          <Field label="数量の株式単位">{position.quantity_basis_confirmed ? '保存時に確認済み' : '未確認。注文数量として使用しない'}</Field>
+          <Field label="保存原価">{position.cost_yen} 円</Field>
+          <Field label="入力収集時刻"><time dateTime={position.inputs_checked_at}>{position.inputs_checked_at}</time></Field>
+          <Field label="台帳基準時刻"><time dateTime={position.ledger_as_of}>{position.ledger_as_of}</time></Field>
+        </dl>
+        <p className="text-xs leading-6 text-muted-foreground">提案当時の対象規模です。現在保有・注文可能数量ではなく、後日の売買や株式異動を補っていません。原価は現在時価・回収下限・今後の見返りの分母ではなく、原価だけで保有や売却を決めません。</p>
+      </>}
+  </section>
+}
+
 function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }) {
   return (
     <div className="grid gap-4">
@@ -426,7 +445,10 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
             {item.action === 'buy' && <SavedBuyComparison item={item} />}
             {item.action === 'sell' && <SavedSellLimitComparison item={item} />}
             {item.action === 'hold' && <SavedHoldQuoteComparison item={item} />}
-            {(item.action === 'hold' || item.action === 'sell') && <HoldingReason item={item} />}
+            {(item.action === 'hold' || item.action === 'sell') && <>
+              <SavedHoldingPosition item={item} />
+              <HoldingReason item={item} />
+            </>}
             {item.action === 'defer' && <>
               <Reasons reasons={item.blockers} title="判断を保留した不足理由" />
               <TextList items={item.resume_conditions} title="再開条件" />
