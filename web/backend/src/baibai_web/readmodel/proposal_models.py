@@ -70,6 +70,12 @@ class SavedAssessmentReviewView(BaseModel):
     uncertainty_acceptance_reason: str | None
 
 
+class SavedValueGapView(BaseModel):
+    explanation: str
+    findings_source_ids: list[str]
+    findings_sources: list[SavedAssessmentSourceView]
+
+
 class SavedValuationProjectionView(BaseModel):
     terminal_value_per_share_yen: str
     cash_distribution_per_share_yen: str
@@ -104,6 +110,7 @@ class SavedAssessmentView(BaseModel):
     investment_case_status: Literal["intact", "broken", "uncertain"]
     investment_case_status_reason: str
     invalidation_conditions: list[str]
+    value_gap: SavedValueGapView | None = None
     model_perspectives: list[SavedModelPerspectiveView] = Field(default_factory=list)
     model_perspective_sources: list[SavedAssessmentSourceView] = Field(default_factory=list)
     risk_analysis: SavedAssessmentRisksView | None = None

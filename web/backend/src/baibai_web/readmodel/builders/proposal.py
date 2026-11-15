@@ -44,6 +44,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedTurnoverWindowView,
     SavedUnresolvedValuationView,
     SavedValuationProjectionView,
+    SavedValueGapView,
     UnfinishedResearchView,
 )
 from baibai_web.sources.protocols import ProposalHistorySource, ProposalSource
@@ -152,6 +153,15 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
         investment_case_status=case.status,
         investment_case_status_reason=case.status_reason,
         invalidation_conditions=list(case.invalidation_conditions),
+        value_gap=SavedValueGapView(
+            explanation=document.findings.value_gap_explanation,
+            findings_source_ids=list(document.findings.source_ids),
+            findings_sources=[
+                SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
+                for source in document.input_snapshot.sources
+                if source.source_id in document.findings.source_ids
+            ],
+        ),
         model_perspectives=[
             SavedModelPerspectiveView.model_validate(item.model_dump(mode="json"))
             for item in document.model_perspectives

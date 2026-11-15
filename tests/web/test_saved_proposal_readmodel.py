@@ -12,6 +12,7 @@ from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 
 from baibai_engine.investment_judgment.independent_review.contracts import AssessmentReview
 from baibai_engine.investment_judgment.stock_assessment.document import (
+    AssessmentRef,
     StockAssessmentDocument,
     assessment_core_hash,
     evaluate_assessment,
@@ -19,9 +20,11 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
 from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
     ReviewedAssessment,
+    require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_web.readmodel.builders.proposal import build_latest_proposal, project_saved_proposal
 from baibai_web.sources import proposal as proposal_source
@@ -46,12 +49,15 @@ def _pair(
     risks=None,
     questions=(),
     acceptance=None,
+    value_gap=None,
 ):
     raw, review_raw = pair_payload(review_number=number + 1)
     raw["model_perspectives"] = list(perspectives)
     if risks is not None:
         raw["permanent_loss_risks"] = risks
     raw["findings"]["unresolved_questions"] = list(questions)
+    if value_gap is not None:
+        raw["findings"]["value_gap_explanation"] = value_gap
     if acceptance is not None:
         review_raw["uncertainty_acceptance_reason"] = acceptance
     if price is not None:
@@ -207,6 +213,61 @@ def test_legacy_model_perspectives_remain_unrecorded(payload):
     assert view.items[0].assessment.model_perspective_sources == []
 
 
+@pytest.mark.parametrize(
+    "explanation",
+    [
+        "外部目標の対象期は未確認。" * 30
+        + "\n自分の価値仮説は追加投資と普通株主帰属を控除する。数字の差を割安率にはしない。",
+        "会社予想ベースの外部理論株価を独立予想へ二重計上しない。比較basisは未確認。",
+    ],
+    ids=["long-unconfirmed-period", "shared-company-forecast"],
+)
+def test_value_gap_from_exact_saved_pair_reaches_projection_without_latest_substitution(
+    tmp_path, payload, explanation
+):
+    path = tmp_path / "app.sqlite"
+    original = _pair(value_gap=explanation)
+    service = AssessmentStoreService(path, clock=lambda: PUBLISHED)
+    saved = service.publish_reviewed_assessment(
+        original.assessment_id,
+        original.document.model_dump(mode="json"),
+        original.review.model_dump(mode="json"),
+    )
+    newer = _pair(number=10, value_gap="後続評価だけの別の価値差説明")
+    AssessmentStoreService(
+        path, clock=lambda: PUBLISHED + timedelta(seconds=1)
+    ).publish_reviewed_assessment(
+        newer.assessment_id,
+        newer.document.model_dump(mode="json"),
+        newer.review.model_dump(mode="json"),
+        supersedes_id=saved.assessment_id,
+    )
+    _current(payload, saved)
+    before = path.read_bytes()
+    with closing(connect_read_only(path)) as connection:
+        exact = require_assessment_ref(connection, AssessmentRef.model_validate(_ref(saved)))
+        view = project_saved_proposal(
+            TradeProposal.model_validate(payload), {exact.assessment_id: exact}
+        )
+    assessment = view.items[0].assessment
+    assert assessment.value_gap.explanation == explanation
+    assert assessment.value_gap.findings_source_ids == list(saved.document.findings.source_ids)
+    expected_sources = [
+        source.model_dump(mode="json", exclude={"ticker"})
+        for source in saved.document.input_snapshot.sources
+        if source.source_id in saved.document.findings.source_ids
+    ]
+    assert [
+        s.model_dump(mode="json") for s in assessment.value_gap.findings_sources
+    ] == expected_sources
+    assert assessment.core_sha256 == saved.core_sha256
+    assert assessment.model_perspectives == []  # Do not invent an external opinion.
+    assert view.items[0].action == "buy"  # Missing comparison is not a new decision gate.
+    assert "後続評価だけ" not in view.model_dump_json()
+    assert path.read_bytes() == before
+    assert exact.document == saved.document
+
+
 def test_risks_and_questions_keep_exact_basis_without_changing_buy_or_value(payload):
     raw, _ = pair_payload()
     risks = raw["permanent_loss_risks"]
@@ -269,7 +330,9 @@ def test_old_serving_payload_omission_differs_from_saved_empty_questions(payload
     assert assessment.risk_analysis.unresolved_questions == []
     old = assessment.model_dump(mode="json")
     del old["risk_analysis"]
+    del old["value_gap"]
     assert SavedAssessmentView.model_validate(old).risk_analysis is None
+    assert SavedAssessmentView.model_validate(old).value_gap is None
 
 
 def test_saved_valuation_uses_assessment_price_and_keeps_assumptions_without_mutation(payload):
@@ -421,6 +484,7 @@ def test_holding_keeps_original_reason_separate_from_current_assessment(
             explanation=f"評価{n}の理由",
             questions=[f"評価{n}に残った問い"],
             acceptance=f"評価{n}の合成の引受理由。",
+            value_gap=f"評価{n}の価値差説明。比較期は未確認。",
         )
         for n in (1, 10, 20)
     )
@@ -436,11 +500,15 @@ def test_holding_keeps_original_reason_separate_from_current_assessment(
     assert item.action == action
     assert item.assessment.assessment_id == current.assessment_id
     assert item.assessment.investment_case_explanation == "評価10の理由"
+    assert item.assessment.value_gap.explanation == "評価10の価値差説明。比較期は未確認。"
     assert item.assessment.risk_analysis.unresolved_questions == ["評価10に残った問い"]
     assert item.case_reassessment_reason == "今回の根拠で当初仮説の変化を検討した。"
     if original_kind == "reference":
         assert item.original_assessment.assessment_id == original.assessment_id
         assert item.original_assessment.investment_case_explanation == "評価1の理由"
+        assert (
+            item.original_assessment.value_gap.explanation == "評価1の価値差説明。比較期は未確認。"
+        )
         assert item.original_assessment.core_sha256 == original.core_sha256
         assert item.original_assessment.review_id == original.review.review_id
         assert item.original_assessment.risk_analysis.unresolved_questions == ["評価1に残った問い"]
