@@ -71,6 +71,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
 from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
 from baibai_engine.machine_analysis.observations.prices.price_observation_reader import (
     read_price_day_states,
+    read_turnover_values,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
     _adjustment_events_from_rows,
@@ -256,6 +257,19 @@ def read_and_generate_models(
             end=as_of,
             tickers=(*subjects, NIKKEI225_ETF_PROXY),
         )
+        turnover_values = read_turnover_values(
+            connection,
+            start=min(
+                (
+                    window[0]
+                    for size in (20, 60)
+                    if (window := path_calendar.windows[size]) is not None
+                ),
+                default=path_calendar.expected_price_date or as_of,
+            ),
+            end=as_of,
+            tickers=subjects,
+        )
         action_rows = connection.execute(
             "SELECT ticker,traded_at,adjustment_factor,ex_right_type FROM jquants_daily_bars "
             "WHERE traded_at<=? AND (adjustment_factor!=1.0 OR ex_right_type IS NOT NULL) "
@@ -309,18 +323,25 @@ def read_and_generate_models(
             as_of=as_of,
             benchmark_ticker=prepared.benchmark_ticker,
         )
+        turnover = turnover_values.get(ticker, {})
         relative = contexts[ticker].get("relative")
+        # No own close is needed for market-direction or yen-value observations.
+        # An observation-only block must not invent a close, price date or return.
+        if relative is None and turnover:
+            relative = contexts[ticker]["relative"] = {}
         if isinstance(relative, dict):
             relative["market_conditioned_60d"] = market_conditioned_returns(
                 prices={bar.traded_at: bar.price for bar in prices.get(ticker, ())},
-                turnover={bar.traded_at: bar.turnover_value for bar in prices.get(ticker, ())},
+                turnover=turnover,
                 benchmark_prices=activity_benchmarks,
                 calendar=path_calendar,
             )
         price = contexts[ticker].get("price")
+        if price is None and turnover:
+            price = contexts[ticker]["price"] = {}
         if isinstance(price, dict):
             price["turnover_activity_20d"] = turnover_activity(
-                turnover={bar.traded_at: bar.turnover_value for bar in prices.get(ticker, ())},
+                turnover=turnover,
                 calendar=path_calendar,
             )
     histories = read_observation_population(
@@ -420,7 +441,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-v13-conditional-turnover",
+        market_context_revision="shared-market-context-v14-independent-turnover",
         growth_start=growth_start,
         trends=trends,
     )

@@ -64,7 +64,7 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
     result = generate(path)
     shared = result.result("market_context", "market")
     benchmark = shared.payload["benchmark_trend"]
-    assert shared.calculation_revision == "shared-market-context-v13-conditional-turnover"
+    assert shared.calculation_revision == "shared-market-context-v14-independent-turnover"
     if not benchmark_count:
         assert benchmark is None
     else:
@@ -161,7 +161,7 @@ def test_new_and_legacy_saved_shapes_survive_correction_and_detached_l3_read(tmp
     assert [item.model_dump_json() for item in saved] == encoded
 
 
-def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tmp_path):
+def activity_source(tmp_path):
     calendar = {
         ASOF - timedelta(days=n): (ASOF - timedelta(days=n)).weekday() < 5 for n in range(100)
     }
@@ -183,6 +183,11 @@ def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tm
             "UPDATE jquants_daily_bars SET turnover_value=1000000 WHERE ticker='1001' AND traded_at=?",
             (ASOF.isoformat(),),
         )
+    return path, dates
+
+
+def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tmp_path):
+    path, dates = activity_source(tmp_path)
     before = path.read_bytes()
     result = generate(path, tickers=("1001",))
     market = result.result("market_context", "1001").payload
@@ -232,6 +237,156 @@ def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tm
     assert projected["market_context"] == market
     assert projected["technical_analysis"] == technical
     assert fixed.model_dump_json() == encoded
+
+
+@pytest.mark.parametrize("missing_close", ["previous", "current", "all"])
+@pytest.mark.parametrize("turnover", [0.0, 100000.0])
+def test_generation_keeps_turnover_independent_of_missing_own_closes(
+    tmp_path, missing_close, turnover
+):
+    path, dates = activity_source(tmp_path)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET turnover_value=? WHERE ticker='1001'", (turnover,)
+        )
+        if missing_close == "all":
+            connection.execute("UPDATE jquants_daily_bars SET close=NULL WHERE ticker='1001'")
+        else:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET close=NULL WHERE ticker='1001' AND traded_at=?",
+                ((dates[-2] if missing_close == "previous" else dates[-1]).isoformat(),),
+            )
+    result = generate(path, tickers=("1001",))
+    market = result.result("market_context", "1001").payload
+    for benchmark in market["relative"]["market_conditioned_60d"]["benchmarks"].values():
+        assert benchmark["unavailable_reason"] == "incomplete_price_window"
+        for direction in ("up", "down"):
+            observed = benchmark["turnover"][direction]
+            assert observed["status"] == "available"
+            assert observed["valid_turnover_days"] == observed["days"] == 1
+            assert observed["mean_yen"] == observed["median_yen"] == turnover
+    activity = market["price"]["turnover_activity_20d"]
+    assert activity["prior_valid_days"] == 20
+    assert activity["current_yen"] == activity["prior_mean_yen"] == turnover
+    assert activity["unavailable_reason"] == ("zero_prior_mean" if turnover == 0 else None)
+    if missing_close == "all":
+        assert set(market["price"]) == {"turnover_activity_20d"}
+        assert set(market["relative"]) == {"market_conditioned_60d"}
+        assert result.result("technical_analysis", "1001").payload["history_end_date"] is None
+
+
+@pytest.mark.parametrize("turnover", [None, -1.0, float("inf"), "absent"])
+def test_generation_does_not_fill_missing_turnover_or_erase_independent_prices(tmp_path, turnover):
+    path, dates = activity_source(tmp_path)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        if turnover == "absent":
+            connection.execute(
+                "DELETE FROM jquants_daily_bars WHERE ticker='1001' AND traded_at=?",
+                (dates[-2].isoformat(),),
+            )
+        else:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET turnover_value=? WHERE ticker='1001' AND traded_at=?",
+                (turnover, dates[-2].isoformat()),
+            )
+    result = generate(path, tickers=("1001",))
+    market = result.result("market_context", "1001").payload
+    for benchmark in market["relative"]["market_conditioned_60d"]["benchmarks"].values():
+        assert benchmark["status"] == ("unavailable" if turnover == "absent" else "available")
+        down = benchmark["turnover"]["down"]
+        assert down["unavailable_reason"] == "missing_or_invalid_turnover"
+        assert down["valid_turnover_days"] == 0
+        assert down["mean_yen"] is down["median_yen"] is None
+        assert benchmark["turnover"]["up"]["mean_yen"] == 1000000
+    activity = market["price"]["turnover_activity_20d"]
+    assert activity["prior_valid_days"] == 19
+    assert activity["unavailable_reason"] == "incomplete_turnover_window"
+    assert activity["current_yen"] == 1000000
+
+
+def test_turnover_uses_the_sealed_source_and_not_future_values_or_live_corrections(tmp_path):
+    path, dates = activity_source(tmp_path)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET close=NULL WHERE ticker='1001' AND traded_at=?",
+            (dates[-2].isoformat(),),
+        )
+        connection.execute(
+            "UPDATE jquants_daily_bars SET turnover_value=1e12 WHERE traded_at>?",
+            (ASOF.isoformat(),),
+        )
+    with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("UPDATE jquants_daily_bars SET turnover_value=777000")
+        result = materialize_generation(
+            read_and_generate_models(
+                generation_id="sealed",
+                market_snapshot=snapshot,
+                market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
+                economic_input=None,
+                as_of=ASOF,
+                evaluation_time=AT,
+                ttm_rules=DEFAULT_TTM_RULES,
+                tickers=("1001",),
+            )
+        )
+    market = result.result("market_context", "1001").payload
+    assert (
+        market["relative"]["market_conditioned_60d"]["benchmarks"]["1321"]["turnover"]["down"][
+            "mean_yen"
+        ]
+        == 100000
+    )
+    assert market["price"]["turnover_activity_20d"]["current_to_prior_mean_ratio"] == 10
+    assert market["price"]["turnover_activity_20d"]["current_date"] == ASOF.isoformat()
+    corrected = generate(path, identity="corrected", tickers=("1001",))
+    assert (
+        corrected.result("market_context", "1001").payload["price"]["turnover_activity_20d"][
+            "current_to_prior_mean_ratio"
+        ]
+        == 1
+    )
+
+
+def test_legacy_absent_price_blocks_are_not_backfilled_from_new_turnover_observations(tmp_path):
+    path, _ = activity_source(tmp_path)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=NULL WHERE ticker='1001'")
+    current = generate(path, tickers=("1001",))
+    legacy_models = tuple(
+        model.model_copy(
+            update={
+                "calculation_revision": "shared-market-context-v13-conditional-turnover",
+                "payload": {**model.payload, "price": None, "relative": None},
+            }
+        )
+        if model.model_id == "market_context" and model.subject == "1001"
+        else model
+        for model in current.models
+    )
+    legacy = current.model_copy(update={"generation_id": "legacy", "models": legacy_models})
+    runs = tmp_path / "runs.sqlite"
+    publish_generation(legacy, path=runs)
+    old_saved = read_research_model_inputs("legacy", targets=("1001",), path=runs)
+    old_bytes = old_saved.model_dump_json()
+    publish_generation(current, path=runs)
+    saved = read_research_model_inputs(current.generation_id, targets=("1001",), path=runs)
+    new_bytes = saved.model_dump_json()
+    assert read_research_model_inputs("legacy", targets=("1001",), path=runs).model_dump_json() == (
+        old_bytes
+    )
+    path.unlink()
+    runs.unlink()
+    for fixed, expected_bytes in ((old_saved, old_bytes), (saved, new_bytes)):
+        assert fixed.model_dump_json() == expected_bytes
+        projected = project_generated_inputs(fixed)["securities"]["1001"]["models"]
+        price = projected["market_context"]["price"]
+        if fixed is old_saved:
+            assert price is None
+            assert projected["market_context"]["relative"] is None
+        else:
+            assert set(price) == {"turnover_activity_20d"}
+            assert price["turnover_activity_20d"]["current_to_prior_mean_ratio"] == 10
 
 
 def test_sma75_fixed_generation_survives_correction_without_legacy_backfill(tmp_path):
