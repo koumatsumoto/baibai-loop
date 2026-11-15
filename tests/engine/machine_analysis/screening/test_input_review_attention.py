@@ -45,7 +45,7 @@ def review(ticker, routes=("a",), *, share_gap=False):
     )
 
 
-def result(rows, *, method="technical-financial-discovery-v8", order=None):
+def result(rows, *, method="technical-financial-discovery-v9", order=None):
     return TechnicalFinancialSelection(
         TechnicalFinancialPolicy(method=method),
         "T",
@@ -188,6 +188,7 @@ def test_brief_explains_only_the_new_input_lane_and_counts_companies_not_routes(
         "technical-financial-discovery-v5",
         "technical-financial-discovery-v6",
         "technical-financial-discovery-v7",
+        "technical-financial-discovery-v8",
     ],
 )
 def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(method):
@@ -202,6 +203,7 @@ def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(
         "technical-financial-discovery-v5",
         "technical-financial-discovery-v6",
         "technical-financial-discovery-v7",
+        "technical-financial-discovery-v8",
     }:
         assert (
             brief["presentation"]["ties"] == "stable_company_hash_then_ticker_not_quality_or_return"

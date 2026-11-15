@@ -49,6 +49,13 @@ _FORECAST_CONTEXT = (
     "forecast_full_year_loss_flag",
     "earnings_forecast_source",
 )
+_CASH_FLOW_CONTEXT = (
+    "cfo",
+    "cfo_source",
+    "ocf_ttm",
+    "ocf_ttm_period",
+    "ttm_quality_ocf_yield",
+)
 type CheckState = Literal["met", "not_met", "unavailable"]
 
 
@@ -195,7 +202,11 @@ def evaluate_financial_growth_gate(
                 {
                     "forecast_context": {
                         key: financial[key] for key in _FORECAST_CONTEXT if key in financial
-                    }
+                    },
+                    # 利益の改善と資金化を同一視せず、原CFの期/不足を初回比較へ残す。
+                    "cash_flow_context": {
+                        key: financial[key] for key in _CASH_FLOW_CONTEXT if key in financial
+                    },
                 }
                 if financial_model is not None
                 else {}
