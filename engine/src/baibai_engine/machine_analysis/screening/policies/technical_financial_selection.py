@@ -66,7 +66,11 @@ def project_technical_financial_row(
         "model_revisions": dict(coordinates.model_revisions),
         "not_generated": list(coordinates.not_generated),
     }
-    if gate["state"] == "not_selected" and not financial_paths["matched_routes"] and input_reviews:
+    if (
+        gate["state"] in {"not_selected", "input_unresolved"}
+        and not financial_paths["matched_routes"]
+        and input_reviews
+    ):
         financial_paths["input_review_reasons"] = cast(list[JsonValue], list(input_reviews))
     # 状態/条件/不足は全社保存する。元の財務観測と価格時系列はGenerationが正本で、
     # 選定contextの明示詳細とResearch保存時に同じsubjectの完全モデルを読む。
@@ -128,7 +132,7 @@ def evaluate_technical_financial_rows(
     rows: Mapping[str, TechnicalFinancialRow],
     policy: TechnicalFinancialPolicy,
 ) -> ScreeningSelection:
-    if policy.method != "technical-financial-discovery-v4":
+    if policy.method != "technical-financial-discovery-v5":
         raise ValueError("historical technical-financial policy is read-only")
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not set(rows).issubset(subjects):

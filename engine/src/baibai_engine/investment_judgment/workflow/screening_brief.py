@@ -31,6 +31,7 @@ def technical_financial_screening_brief(
     lane_local_review = result.policy.method in {
         "technical-financial-discovery-v3",
         "technical-financial-discovery-v4",
+        "technical-financial-discovery-v5",
     }
     hash_page = lane_local_review and lane == "input_review" and page is not None
     mixed_order = lane_local_review and page is None

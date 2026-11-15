@@ -45,7 +45,7 @@ def review(ticker, routes=("a",), *, share_gap=False):
     )
 
 
-def result(rows, *, method="technical-financial-discovery-v4", order=None):
+def result(rows, *, method="technical-financial-discovery-v5", order=None):
     return TechnicalFinancialSelection(
         TechnicalFinancialPolicy(method=method),
         "T",
@@ -184,6 +184,7 @@ def test_brief_explains_only_the_new_input_lane_and_counts_companies_not_routes(
         "technical-financial-discovery-v1",
         "technical-financial-discovery-v2",
         "technical-financial-discovery-v3",
+        "technical-financial-discovery-v4",
     ],
 )
 def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(method):
@@ -192,7 +193,7 @@ def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(
     saved = result(rows, method=method, order=stored_order)
     brief = technical_financial_screening_brief(saved, lane="input_review")
     assert tuple(c["ticker"] for c in brief["cards"]) == stored_order
-    if method == "technical-financial-discovery-v3":
+    if method in {"technical-financial-discovery-v3", "technical-financial-discovery-v4"}:
         assert (
             brief["presentation"]["ties"] == "stable_company_hash_then_ticker_not_quality_or_return"
         )
