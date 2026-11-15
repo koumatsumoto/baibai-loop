@@ -94,6 +94,7 @@ class OperationService:
         payload: OperationPayload,
         ticker: str | None = None,
     ) -> OperationSession:
+        payload.validate_metadata()
         if started_at.utcoffset() is None:
             raise OperationConflictError("started_at must include a UTC offset")
         selection = selection_binding(payload)
@@ -401,6 +402,7 @@ class OperationService:
         checked_at: datetime | None = None,
         expected_payload: OperationPayload | None = None,
     ) -> OperationSession:
+        payload.validate_metadata()
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
