@@ -58,7 +58,16 @@ class S3Client:
 
     def get_object(self, *, Key, **kwargs):
         self.tick("GET")
-        return {"Body": io.BytesIO(self.objects[Key][0])}
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+        body, metadata, content_type, etag = self.objects[Key]
+        return {
+            "Body": io.BytesIO(body),
+            "ETag": etag,
+            "ContentLength": len(body),
+            "Metadata": metadata,
+            "ContentType": content_type,
+        }
 
     def put_object(self, *, Key, Body, Metadata, ContentType, ContentMD5, **kwargs):
         self.tick("PUT")
@@ -152,8 +161,8 @@ def test_acknowledged_put_reduces_round_trips_without_missing_or_duplicate_recei
         runs.append((elapsed, operations, durable, report))
     slow, fast = runs
     # Both modes read the cross-run source quota before any provider request.
-    assert slow[1] == {"HEAD": 7, "PUT": 3}
-    assert fast[1] == {"HEAD": 4, "PUT": 3}
+    assert slow[1] == {"HEAD": 4, "GET": 3, "PUT": 3}
+    assert fast[1] == {"HEAD": 1, "GET": 3, "PUT": 3}
     assert fast[2].result.observations == slow[2].result.observations
     assert slow[0] == pytest.approx(3.5)
     assert fast[0] == pytest.approx(3.2)
@@ -177,7 +186,8 @@ def test_ambiguous_stage_acknowledgement_reads_actual_result(monkeypatch, fault)
             is True
         )
     assert calls == ["7203", "9432"]
-    assert client.calls["GET"] == (0 if fault == "conflict" else 1)
+    # Missing markers now use GET too; the stage readback is still attempted once.
+    assert client.calls["GET"] == 4
 
 
 @pytest.mark.parametrize("fault", ["conflict", "lost_response", "missing_generation"])
