@@ -7,8 +7,15 @@ from collections import Counter
 from copy import deepcopy
 from typing import Any, Literal
 
-from pydantic import TypeAdapter
+from pydantic import JsonValue, TypeAdapter
 
+from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchSelection,
+    GeneratedResearchSelectionV4,
+)
+from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelectionRecord as ResearchSelection,
+)
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     RESEARCH_LANES,
     ResearchLane,
@@ -21,6 +28,44 @@ SCREENING_EXCLUSION_SCOPES: tuple[ScreeningExclusionScope, ...] = (
     "technical_matched",
     "financial_unresolved",
 )
+
+
+def saved_discovery_context(
+    selection: ResearchSelection, *, selection_hash: str
+) -> dict[str, JsonValue] | None:
+    if not isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
+        return None
+    saved = selection.inputs.screening_selection
+    if saved is None or not isinstance(saved.result, TechnicalFinancialSelection):
+        return None
+    result = saved.result
+    rows = {row.ticker: row for row in result.rows}
+    codec = TypeAdapter(TechnicalFinancialRow)
+    # 選定時の支持・不利・欠測を照合する。全社展開や現在政策での再判定はしない。
+    return {
+        "role": "selection_time_discovery_evidence_not_final_judgment",
+        "selection_sha256": selection_hash,
+        "screening_selection_id": selection.inputs.screening_selection_id,
+        "generation_id": saved.generation_id,
+        "generation_as_of": selection.inputs.generation.as_of.isoformat(),
+        "published_at": selection.inputs.screening_published_at.isoformat()
+        if selection.inputs.screening_published_at is not None
+        else None,
+        "research_as_of": selection.research_as_of.isoformat(),
+        "input_known_at": selection.input_known_at.isoformat(),
+        "policy": result.policy.model_dump(mode="json"),
+        "technical_policy_id": result.technical_policy_id,
+        "financial_policy_id": result.financial_policy_id,
+        "rows": [
+            codec.dump_python(rows[target.ticker], mode="json")
+            for target in selection.targets
+            if target.ticker in rows
+        ],
+        "not_in_saved_rows": [
+            target.ticker for target in selection.targets if target.ticker not in rows
+        ],
+        "full_result_ref": "/inputs/screening_selection/result",
+    }
 
 
 def technical_financial_exclusion_diagnostic(
