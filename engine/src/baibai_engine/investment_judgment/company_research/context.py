@@ -38,6 +38,11 @@ class AvailableResearch(_Context):
     record: ResearchRecord
 
 
+class AssessmentValuationContext(_Context):
+    status: Literal["resolved", "unresolved"]
+    unresolved_reason: str | None
+
+
 class AssessmentReviewContext(_Context):
     reviewed_at: AwareDatetime
     primary_source_check: Literal["verified", "partially_verified", "unverified"]
@@ -62,6 +67,10 @@ class AvailableAssessment(_Context):
     findings: ResearchFindings
     # 旧固定 Selection は未記録のまま保持し、現在の評価から補完しない。
     strongest_countercase: NonEmptyStr | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    valuation_context: AssessmentValuationContext | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
 
@@ -150,6 +159,11 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
                 if assessment.independent_review is not None
                 else {}
             ),
+            **(
+                {"valuation_context": _valuation_brief(assessment.valuation_context)}
+                if assessment.valuation_context is not None
+                else {}
+            ),
             "business_understanding": assessment.findings.business_understanding[:400],
             "value_gap_explanation": assessment.findings.value_gap_explanation[:400],
             "value_gap_explanation_truncated": len(assessment.findings.value_gap_explanation) > 400,
@@ -167,6 +181,15 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
     else:
         result["assessment"] = _absence_brief(assessment)
     return result
+
+
+def _valuation_brief(valuation: AssessmentValuationContext) -> dict[str, object]:
+    reason = valuation.unresolved_reason
+    return {
+        "status": valuation.status,
+        "unresolved_reason": reason[:400] if reason is not None else None,
+        "unresolved_reason_truncated": reason is not None and len(reason) > 400,
+    }
 
 
 def _review_brief(
