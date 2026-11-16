@@ -637,7 +637,8 @@ def _validate_parquet(
 def _selected_periods(connection: sqlite3.Connection, dataset: LakeDataset) -> tuple[Period, ...]:
     parts = _period_sql_parts(dataset)
     query = (
-        f"SELECT DISTINCT {', '.join(parts)} FROM {dataset.sqlite_table} "  # nosec B608
+        f"SELECT DISTINCT {', '.join(parts)} "  # nosec B608
+        f"FROM (SELECT DISTINCT {dataset.date_column} FROM {dataset.sqlite_table}) "
         f"ORDER BY {', '.join(str(index) for index in range(1, len(parts) + 1))}"
     )
     return tuple(tuple(int(part) for part in row) for row in connection.execute(query))
