@@ -209,6 +209,7 @@ def technical_financial_screening_brief(
                     "market_relative_benchmark",
                     "turnover_activity_20d",
                     "price_context",
+                    "price_path_60d",
                     "expected_price_date",
                 ),
                 "financial_paths": {
