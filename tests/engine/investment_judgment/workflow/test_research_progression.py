@@ -752,3 +752,38 @@ def test_record_assessment_releases_outer_snapshot_before_progress_writer(case, 
     saved = service.record_assessment(operation.operation_id, reference, now=NOW)
     assert progress_binding(saved.payload).outcomes[0].assessment_ref.assessment_id == reference
     assert selection_binding(saved.payload) == selection_binding(operation.payload)
+
+
+@pytest.mark.parametrize("version", ["legacy", "3", "4"])
+@pytest.mark.parametrize("scope", ["specified_stocks", "review_positions"])
+def test_research_projection_keeps_common_request_and_target_roles(tmp_path, version, scope):
+    from baibai_engine.investment_judgment.workflow.selection import parse_selection
+
+    tickers = ("5678", "1234")
+    if version == "legacy":
+        selected = make_selection(now=NOW, tickers=tickers, scope=scope)
+    else:
+        selected = seed_generated_selection(
+            runs=tmp_path / "runs.sqlite", now=NOW, tickers=tickers, scope=scope
+        )
+        if version == "3":
+            raw = selected.model_dump(mode="json")
+            raw["schema_version"] = 3
+            del raw["inputs"]["saved_company_context"]
+            selected = parse_selection(raw)
+    before = selected.model_dump_json()
+    projected = project_research_inputs(selected)
+    purpose = "holding" if scope == "review_positions" else "new"
+    assert projected["research_targets"] == [
+        {"ticker": ticker, "purpose": purpose} for ticker in tickers
+    ]
+    detail = projected["research_selection"]
+    assert detail == {
+        "request": selected.request.model_dump(mode="json"),
+        "scope": scope,
+        "selection_summary": selected.selection_summary,
+        "targets": [target.model_dump(mode="json") for target in selected.targets],
+    }
+    detail["targets"][0]["rationale"] = "display-only edit"
+    detail["request"]["text"] = "display-only edit"
+    assert selected.model_dump_json() == before

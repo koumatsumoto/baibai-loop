@@ -36,6 +36,17 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
 def project_research_inputs(
     selection: ResearchSelectionRecord, *, company_growth_periods: int | None = 12
 ) -> dict[str, JsonValue]:
+    selection_context: dict[str, JsonValue] = {
+        "research_targets": [
+            target.model_dump(mode="json") for target in selection_targets(selection)
+        ],
+        "research_selection": {
+            "request": selection.request.model_dump(mode="json"),
+            "scope": selection.request.scope,
+            "selection_summary": selection.selection_summary,
+            "targets": [target.model_dump(mode="json") for target in selection.targets],
+        },
+    }
     if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
         return {
             **project_generated_inputs(
@@ -82,15 +93,7 @@ def project_research_inputs(
                     "screening_selection"
                 ]["result"],
             },
-            "research_targets": [
-                target.model_dump(mode="json") for target in selection_targets(selection)
-            ],
-            "research_selection": {
-                "request": selection.request.model_dump(mode="json"),
-                "scope": selection.request.scope,
-                "selection_summary": selection.selection_summary,
-                "targets": [target.model_dump(mode="json") for target in selection.targets],
-            },
+            **selection_context,
         }
     snapshot = selection.inputs.analysis
     securities: dict[str, object] = {}
@@ -147,14 +150,6 @@ def project_research_inputs(
             },
             "market_context": selection.inputs.market_context,
             "securities": securities,
-            "research_targets": [
-                target.model_dump(mode="json") for target in selection_targets(selection)
-            ],
-            "research_selection": {
-                "request": selection.request.model_dump(mode="json"),
-                "scope": selection.request.scope,
-                "selection_summary": selection.selection_summary,
-                "targets": [target.model_dump(mode="json") for target in selection.targets],
-            },
+            **selection_context,
         },
     )
