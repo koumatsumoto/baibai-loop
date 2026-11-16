@@ -1,5 +1,6 @@
 """The value's definition survives the public Reading projection without new fields."""
 
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -39,7 +40,11 @@ def test_definition_and_observation_notes_reach_reading_payload(series_id, state
     def reader(_series, _start, _end):
         if state == "unreadable":
             raise UnavailableObservationError("source unavailable")
-        return (observation,) if state == "observed" else ()
+        return (
+            (replace(observation, observed_at=date(2025, 10, 23)), observation)
+            if state == "observed"
+            else ()
+        )
 
     snapshot = compute_reading(
         series=(definition,),
