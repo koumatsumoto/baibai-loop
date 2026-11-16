@@ -168,31 +168,8 @@ def technical_financial_screening_brief(
     if page is not None and page < 0:
         raise ValueError("screening page must be nonnegative")
     index = {row.ticker: row for row in result.rows}
-    lane_local_review = result.policy.method in {
-        "technical-financial-discovery-v3",
-        "technical-financial-discovery-v4",
-        "technical-financial-discovery-v5",
-        "technical-financial-discovery-v6",
-        "technical-financial-discovery-v7",
-        "technical-financial-discovery-v8",
-        "technical-financial-discovery-v9",
-        "technical-financial-discovery-v10",
-        "technical-financial-discovery-v11",
-        "technical-financial-discovery-v12",
-        "technical-financial-discovery-v13",
-        "technical-financial-discovery-v14",
-        "technical-financial-discovery-v15",
-        "technical-financial-discovery-v16",
-        "technical-financial-discovery-v17",
-    }
-    all_lanes_hash = result.policy.method in {
-        "technical-financial-discovery-v12",
-        "technical-financial-discovery-v13",
-        "technical-financial-discovery-v14",
-        "technical-financial-discovery-v15",
-        "technical-financial-discovery-v16",
-        "technical-financial-discovery-v17",
-    }
+    lane_local_review = result.policy.attention_order != "ticker_code"
+    all_lanes_hash = result.policy.attention_order == "all_lanes_hash"
     hash_order = all_lanes_hash or (
         lane_local_review and lane == "input_review" and page is not None
     )

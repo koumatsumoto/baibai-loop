@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 from hashlib import sha256
+from typing import get_args
 
 import pytest
 from tests.engine.machine_analysis.screening.test_technical_financial import row
@@ -227,3 +228,35 @@ def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(
 def test_input_lane_does_not_promote_rows_without_a_hypothesis():
     outside = replace(review("9999"), screening_lane="no_current_hypothesis")
     assert discovery_display_order((outside, review("1001"))) == ("1001",)
+
+
+@pytest.mark.parametrize(
+    "method", get_args(TechnicalFinancialPolicy.model_fields["method"].annotation)
+)
+def test_policy_owns_saved_attention_order_without_changing_serialization(method):
+    policy = TechnicalFinancialPolicy(method=method)
+    version = int(method.rsplit("v", 1)[1])
+    expected = (
+        "ticker_code" if version < 3 else "input_review_hash" if version < 12 else "all_lanes_hash"
+    )
+    assert policy.attention_order == expected
+    assert policy.model_dump(mode="json") == {"method": policy.method, "page_size": 36}
+    assert "attention_order" not in policy.model_json_schema()["properties"]
+    saved = TechnicalFinancialSelection(policy, "T", "G", (), (), {})
+    for lane in ("growth_research", "input_review", "alternative_financial_research"):
+        brief = technical_financial_screening_brief(saved, lane=lane)
+        hash_order = version >= 12 or (version >= 3 and lane == "input_review")
+        assert brief["presentation"]["ties"] == (
+            "stable_company_hash_then_ticker_not_quality_or_return"
+            if hash_order
+            else "ticker_code_order_not_quality_or_return"
+        )
+        assert ("financial_gate_states" in brief["lanes"]["input_review"]) == (version >= 3)
+    whole = technical_financial_screening_brief(saved, page=None)
+    assert whole["presentation"]["ties"] == (
+        "input_review_company_hash_other_lanes_ticker_code_not_quality_or_return"
+        if 3 <= version < 12
+        else "stable_company_hash_then_ticker_not_quality_or_return"
+        if version >= 12
+        else "ticker_code_order_not_quality_or_return"
+    )
