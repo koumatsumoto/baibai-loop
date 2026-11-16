@@ -52,7 +52,7 @@ asof空欄は元run作成JST日。寄前/場中に完了済み日次が必要な
 
 [通常生成](src/baibai_jobs/integration/models.py)は候補外を含む全対象モデルを保存する。個社投影失敗は新Generationをrollbackして旧世代を保ち、Selection・lakeを発行しない。保存後の政策失敗ではGeneration cacheが残る。容量計測だけの失敗は生成失敗と分けて続行し、未計測を0と扱わない。
 
-既存の全Generation/Selectionを残す実行は、上のdispatchへ`-f preserve_existing_generations=true`を加える。localの`model-integration`では`--preserve-existing-generations`を使う。生成前にrunsの既存IDをread-onlyで固定し、読取不能は空扱いせず停止する。通常のschedule/省略時のcache整理は変わらず、この指定は将来の実行へ継承されない。保持が必要な次回も明示し、単一世代の`.bak`を恒久的な履歴保管と扱わない。
+scheduleは、比較・再開の元になった既存の全Generation/Selectionを毎回保持する。手動dispatchで同じ保持を行う場合は`-f preserve_existing_generations=true`、localの`model-integration`では`--preserve-existing-generations`を指定する。手動の省略/falseは従来のcache整理なので、履歴を保つ本番検証で省略しない。生成前にrunsの既存IDをread-onlyで固定し、読取不能は空扱いせず停止する。既に欠けた旧世代はこの設定では復元されず、単一世代の`.bak`も恒久的な履歴保管ではない。履歴容量の整理は対象と保全を別途確認し、無人のscheduleへ戻して代行させない。
 
 EDINETの意味revisionを明示反映するときは、固定原本の隔離比較後に`edinet_metrics_acceptance`へ[受入owner](src/baibai_jobs/integration/edinet_metric_acceptance.py)のJSON条件を渡せる。明示asofと全世代保持が必須。通常の空欄は変更せず、指定時だけsource-checkと固定list/archive・revision・有限sampleの元原本/保存結果digestをmodel-integration前に照合する。deferred/partial、入力交代、異なる結果では新L2生成とcore公開へ進まない。先行する経済L1公開やplanの不変原本保持は既に起こり得るため、run全体の無書込や全公開の原子性を保証しない。受入条件を現在結果から後付けせず、旧条件のticker/docID/hashを期待値へ書き換えて通さない。新しいselection時計は原本再受領でないためlist/archive identityで比較する。公開後のexact readbackとL3受入は別途必要。
 

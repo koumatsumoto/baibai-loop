@@ -14,7 +14,7 @@ on:
         required: false
         type: string
       preserve_existing_generations:
-        description: "今回の統合で既存の全モデル世代とSelectionを保持する（将来の既定実行には継承されない）"
+        description: "この手動実行で既存の全モデル世代とSelectionを保持する（scheduleは常に保持）"
         required: false
         type: boolean
         default: false
@@ -59,7 +59,7 @@ jobs:
         run: python3 -c "import baibai_jobs.observability.discord"
 
       # Validate untrusted dispatch values before any credential-bearing step.
-      # The scheduled event supplies empty values, which are valid.
+      # Scheduled runs retain the comparison/restart history without manual input.
       - name: Validate dispatch input
         id: validate-input
         env:
@@ -69,6 +69,9 @@ jobs:
           ARTICLE_SEMANTIC_RECOVERY: ${{ inputs.article_semantic_recovery }}
           PYTHONPATH: jobs/src
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == 'schedule' ]]; then
+            PRESERVE_EXISTING_GENERATIONS=true
+          fi
           python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF" --preserve-existing-generations "$PRESERVE_EXISTING_GENERATIONS" --edinet-metrics-acceptance "${EDINET_METRICS_ACCEPTANCE:-}" --article-semantic-recovery "${ARTICLE_SEMANTIC_RECOVERY:-}"
           echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
           echo "preserve_existing_generations=$PRESERVE_EXISTING_GENERATIONS" >> "$GITHUB_OUTPUT"

@@ -204,8 +204,11 @@ def test_batch_outputs_are_finalized_before_failure_without_a_web_artifact(
     }
 
 
+@pytest.mark.parametrize("event", ["schedule", "workflow_dispatch"])
 @pytest.mark.parametrize("value", ["", "false", "true"])
-def test_dispatch_retention_reaches_model_cli_only_when_explicit(tmp_path, workflow, by_id, value):
+def test_retention_reaches_model_cli_for_schedule_or_explicit_dispatch(
+    tmp_path, workflow, by_id, event, value
+):
     declaration = workflow["on"]["workflow_dispatch"]["inputs"]["preserve_existing_generations"]
     assert declaration["type"] == "boolean"
     assert declaration["default"] == "false"
@@ -221,6 +224,7 @@ def test_dispatch_retention_reaches_model_cli_only_when_explicit(tmp_path, workf
         **os.environ,
         "MANUAL_ASOF": "",
         "PRESERVE_EXISTING_GENERATIONS": value,
+        "GITHUB_EVENT_NAME": event,
         "PYTHONPATH": str(ROOT / "jobs/src"),
         "GITHUB_OUTPUT": str(output),
     }
@@ -232,7 +236,8 @@ def test_dispatch_retention_reaches_model_cli_only_when_explicit(tmp_path, workf
     )
     assert validated.returncode == 0, validated.stderr
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-    assert values == {"asof": "", "preserve_existing_generations": value}
+    expected = "true" if event == "schedule" else value
+    assert values == {"asof": "", "preserve_existing_generations": expected}
     binary = tmp_path / "bin"
     binary.mkdir()
     uv = binary / "uv"
@@ -253,7 +258,7 @@ def test_dispatch_retention_reaches_model_cli_only_when_explicit(tmp_path, workf
     assert batch.returncode == 0, batch.stderr
     args = (tmp_path / "arguments").read_text().splitlines()
     assert args[:3] == ["run", "baibai-jobs", "model-integration"]
-    assert args.count("--preserve-existing-generations") == (1 if value == "true" else 0)
+    assert args.count("--preserve-existing-generations") == (1 if expected == "true" else 0)
 
 
 def test_invalid_retention_never_emits_workflow_outputs(tmp_path, steps, by_id):
@@ -267,6 +272,7 @@ def test_invalid_retention_never_emits_workflow_outputs(tmp_path, steps, by_id):
             **os.environ,
             "MANUAL_ASOF": "",
             "PRESERVE_EXISTING_GENERATIONS": value,
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
             "PYTHONPATH": str(ROOT / "jobs/src"),
             "GITHUB_OUTPUT": str(output),
         },
