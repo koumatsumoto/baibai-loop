@@ -340,8 +340,11 @@ jobs:
             --economic-check-outcome "${{ steps.economic-check.outcome }}" \
             --pull-outcome "${{ steps.pull.outcome }}" \
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
+            --edinet-metrics-acceptance-outcome "${{ steps.edinet-metrics-acceptance.outcome }}" \
+            --article-semantic-recovery-outcome "${{ steps.article-semantic-recovery.outcome }}" \
             --publish-lake-outcome "${{ steps.batch.outcome }}" \
             --upload-stores-outcome "${{ steps.upload-stores.outcome }}" \
+            --article-semantic-readback-outcome "${{ steps.article-semantic-readback.outcome }}" \
             --source-integration-outcome "${{ steps.source-integration.outcome }}" \
             --source-seal-outcome "${{ steps.source-seal.outcome }}" \
             --source-inputs-outcome "$SOURCE_INPUTS_OUTCOME" \
