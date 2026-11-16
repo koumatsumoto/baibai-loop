@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from baibai_engine.investment_judgment.market_assessment.models import StoredAssessment
 from baibai_engine.investment_judgment.market_assessment.query import (
     latest_assessment_from_connection,
 )
@@ -61,6 +62,7 @@ class CurrentProposalPreview:
     warnings: tuple[str, ...]
     portfolio_exposure: dict[str, object]
     records: ProposalRecords
+    market_assessment_context: dict[str, object]
 
     def payload(self) -> dict[str, object]:
         return {
@@ -73,7 +75,30 @@ class CurrentProposalPreview:
             "warnings": list(self.warnings),
             "portfolio_exposure": self.portfolio_exposure,
             "records": self.records,
+            "market_assessment_context": self.market_assessment_context,
         }
+
+
+def _market_assessment_context(
+    record: StoredAssessment | None, *, saved_context_id: str | None, now: datetime
+) -> dict[str, object]:
+    return {
+        "basis": "latest_available_saved_assessment",
+        "context_id": None if record is None else record.context_id,
+        "saved_context_id": saved_context_id,
+        "same_reference": None if record is None else record.context_id == saved_context_id,
+        "as_of": None if record is None else record.as_of.isoformat(),
+        "known_at": None if record is None else record.document.get("known_at"),
+        "published_at": None if record is None else record.published_at.isoformat(),
+        "age_as_of_days": (
+            None if record is None else (now.astimezone(JST).date() - record.as_of).days
+        ),
+        "interpretation": (
+            "現在利用可能な保存済み市場判断の参照です。経過日は基準日からの日本時間の暦日数で、"
+            "情報締切からの経過時間ではありません。参照が同じでも新事実を再確認した証拠ではなく、"
+            "このpreviewは市場判断を更新しません。"
+        ),
+    }
 
 
 def _preview_buy(
@@ -430,4 +455,7 @@ def preview_current_terms(
             warnings.warnings,
             warnings.portfolio_exposure.model_dump(mode="json"),
             records,
+            _market_assessment_context(
+                current_market, saved_context_id=proposal.market_context_assessment_id, now=now
+            ),
         )
