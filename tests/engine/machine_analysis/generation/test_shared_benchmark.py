@@ -70,7 +70,7 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
     result = generate(path)
     shared = result.result("market_context", "market")
     benchmark = shared.payload["benchmark_trend"]
-    assert shared.calculation_revision == "shared-market-context-v15-down-own-direction-turnover"
+    assert shared.calculation_revision == "shared-market-context-v16-calendar-volatility"
     if not benchmark_count:
         assert benchmark is None
     else:
@@ -575,3 +575,69 @@ def test_short_recovery_generation_keeps_policy_and_legacy_detached_inputs(tmp_p
         ]
         assert projected == model.payload
     assert [item.model_dump_json() for item in saved] == encoded
+
+
+def test_calendar_volatility_is_fixed_and_v15_is_not_recomputed_on_detached_read(tmp_path):
+    path, dates = activity_source(tmp_path)
+    complete = generate(path, identity="complete", tickers=("1001",))
+    complete_price = complete.result("market_context", "1001").payload["price"]
+    assert complete_price["realized_vol_20d"] > 0
+    assert complete_price["realized_vol_20d_context"]["window_start_date"] == dates[-21].isoformat()
+    assert complete_price["realized_vol_20d_context"]["valid_close_count"] == 21
+    # Twenty observed returns still exist, but one common session has no close.
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET close=NULL WHERE ticker='1001' AND traded_at=?",
+            (dates[-2].isoformat(),),
+        )
+    current = generate(path, identity="current", tickers=("1001",))
+    price = current.result("market_context", "1001").payload["price"]
+    assert price["realized_vol_20d"] is None
+    assert price["realized_vol_20d_context"]["unavailable_reason"] == "incomplete_close_window"
+    assert price["realized_vol_20d_context"]["valid_close_count"] == 20
+    assert price["return_20d"] == 0.0
+    legacy_models = []
+    for model in current.models:
+        if model.model_id == "market_context":
+            payload = deepcopy(model.payload)
+            if model.subject == "1001":
+                payload["price"].pop("realized_vol_20d_context")
+                payload["price"]["realized_vol_20d"] = 0.123
+            model = model.model_copy(
+                update={
+                    "payload": payload,
+                    "calculation_revision": "shared-market-context-v15-down-own-direction-turnover",
+                }
+            )
+        legacy_models.append(model)
+    legacy = current.model_copy(update={"generation_id": "v15", "models": tuple(legacy_models)})
+    runs = tmp_path / "runs.sqlite"
+    fixed = []
+    for result in (complete, current, legacy):
+        publish_generation(result, path=runs)
+        assert read_generation(result.generation_id, path=runs) == result
+        fixed.append(read_research_model_inputs(result.generation_id, targets=("1001",), path=runs))
+    encoded = [item.model_dump_json() for item in fixed]
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=100 WHERE ticker='1001'")
+    correction = generate(path, identity="corrected", tickers=("1001",))
+    assert correction.result("market_context", "1001").payload["price"]["realized_vol_20d"] == 0.0
+    publish_generation(correction, path=runs)
+    for item, before in zip(fixed, encoded, strict=True):
+        assert (
+            read_research_model_inputs(
+                item.generation_id, targets=("1001",), path=runs
+            ).model_dump_json()
+            == before
+        )
+    path.unlink()
+    runs.unlink()
+    shown = [
+        project_generated_inputs(item)["securities"]["1001"]["models"]["market_context"]["price"]
+        for item in fixed
+    ]
+    assert shown[0] == complete_price
+    assert shown[1] == price
+    assert shown[2]["realized_vol_20d"] == 0.123
+    assert "realized_vol_20d_context" not in shown[2]
+    assert [item.model_dump_json() for item in fixed] == encoded

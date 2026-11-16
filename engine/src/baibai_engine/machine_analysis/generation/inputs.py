@@ -295,6 +295,7 @@ def read_and_generate_models(
         self_range_window_bars=SELF_RANGE_WINDOW_BARS,
         prepared=prepared,
         price_bars_by_ticker=prices,
+        calendar=path_calendar,
     )
     # The legacy prepared benchmark is intentionally shorter. Reuse the already
     # read full adjusted series for long-path endpoints without changing old MC.
@@ -441,7 +442,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-v15-down-own-direction-turnover",
+        market_context_revision="shared-market-context-v16-calendar-volatility",
         growth_start=growth_start,
         trends=trends,
     )

@@ -16,6 +16,7 @@ from baibai_engine.machine_analysis.models.market_context.snapshot import (
     calculate_market_snapshot,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
 
 DAY = date(2026, 11, 2)
 DAYS = tuple(DAY - timedelta(days=20 - index) for index in range(21))
@@ -42,6 +43,7 @@ def test_individual_market_keeps_invalid_latest_date_and_independent_peer(invali
     result = calculate_security_market_context(
         ticker="1301",
         bars=bars,
+        calendar=price_calendar(dict.fromkeys(DAYS, True), as_of=DAY),
         master=master,
         benchmark_ticker="1321",
         benchmark_prices=dict.fromkeys(DAYS, 100.0),
@@ -69,6 +71,7 @@ def test_invalid_interior_price_does_not_cancel_independent_endpoint_return():
     result = calculate_security_market_context(
         ticker="1301",
         bars=bars,
+        calendar=price_calendar(dict.fromkeys(DAYS, True), as_of=DAY),
         master=None,
         benchmark_ticker="1321",
         benchmark_prices=dict.fromkeys(DAYS, 100.0),
@@ -117,6 +120,7 @@ def test_turnover_average_counts_only_finite_nonnegative_observations(
     result = calculate_security_market_context(
         ticker="1301",
         bars=bars,
+        calendar=price_calendar(dict.fromkeys(DAYS, True), as_of=DAY),
         master=None,
         benchmark_ticker="1321",
         benchmark_prices=dict.fromkeys(DAYS, 100.0),
@@ -149,6 +153,7 @@ def test_turnover_window_keeps_sparse_dates_and_outlier_separate_from_median(bar
     price = calculate_security_market_context(
         ticker="1301",
         bars=bars,
+        calendar=price_calendar(dict.fromkeys(DAYS, True), as_of=DAY),
         master=None,
         benchmark_ticker="1321",
         benchmark_prices={},

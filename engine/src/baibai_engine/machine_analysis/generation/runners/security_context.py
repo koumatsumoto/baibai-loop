@@ -17,6 +17,7 @@ from baibai_engine.machine_analysis.models.market_context.snapshot import (
     SECURITY_LOOKBACK_CALENDAR_DAYS,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_observation import PriceCalendar
 
 # 現行個別市場観測の窓。旧較正の倍率履歴とは別の入力政策として保持する。
 SELF_RANGE_WINDOW_BARS = 750
@@ -31,12 +32,14 @@ def build_security_market_contexts(
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
     prepared: PreparedMarketContext,
     price_bars_by_ticker: Mapping[str, Sequence[PriceBar]],
+    calendar: PriceCalendar,
 ) -> dict[str, dict[str, object]]:
     """同じ生成で固定したmaster・共有価格だけから個別状態を返す。"""
     if (
         prepared.sqlite_path != sqlite_path.resolve()
         or prepared.asof_date != asof_date
         or prepared.benchmark_ticker != benchmark_ticker
+        or calendar.as_of != asof_date
     ):
         raise ValueError("prepared market context does not match the requested scope")
     start = asof_date - timedelta(days=SECURITY_LOOKBACK_CALENDAR_DAYS)
@@ -56,6 +59,7 @@ def build_security_market_contexts(
             ticker=ticker,
             bars=bars,
             master=prepared.master,
+            calendar=calendar,
             benchmark_ticker=benchmark_ticker,
             benchmark_prices=benchmark_prices,
             peer_prices=peer_prices,
