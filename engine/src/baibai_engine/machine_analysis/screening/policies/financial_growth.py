@@ -228,6 +228,11 @@ def evaluate_financial_growth_gate(
                 "coverage": projected.get("growth_coverage"),
             },
             "financial_context": {key: financial.get(key) for key in _FINANCIAL_CONTEXT},
+            **(
+                {"reported_balance_context": financial["edinet_reported_balances"]}
+                if "edinet_reported_balances" in financial
+                else {}
+            ),
             # 成長/回復の実績とは別の会社予想。未記録やscopeの未確定を補完しない。
             **(
                 {

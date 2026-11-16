@@ -182,12 +182,14 @@ def technical_financial_screening_brief(
         "technical-financial-discovery-v13",
         "technical-financial-discovery-v14",
         "technical-financial-discovery-v15",
+        "technical-financial-discovery-v16",
     }
     all_lanes_hash = result.policy.method in {
         "technical-financial-discovery-v12",
         "technical-financial-discovery-v13",
         "technical-financial-discovery-v14",
         "technical-financial-discovery-v15",
+        "technical-financial-discovery-v16",
     }
     hash_order = all_lanes_hash or (
         lane_local_review and lane == "input_review" and page is not None
@@ -246,6 +248,7 @@ def technical_financial_screening_brief(
                     "observation_period_context",
                     "quarter_growth_context",
                     "income_attribution_context",
+                    "reported_balance_context",
                 ),
             }
         )

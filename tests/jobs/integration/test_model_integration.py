@@ -161,7 +161,7 @@ def integration(tmp_path, monkeypatch):
     def publish(received, *, store, before_pointer_switch):
         assert received is prepared
         assert read_publication(path=tmp_path / "runs").selection_id == (
-            "selection-models-new-release-technical-financial-discovery-v15"
+            "selection-models-new-release-technical-financial-discovery-v16"
         )
         before_pointer_switch()
         events.append("publish")
@@ -199,8 +199,8 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     assert result["models_ready"] is True
     publication = read_publication(path=arguments["runs"])
     assert read_publication(path=arguments["runs"]).selection_id == result["selection_id"]
-    assert publication.selection.result.policy.method == "technical-financial-discovery-v15"
-    assert result["selection_method"] == "technical-financial-discovery-v15"
+    assert publication.selection.result.policy.method == "technical-financial-discovery-v16"
+    assert result["selection_method"] == "technical-financial-discovery-v16"
     assert (
         not {"screening_status", "market_updated", "delta_measured", "entered", "exited"}
         & result.keys()
