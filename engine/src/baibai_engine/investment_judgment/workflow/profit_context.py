@@ -14,7 +14,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionV4,
     ResearchSelectionRecord,
 )
-from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, ModelInputSlice
+from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 from baibai_engine.machine_analysis.models.company_financials.earnings import read_earnings_price
 from baibai_engine.machine_analysis.models.company_growth.reading import CompanyGrowthReader
 
@@ -122,19 +122,21 @@ def _comparison(
     }
 
 
-def _row(saved: ModelInputSlice, ticker: str) -> dict[str, JsonValue]:
+def _row(
+    models: dict[tuple[str, str], tuple[int, GeneratedModel]], ticker: str
+) -> dict[str, JsonValue]:
     values: dict[str, JsonValue] = {"ticker": ticker}
     for name, reader in (("company_financials", _financial), ("company_growth", _growth)):
-        model = saved.result(name, ticker)
-        values[name] = (
-            {"status": "not_generated"}
-            if model is None
-            else {
-                **reader(model),
-                "calculation_revision": model.calculation_revision,
-                "full_result_ref": f"/inputs/generation/models/{saved.models.index(model)}/payload",
-            }
-        )
+        found = models.get((name, ticker))
+        if found is None:
+            values[name] = {"status": "not_generated"}
+            continue
+        index, model = found
+        values[name] = {
+            **reader(model),
+            "calculation_revision": model.calculation_revision,
+            "full_result_ref": f"/inputs/generation/models/{index}/payload",
+        }
     values["comparison"] = _comparison(
         _object(values["company_financials"]), _object(values["company_growth"])
     )
@@ -148,6 +150,11 @@ def saved_profit_context(
     if not isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
         return None
     saved = selection.inputs.generation
+    models = {
+        (model.model_id, model.subject): (index, model)
+        for index, model in enumerate(saved.models)
+        if model.model_id in {"company_financials", "company_growth"}
+    }
     return {
         "role": "saved_annual_profit_observations_not_current_valuation",
         "selection_sha256": selection_hash,
@@ -155,5 +162,5 @@ def saved_profit_context(
         "generation_as_of": saved.as_of.isoformat(),
         "evaluation_time": saved.evaluation_time.isoformat(),
         "input_known_at": selection.input_known_at.isoformat(),
-        "rows": [_row(saved, target.ticker) for target in selection.targets],
+        "rows": [_row(models, target.ticker) for target in selection.targets],
     }
