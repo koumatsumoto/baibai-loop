@@ -467,7 +467,6 @@ def _build_period(
 ) -> _BuiltPartition:
     label = "-" + object_label if object_label else ""
     provisional = staging_root / f"{dataset.sqlite_table}-{period_label(period)}{label}.parquet"
-    names = tuple(column.name for column in dataset.columns)
     pk_indexes = _pk_indexes(dataset)
     batch_size = _row_batch_size(dataset)
     iterator = iter(rows)
@@ -493,8 +492,13 @@ def _build_period(
                 {PROJECTION_REVISION_METADATA_KEY: projection_revision.encode()}
             )
         while batch := list(islice(iterator, batch_size)):
-            table = pa.Table.from_pylist(
-                [dict(zip(names, row, strict=True)) for row in batch],
+            table = pa.Table.from_arrays(
+                [
+                    pa.array(values, type=column.arrow_type)
+                    for column, values in zip(
+                        dataset.columns, zip(*batch, strict=True), strict=True
+                    )
+                ],
                 schema=schema,
             )
             writer.write_table(table, row_group_size=batch_size)
