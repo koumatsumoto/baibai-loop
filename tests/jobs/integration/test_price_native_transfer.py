@@ -253,3 +253,68 @@ def test_native_price_paths_use_small_runner_session(tmp_path, monkeypatch, fixe
         assert settings["autoload_known_extensions"] == "false"
         assert settings["autoinstall_known_extensions"] == "false"
         assert not Path(settings["temp_directory"]).exists()
+
+
+@pytest.mark.parametrize("entrypoint", ["model", "rebuild"])
+def test_fixed_head_is_decoded_once_and_stays_local(
+    tmp_path, monkeypatch, fixed_prices, entrypoint
+):
+    from baibai_engine.data_collection.providers.jquants.price_native import HEAD_KEY, FixedPriceL1
+    from baibai_engine.storage.objects.r2 import LakePublishError
+
+    store, fixed = fixed_prices
+    original_value = FixedPriceL1.value
+    original_read = price_native.read_price_requests
+    decoded = []
+    observed = []
+
+    def value(self):
+        result = original_value(self)
+        decoded.append(result)
+        return result
+
+    def read(store, *, scopes, receipts, days):
+        observed.append((scopes, receipts))
+        # The mutable head can move without altering an operation's fixed bytes.
+        store.values[HEAD_KEY].body = b'{"format":"changed"}'
+        return original_read(store, scopes=scopes, receipts=receipts, days=days)
+
+    monkeypatch.setattr(FixedPriceL1, "value", value)
+    monkeypatch.setattr(price_native, "read_price_requests", read)
+    if entrypoint == "model":
+        result = price_native.model_input(
+            store,
+            fixed,
+            as_of=DAY + timedelta(days=3),
+            evaluated_at=AT + timedelta(hours=1),
+            market=market_store(tmp_path / "reuse.sqlite"),
+        )
+        assert result.descriptor["summary"]["failed_days"] == 1
+    else:
+        result = price_native.rebuild(
+            store,
+            fixed,
+            start=DAY,
+            end=DAY + timedelta(days=3),
+            output=tmp_path / "rebuilt",
+        )
+        assert result["rows"] == 4
+        assert result["coverage_status"] == "partial"
+    assert len(decoded) == 1
+    assert len(observed) == 2
+    assert all(
+        scopes is decoded[0]["scopes"] and receipts is decoded[0]["receipts"]
+        for scopes, receipts in observed
+    )
+    # No cross-operation cache: a different invalid snapshot is checked afresh.
+    invalid = json.loads(fixed.payload)
+    invalid["pending"] = {"legacy": True}
+    with pytest.raises(LakePublishError, match="pending"):
+        price_native.rebuild(
+            store,
+            FixedPriceL1(json.dumps(invalid).encode(), "other"),
+            start=DAY,
+            end=DAY,
+            output=tmp_path / "invalid",
+        )
+    assert not (tmp_path / "invalid").exists()

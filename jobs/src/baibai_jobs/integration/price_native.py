@@ -126,7 +126,11 @@ def model_input(
     with lake_session() as session:
         projection = session.connection
         for index, month in enumerate(_months(days)):
-            requests = tuple(fixed.requests(store, days=month))
+            requests = tuple(
+                read_price_requests(
+                    store, scopes=head["scopes"], receipts=head["receipts"], days=month
+                )
+            )
             if any(
                 item.last_received_at is not None and item.last_received_at > evaluated_at
                 for item in requests
@@ -312,7 +316,8 @@ def rebuild(
 ) -> dict[str, Any]:
     """Rebuild an explicit interval directly from exact head bytes, without an execution DB."""
     days = _days(start, end)
-    scopes = fixed.value()["scopes"]
+    head = fixed.value()
+    scopes = head["scopes"]
     output.mkdir(parents=True, exist_ok=False)
     counts: dict[str, Any] = {
         "days": len(days),
@@ -325,7 +330,12 @@ def rebuild(
     with lake_session() as session:
         connection = session.connection
         for index, month in enumerate(_months(days)):
-            results = rebuild_price_days(fixed.requests(store, days=month), days=month)
+            results = rebuild_price_days(
+                read_price_requests(
+                    store, scopes=head["scopes"], receipts=head["receipts"], days=month
+                ),
+                days=month,
+            )
             materialize_price_days(
                 connection, results.values(), l1_coverage_status="partial", append=index > 0
             )
