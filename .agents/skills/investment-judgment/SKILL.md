@@ -62,6 +62,8 @@ uv run baibai-engine investment-judgment shared-context \
   --runs-path stores/screening/runs.sqlite > <PRIVATE_JSON>
 ```
 
+これは指定runsからの追加探索で、applicationに固定した入力の[再開](#完了と再開)とは別である。元runsが不在・不読でも保存Selectionの断面はOperationから読めるが、未選定の共有材料まで保存されたとは限らない。追加探索の失敗を材料なしとせず、別Generationやlatestへ差し替えない。
+
 一覧の続きは同Generationと`--after-subject <NEXT_AFTER_SUBJECT>`、件数は`--limit`で絞る。未記録scope・未生成・部分抽出を空の経済事実にせず、原subject/モデルrevision/時計・母集団・否定/条件・出典を保つ。追加材料は元Selectionを変えずResearch/Assessmentの根拠として扱い、会社への波及と価値仮定は別に検証する。
 
 ### 記事の原文へ戻る
