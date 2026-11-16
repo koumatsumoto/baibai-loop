@@ -4,7 +4,7 @@
 
 ## 観測と根拠
 
-入力・出典は[固定保存](../architecture.md#store-authority)と[時点・欠測](model-observations.md#source-owners)に従う。機械ER/FVは転記せず、価格は未調整1株basis、日次終値に架空時刻を付けない。
+入力・出典は[固定保存](../architecture.md#store-authority)と[時点・欠測](model-observations.md#source-owners)に従う。機械ER/FVは転記せず、価値計算に選ぶ価格は未調整1株basis、日次終値に架空時刻を付けない。分析用の調整後価格は元basisのまま観測として残せるが、価値計算の価格へ選ばず、未調整価格へ言い換えない。
 
 新規Research・Assessmentで時刻付きの価格観測は少なくとも一つの引用取得以前とする。記録整合の検査でprovider時計/価格の真偽を証明せず、保存済みResearch・pairの読取・同内容再送には適用しない。
 
