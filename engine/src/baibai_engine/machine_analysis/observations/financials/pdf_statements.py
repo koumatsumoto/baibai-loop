@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.primitives.time import JST
 
-REVISION = "pdf-restated-display-statements-v4-ifrs-interim"
+REVISION = "pdf-restated-display-statements-v5-period-basis"
 type Metric = Literal["sales", "operating_profit", "parent_profit"]
 _ROWS: dict[Metric, tuple[str, ...]] = {
     "sales": ("売上高", "売上収益"),
@@ -224,14 +224,22 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
                 r"IFRS(?:会計基準)?(?:ベース)?に組(?:み)?替えて(?:比較分析|表示)"
             )
         else:
-            # Native labels establish left prior/right current, not date sorting.
+            period = (
+                "連結会計年度"
+                if current_end == add_months_clamped(current_start, 12) - timedelta(days=1)
+                else "第1四半期連結累計期間"
+            )
+            # Dates alone cannot give another period's column or note authority.
             _require(
-                re.search(r"前(?:第1四半期連結累計期間|連結会計年度)", table) is not None
-                and re.search(r"当(?:第1四半期連結累計期間|連結会計年度)", table) is not None,
+                re.findall(
+                    r"(?:前|当)(?:第1四半期連結累計期間|中間連結会計期間|連結会計年度)",
+                    table,
+                )
+                == [f"前{period}", f"当{period}"],
                 "pdf_column_roles_unsupported",
             )
             basis_pattern = (
-                r"前(?:第1四半期連結累計期間|連結会計年度)の数値についても、"
+                rf"前{period}の数値についても、"
                 r"IFRS(?:会計基準)?ベースに組み替えて比較分析"
             )
         basis = [
