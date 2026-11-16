@@ -201,7 +201,10 @@ def technical_financial_screening_brief(
                 "financial_paths": {
                     "matched_routes": row["financial_paths"]["matched_routes"],
                     **_pick(
-                        row["financial_paths"], "input_review_reasons", "accounting_change_context"
+                        row["financial_paths"],
+                        "input_review_reasons",
+                        "accounting_change_context",
+                        "book_equity",
                     ),
                     **_capital_action_brief(row["financial_paths"]),
                     "coordinates": [

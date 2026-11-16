@@ -66,6 +66,8 @@ def project_technical_financial_row(
         "model_revisions": dict(coordinates.model_revisions),
         "not_generated": list(coordinates.not_generated),
     }
+    # PBRの分母を、別sourceの純資産や現在株数の測定日で補い直さない。
+    financial_paths.update(_pick(_object(coordinates.context.get("financial")), "book_equity"))
     # 元fieldが未記録なら、型の既定空配列を「変更なし」の観測へ昇格しない。
     if any(
         model.model_id == "company_financials"
@@ -171,7 +173,7 @@ def evaluate_technical_financial_rows(
     rows: Mapping[str, TechnicalFinancialRow],
     policy: TechnicalFinancialPolicy,
 ) -> ScreeningSelection:
-    if policy.method != "technical-financial-discovery-v22":
+    if policy.method != "technical-financial-discovery-v23":
         raise ValueError("historical technical-financial policy is read-only")
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not set(rows).issubset(subjects):
