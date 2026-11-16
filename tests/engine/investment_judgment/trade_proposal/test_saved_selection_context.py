@@ -18,6 +18,12 @@ from baibai_engine.investment_judgment.workflow.selection import parse_selection
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 
 START = helper.PREPARED - timedelta(minutes=3)
+REQUEST = (
+    "合成の元依頼：回復候補と現金維持を比べてください。\n"
+    "反証が残る場合は価格待ちと情報待ちを分け、買付を前提にしない。"
+    + "元依頼だけに記された比較上の限定。"
+    * 30
+)
 
 
 def _ledger(app):
@@ -41,10 +47,13 @@ def _ledger(app):
     )
 
 
-def _selected(tmp_path, *, tickers=("1234",)):
-    source = seed_generated_selection(runs=tmp_path / "runs.sqlite", now=START, tickers=tickers)
+def _selected(tmp_path, *, tickers=("1234",), scope="discover_new"):
+    source = seed_generated_selection(
+        runs=tmp_path / "runs.sqlite", now=START, tickers=tickers, scope=scope
+    )
     return source.model_copy(
         update={
+            "request": source.request.model_copy(update={"text": REQUEST}),
             "selection_summary": "合成：合致数でなく、回答が採否を変える問いを優先する。",
             "targets": tuple(
                 item.model_copy(
@@ -78,17 +87,21 @@ def _expected(selected):
         "selection_sha256": selection_sha256(selected),
         "research_as_of": selected.research_as_of.isoformat(),
         "input_known_at": selected.input_known_at.isoformat(),
+        "request": selected.request.model_dump(mode="json"),
         "selection_summary": selected.selection_summary,
         "targets": [item.model_dump(mode="json") for item in selected.targets],
     }
 
 
+@pytest.mark.parametrize("scope", ["discover_new", "specified_stocks"])
 def test_normal_operation_keeps_original_questions_after_source_is_unavailable(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, scope
 ):
     app = tmp_path / "app.sqlite"
     _ledger(app)
-    selected = _selected(tmp_path)
+    selected = _selected(tmp_path, scope=scope)
+    assert REQUEST not in selected.selection_summary
+    assert all(REQUEST not in target.research_question for target in selected.targets)
     operations = OperationService(app, runs_path=tmp_path / "runs.sqlite")
     operation = operations.start(
         session_kind="capital-allocation",
@@ -122,6 +135,9 @@ def test_normal_operation_keeps_original_questions_after_source_is_unavailable(
     assert payload["research_scope"]["selection_sha256"] == selection_sha256(selected)
     assert payload["research_scope"]["outcomes"][0]["status"] == "unfinished"
     assert payload["assessments"] == payload["calculations"] == {}
+    assert payload["saved_selection_context"]["request"]["text"] == REQUEST
+    payload["saved_selection_context"]["request"]["text"] = "返却値だけの別依頼"
+    payload["saved_selection_context"]["request"]["requested_tickers"].append("9999")
     payload["saved_selection_context"]["targets"][0]["research_question"] = "返却値の変更"
     assert context.payload()["saved_selection_context"] == _expected(selected)
     assert selection_binding(operations.get(operation.operation_id).payload) == selected
