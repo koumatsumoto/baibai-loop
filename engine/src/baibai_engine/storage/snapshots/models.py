@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
+from enum import StrEnum
 from hashlib import sha256
 from types import MappingProxyType
 from typing import Annotated, Literal
@@ -531,6 +532,38 @@ def validate_dataset_contract(manifest: DatasetManifest, contract: LakeDataset) 
         raise ValueError("dataset contract version pins its partition layout")
 
 
+class ReleasePolicyReason(StrEnum):
+    PROFILE_MISMATCH = "profile_mismatch"
+    UNKNOWN_POLICY_DATASET = "unknown_policy_dataset"
+    UNKNOWN_RELEASE_DATASET = "unknown_release_dataset"
+    REQUIRED_DATASET_MISSING = "required_dataset_missing"
+    MANIFEST_SET_MISMATCH = "manifest_set_mismatch"
+    HISTORICAL_DATASET_MISSING = "historical_dataset_missing"
+    SOURCE_GENERATION_MISMATCH = "source_generation_mismatch"
+    MANIFEST_IDENTITY_MISMATCH = "manifest_identity_mismatch"
+    MANIFEST_CLOCK_MISMATCH = "manifest_clock_mismatch"
+    DATASET_CONTRACT_MISMATCH = "dataset_contract_mismatch"
+    MANIFEST_DIGEST_MISMATCH = "manifest_digest_mismatch"
+    MANIFEST_INVENTORY_MISMATCH = "manifest_inventory_mismatch"
+    INCOMPLETE_COVERAGE = "incomplete_coverage"
+    HISTORY_FLOOR_MOVED = "history_floor_moved"
+    EMPTY_DATASET = "empty_dataset"
+    POPULATION_MISSING = "population_missing"
+    MANIFEST_BUDGET_EXCEEDED = "manifest_budget_exceeded"
+    OBJECT_BUDGET_EXCEEDED = "object_budget_exceeded"
+
+
+class ReleasePolicyError(ValueError):
+    """Keep detailed errors local; callers may disclose only the code and known dataset."""
+
+    def __init__(
+        self, message: str, *, reason: ReleasePolicyReason, dataset: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.reason = ReleasePolicyReason(reason)
+        self.dataset = dataset
+
+
 def validate_release_policy(
     release: ReleaseManifest,
     manifests: Mapping[str, DatasetManifest],
@@ -545,18 +578,34 @@ def validate_release_policy(
     """
     catalog = freeze_catalog(catalog)
     if release.profile != policy.profile:
-        raise ValueError("release profile differs from the supplied acceptance policy")
+        raise ReleasePolicyError(
+            "release profile differs from the supplied acceptance policy",
+            reason=ReleasePolicyReason.PROFILE_MISMATCH,
+        )
     policy_by_dataset = {item.dataset: item for item in policy.datasets}
     if not policy_by_dataset.keys() <= catalog.keys():
-        raise ValueError("release policy references a dataset missing from its catalog")
+        raise ReleasePolicyError(
+            "release policy references a dataset missing from its catalog",
+            reason=ReleasePolicyReason.UNKNOWN_POLICY_DATASET,
+        )
     unknown = set(release.datasets) - set(policy_by_dataset)
     if unknown:
-        raise ValueError("release contains a dataset outside its profile")
+        raise ReleasePolicyError(
+            "release contains a dataset outside its profile",
+            reason=ReleasePolicyReason.UNKNOWN_RELEASE_DATASET,
+        )
     required = {item.dataset for item in policy.datasets if item.required}
     if not required.issubset(release.datasets):
-        raise ValueError("release is missing a required dataset")
+        raise ReleasePolicyError(
+            "release is missing a required dataset",
+            reason=ReleasePolicyReason.REQUIRED_DATASET_MISSING,
+            dataset=min(required - release.datasets.keys()),
+        )
     if set(manifests) != set(release.datasets):
-        raise ValueError("release validation requires every referenced dataset manifest")
+        raise ReleasePolicyError(
+            "release validation requires every referenced dataset manifest",
+            reason=ReleasePolicyReason.MANIFEST_SET_MISMATCH,
+        )
     for dataset in published_coverage_start or {}:
         dataset_policy = policy_by_dataset.get(dataset)
         if (
@@ -564,7 +613,11 @@ def validate_release_policy(
             and dataset_policy.carries_history
             and dataset not in release.datasets
         ):
-            raise ValueError(f"{dataset}: historical dataset served previously cannot disappear")
+            raise ReleasePolicyError(
+                f"{dataset}: historical dataset served previously cannot disappear",
+                reason=ReleasePolicyReason.HISTORICAL_DATASET_MISSING,
+                dataset=dataset,
+            )
     # Whether these datasets are one picture of the store at all comes before what the
     # picture says.
     validate_source_generations(release, manifests)
@@ -575,13 +628,30 @@ def validate_release_policy(
         manifest = manifests[dataset]
         dataset_policy = policy_by_dataset[dataset]
         if manifest.dataset != dataset:
-            raise ValueError(f"{dataset}: release accepts matching lake dataset manifests only")
+            raise ReleasePolicyError(
+                f"{dataset}: release accepts matching lake dataset manifests only",
+                reason=ReleasePolicyReason.MANIFEST_IDENTITY_MISMATCH,
+                dataset=dataset,
+            )
         if manifest.created_at > release.created_at:
-            raise ValueError(f"{dataset}: release cannot predate a referenced dataset manifest")
-        validate_dataset_contract(manifest, catalog[dataset])
+            raise ReleasePolicyError(
+                f"{dataset}: release cannot predate a referenced dataset manifest",
+                reason=ReleasePolicyReason.MANIFEST_CLOCK_MISMATCH,
+                dataset=dataset,
+            )
+        try:
+            validate_dataset_contract(manifest, catalog[dataset])
+        except ValueError as error:
+            raise ReleasePolicyError(
+                str(error), reason=ReleasePolicyReason.DATASET_CONTRACT_MISMATCH, dataset=dataset
+            ) from error
         manifest_bytes = canonical_lake_model_bytes(manifest)
         if release_dataset.manifest_sha256 != sha256(manifest_bytes).hexdigest():
-            raise ValueError(f"{dataset}: release dataset manifest digest does not match")
+            raise ReleasePolicyError(
+                f"{dataset}: release dataset manifest digest does not match",
+                reason=ReleasePolicyReason.MANIFEST_DIGEST_MISMATCH,
+                dataset=dataset,
+            )
         if (
             release_dataset.build_id != manifest.build_id
             or release_dataset.layer != manifest.layer
@@ -590,7 +660,11 @@ def validate_release_policy(
             or release_dataset.coverage_status != manifest.coverage_status
             or release_dataset.totals != manifest.totals
         ):
-            raise ValueError(f"{dataset}: release dataset inventory does not match its manifest")
+            raise ReleasePolicyError(
+                f"{dataset}: release dataset inventory does not match its manifest",
+                reason=ReleasePolicyReason.MANIFEST_INVENTORY_MISMATCH,
+                dataset=dataset,
+            )
         native_partial = (
             dataset_policy.allow_partial_native_l1
             and manifest.coverage_status == "partial"
@@ -605,9 +679,11 @@ def validate_release_policy(
             and manifest.coverage_status != "complete"
             and not native_partial
         ):
-            raise ValueError(
+            raise ReleasePolicyError(
                 f"{dataset}: coverage is {manifest.coverage_status}, but its profile requires "
-                "complete"
+                "complete",
+                reason=ReleasePolicyReason.INCOMPLETE_COVERAGE,
+                dataset=dataset,
             )
         served_start = (published_coverage_start or {}).get(dataset)
         if (
@@ -615,23 +691,39 @@ def validate_release_policy(
             and served_start is not None
             and manifest.coverage_start > served_start
         ):
-            raise ValueError(
+            raise ReleasePolicyError(
                 f"{dataset}: coverage starts {manifest.coverage_start}, later than the "
                 f"{served_start} the serving release already covers; restore the history "
                 "in the store, or set carries_history=False if this source stopped "
-                "accumulating"
+                "accumulating",
+                reason=ReleasePolicyReason.HISTORY_FLOOR_MOVED,
+                dataset=dataset,
             )
         if manifest.totals.rows == 0:
-            raise ValueError(f"{dataset}: a published dataset must contain observations")
+            raise ReleasePolicyError(
+                f"{dataset}: a published dataset must contain observations",
+                reason=ReleasePolicyReason.EMPTY_DATASET,
+                dataset=dataset,
+            )
         if catalog[dataset].population_column is not None and manifest.population_count is None:
-            raise ValueError(f"{dataset}: does not report the population declared by its contract")
+            raise ReleasePolicyError(
+                f"{dataset}: does not report the population declared by its contract",
+                reason=ReleasePolicyReason.POPULATION_MISSING,
+                dataset=dataset,
+            )
         total_manifest_bytes += len(manifest_bytes)
         total_objects += manifest.totals.objects
 
     if total_manifest_bytes > policy.max_manifest_bytes:
-        raise ValueError("release manifest graph exceeds the profile byte budget")
+        raise ReleasePolicyError(
+            "release manifest graph exceeds the profile byte budget",
+            reason=ReleasePolicyReason.MANIFEST_BUDGET_EXCEEDED,
+        )
     if total_objects > policy.max_objects:
-        raise ValueError("release object inventory exceeds the profile budget")
+        raise ReleasePolicyError(
+            "release object inventory exceeds the profile budget",
+            reason=ReleasePolicyReason.OBJECT_BUDGET_EXCEEDED,
+        )
 
 
 def validate_source_generations(
@@ -647,13 +739,23 @@ def validate_source_generations(
         l1_sources = {source for source in sources if isinstance(source, L1DatasetSourceRef)}
         native_sources = {source for source in sources if isinstance(source, NativeL1SourceRef)}
         if native_sources and (manifest.layer != "l2_processed" or len(native_sources) != 1):
-            raise ValueError("native L2 must reference exactly one fixed selection")
+            raise ReleasePolicyError(
+                "native L2 must reference exactly one fixed selection",
+                reason=ReleasePolicyReason.SOURCE_GENERATION_MISMATCH,
+                dataset=manifest.dataset,
+            )
         if sum(bool(group) for group in (sqlite_sources, l1_sources, native_sources)) > 1:
-            raise ValueError(f"{manifest.dataset} mixes SQLite and L1 source generations")
+            raise ReleasePolicyError(
+                f"{manifest.dataset} mixes SQLite and L1 source generations",
+                reason=ReleasePolicyReason.SOURCE_GENERATION_MISMATCH,
+                dataset=manifest.dataset,
+            )
         if sqlite_sources:
             if len(sqlite_sources) != 1:
-                raise ValueError(
-                    f"{manifest.dataset} must reference exactly one SQLite snapshot generation"
+                raise ReleasePolicyError(
+                    f"{manifest.dataset} must reference exactly one SQLite snapshot generation",
+                    reason=ReleasePolicyReason.SOURCE_GENERATION_MISMATCH,
+                    dataset=manifest.dataset,
                 )
             sqlite_source = next(iter(sqlite_sources))
             seals.add((sqlite_source.source_id, sqlite_source.sha256, sqlite_source.schema_version))
@@ -666,8 +768,13 @@ def validate_source_generations(
                 or target.build_id != source.build_id
                 or target.manifest_sha256 != source.sha256
             ):
-                raise ValueError(
-                    f"{manifest.dataset} does not reference the release's exact L1 dataset"
+                raise ReleasePolicyError(
+                    f"{manifest.dataset} does not reference the release's exact L1 dataset",
+                    reason=ReleasePolicyReason.SOURCE_GENERATION_MISMATCH,
+                    dataset=manifest.dataset,
                 )
     if len(seals) > 1:
-        raise ValueError("lake release datasets must share one SQLite snapshot generation")
+        raise ReleasePolicyError(
+            "lake release datasets must share one SQLite snapshot generation",
+            reason=ReleasePolicyReason.SOURCE_GENERATION_MISMATCH,
+        )
