@@ -48,7 +48,7 @@ def test_first_comparison_and_detached_research_keep_activity_without_backfillin
             model.payload.setdefault("price", {})[FIELD] = deepcopy(ACTIVITY)
     publish_generation(fixed, path=path)
     selected = evaluate_fixed(fixed)
-    assert selected.result.policy.method == "technical-financial-discovery-v24"
+    assert selected.result.policy.method == "technical-financial-discovery-v25"
     if legacy:
         selected = replace(
             selected,
