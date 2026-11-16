@@ -442,9 +442,8 @@ def build_sell_execution_draft(
 ) -> LedgerDraft | None:
     """Record a human-reported sell fill as a source-bound execution draft.
 
-    The sell consumes FIFO cost from current holdings; event replay
-    rejects a quantity above the reconciled holding, a non board-lot quantity,
-    and any confirmed fee or tax that overdraws available cash. Broker fees and
+    The sell consumes FIFO cost from the holding at the reported occurrence;
+    event replay checks quantity consistency and available cash. Broker fees and
     the confirmed capital-gain tax are recorded as their own cost / tax events so
     realized proceeds and cost stay separable in replay. ``decision_reference``
     can retain the reported Trade Proposal reference. A matching
