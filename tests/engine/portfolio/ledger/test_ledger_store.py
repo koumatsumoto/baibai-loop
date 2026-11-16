@@ -292,3 +292,106 @@ def test_ledger_persists_capital_without_a_price_table(tmp_path):
             is None
         )
     assert "market_prices" not in source.model_dump()
+
+
+@pytest.mark.parametrize("indexed_reference", [None, "retained-buy-reference"])
+def test_related_events_follow_retained_payload_with_an_empty_reference_index(
+    tmp_path: Path, indexed_reference: str | None
+) -> None:
+    from baibai_engine.portfolio.ledger.read import related_decision_events
+    from baibai_engine.storage.sqlite.application.read import connect_read_only
+
+    path = tmp_path / "app.sqlite"
+    source = PortfolioLedgerDocument.model_validate(
+        {
+            "schema_version": 3,
+            "portfolio_scope": "repository_only",
+            "as_of": "2026-10-05T18:00:00+09:00",
+            "events": [
+                {
+                    "event_id": "opening",
+                    "type": "opening_balance",
+                    "occurred_at": "2026-10-01T09:00:00+09:00",
+                    "amount_yen": 1_000_000,
+                },
+                {
+                    "event_id": "order",
+                    "type": "reservation",
+                    "occurred_at": "2026-10-01T10:00:00+09:00",
+                    "reservation_id": "saved-reservation",
+                    "order_id": "saved-order",
+                    "ticker": "1234",
+                    "sector": "synthetic",
+                    "decision_reference": "retained-buy-reference",
+                    "quantity": 200,
+                    "price_guard_yen": "1000",
+                },
+                {
+                    "event_id": "fill",
+                    "type": "execution",
+                    "occurred_at": "2026-10-02T10:00:00+09:00",
+                    "execution_id": "saved-fill",
+                    "reservation_id": "saved-reservation",
+                    "ticker": "1234",
+                    "side": "buy",
+                    "quantity": 100,
+                    "price_yen": "900",
+                },
+                {
+                    "event_id": "other-order",
+                    "type": "reservation",
+                    "occurred_at": "2026-10-02T11:00:00+09:00",
+                    "reservation_id": "other-reservation",
+                    "order_id": "other-order",
+                    "ticker": "1234",
+                    "sector": "synthetic",
+                    "decision_reference": "other-reference",
+                    "quantity": 100,
+                    "price_guard_yen": "1000",
+                },
+                {
+                    "event_id": "release",
+                    "type": "release",
+                    "occurred_at": "2026-10-05T10:00:00+09:00",
+                    "reservation_id": "saved-reservation",
+                    "reason": "cancelled",
+                },
+            ],
+        }
+    )
+    seed_ledger(path, source)
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE ledger_event SET decision_reference=? WHERE event_id='order'",
+            (indexed_reference,),
+        )
+    before = path.read_bytes()
+    assert LedgerStoreService(path).load() == source
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        arguments = {
+            "reference": "retained-buy-reference",
+            "ticker": "1234",
+            "append_head": len(source.events),
+            "as_of": source.as_of.date(),
+        }
+        assert related_decision_events(connection, **arguments) == (
+            source.events[1],
+            source.events[2],
+            source.events[4],
+        )
+        for limits in (
+            {"append_head": 3},
+            {"as_of": source.events[2].occurred_at.date()},
+        ):
+            assert related_decision_events(connection, **(arguments | limits)) == (
+                source.events[1],
+                source.events[2],
+            )
+        assert (
+            related_decision_events(
+                connection, **(arguments | {"reference": "unrecorded-reference"})
+            )
+            == ()
+        )
+    assert path.read_bytes() == before

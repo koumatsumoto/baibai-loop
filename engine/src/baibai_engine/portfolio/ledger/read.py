@@ -142,6 +142,7 @@ def related_decision_events(
     as_of: date,
 ) -> tuple[LedgerEvent, ...]:
     """明示参照の注文/約定とreservation連鎖だけ。同tickerやrelease単独から広げない。"""
+    # 保持旧行は参照indexがNULLでもpayloadに参照を持つため、本文から辿る。
     events = tuple(
         event
         for event in load_ledger_events(connection, append_head=append_head)
