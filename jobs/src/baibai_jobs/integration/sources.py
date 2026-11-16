@@ -9,6 +9,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -76,6 +77,13 @@ from baibai_jobs.publication.tradingview_verification import (
 from baibai_jobs.publication.tradingview_verification import (
     verify_publication as verify_tradingview_publication,
 )
+
+
+def _plan_progress(phase: str, started: float | None = None) -> float:
+    now = time.perf_counter()
+    state = "start" if started is None else f"done elapsed_seconds={now - started:.3f}"
+    print(f"source plan: phase={phase} state={state}", file=sys.stderr, flush=True)
+    return now
 
 
 def fix_edinet_input(store: ObjectStore, directory: Path) -> InputSnapshot:
@@ -499,13 +507,18 @@ def main(argv: list[str] | None = None) -> int:
                 external: list[dict[str, str]] = []
                 failed: list[dict[str, str]] = []
             else:
+                started = _plan_progress("external_ready")
                 external, failed = available_ready(store)
+                _plan_progress("external_ready", started)
+                started = _plan_progress("market_handoffs")
+                market_handoffs = available_handoffs(store, market=True)
+                _plan_progress("market_handoffs", started)
+                started = _plan_progress("article_handoffs")
+                article_handoffs = pending_handoffs(store)
+                _plan_progress("article_handoffs", started)
                 handoffs = [
                     entry
-                    for entry in [
-                        *available_handoffs(store, market=True),
-                        *pending_handoffs(store),
-                    ]
+                    for entry in [*market_handoffs, *article_handoffs]
                     if entry.get("source")
                     not in {
                         "jquants-financial",
@@ -514,7 +527,9 @@ def main(argv: list[str] | None = None) -> int:
                         "edinet-facts",
                     }
                 ]
+            started = _plan_progress("edinet_input")
             edinet_input = fix_edinet_input(store, directory).model_dump(mode="json")
+            _plan_progress("edinet_input", started)
             write_json_atomic(
                 directory / "plan.json",
                 {
