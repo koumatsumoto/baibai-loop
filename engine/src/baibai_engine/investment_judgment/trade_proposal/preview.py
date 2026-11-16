@@ -9,6 +9,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from baibai_engine.investment_judgment.market_assessment.query import (
+    latest_assessment_from_connection,
+)
 from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
 from baibai_engine.investment_judgment.stock_assessment.store import (
     ReviewedAssessment,
@@ -239,6 +242,27 @@ def preview_current_terms(
             market_connection=market_connection,
         )
         changes: list[GateReason] = []
+        current_market = latest_assessment_from_connection(
+            connection, as_of=now.astimezone(JST).date(), known_at=now
+        )
+        if (
+            current_market is not None
+            and current_market.context_id != proposal.market_context_assessment_id
+        ):
+            changes.append(
+                GateReason(
+                    code="market_assessment_revision_changed",
+                    message=(
+                        "固定参照と現在利用可能な市場判断が異なります。"
+                        f"保存参照={proposal.market_context_assessment_id or '未記録'}、"
+                        f"現在参照={current_market.context_id}、基準日={current_market.as_of}、"
+                        f"情報締切={current_market.document.get('known_at') or '未記録'}、"
+                        f"発行={current_market.published_at.isoformat()}。"
+                        "経済変化や個社への影響を認定するものではありません。"
+                        "保存した行動・価値・価格条件は差し替えず、重要な伝達条件を再確認してください。"
+                    ),
+                )
+            )
         baseline = proposal_inputs_fingerprint(proposal.inputs)
         if baseline != proposal_inputs_fingerprint(inputs):
             for field in type(inputs).model_fields:
