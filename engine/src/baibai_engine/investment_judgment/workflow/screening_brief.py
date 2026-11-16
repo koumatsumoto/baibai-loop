@@ -180,10 +180,12 @@ def technical_financial_screening_brief(
         "technical-financial-discovery-v11",
         "technical-financial-discovery-v12",
         "technical-financial-discovery-v13",
+        "technical-financial-discovery-v14",
     }
     all_lanes_hash = result.policy.method in {
         "technical-financial-discovery-v12",
         "technical-financial-discovery-v13",
+        "technical-financial-discovery-v14",
     }
     hash_order = all_lanes_hash or (
         lane_local_review and lane == "input_review" and page is not None
@@ -239,6 +241,7 @@ def technical_financial_screening_brief(
                     "forecast_context",
                     "cash_flow_context",
                     "observation_period_context",
+                    "quarter_growth_context",
                 ),
             }
         )

@@ -178,6 +178,17 @@ def evaluate_financial_growth_gate(
             "matched_routes": list(matched),
             "routes": dict(routes),
             "checks": dict(checks),
+            "quarter_growth_context": {
+                "comparison_basis": projected.get("growth_comparison_basis"),
+                "metric_units": {
+                    key: value
+                    for key, value in _object(
+                        growth_model.payload.get("metric_units") if growth_model else None
+                    ).items()
+                    if key in changes
+                },
+                "changes": changes,
+            },
             "observation_period_context": {
                 "read_semantics": "saved_measurement_and_source_dates_not_point_in_time",
                 "annual_variant": "full_fy" if uses_fy else "annual_ttm",
