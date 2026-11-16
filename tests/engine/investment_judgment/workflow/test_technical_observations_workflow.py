@@ -42,7 +42,7 @@ def test_initial_card_to_detached_research_preserves_recorded_or_old_absent_obse
     fixed, selected, _ = seed(path)
     models = tuple(model for model in fixed.models if model.subject == "1234")
     expected = evaluate_technical_strategy("1234", models=models, metadata=fixed)["observations"]
-    assert selected.result.policy.method == "technical-financial-discovery-v17"
+    assert selected.result.policy.method == "technical-financial-discovery-v18"
     if legacy:
         selected = replace(
             selected,
