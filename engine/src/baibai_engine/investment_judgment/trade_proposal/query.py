@@ -26,6 +26,9 @@ from baibai_engine.investment_judgment.workflow.selection import (
     selection_from_artifacts,
     selection_sha256,
 )
+from baibai_engine.investment_judgment.workflow.selection_evidence import (
+    read_selection_evidence_from_connection,
+)
 
 
 def has_published_proposal_for_operation(connection: sqlite3.Connection, operation_id: str) -> bool:
@@ -238,9 +241,28 @@ def saved_proposal_market_context(
         return {**result, "reason": "selection_unreadable"}
     if selection is None:
         return {**result, "reason": "selection_not_recorded"}
-    if selection_sha256(selection) != scope.selection_sha256:
-        return {**result, "reason": "selection_hash_mismatch"}
-    assessment = saved_market_assessment(selection)
+    if selection_sha256(selection) == scope.selection_sha256:
+        assessment = saved_market_assessment(selection)
+    else:
+        try:
+            evidence = read_selection_evidence_from_connection(
+                connection,
+                operation_id=scope.operation_id,
+                sha256=scope.selection_sha256,
+                proposal_id=proposal.proposal_id,
+            )
+            # Only quote the saved market fragment; old model IDs/order remain opaque.
+            original = json.loads(evidence["canonical_json"])
+            if (
+                evidence["role"] != "as_published"
+                or not isinstance(original, dict)
+                or original.get("schema_version") not in (3, 4)
+                or not isinstance(original.get("inputs"), dict)
+            ):
+                raise ValueError("unreadable published selection")
+            assessment = original["inputs"].get("saved_market_context_assessment")
+        except (ValueError, TypeError, KeyError):
+            return {**result, "reason": "selection_hash_mismatch"}
     if assessment is None and proposal.market_context_assessment_id is None:
         return {**result, "status": "not_recorded"}
     if (
