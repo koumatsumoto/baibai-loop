@@ -346,11 +346,6 @@ def test_normal_job_publishes_all_t_g_states_without_old_economic_ranking(
             metadata, tickers, iter(sorted(fixed.models, key=lambda model: model.subject))
         ),
     )
-    import baibai_engine.machine_analysis.screening.policies.economic_paths as old
-
-    monkeypatch.setattr(
-        old, "select_economic_paths", lambda *args, **kwargs: pytest.fail("old rank used")
-    )
     result = job.integrate_models(**arguments)
     publication = read_publication(path=arguments["runs"])
     selected = publication.selection.result

@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from pydantic import TypeAdapter
 from tests.helpers.model_generation import materialize_generation, publish_generation
+from tests.helpers.retained_economic_selection import ranked_path_fixture, retained_economic_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
@@ -19,15 +20,11 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies import economic_path_inputs
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
-from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
-    evaluate_economic_coordinates,
-)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    EconomicPathPolicy,
     EconomicPathSelection,
-    select_economic_paths,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
@@ -124,11 +121,8 @@ def test_missing_ttm_uses_same_complete_fy_and_preserves_short_history_compariso
     fixed = generation(documents())
     path = tmp_path / "runs.sqlite"
     publish_generation(fixed, path=path)
-    selected = evaluate_economic_coordinates(
-        fixed, tickers=("1001",), coordinates={"1001": project(fixed)}, policy=EconomicPathPolicy()
-    ).selection
-    card = selected.result.cards[0]
-    paths = {item.path_id: item for item in card.paths}
+    card = project(fixed)
+    paths = {item.path_id: item for item in card.paths if item.eligible}
     assert set(paths) == {"earning_power", "business_expansion", "operating_recovery"}
     assert all(item.variant == "full_fy" for item in paths.values())
     income = paths["earning_power"]
@@ -146,6 +140,18 @@ def test_missing_ttm_uses_same_complete_fy_and_preserves_short_history_compariso
     assert card.context["annual_observation"]["latest_ttm_period_status"] == (
         "matching_period_not_observed"
     )
+    result = retained_economic_result(context=card.context)
+    result = replace(
+        result,
+        cards=(
+            replace(
+                result.cards[0],
+                ticker="1001",
+                paths=tuple(ranked_path_fixture(item) for item in paths.values()),
+            ),
+        ),
+    )
+    selected = ScreeningSelection(fixed.generation_id, ("1001",), result)
     brief = economic_screening_brief(
         TypeAdapter(EconomicPathSelection).dump_python(selected.result, mode="json")
     )
@@ -399,7 +405,16 @@ def test_new_fy_income_veto_uses_disclosure_cutoff_but_keeps_retrospective_conte
     assert active(result, "business_expansion").variant == "full_fy"
     assert active(result, "operating_recovery").variant == "full_fy"
 
-    selection = select_economic_paths((result,), policy=EconomicPathPolicy())
+    selection = retained_economic_result(context=result.context)
+    selection = replace(
+        selection,
+        cards=(
+            replace(
+                selection.cards[0],
+                paths=tuple(ranked_path_fixture(item) for item in result.paths if item.eligible),
+            ),
+        ),
+    )
     saved = TypeAdapter(EconomicPathSelection).dump_python(selection, mode="json")
     original = deepcopy(saved)
     card = economic_screening_brief(saved)["cards"][0]
@@ -462,14 +477,6 @@ def test_quarter_and_ttm_keep_retrospective_corrections_without_a_disclosure_cut
     assert canonical_json(fixed.model_dump(mode="json")) == saved
 
 
-def test_fy_reference_populations_include_companies_that_select_ttm():
-    fallback = project(generation(documents()))
-    ttm = replace(project(generation(documents(prior_quarter=True))), ticker="1002")
-    selection = select_economic_paths((fallback, ttm), policy=EconomicPathPolicy())
-    card = next(card for card in selection.cards if card.ticker == "1001")
-    assert all(path.price_population == 2 and path.business_population == 2 for path in card.paths)
-
-
 def test_legacy_growth_does_not_gain_an_inferred_interval_status():
     def update(payload):
         payload["calculation_method"] = "company_growth_retrospective_v3"
@@ -486,7 +493,7 @@ def test_legacy_growth_does_not_gain_an_inferred_interval_status():
 
 
 @pytest.mark.parametrize("corrected_index", [0, 1])
-def test_future_fy_correction_is_context_not_a_coordinate_or_reference_vote(corrected_index):
+def test_future_fy_correction_is_context_not_a_coordinate(corrected_index):
     rows = documents()
     correction = replace(
         rows[corrected_index],
@@ -497,7 +504,6 @@ def test_future_fy_correction_is_context_not_a_coordinate_or_reference_vote(corr
         profit=900000.0,
     )
     future = project(generation([*rows, correction]))
-    known = replace(project(generation(rows)), ticker="1002")
     fy_paths = [path for path in future.paths if path.variant == "full_fy"]
     if corrected_index == 1:
         assert all(path.price_value is None and path.business_value is None for path in fy_paths)
@@ -510,20 +516,10 @@ def test_future_fy_correction_is_context_not_a_coordinate_or_reference_vote(corr
         assert active(future, "earning_power") is not None  # This year's source is still known.
         assert active(future, "business_expansion") is None
         assert active(future, "operating_recovery") is None
-    selection = select_economic_paths((future, known), policy=EconomicPathPolicy())
-    card = next(card for card in selection.cards if card.ticker == "1002")
-    paths = {path.path_id: path for path in card.paths}
-    assert paths["business_expansion"].business_population == 1
-    assert paths["operating_recovery"].price_population == 1
-    assert paths["operating_recovery"].business_population == 1
-    if corrected_index == 1:
-        assert all(
-            path.price_population == 1 and path.business_population == 1 for path in card.paths
-        )
 
 
 @pytest.mark.parametrize("future_profit", [True, False])
-def test_future_fy_source_removes_only_its_axis_not_the_independent_reference(future_profit):
+def test_future_fy_source_removes_only_its_axis_not_the_independent_coordinate(future_profit):
     rows = documents()
     correction = replace(
         rows[1],
@@ -542,9 +538,3 @@ def test_future_fy_source_removes_only_its_axis_not_the_independent_reference(fu
     assert (income.price_value is None) == future_profit
     assert (income.business_value is None) != future_profit
     assert not income.eligible
-    known = replace(project(generation(rows)), ticker="1002")
-    selection = select_economic_paths((future, known), policy=EconomicPathPolicy())
-    card = next(card for card in selection.cards if card.ticker == "1002")
-    income = next(path for path in card.paths if path.path_id == "earning_power")
-    assert income.price_population == (1 if future_profit else 2)
-    assert income.business_population == (2 if future_profit else 1)

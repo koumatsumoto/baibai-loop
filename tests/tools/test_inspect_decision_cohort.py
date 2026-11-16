@@ -4,6 +4,7 @@ import json
 import socket
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import timedelta
 from hashlib import sha256
 
@@ -13,6 +14,7 @@ from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.operation_proposal import PUBLISHED, proposal_for, seed_proposal
 from tests.helpers.research_selection import historical_operation, selection
+from tests.helpers.retained_economic_selection import ranked_path_fixture, retained_economic_result
 from tools.experiments.inspect_decision_cohort import inspect_decision_cohort, main
 
 from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
@@ -21,10 +23,8 @@ from baibai_engine.investment_judgment.workflow.operation.service import Operati
 from baibai_engine.investment_judgment.workflow.selection import GeneratedResearchSelectionV4
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    CompanyCoordinates,
     EconomicPathPolicy,
     PathCoordinates,
-    select_economic_paths,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -51,24 +51,46 @@ def _start(tmp_path, tickers=("1234", "5678"), *, screening_result=None):
     db, runs = tmp_path / "app.sqlite", tmp_path / "runs.sqlite"
     initialize_database(db)
     universe = ("1234", "5678", "9012", "3456")
-    result = select_economic_paths(
-        [
-            CompanyCoordinates(
+    saved = retained_economic_result(context={})
+    result = replace(
+        saved,
+        policy=EconomicPathPolicy(candidate_limit=3),
+        eligible_count=4,
+        cards=tuple(
+            replace(
+                saved.cards[0],
                 ticker=ticker,
                 name="合成企業",
                 sector="合成業種",
-                paths=(
-                    PathCoordinates(
-                        "earning_power", "synthetic", value, value, "price", "business", True, {}
-                    ),
-                ),
-                context={},
+                rank=rank,
+                priority=percentile,
+                strongest_path="earning_power",
                 model_revisions={},
                 not_generated=(),
+                paths=(
+                    ranked_path_fixture(
+                        PathCoordinates(
+                            "earning_power",
+                            "synthetic",
+                            value,
+                            value,
+                            "price",
+                            "business",
+                            True,
+                            {},
+                        ),
+                        percentile=percentile,
+                        population=4,
+                        midrank=float(rank),
+                    ),
+                ),
             )
-            for value, ticker in zip((4, 3, 2, 1), universe, strict=True)
-        ],
-        policy=EconomicPathPolicy(candidate_limit=3),
+            for rank, ticker, value, percentile in (
+                (1, "1234", 4.0, 0.875),
+                (2, "5678", 3.0, 0.625),
+                (3, "9012", 2.0, 0.375),
+            )
+        ),
     )
     if screening_result is not None:
         result = screening_result
