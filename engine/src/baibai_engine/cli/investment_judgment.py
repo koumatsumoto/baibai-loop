@@ -21,6 +21,7 @@ from pydantic import ValidationError
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalConflictError
 from baibai_engine.investment_judgment.workflow.operation.service import OperationConflictError
+from baibai_engine.investment_judgment.workflow.screening_brief import SCREENING_EXCLUSION_SCOPES
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,
@@ -110,8 +111,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     context_parser.add_argument(
         "--screening-excluded",
-        action="store_true",
-        help="diagnose saved technical matches outside financial lanes without selecting them",
+        nargs="?",
+        const="technical_matched",
+        choices=SCREENING_EXCLUSION_SCOPES,
+        help=(
+            "diagnose saved technical matches or financially unresolved rows "
+            "outside lanes without selecting them"
+        ),
     )
     context_parser.add_argument(
         "--screening-page",
@@ -289,7 +295,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     comparison_tickers=tuple(args.compare_ticker),
                     screening_page=args.screening_page,
                     screening_lane=args.screening_lane,
-                    screening_excluded=args.screening_excluded,
+                    screening_excluded=args.screening_excluded is not None,
+                    screening_excluded_scope=args.screening_excluded or "technical_matched",
                 )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:

@@ -15,6 +15,8 @@ from baibai_engine.investment_judgment.company_research.query import read_compan
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.screening_brief import (
+    SCREENING_EXCLUSION_SCOPES,
+    ScreeningExclusionScope,
     economic_screening_brief,
     technical_financial_exclusion_diagnostic,
     technical_financial_screening_brief,
@@ -48,6 +50,7 @@ def load_generated_selection_context(
     screening_page: int = 0,
     screening_lane: ResearchLane = "growth_research",
     screening_excluded: bool = False,
+    screening_excluded_scope: ScreeningExclusionScope = "technical_matched",
 ) -> dict[str, Any]:
     """保存された政策結果と同じ生成を読む。contextの取得で再選定しない。"""
     from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
@@ -62,6 +65,10 @@ def load_generated_selection_context(
         raise ValueError("input cutoff must have a timezone")
     if screening_page < 0:
         raise ValueError("screening page must be nonnegative")
+    if screening_excluded_scope not in SCREENING_EXCLUSION_SCOPES or (
+        not screening_excluded and screening_excluded_scope != "technical_matched"
+    ):
+        raise ValueError("excluded diagnostic scope requires an explicit valid diagnostic")
     if screening_excluded and (
         request.scope != "discover_new" or screening_lane != "growth_research"
     ):
@@ -221,6 +228,7 @@ def load_generated_selection_context(
             lane=screening_lane,
             comparison_tickers=tuple(sorted(detail_targets)),
             excluded=screening_excluded,
+            excluded_scope=screening_excluded_scope,
         ),
         "candidate_tickers": list(candidates),
         "candidate_order_semantics": (
@@ -259,6 +267,7 @@ def _project_screening(
     lane: ResearchLane = "growth_research",
     comparison_tickers: tuple[str, ...] = (),
     excluded: bool = False,
+    excluded_scope: ScreeningExclusionScope = "technical_matched",
 ) -> dict[str, Any]:
     result = selection.result
     if isinstance(result, TechnicalFinancialSelection):
@@ -270,7 +279,7 @@ def _project_screening(
         )
         if excluded:
             projection["excluded_diagnostic"] = technical_financial_exclusion_diagnostic(
-                result, page=page
+                result, page=page, scope=excluded_scope
             )
     else:
         adapter = TypeAdapter[ScreeningResult](ScreeningResult)

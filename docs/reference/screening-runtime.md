@@ -36,6 +36,8 @@ v11以降は、元財務モデルに記録された会計方針・見積り・�
 
 技術合致が財務絞込みで残らなかった理由は、同じID/cutoffの`selection-context --scope discover_new --screening-excluded --screening-page <next>`で有限に読む。保存T合致かつ`no_current_hypothesis`だけをコード順で示し、通常3レーンや`candidate_tickers`へ復帰させない。全保存行/T合致/該当社を分母にし、G経路の失敗・不足は同社同条件を一度だけ数える。条件間は重複するので加算不可であり、件数を損失機会・棄却の正しさや全F経路の独立票にしない。旧政策も保存結果のまま読むため、現在の入力確認理由を後補完しない。既知悪化と未確定を元の行で確認し、調べる反例だけ既存`--compare-ticker`へ渡す。旧研究callerの全Generation再診断とは別で、買付不適格やProposalの`no_action`を発行する入口ではない。
 
+T合致を前提にすると発見できない比較不足は、同じcommandの`--screening-excluded financial_unresolved`で読む。保存Gが`input_unresolved`かつ`no_current_hypothesis`の行だけを有限ページ化し、他経路の既知非充足・F非適格・技術状態・未生成/不足理由は元のまま返す。取得で解消できる不足か、比較不能/業種不適用かは原理由から判断し、全件を再取得・候補復帰させない。これは名前を知ってからの個別比較へ至る調査入口で、未知は良い候補・投資損失機会の証明ではなく、0件も財務入力の完全性を意味しない。引数なしの従来診断・通常レーン・保存policy/hashは変えず、続きを同じscope/Selection/cutoffで読む。
+
 L3は同世代詳細・既存調査・市場/業界/世界動向・外部評価のずれから、既存容量の最大3対象を理由付きで選ぶ。未確定を選ぶなら先に答える問い、既知非充足の例外を選ぶなら根拠を明示する。TAの値動きと新しい事業根拠を分け、価値・買値・待機・最強反証・資金/共通リスクを既存Assessment/Review/Proposalへつなぐ。新しい人物score・一律MA撤退・自動売買は設けない。
 
 <a id="rule-purpose"></a>

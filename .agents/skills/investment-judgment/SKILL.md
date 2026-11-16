@@ -19,6 +19,8 @@ uv run baibai-engine investment-judgment selection-context \
 
 銘柄指定は`--scope specified_stocks --ticker <TICKER>`（候補外可）、保有は`--scope review_positions`。new/holdingを混ぜず評価を変える問いで選ぶ。候補外比較は同commandへ返された`--screening-selection-id <ID> --compare-ticker <TICKER>`を渡し、依頼scopeを保って採用対象をdraftへ記す。
 
+比較不足による候補外を探す時は、同じSelection/cutoffで`--screening-excluded financial_unresolved --screening-page <N>`を有限に読む。通常レーンへ復帰させず、元の非充足・不足理由から答えが得られ判断を変える対象だけを前述の個別比較へ渡す。診断の意味と従来のT合致除外との違いは[Screening](../../../docs/reference/screening-runtime.md)へ。
+
 再訪は`company-research catalog/get`と[振り返り](#判断の振り返り)を有限に読む。catalogの続きはknown_atを固定しnext_after_tickerを使い、未review Research/review済みpair、空/unreadableを分ける。
 
 候補外も含む価格面の探索は、同じGenerationの小セクションを私的JSONLへ読み、問いに合う対象だけを前述の比較へ渡す。全社の全モデルをL3へ投入せず、候補政策・順位は変更しない。
