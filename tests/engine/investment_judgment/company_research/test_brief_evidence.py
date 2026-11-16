@@ -87,7 +87,9 @@ def test_revisit_keeps_shared_reference_and_each_source_clock_without_upgrading_
     before = path.read_bytes()
     brief = research_catalog(path, as_of=NOW.date(), known_at=NOW)["items"][0][kind]
     expected = {
-        source["source_id"]: {key: source[key] for key in ("source_id", "source_tier", "as_of", "retrieved_at")}
+        source["source_id"]: {
+            key: source[key] for key in ("source_id", "source_tier", "as_of", "retrieved_at")
+        }
         for source in sources
     }
     first, second, unknown = brief["hypotheses"]
