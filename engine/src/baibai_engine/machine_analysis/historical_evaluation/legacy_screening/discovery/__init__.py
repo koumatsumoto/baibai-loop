@@ -1,1 +1,1 @@
-"""Candidate Discoveryの純粋契約と候補文脈の計算。leaf moduleから利用する。"""
+"""保存済みCandidate Discoveryの契約と候補行の投影。再選抜は行わない。"""
