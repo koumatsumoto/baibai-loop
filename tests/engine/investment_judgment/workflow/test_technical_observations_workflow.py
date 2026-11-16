@@ -6,6 +6,12 @@ from datetime import timedelta
 import pytest
 from pydantic import TypeAdapter
 from tests.engine.investment_judgment.workflow.test_technical_financial_context import args, seed
+from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
+from tests.engine.machine_analysis.screening.test_technical_strategy import (
+    _conditioned,
+    _strategy_models,
+)
+from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
@@ -39,10 +45,20 @@ def test_initial_card_to_detached_research_preserves_recorded_or_old_absent_obse
     tmp_path, legacy
 ):
     path = tmp_path / "runs"
-    fixed, selected, _ = seed(path)
+    fixed, _, _ = seed(path)
+    fixed = fixed.model_copy(deep=True, update={"generation_id": "conditioned-context-fixed"})
+    for model in fixed.models:
+        if model.subject == "1234" and model.model_id == "market_context":
+            model.payload.setdefault("relative", {})["market_conditioned_60d"] = _conditioned(
+                _strategy_models()
+            )
+    publish_generation(fixed, path=path)
+    selected = evaluate_fixed(fixed)
     models = tuple(model for model in fixed.models if model.subject == "1234")
-    expected = evaluate_technical_strategy("1234", models=models, metadata=fixed)["observations"]
-    assert selected.result.policy.method == "technical-financial-discovery-v20"
+    strategy = evaluate_technical_strategy("1234", models=models, metadata=fixed)
+    expected = strategy["observations"]
+    conditioned = strategy["supporting_context"]["market_conditioned_60d"]
+    assert selected.result.policy.method == "technical-financial-discovery-v21"
     if legacy:
         selected = replace(
             selected,
@@ -52,7 +68,11 @@ def test_initial_card_to_detached_research_preserves_recorded_or_old_absent_obse
                 rows=tuple(
                     replace(
                         row,
-                        technical={k: v for k, v in row.technical.items() if k != "observations"},
+                        technical={
+                            k: v
+                            for k, v in row.technical.items()
+                            if k not in {"observations", "market_conditioned_60d"}
+                        },
                     )
                     for row in selected.result.rows
                 ),
@@ -73,8 +93,14 @@ def test_initial_card_to_detached_research_preserves_recorded_or_old_absent_obse
     assert first["model_inputs"]["securities"] == {}
     card = next(card for card in first["screening"]["cards"] if card["ticker"] == "1234")
     assert ("observations" in card["technical"]) is not legacy
+    assert ("market_conditioned_60d" in card["technical"]) is not legacy
     if not legacy:
         assert card["technical"]["observations"] == expected
+        actual = card["technical"]["market_conditioned_60d"]
+        assert actual["source_state"] == conditioned["source_state"]
+        assert actual["source_field"] == conditioned["source_field"]
+        for benchmark, source in conditioned["value"]["benchmarks"].items():
+            assert actual["value"]["benchmarks"][benchmark]["down"] == source["down"]
     detail = load_generated_selection_context(**arguments, comparison_tickers=("1234",))
     row = detail["screening"]["comparison_rows"][0]
     assert row["technical"] == next(r.technical for r in selected.result.rows if r.ticker == "1234")
