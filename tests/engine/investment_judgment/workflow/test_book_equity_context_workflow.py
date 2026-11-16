@@ -49,7 +49,7 @@ def test_first_comparison_and_runless_research_keep_book_source_without_backfill
             model.payload.setdefault("financial", {})["book_equity"] = deepcopy(context)
     publish_generation(fixed, path=path)
     selected = evaluate_fixed(fixed)
-    assert selected.result.policy.method == "technical-financial-discovery-v23"
+    assert selected.result.policy.method == "technical-financial-discovery-v24"
     if legacy:
         selected = replace(
             selected,

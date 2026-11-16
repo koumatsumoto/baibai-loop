@@ -23,6 +23,7 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial_selec
 
 FORECAST = {
     "forecast_profit_yen": -1000.0,
+    "forecast_eps_yen": -10.5,
     "forecast_ordinary_profit_yen": 1500.0,
     "forecast_full_year_loss_flag": True,
     "earnings_forecast_source": {
@@ -35,6 +36,7 @@ FORECAST = {
         "disclosed_time": "15:30:00",
         "disclosure_number": "synthetic-forecast",
         "forecast_profit_source_records": "synthetic-forecast",
+        "forecast_eps_source_records": "synthetic-forecast",
         "scope_trace": {"unverified_detail": None},
     },
 }
@@ -45,21 +47,25 @@ def project(data):
 
 
 @pytest.mark.parametrize(
-    ("profit", "ordinary", "flag"),
+    ("profit", "ordinary", "flag", "eps"),
     [
-        (-1000.0, 1500.0, True),
-        (-1000.0, 1500.0, False),
-        (0.0, -1500.0, True),
-        (0.0, 0.0, False),
-        (1000.0, 1500.0, False),
-        (None, None, None),
+        (-1000.0, 1500.0, True, -10.5),
+        (-1000.0, 1500.0, False, 2.0),
+        (0.0, -1500.0, True, -1.0),
+        (0.0, 0.0, False, 0.0),
+        (1000.0, 1500.0, False, -0.1),
+        (1000.0, 1500.0, False, None),
+        (None, None, None, 20.0),
     ],
 )
-def test_saved_forecast_reaches_card_without_changing_checks_paths_or_order(profit, ordinary, flag):
+def test_saved_forecast_reaches_card_without_changing_checks_paths_or_order(
+    profit, ordinary, flag, eps
+):
     data = payloads()
     forecast = {
         **deepcopy(FORECAST),
         "forecast_profit_yen": profit,
+        "forecast_eps_yen": eps,
         "forecast_ordinary_profit_yen": ordinary,
         "forecast_full_year_loss_flag": flag,
     }
@@ -155,10 +161,42 @@ def test_current_policy_preserves_context_in_each_lane_without_reordering(lane):
     saved = TechnicalFinancialSelection(
         TechnicalFinancialPolicy(), "T", "G", (first,), ("1234",), {}
     )
-    assert saved.policy.method == "technical-financial-discovery-v23"
+    assert saved.policy.method == "technical-financial-discovery-v24"
     brief = technical_financial_screening_brief(saved, lane=lane)
     assert brief["cards"][0]["financial_gate"]["forecast_context"] == FORECAST
     if lane == "input_review":
         assert (
             brief["presentation"]["ties"] == "stable_company_hash_then_ticker_not_quality_or_return"
         )
+
+
+@pytest.mark.parametrize("version", range(6, 24))
+def test_saved_forecast_without_eps_is_not_backfilled_in_old_cards_or_comparison(version):
+    data = payloads()
+    data["company_financials"]["financial"].update(deepcopy(FORECAST))
+    legacy = project(data)
+    legacy.financial_gate["forecast_context"].pop("forecast_eps_yen")
+    saved = TechnicalFinancialSelection(
+        TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}"),
+        "T",
+        "G",
+        (legacy,),
+        ("1234",),
+        {},
+    )
+    codec = TypeAdapter(TechnicalFinancialSelection)
+    raw = codec.dump_json(saved)
+    restored = codec.validate_json(raw)
+    assert codec.dump_json(restored) == raw
+    for brief, key in (
+        (technical_financial_screening_brief(restored), "cards"),
+        (
+            technical_financial_screening_brief(restored, page=None, comparison_tickers=("1234",)),
+            "comparison_rows",
+        ),
+    ):
+        assert brief[key][0]["financial_gate"]["forecast_context"] == {
+            k: v for k, v in FORECAST.items() if k != "forecast_eps_yen"
+        }
+    with pytest.raises(ValueError, match=r"historical.*read-only"):
+        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

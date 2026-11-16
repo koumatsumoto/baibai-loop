@@ -58,7 +58,7 @@ def test_initial_card_to_detached_research_preserves_recorded_or_old_absent_obse
     strategy = evaluate_technical_strategy("1234", models=models, metadata=fixed)
     expected = strategy["observations"]
     conditioned = strategy["supporting_context"]["market_conditioned_60d"]
-    assert selected.result.policy.method == "technical-financial-discovery-v23"
+    assert selected.result.policy.method == "technical-financial-discovery-v24"
     if legacy:
         selected = replace(
             selected,
