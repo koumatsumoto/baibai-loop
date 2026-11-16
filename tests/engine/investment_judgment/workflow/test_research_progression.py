@@ -793,9 +793,7 @@ def test_research_projection_keeps_common_request_and_target_roles(tmp_path, ver
 def test_screening_result_projection_serializes_only_the_result(tmp_path, monkeypatch, version):
     from baibai_engine.investment_judgment.workflow.selection import parse_selection
 
-    selected = seed_generated_selection(
-        runs=tmp_path / "runs.sqlite", now=NOW, tickers=("1234",)
-    )
+    selected = seed_generated_selection(runs=tmp_path / "runs.sqlite", now=NOW, tickers=("1234",))
     if version == "3":
         raw = selected.model_dump(mode="json")
         raw["schema_version"] = 3

@@ -202,6 +202,7 @@ def technical_financial_screening_brief(
                     **_pick(
                         row["financial_paths"], "input_review_reasons", "accounting_change_context"
                     ),
+                    **_capital_action_brief(row["financial_paths"]),
                     "coordinates": [
                         _path(path, include_earnings_periods=True)
                         for path in row["financial_paths"]["paths"]
@@ -298,6 +299,18 @@ def technical_financial_screening_brief(
             "--screening-page <next>"
         ),
     }
+
+
+def _capital_action_brief(paths: dict[str, Any]) -> dict[str, Any]:
+    if "capital_action_context" not in paths:
+        return {}
+    context = deepcopy(paths["capital_action_context"])
+    for key in ("observations", "share_basis_adjustments"):
+        values = context.get(key)
+        if isinstance(values, list):
+            context[key] = values[:3]
+            context[f"{key}_omitted_count"] = max(0, len(values) - 3)
+    return {"capital_action_context": context}
 
 
 def economic_screening_brief(result: dict[str, Any]) -> dict[str, Any]:
