@@ -43,6 +43,12 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         ocf_other_payables_cash_effect=to_float(record.get("ocf_other_payables_cash_effect")),
         capex_ppe_reported=to_float(record.get("capex_ppe_reported")),
         capex_intangible_reported=to_float(record.get("capex_intangible_reported")),
+        financing_lease_repayments_cash_effect=to_float(
+            record.get("financing_lease_repayments_cash_effect")
+        ),
+        financing_noncontrolling_dividends_cash_effect=to_float(
+            record.get("financing_noncontrolling_dividends_cash_effect")
+        ),
         fcf_ttm=to_float(record.get("fcf_ttm")),
         net_cash=to_float(record.get("net_cash")),
         equity=to_float(record.get("equity")),

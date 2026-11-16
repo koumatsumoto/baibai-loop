@@ -48,9 +48,9 @@ def parse_csv_zip_metric_record(
 
     quality = _flow_period_quality(doc_type_code, period_start, period_end, submit_datetime)
     consolidation_dei = _consolidation_dei_status(rows)
-    rows, accounting_failure = _accounting_standard_rows(rows)
+    statement_rows, accounting_failure = _accounting_standard_rows(rows)
     rows, basis = _select_statement_rows(
-        rows,
+        statement_rows,
         doc_type_code,
         allow_non_consolidated=consolidation_dei in {"false", "missing"},
     )
@@ -87,6 +87,11 @@ def parse_csv_zip_metric_record(
         details = _capex_details(rows)
     else:
         details = {}
+    financing = (
+        _financing_cash_flow_details(statement_rows, doc_type_code, basis)
+        if accounting_failure is None and consolidation_dei not in {"conflict", "invalid"}
+        else {}
+    )
     ebitda = (
         operating_profit + depreciation
         if operating_profit is not None and depreciation is not None
@@ -130,6 +135,12 @@ def parse_csv_zip_metric_record(
         ocf_other_payables_cash_effect=details.get("ocf_other_payables_cash_effect"),
         capex_ppe_reported=details.get("capex_ppe_reported"),
         capex_intangible_reported=details.get("capex_intangible_reported"),
+        financing_lease_repayments_cash_effect=financing.get(
+            "financing_lease_repayments_cash_effect"
+        ),
+        financing_noncontrolling_dividends_cash_effect=financing.get(
+            "financing_noncontrolling_dividends_cash_effect"
+        ),
         fcf_ttm=fcf,
         net_cash=net_cash,
         equity=equity,
@@ -264,6 +275,32 @@ def _decode_csv(content: bytes) -> str:
         return content.decode("utf-16-le").lstrip("\ufeff")
     except UnicodeDecodeError as exc:
         raise EDINETProviderError("csv_parse_failed") from exc
+
+
+# These details must not establish or change the scope of the existing metrics.
+_FINANCING_CASH_TAGS = {
+    "financing_lease_repayments_cash_effect": "jppfs_cor:RepaymentsOfLeaseObligationsFinCF",
+    "financing_noncontrolling_dividends_cash_effect": (
+        "jppfs_cor:DividendsPaidToNonControllingInterestsFinCF"
+    ),
+}
+
+
+def _financing_cash_flow_details(
+    rows: Sequence[Mapping[str, str]], doc_type_code: str, basis: str | None
+) -> dict[str, float | None]:
+    if basis is None or doc_type_code not in {"120", "130", "160", "170"}:
+        return {}
+    context = "CurrentYearDuration" if doc_type_code in {"120", "130"} else "InterimDuration"
+    if basis == "non_consolidated":
+        context += "_NonConsolidatedMember"
+    selected = [row for row in rows if _row_context(row) == context]
+    # Reported financing cash effects, not debt balances, NCI earnings, or new FCF.
+    return {
+        name: _single_metric(selected, (tag,))
+        for name, tag in _FINANCING_CASH_TAGS.items()
+        if basis == "consolidated" or name == "financing_lease_repayments_cash_effect"
+    }
 
 
 def _flow_period_quality(

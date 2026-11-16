@@ -55,8 +55,10 @@ def store_edinet_metrics(
                 "ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
                 "ocf_payables_cash_effect, ocf_contract_liabilities_cash_effect, "
                 "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
-                "capex_ppe_reported, capex_intangible_reported"
-                ") VALUES (" + ", ".join("?" for _ in range(38)) + ")",
+                "capex_ppe_reported, capex_intangible_reported, "
+                "financing_lease_repayments_cash_effect, "
+                "financing_noncontrolling_dividends_cash_effect"
+                ") VALUES (" + ", ".join("?" for _ in range(40)) + ")",
                 rows,
             )
         persisted_count = date_range_row_count(
@@ -138,6 +140,8 @@ def _edinet_metric_rows(
                 to_float(record.get("ocf_other_payables_cash_effect")),
                 to_float(record.get("capex_ppe_reported")),
                 to_float(record.get("capex_intangible_reported")),
+                to_float(record.get("financing_lease_repayments_cash_effect")),
+                to_float(record.get("financing_noncontrolling_dividends_cash_effect")),
             )
         )
     return rows

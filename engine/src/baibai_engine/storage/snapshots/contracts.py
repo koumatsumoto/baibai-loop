@@ -64,7 +64,7 @@ class LakeDataset:
 
     legacy_read_contracts: tuple[LakeDataset, ...] = ()
     """Exact owner-declared historical schemas; never used to publish new objects."""
-    legacy_read_defaults: tuple[tuple[str, str], ...] = ()
+    legacy_read_defaults: tuple[tuple[str, str | None], ...] = ()
     """Owner-declared values for fields absent from historical rows."""
 
     def read_contract(self, version: int) -> LakeDataset:

@@ -44,6 +44,8 @@ def card(actual):
                 "capex_intangible_reported": None,
                 "capex": None,
                 "free_cash_flow": None,
+                "financing_lease_repayments_cash_effect": -12,
+                "financing_noncontrolling_dividends_cash_effect": 0,
             },
             "period_kind": "interim",
             "measurement_period": {"start": None, "end": None, "reason": "fact_dates_not_retained"},
@@ -101,7 +103,12 @@ def test_reported_negative_cash_does_not_normalize_or_change_sector_gate(sector)
     data["company_financials"]["financial"].update(
         edinet_reported_flows={
             "amount_unit": "JPY",
-            "amounts": {"operating_cash_flow": -1000, "free_cash_flow": -1100},
+            "amounts": {
+                "operating_cash_flow": -1000,
+                "free_cash_flow": -1100,
+                "financing_lease_repayments_cash_effect": -12,
+                "financing_noncontrolling_dividends_cash_effect": None,
+            },
             "period_kind": "annual",
         }
     )

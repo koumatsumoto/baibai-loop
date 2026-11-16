@@ -36,7 +36,7 @@ def test_unwritten_market_can_be_initialized_by_normal_writer(tmp_path, shape):
         assert connection.execute("SELECT ticker FROM edinet_metrics").fetchall() == [("7203",)]
 
 
-@pytest.mark.parametrize("version", [50, schema.SQLITE_SCHEMA_VERSION, 52])
+@pytest.mark.parametrize("version", [51, schema.SQLITE_SCHEMA_VERSION, 53])
 @pytest.mark.parametrize("opener", [schema.open_connection, schema.connect_current])
 def test_versioned_empty_market_is_not_an_unwritten_database(tmp_path, version, opener):
     path = tmp_path / "market.sqlite"
@@ -88,7 +88,9 @@ def test_connect_current_accepts_uri_sensitive_path_characters(tmp_path):
 def test_edinet_list_receipts_require_fresh_schema_and_index(tmp_path):
     path = tmp_path / "market.sqlite"
     with closing(schema.open_connection(path)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (51,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (
+            schema.SQLITE_SCHEMA_VERSION,
+        )
         assert [
             row[1] for row in connection.execute("PRAGMA table_info(edinet_document_lists)")
         ] == [
@@ -136,7 +138,7 @@ def test_version_only_change_cannot_pass_for_receipt_schema(tmp_path):
         schema.open_connection(path)
 
 
-@pytest.mark.parametrize("version", [47, 50])
+@pytest.mark.parametrize("version", [47, 50, 51])
 @pytest.mark.parametrize("opener", [schema.open_connection, schema.connect_current])
 def test_prior_market_schema_version_is_not_migrated_implicitly(tmp_path, version, opener):
     path = tmp_path / "market.sqlite"
@@ -144,7 +146,8 @@ def test_prior_market_schema_version_is_not_migrated_implicitly(tmp_path, versio
         connection.execute(f"PRAGMA user_version = {version}")
     before = path.read_bytes()
     with pytest.raises(
-        schema.SQLiteSchemaError, match=f"found user_version={version}, expected=51"
+        schema.SQLiteSchemaError,
+        match=f"found user_version={version}, expected={schema.SQLITE_SCHEMA_VERSION}",
     ):
         opener(path)
     assert path.read_bytes() == before

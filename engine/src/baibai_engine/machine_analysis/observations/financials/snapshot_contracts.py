@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from baibai_engine.storage.snapshots.contracts import LakeColumn, LakeDataset
@@ -25,7 +27,7 @@ JQUANTS_FIN_SUMMARIES = LakeDataset(
     ),
 )
 
-EDINET_METRICS = LakeDataset(
+EDINET_METRICS_V2 = LakeDataset(
     name="edinet.metrics",
     layer="l2_processed",
     sqlite_table="edinet_metrics",
@@ -71,6 +73,22 @@ EDINET_METRICS = LakeDataset(
         LakeColumn("ocf_other_payables_cash_effect", "REAL", _REAL, True),
         LakeColumn("capex_ppe_reported", "REAL", _REAL, True),
         LakeColumn("capex_intangible_reported", "REAL", _REAL, True),
+    ),
+)
+
+# Older immutable rows remain unknown for the two newly retained cash components.
+EDINET_METRICS = replace(
+    EDINET_METRICS_V2,
+    contract_version=3,
+    columns=(
+        *EDINET_METRICS_V2.columns,
+        LakeColumn("financing_lease_repayments_cash_effect", "REAL", _REAL, True),
+        LakeColumn("financing_noncontrolling_dividends_cash_effect", "REAL", _REAL, True),
+    ),
+    legacy_read_contracts=(EDINET_METRICS_V2,),
+    legacy_read_defaults=(
+        ("financing_lease_repayments_cash_effect", None),
+        ("financing_noncontrolling_dividends_cash_effect", None),
     ),
 )
 

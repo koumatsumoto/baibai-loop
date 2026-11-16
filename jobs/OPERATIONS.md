@@ -488,6 +488,24 @@ uv run python -m baibai_jobs.acquisition.external_assessments.raw --preserve-run
 
 lease外でacquire→inspect→ready --cumulative、共通統合で固定集合を公開/readbackしてackする。後着小集合で後退させない。確定分で明示終了するときだけworkflowの-f operation=stage_confirmed_partialを使う。401/403/429/未完を自動closeしない。pointer後terminal失敗は現状態を読み、未sealならfresh hydrateから再適用する。hard kill前の未保存試行・期限切れ原本の復元は保証しない。history_digestsは保存後baselineで、更新前の全履歴保全を証明しない。
 
+#### EDINET 財務cash内訳への一回切替
+
+schema 52とEDINET lake v3はcode/store一組で切り替え、通常open/dailyへ移行を代行させない。現writerの終端後、freshな閉じたschema 51 machine pair、manifest、lake pointerをhash/ETagで固定する。[local copy tool](../tools/migrations/market_schema_52.py)は新outputだけを作り、全既存table値・無関係schema・原本bytesを照合する。旧行の新列はNULLで、原本再抽出はしない。
+
+```bash
+uv run python -m tools.migrations.market_schema_52 --source <fixed-51.sqlite> --output <new-52.sqlite> --expected-sha256 <source-sha256>
+```
+
+通常の`push-market`は51/52のmergeを拒否し、`push-machine`はrunsも再公開するため、この切替に使わない。独立reviewとexact CI後、operator publication lease内でcodeとstoreを切り替える。[一回publisher](../tools/migrations/publish_market_schema_52.py)のplanには元/新market SHA、元market/runs/manifest/pointer ETag、元manifest/pointer SHA、再開時も変えないUTC receipt時計を固定する。元market・manifest・pointerを専用content-addressed keyへcreate-onlyで保存し、読戻し後にmarketだけを元ETagへCAS PUTする。そのack ETagと元runs ETagでmanifestを元ETagへCAS更新する。runs/pointerは書かず、lease・runs ETag・pointerを各境界で照合する。追加の取得/削除や権限変更は含めない。
+
+```bash
+uv run python -m tools.migrations.publish_market_schema_52 publish --plan <fixed-plan.json> --source <fixed-51.sqlite> --target <new-52.sqlite> --lease-handle <operator-handle.json> --attempt <new-attempt-dir>
+```
+
+403/429、CAS競合、PUT ack不明はそのpassを停止し、自動再送しない。attemptを上書きせず、最終成功も通常readback前の切替receiptとして扱う。market成功/manifest未完は、現leaseと固定新market・元runs/pointer・backupを確認してから、別attemptの`finish-manifest`だけで前向きに完成する。同じ引数のmodeを`publish`から`finish-manifest`へ変え、`--attempt`を新directoryにする。旧manifestからのCASか、同一完成manifestの読取確認だけを許し、marketの再PUT・旧51復元・manifest削除はしない。新しい受領や異なる状態は自動修復せず、現正本から別判断する。
+
+新codeは旧lake v2を元契約で読み、新列だけNULLとしてhydrateする。切替後は下記EDINETの固定再抽出/明示受入を経てv3を公開し、全旧partition・runs履歴・保存判断を保つ。実受入後は一回tool/testとこの移行節を撤去し、旧固定release readerと受入証拠を残す。
+
 #### 株マップの旧入力と未計算原本
 
 schema 51への切替は[#2093](https://github.com/koumatsumoto/baibai-loop/pull/2093)で完了し、一回toolは撤去した。通常作業はfreshな現行copyを使い、旧schema 50 copyを現在の正本へ上書きしない。未公開の受領を含む旧copyが見つかった場合は、そのcopyを保持して元codeでの明示復旧を別に判断する。通常open/dailyは暗黙移行しない。
