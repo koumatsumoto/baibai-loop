@@ -47,7 +47,8 @@ class TechnicalFinancialPolicy(BaseModel):
         "technical-financial-discovery-v22",
         "technical-financial-discovery-v23",
         "technical-financial-discovery-v24",
-    ] = "technical-financial-discovery-v24"
+        "technical-financial-discovery-v25",
+    ] = "technical-financial-discovery-v25"
     page_size: Annotated[int, Field(ge=1, le=36)] = 36
 
     @property
@@ -79,6 +80,9 @@ class TechnicalFinancialRow:
     financial_gate: dict[str, JsonValue]
     financial_paths: dict[str, JsonValue]
     screening_lane: ScreeningLane
+    related_subject_context: Annotated[
+        dict[str, JsonValue] | None, Field(exclude_if=lambda value: value is None)
+    ] = None
 
 
 @dataclass(frozen=True, slots=True)

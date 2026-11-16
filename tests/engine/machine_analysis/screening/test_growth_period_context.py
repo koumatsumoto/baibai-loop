@@ -44,7 +44,7 @@ def test_adopted_periods_and_all_source_dates_reach_first_card_without_value_cha
     saved = evaluate_technical_financial_rows(
         metadata(), tickers=("1234",), rows={"1234": actual}, policy=TechnicalFinancialPolicy()
     )
-    assert saved.result.policy.method == "technical-financial-discovery-v24"
+    assert saved.result.policy.method == "technical-financial-discovery-v25"
     card = technical_financial_screening_brief(saved.result)["cards"][0]
     assert card["financial_gate"]["observation_period_context"] == context
     assert actual.financial_gate["checks"]["positive_quarter_operating_profit"]["value"] == 100

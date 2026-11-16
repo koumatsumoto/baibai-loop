@@ -183,7 +183,9 @@ def technical_financial_screening_brief(
         row = codec.dump_python(index[ticker], mode="json")
         cards.append(
             {
-                **_pick(row, "ticker", "name", "sector", "screening_lane"),
+                **_pick(
+                    row, "ticker", "name", "sector", "screening_lane", "related_subject_context"
+                ),
                 "technical": _pick(
                     row["technical"],
                     "state",

@@ -131,6 +131,13 @@ def project_technical_financial_row(
         for name, raw in _object(technical.get("observations")).items()
         if _object(raw).get("unavailable_reason") is not None
     }
+    definition = None if metadata.subject_plan is None else metadata.subject_plan.get(ticker)
+    # 関連の理由を調査対象の所属や全社曝露へ広げず、固定planのまま渡す。
+    related_context = (
+        definition.model_dump(mode="json", include={"related_subjects", "related_subject_basis"})
+        if definition is not None and definition.related_subjects
+        else None
+    )
     return TechnicalFinancialRow(
         ticker=ticker,
         name=coordinates.name,
@@ -163,6 +170,7 @@ def project_technical_financial_row(
             financial_path_match=bool(financial_paths["matched_routes"]),
             financial_input_review=bool(financial_paths.get("input_review_reasons")),
         ),
+        related_subject_context=related_context,
     )
 
 
@@ -173,7 +181,7 @@ def evaluate_technical_financial_rows(
     rows: Mapping[str, TechnicalFinancialRow],
     policy: TechnicalFinancialPolicy,
 ) -> ScreeningSelection:
-    if policy.method != "technical-financial-discovery-v24":
+    if policy.method != "technical-financial-discovery-v25":
         raise ValueError("historical technical-financial policy is read-only")
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not set(rows).issubset(subjects):
