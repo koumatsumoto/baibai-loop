@@ -144,7 +144,7 @@ def _verify_prior_ref(
     connection: sqlite3.Connection,
     reference: AssessmentRef,
     document: StockAssessmentDocument,
-) -> None:
+) -> StockAssessmentDocument:
     # Verify the immediate stored identity without recursively traversing all revisions.
     row = connection.execute(
         "SELECT a.ticker, a.as_of, a.core_sha256, r.review_id, a.payload, r.payload, "
@@ -183,6 +183,30 @@ def _verify_prior_ref(
         raise ResearchValidationError("refresh assessment time cannot precede the prior assessment")
     if refresh.checked_at < datetime.fromisoformat(str(row[6])):
         raise ResearchValidationError("refresh check cannot precede the prior publication")
+    return prior_document
+
+
+def _verify_refresh_change_scope(
+    document: StockAssessmentDocument, prior: StockAssessmentDocument
+) -> None:
+    refresh = document.refresh
+    assert refresh is not None
+    # New declarations may be broader, but must not conceal changed reviewed material.
+    sections = (
+        ("findings", document.findings, prior.findings),
+        ("valuation", document.valuation, prior.valuation),
+        ("investment_case", document.investment_case, prior.investment_case),
+        ("risks", document.permanent_loss_risks, prior.permanent_loss_risks),
+        ("sources", document.input_snapshot.sources, prior.input_snapshot.sources),
+        ("model_perspectives", document.model_perspectives, prior.model_perspectives),
+    )
+    omitted = [
+        name
+        for name, current, previous in sections
+        if current != previous and name not in refresh.changed_sections
+    ]
+    if omitted:
+        raise ResearchValidationError("refresh changed_sections omits: " + ", ".join(omitted))
 
 
 def publish_reviewed_assessment(
@@ -250,7 +274,10 @@ def publish_reviewed_assessment(
         ):
             raise ResearchConflictError("new assessment must advance the latest revision order")
     if assessment.refresh is not None:
-        _verify_prior_ref(connection, assessment.refresh.prior_assessment_ref, assessment)
+        prior_document = _verify_prior_ref(
+            connection, assessment.refresh.prior_assessment_ref, assessment
+        )
+        _verify_refresh_change_scope(assessment, prior_document)
     connection.execute("SAVEPOINT reviewed_assessment_publication")
     try:
         connection.execute(
