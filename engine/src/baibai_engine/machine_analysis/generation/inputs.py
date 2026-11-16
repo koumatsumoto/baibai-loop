@@ -442,7 +442,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-v17-sector-sample-sizes",
+        market_context_revision="shared-market-context-v18-yoy-availability-note",
         growth_start=growth_start,
         trends=trends,
     )

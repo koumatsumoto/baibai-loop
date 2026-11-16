@@ -150,6 +150,16 @@ def _read_series(
     # no current position to rank.
     reaches_latest = bool(sample) and sample[-1].observed_at == latest.observed_at
     statistic_value = values[-1] if reaches_latest else None
+    notes = latest.notes
+    # A latest observation outside the window can be unranked despite a usable partner.
+    if rule.statistic == "yoy" and latest.observed_at >= start and statistic_value is None:
+        notes = (
+            *notes,
+            (
+                "最新観測の前年比は、比較期間の条件を満たす正の前年値がないため算出できません。"
+                "原本非公表と取得不足は、この結果だけでは区別できません。"
+            ),
+        )
     # The window is only a valid frame of reference when the series actually
     # spans it; a series that starts inside the window would otherwise be ranked
     # against its own short life and read as an extreme.
@@ -188,7 +198,7 @@ def _read_series(
         long_trend=_trend(observations, months=rule.long_trend_months, latest=latest, asof=asof),
         flags=(*rule.matched_flags(latest.value), *latest.quality_flags),
         vintage_at=latest.vintage_at,
-        notes=latest.notes,
+        notes=notes,
     )
 
 
