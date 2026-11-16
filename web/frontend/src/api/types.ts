@@ -262,6 +262,7 @@ export interface SavedDeferItemView {
   liquidity: SavedLiquidityView | null
   unfinished: UnfinishedResearchView | null
   action: 'defer'
+  saved_holding_origin: SavedHoldingOriginView | null
   saved_position: SavedHoldingPositionView | null
   blockers: SavedReasonView[]
   resume_conditions: string[]
@@ -304,6 +305,13 @@ export interface SavedHoldQuoteComparisonView {
   return_basis: 'conditional_pretax_without_reinvestment'
   base: SavedConditionalReturnView
   downside: SavedConditionalReturnView
+}
+
+export interface SavedHoldingOriginView {
+  assessment_ref: SavedAssessmentRefView | null
+  assessment: SavedAssessmentView | null
+  investment_reason: string | null
+  reason_unavailable: string | null
 }
 
 export interface SavedHoldingPositionView {

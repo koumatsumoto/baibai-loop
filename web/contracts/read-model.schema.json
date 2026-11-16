@@ -1671,6 +1671,17 @@
           "title": "Action",
           "type": "string"
         },
+        "saved_holding_origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedHoldingOriginView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "saved_position": {
           "anyOf": [
             {
@@ -1708,6 +1719,7 @@
         "liquidity",
         "unfinished",
         "action",
+        "saved_holding_origin",
         "saved_position",
         "blockers",
         "resume_conditions"
@@ -1986,6 +1998,60 @@
         "downside"
       ],
       "title": "SavedHoldQuoteComparisonView",
+      "type": "object"
+    },
+    "SavedHoldingOriginView": {
+      "properties": {
+        "assessment_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentRefView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "investment_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Investment Reason"
+        },
+        "reason_unavailable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason Unavailable"
+        }
+      },
+      "required": [
+        "assessment_ref",
+        "assessment",
+        "investment_reason",
+        "reason_unavailable"
+      ],
+      "title": "SavedHoldingOriginView",
       "type": "object"
     },
     "SavedHoldingPositionView": {

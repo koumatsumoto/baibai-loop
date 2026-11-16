@@ -353,8 +353,16 @@ class SavedNoActionItemView(_SavedProposalItemView):
     action: Literal["no_action"]
 
 
+class SavedHoldingOriginView(BaseModel):
+    assessment_ref: SavedAssessmentRefView | None
+    assessment: SavedAssessmentView | None
+    investment_reason: str | None
+    reason_unavailable: str | None
+
+
 class SavedDeferItemView(_SavedProposalItemView):
     action: Literal["defer"]
+    saved_holding_origin: SavedHoldingOriginView | None = None
     saved_position: SavedHoldingPositionView | None = None
     blockers: list[SavedReasonView]
     resume_conditions: list[str]
