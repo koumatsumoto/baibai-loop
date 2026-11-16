@@ -172,7 +172,7 @@ TradingViewの受領JST日/master日を公表日、部分公開を市場代表�
 
 Research Selectionは決算予定/規制/現在台帳を網羅するとは限らず、表示拡大では保存入力/生成範囲も増えない。固定旧入力から別Generationを保存する専用CLIは未提供で、現在market公開jobを代用しない。
 
-保存前のselection-contextは省略したモデルの完全結果を`generation_model_ref`の固定Generation・subject・model_idで示す。[既存reader](../../engine/src/baibai_engine/machine_analysis/generation/query.py)の`read_model_inputs`へそのGenerationとsubjectを渡して読む。prepare後の`full_result_ref`はOperation内の保存sliceに限られ、未relatedの業種本文は含まない。専用の共有subject一覧/読取CLIは未提供で、関連を推測して補わない。
+保存前のselection-contextは省略したモデルの完全結果を`generation_model_ref`の固定Generation・subject・model_idで示す。[既存reader](../../engine/src/baibai_engine/machine_analysis/generation/query.py)の`read_model_inputs`へそのGenerationとsubjectを渡して読む。prepare後の`full_result_ref`はOperation内の保存sliceに限られ、未relatedの業種本文は含まない。未relatedの共有材料は[共有subjectの明示読取](../../.agents/skills/investment-judgment/SKILL.md#会社に未関連の共有材料を調べる)で同Generationから探す。保存planの一覧は生成済み本文の保証でなく、旧plan未記録を現在catalogで補わない。読取は元payloadと固定入力identityを返し、会社への関連・観測の実施/現在性・価値採択を認定しない。
 
 外部評価の利益/倍率/資本/期の重要差は原典確認し、銀行のEBITDA/FCF等を全社必須にしない。rating加点/coverage別laneを設けず、[固定8社での不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)も将来効果の否定にしない。Investing.comは変更の補助で、第二の日次consensusではない。
 

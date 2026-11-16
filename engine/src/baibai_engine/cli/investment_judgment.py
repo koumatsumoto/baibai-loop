@@ -85,6 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="compare a saved judgment with later evidence",
         add_help=False,
     )
+    subparsers.add_parser(
+        "shared-context", help="discover/read fixed shared model subjects", add_help=False
+    )
     context_parser = subparsers.add_parser(
         "selection-context", help="read saved inputs for AI target selection"
     )
@@ -254,6 +257,10 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         from baibai_engine.cli.market_assessment import main as market_context_main
 
         return market_context_main(arguments[1:], now=now)
+    if arguments and arguments[0] == "shared-context":
+        from baibai_engine.cli.shared_model_context import main as shared_context_main
+
+        return shared_context_main(arguments[1:])
     if arguments and arguments[0] == "calculate":
         from baibai_engine.cli.assessment_calculation import main as calculate_main
 

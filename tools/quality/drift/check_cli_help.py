@@ -34,6 +34,7 @@ DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-engine investment-judgment judgment-retrospective": (
         "baibai_engine.cli.judgment_retrospective"
     ),
+    "baibai-engine investment-judgment shared-context": ("baibai_engine.cli.shared_model_context"),
     "baibai-engine investment-judgment calculate": ("baibai_engine.cli.assessment_calculation"),
 }
 

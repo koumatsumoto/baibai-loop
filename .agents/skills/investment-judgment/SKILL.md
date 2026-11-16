@@ -50,6 +50,20 @@ prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inpu
 
 nativeは保存descriptorから[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)へ進みsummary/latestで代用しない。候補/省略/未生成/欠測と時点・Reading・保存範囲は[観測reference](../../../docs/reference/model-observations.md#judgment-use)に従う。
 
+### 会社に未関連の共有材料を調べる
+
+業界・社会・市場の問いに必要なら、選定時のGenerationを固定して共有subjectを有限に探し、明示した1対象だけ読む。会社との関連や調査対象を自動追加しない。
+
+```bash
+uv run baibai-engine investment-judgment shared-context \
+  --generation-id <GENERATION_ID> --runs-path stores/screening/runs.sqlite
+uv run baibai-engine investment-judgment shared-context \
+  --generation-id <GENERATION_ID> --subject <SHARED_SUBJECT> \
+  --runs-path stores/screening/runs.sqlite > <PRIVATE_JSON>
+```
+
+一覧の続きは同Generationと`--after-subject <NEXT_AFTER_SUBJECT>`、件数は`--limit`で絞る。未記録scope・未生成・部分抽出を空の経済事実にせず、原subject/モデルrevision/時計・母集団・否定/条件・出典を保つ。追加材料は元Selectionを変えずResearch/Assessmentの根拠として扱い、会社への波及と価値仮定は別に検証する。
+
 ### 記事の原文へ戻る
 
 共有subjectのcoverage/抽出状態/省略を確認し、[通常生成の範囲](../../../docs/architecture.md#現在の解析モデル)を全ニュースへ一般化せず重要原文だけprivateに読む。
