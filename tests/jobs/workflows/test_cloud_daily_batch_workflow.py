@@ -171,6 +171,17 @@ def test_notifications_and_credentials_remain_scoped(steps, by_id):
     assert '"Notify Discord #batch-runs' in WORKFLOW_PATH.read_text()
 
 
+@pytest.mark.parametrize(
+    "step", ["edinet-metrics-acceptance", "article-semantic-recovery", "article-semantic-readback"]
+)
+def test_explicit_acceptance_outcomes_reach_the_existing_notifier(by_id, step):
+    from baibai_jobs.observability.discord import STEP_ORDER
+
+    assert step in STEP_ORDER
+    assert step in by_id
+    assert f'--{step}-outcome "${{{{ steps.{step}.outcome }}}}"' in by_id["notify"]["run"]
+
+
 @pytest.mark.parametrize("exit_code", [0, 1, 2])
 def test_batch_outputs_are_finalized_before_failure_without_a_web_artifact(
     tmp_path, by_id, exit_code

@@ -457,6 +457,62 @@ def test_main_reports_all_post_publication_failures_without_losing_core_success(
     assert "モデル生成: 3686社 / 18431件 / 候補35社" in message
 
 
+@pytest.mark.parametrize("step", ["edinet-metrics-acceptance", "article-semantic-recovery"])
+def test_main_names_the_failed_explicit_gate_before_model_generation(tmp_path, monkeypatch, step):
+    _, transport = _run_main(tmp_path, monkeypatch, f"--{step}-outcome", "failure")
+    message = _sent(transport)
+    assert message.startswith("**[FAILED]")
+    assert f"- 要確認工程: {step}" in message.splitlines()
+    assert "Lake公開 未実行 / Store反映 未実行" in message
+    assert "モデル生成" not in message
+
+
+@pytest.mark.parametrize(
+    ("readback", "lease", "cancelled", "label", "failed"),
+    [
+        ("failure", "success", "false", "FAILED", "article-semantic-readback"),
+        (
+            "failure",
+            "failure",
+            "false",
+            "FAILED",
+            "article-semantic-readback / lease-release",
+        ),
+        ("cancelled", "success", "true", "CANCELLED", "article-semantic-readback"),
+        ("skipped", "success", "false", "OK", None),
+        ("success", "success", "false", "OK", None),
+    ],
+)
+def test_explicit_readback_outcome_does_not_erase_completed_core_publication(
+    tmp_path, monkeypatch, readback, lease, cancelled, label, failed
+):
+    _, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        "--batch-exit-code",
+        "0",
+        "--publish-lake-outcome",
+        "success",
+        "--upload-stores-outcome",
+        "success",
+        "--article-semantic-readback-outcome",
+        readback,
+        "--lease-release-outcome",
+        lease,
+        "--cancelled",
+        cancelled,
+        notice=_notice(tmp_path / "notice.json"),
+    )
+    message = _sent(transport)
+    assert message.startswith(f"**[{label}]")
+    assert "Lake公開 成功 / Store反映 成功" in message
+    if failed is None:
+        assert "要確認工程" not in message
+    else:
+        assert f"- 要確認工程: {failed}" in message.splitlines()
+    assert ("モデル生成: 3686社 / 18431件 / 候補35社" in message) == (cancelled == "false")
+
+
 def test_long_details_keep_a_complete_preview_suppressed_run_link() -> None:
     message = discord.render_run_notice(
         label="[FAILED]", batch="test", asof="2026-10-25", details=["x" * 4000], url=RUN_URL
