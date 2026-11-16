@@ -9,6 +9,7 @@ from typing import Literal
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
+    current_derived_metric_errors,
     current_price_projection,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -27,6 +28,7 @@ type HoldingGateCode = Literal[
     "remaining_reward_requires_confirmation",
     "valuation_unresolved",
     "valuation_basis_requires_refresh",
+    "valuation_inputs_require_refresh",
     "quote_missing_or_stale",
     "quantity_basis_unconfirmed",
     "corporate_action_unresolved",
@@ -99,6 +101,8 @@ def evaluate_holding_proposal(
         unavailable_code = "valuation_unresolved"
     elif assessment.input_snapshot.as_of != as_of:
         unavailable_code = "valuation_basis_requires_refresh"
+    elif current_derived_metric_errors(assessment):
+        unavailable_code = "valuation_inputs_require_refresh"
     elif quote is None or not 0 <= (as_of - quote.price_as_of).days <= max_quote_age_days:
         unavailable_code = "quote_missing_or_stale"
     elif not position.quantity_basis_confirmed:
