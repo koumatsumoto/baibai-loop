@@ -9,6 +9,7 @@ from typing import Literal
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
+    current_derived_metric_errors,
     current_price_projection,
 )
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
@@ -23,6 +24,7 @@ type BuyGateCode = Literal[
     "latest_assessment_required",
     "assessment_not_supported",
     "valuation_basis_requires_refresh",
+    "valuation_inputs_require_refresh",
     "already_held",
     "active_reservation_exists",
     "proposal_already_executed",
@@ -102,6 +104,11 @@ def evaluate_buy_terms(
         block("assessment_not_supported", "supported かつ intact の評価が必要です。")
     if assessment.input_snapshot.as_of != as_of:
         block("valuation_basis_requires_refresh", "期間と今後分配を本日起点で再確認してください。")
+    if input_errors := current_derived_metric_errors(assessment):
+        block(
+            "valuation_inputs_require_refresh",
+            "現在の価値適用には派生計算の入力を再確認してください: " + "; ".join(input_errors),
+        )
     if held_quantity > 0:
         block("already_held", "既保有銘柄の新規買付は初期 policy の対象外です。")
     if active_reservation:

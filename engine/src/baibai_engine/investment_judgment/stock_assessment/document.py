@@ -263,6 +263,13 @@ class StockAssessmentDocument(BaseModel):
         return self
 
 
+def current_derived_metric_errors(document: StockAssessmentDocument) -> tuple[str, ...]:
+    """旧exact読取とは別に、現在の定量適用へ派生計算の入力を検証する。"""
+    errors: list[str] = []
+    _check_derived_metrics(document, errors, check_new_inputs=True)
+    return tuple(errors)
+
+
 def current_price_projection(
     document: StockAssessmentDocument,
     *,
@@ -286,6 +293,7 @@ def current_price_projection(
         or price_yen is None
         or price_as_of is None
         or not 0 <= (as_of - price_as_of).days <= max_quote_age_days
+        or current_derived_metric_errors(document)
     ):
         return None
     result: dict[str, object] = {
