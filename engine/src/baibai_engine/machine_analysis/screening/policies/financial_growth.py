@@ -45,6 +45,7 @@ _FINANCIAL_CONTEXT = (
 )
 _FORECAST_CONTEXT = (
     "forecast_profit_yen",
+    "forecast_eps_yen",
     "forecast_ordinary_profit_yen",
     "forecast_full_year_loss_flag",
     "earnings_forecast_source",
