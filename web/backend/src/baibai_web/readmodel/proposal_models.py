@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
@@ -376,6 +376,14 @@ class SavedCashView(BaseModel):
     ledger_as_of: datetime
 
 
+class SavedMarketContextView(BaseModel):
+    source: Literal["proposal_fixed_selection"]
+    selection_sha256: str
+    status: Literal["retained", "not_recorded", "unavailable"]
+    assessment: dict[str, JsonValue] | None
+    reason: str | None = None
+
+
 class SavedProposalView(BaseModel):
     proposal_id: str
     as_of: date
@@ -389,6 +397,7 @@ class SavedProposalView(BaseModel):
     items: list[SavedProposalItemView]
     portfolio_exposure: SavedPortfolioExposureView
     saved_cash: SavedCashView | None = None
+    saved_market_context: SavedMarketContextView | None = None
     corrections: list[ProposalCorrection] = Field(default_factory=list)
     human_reports: list[HumanProposalReport] = Field(default_factory=list)
 

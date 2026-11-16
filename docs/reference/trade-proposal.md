@@ -46,7 +46,7 @@ PmaxはBase・期間・[要求率](../doctrine.md#required-return-policy)から�
 
 [同context](../../engine/src/baibai_engine/investment_judgment/trade_proposal/inputs.py)と購入算術を使い、鮮度は実quote、支出/利回りは作者limit、価格/株数basisはsnapshotへ揃える。入力変更時は比較を取り直す。
 
-contextの市場判断はOperationのSelectionに固定した当時の投影で、反証・不確実性・個社への伝達条件をcash/待機案と併読する。現在の判断への差替えや鮮度の再認定はせず、未保存や旧投影の未記録時計を補わない。重要な後発情報や未評価の個社影響は評価/Reviewへ戻し、市場判断の存在だけで価格条件や採否を変えない。
+contextの市場判断はOperationのSelectionに固定した当時の投影で、反証・不確実性・個社への伝達条件をcash/待機案と併読する。保存提案のWeb表示と振り返りも同じSelection hash/市場判断IDを照合し、固定投影を任意の当時資料として読む。旧欠欄や不読は中立・確認済みへ補わず、元提案の採否は変えない。現在の判断への差替えや鮮度の再認定はせず、未保存や旧投影の未記録時計を補わない。重要な後発情報や未評価の個社影響は評価/Reviewへ戻し、市場判断の存在だけで価格条件や採否を変えない。
 
 最終contextでは同Operationに固定した選定理由・最初の問い・主要リスクも、当時の情報締切とSelection hash付きで併読する。選定の仮説であって現在の反証・回答・採否ではなく、後の評価で何が変わったかを比較する補助である。未回答を自動的に不利/見送りへ変換せず、旧Selectionや提案を新しい問いで書き換えない。
 

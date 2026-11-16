@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from copy import deepcopy
 from datetime import date, datetime
 
 from baibai_engine.investment_judgment.stock_assessment.store import (
@@ -18,6 +20,11 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     ProposalCorrection,
     ProposalRecords,
     ProposalReference,
+)
+from baibai_engine.investment_judgment.workflow.selection import (
+    saved_market_assessment,
+    selection_from_artifacts,
+    selection_sha256,
 )
 
 
@@ -201,3 +208,44 @@ def proposal_records(connection: sqlite3.Connection, proposal_id: str) -> Propos
             for report in sorted(reports, key=lambda report: (report.recorded_at, report.report_id))
         ],
     }
+
+
+def saved_proposal_market_context(
+    connection: sqlite3.Connection, proposal: TradeProposal
+) -> dict[str, object]:
+    scope = proposal.research_scope
+    result: dict[str, object] = {
+        "source": "proposal_fixed_selection",
+        "selection_sha256": scope.selection_sha256,
+        "status": "unavailable",
+        "assessment": None,
+    }
+    # This optional historical evidence must not reapply active/current-progress admission.
+    row = connection.execute(
+        "SELECT payload FROM operation_session WHERE operation_id=?", (scope.operation_id,)
+    ).fetchone()
+    if row is None:
+        return {**result, "reason": "operation_not_found"}
+    try:
+        payload = json.loads(str(row[0]))
+        if not isinstance(payload, dict):
+            raise ValueError("unreadable saved artifacts")
+        artifacts = payload.get("artifacts", [])
+        if not isinstance(artifacts, list) or not all(isinstance(item, dict) for item in artifacts):
+            raise ValueError("unreadable saved artifacts")
+        selection = selection_from_artifacts(artifacts)
+    except (ValueError, TypeError):
+        return {**result, "reason": "selection_unreadable"}
+    if selection is None:
+        return {**result, "reason": "selection_not_recorded"}
+    if selection_sha256(selection) != scope.selection_sha256:
+        return {**result, "reason": "selection_hash_mismatch"}
+    assessment = saved_market_assessment(selection)
+    if assessment is None and proposal.market_context_assessment_id is None:
+        return {**result, "status": "not_recorded"}
+    if (
+        not isinstance(assessment, dict)
+        or assessment.get("context_id") != proposal.market_context_assessment_id
+    ):
+        return {**result, "reason": "market_context_reference_mismatch"}
+    return {**result, "status": "retained", "assessment": deepcopy(assessment)}

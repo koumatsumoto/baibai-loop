@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from hashlib import sha256
 from typing import Annotated, Literal, Self
@@ -330,6 +330,17 @@ def parse_selection(payload: Mapping[str, object]) -> ResearchSelectionRecord:
     if payload.get("schema_version") != 2:
         raise ValueError("Research selection requires an explicit V2 cutover")
     return ResearchSelection.model_validate(payload)
+
+
+def selection_from_artifacts(
+    artifacts: Sequence[Mapping[str, object]],
+) -> ResearchSelectionRecord | None:
+    rows = [item for item in artifacts if item.get("kind") == "research_selection"]
+    if not rows:
+        return None
+    if len(rows) != 1:
+        raise ValueError("one fixed research_selection is required")
+    return parse_selection(rows[0])
 
 
 def selection_targets(selection: ResearchSelectionRecord) -> tuple[ResearchTarget, ...]:

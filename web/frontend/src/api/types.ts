@@ -54,6 +54,8 @@ export interface HumanProposalReport {
   recorded_at: string
 }
 
+export type JsonValue = unknown
+
 export interface LatestProposalView {
   generated_at: string
   status: 'ready' | 'empty' | 'unavailable'
@@ -339,6 +341,14 @@ export interface SavedLiquidityView {
   unavailable_reason: string | null
 }
 
+export interface SavedMarketContextView {
+  source: 'proposal_fixed_selection'
+  selection_sha256: string
+  status: 'retained' | 'not_recorded' | 'unavailable'
+  assessment: Record<string, JsonValue> | null
+  reason: string | null
+}
+
 export interface SavedModelPerspectiveView {
   model: 'company_financials' | 'company_growth' | 'market_context' | 'external_assessment' | 'technical_analysis' | 'industry_trends' | 'social_trends'
   assessment: 'supportive' | 'mixed' | 'adverse' | 'neutral' | 'insufficient' | 'not_applicable'
@@ -391,6 +401,7 @@ export interface SavedProposalView {
   items: SavedProposalItemView[]
   portfolio_exposure: SavedPortfolioExposureView
   saved_cash: SavedCashView | null
+  saved_market_context: SavedMarketContextView | null
   corrections: ProposalCorrection[]
   human_reports: HumanProposalReport[]
 }

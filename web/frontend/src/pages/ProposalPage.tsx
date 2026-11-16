@@ -22,6 +22,7 @@ import { AssessmentValueGap } from '../components/AssessmentValueGap'
 import { ModelPerspectives } from '../components/ModelPerspectives'
 import { ReportSummary } from '../components/ReportSummary'
 import { ProposalWarnings } from '../components/ProposalWarnings'
+import { SavedMarketContext } from '../components/SavedMarketContext'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
@@ -645,6 +646,7 @@ export function ProposalReport({ data, ticker, above }: { data: LatestProposalVi
             <Identifier label="proposal_id" value={proposal.proposal_id} />
           </div>}
           <SavedCash cash={proposal.saved_cash} />
+          <SavedMarketContext context={proposal.saved_market_context} />
           <div><p className="mb-2 text-sm font-medium">全体の比較</p><Prose>{proposal.comparison}</Prose></div>
           <div><p className="mb-2 text-sm font-medium">採らなかった案・機会損失</p><Prose>{proposal.forgone}</Prose></div>
           <ProposalWarnings warnings={proposal.warnings} title="提案の保存時の注意事項" />
