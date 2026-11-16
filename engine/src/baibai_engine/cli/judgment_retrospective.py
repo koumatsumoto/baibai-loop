@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         if args.out is not None and (args.out.exists() or args.out.is_symlink()):
             raise RetrospectiveConflictError(f"output already exists: {args.out}")
         payload: object
+        saved: dict[str, object] | None = None
         match args.command:
             case "scaffold":
                 payload = scaffold_retrospective(
@@ -83,11 +84,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 if isinstance(authored, dict) and "draft" in authored:
                     authored = authored["draft"]
                 draft = RetrospectiveDraft.model_validate(authored)
-                payload = (
+                saved = (
                     RetrospectiveStoreService(args.db, clock=lambda: instant)
                     .save(draft)
                     .model_dump(mode="json")
                 )
+                payload = saved
             case "get":
                 payload = get_retrospective(
                     retrospective_id=args.retrospective_id,
@@ -102,8 +104,30 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         if args.out is not None:
             try:
                 write_text_new(args.out, content)
-            except FileExistsError as error:
-                raise RetrospectiveConflictError(f"output already exists: {args.out}") from error
+            except OSError as error:
+                if saved is not None:
+                    # The export is not the authority and cannot roll back a committed record.
+                    print(
+                        "error: record saved; output export failed; "
+                        "use get with the returned reference",
+                        file=sys.stderr,
+                    )
+                    print(
+                        json.dumps(
+                            {
+                                "status": "saved_output_failed",
+                                "reference": saved["reference"],
+                                "recorded_at": saved["recorded_at"],
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                    return 4 if isinstance(error, FileExistsError) else 3
+                if isinstance(error, FileExistsError):
+                    raise RetrospectiveConflictError(
+                        f"output already exists: {args.out}"
+                    ) from error
+                raise
         sys.stdout.write(content)
         return 0
     except RetrospectiveConflictError as error:

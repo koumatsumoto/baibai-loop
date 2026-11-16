@@ -80,16 +80,18 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         if args.command in {"latest", "catalog", "scaffold"} and args.known_at is not None:
             _datetime(args.known_at)
         payload: object
+        saved: dict[str, object] | None = None
         match args.command:
             case "save":
                 draft = ResearchDraft.model_validate(
                     safe_load(args.draft.read_text(encoding="utf-8"))
                 )
-                payload = (
+                saved = (
                     ResearchStoreService(args.db, clock=lambda: instant)
                     .save(draft)
                     .model_dump(mode="json")
                 )
+                payload = saved
             case "get":
                 with closing(connect_read_only(args.db)) as connection:
                     if args.research_id is not None:
@@ -158,8 +160,28 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         if args.out is not None:
             try:
                 write_text_new(args.out, content)
-            except FileExistsError as error:
-                raise ResearchConflictError(f"output already exists: {args.out}") from error
+            except OSError as error:
+                if saved is not None:
+                    # The export is not the authority and cannot roll back a committed record.
+                    print(
+                        "error: record saved; output export failed; "
+                        "use get with the returned reference",
+                        file=sys.stderr,
+                    )
+                    print(
+                        json.dumps(
+                            {
+                                "status": "saved_output_failed",
+                                "reference": saved["reference"],
+                                "recorded_at": saved["recorded_at"],
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                    return 4 if isinstance(error, FileExistsError) else 3
+                if isinstance(error, FileExistsError):
+                    raise ResearchConflictError(f"output already exists: {args.out}") from error
+                raise
         sys.stdout.write(content)
         return 0
     except ResearchConflictError as error:

@@ -160,6 +160,8 @@ record-proposalは公開済み提案の束縛。buy完了には具体termsを要
 
 Operationに保存された[Research Selection](../../../docs/architecture.md#store-authority)から再開し、selection-contextで選び直さない。forceは表示を再投影し執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
 
+`company-research save`と`judgment-retrospective save`の`--out`は正本とは別の補助copy。保存後のexport失敗は終了codeを失敗のまま保ち、stdoutの`saved_output_failed`で保存済み参照と元記録時刻だけを返す。確認情報をprivateに保持し、同じcommand群の`get`へID/hashを渡して、新しい出力先に読み直す。新IDで保存し直したり、残った部分出力を完全な記録として使ったりしない。保存前の失敗では保存済みと報告しない。
+
 ## 提案訂正・人間の非購入報告
 
 [訂正と本人報告](../../../docs/reference/trade-proposal.md#提案の訂正と人間の報告)に従いexact Proposalを読む。
