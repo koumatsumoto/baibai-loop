@@ -14,7 +14,7 @@ from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.workflow.calibration_context import (
     research_calibration_context,
 )
-from baibai_engine.investment_judgment.workflow.selection import selection_sha256
+from baibai_engine.investment_judgment.workflow.selection import parse_selection, selection_sha256
 from baibai_engine.investment_judgment.workflow.workspace import resume_selected_workspace
 
 NOW = datetime.fromisoformat("2026-10-19T22:00:00+09:00")
@@ -193,3 +193,20 @@ def test_calibration_cli_rejects_invalid_asof_before_reading_operation(tmp_path)
         )
     assert error.value.code == 2
     assert not (tmp_path / "missing.sqlite").exists()
+
+
+@pytest.mark.parametrize("value", [10**400, -(10**400)])
+def test_out_of_float_range_json_er_is_unavailable_without_mutation(tmp_path, value):
+    raw = _selection(tmp_path).model_dump(mode="json")
+    raw["inputs"]["analysis"]["analyses"]["1234"]["metrics"]["er_annual"] = value
+    selected = parse_selection(raw)
+    path = tmp_path / "context.yaml"
+    path.write_text(
+        yaml.safe_dump(context_artifact(rules_hash=selected.inputs.analysis.screening_rules_hash)),
+        encoding="utf-8",
+    )
+    before = selection_sha256(selected), path.read_bytes()
+    result = research_calibration_context(selected, context_path=path, as_of=NOW.date())
+    assert result["status"] == "available"
+    assert result["targets"] == [{"ticker": "1234", "unavailable_reason": "er_unavailable"}]
+    assert (selection_sha256(selected), path.read_bytes()) == before

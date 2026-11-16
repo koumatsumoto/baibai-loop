@@ -65,11 +65,14 @@ def research_calibration_context(
         analysis = source.analyses.get(target.ticker)
         metrics = None if analysis is None else analysis.get("metrics")
         estimate = metrics.get("er_annual") if isinstance(metrics, dict) else None
-        if (
-            isinstance(estimate, bool)
-            or not isinstance(estimate, (int, float))
-            or not isfinite(estimate)
-        ):
+        if isinstance(estimate, bool) or not isinstance(estimate, (int, float)):
+            estimate = None
+        else:
+            try:
+                estimate = float(estimate)
+            except OverflowError:
+                estimate = None
+        if estimate is None or not isfinite(estimate):
             targets.append({"ticker": target.ticker, "unavailable_reason": "er_unavailable"})
         else:
             targets.append(
