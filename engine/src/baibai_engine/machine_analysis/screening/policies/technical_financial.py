@@ -43,6 +43,25 @@ class TechnicalFinancialPolicy(BaseModel):
     ] = "technical-financial-discovery-v17"
     page_size: Annotated[int, Field(ge=1, le=36)] = 36
 
+    @property
+    def attention_order(self) -> Literal["ticker_code", "input_review_hash", "all_lanes_hash"]:
+        """保存版のlane内注意順。保存fieldや現在の再順位付けではない。"""
+        if self.method in {"technical-financial-discovery-v1", "technical-financial-discovery-v2"}:
+            return "ticker_code"
+        if self.method in {
+            "technical-financial-discovery-v3",
+            "technical-financial-discovery-v4",
+            "technical-financial-discovery-v5",
+            "technical-financial-discovery-v6",
+            "technical-financial-discovery-v7",
+            "technical-financial-discovery-v8",
+            "technical-financial-discovery-v9",
+            "technical-financial-discovery-v10",
+            "technical-financial-discovery-v11",
+        }:
+            return "input_review_hash"
+        return "all_lanes_hash"
+
 
 @dataclass(frozen=True, slots=True)
 class TechnicalFinancialRow:
