@@ -213,8 +213,27 @@ def _contains(new: PreparedPlan, old: PreparedPlan) -> bool:
     return True
 
 
+type _ReadyEntry = tuple[datetime, dict[str, str], PreparedPlan]
+
+
+def _select_cumulative(entries: list[_ReadyEntry]) -> _ReadyEntry:
+    selected = next(entry for entry in entries if entry[2].cumulative)
+    # Extension is transitive. Any superset of all entries must replace this
+    # candidate (or tie it); reject incomparable histories in the final pass.
+    for entry in entries:
+        if entry is selected or not entry[2].cumulative:
+            continue
+        if _contains(entry[2], selected[2]) and (
+            entry[0] > selected[0] or not _contains(selected[2], entry[2])
+        ):
+            selected = entry
+    if not all(_contains(selected[2], old[2]) for old in entries):
+        raise ValueError("external cumulative ready sets are incomparable")
+    return selected
+
+
 def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    candidates: dict[str, list[tuple[datetime, dict[str, str], PreparedPlan]]] = {}
+    candidates: dict[str, list[_ReadyEntry]] = {}
     # この走査内だけ不変plan/confirmed-stageを共有する。terminal/ackは毎回読む。
     plans: dict[str, RunPlan] = {}
     confirmed_stages: dict[str, tuple[CohortStage, str]] = {}
@@ -258,15 +277,8 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
             if legacy_partial:
                 selected = max(legacy_partial, key=lambda entry: entry[0])
             elif any(entry[2].cumulative for entry in entries):
-                supersets = [
-                    entry
-                    for entry in entries
-                    if entry[2].cumulative and all(_contains(entry[2], old[2]) for old in entries)
-                ]
-                if not supersets:
-                    raise ValueError("external cumulative ready sets are incomparable")
                 # 集合包含を先に確認。後着の小さい集合やclock skewで原本を落とさない。
-                selected = max(supersets, key=lambda entry: entry[0])
+                selected = _select_cumulative(entries)
             else:
                 selected = max(entries, key=lambda entry: entry[0])
             _, reference, item = selected
