@@ -8,6 +8,7 @@ import type {
   SavedDeferItemView,
   SavedExposureRowView,
   SavedHoldItemView,
+  SavedHoldingOriginView,
   SavedLimitTermsView,
   SavedPortfolioExposureView,
   SavedProposalView,
@@ -437,6 +438,32 @@ function SavedHoldingPosition({ item }: { item: SavedHoldItemView | SavedSellIte
   </section>
 }
 
+function HoldingOrigin({ origin }: { origin: SavedHoldingOriginView | null | undefined }) {
+  return <details className="rounded-lg border p-4">
+    <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">当初の投資理由</summary>
+    <div className="mt-4 grid gap-4">
+      <p className="text-xs leading-6 text-muted-foreground">保存入力に結び付く当初の資料です。今回の評価や再確認条件とは別で、仮説が現在も成立することや保留の解消を意味しません。</p>
+      {origin == null
+        ? <p className="text-sm text-muted-foreground">この表示データには当初理由が未収録です。理由なし・確認済みへ補っていません。</p>
+        : <>
+          {origin.assessment !== null && <>
+            <AssessmentValueGap assessment={origin.assessment} />
+            <AssessmentRealization assessment={origin.assessment} />
+            <AssessmentExcerpt assessment={origin.assessment} />
+          </>}
+          {origin.assessment === null && origin.assessment_ref !== null && <>
+            <p className="text-sm text-muted-foreground">保存された当初評価の固定参照はありますが、対応本文を読み取れません。今回や最新の評価では補っていません。</p>
+            <Identifier label="当初 assessment_id" value={origin.assessment_ref.assessment_id} />
+            <Identifier label="当初 core_sha256" value={origin.assessment_ref.core_sha256} />
+            <Identifier label="当初 review_id" value={origin.assessment_ref.review_id} />
+          </>}
+          {origin.investment_reason !== null && <Prose>{origin.investment_reason}</Prose>}
+          {origin.reason_unavailable !== null && <div><p className="mb-1 text-sm font-medium">当初理由を確認できない理由</p><Prose>{origin.reason_unavailable}</Prose></div>}
+        </>}
+    </div>
+  </details>
+}
+
 function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }) {
   return (
     <div className="grid gap-4">
@@ -447,18 +474,12 @@ function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }
       <div><p className="mb-1 text-sm font-medium">今回の再評価理由</p><Prose>{item.case_reassessment_reason}</Prose></div>
       {item.remaining_reward !== null && <div><p className="mb-1 text-sm font-medium">残存見返り：{REWARD_LABEL[item.remaining_reward.status]}</p><Prose>{item.remaining_reward.reason}</Prose></div>}
       {item.action === 'hold' && item.return_calculation_unavailable_reason !== null && <div><p className="mb-1 text-sm font-medium">収益率を計算できない理由</p><Prose>{item.return_calculation_unavailable_reason}</Prose></div>}
-      <details className="rounded-lg border p-4">
-        <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">当初の投資理由</summary>
-        <div className="mt-4 grid gap-4">
-          {item.original_assessment !== null && <>
-            <AssessmentValueGap assessment={item.original_assessment} />
-            <AssessmentRealization assessment={item.original_assessment} />
-            <AssessmentExcerpt assessment={item.original_assessment} />
-          </>}
-          {item.original_investment_reason !== null && <Prose>{item.original_investment_reason}</Prose>}
-          {item.original_reason_unavailable_reason !== null && <div><p className="mb-1 text-sm font-medium">当初理由を確認できない理由</p><Prose>{item.original_reason_unavailable_reason}</Prose></div>}
-        </div>
-      </details>
+      <HoldingOrigin origin={{
+        assessment_ref: null,
+        assessment: item.original_assessment,
+        investment_reason: item.original_investment_reason,
+        reason_unavailable: item.original_reason_unavailable_reason,
+      }} />
     </div>
   )
 }
@@ -494,7 +515,10 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
             </>}
             {item.action === 'defer' && <>
               <p className="text-sm text-muted-foreground">判断保留は、保有なし・売却済み・保有継続の推奨を意味しません。</p>
-              {item.saved_position != null && <SavedHoldingPosition item={item} />}
+              {item.saved_position != null && <>
+                <SavedHoldingPosition item={item} />
+                <HoldingOrigin origin={item.saved_holding_origin} />
+              </>}
               <Reasons reasons={item.blockers} title="判断を保留した不足理由" />
               <TextList items={item.resume_conditions} title="再開条件" />
             </>}

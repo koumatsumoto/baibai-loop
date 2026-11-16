@@ -104,6 +104,7 @@ export const reviewedDeferFixture: SavedDeferItemView = {
   company_name: '合成会社',
   sector: '情報・通信業',
   action: 'defer',
+  saved_holding_origin: null,
   rationale: '確認範囲が限られるため、今回の判断は保留する。',
   review_conditions: ['契約更新率の一次資料を確認する。'],
   assessment: {

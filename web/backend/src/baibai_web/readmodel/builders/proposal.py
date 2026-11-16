@@ -30,6 +30,7 @@ from baibai_web.readmodel.proposal_models import (
     LatestProposalView,
     ProposalHistoryView,
     SavedAssessmentRefreshView,
+    SavedAssessmentRefView,
     SavedAssessmentReviewView,
     SavedAssessmentRisksView,
     SavedAssessmentSourceView,
@@ -41,6 +42,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedConditionalReturnView,
     SavedDeferItemView,
     SavedExposureRowView,
+    SavedHoldingOriginView,
     SavedHoldingPositionView,
     SavedHoldItemView,
     SavedHoldQuoteComparisonView,
@@ -116,6 +118,31 @@ def build_proposal_history(
         error="一部の保存済み提案を読み取れません。" if missing else None,
         proposals=list(history.proposals),
         unavailable_proposal_ids=list(missing),
+    )
+
+
+def _holding_origin(
+    position: PositionInput, pairs: Mapping[str, ReviewedAssessment]
+) -> SavedHoldingOriginView:
+    reference = position.original_assessment_ref
+    pair = None if reference is None else pairs.get(reference.assessment_id)
+    # A missing/corrupt optional origin must not erase the saved defer or borrow a newer pair.
+    exact = (
+        reference is not None
+        and pair is not None
+        and pair.assessment_id == reference.assessment_id
+        and pair.core_sha256 == reference.core_sha256
+        and pair.review.review_id == reference.review_id
+    )
+    return SavedHoldingOriginView(
+        assessment_ref=(
+            None
+            if reference is None
+            else SavedAssessmentRefView.model_validate(reference.model_dump(mode="json"))
+        ),
+        assessment=_assessment(pair) if exact and pair is not None else None,
+        investment_reason=position.original_investment_reason,
+        reason_unavailable=position.original_reason_unavailable_reason,
     )
 
 
@@ -586,6 +613,11 @@ def _item(
             **common,
             "saved_position": (
                 _saved_position(deferred_position, proposal)
+                if outcome.purpose == "holding" and deferred_position is not None
+                else None
+            ),
+            "saved_holding_origin": (
+                _holding_origin(deferred_position, pairs)
                 if outcome.purpose == "holding" and deferred_position is not None
                 else None
             ),

@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from contextlib import closing
+from contextlib import closing, suppress
 from pathlib import Path
 
 from baibai_engine.investment_judgment.stock_assessment.store import require_assessment_ref
@@ -59,6 +59,15 @@ def _project(connection: sqlite3.Connection, proposal: TradeProposal) -> SavedPr
         reference.assessment_id: require_assessment_ref(connection, reference)
         for reference in references
     }
+    if proposal.request_scope == "review_positions":
+        deferred = {item.ticker for item in proposal.items if item.action == "defer"}
+        for position in proposal.inputs.positions:
+            reference = position.original_assessment_ref
+            if position.ticker not in deferred or reference is None:
+                continue
+            # Preserve an unreadable optional origin as a reference, not a new gate.
+            with suppress(OSError, ValueError, RuntimeError, sqlite3.Error):
+                pairs[reference.assessment_id] = require_assessment_ref(connection, reference)
     view = project_saved_proposal(proposal, pairs)
     return type(view).model_validate_json(
         json.dumps(
