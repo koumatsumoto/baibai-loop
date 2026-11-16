@@ -9,6 +9,7 @@ from pathlib import Path
 
 from baibai_engine.investment_judgment.company_research.context import (
     AssessmentReviewContext,
+    AssessmentValuationContext,
     AvailableAssessment,
     AvailableResearch,
     CompanyContext,
@@ -65,6 +66,10 @@ def _assessment_context(
             findings=pair.document.findings,
             strongest_countercase=pair.document.conclusion.strongest_countercase,
             invalidation_conditions=pair.document.investment_case.invalidation_conditions,
+            valuation_context=AssessmentValuationContext(
+                status=pair.document.valuation.status,
+                unresolved_reason=pair.document.valuation.unresolved_reason,
+            ),
             independent_review=AssessmentReviewContext(
                 reviewed_at=pair.review.reviewed_at,
                 primary_source_check=pair.review.primary_source_check,
