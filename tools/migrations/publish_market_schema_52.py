@@ -110,13 +110,16 @@ def _backup_key(kind: str, checksum: str) -> str:
     )
 
 
-def _backup(store: ObjectStore, path: Path, *, kind: str, record: Callable[[str], None]) -> None:
-    checksum = digest(path)
-    key = _backup_key(kind, checksum)
+def _backup(
+    store: ObjectStore, path: Path, *, kind: str, expected_sha: str, record: Callable[[str], None]
+) -> None:
+    if digest(path) != expected_sha:
+        raise ValueError("prepared backup bytes changed")
+    key = _backup_key(kind, expected_sha)
     if store.head(key) is None:
         record("backup_" + kind + "_put_started")
-        _put(store, key, path, etag=None, expected_sha=checksum)
-    _read(store, key, sha256=checksum, max_bytes=MAX_MARKET_BYTES)
+        _put(store, key, path, etag=None, expected_sha=expected_sha)
+    _read(store, key, sha256=expected_sha, max_bytes=MAX_MARKET_BYTES)
     record("backup_" + kind + "_verified")
 
 
@@ -184,12 +187,12 @@ def cutover(
                 max_bytes=MAX_MARKET_BYTES,
                 etag=plan.market_etag,
             )
-            for path, kind in (
-                (source, "source"),
-                (old_manifest_path, "manifest"),
-                (pointer_path, "pointer"),
+            for path, kind, checksum in (
+                (source, "source", plan.source_sha256),
+                (old_manifest_path, "manifest", plan.manifest_sha256),
+                (pointer_path, "pointer", plan.pointer_sha256),
             ):
-                _backup(store, path, kind=kind, record=record)
+                _backup(store, path, kind=kind, expected_sha=checksum, record=record)
             _boundary(store, plan, handle)
             record("market_put_started")
             market_etag = _put(

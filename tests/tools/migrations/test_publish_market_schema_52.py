@@ -263,3 +263,31 @@ def test_terminal_body_readback_is_followed_by_control_verification(prepared, ch
     assert store.change_on_read is None
     assert not (args["attempt"] / "result.json").exists()
     assert "stopped_without_retry:" in (args["attempt"] / "events.jsonl").read_text()
+
+
+@pytest.mark.parametrize("kind", ["source", "manifest", "pointer"])
+def test_backup_identity_is_fixed_by_plan_not_mutable_local_bytes(prepared, kind, monkeypatch):
+    store, args = prepared
+    original = store.get_verified_bytes
+    plan = args["plan"]
+    expected_sha = getattr(
+        plan,
+        {"source": "source_sha256", "manifest": "manifest_sha256", "pointer": "pointer_sha256"}[
+            kind
+        ],
+    )
+
+    def read_and_move_local(key, **kwargs):
+        body = original(key, **kwargs)
+        if key == publish.MARKET and kwargs["sha256"] == plan.source_sha256:
+            local = args["source"] if kind == "source" else args["attempt"] / f"old-{kind}.json"
+            local.write_bytes(b"changed local preparation")
+        return body
+
+    monkeypatch.setattr(store, "get_verified_bytes", read_and_move_local)
+    with pytest.raises(ValueError, match="prepared backup bytes changed"):
+        publish.cutover(store, **args)
+    assert publish.MARKET not in store.attempts
+    assert publish.MANIFEST not in store.attempts
+    assert publish._backup_key(kind, expected_sha) not in store.values
+    assert not (args["attempt"] / "result.json").exists()
