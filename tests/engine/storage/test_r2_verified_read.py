@@ -189,3 +189,15 @@ def test_serial_scope_keeps_completion_spacing_and_stops_after_429(monkeypatch):
         run()
     assert calls == [10.0, 10.25, 10.5]
     assert all(body.closed for body in bodies)
+
+
+def test_verified_object_keeps_metadata_from_the_same_response(monkeypatch):
+    store, body = make_store(), Body(PAYLOAD)
+    calls = bind(monkeypatch, store, response(body))
+    payload, metadata = store.get_verified_object("fixed-key", sha256=DIGEST, max_bytes=100)
+    assert payload == PAYLOAD
+    assert metadata.etag == "same-response"
+    assert metadata.size == len(PAYLOAD)
+    assert metadata.metadata == {"sha256": DIGEST}
+    assert len(calls) == 1
+    assert body.closed

@@ -10,6 +10,7 @@ from tests.jobs.integration.external_assessments.test_cumulative_handoff import 
     make_partial,
 )
 
+from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.acquisition.external_assessments.staging import prefix
 from baibai_jobs.integration.external_assessment_ready import (
     acknowledgement_key,
@@ -68,7 +69,7 @@ def test_next_scan_and_independent_load_reject_changed_immutable(publication, ta
     assert pending == []
     assert failed
     assert all(entry["run_id"] == plan.run_id for entry in failed)
-    with pytest.raises((ValueError, KeyError)):
+    with pytest.raises((ValueError, KeyError, LakePublishError)):
         load_ready(store, reference)
     assert store.put_keys == []
 
@@ -166,3 +167,30 @@ def test_valid_terminal_before_or_during_scan_prevents_adoption(
     if published_before_scan:
         assert first["key"] not in store.get_keys
         assert second["key"] not in store.get_keys
+
+
+def test_only_fixed_stages_use_atomic_verified_reads(publication, monkeypatch):
+    import hashlib
+
+    from baibai_engine.storage.objects.json import MAX_PRIVATE_OBJECT_BYTES
+
+    store, plan, first, second = cumulative_pair(publication)
+    verified = []
+
+    def fixed_get(key, *, sha256, max_bytes):
+        assert "/confirmed-stages/" in key
+        assert max_bytes == MAX_PRIVATE_OBJECT_BYTES
+        body, metadata = store.get_bytes_with_metadata(key)
+        assert hashlib.sha256(body).hexdigest() == sha256
+        verified.append(key)
+        return body, metadata
+
+    monkeypatch.setattr(store, "get_verified_object", fixed_get, raising=False)
+    assert available_ready(store) == ([second], [])
+    assert len(verified) == 2
+    assert not set(verified) & set(store.head_keys)
+    assert store.head_keys.count(first["key"]) == 2
+    assert store.head_keys.count(second["key"]) == 2
+    assert store.head_keys.count(prefix(plan.run_id) + "/published.json") == 2
+    assert store.head_keys.count(acknowledgement_key(plan, second)) == 1
+    assert not store.put_keys

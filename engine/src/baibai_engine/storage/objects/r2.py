@@ -152,6 +152,15 @@ class VerifiedObjectReader(Protocol):
     def get_verified_bytes(self, key: str, *, sha256: str, max_bytes: int) -> bytes | None: ...
 
 
+@runtime_checkable
+class VerifiedObjectMetadataReader(Protocol):
+    """Bounded fixed-object bytes and their metadata from one verified response."""
+
+    def get_verified_object(
+        self, key: str, *, sha256: str, max_bytes: int
+    ) -> tuple[bytes, RemoteObject] | None: ...
+
+
 class Boto3R2Store:
     """S3-compatible R2 adapter with reusable in-process connections."""
 
@@ -359,6 +368,12 @@ class Boto3R2Store:
             raise R2Error("R2 get-object failed") from exc
 
     def get_verified_bytes(self, key: str, *, sha256: str, max_bytes: int) -> bytes | None:
+        result = self.get_verified_object(key, sha256=sha256, max_bytes=max_bytes)
+        return result[0] if result is not None else None
+
+    def get_verified_object(
+        self, key: str, *, sha256: str, max_bytes: int
+    ) -> tuple[bytes, RemoteObject] | None:
         """Use one response for fixed-object size/metadata/body integrity.
 
         Check headers before consuming a successful body and read at most its
@@ -387,7 +402,7 @@ class Boto3R2Store:
                         or hashlib.sha256(payload).hexdigest() != sha256
                     ):
                         raise LakePublishError("fixed object is missing or changed")
-                    return payload
+                    return payload, metadata
                 finally:
                     body.close()
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
