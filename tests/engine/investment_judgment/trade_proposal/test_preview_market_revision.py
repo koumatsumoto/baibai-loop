@@ -3,7 +3,7 @@
 import json
 import sqlite3
 from contextlib import closing
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -164,6 +164,7 @@ def test_legacy_market_cutoff_is_not_inferred_from_publication(tmp_path, missing
     assert preview.status == "changed"
     assert "情報締切=未記録" in preview.change_reasons[0].message
     assert f"発行={later.published_at.isoformat()}" in preview.change_reasons[0].message
+    assert preview.payload()["market_assessment_context"]["known_at"] is None
     assert case.app.read_bytes() == before
 
 
@@ -182,3 +183,54 @@ def test_broken_current_market_body_does_not_fall_back_or_block_exact_saved_read
         _preview(case, saved)
     assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
     assert case.app.read_bytes() == before
+
+
+def test_same_reference_exposes_saved_clock_without_claiming_new_research(tmp_path):
+    original = _market_document()
+    case = _fixed_case(tmp_path, original)
+    _, _, saved = _publish(case)
+    before = case.app.read_bytes()
+    preview = _preview(case, saved)
+    context = preview.payload()["market_assessment_context"]
+    assert preview.status == "unchanged"
+    assert context["same_reference"] is True
+    assert context["context_id"] == context["saved_context_id"] == original.context_id
+    assert context["as_of"] == original.as_of.isoformat()
+    assert context["known_at"] == original.known_at.isoformat()
+    assert context["published_at"] == original.published_at.isoformat()
+    assert context["age_as_of_days"] == 0
+    assert "新事実を再確認した証拠ではなく" in context["interpretation"]
+    assert case.app.read_bytes() == before
+
+
+def test_missing_market_clock_does_not_invent_same_reference_or_age(tmp_path):
+    case = backend_case(tmp_path)
+    _, _, saved = _publish(case)
+    context = _preview(case, saved).payload()["market_assessment_context"]
+    for key in (
+        "context_id",
+        "same_reference",
+        "as_of",
+        "known_at",
+        "published_at",
+        "age_as_of_days",
+    ):
+        assert context[key] is None
+
+
+def test_market_age_is_jst_calendar_days_not_utc_or_publication_age():
+    from baibai_engine.investment_judgment.market_assessment.models import StoredAssessment
+    from baibai_engine.investment_judgment.trade_proposal.preview import _market_assessment_context
+
+    record = StoredAssessment.from_payload(_market_document().payload())
+    midnight = datetime.combine(record.as_of + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+    context = _market_assessment_context(
+        record, saved_context_id=record.context_id, now=midnight - timedelta(hours=9)
+    )
+    assert context["age_as_of_days"] == 1
+    earlier = _market_assessment_context(
+        record,
+        saved_context_id=record.context_id,
+        now=midnight - timedelta(hours=9, microseconds=1),
+    )
+    assert earlier["age_as_of_days"] == 0
