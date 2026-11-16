@@ -201,3 +201,10 @@ def test_verified_object_keeps_metadata_from_the_same_response(monkeypatch):
     assert metadata.metadata == {"sha256": DIGEST}
     assert len(calls) == 1
     assert body.closed
+
+
+def test_fixed_read_cannot_downgrade_none_to_an_unbound_digest(monkeypatch):
+    store = make_store()
+    monkeypatch.setattr(store, "_client", lambda *_: pytest.fail("client must not start"))
+    with pytest.raises(TypeError):
+        store.get_verified_bytes("fixed-key", sha256=None, max_bytes=100)

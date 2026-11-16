@@ -25,9 +25,7 @@ def _hypotheses(results):
 
 
 @pytest.mark.parametrize("kind", ["research", "assessment"])
-def test_later_refutation_and_unknown_are_visible_without_reordering_the_three_excerpts(
-    tmp_path, kind
-):
+def test_later_refutation_and_unknown_are_excerpts_in_original_relative_order(tmp_path, kind):
     path = tmp_path / "app"
     hypotheses = _hypotheses(["supported"] * 3 + ["refuted", "unresolved"])
     context = _save(path, kind, [_source("same-source")], hypotheses)
@@ -35,11 +33,11 @@ def test_later_refutation_and_unknown_are_visible_without_reordering_the_three_e
     before = path.read_bytes()
     brief = company_context_brief(context)[kind]
     assert [row["statement"] for row in brief["hypotheses"]] == [
-        item["statement"] for item in hypotheses[:3]
+        item["statement"] for item in (hypotheses[0], hypotheses[3], hypotheses[4])
     ]
-    assert [row["result"] for row in brief["hypotheses"]] == ["supported"] * 3
+    assert [row["result"] for row in brief["hypotheses"]] == ["supported", "refuted", "unresolved"]
     assert brief["hypotheses_omitted"] == 2
-    assert brief["omitted_hypothesis_results"] == ["refuted", "unresolved"]
+    assert brief["omitted_hypothesis_results"] == ["supported"]
     assert "exact reference" in brief["display"]
     assert brief["role"] == (
         "unreviewed_research"
@@ -59,7 +57,7 @@ def test_omission_result_kinds_are_bounded_not_independent_votes(tmp_path, kind)
     brief = company_context_brief(context)[kind]
     assert len(brief["hypotheses"]) == 3
     assert brief["hypotheses_omitted"] == 22
-    assert brief["omitted_hypothesis_results"] == ["refuted", "supported", "unresolved"]
+    assert brief["omitted_hypothesis_results"] == ["refuted", "supported"]
     assert "hypothesis_score" not in brief
     assert "result_counts" not in brief
 
@@ -124,6 +122,29 @@ def test_same_selection_context_exposes_omission_without_changing_candidates_or_
     brief = selected["saved_company_context"]["1234"]["research"]
     assert brief == company_context_brief(context)["research"]
     assert brief["hypotheses_omitted"] == 1
-    assert brief["omitted_hypothesis_results"] == ["refuted"]
+    assert brief["omitted_hypothesis_results"] == ["supported"]
     assert selected["candidate_tickers"] == []
     assert (app.read_bytes(), runs.read_bytes()) == before
+
+
+@pytest.mark.parametrize(
+    ("results", "indices"),
+    [
+        (["unresolved", "unresolved", "unresolved", "refuted", "supported"], [0, 3, 4]),
+        (["refuted", "refuted", "supported", "refuted"], [0, 1, 2]),
+        (["supported"] * 5, [0, 1, 2]),
+        (["refuted", "supported", "unresolved"], [0, 1, 2]),
+    ],
+)
+@pytest.mark.parametrize("kind", ["research", "assessment"])
+def test_result_coverage_does_not_prioritize_a_result_or_count_votes(
+    tmp_path, kind, results, indices
+):
+    hypotheses = _hypotheses(results)
+    context = _save(tmp_path / "app", kind, [_source("same-source")], hypotheses)
+    brief = company_context_brief(context)[kind]
+    assert [row["statement"] for row in brief["hypotheses"]] == [
+        hypotheses[i]["statement"] for i in indices
+    ]
+    assert {row["result"] for row in brief["hypotheses"]} == set(results)
+    assert brief.get("hypotheses_omitted", 0) == len(results) - len(indices)
