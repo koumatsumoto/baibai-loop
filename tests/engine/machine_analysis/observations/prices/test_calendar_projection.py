@@ -22,6 +22,7 @@ from baibai_engine.machine_analysis.observations.prices.snapshot_contracts impor
     JQUANTS_MARKET_CALENDAR,
 )
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
@@ -108,3 +109,33 @@ def test_unknown_calendar_category_is_not_treated_as_a_closed_day(tmp_path):
             observation_calendar_context(connection, unknown)
         with pytest.raises(ValueError, match="Continuous"):
             observation_calendar_context(connection, end)
+
+
+@pytest.mark.parametrize("missing_offset", range(4))
+def test_completed_coverage_does_not_hide_a_missing_calendar_day(tmp_path, missing_offset):
+    start = date(2026, 11, 6)
+    end = start + timedelta(days=3)
+    database = tmp_path / "market.sqlite"
+    store_jquants_market_calendar(
+        database,
+        [
+            {"Date": (start + timedelta(days=i)).isoformat(), "HolDiv": division}
+            for i, division in enumerate(("1", "0", "0", "1"))
+        ],
+        requested_start=start,
+        requested_end=end,
+    )
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute(
+            "DELETE FROM jquants_market_calendar WHERE day = ?",
+            ((start + timedelta(days=missing_offset)).isoformat(),),
+        )
+        assert range_covered(connection, "jquants_market_calendar", start, end)
+    before = database.read_bytes()
+    assert read_market_calendar(database, start, end) is None
+    # A gap outside a requested single day must not invalidate the intact row.
+    intact = end if missing_offset == 0 else start
+    assert read_market_calendar(database, intact, intact) == [
+        JQuantsMarketCalendarDay(day=intact, is_business_day=True)
+    ]
+    assert database.read_bytes() == before
