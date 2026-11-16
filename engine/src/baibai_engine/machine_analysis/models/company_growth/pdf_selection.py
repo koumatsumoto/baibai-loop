@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from decimal import Decimal
 from typing import Literal
 
 from baibai_engine.machine_analysis.models.company_growth.calculations import _margin
@@ -165,10 +166,16 @@ def apply_pdf_periods(
 
 
 def apply_pdf_changes(
-    changes: Sequence[Change], selected: PdfFinancialSelection | None, *, sector: str | None
+    changes: Sequence[Change],
+    selected: PdfFinancialSelection | None,
+    *,
+    states: Sequence[PeriodState],
+    sector: str | None,
 ) -> tuple[Change, ...]:
-    if selected is None or not selected.comparative_verified:
+    if selected is None:
         return tuple(changes)
+    if not selected.comparative_verified:
+        return _unverified_annual_comparative(changes, selected, states)
     if selected.current is None:
         if not selected.blocks_legacy_ttm:
             return tuple(changes)
@@ -246,6 +253,88 @@ def apply_pdf_changes(
             )
         )
     return tuple(result)
+
+
+def _unverified_annual_comparative(
+    changes: Sequence[Change], selected: PdfFinancialSelection, states: Sequence[PeriodState]
+) -> tuple[Change, ...]:
+    current = selected.current
+    if (
+        current is None
+        or selected.status != "available"
+        or selected.annual_revision_basis != "latest_reconfirmed_unchanged_amounts"
+        or not _statement_comparison_measurement(current, "annual_ttm")
+    ):
+        return tuple(changes)
+    before = {pair.metric: pair.comparative * 1_000_000 for pair in current.pairs}
+    matching = [
+        (index, change)
+        for index, change in enumerate(changes)
+        if change.measurement in {"reported", "annual_ttm"}
+        and (change.to_start, change.to_end) == (current.current_start, current.current_end)
+        and (change.from_start, change.from_end)
+        == (current.comparative_start, current.comparative_end)
+        and change.reason in {None, "nonpositive_base"}
+    ]
+    # 当期額不変は前年比較の再確認ではない。丸め一単位内は確定矛盾にしない。
+    affected = {
+        index
+        for index, change in matching
+        if change.metric in before
+        and change.from_value is not None
+        and abs(Decimal(str(change.from_value)) - before[change.metric]) > 1_000_000
+        and _prior_predates_pdf(change, current, states)
+    }
+    margin_measurements = {
+        change.measurement
+        for index, change in matching
+        if index in affected and change.metric in {"sales", "operating_profit"}
+    }
+    affected.update(
+        index
+        for index, change in matching
+        if change.metric == "operating_margin" and change.measurement in margin_measurements
+    )
+    return tuple(
+        change.model_copy(
+            update={
+                "from_value": None,
+                "difference": None,
+                "rate": None,
+                "margin_points": None,
+                "sign_change": None,
+                "reason": "restated_comparative_unverified_after_revision",
+            }
+        )
+        if index in affected
+        else change
+        for index, change in enumerate(changes)
+    )
+
+
+def _prior_predates_pdf(
+    change: Change, current: PdfStatement, states: Sequence[PeriodState]
+) -> bool:
+    priors = [
+        value
+        for state in states
+        for observation in state.observations
+        if observation.measurement == change.measurement
+        and (observation.period_start, observation.period_end)
+        == (change.from_start, change.from_end)
+        and (value := observation.metrics.get(change.metric)) is not None
+        and value.value == change.from_value
+    ]
+    # 後発の前年訂正を古いPDFで否定しない。同日の前後もPDFの日付から推測しない。
+    return (
+        current.published_on is not None
+        and bool(priors)
+        and all(
+            value.documents
+            and all(source.disclosed_at < current.published_on for source in value.documents)
+            for value in priors
+        )
+    )
 
 
 def _statement_comparison_measurement(current: PdfStatement, measurement: Measurement) -> bool:

@@ -64,7 +64,7 @@ def generate_company_growth(
     states = apply_pdf_periods(
         build_period_states(documents, sector=sector), selected_pdf, sector=sector
     )
-    changes = apply_pdf_changes(build_changes(states), selected_pdf, sector=sector)
+    changes = apply_pdf_changes(build_changes(states), selected_pdf, states=states, sector=sector)
     observed = tuple(sorted({state.period_end for state in states}))
     displayed = tuple(
         s for s in states if (start is None or start <= s.period_end) and s.period_end <= end
@@ -94,7 +94,7 @@ def generate_company_growth(
             "pdf_supplement": pdf,
             "pdf_selection": selected_pdf,
             "pdf_input_reason": pdf_input_reason,
-            "calculation_method": "company_growth_retrospective_v17-annual-pdf-comparison"
+            "calculation_method": "company_growth_retrospective_v18-revised-comparative"
             if pdf is not None
             else "company_growth_retrospective_v12-edinet-comparisons"
             if reported

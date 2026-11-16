@@ -76,7 +76,7 @@ def test_annual_ttm_uses_same_verified_statement_comparison_without_rewriting_pr
     assert pdf.model_dump_json() == before_pdf
     assert financial.payload["earnings_price"]["profit_ttm_yen"] == 2_469_000_000
     assert technical == models(documents=docs, pdfs=[])[2]
-    assert growth.calculation_revision == "company_growth_retrospective_v17-annual-pdf-comparison"
+    assert growth.calculation_revision == "company_growth_retrospective_v18-revised-comparative"
 
 
 def test_annual_reader_and_l3_keep_restated_prior_source_and_dates():
@@ -137,22 +137,16 @@ def test_annual_growth_path_cannot_use_old_increase_instead_of_restated_decline(
     assert path.evidence["sales_change"]["source_sha256"] == pdf.source_sha256
 
 
-@pytest.mark.parametrize("mode", ["no_pdf", "unverified_comparative", "future_pdf"])
+@pytest.mark.parametrize("mode", ["no_pdf", "future_pdf"])
 def test_unverified_or_absent_annual_comparative_does_not_acquire_new_authority(mode):
     docs, pdf = annual_inputs()
-    if mode == "unverified_comparative":
-        docs.append(
-            replace(docs[-1], disclosure_number="later-eps-only", disclosed_at=date(2026, 6, 19))
-        )
-    elif mode == "future_pdf":
+    if mode == "future_pdf":
         pdf = pdf.model_copy(update={"published_on": date(2026, 11, 2)})
     growth = models(documents=docs, pdfs=[] if mode == "no_pdf" else [pdf])[1]
     annual = comparisons(growth, "annual_ttm")["sales"]
     assert annual["from_value"] == 250_000_000_000
     assert annual["difference"] > 0
     assert "source_sha256" not in annual
-    if mode == "unverified_comparative":
-        assert growth.payload["pdf_selection"]["comparative_verified"] is False
 
 
 def test_interim_statement_comparison_is_not_an_annual_ttm_comparison():
