@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
@@ -14,8 +14,10 @@ from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 def read_market_calendar(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsMarketCalendarDay] | None:
-    """Return market calendar days for `[start, end]`, or `None` if the
-    cache cannot serve the range.
+    """Return every calendar day in `[start, end]`, including closed days.
+
+    An incomplete range or unknown classification is unavailable, not a sparse
+    session calendar that consumers may compress into the next observed day.
     """
     if not sqlite_path.exists():
         return None
@@ -39,7 +41,11 @@ def _read_calendar(
         "WHERE day BETWEEN ? AND ? ORDER BY day",
         (start.isoformat(), end.isoformat()),
     ).fetchall()
-    if any(division not in {"0", "1", "2", "3"} for _, division in rows):
+    # An acquisition coverage marker does not certify that all stored rows survived.
+    if len(rows) != (end - start).days + 1 or any(
+        day != (start + timedelta(days=index)).isoformat() or division not in {"0", "1", "2", "3"}
+        for index, (day, division) in enumerate(rows)
+    ):
         return None
     return [
         JQuantsMarketCalendarDay(
