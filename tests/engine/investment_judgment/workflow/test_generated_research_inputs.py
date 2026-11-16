@@ -558,6 +558,54 @@ def test_market_display_semantics_compaction_is_lossless_and_detached():
     assert original == before
 
 
+def test_market_display_serializes_common_semantics_once_per_projection(monkeypatch):
+    from baibai_engine.investment_judgment.workflow import generated_inputs
+
+    serialize = generated_inputs.canonical_json
+    calls = []
+
+    def counted(value):
+        calls.append(value)
+        return serialize(value)
+
+    monkeypatch.setattr(generated_inputs, "canonical_json", counted)
+    for mode in ("saved", "other_saved_slice"):
+        calls.clear()
+        common = {"mode": mode, "known_at_applied": False}
+        original = {
+            "reading": {
+                "read_semantics": common,
+                "series": [
+                    {"read_semantics": {**common, "vintage_cutoff": None}} for _ in range(4)
+                ],
+            }
+        }
+        result = generated_inputs._project_market_context(original, full_result_ref="saved")
+        assert result["reading"]["read_semantics"] == common
+        assert all(
+            row["read_semantics"] == {"vintage_cutoff": None} for row in result["reading"]["series"]
+        )
+        # One encoding per common value and per corresponding row value, not
+        # another copy of every common value for every series.
+        assert len(calls) == len(common) * (1 + len(original["reading"]["series"]))
+
+
+def test_market_display_checks_all_rows_before_encoding_common_semantics(monkeypatch):
+    from baibai_engine.investment_judgment.workflow import generated_inputs
+
+    def unexpected(value):
+        raise AssertionError("partial saved rows must remain untouched")
+
+    monkeypatch.setattr(generated_inputs, "canonical_json", unexpected)
+    original = {
+        "reading": {
+            "read_semantics": {"known_at_applied": False},
+            "series": [{"read_semantics": {"known_at_applied": False}}, {}],
+        }
+    }
+    assert generated_inputs._project_market_context(original, full_result_ref="unused") == original
+
+
 @pytest.mark.parametrize("row", [{"series_id": "a"}, {"read_semantics": {}}, None])
 def test_market_display_does_not_invent_metadata_for_partial_rows(row):
     from baibai_engine.investment_judgment.workflow.generated_inputs import _project_market_context
