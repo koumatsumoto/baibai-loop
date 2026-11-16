@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from copy import deepcopy
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import TypeAdapter
 
@@ -16,16 +16,37 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
     TechnicalFinancialSelection,
 )
 
+type ScreeningExclusionScope = Literal["technical_matched", "financial_unresolved"]
+SCREENING_EXCLUSION_SCOPES: tuple[ScreeningExclusionScope, ...] = (
+    "technical_matched",
+    "financial_unresolved",
+)
+
 
 def technical_financial_exclusion_diagnostic(
-    result: TechnicalFinancialSelection, *, page: int = 0
+    result: TechnicalFinancialSelection,
+    *,
+    page: int = 0,
+    scope: ScreeningExclusionScope = "technical_matched",
 ) -> dict[str, Any]:
-    """保存された技術合致の除外理由を読む。候補や財務仮説へ復帰させない。"""
+    """保存された候補外の理由を読む。候補や財務仮説へ復帰させない。"""
     if page < 0:
         raise ValueError("screening page must be nonnegative")
+    if scope not in SCREENING_EXCLUSION_SCOPES:
+        raise ValueError("unknown excluded diagnostic scope")
+    unresolved = scope == "financial_unresolved"
     technical = [row for row in result.rows if row.technical["state"] == "matched"]
     excluded = sorted(
-        (row for row in technical if row.screening_lane == "no_current_hypothesis"),
+        (
+            row
+            for row in result.rows
+            if row.screening_lane == "no_current_hypothesis"
+            and (
+                row.financial_gate["state"] == "input_unresolved"
+                if unresolved
+                else row.technical["state"] == "matched"
+            )
+        ),
         key=lambda row: row.ticker,
     )
     failures: Counter[str] = Counter()
@@ -40,8 +61,14 @@ def technical_financial_exclusion_diagnostic(
     start = page * result.policy.page_size
     codec = TypeAdapter(TechnicalFinancialRow)
     return {
+        **({"scope": scope} if unresolved else {}),
         "interpretation": (
-            "saved_technical_matches_without_current_financial_hypothesis_not_investment_rejection"
+            "saved_financially_unresolved_rows_outside_current_lanes_not_research_candidates"
+            if unresolved
+            else (
+                "saved_technical_matches_without_current_financial_hypothesis_"
+                "not_investment_rejection"
+            )
         ),
         "order_semantics": "ticker_code_order_not_research_priority",
         "summary": {
@@ -50,6 +77,15 @@ def technical_financial_exclusion_diagnostic(
             "excluded_stocks": len(excluded),
             "financial_gate_states": dict(
                 sorted(Counter(str(row.financial_gate["state"]) for row in excluded).items())
+            ),
+            **(
+                {
+                    "technical_states": dict(
+                        sorted(Counter(str(row.technical["state"]) for row in excluded).items())
+                    )
+                }
+                if unresolved
+                else {}
             ),
             "growth_route_failure_company_counts": dict(sorted(failures.items())),
             "growth_route_missing_company_counts": dict(sorted(missing.items())),
@@ -70,7 +106,8 @@ def technical_financial_exclusion_diagnostic(
         ),
         "next_page_read": (
             "selection-context --screening-selection-id <same-id> "
-            "--screening-excluded --screening-page <next>"
+            f"--screening-excluded{' financial_unresolved' if unresolved else ''} "
+            "--screening-page <next>"
         ),
     }
 
