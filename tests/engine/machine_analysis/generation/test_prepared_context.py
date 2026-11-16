@@ -17,6 +17,7 @@ from baibai_engine.machine_analysis.generation.runners.security_context import (
 )
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
@@ -89,6 +90,7 @@ def test_shared_generation_preserves_cli_market_and_adjusted_security_facts(cont
         self_range_window_bars=750,
         prepared=prepared,
         price_bars_by_ticker=bars,
+        calendar=price_calendar({}, as_of=ASOF),
     )
     current = batch["AAAA"]
     assert current["price"]["resolved_date"] == "2026-05-29"
@@ -140,6 +142,7 @@ def test_sector_candidates_keep_common_peers_and_each_tickers_exact_endpoints(
         self_range_window_bars=750,
         prepared=prepared,
         price_bars_by_ticker=bars,
+        calendar=price_calendar({}, as_of=ASOF),
     )
     assert batch["DDDD"]["relative"]["sector"] is None  # other sector has no peers
     # BBBB lacks AAAA's comparison day; OLD1 uses older endpoints from the shared input.
@@ -165,6 +168,7 @@ def test_prepared_scope_cannot_change_dates(context_store: Path) -> None:
             self_range_window_bars=750,
             prepared=prepared,
             price_bars_by_ticker=bars,
+            calendar=price_calendar({}, as_of=ASOF),
         )
 
 
@@ -183,6 +187,7 @@ def test_shared_unwritten_store_keeps_unknown_and_null(tmp_path: Path, create_em
         self_range_window_bars=750,
         prepared=prepared,
         price_bars_by_ticker=bars,
+        calendar=price_calendar({}, as_of=ASOF),
     )["AAAA"] == {"master": None, "price": None, "relative": None}
     snapshot = build_market_snapshot(sqlite_path=path, asof_date=ASOF, prepared=prepared)
     assert snapshot["sectors"] == []
@@ -223,6 +228,7 @@ def test_shared_bar_input_never_requeries_sparse_benchmark_or_peers(context_stor
         self_range_window_bars=750,
         prepared=prepared,
         price_bars_by_ticker=bars,
+        calendar=price_calendar({}, as_of=ASOF),
     )
     old = contexts["OLD1"]
     assert old["relative"]["sector"]["peer_count"] == 1
@@ -282,3 +288,17 @@ def test_preparation_resolves_store_scope_once(context_store, monkeypatch):
     assert build_market_snapshot(
         sqlite_path=context_store, asof_date=ASOF, prepared=prepared
     ) == build_market_snapshot(sqlite_path=context_store, asof_date=ASOF)
+
+
+def test_prepared_security_rejects_calendar_from_another_asof(context_store):
+    bars, prepared = _shared_inputs(context_store, ("AAAA",))
+    with pytest.raises(ValueError, match="scope"):
+        build_security_market_contexts(
+            sqlite_path=context_store,
+            tickers=("AAAA",),
+            asof_date=ASOF,
+            self_range_window_bars=750,
+            prepared=prepared,
+            price_bars_by_ticker=bars,
+            calendar=price_calendar({}, as_of=ASOF - timedelta(days=1)),
+        )

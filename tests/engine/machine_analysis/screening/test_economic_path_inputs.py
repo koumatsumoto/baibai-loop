@@ -445,6 +445,7 @@ def test_relative_window_reaches_l3_without_inventing_legacy_dates(legacy):
     market = calculate_security_market_context(
         ticker="1234",
         bars=bars,
+        calendar=price_calendar({}, as_of=end),
         master=None,
         benchmark_ticker="1321",
         benchmark_prices={start: 100.0, end: 110.0},

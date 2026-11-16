@@ -9,23 +9,25 @@ from datetime import date
 
 from baibai_engine.machine_analysis.models.market_context.history import trailing_return
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_observation import PriceCalendar
 from baibai_engine.machine_analysis.observations.stocks.contracts import (
     MasterSnapshot,
 )
 
 _WEEK_52_WINDOW_BARS = 252
-_VOL_WINDOW_BARS = 20
+_VOL_CALENDAR_DIFFERENCES = 20
 _TURNOVER_WINDOW_BARS = 20
 _RETURN_WINDOWS_BARS = (1, 5, 20, 60)
 _PEER_RETURN_WINDOW_BARS = 20
 
 
 def _price_block(
-    bars: Sequence[PriceBar], *, self_range_window_bars: int
+    bars: Sequence[PriceBar], *, calendar: PriceCalendar, self_range_window_bars: int
 ) -> dict[str, object] | None:
     if not bars:
         return None
-    # 個社の実在bar窓。共通営業日窓へ読み替えると欠測銘柄の比較期間が変わる。
+    # Return/range/turnover retain their observed-bar windows. Annualized daily
+    # volatility instead needs the complete common-calendar close sequence.
     prices = [bar.price for bar in bars]
     current = prices[-1]
     returns = {
@@ -44,6 +46,7 @@ def _price_block(
         and math.isfinite(bar.turnover_value)
         and bar.turnover_value >= 0
     ]
+    volatility, volatility_context = _realized_vol(bars, calendar=calendar)
     return {
         "resolved_date": bars[-1].traded_at.isoformat(),
         "close": current if math.isfinite(current) and current > 0 else None,
@@ -59,7 +62,8 @@ def _price_block(
         if all(math.isfinite(price) and price > 0 for price in range_window)
         else None,
         "self_range_window_bars": len(range_window),
-        "realized_vol_20d": _realized_vol(prices),
+        "realized_vol_20d": volatility,
+        "realized_vol_20d_context": volatility_context,
         "avg_turnover_20d_oku": (
             statistics.fmean(turnover) / 1e8
             if len(turnover) >= _TURNOVER_WINDOW_BARS // 2
@@ -101,22 +105,58 @@ def _endpoint_return(
     return value if math.isfinite(value) else None
 
 
-def _realized_vol(prices: Sequence[float]) -> float | None:
-    window = prices[-(_VOL_WINDOW_BARS + 1) :]
-    if len(window) < _VOL_WINDOW_BARS + 1:
-        return None
-    if any(not math.isfinite(price) or price <= 0 for price in window):
-        return None
-    daily_returns = [window[index] / window[index - 1] - 1 for index in range(1, len(window))]
+def _realized_vol(
+    bars: Sequence[PriceBar], *, calendar: PriceCalendar
+) -> tuple[float | None, dict[str, object]]:
+    window = calendar.windows[_VOL_CALENDAR_DIFFERENCES]
+    prices = {bar.traded_at: bar.price for bar in bars}
+    valid = (
+        []
+        if window is None
+        else [
+            prices[day]
+            for day in window
+            if day in prices and math.isfinite(prices[day]) and prices[day] > 0
+        ]
+    )
+    reason = (
+        "insufficient_calendar"
+        if window is None
+        else "incomplete_close_window"
+        if len(valid) != len(window)
+        else None
+    )
+    context: dict[str, object] = {
+        "window_basis": "common_trading_calendar",
+        "calendar_differences": _VOL_CALENDAR_DIFFERENCES,
+        "window_start_date": None if window is None else window[0].isoformat(),
+        "window_end_date": None if window is None else window[-1].isoformat(),
+        "valid_close_count": None if window is None else len(valid),
+        "return_basis": "simple_adjusted_close_return",
+        "standard_deviation_ddof": 1,
+        "annualization_sessions": 252,
+        "unavailable_reason": reason,
+    }
+    if reason is not None:
+        return None, context
+    # No shorter sample, zero fill or older bar may turn a multi-session gap
+    # into one daily return before the sqrt(252) annualization.
+    daily_returns = [valid[index] / valid[index - 1] - 1 for index in range(1, len(valid))]
     if any(not math.isfinite(value) for value in daily_returns):
-        return None
-    return statistics.stdev(daily_returns) * math.sqrt(252)
+        context["unavailable_reason"] = "nonfinite_returns"
+        return None, context
+    value = statistics.stdev(daily_returns) * math.sqrt(252)
+    if not math.isfinite(value):
+        context["unavailable_reason"] = "nonfinite_volatility"
+        return None, context
+    return value, context
 
 
 def calculate_security_market_context(
     *,
     ticker: str,
     bars: Sequence[PriceBar],
+    calendar: PriceCalendar,
     master: MasterSnapshot | None,
     benchmark_ticker: str,
     benchmark_prices: Mapping[date, float],
@@ -135,7 +175,9 @@ def calculate_security_market_context(
             "is_common_stock": security.is_common_stock,
             "snapshot_date": master.as_of.isoformat(),
         },
-        "price": _price_block(bars, self_range_window_bars=self_range_window_bars),
+        "price": _price_block(
+            bars, calendar=calendar, self_range_window_bars=self_range_window_bars
+        ),
         "relative": _relative_block(
             bars=bars,
             sector=None if security is None else security.sector_33,

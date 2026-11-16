@@ -22,6 +22,7 @@ from baibai_engine.machine_analysis.models.market_context.security import (
     calculate_security_market_context,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
 from baibai_engine.primitives.json import canonical_json
 
 
@@ -39,6 +40,7 @@ def case(tmp_path, monkeypatch):
     market = calculate_security_market_context(
         ticker="1234",
         bars=bars,
+        calendar=price_calendar({}, as_of=helper.PREPARED.date()),
         master=None,
         benchmark_ticker="1321",
         benchmark_prices={},
