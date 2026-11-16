@@ -234,8 +234,10 @@ def _hypotheses_brief(
         "hypotheses": [
             {
                 "statement": item.statement[:240],
+                "statement_truncated": len(item.statement) > 240,
                 "result": item.result,
                 "reason": item.reason[:240],
+                "reason_truncated": len(item.reason) > 240,
                 **_source_brief(item.source_ids, sources),
             }
             for index, item in enumerate(hypotheses)
