@@ -12,10 +12,11 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     load_latest_investment_proposal,
     proposal_records,
     published_proposal_ids,
+    saved_proposal_market_context,
 )
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
-from baibai_web.readmodel.proposal_models import SavedProposalView
+from baibai_web.readmodel.proposal_models import SavedMarketContextView, SavedProposalView
 from baibai_web.sources.protocols import ProposalHistoryRead
 
 
@@ -64,6 +65,9 @@ def _project(connection: sqlite3.Connection, proposal: TradeProposal) -> SavedPr
             {
                 **view.model_dump(mode="json"),
                 **proposal_records(connection, proposal.proposal_id),
+                "saved_market_context": SavedMarketContextView.model_validate(
+                    saved_proposal_market_context(connection, proposal)
+                ).model_dump(mode="json"),
             }
         )
     )

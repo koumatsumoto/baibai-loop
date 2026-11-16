@@ -390,6 +390,7 @@
       "title": "HumanProposalReport",
       "type": "object"
     },
+    "JsonValue": {},
     "LatestProposalView": {
       "properties": {
         "generated_at": {
@@ -2201,6 +2202,63 @@
       "title": "SavedLiquidityView",
       "type": "object"
     },
+    "SavedMarketContextView": {
+      "properties": {
+        "source": {
+          "const": "proposal_fixed_selection",
+          "title": "Source",
+          "type": "string"
+        },
+        "selection_sha256": {
+          "title": "Selection Sha256",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "retained",
+            "not_recorded",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assessment"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "source",
+        "selection_sha256",
+        "status",
+        "assessment",
+        "reason"
+      ],
+      "title": "SavedMarketContextView",
+      "type": "object"
+    },
     "SavedModelPerspectiveView": {
       "properties": {
         "model": {
@@ -2569,6 +2627,17 @@
           ],
           "default": null
         },
+        "saved_market_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedMarketContextView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "corrections": {
           "items": {
             "$ref": "#/$defs/ProposalCorrection"
@@ -2597,6 +2666,7 @@
         "items",
         "portfolio_exposure",
         "saved_cash",
+        "saved_market_context",
         "corrections",
         "human_reports"
       ],

@@ -17,7 +17,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     ResearchTarget,
-    parse_selection,
+    selection_from_artifacts,
     selection_sha256,
     selection_targets,
 )
@@ -60,12 +60,7 @@ class ResearchProgress(BaseModel):
 
 
 def selection_binding(payload: OperationPayload) -> ResearchSelection | None:
-    rows = [item for item in payload.artifacts if item.get("kind") == "research_selection"]
-    if not rows:
-        return None
-    if len(rows) != 1:
-        raise ValueError("one fixed research_selection is required")
-    return parse_selection(rows[0])
+    return selection_from_artifacts(payload.artifacts)
 
 
 def progress_binding(payload: OperationPayload) -> ResearchProgress:
