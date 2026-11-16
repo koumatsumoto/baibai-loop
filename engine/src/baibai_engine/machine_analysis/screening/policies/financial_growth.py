@@ -49,6 +49,7 @@ _FORECAST_CONTEXT = (
     "forecast_full_year_loss_flag",
     "earnings_forecast_source",
 )
+_DIVIDEND_FORECAST_CONTEXT = ("dps_forecast_annual", "dividend_forecast_source")
 _CASH_FLOW_CONTEXT = (
     "cfo",
     "cfo_source",
@@ -238,6 +239,11 @@ def evaluate_financial_growth_gate(
                 {
                     "forecast_context": {
                         key: financial[key] for key in _FORECAST_CONTEXT if key in financial
+                    },
+                    "dividend_forecast_context": {
+                        key: financial[key]
+                        for key in _DIVIDEND_FORECAST_CONTEXT
+                        if key in financial
                     },
                     # 利益の改善と資金化を同一視せず、原CFの期/不足を初回比較へ残す。
                     "cash_flow_context": {
