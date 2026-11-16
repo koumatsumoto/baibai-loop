@@ -51,7 +51,11 @@ def test_forecast_card_detail_and_detached_research_keep_same_recorded_source(tm
         db_path=tmp_path / "app",
     )
     before = path.read_bytes()
-    first = load_generated_selection_context(**arguments)
+    target_page = (
+        selected.result.lane_tickers("growth_research").index("1234")
+        // selected.result.policy.page_size
+    )
+    first = load_generated_selection_context(**arguments, screening_page=target_page)
     assert first["model_inputs"]["securities"] == {}
     card = next(card for card in first["screening"]["cards"] if card["ticker"] == "1234")
     assert card["financial_gate"]["forecast_context"] == FORECAST
