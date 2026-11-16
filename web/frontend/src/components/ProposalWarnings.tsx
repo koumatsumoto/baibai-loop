@@ -8,6 +8,7 @@ const DESCRIPTIONS = new Map([
   ['portfolio_exposure_common_factor_coverage_incomplete', '共通要因が未分類の銘柄があります。見えている集中度だけで全体を評価できません。'],
 ])
 const SCOPED_DESCRIPTIONS = [
+  ['hold_active_reservation_requires_confirmation:', '保存入力の台帳に、保有継続を提案した銘柄の未完了予約が残っています。保有判断は既存注文の取消・失効確認ではありません。現在の注文状態は別に確認してください。'],
   ['prospective_ticker_concentration_exceeds_warning:', 'この提案を加えた銘柄別の集中が、保存時の注意水準を超えています。'],
   ['prospective_sector_concentration_exceeds_warning:', 'この提案を加えた業種別の集中が、保存時の注意水準を超えています。'],
   ['prospective_common_factor_concentration_exceeds_warning:', 'この提案を加えた共通要因への集中が、保存時の注意水準を超えています。同時損失の確率ではありません。'],
