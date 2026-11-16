@@ -114,6 +114,9 @@ def project_technical_financial_row(
     compact_technical["price_path_60d"] = _price_path_brief(
         _object(_object(technical.get("supporting_context")).get("price_path_60d"))
     )
+    compact_technical["market_conditioned_60d"] = _market_conditioned_brief(
+        _object(_object(technical.get("supporting_context")).get("market_conditioned_60d"))
+    )
     compact_technical["observation_failures"] = {
         name: _pick(
             _object(raw),
@@ -168,7 +171,7 @@ def evaluate_technical_financial_rows(
     rows: Mapping[str, TechnicalFinancialRow],
     policy: TechnicalFinancialPolicy,
 ) -> ScreeningSelection:
-    if policy.method != "technical-financial-discovery-v20":
+    if policy.method != "technical-financial-discovery-v21":
         raise ValueError("historical technical-financial policy is read-only")
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not set(rows).issubset(subjects):
@@ -251,6 +254,49 @@ def _price_inputs(rows: Sequence[TechnicalFinancialRow]) -> dict[str, JsonValue]
         "price_dates": dict(sorted(dates.items())),
         "expected_price_dates": dict(sorted(expected.items())),
     }
+
+
+def _market_conditioned_brief(section: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    result = _pick(section, "source_field", "source_state")
+    value = section.get("value")
+    if not isinstance(value, dict):
+        return {**result, **_pick(section, "value")}
+    # 既定代理の探索理由を市場全体の耐性へ外挿せず、各代理の日集合を併読する。
+    compact = _pick(
+        value,
+        "window_basis",
+        "calendar_differences",
+        "window_start_date",
+        "window_end_date",
+        "price_basis",
+    )
+    benchmarks = value.get("benchmarks")
+    if isinstance(benchmarks, dict):
+        compact["benchmarks"] = {
+            key: _pick(
+                item,
+                "benchmark_kind",
+                "status",
+                "unavailable_reason",
+                "own_valid_close_count",
+                "benchmark_valid_close_count",
+                "flat_market_days",
+                "up",
+                "down",
+            )
+            if isinstance(item, dict)
+            else deepcopy(item)
+            for key, item in benchmarks.items()
+        }
+    else:
+        compact.update(_pick(value, "benchmarks"))
+    result["value"] = compact
+    result["interpretation"] = (
+        "ETF代理ごとの上昇/下落日を別々に数えるため、比較する日集合は異なる場合があります。"
+        "own_up_daysは自社return>0、outperform_daysは自社return>当該代理returnの日数です。"
+        "条件付き一日平均は累積収益や将来勝率ではなく、二つの代理を独立した支持票にしません。"
+    )
+    return result
 
 
 def _price_path_brief(section: dict[str, JsonValue]) -> dict[str, JsonValue]:

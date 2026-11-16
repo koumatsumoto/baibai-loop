@@ -195,6 +195,7 @@ def technical_financial_screening_brief(
                     "turnover_activity_20d",
                     "price_context",
                     "price_path_60d",
+                    "market_conditioned_60d",
                     "expected_price_date",
                 ),
                 "financial_paths": {

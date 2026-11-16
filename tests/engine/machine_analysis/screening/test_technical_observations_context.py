@@ -185,7 +185,7 @@ def test_value_and_unavailable_reason_stay_together(case):
     assert actual.screening_lane == "growth_research"
 
 
-@pytest.mark.parametrize("version", range(1, 13))
+@pytest.mark.parametrize("version", range(1, 21))
 def test_old_policy_keeps_absence_and_canonical_bytes_without_regeneration(version):
     legacy = TechnicalFinancialSelection(
         TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}"),
@@ -206,5 +206,63 @@ def test_old_policy_keeps_absence_and_canonical_bytes_without_regeneration(versi
     assert (
         "observations" not in technical_financial_screening_brief(restored)["cards"][0]["technical"]
     )
+    assert "market_conditioned_60d" not in brief(restored.rows[0])["technical"]
     with pytest.raises(ValueError, match=r"historical.*read-only"):
         evaluate_technical_financial_rows(_metadata(), tickers=(), rows={}, policy=restored.policy)
+
+
+def test_benchmark_sensitivity_reaches_card_without_reselecting_routes():
+    technical = _strategy_models()
+    source = _conditioned(technical)
+    source["benchmarks"]["1321"]["down"].update(own_up_days=18, outperform_days=25)
+    source["benchmarks"]["1306"]["down"].update(days=25, own_up_days=11, outperform_days=18)
+    baseline = project(technical)
+    card = brief(baseline)
+    context = card["technical"]["market_conditioned_60d"]
+    assert context["value"]["price_basis"] == "price_adjusted_close_not_total_return"
+    assert context["value"]["calendar_differences"] == 60
+    assert context["value"]["window_end_date"] == "2026-11-13"
+    for benchmark in ("1306", "1321"):
+        assert (
+            context["value"]["benchmarks"][benchmark]["down"]
+            == source["benchmarks"][benchmark]["down"]
+        )
+        assert "turnover" not in context["value"]["benchmarks"][benchmark]
+    assert context["value"]["benchmarks"]["1306"]["down"]["own_mean_return"] < 0
+    assert context["value"]["benchmarks"]["1321"]["down"]["own_mean_return"] > 0
+    assert card["technical"]["routes"]["market_down_resilience"]["state"] == "matched"
+    assert "日集合は異なる場合があります" in context["interpretation"]
+    assert "独立した支持票にしません" in context["interpretation"]
+    context["value"]["benchmarks"]["1306"]["down"].clear()
+    assert source["benchmarks"]["1306"]["down"]
+    assert baseline.technical["market_conditioned_60d"]["value"]["benchmarks"]["1306"]["down"]
+
+
+@pytest.mark.parametrize("state", ["missing", "null", "unavailable", "zero", "one_benchmark"])
+def test_benchmark_context_preserves_missing_null_zero_and_independent_coverage(state):
+    technical = _strategy_models()
+    source = _conditioned(technical)
+    if state == "missing":
+        del technical[1].payload["relative"]["market_conditioned_60d"]
+    elif state == "null":
+        technical[1].payload["relative"]["market_conditioned_60d"] = None
+    elif state == "unavailable":
+        source["benchmarks"]["1306"].update(
+            status="unavailable", unavailable_reason="missing_benchmark_close"
+        )
+        source["benchmarks"]["1306"]["down"] = None
+    elif state == "zero":
+        source["benchmarks"]["1306"]["down"].update(days=0, own_up_days=0, own_mean_return=None)
+    else:
+        del source["benchmarks"]["1306"]
+    context = brief(project(technical))["technical"]["market_conditioned_60d"]
+    if state in {"missing", "null"}:
+        assert context["source_state"] == (
+            "not_recorded" if state == "missing" else "recorded_null"
+        )
+        assert context["value"] is None
+    elif state == "one_benchmark":
+        assert "1306" not in context["value"]["benchmarks"]
+    else:
+        for key in ("status", "unavailable_reason", "down"):
+            assert context["value"]["benchmarks"]["1306"][key] == source["benchmarks"]["1306"][key]
