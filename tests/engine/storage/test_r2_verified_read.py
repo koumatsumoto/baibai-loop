@@ -133,7 +133,7 @@ def test_stream_is_closed_on_read_or_header_failure(monkeypatch, fault):
 
 
 @pytest.mark.parametrize(
-    ("digest", "limit"), [(None, 100), ("bad", 100), (DIGEST, 0), (DIGEST, -1), (DIGEST, True)]
+    ("digest", "limit"), [("bad", 100), (DIGEST, 0), (DIGEST, -1), (DIGEST, True)]
 )
 def test_invalid_expected_contract_never_calls_client(monkeypatch, digest, limit):
     store = make_store()
@@ -201,3 +201,10 @@ def test_verified_object_keeps_metadata_from_the_same_response(monkeypatch):
     assert metadata.metadata == {"sha256": DIGEST}
     assert len(calls) == 1
     assert body.closed
+
+
+def test_fixed_read_cannot_downgrade_none_to_an_unbound_digest(monkeypatch):
+    store = make_store()
+    monkeypatch.setattr(store, "_client", lambda *_: pytest.fail("client must not start"))
+    with pytest.raises(TypeError):
+        store.get_verified_bytes("fixed-key", sha256=None, max_bytes=100)

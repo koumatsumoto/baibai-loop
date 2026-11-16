@@ -32,9 +32,10 @@ def read_private(store: ObjectStore, key: str) -> SavedObject | None:
             return None
         payload, before = response
     else:
-        before = store.head(key)
-        if before is None:
+        previous = store.head(key)
+        if previous is None:
             return None
+        before = previous
         if not before.etag or not 0 < before.size <= MAX_PRIVATE_OBJECT_BYTES:
             raise LakePublishError("invalid private JSON object")
         payload = store.get_bytes(key)

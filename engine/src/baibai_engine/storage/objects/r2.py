@@ -383,7 +383,7 @@ class Boto3R2Store:
     def get_verified_object(
         self, key: str, *, sha256: str, max_bytes: int
     ) -> tuple[bytes, RemoteObject] | None:
-        if not isinstance(sha256, str) or re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
+        if re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
             raise ValueError("invalid fixed object read contract")
         return self._get_checked_object(key, sha256=sha256, max_bytes=max_bytes)
 
