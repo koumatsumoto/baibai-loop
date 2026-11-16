@@ -220,6 +220,7 @@ def technical_financial_screening_brief(
                     "observation_period_context",
                     "quarter_growth_context",
                     "income_attribution_context",
+                    "reported_share_context",
                     "reported_balance_context",
                     "dividend_forecast_context",
                 ),
