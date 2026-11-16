@@ -44,7 +44,7 @@ def seed(path, *, version=None):
     fixed = native_generation(completed_action=True)
     publish_generation(fixed, path=path)
     selected = evaluate_fixed(fixed)
-    assert selected.result.policy.method == "technical-financial-discovery-v25"
+    assert selected.result.policy.method == "technical-financial-discovery-v26"
     if version is not None:
         row = selected.result.rows[0]
         selected = replace(
@@ -107,7 +107,7 @@ def test_action_gap_survives_first_card_detail_prepare_and_runless_resume(tmp_pa
     assert card["financial_paths"]["matched_routes"] == []
     action = card["financial_paths"]["capital_action_context"]
     assert action["observations"][0]["issued_shares"] == 130
-    assert action["capital_basis_reason"] == REASON
+    assert action["earnings_price_unavailable_reason"] == REASON
     assert action["share_basis_adjustments"] == []
     detail = load_generated_selection_context(**arguments(path, now), comparison_tickers=("1001",))
     cf = detail["model_inputs"]["securities"]["1001"]["models"]["company_financials"]

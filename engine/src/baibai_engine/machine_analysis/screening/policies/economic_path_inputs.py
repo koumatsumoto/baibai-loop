@@ -385,7 +385,7 @@ def project_company_with_input_reviews(
         "holder_capital_evidence": valuation.get("holder_capital_evidence"),
         "capital_action_context": {
             "observations": valuation.get("capital_action_evidence", []),
-            "capital_basis_reason": earnings.get("unavailable_reason"),
+            "earnings_price_unavailable_reason": earnings.get("unavailable_reason"),
             "share_basis_adjustments": list(earnings_read.share_basis_adjustments)
             if earnings_read is not None
             else [],

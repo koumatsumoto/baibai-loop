@@ -75,6 +75,7 @@ def project_technical_financial_row(
         for model in models
     ):
         financial_paths.update(_pick(coordinates.context, "accounting_change_context"))
+    # 利益・価格・会計basisの不足も含む元理由を、資本だけの不成立と呼ばない。
     for model in models:
         if model.model_id != "company_financials":
             continue
@@ -84,7 +85,7 @@ def project_technical_financial_row(
             for source, target, original in (
                 ("capital_action_evidence", "observations", model.payload),
                 ("share_basis_adjustments", "share_basis_adjustments", earnings),
-                ("unavailable_reason", "capital_basis_reason", earnings),
+                ("unavailable_reason", "earnings_price_unavailable_reason", earnings),
             )
             if source in original
         }
@@ -181,7 +182,7 @@ def evaluate_technical_financial_rows(
     rows: Mapping[str, TechnicalFinancialRow],
     policy: TechnicalFinancialPolicy,
 ) -> ScreeningSelection:
-    if policy.method != "technical-financial-discovery-v25":
+    if policy.method != "technical-financial-discovery-v26":
         raise ValueError("historical technical-financial policy is read-only")
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not set(rows).issubset(subjects):
