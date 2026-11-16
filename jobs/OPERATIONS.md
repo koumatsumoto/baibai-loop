@@ -148,7 +148,11 @@ model-integrationは生成に使ったreleaseも公開するため、後からpu
 
 logと現objectを先に確認する。lakeだけ進みmarket/runsの両ETagが旧receiptと一致する場合は、receipt削除/旧store復元をせず通常日次を前向きに実行する。消失したrunner-localモデルへ元ID/hashを付けて再生成しない。通常日次の再計算にprovider workflowの再実行は不要。
 
-片方のkeyだけ進んだ場合は同じpush/dailyを盲再送せず、local成果/origin/取得世代が成立する上表の経路で完了する。経済pushはmachine部分反映を修復しない。receipt再生成が必要な明示復旧だけ、bucket直下のmutable一件を確認して次を行う。
+片方のkeyだけ進んだ場合は同じpush/dailyを盲再送せず、local成果/origin/取得世代が成立する上表の経路で完了する。経済pushはmachine部分反映を修復しない。
+
+receiptの一致は現storeの組の確認で、新Generation/Selectionの到達を保証しない。market成功/runs失敗の後にpush-marketだけを行うと、receiptが整ってもrunsは旧世代のままである。未公開local成果を別copyで保ち、確認pullで唯一のcopyを上書きせず、意図した新Generation/Selectionと保持対象の旧全rawを公開後に照合する。
+
+receipt再生成が必要な明示復旧だけ、bucket直下のmutable一件を確認して次を行う。
 
 ```bash
 (
