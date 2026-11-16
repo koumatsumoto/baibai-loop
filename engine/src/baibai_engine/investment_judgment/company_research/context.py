@@ -38,6 +38,15 @@ class AvailableResearch(_Context):
     record: ResearchRecord
 
 
+class AssessmentReviewContext(_Context):
+    reviewed_at: AwareDatetime
+    primary_source_check: Literal["verified", "partially_verified", "unverified"]
+    checked_source_ids: tuple[NonEmptyStr, ...]
+    review_scope: NonEmptyStr
+    strongest_countercase: NonEmptyStr
+    uncertainty_acceptance_reason: NonEmptyStr | None
+
+
 class AvailableAssessment(_Context):
     status: Literal["available"] = "available"
     role: Literal["historical_reviewed_assessment_not_current_readiness"] = (
@@ -53,6 +62,10 @@ class AvailableAssessment(_Context):
     findings: ResearchFindings
     # 旧固定 Selection は未記録のまま保持し、現在の評価から補完しない。
     strongest_countercase: NonEmptyStr | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    independent_review: AssessmentReviewContext | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
 
@@ -128,6 +141,15 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
                 if assessment.invalidation_conditions is not None
                 else {}
             ),
+            **(
+                {
+                    "independent_review": _review_brief(
+                        assessment.independent_review, assessment.sources
+                    )
+                }
+                if assessment.independent_review is not None
+                else {}
+            ),
             "business_understanding": assessment.findings.business_understanding[:400],
             "value_gap_explanation": assessment.findings.value_gap_explanation[:400],
             "value_gap_explanation_truncated": len(assessment.findings.value_gap_explanation) > 400,
@@ -145,6 +167,25 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
     else:
         result["assessment"] = _absence_brief(assessment)
     return result
+
+
+def _review_brief(
+    review: AssessmentReviewContext, sources: tuple[Source, ...]
+) -> dict[str, object]:
+    return {
+        "reviewed_at": review.reviewed_at.isoformat(),
+        "primary_source_check": review.primary_source_check,
+        **{
+            name: {"text": text[:400], "text_truncated": len(text) > 400}
+            for name, text in (
+                ("review_scope", review.review_scope),
+                ("strongest_countercase", review.strongest_countercase),
+                ("uncertainty_acceptance_reason", review.uncertainty_acceptance_reason),
+            )
+            if text is not None
+        },
+        **_source_brief(review.checked_source_ids, sources),
+    }
 
 
 def _questions_brief(questions: tuple[str, ...]) -> dict[str, object]:

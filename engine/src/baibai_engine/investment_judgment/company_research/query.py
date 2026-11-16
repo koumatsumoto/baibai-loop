@@ -8,6 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from baibai_engine.investment_judgment.company_research.context import (
+    AssessmentReviewContext,
     AvailableAssessment,
     AvailableResearch,
     CompanyContext,
@@ -64,6 +65,14 @@ def _assessment_context(
             findings=pair.document.findings,
             strongest_countercase=pair.document.conclusion.strongest_countercase,
             invalidation_conditions=pair.document.investment_case.invalidation_conditions,
+            independent_review=AssessmentReviewContext(
+                reviewed_at=pair.review.reviewed_at,
+                primary_source_check=pair.review.primary_source_check,
+                checked_source_ids=pair.review.checked_source_ids,
+                review_scope=pair.review.review_scope,
+                strongest_countercase=pair.review.strongest_countercase,
+                uncertainty_acceptance_reason=pair.review.uncertainty_acceptance_reason,
+            ),
         )
     except ValueError as error:
         return Unreadable(record_id=identity, reason=str(error))
