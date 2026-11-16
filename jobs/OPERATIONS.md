@@ -160,6 +160,20 @@ logと現objectを先に確認する。lakeだけ進みmarket/runsの両ETagが�
 
 次pullは未検証setとなる。完全pushとreceipt一致までcross-section保証は回復しない。前世代復元が必要ならwriter停止後、exact key/key.bakを確認し`aws s3api copy-object --cli-read-timeout 300`を使い、fresh pullと世代を再検証する。失敗時の追加削除/dispatch反復や全storeの巻戻しをしない。
 
+### 保持copyから欠落Generationを戻す
+
+現在のrunsを古いcopyで丸ごと戻すと、後発Generation/Selectionを失う。検証済み・静止中のcurrentと旧sourceのSHAを固定し、必要なGeneration IDを明示して、新しい隔離copyへ欠落分だけ追記する。同IDのheader・revision・圧縮payload・Selectionが異なれば全体を停止する。再計算・再圧縮・時点更新はせず、current側の追加政策や他tableも残す。
+
+```bash
+uv run baibai-jobs restore-model-history \
+  --source <VERIFIED_OLD_RUNS_COPY> --source-sha256 <OLD_SHA256> \
+  --current <VERIFIED_CURRENT_RUNS_COPY> --current-sha256 <CURRENT_SHA256> \
+  --output <NEW_PRIVATE_RUNS_COPY> \
+  --generation-id <EXACT_GENERATION_ID>
+```
+
+複数IDは`--generation-id`を繰り返す。既存outputやWAL/journal付き入力は使わない。この成功はlocal copyの準備だけで、L1/共有入力/L3の復元や本番反映を意味しない。元copyは保持し、通常readerで対象と現行の保存値/IDを照合する。本番へ反映する場合は別途writer不在・単一lease・freshなmarket/runsの組とCASを確認し、currentが進んでいればそのfresh copyへ作り直す。取得世代の合う通常`push-runs`と公開読戻しを使い、古いmachine全体への上書きやCAS失敗後の盲再送をしない。
+
 ### machine公開後の失敗再開
 
 - machine成功/seal失敗: 公開releaseと原本を読み、同じapplied.jsonからsealする。再GETしない。
