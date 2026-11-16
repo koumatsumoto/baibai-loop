@@ -77,6 +77,13 @@ def test_column_batches_keep_exact_row_writer_bytes(tmp_path, monkeypatch, binar
     )
     assert built.staged_path.read_bytes() == expected.read_bytes()
     assert built.manifest.objects[0].rows == len(rows)
+    writer._validate_parquet(
+        built.staged_path,
+        dataset=dataset,
+        period=(2026, 11),
+        expected_rows=iter(rows),
+        expected_object=built.manifest.objects[0],
+    )
     assert pq.ParquetFile(built.staged_path).num_row_groups == (5 if binary else 3)
 
 
@@ -97,4 +104,58 @@ def test_wrong_row_width_still_refuses(tmp_path, rows):
     with pytest.raises(ValueError, match="zip"):
         writer._build_period(
             dataset=dataset, period=(2026, 11), staging_root=tmp_path, rows=rows, sources=()
+        )
+
+
+@pytest.mark.parametrize(
+    "failure", ["value", "order", "short", "extra", "duplicate", "period", "count", "bounds"]
+)
+def test_column_validation_keeps_rejections(tmp_path, monkeypatch, failure):
+    dataset = LakeDataset(
+        name="test.validation",
+        sqlite_table="validation",
+        date_column="day",
+        layer="l1_source",
+        columns=(
+            LakeColumn("day", "TEXT", pa.string(), False, 1),
+            LakeColumn("id", "INTEGER", pa.int64(), False, 2),
+            LakeColumn("value", "REAL", pa.float64(), True),
+        ),
+    )
+    monkeypatch.setattr(writer, "_ROW_GROUP_SIZE", 2)
+    rows = [("2026-11-16", i, None if i == 1 else float(i)) for i in range(4)]
+    if failure == "duplicate":
+        rows[2] = rows[1]  # duplicate across batches
+    if failure == "period":
+        rows[2] = ("2026-12-16", 2, 2.0)
+    built = writer._build_period(
+        dataset=dataset, period=(2026, 11), staging_root=tmp_path, rows=rows, sources=()
+    )
+    expected = rows.copy()
+    obj = built.manifest.objects[0]
+    if failure == "value":
+        expected[1] = ("2026-11-16", 1, 1.0)
+    elif failure == "order":
+        expected.reverse()
+    elif failure == "short":
+        expected.pop()
+    elif failure == "extra":
+        expected.append(("2026-11-16", 4, 4.0))
+    elif failure == "count":
+        obj = obj.model_copy(update={"rows": 5})
+    elif failure == "bounds":
+        obj = obj.model_copy(update={"max_key": ("2026-11-16", "4")})
+    message = {
+        "duplicate": "not unique",
+        "period": "escapes",
+        "count": "count",
+        "bounds": "min/max",
+    }.get(failure, "values or row order")
+    with pytest.raises(writer.LakeBuildError, match=message):
+        writer._validate_parquet(
+            built.staged_path,
+            dataset=dataset,
+            period=(2026, 11),
+            expected_rows=iter(expected),
+            expected_object=obj,
         )

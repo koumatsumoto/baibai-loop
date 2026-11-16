@@ -611,7 +611,7 @@ def _validate_parquet(
         ):
             raise LakeBuildError(f"Parquet Arrow schema mismatch: {path}")
         for batch in parquet.iter_batches(batch_size=_row_batch_size(dataset)):
-            actual = [tuple(item[name] for name in names) for item in batch.to_pylist()]
+            actual = list(zip(*(column.to_pylist() for column in batch.columns), strict=True))
             if actual != list(islice(expected, len(actual))):
                 raise LakeBuildError(f"Parquet values or row order differ from SQLite: {path}")
             count += len(actual)
