@@ -565,7 +565,7 @@ gh run watch <SOURCE_RUN_ID> --exit-status --interval 60
 <a id="calendar-native-l1"></a>
 **master/calendar。** TradingView/外部評価はcalendarを先に固定し、休場なら直前営業日のbasis masterから銘柄集合を固定する。unknown/partialを休場へ変えず、空/failed/held masterを旧値で補わない。保存packetの元master/calendarはhead削除/訂正後も保持参照から再生し、新しいheadへ再固定しない。
 
-masterは明示した日付を取得し、過去L2を使わない。未来日は拒否する。calendarの明示取得は他source/L2/release不要で、必要範囲を指定する。空/partialを成功へ変えない。
+masterは明示した日付を取得し、過去L2を使わない。`maintain-market backfill-master`は未来日を拒否する。calendarの明示取得は他source/L2/release不要で、必要範囲を指定する。空/partialを成功へ変えない。
 
 ```bash
 uv run baibai-jobs maintain-market backfill-master --asof <DATE> --asof <DATE>
