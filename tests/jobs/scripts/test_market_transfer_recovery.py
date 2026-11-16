@@ -11,8 +11,10 @@ from pathlib import Path
 import pytest
 from tests.helpers.financial_documents import documents
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.model_generation import empty_selection, generation, publish_generation
 
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
 from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
@@ -118,12 +120,18 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
     root = _fake_repo(tmp_path)
     for relative in (
         "market/market.sqlite",
-        "screening/runs.sqlite",
         "market_context/indicators.sqlite",
     ):
         destination = root / "stores" / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(target, destination)
+    runs = root / "stores/screening/runs.sqlite"
+    old_generation = generation().model_copy(update={"generation_id": "retained-old"})
+    publish_generation(old_generation, path=runs)
+    ScreeningSelectionStore(runs).publish(
+        "retained-old-selection", empty_selection(old_generation.generation_id)
+    )
+    old_rows = table_contents(runs)
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     state = Path(env["AWS_FAKE_STATE"])
@@ -132,7 +140,16 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
         (*MACHINE_KEYS, current_release_pointer_key(), "machine-manifest.json")
     )
     for key in MACHINE_KEYS:
-        (state / f"put-{key}").write_bytes(target.read_bytes())
+        (state / f"put-{key}").write_bytes((runs if key == "runs.sqlite" else target).read_bytes())
+    new_generation = generation(value=0.2).model_copy(update={"generation_id": "unpublished-new"})
+    publish_generation(new_generation, path=runs)
+    ScreeningSelectionStore(runs).publish(
+        "unpublished-new-selection", empty_selection(new_generation.generation_id)
+    )
+    new_rows = table_contents(runs)
+    # A confirmation pull must not destroy the only copy of unpublished results.
+    preserved_runs = tmp_path / "unpublished-runs.sqlite"
+    shutil.copyfile(runs, preserved_runs)
     old_receipt = {"schema_version": 1, "keys": dict.fromkeys(MACHINE_KEYS, "etag-stable")}
     (state / "put-machine-manifest.json").write_text(json.dumps(old_receipt, indent=2))
     # Real snapshot helpers require stored bytes, not synthetic downloads for absent keys.
@@ -198,6 +215,8 @@ runpy.run_module(args[2],run_name='__main__')
         assert conn.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()[0] == 0, partial.stderr
     assert read_lake_store_origin(state / "put-market.sqlite") == origin
     assert json.loads((state / "put-machine-manifest.json").read_text()) == old_receipt
+    expected_runs = old_rows if failed_key == "runs.sqlite" else new_rows
+    assert table_contents(state / "put-runs.sqlite") == expected_runs
     retry = run("push-machine")
     assert retry.returncode != 0
     assert "changed on R2 after the pull" in retry.stderr
@@ -206,9 +225,13 @@ runpy.run_module(args[2],run_name='__main__')
     assert "receipt" in refused.stderr
     recovery = run("push-market")
     assert recovery.returncode == 0, recovery.stderr
+    # A coherent receipt does not mean the failed runs PUT was completed.
+    assert table_contents(state / "put-runs.sqlite") == expected_runs
     verified = run("pull-machine")
     assert verified.returncode == 0, verified.stderr
     assert "machine bundle receipt matches" in verified.stdout
+    assert table_contents(runs) == expected_runs
+    assert table_contents(preserved_runs) == new_rows
     hydrated = run("hydrate-market")
     assert hydrated.returncode == 0, hydrated.stderr
     assert table_contents(root / "stores/market/market.sqlite") == table_contents(target)
