@@ -157,6 +157,15 @@ def _questions_brief(questions: tuple[str, ...]) -> dict[str, object]:
 def _hypotheses_brief(
     hypotheses: tuple[HypothesisCheck, ...], sources: tuple[Source, ...]
 ) -> dict[str, object]:
+    # 各結果の最初の例を含め、残枠は原順序で埋める。重要度や独立票の順位ではない。
+    first_by_result: dict[str, int] = {}
+    for index, item in enumerate(hypotheses):
+        first_by_result.setdefault(item.result, index)
+    selected = set(first_by_result.values())
+    for index in range(len(hypotheses)):
+        if len(selected) >= 3:
+            break
+        selected.add(index)
     result: dict[str, object] = {
         "hypotheses": [
             {
@@ -165,12 +174,13 @@ def _hypotheses_brief(
                 "reason": item.reason[:240],
                 **_source_brief(item.source_ids, sources),
             }
-            for item in hypotheses[:3]
+            for index, item in enumerate(hypotheses)
+            if index in selected
         ]
     }
-    omitted = hypotheses[3:]
+    omitted = tuple(item for index, item in enumerate(hypotheses) if index not in selected)
     if omitted:
-        # 先頭の支持だけを全体の結論にせず、反証の存在から同じexactへ戻せるようにする。
+        # 表示した例だけを全体の結論にせず、残る論点は同じexactへ戻る。
         result.update(
             hypotheses_omitted=len(omitted),
             omitted_hypothesis_results=sorted({item.result for item in omitted}),
