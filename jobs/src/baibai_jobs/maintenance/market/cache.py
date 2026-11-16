@@ -28,11 +28,10 @@ def invalidate_coverage_command(
 ) -> int:
     """Invalidate fetch coverage without deleting the stored observations.
 
-    Sources governed by coverage windows, including daily bars, will be fetched
-    again when required. Stored observations alone do not establish acquisition
-    coverage. With start/end, only overlapping coverage windows are removed.
-    Source retention, the active plan and availability determine whether a later
-    fetch can succeed.
+    This only removes local SQL coverage claims, not native L1 receipt state.
+    In particular, native daily-price acquisition plans from its own fixed head;
+    invalidating these rows does not force another provider request.
+    With start/end, only overlapping coverage windows are removed.
     """
     out = stdout if stdout is not None else sys.stdout
     if (start is None) != (end is None):
