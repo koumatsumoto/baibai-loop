@@ -148,6 +148,62 @@ def required_total_value(
         return price * (1 + rate) ** horizon
 
 
+def two_case_balance(
+    base: Projection,
+    downside: Projection,
+    *,
+    price_yen: Decimal,
+    horizon_months: int,
+    required_annual_return_pct: Decimal,
+) -> dict[str, object]:
+    """同期間の二ケースだけで終価合計を混合する条件。観測確率・採否を推定しない。"""
+    with localcontext() as context:
+        context.prec = 50
+        price = _positive(price_yen, "price_yen")
+        required = required_total_value(
+            price_yen=price,
+            horizon_months=horizon_months,
+            required_annual_return_pct=required_annual_return_pct,
+        )
+        base_total = base.terminal_value_per_share_yen + base.cash_distribution_per_share_yen
+        downside_total = (
+            downside.terminal_value_per_share_yen + downside.cash_distribution_per_share_yen
+        )
+
+        def condition(target: Decimal) -> dict[str, object]:
+            weight = None
+            if min(base_total, downside_total) >= target:
+                relation = "any_base_weight"
+            elif max(base_total, downside_total) < target:
+                relation = "no_base_weight"
+            else:
+                # ケース名だけで大小を決めず、端点の等号も保つ。年率は混合しない。
+                boundary = (target - downside_total) * 100 / (base_total - downside_total)
+                weight = str(boundary if boundary else Decimal(0))
+                relation = (
+                    "minimum_base_weight" if base_total > downside_total else "maximum_base_weight"
+                )
+            return {
+                "comparator_total_value_yen": str(target),
+                "condition": relation,
+                "break_even_base_weight_pct": weight,
+            }
+
+        return {
+            "scope": "base_downside_only",
+            "outcome_assumption": "exactly_base_or_downside",
+            "weight_basis": "algebraic_not_estimated_probability",
+            "criterion": "weighted_total_value_at_least_comparator",
+            "return_basis": "conditional_pretax_without_reinvestment",
+            "investor_taxes_and_fees_included": False,
+            "cash_basis": "constant_nominal_without_interest",
+            "base_profit_loss_per_share_yen": str(base_total - price),
+            "downside_profit_loss_per_share_yen": str(downside_total - price),
+            "nominal_cash": condition(price),
+            "required_return": condition(required),
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class ValuationConditions:
     required_total_value_yen: Decimal

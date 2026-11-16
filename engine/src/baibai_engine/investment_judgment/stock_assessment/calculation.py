@@ -23,6 +23,7 @@ from baibai_engine.investment_judgment.stock_assessment.scenario import (
     Projection,
     maximum_entry_price,
     project_return,
+    two_case_balance,
 )
 from baibai_engine.investment_judgment.stock_assessment.valuation import Valuation
 from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
@@ -139,6 +140,15 @@ def _price_comparison(inputs: CalculationInput) -> dict[str, object]:
                 row["investment_total_value_yen"] = str(total)
                 row["profit_loss_yen"] = str(total - comparison.price_yen * quantity)
             result[name] = row
+        assert valuation.base is not None
+        assert valuation.downside is not None
+        result["two_case_balance"] = two_case_balance(
+            valuation.base,
+            valuation.downside,
+            price_yen=comparison.price_yen,
+            horizon_months=valuation.horizon_months,
+            required_annual_return_pct=valuation.required_annual_return_pct,
+        )
     return result
 
 
@@ -226,6 +236,15 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
                 ],
             }
         )
+    assert valuation.base is not None
+    assert valuation.downside is not None
+    context["two_case_balance"] = two_case_balance(
+        valuation.base,
+        valuation.downside,
+        price_yen=price,
+        horizon_months=valuation.horizon_months,
+        required_annual_return_pct=valuation.required_annual_return_pct,
+    )
     result_payload["recalculated_projections"] = reviewed
     result_payload["projection_numbers"] = context
     if inputs.price_comparison is not None:

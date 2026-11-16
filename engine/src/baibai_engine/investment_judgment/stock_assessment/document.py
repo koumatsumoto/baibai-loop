@@ -43,6 +43,7 @@ from baibai_engine.investment_judgment.independent_review.contracts import (
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
     FIXED_VALUE_DELAY_MONTHS,
     project_return,
+    two_case_balance,
     valuation_conditions,
 )
 from baibai_engine.investment_judgment.stock_assessment.valuation import Valuation
@@ -332,6 +333,14 @@ def current_price_projection(
             "annualized_return_pct": float(round(returns.annualized_return_pct, 4)),
         }
     result["fixed_value_delay"] = delay
+    assert valuation.required_annual_return_pct is not None
+    result["two_case_balance"] = two_case_balance(
+        valuation.base,
+        valuation.downside,
+        price_yen=price_yen,
+        horizon_months=valuation.horizon_months,
+        required_annual_return_pct=valuation.required_annual_return_pct,
+    )
     return result
 
 
