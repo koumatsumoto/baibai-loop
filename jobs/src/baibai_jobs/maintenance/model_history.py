@@ -200,14 +200,18 @@ def restore_model_history(
         raise
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-jobs restore-model-history")
     for name in ("source", "current", "output"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--source-sha256", required=True)
     parser.add_argument("--current-sha256", required=True)
     parser.add_argument("--generation-id", action="append", required=True)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     result = restore_model_history(
         source=args.source,
         current=args.current,
