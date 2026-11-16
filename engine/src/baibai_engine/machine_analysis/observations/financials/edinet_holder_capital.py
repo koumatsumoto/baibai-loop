@@ -14,11 +14,13 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element  # nosec B405 -- type annotation only
+from zipfile import BadZipFile
 
 from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
     XBRLI,
     Context,
+    SourceFormatError,
     expand_qname,
     local_name,
     read_instance,
@@ -53,7 +55,10 @@ def extract_holder_capital(
         raise ValueError("disclosure and knowledge timestamps require timezones")
     if submitted_at > known_at:
         return None
-    instance = read_instance(content, include_labels=False)
+    try:
+        instance = read_instance(content, include_labels=False)
+    except BadZipFile as error:
+        raise SourceFormatError("zip_member_invalid") from error
     share_units = set()
     for unit in instance.root.findall(f"{{{XBRLI}}}unit"):
         measures = unit.findall(f"{{{XBRLI}}}measure")
@@ -196,9 +201,6 @@ def _read_holder_capital(
     from baibai_engine.data_collection.providers.edinet.fields import is_usable_filing_status
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
         read_observed_documents,
-    )
-    from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
-        SourceFormatError,
     )
 
     selected = set(tickers)
