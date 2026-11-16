@@ -35,7 +35,8 @@ class TechnicalFinancialPolicy(BaseModel):
         "technical-financial-discovery-v10",
         "technical-financial-discovery-v11",
         "technical-financial-discovery-v12",
-    ] = "technical-financial-discovery-v12"
+        "technical-financial-discovery-v13",
+    ] = "technical-financial-discovery-v13"
     page_size: Annotated[int, Field(ge=1, le=36)] = 36
 
 

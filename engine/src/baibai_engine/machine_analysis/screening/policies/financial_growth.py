@@ -178,6 +178,13 @@ def evaluate_financial_growth_gate(
             "matched_routes": list(matched),
             "routes": dict(routes),
             "checks": dict(checks),
+            "observation_period_context": {
+                "read_semantics": "saved_measurement_and_source_dates_not_point_in_time",
+                "annual_variant": "full_fy" if uses_fy else "annual_ttm",
+                "annual": _period_context(reader, annual),
+                "quarter": _period_context(reader, quarter),
+                "balance": _period_context(reader, balance),
+            },
             "observations": {
                 "annual": reader.saved_observation(annual),
                 "annual_variant": "full_fy" if uses_fy else "annual_ttm",
@@ -377,3 +384,35 @@ def _profit_sign(value: JsonValue | None) -> JsonValue:
     if not isinstance(value, (float, int)) or isinstance(value, bool):
         return None
     return "positive" if value > 0 else "negative" if value < 0 else "zero"
+
+
+def _period_context(
+    reader: CompanyGrowthReader, observation: Observation | None
+) -> dict[str, JsonValue] | None:
+    if observation is None:
+        return None
+    saved = reader.saved_observation(observation)
+    # 全出典日を残し、最大日を観測全体の公表時刻・利用可能時刻にしない。
+    dates = set()
+    for value in _object(saved.get("metrics")).values():
+        documents = _object(value).get("documents")
+        if isinstance(documents, list):
+            for document in documents:
+                day = _object(document).get("disclosed_at")
+                if isinstance(day, str):
+                    dates.add(day)
+    return {
+        **{
+            key: saved[key]
+            for key in (
+                "measurement",
+                "period_start",
+                "period_end",
+                "statement_basis",
+                "accounting_standard",
+                "period_status",
+            )
+            if key in saved
+        },
+        "source_disclosure_dates": cast(list[JsonValue], sorted(dates)),
+    }
