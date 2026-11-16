@@ -366,6 +366,13 @@ def _market_down_observation(
     observation["source_unavailable_reason"] = section.get("unavailable_reason")
     observation["benchmark_ticker"] = benchmark if known_benchmark else None
     observation["condition_days"] = days
+    # 平均の強さと上昇/超過した日の頻度は別の問い。比率や勝率へ昇格しない。
+    down = _object(section, "down")
+    counts: dict[str, JsonValue] = {
+        name: deepcopy(down[name]) for name in ("own_up_days", "outperform_days") if name in down
+    }
+    if counts:
+        observation["condition_counts"] = counts
     return observation
 
 
