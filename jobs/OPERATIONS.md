@@ -19,6 +19,8 @@ set +a
 
 R2転送失敗の診断はstorage ownerが操作名・検証済みHTTP status・keyのSHA-256だけを記録する。status不明をservice codeや本文から推測しない。key hashは固定対象を手元で照合するためで、公開可能性を保証する匿名化ではない。例外causeには私有情報が残り得るためtracebackを公開せず、key・bucket・endpoint・応答本文/headersを追加でdumpしない。診断の追加は429解消や本番受入を意味しない。
 
+shellの存在確認は明示404以外の失敗を欠落扱いせず停止し、対象の固定keyと`HeadObject failed`だけを示す。CLIの生stderrや不正ETagは再表示せず、stderrからHTTP statusを推測しない。この局所診断は他のAWS CLI出力を含むlog全体の公開安全性を保証しない。
+
 - 原本受領・L2・公開/readback・seal・次input発行を分け、正常空/partial/未試行/失敗を残す。L2失敗で保存L1を戻さない。
 - 固定plan/receipt/ID/hash・原bytes・実受領時計を保つ。結果不明は現objectを照合し、新UUID・日付付替え・marker手修正・古いcopyの盲再送で解消しない。
 - schema/origin/CAS/必要なlease不一致は停止する。通常writerは現schemaだけを扱い、旧作業DB/stageを変換しない。旧release・原本・実受領stageと移送証拠を保ち、保存済み固定入力の読取契約を維持する。完了済み移行の作業copy・取得計画inputは、exact keyを事前に固定し、本人が対象範囲・不可逆性・失う再開能力の説明を受けて削除承認した範囲だけ保持・再開対象から外す。通常dailyへ移行/全期間再取得を代行させない。

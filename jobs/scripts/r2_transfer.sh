@@ -63,7 +63,8 @@ remote_object_exists() {
   if [[ "${error}" == *"(404) when calling the HeadObject operation"* ]]; then
     return 1
   fi
-  printf 'cannot determine whether R2 object %s exists: %s\n' "$1" "${error}" >&2
+  # CLI stderr can include private endpoints or response text, not a verified status.
+  printf 'cannot determine whether R2 object %s exists (HeadObject failed; details withheld)\n' "$1" >&2
   exit 2
 }
 
@@ -227,7 +228,7 @@ etag_body() {
   value="${value%\"}"
   value="${value#\"}"
   if [[ ! "${value}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
-    printf 'unusable object version: %s\n' "$1" >&2
+    printf 'unusable object version (details withheld)\n' >&2
     return 1
   fi
   printf '%s\n' "${value}"

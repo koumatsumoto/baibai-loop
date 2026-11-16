@@ -1324,7 +1324,10 @@ def test_head_failure_is_not_treated_as_absence(
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["AWS_FAKE_HEAD_ERROR_KEY"] = key
-    env["AWS_FAKE_HEAD_ERROR"] = error
+    # CLI stderr can carry an endpoint, signed request or response text. None is a
+    # public diagnostic, even though the failed existence check must still stop.
+    private_detail = "https://synthetic-private.invalid/?token=synthetic-private-token"
+    env["AWS_FAKE_HEAD_ERROR"] = f"{error}: {private_detail}"
     (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text('"etag-stable"\n')
 
     result = subprocess.run(
@@ -1337,10 +1340,58 @@ def test_head_failure_is_not_treated_as_absence(
     )
 
     assert result.returncode == 2
-    assert "cannot determine whether R2 object" in result.stderr
-    assert error in result.stderr
+    assert f"cannot determine whether R2 object {key} exists" in result.stderr
+    assert "HeadObject failed; details withheld" in result.stderr
+    assert error not in result.stdout + result.stderr
+    assert private_detail not in result.stdout + result.stderr
     commands = _transfer_commands(log)
-    assert not any(command.startswith(("s3 cp ", "s3api put-object ")) for command in commands)
+    assert not any(
+        command.startswith(
+            ("s3 cp ", "s3api put-object ", "s3api copy-object ", "s3api delete-object ")
+        )
+        for command in commands
+    )
+    assert not list(root.glob(".r2-transfer.*"))
+
+
+@pytest.mark.parametrize("version", ['"synthetic-private/value"', '"synthetic-private\nvalue"'])
+def test_malformed_remote_version_is_not_echoed_or_installed(tmp_path: Path, version: str) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "machine-manifest.json"
+    env["AWS_FAKE_OBJECT_KEY"] = "machine-manifest.json"
+    env["AWS_FAKE_OBJECT_BODY"] = json.dumps(
+        {"keys": {"market.sqlite": "etag-stable", "runs.sqlite": "etag-stable"}}
+    )
+    env["AWS_FAKE_ETAG_OVERRIDE"] = version
+    for path in _machine_stores(root).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"local-store")
+
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-machine"],
+        cwd=root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "unusable object version" in result.stderr
+    assert "synthetic-private" not in result.stdout + result.stderr
+    assert all(path.read_bytes() == b"local-store" for path in _machine_stores(root).values())
+    commands = _transfer_commands(log)
+    assert not any(
+        command.startswith(
+            ("s3 cp ", "s3api put-object ", "s3api copy-object ", "s3api delete-object ")
+        )
+        for command in commands
+    )
+    generation_dir = Path(env["R2_GENERATION_DIR"])
+    assert not (generation_dir / "market.sqlite.etag").exists()
+    assert not (generation_dir / "runs.sqlite.etag").exists()
     assert not list(root.glob(".r2-transfer.*"))
 
 
