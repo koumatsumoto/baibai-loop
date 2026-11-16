@@ -1,4 +1,4 @@
-"""Rebuild financial observations from an independent fixed L1 head, offline."""
+"""固定した財務L1原本から観測を再構築する。提供元は再取得せず、保存先へのアクセスは行う。"""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def model_input(
         raise ValueError("evaluation time requires a timezone")
     head = fixed.value()
     # Disclosure-date selection belongs to each model. Growth intentionally uses
-    # later retained corrections for old accounting periods (retrospective_v7).
+    # later retained corrections for old accounting periods.
     retained_days = [date.fromisoformat(day) for day in head["scopes"]]
     if not retained_days:
         raise ValueError("native financial L1 has no retained source days")
