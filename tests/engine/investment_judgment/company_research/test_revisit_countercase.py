@@ -57,6 +57,7 @@ def _save(
     document["findings"]["unresolved_questions"] = []
     if conditions is not None:
         document["investment_case"]["invalidation_conditions"] = conditions
+    review["strongest_countercase"] = f"独立Review {number} の確認範囲に限る反証"
     update_review_hash(document, review)
     return AssessmentStoreService(path, clock=lambda: now).publish_reviewed_assessment(
         assessment_id(number), document, review, supersedes_id=supersedes
@@ -131,6 +132,7 @@ def test_prepare_and_resume_keep_countercase_without_later_assessment_substituti
     selected = selection_binding(operation.payload)
     saved = selected.inputs.saved_company_context["1234"].assessment
     assert saved.invalidation_conditions == pair.document.investment_case.invalidation_conditions
+    assert saved.independent_review.strongest_countercase == pair.review.strongest_countercase
     assert saved.strongest_countercase == COUNTERCASE
     assert saved.reference.core_sha256 == pair.core_sha256
     inputs = workspace / "domain-inputs.yaml"
@@ -176,6 +178,7 @@ def test_legacy_selection_does_not_backfill_or_change_canonical_identity(tmp_pat
     raw["inputs"]["saved_company_context"]["1234"]["assessment"].pop(
         "invalidation_conditions", None
     )
+    raw["inputs"]["saved_company_context"]["1234"]["assessment"].pop("independent_review", None)
     canonical = encode_json(raw)
     parsed = parse_selection(raw)
     assert encode_json(parsed.model_dump(mode="json")) == canonical
@@ -183,6 +186,7 @@ def test_legacy_selection_does_not_backfill_or_change_canonical_identity(tmp_pat
     brief = company_context_brief(parsed.inputs.saved_company_context["1234"])["assessment"]
     assert "strongest_countercase" not in brief
     assert "strongest_countercase_truncated" not in brief
+    assert "independent_review" not in brief
     assert "invalidation_conditions" not in brief
     assert brief["stance"] == "supported"
 
