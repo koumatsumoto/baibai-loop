@@ -111,7 +111,8 @@ def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     commands = "\n".join(str(step.get("run", "")) for step in steps)
     assert "pull-market" in commands
     assert "pull-app" in commands
-    assert "hydrate-market" in commands
+    assert "hydrate-portfolio" in commands
+    assert "hydrate-market" not in commands
     assert "pull-machine" not in commands
     assert "pull-runs" not in commands
     assert "upload-portfolio-views" in commands
@@ -158,7 +159,7 @@ def test_materialize_keeps_verified_application_independent_of_market_failure():
     assert "jobs/scripts/r2_transfer.sh pull-app" in app["run"]
     assert market["run"].splitlines() == [
         "jobs/scripts/r2_transfer.sh pull-market",
-        "jobs/scripts/r2_transfer.sh hydrate-market",
+        "jobs/scripts/r2_transfer.sh hydrate-portfolio",
     ]
     assert "continue-on-error" not in market
     assert materialize["if"] == "${{ !cancelled() && steps.pull-app.outcome == 'success' }}"
