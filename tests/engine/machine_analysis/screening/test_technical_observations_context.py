@@ -84,6 +84,23 @@ def test_market_down_mean_keeps_its_denominator_not_whole_window_strength(days):
     )
 
 
+def test_condition_frequency_survives_saved_row_and_initial_comparison():
+    technical = _strategy_models()
+    baseline = project(technical)
+    _conditioned(technical)["benchmarks"]["1321"]["down"].update(own_up_days=1, outperform_days=25)
+    actual = project(technical)
+    codec = TypeAdapter(type(actual))
+    restored = codec.validate_json(codec.dump_json(actual))
+    observations = brief(restored)["technical"]["observations"]
+    assert observations["market_down_own_return_60d"]["condition_counts"] == {
+        "own_up_days": 1,
+        "outperform_days": 25,
+    }
+    assert actual.technical["routes"] == baseline.technical["routes"]
+    assert actual.financial_gate == baseline.financial_gate
+    assert actual.screening_lane == baseline.screening_lane
+
+
 @pytest.mark.parametrize("case", ["stale", "unrecorded", "model_not_generated"])
 def test_value_and_unavailable_reason_stay_together(case):
     technical = _strategy_models()

@@ -125,6 +125,33 @@ def test_research_api_is_same_owner_and_old_output_does_not_gain_new_rules():
     assert "state" not in original
 
 
+def test_down_mean_keeps_frequency_without_making_it_a_gate():
+    models = _strategy_models()
+    down = _conditioned(models)["benchmarks"]["1321"]["down"]
+    down.update(own_up_days=1, outperform_days=25)
+    before = deepcopy(models)
+    result = _evaluate(models)
+    for name in ("market_down_own_return_60d", "market_down_excess_return_60d"):
+        observation = result["observations"][name]
+        assert observation["condition_days"] == 25
+        assert observation["condition_counts"] == {"own_up_days": 1, "outperform_days": 25}
+    assert result["routes"]["market_down_resilience"]["state"] == "matched"
+    assert models == before
+    result["observations"]["market_down_own_return_60d"]["condition_counts"]["own_up_days"] = 99
+    assert down["own_up_days"] == 1
+
+
+def test_unrecorded_condition_frequency_is_not_backfilled():
+    result = _evaluate()
+    assert "condition_counts" not in result["observations"]["market_down_own_return_60d"]
+    models = _strategy_models()
+    _conditioned(models)["benchmarks"]["1321"]["down"]["own_up_days"] = 0
+    result = _evaluate(models)
+    assert result["observations"]["market_down_own_return_60d"]["condition_counts"] == {
+        "own_up_days": 0
+    }
+
+
 def test_old_fields_stay_unrecorded_not_filled_by_sma50_or_plain_activity():
     result = _evaluate(_models())
     assert result["observations"]["sma_75bar_gap"]["source_state"] == "not_recorded"
