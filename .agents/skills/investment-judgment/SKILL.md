@@ -99,6 +99,8 @@ scaffoldの`--from-research-id`は元日付/ID/hash付き素材コピー、`--fr
 
 as_ofは情報境界で全内容の再検証日でない。元source/fact時刻を保ちコピーを再確認/削除の安全認定にしない。stale priorはlatestと統合して再保存し、同ID同内容は元保存時刻を返す。文字列参照の自動検証は保証しない。中断は理由とResearch ID/digestをrecord-unfinishedへ残し、部分保存をreviewed/完了としない。
 
+予定開示後は[解消した問いと残る不明](../../../docs/reference/stock-assessment.md#event-resolution)を原典で更新し、旧「発表待ち」や未確認項目をそのまま今回の結論にしない。
+
 ## Trade Proposal
 
 `investment-judgment status --workspace <WORKSPACE> --db <APP_DB>`とOperationを読む。評価保存とOperation束縛は別transactionで、再利用/束縛失敗だけなら`operation --db <APP_DB> --format json record-assessment <OPERATION_ID> --assessment-id <ID>`で回復する。
