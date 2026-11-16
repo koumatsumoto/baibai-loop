@@ -230,12 +230,14 @@ def _hypotheses_brief(
 
 
 def _source_brief(source_ids: tuple[str, ...], sources: tuple[Source, ...]) -> dict[str, object]:
-    # A shared citation is not an independent vote; its own clocks matter.
+    # URLそのものは複写せず、同じ文字列の参照も独立票にしない。
     by_id = {source.source_id: source for source in sources}
     return {
         "sources": [
             {
                 "source_id": source_id,
+                "source_tier": by_id[source_id].source_tier,
+                **_same_external_ref_brief(by_id[source_id], sources),
                 "as_of": by_id[source_id].as_of.isoformat(),
                 "retrieved_at": by_id[source_id].retrieved_at.isoformat(),
             }
@@ -243,6 +245,24 @@ def _source_brief(source_ids: tuple[str, ...], sources: tuple[Source, ...]) -> d
         ],
         "sources_omitted": max(0, len(source_ids) - 3),
     }
+
+
+def _same_external_ref_brief(source: Source, sources: tuple[Source, ...]) -> dict[str, object]:
+    if source.ref is None:
+        return {}
+    matching = [
+        item.source_id
+        for item in sources
+        if item.source_id != source.source_id and item.ref == source.ref
+    ]
+    return (
+        {
+            "same_external_ref_source_ids": matching[:3],
+            "same_external_ref_sources_omitted": max(0, len(matching) - 3),
+        }
+        if matching
+        else {}
+    )
 
 
 def _absence_brief(value: NotFound | Unreadable) -> dict[str, object]:

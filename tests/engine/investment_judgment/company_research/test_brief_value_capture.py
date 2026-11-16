@@ -75,7 +75,16 @@ def test_value_capture_only_research_reaches_catalog_and_selection_without_adopt
         "text": note["text"],
         "text_truncated": False,
         "sources": [
-            {key: source[key] for key in ("source_id", "as_of", "retrieved_at")}
+            {
+                **{
+                    key: source[key]
+                    for key in ("source_id", "source_tier", "as_of", "retrieved_at")
+                },
+                "same_external_ref_source_ids": [
+                    item["source_id"] for item in sources if item != source
+                ],
+                "same_external_ref_sources_omitted": 0,
+            }
             for source in sources[1:]
         ],
         "sources_omitted": 0,

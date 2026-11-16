@@ -48,6 +48,7 @@ def test_exact_review_keeps_its_check_clock_scope_and_countercase_separate(tmp_p
     assert result["sources"] == [
         {
             "source_id": key,
+            "source_tier": sources[key].source_tier,
             "as_of": sources[key].as_of.isoformat(),
             "retrieved_at": sources[key].retrieved_at.isoformat(),
         }
