@@ -133,7 +133,7 @@ def test_stream_is_closed_on_read_or_header_failure(monkeypatch, fault):
 
 
 @pytest.mark.parametrize(
-    ("digest", "limit"), [("bad", 100), (DIGEST, 0), (DIGEST, -1), (DIGEST, True)]
+    ("digest", "limit"), [(None, 100), ("bad", 100), (DIGEST, 0), (DIGEST, -1), (DIGEST, True)]
 )
 def test_invalid_expected_contract_never_calls_client(monkeypatch, digest, limit):
     store = make_store()

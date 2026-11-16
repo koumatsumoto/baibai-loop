@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import (
+    CheckedObjectMetadataReader,
     LakePublishError,
     ObjectStore,
     VerifiedObjectMetadataReader,
@@ -24,16 +25,27 @@ class SavedObject:
 
 
 def read_private(store: ObjectStore, key: str) -> SavedObject | None:
-    before = store.head(key)
-    if before is None:
-        return None
-    if not before.etag or not 0 < before.size <= MAX_PRIVATE_OBJECT_BYTES:
-        raise LakePublishError("invalid private JSON object")
-    payload = store.get_bytes(key)
+    # GET metadata belongs to that body; a final HEAD still detects a later version.
+    if isinstance(store, CheckedObjectMetadataReader):
+        response = store.get_checked_object(key, max_bytes=MAX_PRIVATE_OBJECT_BYTES)
+        if response is None:
+            return None
+        payload, before = response
+    else:
+        before = store.head(key)
+        if before is None:
+            return None
+        if not before.etag or not 0 < before.size <= MAX_PRIVATE_OBJECT_BYTES:
+            raise LakePublishError("invalid private JSON object")
+        payload = store.get_bytes(key)
     after = store.head(key)
     if (
         after is None
+        or not before.etag
+        or not 0 < before.size <= MAX_PRIVATE_OBJECT_BYTES
         or after.etag != before.etag
+        or after.size != before.size
+        or after.metadata.get("sha256") != before.metadata.get("sha256")
         or len(payload) != before.size
         or before.metadata.get("sha256") != hashlib.sha256(payload).hexdigest()
     ):

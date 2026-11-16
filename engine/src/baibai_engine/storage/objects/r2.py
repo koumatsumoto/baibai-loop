@@ -161,6 +161,15 @@ class VerifiedObjectMetadataReader(Protocol):
     ) -> tuple[bytes, RemoteObject] | None: ...
 
 
+@runtime_checkable
+class CheckedObjectMetadataReader(Protocol):
+    """Bounded bytes with same-response metadata and body-integrity validation."""
+
+    def get_checked_object(
+        self, key: str, *, max_bytes: int
+    ) -> tuple[bytes, RemoteObject] | None: ...
+
+
 class Boto3R2Store:
     """S3-compatible R2 adapter with reusable in-process connections."""
 
@@ -374,15 +383,23 @@ class Boto3R2Store:
     def get_verified_object(
         self, key: str, *, sha256: str, max_bytes: int
     ) -> tuple[bytes, RemoteObject] | None:
-        """Use one response for fixed-object size/metadata/body integrity.
+        if not isinstance(sha256, str) or re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
+            raise ValueError("invalid fixed object read contract")
+        return self._get_checked_object(key, sha256=sha256, max_bytes=max_bytes)
+
+    def get_checked_object(self, key: str, *, max_bytes: int) -> tuple[bytes, RemoteObject] | None:
+        return self._get_checked_object(key, sha256=None, max_bytes=max_bytes)
+
+    def _get_checked_object(
+        self, key: str, *, sha256: str | None, max_bytes: int
+    ) -> tuple[bytes, RemoteObject] | None:
+        """Use one response for bounded metadata/body integrity and an optional fixed digest.
 
         Check headers before consuming a successful body and read at most its
         declared size plus one byte. SDK error bodies/wire traffic are not bounded
         here. Mutable pointers still require their separate before/after contract.
         """
-        if re.fullmatch(r"[0-9a-f]{64}", sha256) is None or (
-            type(max_bytes) is not int or max_bytes <= 0
-        ):
+        if type(max_bytes) is not int or max_bytes <= 0:
             raise ValueError("invalid fixed object read contract")
         try:
             with self._request("get-object"):
@@ -390,16 +407,18 @@ class Boto3R2Store:
                 body = response["Body"]
                 try:
                     metadata = _remote_object(response)
+                    digest = metadata.metadata.get("sha256", "")
                     if (
                         not metadata.etag
                         or not 0 < metadata.size <= max_bytes
-                        or metadata.metadata.get("sha256") != sha256
+                        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                        or (sha256 is not None and digest != sha256)
                     ):
                         raise LakePublishError("fixed object is missing or changed")
                     payload = body.read(metadata.size + 1)
                     if (
                         len(payload) != metadata.size
-                        or hashlib.sha256(payload).hexdigest() != sha256
+                        or hashlib.sha256(payload).hexdigest() != digest
                     ):
                         raise LakePublishError("fixed object is missing or changed")
                     return payload, metadata
