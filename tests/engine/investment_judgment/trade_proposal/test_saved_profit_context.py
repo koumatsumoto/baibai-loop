@@ -366,3 +366,30 @@ def test_old_selection_without_generation_stays_unrecorded():
     before = legacy.model_dump_json()
     assert saved_profit_context(legacy, selection_hash=selection_sha256(legacy)) is None
     assert legacy.model_dump_json() == before
+
+
+@pytest.mark.parametrize("value", [10**400, -(10**400), 2**53 + 1])
+def test_large_saved_integer_profit_does_not_stop_proposal_context(tmp_path, value):
+    models = list(_models())
+    cf = deepcopy(models[0].payload)
+    cf["earnings_price"]["profit_ttm_yen"] = value
+    models[0] = models[0].model_copy(update={"payload": cf})
+    context, saved, app = _prepare(tmp_path, tuple(models), screening=False)
+    before = app.read_bytes(), selection_sha256(saved)
+    row = _row(context)
+    amount = row["company_financials"]["observation"]["profit_ttm_yen"]
+    assert type(amount) is int
+    assert amount == value
+    # Keeping a raw amount does not make its period/basis valid or select a valuation.
+    assert row["comparison"]["state"] != "same_recorded_number"
+    assert context.payload()["assessments"] == context.payload()["calculations"] == {}
+    assert (app.read_bytes(), selection_sha256(saved)) == before
+
+
+@pytest.mark.parametrize(
+    "value", [None, True, False, "1", float("inf"), float("-inf"), float("nan")]
+)
+def test_profit_comparison_does_not_coerce_invalid_numbers(value):
+    from baibai_engine.investment_judgment.workflow.profit_context import _number
+
+    assert _number(value) is None

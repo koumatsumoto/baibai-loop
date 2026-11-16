@@ -74,11 +74,10 @@ def _growth(model: GeneratedModel) -> dict[str, JsonValue]:
 
 
 def _number(value: JsonValue | None) -> float | int | None:
-    return (
-        value
-        if isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
-        else None
-    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    # Integers are finite; converting a saved amount to float can overflow or lose precision.
+    return None if isinstance(value, float) and not isfinite(value) else value
 
 
 def _comparison(
