@@ -59,6 +59,8 @@ _CASH_FLOW_CONTEXT = (
     "ocf_ttm_period",
     "ttm_quality_ocf_yield",
 )
+_SHARE_METRICS: tuple[Metric, ...] = ("parent_profit", "reported_basic_eps", "average_shares")
+
 type CheckState = Literal["met", "not_met", "unavailable"]
 
 
@@ -191,8 +193,31 @@ def evaluate_financial_growth_gate(
                     ).items()
                     if key in {"operating_profit", "parent_profit"}
                 },
-                "annual": _income_context(reader, annual),
-                "quarter": _income_context(reader, quarter),
+                "annual": _observation_metrics(
+                    reader, annual, ("operating_profit", "parent_profit")
+                ),
+                "quarter": _observation_metrics(
+                    reader, quarter, ("operating_profit", "parent_profit")
+                ),
+            },
+            "reported_share_context": {
+                "read_semantics": "reported_basic_eps_not_diluted_or_current_share_basis",
+                "comparison_basis": projected.get("growth_comparison_basis"),
+                "metric_units": {
+                    key: value
+                    for key, value in _object(
+                        growth_model.payload.get("metric_units") if growth_model else None
+                    ).items()
+                    if key in _SHARE_METRICS
+                },
+                "reported": _observation_metrics(reader, reported, _SHARE_METRICS),
+                "year_over_year_observations": {
+                    metric: [
+                        reader.saved_change(change)
+                        for change in reader.year_over_year(reported, metric)
+                    ]
+                    for metric in _SHARE_METRICS
+                },
             },
             "quarter_growth_context": {
                 "comparison_basis": projected.get("growth_comparison_basis"),
@@ -455,8 +480,8 @@ def _period_context(
     }
 
 
-def _income_context(
-    reader: CompanyGrowthReader, observation: Observation | None
+def _observation_metrics(
+    reader: CompanyGrowthReader, observation: Observation | None, metrics: tuple[Metric, ...]
 ) -> dict[str, JsonValue] | None:
     if observation is None:
         return None
@@ -475,8 +500,6 @@ def _income_context(
             if key in saved
         },
         "metrics": {
-            key: value
-            for key, value in _object(saved.get("metrics")).items()
-            if key in {"operating_profit", "parent_profit"}
+            key: value for key, value in _object(saved.get("metrics")).items() if key in metrics
         },
     }

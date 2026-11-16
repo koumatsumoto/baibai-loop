@@ -44,7 +44,7 @@ def seed(path, *, version=None):
     fixed = native_generation(completed_action=True)
     publish_generation(fixed, path=path)
     selected = evaluate_fixed(fixed)
-    assert selected.result.policy.method == "technical-financial-discovery-v19"
+    assert selected.result.policy.method == "technical-financial-discovery-v20"
     if version is not None:
         row = selected.result.rows[0]
         selected = replace(
