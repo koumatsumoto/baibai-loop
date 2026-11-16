@@ -1,4 +1,4 @@
-"""業種表の価格日を固定入力へ渡し、日付のない過去成果へ補完しない。"""
+"""業種表の価格日・指標別母数を固定入力へ渡し、旧成果へ補完しない。"""
 
 from copy import deepcopy
 from datetime import UTC, date, datetime
@@ -44,7 +44,7 @@ PRICE_DATE = date(2026, 10, 23)
 NOW = datetime(2026, 10, 27, tzinfo=UTC)
 
 
-def _generation(tmp_path, *, legacy):
+def _generation(tmp_path, *, revision):
     path = tmp_path / "market.sqlite"
     insert_daily_bars_from_closes(path, "1234", [100.0] * 61, end_date=PRICE_DATE)
     connection = open_connection(path)
@@ -54,12 +54,15 @@ def _generation(tmp_path, *, legacy):
     finally:
         connection.close()
     market = build_market_snapshot(sqlite_path=path, asof_date=ASOF, history_weeks=1)
-    if legacy:
+    if revision != "v17":
+        for row in market["sectors"]:
+            row.pop("sample_sizes")
+    if revision == "v8":
         for row in market["sectors"]:
             row.pop("observation_date", None)
     return ModelGeneration(
         schema_version=2,
-        generation_id="sector-old" if legacy else "sector-new",
+        generation_id="sector-old" if revision == "v8" else f"sector-{revision}",
         as_of=ASOF,
         evaluation_time=NOW,
         inputs={"market": InputSnapshot(kind="lake_release", reference="fixed", sha256="a" * 64)},
@@ -71,18 +74,21 @@ def _generation(tmp_path, *, legacy):
             GeneratedModel(
                 model_id="market_context",
                 subject="market",
-                calculation_revision="retained-v8"
-                if legacy
-                else "shared-market-context-bar-timing-v9-tradingview-sector-date",
+                calculation_revision={
+                    "v8": "retained-v8",
+                    "v16": "shared-market-context-v16-calendar-volatility",
+                    "v17": "shared-market-context-v17-sector-sample-sizes",
+                }[revision],
                 payload={"market": market},
             ),
         ),
     )
 
 
-@pytest.mark.parametrize("legacy", [False, True])
-def test_sector_price_date_survives_fixed_selection_and_resume_without_backfill(tmp_path, legacy):
-    generation = _generation(tmp_path, legacy=legacy)
+@pytest.mark.parametrize("revision", ["v8", "v16", "v17"])
+def test_sector_context_survives_fixed_selection_and_resume_without_backfill(tmp_path, revision):
+    generation = _generation(tmp_path, revision=revision)
+    legacy = revision == "v8"
     market = generation.models[0].payload["market"]
     row = market["sectors"][0]
     assert market["as_of"] == str(ASOF)
@@ -91,6 +97,14 @@ def test_sector_price_date_survives_fixed_selection_and_resume_without_backfill(
         assert "observation_date" not in row
     else:
         assert row["observation_date"] == str(PRICE_DATE)
+    if revision == "v17":
+        assert row["sample_sizes"] == {
+            "median_return_20d": 1,
+            "median_return_60d": 1,
+            "pct_above_ma20": 1,
+        }
+    else:
+        assert "sample_sizes" not in row
     runs = tmp_path / "runs.sqlite"
     publish_generation(generation, path=runs)
     assert read_generation(generation.generation_id, path=runs) == generation

@@ -166,6 +166,11 @@ def _sector_table(
                 "median_return_20d": statistics.median(returns_20d),
                 "median_return_60d": statistics.median(returns_60d) if returns_60d else None,
                 "pct_above_ma20": (above / breadth_sample) if breadth_sample else None,
+                "sample_sizes": {
+                    "median_return_20d": len(returns_20d),
+                    "median_return_60d": len(returns_60d),
+                    "pct_above_ma20": breadth_sample,
+                },
             }
         )
     table.sort(key=_sector_sort_key, reverse=True)

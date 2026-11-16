@@ -442,7 +442,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-v16-calendar-volatility",
+        market_context_revision="shared-market-context-v17-sector-sample-sizes",
         growth_start=growth_start,
         trends=trends,
     )
