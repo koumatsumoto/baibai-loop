@@ -56,6 +56,10 @@ class AvailableAssessment(_Context):
         default=None, exclude_if=lambda value: value is None
     )
 
+    invalidation_conditions: tuple[NonEmptyStr, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
 
 class CompanyContext(_Context):
     research: Annotated[AvailableResearch | NotFound | Unreadable, Field(discriminator="status")]
@@ -109,6 +113,19 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
                     "strongest_countercase_truncated": len(assessment.strongest_countercase) > 400,
                 }
                 if assessment.strongest_countercase is not None
+                else {}
+            ),
+            **(
+                {
+                    "invalidation_conditions": [
+                        {"text": text[:400], "text_truncated": len(text) > 400}
+                        for text in assessment.invalidation_conditions[:3]
+                    ],
+                    "invalidation_conditions_omitted": max(
+                        0, len(assessment.invalidation_conditions) - 3
+                    ),
+                }
+                if assessment.invalidation_conditions is not None
                 else {}
             ),
             "business_understanding": assessment.findings.business_understanding[:400],
