@@ -547,7 +547,7 @@ def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(cha
     )
     assert "v16-ifrs-interim-display" in financial.calculation_revision
     assert growth.payload["calculation_method"] == (
-        "company_growth_retrospective_v16-ifrs-interim-display"
+        "company_growth_retrospective_v17-annual-pdf-comparison"
     )
 
 
