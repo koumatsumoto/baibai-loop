@@ -59,9 +59,23 @@ def test_forecast_card_detail_and_detached_research_keep_same_recorded_source(tm
     assert first["model_inputs"]["securities"] == {}
     card = next(card for card in first["screening"]["cards"] if card["ticker"] == "1234")
     assert card["financial_gate"]["forecast_context"] == FORECAST
+    momentum = card["technical"]["observations"]["momentum_12_1"]
+    assert momentum["unavailable_reason"] is None
+    assert momentum["value"] > 0
+    assert (
+        momentum["window"]["end_date"]
+        < FORECAST["earnings_forecast_source"]["disclosed_at"]
+        < momentum["window"]["reference_date"]
+    )
     detail = load_generated_selection_context(**arguments, comparison_tickers=("1234",))
     full = detail["model_inputs"]["securities"]["1234"]["models"]["company_financials"]
     assert {key: full["financial"][key] for key in FORECAST} == FORECAST
+    full_momentum = detail["model_inputs"]["securities"]["1234"]["models"]["technical_analysis"][
+        "price_momentum"
+    ]
+    assert momentum["window"] == {
+        key: full_momentum[key] for key in ("start_date", "end_date", "reference_date")
+    }
     assert path.read_bytes() == before
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
@@ -85,6 +99,7 @@ def test_forecast_card_detail_and_detached_research_keep_same_recorded_source(tm
     projection = project_research_inputs(saved)
     saved_row = projection["screening_selection"]["result"]["comparison_rows"][0]
     assert saved_row["financial_gate"]["forecast_context"] == FORECAST
+    assert saved_row["technical"]["observations"]["momentum_12_1"] == momentum
     assert saved.inputs.screening_selection == selected
     path.unlink()
     resumed = resume_selected_workspace(
