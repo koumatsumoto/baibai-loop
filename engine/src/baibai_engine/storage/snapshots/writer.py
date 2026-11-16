@@ -670,11 +670,12 @@ def _period_rows(
         if date_first
         else dataset.primary_key
     )
+    # Numeric calendar prefixes need no case folding; GLOB can use the date's BINARY index.
     query = (
         f"SELECT {columns} FROM {dataset.sqlite_table} "  # nosec B608
-        f"WHERE {dataset.date_column} LIKE ? ORDER BY {order}"
+        f"WHERE {dataset.date_column} GLOB ? ORDER BY {order}"
     )
-    for row in connection.execute(query, (f"{prefix}%",)):
+    for row in connection.execute(query, (f"{prefix}*",)):
         yield tuple(row)
 
 
