@@ -55,7 +55,7 @@ Research・市場判断は保存/公開時刻をcutoffと照合する。一方�
 <a id="rule-purpose"></a>
 ## 保存済み経済経路政策の意味
 
-収益力・事業拡大・営業回復・資本活用の価格/事業座標は[入力owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_path_inputs.py)、順位と容量は[政策owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_paths.py)へ。通常の発見レーンとは別に、旧保存結果の順位も当時のまま読む。
+収益力・事業拡大・営業回復・資本活用の価格/事業座標は[入力owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_path_inputs.py)、保存順位と容量の型は[保存型owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_paths.py)へ。通常の発見レーンとは別に、旧保存結果の順位も当時のまま読む。
 
 市場全体が割高でも相対上位は生じる。業種の異質性・小さい参照群・経路数・一過性利益の偏りがあり、順位を期待収益/確率/健全性にしない。成長/回復は利益・CFの黒字を必須にせず、売上/営業改善÷株式時価総額も負債込み事業価値の割安性を保証しない。完全FYはTTM対応期未観測の補助で、既知の悪化・basis不一致を迂回しない。資本経路の報告利益/含意簿価はproxyで、普通株ROE・換金額や未実現資産の全機会を示さない。
 

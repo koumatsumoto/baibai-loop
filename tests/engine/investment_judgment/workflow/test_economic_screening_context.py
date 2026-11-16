@@ -1,8 +1,9 @@
-"""新政策の有限カード・共有文脈・明示詳細と、固定入力からの再開。"""
+"""旧保存の有限カード・共有文脈・明示詳細と、固定入力からの再開。"""
 
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ import yaml
 from pydantic import TypeAdapter
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
+from tests.helpers.retained_economic_selection import ranked_path_fixture, retained_economic_result
 from tests.helpers.retained_model_generation import seed_generation
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
@@ -45,10 +47,7 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
 )
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    CompanyCoordinates,
-    EconomicPathPolicy,
     PathCoordinates,
-    select_economic_paths,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
@@ -238,31 +237,47 @@ def seed_economic_generation(path, *, scoped=True):
         },
         "full_result_reference": {"generation_id": generation.generation_id},
     }
-    result = select_economic_paths(
-        tuple(
-            CompanyCoordinates(
-                ticker,
-                ticker,
-                "food",
-                (
-                    PathCoordinates(
-                        "operating_recovery",
-                        "quarter",
-                        0.1 if ticker == "1234" else 0.2,
-                        0.03 if ticker == "1234" else 0.06,
-                        "food",
-                        "food",
-                        True,
-                        evidence,
+    saved = retained_economic_result(context=card_context)
+    # rank/percentileは明示した過去値。生成モデルから順位を再選抜しない。
+    result = replace(
+        saved,
+        eligible_count=2,
+        cards=tuple(
+            replace(
+                saved.cards[0],
+                ticker=ticker,
+                name=ticker,
+                sector="food",
+                rank=rank,
+                priority=percentile,
+                strongest_path="operating_recovery",
+                paths=(
+                    ranked_path_fixture(
+                        PathCoordinates(
+                            "operating_recovery",
+                            "quarter",
+                            price,
+                            business,
+                            "food",
+                            "food",
+                            True,
+                            evidence,
+                        ),
+                        percentile=percentile,
+                        population=2,
+                        midrank=float(rank),
                     ),
                 ),
-                card_context,
-                dict.fromkeys((*stock_ids, "stress_probe", "catalyst_probe"), "probe-v1"),
-                (),
+                model_revisions=dict.fromkeys(
+                    (*stock_ids, "stress_probe", "catalyst_probe"), "probe-v1"
+                ),
+                not_generated=(),
             )
-            for ticker in ("1234", "5678")
+            for rank, ticker, price, business, percentile in (
+                (1, "5678", 0.2, 0.06, 0.75),
+                (2, "1234", 0.1, 0.03, 0.25),
+            )
         ),
-        policy=EconomicPathPolicy(),
     )
     screening = ScreeningSelection(generation.generation_id, ("1234", "5678", "9999"), result)
     ScreeningSelectionStore(path).publish("economic-policy", screening)
