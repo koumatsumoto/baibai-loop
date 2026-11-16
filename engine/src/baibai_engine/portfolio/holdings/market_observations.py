@@ -164,9 +164,7 @@ def market_basis_is_confirmed(
         ).fetchall()
         if from_date < through_date:
             calendar = _read_calendar(conn, start, through_date)
-            if calendar is None or len(calendar) != (through_date - start).days + 1:
-                return False
-            if any(day.day != start + timedelta(days=index) for index, day in enumerate(calendar)):
+            if calendar is None:
                 return False
             # Price-row dates cannot prove session completeness: a missing whole
             # exchange session could otherwise hide its corporate action.
