@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from baibai_engine.storage.objects.json import put_private, read_private
+from baibai_engine.storage.objects.json import put_private, read_fixed_private, read_private
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
@@ -155,7 +155,7 @@ def _prepare_ready(
             raise ValueError("invalid confirmed stage scope")
         confirmed = confirmed_stages.get(expected_key)
         if confirmed is None:
-            saved = read_private(store, expected_key)
+            saved = read_fixed_private(store, expected_key, sha256=stage_ref["sha256"])
             if saved is None or hashlib.sha256(saved.payload).hexdigest() != stage_ref["sha256"]:
                 raise ValueError("confirmed external cohort snapshot changed")
             confirmed = (load_stage(plan, saved.payload), saved.etag)

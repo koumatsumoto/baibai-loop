@@ -8,7 +8,11 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
+    ObjectStore,
+    VerifiedObjectMetadataReader,
+)
 
 MAX_PRIVATE_OBJECT_BYTES = 2_000_000
 
@@ -35,6 +39,18 @@ def read_private(store: ObjectStore, key: str) -> SavedObject | None:
     ):
         raise LakePublishError("private JSON object changed or failed integrity")
     return SavedObject(payload, before.etag)
+
+
+def read_fixed_private(store: ObjectStore, key: str, *, sha256: str) -> SavedObject | None:
+    """Read content-addressed JSON; mutable markers must use read_private instead."""
+    if isinstance(store, VerifiedObjectMetadataReader):
+        response = store.get_verified_object(key, sha256=sha256, max_bytes=MAX_PRIVATE_OBJECT_BYTES)
+        saved = SavedObject(response[0], response[1].etag) if response is not None else None
+    else:
+        saved = read_private(store, key)
+    if saved is not None and hashlib.sha256(saved.payload).hexdigest() != sha256:
+        raise LakePublishError("fixed private JSON failed integrity")
+    return saved
 
 
 def put_private(
