@@ -155,7 +155,7 @@ def test_current_policy_preserves_context_in_each_lane_without_reordering(lane):
     saved = TechnicalFinancialSelection(
         TechnicalFinancialPolicy(), "T", "G", (first,), ("1234",), {}
     )
-    assert saved.policy.method == "technical-financial-discovery-v12"
+    assert saved.policy.method == "technical-financial-discovery-v13"
     brief = technical_financial_screening_brief(saved, lane=lane)
     assert brief["cards"][0]["financial_gate"]["forecast_context"] == FORECAST
     if lane == "input_review":
