@@ -59,8 +59,10 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
+from baibai_engine.storage.snapshots.models import ReleasePolicyError
 from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
 from baibai_jobs.maintenance.model_cache import prune_model_cache
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import (
     prepare_market_lake,
@@ -317,15 +319,20 @@ def main(argv: list[str] | None = None) -> int:
             preserve_generation_ids=preserve_generation_ids,
         )
     except Exception as error:
-        write_json_atomic(
-            args.notice_output,
-            {
-                "asof": args.asof.isoformat(),
-                "models_ready": False,
-                "failed_stage": "model-integration",
-                "error_type": type(error).__name__,
-            },
-        )
+        notice: dict[str, object] = {
+            "asof": args.asof.isoformat(),
+            "models_ready": False,
+            "failed_stage": "model-integration",
+            "error_type": type(error).__name__,
+        }
+        if isinstance(error, ReleasePolicyError):
+            diagnostic = {"reason": error.reason.value}
+            if error.dataset is not None and error.dataset in LAKE_DATASETS:
+                diagnostic["dataset"] = error.dataset
+            notice["release_acceptance"] = diagnostic
+            # Never emit exception text, dates, paths, source identities or payloads.
+            print("model integration acceptance: " + json.dumps(diagnostic), file=sys.stderr)
+        write_json_atomic(args.notice_output, notice)
         print(f"model integration failed: {type(error).__name__}", file=sys.stderr)
         return 1
     write_json_atomic(args.notice_output, result)
