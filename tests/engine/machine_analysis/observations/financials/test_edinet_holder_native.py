@@ -29,6 +29,7 @@ from baibai_engine.machine_analysis.observations.disclosures.storage_contracts i
     EDINET_DOCUMENTS_DDL,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+    read_fixed_holder_capital,
     read_holder_capital,
 )
 from baibai_engine.storage.objects.r2 import LakePublishError
@@ -533,3 +534,36 @@ def test_saved_pair_uses_the_same_materialized_receipts_after_current_heads_move
         assert len(store.get_keys) == 1
         assert not any(key.endswith("head.json") for key in store.get_keys + store.head_keys)
         assert store.values == before_objects
+
+
+@pytest.mark.parametrize("mode", ["legacy", "native_body", "fixed_inventory"])
+def test_inner_zip_crc_failure_is_partial_and_keeps_later_valid_filing(mode):
+    body = original()
+    broken = bytearray(body)
+    broken[broken.index(b"2500000")] = ord("9")
+    with closing(sqlite3.connect(":memory:")) as connection:
+        seed(connection, doc_id="S100FIRST", body=bytes(broken))
+        seed(connection, doc_id="S100SECOND", seq=2, body=body)
+        store, archives = native_for({"S100FIRST": bytes(broken), "S100SECOND": body})
+        before = (tuple(connection.iterdump()), dict(store.values))
+        if mode == "fixed_inventory":
+            observations, coverage = read_fixed_holder_capital(
+                connection,
+                as_of=DAY,
+                known_at=KNOWN,
+                tickers=("1234",),
+                snapshot_sealed_at=None,
+                archives=archives,
+                selected_at=KNOWN,
+            )
+        else:
+            observations, coverage = read(
+                connection, archives=None if mode == "legacy" else archives
+            )
+        assert coverage == "partial"
+        (fact,) = observations["1234"]
+        assert fact.document_id == "S100SECOND"
+        assert fact.total_stocks == 2500000
+        assert before == (tuple(connection.iterdump()), store.values)
+        assert len(store.get_keys) == (0 if mode == "legacy" else 2)
+        assert store.put_keys == []
