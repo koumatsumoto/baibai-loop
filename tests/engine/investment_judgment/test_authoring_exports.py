@@ -123,12 +123,33 @@ def test_failed_export_preserves_successful_authoritative_save(
         == 3
     )
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "synthetic export failure" in captured.err
+    acknowledgment = json.loads(captured.out)
+    assert captured.err == (
+        "error: record saved; output export failed; use get with the returned reference\n"
+    )
     assert source.read_bytes() == before
     assert not output.exists()
-    assert investment_judgment.main([command, *get_args, "--db", str(app)], now=NOW) == 0
+    assert (
+        investment_judgment.main(
+            [
+                command,
+                *get_args,
+                "--sha256",
+                acknowledgment["reference"]["payload_sha256"],
+                "--db",
+                str(app),
+            ],
+            now=NOW,
+        )
+        == 0
+    )
     saved = json.loads(capsys.readouterr().out)
+    record = saved["record"] if command == "judgment-retrospective" else saved
+    assert acknowledgment == {
+        "status": "saved_output_failed",
+        "reference": record["reference"],
+        "recorded_at": record["recorded_at"],
+    }
     assert investment_judgment.main([command, "save", str(source), "--db", str(app)], now=NOW) == 0
     retried = json.loads(capsys.readouterr().out)
-    assert retried == (saved["record"] if command == "judgment-retrospective" else saved)
+    assert retried == record

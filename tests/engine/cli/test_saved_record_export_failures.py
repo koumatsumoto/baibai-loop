@@ -3,6 +3,7 @@
 import importlib
 import json
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime
 
 import pytest
@@ -49,7 +50,7 @@ def _case(tmp_path, domain):
 def _count(db, table):
     if not db.exists():
         return 0
-    with sqlite3.connect(db.as_uri() + "?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as connection:
         return connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
 
 
