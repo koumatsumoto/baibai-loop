@@ -35,7 +35,7 @@ def test_saved_refresh_keeps_remaining_period_distribution_and_exact_prior(tmp_p
             "review_id": prior.review.review_id,
         },
         "checked_at": "2026-10-14T15:55:00+09:00",
-        "changed_sections": ["valuation", "sources"],
+        "changed_sections": ["valuation", "sources", "risks"],
         "material_information_check": "今回の重要開示を確認。全原典再取得はしていない。",
         "unchanged_assumptions_reason": "旧根拠の範囲を読み直し、終価を維持。",
         "horizon_reason": "3か月経過したので残り9か月。旧12か月を延長しない。",
