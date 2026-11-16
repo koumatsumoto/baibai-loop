@@ -45,7 +45,7 @@ def review(ticker, routes=("a",), *, share_gap=False):
     )
 
 
-def result(rows, *, method="technical-financial-discovery-v11", order=None):
+def result(rows, *, method="technical-financial-discovery-v12", order=None):
     return TechnicalFinancialSelection(
         TechnicalFinancialPolicy(method=method),
         "T",
@@ -56,7 +56,7 @@ def result(rows, *, method="technical-financial-discovery-v11", order=None):
     )
 
 
-def test_input_review_is_lane_local_and_other_lanes_keep_their_full_order():
+def test_input_review_keeps_its_lane_local_order_and_slots():
     # The third company only has explicit financial-input questions, not a T pass.
     reviews = (review("2001", ("a",)), review("2002", ("b",)), review("2003", (), share_gap=True))
     growth = tuple(row(str(1000 + i), ("a",)) for i in range(50))
@@ -69,11 +69,8 @@ def test_input_review_is_lane_local_and_other_lanes_keep_their_full_order():
     order = discovery_display_order(rows)
     review_tickers = {r.ticker for r in reviews}
     assert tuple(t for t in order if t in review_tickers) == discovery_display_order(reviews)
-    # The old global route walk remains the owner for non-review lanes and their slots.
+    # Other lanes may reorder internally, without moving the review slots.
     previous = owner._route_display_order(rows)
-    assert [t for t in order if t not in review_tickers] == [
-        t for t in previous if t not in review_tickers
-    ]
     assert [i for i, t in enumerate(order) if t not in review_tickers] == [
         i for i, t in enumerate(previous) if t not in review_tickers
     ]
@@ -156,7 +153,7 @@ def test_all_pages_are_unique_repeatable_and_keep_unmatched_inputs(size):
         )
 
 
-def test_brief_explains_only_the_new_input_lane_and_counts_companies_not_routes():
+def test_brief_explains_lane_local_order_and_counts_companies_not_routes():
     rows = (review("1001"), review("1002", (), share_gap=True), row("3001"))
     saved = result(rows)
     brief = technical_financial_screening_brief(saved, lane="input_review")
@@ -170,11 +167,13 @@ def test_brief_explains_only_the_new_input_lane_and_counts_companies_not_routes(
     }
     for lane in ("growth_research", "alternative_financial_research"):
         other = technical_financial_screening_brief(saved, lane=lane)
-        assert other["presentation"]["ties"] == "ticker_code_order_not_quality_or_return"
+        assert (
+            other["presentation"]["ties"] == "stable_company_hash_then_ticker_not_quality_or_return"
+        )
     detail = technical_financial_screening_brief(saved, page=None)
     assert detail["cards"] == []
     assert detail["presentation"]["ties"] == (
-        "input_review_company_hash_other_lanes_ticker_code_not_quality_or_return"
+        "stable_company_hash_then_ticker_not_quality_or_return"
     )
 
 
@@ -189,6 +188,9 @@ def test_brief_explains_only_the_new_input_lane_and_counts_companies_not_routes(
         "technical-financial-discovery-v6",
         "technical-financial-discovery-v7",
         "technical-financial-discovery-v8",
+        "technical-financial-discovery-v9",
+        "technical-financial-discovery-v10",
+        "technical-financial-discovery-v11",
     ],
 )
 def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(method):
@@ -204,6 +206,9 @@ def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(
         "technical-financial-discovery-v6",
         "technical-financial-discovery-v7",
         "technical-financial-discovery-v8",
+        "technical-financial-discovery-v9",
+        "technical-financial-discovery-v10",
+        "technical-financial-discovery-v11",
     }:
         assert (
             brief["presentation"]["ties"] == "stable_company_hash_then_ticker_not_quality_or_return"

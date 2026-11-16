@@ -60,7 +60,7 @@ def test_round_robin_has_no_economic_rank_vote_or_duplicate():
         row("2001", ("b",)),
         row("3001", ("c",)),
     )
-    expected = ("1001", "2001", "3001", "1002", "1003")
+    expected = ("1001", "2001", "3001", "1003", "1002")
     assert discovery_display_order(rows) == expected
     assert discovery_display_order(tuple(reversed(rows))) == expected
     assert len(set(expected)) == len(expected)

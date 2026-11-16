@@ -42,7 +42,7 @@ def test_initial_card_to_detached_research_preserves_recorded_or_old_absent_obse
     fixed, selected, _ = seed(path)
     models = tuple(model for model in fixed.models if model.subject == "1234")
     expected = evaluate_technical_strategy("1234", models=models, metadata=fixed)["observations"]
-    assert selected.result.policy.method == "technical-financial-discovery-v11"
+    assert selected.result.policy.method == "technical-financial-discovery-v12"
     if legacy:
         selected = replace(
             selected,
@@ -65,7 +65,11 @@ def test_initial_card_to_detached_research_preserves_recorded_or_old_absent_obse
     now = publication.published_at + timedelta(seconds=1)
     arguments = {**args(path, now), "screening_selection_id": "observations-fixed"}
     before = path.read_bytes()
-    first = load_generated_selection_context(**arguments)
+    target_page = (
+        selected.result.lane_tickers("growth_research").index("1234")
+        // selected.result.policy.page_size
+    )
+    first = load_generated_selection_context(**arguments, screening_page=target_page)
     assert first["model_inputs"]["securities"] == {}
     card = next(card for card in first["screening"]["cards"] if card["ticker"] == "1234")
     assert ("observations" in card["technical"]) is not legacy
