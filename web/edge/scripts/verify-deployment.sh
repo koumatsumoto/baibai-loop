@@ -12,8 +12,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ ! "${base_url}" =~ ^https://[^/]+$ ]]; then
-  printf 'WORKER_BASE_URL must be an HTTPS origin without a trailing slash\n' >&2
+if [[ ! "${base_url}" =~ ^https://[^/?#@[:space:]]+$ ]]; then
+  printf 'WORKER_BASE_URL must be an HTTPS origin without userinfo, path, query, fragment, or whitespace\n' >&2
   exit 2
 fi
 
