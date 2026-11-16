@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -84,7 +85,7 @@ def prepared(schema51, tmp_path, monkeypatch):
         }
     ).encode()
     store.store_object(publish.MANIFEST, manifest)
-    handle, _ = lease.acquire(store, "operator")
+    handle, _ = lease.acquire(store, "daily")
     plan = publish.Plan(
         format="market-schema-52-cutover-v1",
         source_sha256=digest(schema51),
@@ -148,7 +149,7 @@ def test_attempt_is_never_reused(prepared):
 def test_lease_is_current_before_any_upload(prepared, kind):
     store, args = prepared
     if kind == "expired":
-        handle, _ = lease.acquire(Store(), "operator", now=datetime.now(UTC) - timedelta(hours=3))
+        handle, _ = lease.acquire(Store(), "daily", now=datetime.now(UTC) - timedelta(hours=4))
         old = lease.PublicationLease(
             "held", handle.owner, handle.purpose, handle.acquired_at_utc, handle.expires_at_utc
         )
@@ -159,6 +160,75 @@ def test_lease_is_current_before_any_upload(prepared, kind):
     with pytest.raises(lease.LeaseError):
         publish.cutover(store, **args)
     assert store.attempts == []
+
+
+@pytest.mark.parametrize("purpose", ["operator", "materialize", "tradingview"])
+def test_new_cutover_refuses_other_lease_purposes(prepared, purpose):
+    store, args = prepared
+    args["handle"] = replace(args["handle"], purpose=purpose)
+    with pytest.raises(ValueError, match="current lease"):
+        publish.cutover(store, **args)
+    assert store.attempts == []
+
+
+@pytest.mark.parametrize("kind", ["legacy_protocol", "legacy_daily_duration"])
+def test_new_cutover_requires_current_daily_handle(prepared, kind):
+    store, args = prepared
+    handle = args["handle"]
+    args["handle"] = (
+        replace(handle, protocol_version=1)
+        if kind == "legacy_protocol"
+        else replace(handle, expires_at_utc=handle.acquired_at_utc + timedelta(minutes=180))
+    )
+    with pytest.raises(ValueError, match=r"current lease|current daily lease duration"):
+        publish.cutover(store, **args)
+    assert store.attempts == []
+
+
+@pytest.mark.parametrize("during_backups", [False, True])
+def test_time_budget_is_rechecked_before_canonical_market_write(
+    prepared, monkeypatch, during_backups
+):
+    store, args = prepared
+    clock = [datetime.now(UTC)]
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0]
+
+    monkeypatch.setattr(publish, "datetime", Clock)
+    short = args["handle"].expires_at_utc - timedelta(minutes=179)
+    if during_backups:
+        original = publish._backup
+
+        def backup(*a, **kw):
+            result = original(*a, **kw)
+            if kw["kind"] == "pointer":
+                clock[0] = short
+            return result
+
+        monkeypatch.setattr(publish, "_backup", backup)
+    else:
+        clock[0] = short
+    with pytest.raises(ValueError, match="insufficient daily lease time"):
+        publish.cutover(store, **args)
+    assert publish.MARKET not in store.attempts
+    assert publish.MANIFEST not in store.attempts
+    assert len(store.attempts) == (3 if during_backups else 0)
+
+
+def test_explicit_finish_can_use_its_own_operator_lease_without_republishing_market(prepared):
+    store, args = prepared
+    store.fault = publish.MARKET, "after"
+    with pytest.raises(R2Error):
+        publish.cutover(store, **args)
+    lease.release(store, args["handle"])
+    handle, _ = lease.acquire(store, "operator")
+    store.attempts.clear()
+    result = publish.cutover(store, **{**finish(args), "handle": handle})
+    assert result["status"] == "verified_cutover"
+    assert store.attempts == [publish.MANIFEST]
 
 
 @pytest.mark.parametrize("changed", [publish.RUNS, publish.POINTER, lease.PUBLICATION_LEASE_KEY])

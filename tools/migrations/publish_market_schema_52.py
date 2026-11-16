@@ -15,7 +15,7 @@ import os
 import sys
 from collections.abc import Callable
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -36,6 +36,13 @@ RUNS = "runs.sqlite"
 MANIFEST = "machine-manifest.json"
 POINTER = "lake/pointers/market/current.json"
 MAX_MARKET_BYTES = 64 * 1024**2
+# The first core generation and pair readback must stay inside this same lease.
+MIN_DAILY_REMAINING = timedelta(minutes=180)
+
+
+def _require_publish_time(handle: PublicationLeaseHandle) -> None:
+    if handle.expires_at_utc - datetime.now(UTC) < MIN_DAILY_REMAINING:
+        raise ValueError("insufficient daily lease time before schema cutover")
 
 
 class Plan(BaseModel):
@@ -133,10 +140,15 @@ def cutover(
     attempt: Path,
     mode: Literal["publish", "finish-manifest"],
 ) -> dict[str, object]:
-    if handle.purpose != "operator" or handle.protocol_version != 2:
-        raise ValueError("cutover requires its own current operator lease")
     if mode not in {"publish", "finish-manifest"}:
         raise ValueError("unknown cutover operation")
+    purposes = {"daily"} if mode == "publish" else {"operator", "daily"}
+    if handle.purpose not in purposes or handle.protocol_version != 2:
+        raise ValueError("cutover requires its own current lease for this operation")
+    if mode == "publish" and handle.expires_at_utc - handle.acquired_at_utc != timedelta(
+        minutes=220
+    ):
+        raise ValueError("schema cutover requires the current daily lease duration")
     if attempt.exists() or attempt.is_symlink():
         raise ValueError("a cutover attempt must never be overwritten")
     if any(not 0 < p.stat().st_size <= MAX_MARKET_BYTES for p in (source, target)):
@@ -155,6 +167,8 @@ def cutover(
     record("verified_prepared_copy")
     try:
         pointer = _boundary(store, plan, handle)
+        if mode == "publish":
+            _require_publish_time(handle)
         origin = read_lake_store_origin(source)
         root = json.loads(pointer)
         if origin is None or (origin.release_id, origin.release_manifest_sha256) != (
@@ -194,6 +208,7 @@ def cutover(
             ):
                 _backup(store, path, kind=kind, expected_sha=checksum, record=record)
             _boundary(store, plan, handle)
+            _require_publish_time(handle)
             record("market_put_started")
             market_etag = _put(
                 store, MARKET, target, etag=plan.market_etag, expected_sha=plan.target_sha256
