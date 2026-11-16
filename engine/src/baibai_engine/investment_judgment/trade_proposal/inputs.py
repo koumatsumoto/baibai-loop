@@ -659,6 +659,7 @@ def build_proposal_context(
                 "selection_sha256": scope.selection_sha256,
                 "research_as_of": selection.research_as_of.isoformat(),
                 "input_known_at": selection.input_known_at.isoformat(),
+                "request": selection.request.model_dump(mode="json"),
                 "selection_summary": selection.selection_summary,
                 "targets": [target.model_dump(mode="json") for target in selection.targets],
             },
