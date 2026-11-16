@@ -261,6 +261,11 @@ class SectorObservationDateTests(unittest.TestCase):
                                 "median_return_20d": 0.0,
                                 "median_return_60d": 0.0,
                                 "pct_above_ma20": 0.0,
+                                "sample_sizes": {
+                                    "median_return_20d": 1,
+                                    "median_return_60d": 1,
+                                    "pct_above_ma20": 1,
+                                },
                             }
                         ],
                     )
@@ -314,3 +319,33 @@ def test_breadth_uses_each_points_common_stock_membership(tmp_path):
     assert [point["breadth_sample_size"] for point in result["points"]] == [1, 1]
     assert [point["breadth_pct_above_ma20"] for point in result["points"]] == [1.0, 0.0]
     assert [sector["sector_33"] for sector in result["sectors"]] == ["小売業"]
+
+
+def test_sector_sample_sizes_follow_each_metric_not_the_short_return_population(tmp_path):
+    path = tmp_path / "market.sqlite"
+    # A 20-close series contributes to MA20 breadth but cannot supply 20 returns.
+    for ticker, count in (("LONG", 61), ("SHRT", 21), ("MA20", 20)):
+        _insert_bars(path, ticker, [100.0] * (count - 1) + [110.0], end=_ASOF)
+        _insert_sector(path, ticker, "機械")
+    _insert_bars(path, "NEW1", [100.0] * 21, end=_ASOF)
+    _insert_sector(path, "NEW1", "小売業")
+    _insert_bars(path, "OLD1", [100.0] * 61, end=date(2026, 5, 28))
+    _insert_sector(path, "OLD1", "機械")
+
+    sectors = build_market_snapshot(sqlite_path=path, asof_date=_ASOF)["sectors"]
+    machinery, retail = sectors
+    assert machinery["sector_33"] == "機械"
+    assert machinery["ticker_count"] == 2
+    assert machinery["sample_sizes"] == {
+        "median_return_20d": 2,
+        "median_return_60d": 1,
+        "pct_above_ma20": 3,
+    }
+    assert machinery["median_return_20d"] == machinery["median_return_60d"] == 110 / 100 - 1
+    assert machinery["pct_above_ma20"] == 1.0
+    assert retail["sample_sizes"] == {
+        "median_return_20d": 1,
+        "median_return_60d": 0,
+        "pct_above_ma20": 1,
+    }
+    assert retail["median_return_60d"] is None
