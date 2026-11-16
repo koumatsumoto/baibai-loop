@@ -43,11 +43,12 @@ def _project_market_context(
         if not isinstance(own, dict) or not common.keys() <= own.keys():
             return payload
         semantics.append((row, own))
+    common_json = {key: canonical_json(value) for key, value in common.items()}
     for row, own in semantics:
         row["read_semantics"] = {
             key: value
             for key, value in own.items()
-            if key not in common or canonical_json(value) != canonical_json(common[key])
+            if key not in common or canonical_json(value) != common_json[key]
         }
     reading["read_semantics_inheritance"] = (
         "Each series inherits reading.read_semantics; its read_semantics keys override."
