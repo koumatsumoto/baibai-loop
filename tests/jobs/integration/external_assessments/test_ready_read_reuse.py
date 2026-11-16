@@ -116,3 +116,53 @@ def test_new_ack_during_scan_is_read_after_immutable_selection(publication, monk
     monkeypatch.setattr(store, "iter_objects", listed)
     assert available_ready(store) == ([], [{"run_id": plan.run_id, "reason": "ValueError"}])
     assert acknowledgement_key(plan, second) in store.get_keys
+
+
+def terminal(plan):
+    from baibai_jobs.acquisition.external_assessments.identity import PUBLISHED_FORMAT
+
+    return json.dumps(
+        {
+            "format": PUBLISHED_FORMAT,
+            "plan_sha256": plan.plan_sha256,
+            "release_id": "published-release",
+            "release_manifest_sha256": "1" * 64,
+            "expected_pairs": len(plan.tickers) * len(plan.sources),
+            "observations": 0,
+            "readback": "verified",
+        }
+    ).encode()
+
+
+def test_many_ready_markers_read_terminal_only_at_scan_and_selection(publication, monkeypatch):
+    store, plan, first, second = cumulative_pair(publication)
+    monkeypatch.setattr(
+        store, "iter_objects", lambda _: [(first["key"], 0)] * 20 + [(second["key"], 0)]
+    )
+    assert available_ready(store) == ([second], [])
+    assert store.head_keys.count(prefix(plan.run_id) + "/published.json") == 2
+    assert store.put_keys == []
+
+
+@pytest.mark.parametrize("published_before_scan", [True, False])
+def test_valid_terminal_before_or_during_scan_prevents_adoption(
+    publication, monkeypatch, published_before_scan
+):
+    store, plan, first, second = cumulative_pair(publication)
+    key = prefix(plan.run_id) + "/published.json"
+    if published_before_scan:
+        store.store_object(key, terminal(plan))
+
+    def listed(_):
+        yield first["key"], 0
+        if not published_before_scan:
+            store.store_object(key, terminal(plan))
+        yield second["key"], 0
+
+    monkeypatch.setattr(store, "iter_objects", listed)
+    assert available_ready(store) == ([], [])
+    assert store.get_keys.count(key) == 1
+    assert store.put_keys == []
+    if published_before_scan:
+        assert first["key"] not in store.get_keys
+        assert second["key"] not in store.get_keys

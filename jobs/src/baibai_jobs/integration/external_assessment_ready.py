@@ -234,8 +234,9 @@ def _select_cumulative(entries: list[_ReadyEntry]) -> _ReadyEntry:
 
 def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     candidates: dict[str, list[_ReadyEntry]] = {}
-    # この走査内だけ不変plan/confirmed-stageを共有する。terminal/ackは毎回読む。
+    # この走査内だけ共有する。terminalは採用直前にも読み、途中の公開を見落とさない。
     plans: dict[str, RunPlan] = {}
+    closed: dict[str, bool] = {}
     confirmed_stages: dict[str, tuple[CohortStage, str]] = {}
     failed = []
     invalid: set[str] = set()
@@ -250,7 +251,9 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
             if plan is None:
                 raise ValueError("ready selection has no exact plan")
             plans[run_id] = plan
-            if read_terminal(store, plan) is not None:
+            if run_id not in closed:
+                closed[run_id] = read_terminal(store, plan) is not None
+            if closed[run_id]:
                 continue
             saved = read_private(store, key)
             if saved is None:
@@ -282,6 +285,8 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
             else:
                 selected = max(entries, key=lambda entry: entry[0])
             _, reference, item = selected
+            if read_terminal(store, item.plan) is not None:
+                continue
             if not item.cumulative or read_acknowledgement(store, item, reference) is None:
                 ready.append(reference)
         except (R2Error, LakeCASConflict):
