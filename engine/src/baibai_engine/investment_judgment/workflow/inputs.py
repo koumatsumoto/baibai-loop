@@ -89,9 +89,9 @@ def project_research_inputs(
                 if isinstance(
                     selection.inputs.screening_selection.result, TechnicalFinancialSelection
                 )
-                else selection.inputs.model_dump(mode="json", include={"screening_selection"})[
-                    "screening_selection"
-                ]["result"],
+                else selection.inputs.model_dump(
+                    mode="json", include={"screening_selection": {"result"}}
+                )["screening_selection"]["result"],
             },
             **selection_context,
         }
