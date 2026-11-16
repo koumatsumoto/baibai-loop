@@ -787,3 +787,36 @@ def test_research_projection_keeps_common_request_and_target_roles(tmp_path, ver
     detail["targets"][0]["rationale"] = "display-only edit"
     detail["request"]["text"] = "display-only edit"
     assert selected.model_dump_json() == before
+
+
+@pytest.mark.parametrize("version", ["3", "4"])
+def test_screening_result_projection_serializes_only_the_result(tmp_path, monkeypatch, version):
+    from baibai_engine.investment_judgment.workflow.selection import parse_selection
+
+    selected = seed_generated_selection(runs=tmp_path / "runs.sqlite", now=NOW, tickers=("1234",))
+    if version == "3":
+        raw = selected.model_dump(mode="json")
+        raw["schema_version"] = 3
+        del raw["inputs"]["saved_company_context"]
+        selected = parse_selection(raw)
+    before = selected.model_dump_json()
+    inputs_type = type(selected.inputs)
+    dump = inputs_type.model_dump
+    expected = dump(selected.inputs, mode="json", include={"screening_selection"})[
+        "screening_selection"
+    ]["result"]
+    observed = []
+
+    def record_dump(self, **kwargs):
+        value = dump(self, **kwargs)
+        if "screening_selection" in value:
+            observed.append(value["screening_selection"])
+        return value
+
+    monkeypatch.setattr(inputs_type, "model_dump", record_dump)
+    projected = project_research_inputs(selected)["screening_selection"]
+    assert projected["result"] == expected
+    assert observed == [{"result": expected}]
+    assert projected["universe_count"] == 1
+    projected["result"]["candidate_count"] = 999
+    assert selected.model_dump_json() == before
