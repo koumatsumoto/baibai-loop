@@ -126,7 +126,8 @@ def _holding_origin(
 ) -> SavedHoldingOriginView:
     reference = position.original_assessment_ref
     pair = None if reference is None else pairs.get(reference.assessment_id)
-    # A missing/corrupt optional origin must not erase the saved defer or borrow a newer pair.
+    # Pure projection leaves absent/non-exact supplied pairs unfilled. DB sources
+    # validate stored references before this boundary; no newer pair is borrowed.
     exact = (
         reference is not None
         and pair is not None

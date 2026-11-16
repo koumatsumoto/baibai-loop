@@ -1,5 +1,7 @@
 """保留の再開に必要な当初仮説。合成の通常保存と固定表示の境界を分ける。"""
 
+import sqlite3
+from contextlib import closing
 from datetime import timedelta
 
 import pytest
@@ -19,9 +21,12 @@ from baibai_engine.investment_judgment.stock_assessment.store import AssessmentS
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_web.readmodel.builders.proposal import project_saved_proposal
+from baibai_web.readmodel.builders.proposal import (
+    build_latest_proposal,
+    build_proposal_history,
+    project_saved_proposal,
+)
 from baibai_web.readmodel.proposal_models import SavedDeferItemView
-from baibai_web.sources import proposal as source
 from baibai_web.sources.proposal import DbProposalSource
 
 DEFER_ID = "investment-proposal-00000000-0000-4000-8000-000000000021"
@@ -143,29 +148,42 @@ def test_normal_saved_defer_keeps_exact_original_thesis_separate_from_current(
     assert case.app.read_bytes() == before
 
 
-def test_unreadable_original_pair_does_not_erase_defer_or_claim_no_original_reason(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("unreviewed", [False, True])
+@pytest.mark.parametrize("damage", ["missing", "core_hash", "review"])
+def test_broken_stored_origin_is_unavailable_not_an_optional_display_gap(
+    tmp_path, damage, unreviewed
 ):
-    case, original, _current, _service, _draft, saved = _published_defer(tmp_path, unreviewed=True)
-    original_reader = source.require_assessment_ref
-
-    def selective_failure(connection, reference):
-        if reference.assessment_id == original.assessment_id:
-            raise ValueError("synthetic unreadable exact origin")
-        return original_reader(connection, reference)
-
-    monkeypatch.setattr(source, "require_assessment_ref", selective_failure)
-    before = case.app.read_bytes()
-    item = DbProposalSource(case.app).latest().items[0]
-    origin = item.model_dump(mode="json").get("saved_holding_origin")
-    assert origin is not None
-    assert origin["assessment_ref"] == saved.inputs.positions[0].original_assessment_ref.model_dump(
-        mode="json"
+    case, original, _current, _service, _draft, saved = _published_defer(
+        tmp_path, unreviewed=unreviewed
     )
-    assert origin["assessment"] is None
-    assert origin["investment_reason"] is origin["reason_unavailable"] is None
-    assert item.action == "defer"
-    assert item.assessment is None
+    # Damage the synthetic store before the real owner reader, not only the
+    # presentation alias after the owner has already verified the same pair.
+    with closing(sqlite3.connect(case.app)) as connection, connection:
+        if damage == "missing":
+            connection.execute(
+                "DELETE FROM stock_assessment WHERE assessment_id=?", (original.assessment_id,)
+            )
+        elif damage == "core_hash":
+            connection.execute("DROP TRIGGER stock_assessment_immutable")
+            connection.execute(
+                "UPDATE stock_assessment SET core_sha256=? WHERE assessment_id=?",
+                ("f" * 64, original.assessment_id),
+            )
+        else:
+            connection.execute(
+                "DELETE FROM stock_assessment_review WHERE assessment_id=?",
+                (original.assessment_id,),
+            )
+    before = case.app.read_bytes()
+    latest = build_latest_proposal(DbProposalSource(case.app), generated_at=NOW)
+    assert latest.status == "unavailable"
+    assert latest.proposal is None
+    assert latest.error == "保存済み提案を読み取れません。"
+    history = build_proposal_history(DbProposalSource(case.app), generated_at=NOW)
+    assert saved.proposal_id in history.unavailable_proposal_ids
+    assert all(row.proposal_id != saved.proposal_id for row in history.proposals)
+    for view in (latest, history):
+        assert str(case.app) not in view.model_dump_json()
     assert case.app.read_bytes() == before
 
 
