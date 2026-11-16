@@ -35,7 +35,16 @@ NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 COUNTERCASE = "営業回復の観測だけでは投資後 cash と普通株価値を裏付けない。借換と希薄化が反対経路。"
 
 
-def _save(path, countercase=COUNTERCASE, *, stance="supported", number=1, now=NOW, supersedes=None):
+def _save(
+    path,
+    countercase=COUNTERCASE,
+    *,
+    stance="supported",
+    number=1,
+    now=NOW,
+    supersedes=None,
+    conditions=None,
+):
     document, review = pair_payload(review_number=number + 10)
     document["conclusion"].update(stance=stance, strongest_countercase=countercase)
     document["investment_case"]["status"] = {
@@ -46,6 +55,8 @@ def _save(path, countercase=COUNTERCASE, *, stance="supported", number=1, now=NO
     # The required conclusion is not required to be copied into these separate sections.
     document["findings"]["hypotheses"] = []
     document["findings"]["unresolved_questions"] = []
+    if conditions is not None:
+        document["investment_case"]["invalidation_conditions"] = conditions
     update_review_hash(document, review)
     return AssessmentStoreService(path, clock=lambda: now).publish_reviewed_assessment(
         assessment_id(number), document, review, supersedes_id=supersedes
@@ -63,6 +74,10 @@ def test_countercase_follows_exact_assessment_to_catalog_and_candidate_context(t
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=(), db=app)
     before = app.read_bytes(), runs.read_bytes()
     context = _context(app)
+    assert (
+        context.assessment.invalidation_conditions
+        == pair.document.investment_case.invalidation_conditions
+    )
     assert context.assessment.strongest_countercase == COUNTERCASE
     brief = research_catalog(app, as_of=NOW.date(), known_at=NOW)["items"][0]["assessment"]
     assert brief["strongest_countercase"] == COUNTERCASE
@@ -115,6 +130,7 @@ def test_prepare_and_resume_keep_countercase_without_later_assessment_substituti
     operation = OperationService(app).get(prepared.operation_id)
     selected = selection_binding(operation.payload)
     saved = selected.inputs.saved_company_context["1234"].assessment
+    assert saved.invalidation_conditions == pair.document.investment_case.invalidation_conditions
     assert saved.strongest_countercase == COUNTERCASE
     assert saved.reference.core_sha256 == pair.core_sha256
     inputs = workspace / "domain-inputs.yaml"
@@ -157,6 +173,9 @@ def test_legacy_selection_does_not_backfill_or_change_canonical_identity(tmp_pat
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",), db=app)
     raw = selected.model_dump(mode="json")
     raw["inputs"]["saved_company_context"]["1234"]["assessment"].pop("strongest_countercase", None)
+    raw["inputs"]["saved_company_context"]["1234"]["assessment"].pop(
+        "invalidation_conditions", None
+    )
     canonical = encode_json(raw)
     parsed = parse_selection(raw)
     assert encode_json(parsed.model_dump(mode="json")) == canonical
@@ -164,6 +183,7 @@ def test_legacy_selection_does_not_backfill_or_change_canonical_identity(tmp_pat
     brief = company_context_brief(parsed.inputs.saved_company_context["1234"])["assessment"]
     assert "strongest_countercase" not in brief
     assert "strongest_countercase_truncated" not in brief
+    assert "invalidation_conditions" not in brief
     assert brief["stance"] == "supported"
 
 
@@ -173,3 +193,25 @@ def test_legacy_selection_does_not_backfill_or_change_canonical_identity(tmp_pat
 def test_absent_or_unreadable_context_does_not_invent_a_countercase(assessment):
     context = CompanyContext(research=NotFound(), assessment=assessment)
     assert "strongest_countercase" not in company_context_brief(context)["assessment"]
+
+
+def test_invalidation_conditions_remain_authored_historical_conditions(tmp_path):
+    conditions = [
+        "主力増分が継続全社費用を吸収できない。",
+        "投資後cashが残らない。",
+        "長い条件" * 140,
+        "追加条件",
+    ]
+    pair = _save(tmp_path / "app", conditions=conditions)
+    context = _context(tmp_path / "app")
+    before = context.model_dump_json()
+    brief = company_context_brief(context)["assessment"]
+    assert context.assessment.invalidation_conditions == tuple(conditions)
+    assert brief["invalidation_conditions"] == [
+        {"text": text[:400], "text_truncated": len(text) > 400} for text in conditions[:3]
+    ]
+    assert brief["invalidation_conditions_omitted"] == 1
+    assert brief["reference"]["core_sha256"] == pair.core_sha256
+    assert brief["stance"] == "supported"
+    brief["invalidation_conditions"][0]["text"] = "not a new judgment"
+    assert context.model_dump_json() == before
