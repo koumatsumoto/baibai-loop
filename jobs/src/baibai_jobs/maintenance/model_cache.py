@@ -1,4 +1,4 @@
-"""公開済み候補政策を優先して再生成cacheを有限に保つ。"""
+"""公開済み候補政策を優先して保存Generationの保持対象を整理する。"""
 
 from collections.abc import Sequence
 from contextlib import closing
