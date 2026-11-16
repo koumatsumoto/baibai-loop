@@ -21,7 +21,6 @@ from baibai_engine.investment_judgment.trade_proposal.service import TradePropos
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
-    initialize_run_store,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     read_next_earnings_dates,
@@ -37,7 +36,10 @@ from baibai_engine.storage.sqlite.application.read import (
 )
 from baibai_engine.storage.sqlite.application.schema import SUPPORTED_APPLICATION_SCHEMA_VERSIONS
 from baibai_engine.storage.sqlite.application.write import initialize_database
-from baibai_engine.storage.sqlite.machine_analysis import RUN_STORE_SCHEMA_VERSION
+from baibai_engine.storage.sqlite.machine_analysis import (
+    RUN_STORE_SCHEMA_VERSION,
+    initialize_run_store,
+)
 from baibai_engine.storage.sqlite.read import read_rows
 from baibai_engine.storage.sqlite.source_cache.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
 from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION
