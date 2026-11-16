@@ -393,3 +393,45 @@ def test_profit_comparison_does_not_coerce_invalid_numbers(value):
     from baibai_engine.investment_judgment.workflow.profit_context import _number
 
     assert _number(value) is None
+
+
+def test_profit_context_uses_saved_positions_without_result_or_value_search(tmp_path, monkeypatch):
+    from tests.helpers.generated_selection import seed_generated_selection
+
+    from baibai_engine.investment_judgment.workflow.profit_context import saved_profit_context
+    from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
+
+    models = tuple(
+        GeneratedModel(
+            model_id=name,
+            subject=ticker,
+            calculation_revision=f"synthetic-{ticker}-{name}",
+            payload={"earnings_price": {"profit_ttm_yen": 10}},
+        )
+        for ticker in ("2001", "1001")
+        for name in ("company_financials", "market_context")
+    )
+    saved = seed_generated_selection(
+        runs=tmp_path / "runs.sqlite",
+        now=EVALUATED,
+        tickers=("2001", "1001"),
+        scope="specified_stocks",
+        models=models,
+    )
+    before = saved.model_dump_json()
+    saved_hash = selection_sha256(saved)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("profit projection must not search the saved tuple again")
+
+    monkeypatch.setattr(ModelInputSlice, "result", forbidden)
+    monkeypatch.setattr(GeneratedModel, "__eq__", forbidden)
+    result = saved_profit_context(saved, selection_hash=saved_hash)
+    assert result is not None
+    assert [row["ticker"] for row in result["rows"]] == ["2001", "1001"]
+    for row, index in zip(result["rows"], (1, 0), strict=True):
+        assert row["company_financials"]["full_result_ref"] == (
+            f"/inputs/generation/models/{index}/payload"
+        )
+        assert row["company_growth"] == {"status": "not_generated"}
+    assert saved.model_dump_json() == before
