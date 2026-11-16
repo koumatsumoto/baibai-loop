@@ -96,6 +96,9 @@ def project_technical_financial_row(
     )
     # 相対的な活動条件だけでなく、同じ観測の円規模・窓・不足を初回比較へ残す。
     compact_technical.update(_pick(coordinates.context, "turnover_activity_20d"))
+    compact_technical["price_path_60d"] = _price_path_brief(
+        _object(_object(technical.get("supporting_context")).get("price_path_60d"))
+    )
     compact_technical["observation_failures"] = {
         name: _pick(
             _object(raw),
@@ -228,6 +231,57 @@ def _price_inputs(rows: Sequence[TechnicalFinancialRow]) -> dict[str, JsonValue]
         "price_dates": dict(sorted(dates.items())),
         "expected_price_dates": dict(sorted(expected.items())),
     }
+
+
+def _price_path_brief(section: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    result = _pick(section, "source_field", "source_state")
+    value = section.get("value")
+    if not isinstance(value, dict):
+        return {**result, **_pick(section, "value")}
+    # 端点の上昇と途中の下落/一日集中を並べる。分析用価格を注文値にしない。
+    result["value"] = {
+        **_pick(
+            value,
+            "kind",
+            "calendar_differences",
+            "window_start_date",
+            "window_end_date",
+            "value",
+            "unavailable_reason",
+            "observed_peak_date",
+            "window_return",
+            "window_return_unavailable_reason",
+        ),
+        **(
+            {
+                "path_statistics": _pick(
+                    _object(value["path_statistics"]),
+                    "status",
+                    "price_row_basis",
+                    "max_close_drawdown",
+                    "log_path_efficiency",
+                    "efficiency_unavailable_reason",
+                    "largest_absolute_log_change_share",
+                )
+            }
+            if isinstance(value.get("path_statistics"), dict)
+            else _pick(value, "path_statistics")
+        ),
+        **(
+            {
+                "coverage": _pick(
+                    _object(value["coverage"]),
+                    "calendar_status",
+                    "expected_dates",
+                    "row_counts",
+                    "complete",
+                )
+            }
+            if isinstance(value.get("coverage"), dict)
+            else _pick(value, "coverage")
+        ),
+    }
+    return result
 
 
 def _object(value: JsonValue | None) -> dict[str, JsonValue]:
