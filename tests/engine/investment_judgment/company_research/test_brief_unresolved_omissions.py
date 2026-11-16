@@ -61,7 +61,7 @@ def test_unshown_questions_are_counted_without_changing_saved_text_order_or_stan
     original = context.model_dump_json()
     before = path.read_bytes()
     brief = research_catalog(path, as_of=NOW.date(), known_at=NOW)["items"][0][kind]
-    assert brief["unresolved_questions"] == [text[:240] for text in questions[:3]]
+    assert brief["unresolved_questions"] == [questions[0][:239] + "…", *questions[1:3]]
     assert brief["unresolved_questions_omitted"] == 2
     assert "exact reference" in brief["display"]
     assert brief["role"] == (

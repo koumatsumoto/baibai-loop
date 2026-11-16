@@ -213,7 +213,10 @@ def _review_brief(
 
 def _questions_brief(questions: tuple[str, ...]) -> dict[str, object]:
     return {
-        "unresolved_questions": [text[:240] for text in questions[:3]],
+        # 金額や末尾の限定で切れた抜粋を、完結した問いと読ませない。
+        "unresolved_questions": [
+            text if len(text) <= 240 else text[:239] + "…" for text in questions[:3]
+        ],
         **({"unresolved_questions_omitted": len(questions) - 3} if len(questions) > 3 else {}),
     }
 
