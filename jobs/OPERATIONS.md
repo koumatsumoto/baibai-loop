@@ -64,6 +64,8 @@ EDINETの意味revisionを明示反映するときは、固定原本の隔離比
 
 経済固定metadataのretain/rebuildは、検証済みbytesの同一実行内handoffと、その区間だけの逐次・間隔付きR2転送を使う。転送量の削減はquota保証ではない。429ではそのscopeの待機requestも止め、Retry-Afterは次回判断の最早時刻として扱い、自動でpassを再実行しない。
 
+通知の明示受入・記事再投影/読戻しの失敗と、既に成功したLake/Store反映を分ける。後段の受入失敗は公開を巻き戻した意味ではなく、通知の成否だけで同じdailyを再実行しない。[部分反映の確認](#部分-push-からの復旧)を先に行う。
+
 取得期限にはexport/stageの余白を残す。Retry-Afterを短縮せず、認証/403/解析失敗へretryを広げない。継続不能429は同quota groupのそのpassを止める。H.15のbrowser起動不能とsource拒否を分ける。
 
 lake hydrateの先読みは接続障害なら逐次読取へ戻るが、adapterが返した検証済みHTTP403/429はconsumerへ伝えてそのfillを止める。同じ拒否をbase readerの追加GETで解消せず、既に通信中のworkerがあることと新しいrequestを開始してよいことを分ける。厳格停止modeの拒否もworker内で失わせない。adapter内部の既存有限retry・provider/quota別方針や、新しい実行の承認はこの先読みfallbackとは別である。
