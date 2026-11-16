@@ -33,11 +33,10 @@ from baibai_engine.investment_judgment.workflow.workspace.selected_prepare impor
 )
 from baibai_engine.machine_analysis.generation.contracts import ModelGeneration
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
-from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
-    evaluate_economic_coordinates,
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    EconomicPathPolicy,
+    EconomicPathSelection,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
 
@@ -62,22 +61,25 @@ def test_zero_candidate_price_inputs_reach_initial_and_fixed_research(tmp_path, 
     generation = ModelGeneration(**metadata().model_dump(), models=models(data) if tickers else ())
     runs, app = tmp_path / "runs", tmp_path / "app"
     publish_generation(generation, path=runs)
-    evaluation = evaluate_economic_coordinates(
-        metadata(),
-        tickers=tickers,
-        coordinates={
-            ticker: project_company(ticker, models=generation.models, metadata=metadata())
-            for ticker in tickers
-        },
-        policy=EconomicPathPolicy(),
+    # 保存された旧集計の読取を検証する。ここで旧候補政策を再計算しない。
+    summary = {
+        "universe_count": len(tickers),
+        "valid_count": 1 if kind == "nonpositive_business" else 0,
+        "invalid_count": 1 if kind == "missing_price" else 0,
+        "date_mismatch_count": 0,
+        "price_dates": {}
+        if not tickers
+        else {"missing" if kind == "missing_price" else "2026-01-05": 1},
+        "expected_price_dates": {"2026-01-05": 1} if tickers else {},
+    }
+    screening = ScreeningSelection(
+        generation.generation_id,
+        tickers,
+        EconomicPathSelection(EconomicPathPolicy(), 0, ()),
+        price_inputs=summary,
     )
-    assert evaluation.selection.result.tickers == ()
-    summary = evaluation.price_inputs
-    assert summary["universe_count"] == len(tickers)
-    assert summary["valid_count"] == (1 if kind == "nonpositive_business" else 0)
-    assert summary["invalid_count"] == (1 if kind == "missing_price" else 0)
     store = ScreeningSelectionStore(runs)
-    store.publish("policy", evaluation.selection)
+    store.publish("policy", screening)
     with closing(sqlite3.connect(runs)) as connection, connection:
         connection.execute("UPDATE screening_selection SET published_at='2026-01-06T00:00:00Z'")
     known = datetime(2026, 1, 8, tzinfo=UTC)
@@ -95,13 +97,10 @@ def test_zero_candidate_price_inputs_reach_initial_and_fixed_research(tmp_path, 
     assert context["candidate_tickers"] == []
     assert context["screening"]["eligible_count"] == 0
     assert context["screening"]["price_inputs"] == summary
-    assert summary["price_dates"] == (
-        {} if not tickers else {"missing" if kind == "missing_price" else "2026-01-05": 1}
-    )
-    assert store.read("policy") == evaluation.selection
-    assert not store.publish("policy", evaluation.selection)
+    assert store.read("policy") == screening
+    assert not store.publish("policy", screening)
     with pytest.raises(ValueError, match="identity has different content"):
-        store.publish("policy", replace(evaluation.selection, price_inputs=None))
+        store.publish("policy", replace(screening, price_inputs=None))
     prepared = prepare_selected_workspace(
         draft=GeneratedResearchSelectionDraft(
             schema_version=2,
@@ -119,7 +118,7 @@ def test_zero_candidate_price_inputs_reach_initial_and_fixed_research(tmp_path, 
         now=known,
     )
     selected = selection_binding(OperationService(app).get(prepared.operation_id).payload)
-    assert selected.inputs.screening_selection == evaluation.selection
+    assert selected.inputs.screening_selection == screening
     projected = project_research_inputs(selected)
     assert projected["screening_selection"]["price_inputs"] == summary
     inputs_before = (prepared.workspace / "domain-inputs.yaml").read_bytes()

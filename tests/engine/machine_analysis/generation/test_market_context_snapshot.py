@@ -4,7 +4,8 @@ import io
 import json
 import tempfile
 import unittest
-from datetime import date, datetime
+from contextlib import closing
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -349,3 +350,34 @@ def test_sector_sample_sizes_follow_each_metric_not_the_short_return_population(
         "pct_above_ma20": 1,
     }
     assert retail["median_return_60d"] is None
+
+
+def test_breadth_can_rise_with_unchanged_close_when_its_average_falls(tmp_path):
+    path = tmp_path / "market.sqlite"
+    days = sorted(
+        day for offset in range(40) if (day := _ASOF - timedelta(days=offset)).weekday() < 5
+    )[-25:]
+    closes = [110.0] * 5 + [100.0] * 15 + [99.0] * 4 + [100.0]
+    assert days[-6] == _ASOF - timedelta(days=7)
+    assert closes[-6] == closes[-1] == 100.0
+    with closing(open_connection(path)) as connection, connection:
+        insert_master_rows(
+            connection, [("2026-05-01", "AAAA", "same member", "PRIME", "機械", "011")]
+        )
+        connection.executemany(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES (?,?,?)",
+            [
+                (ticker, day.isoformat(), close)
+                for ticker, values in (("AAAA", closes), ("1321", [100.0] * len(days)))
+                for day, close in zip(days, values, strict=True)
+            ],
+        )
+    result = build_market_snapshot(
+        sqlite_path=path, asof_date=_ASOF, history_weeks=2, min_breadth_sample=1
+    )
+    points = result["points"]
+    assert [point["breadth_sample_size"] for point in points] == [1, 1]
+    assert [point["breadth_pct_above_ma20"] for point in points] == [0.0, 1.0]
+    # Membership and endpoint price are unchanged; this is not a 100% price gain.
+    assert sum(closes[:20]) / 20 > closes[-6]
+    assert sum(closes[-20:]) / 20 < closes[-1]

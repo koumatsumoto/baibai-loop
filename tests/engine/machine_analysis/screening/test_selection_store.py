@@ -171,11 +171,7 @@ def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp
         raise AssertionError("storage must not execute candidate policy")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.economic_path_selection.evaluate_economic_coordinates",
-        forbidden,
-    )
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.economic_paths.select_economic_paths",
+        "baibai_engine.machine_analysis.screening.policies.technical_financial_selection.evaluate_technical_financial_rows",
         forbidden,
     )
     store = ScreeningSelectionStore(path)

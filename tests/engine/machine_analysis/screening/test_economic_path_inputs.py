@@ -6,6 +6,7 @@ from hashlib import sha256
 import pytest
 from pydantic import TypeAdapter
 from tests.helpers.model_generation import materialize_generation, publish_generation
+from tests.helpers.retained_economic_selection import ranked_path_fixture, retained_economic_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
@@ -46,13 +47,8 @@ from baibai_engine.machine_analysis.screening.policies import economic_path_inpu
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
     project_company,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
-    evaluate_economic_coordinates,
-)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    EconomicPathPolicy,
     EconomicPathSelection,
-    select_economic_paths,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
@@ -232,13 +228,22 @@ def test_growth_policy_read_bounds_history_without_changing_evidence_or_saved_pa
     assert canonical_json(data) == before
 
 
-def test_projected_observation_standard_reaches_the_bounded_brief():
+def test_projected_observation_standard_survives_explicit_saved_card_and_brief():
     projected = project(payloads())
-    selection = select_economic_paths((projected,), policy=EconomicPathPolicy())
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selection, mode="json")
+    selected = retained_economic_result(context=projected.context)
+    selected = replace(
+        selected,
+        cards=(
+            replace(
+                selected.cards[0],
+                paths=tuple(ranked_path_fixture(path) for path in projected.paths if path.eligible),
+            ),
+        ),
+    )
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     brief = economic_screening_brief(saved)
     assert any(
-        observation["accounting_standard"] == "JP"
+        observation.get("accounting_standard") == "JP"
         for path in brief["cards"][0]["paths"]
         for observation in path["evidence"].get("period_basis", [])
     )
@@ -258,18 +263,19 @@ def test_turnover_window_reaches_selection_and_brief_without_changing_candidate_
     original = deepcopy(data)
     projected = project(data)
     assert projected.paths == baseline.paths
-    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    selected = retained_economic_result(context=projected.context)
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     assert saved["cards"][0]["context"]["turnover_window"] == window
     assert economic_screening_brief(saved)["cards"][0]["context"]["turnover_window"] == window
     assert data == original
 
 
-def test_old_model_does_not_gain_a_turnover_window_or_change_selection_hash():
-    selected = select_economic_paths((project(payloads()),), policy=EconomicPathPolicy())
+def test_old_model_and_retained_fixture_keep_context_and_saved_hash():
+    selected = retained_economic_result()
+    assert project(payloads()).context == selected.cards[0].context
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     assert "turnover_window" not in saved["cards"][0]["context"]
-    # Captured from the same fixture on main 4ed88898, before window projection.
+    # Fixed saved bytes from before window projection; no historical rank recomputation.
     assert sha256(canonical_json(saved).encode()).hexdigest() == (
         "31dfe3c282d5aced68d54872768986538e0d4a3b358213529e9297c82c78adeb"
     )
@@ -283,7 +289,7 @@ def test_old_model_does_not_gain_a_turnover_window_or_change_selection_hash():
 
 
 @pytest.mark.parametrize("include_conditioned_turnover", [True, False])
-def test_activity_reaches_brief_without_changing_rank_or_mutating_saved_inputs(
+def test_activity_reaches_brief_without_changing_paths_or_mutating_saved_inputs(
     include_conditioned_turnover,
 ):
     from baibai_engine.machine_analysis.models.market_context.activity import (
@@ -308,12 +314,8 @@ def test_activity_reaches_brief_without_changing_rank_or_mutating_saved_inputs(
     original = deepcopy(data)
     projected = project(data)
     assert projected.paths == baseline.paths
-    baseline_selection = select_economic_paths((baseline,), policy=EconomicPathPolicy())
-    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    selected = retained_economic_result(context=projected.context)
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    old = TypeAdapter(EconomicPathSelection).dump_python(baseline_selection, mode="json")
-    for key in ("rank", "priority", "strongest_path", "paths"):
-        assert saved["cards"][0][key] == old["cards"][0][key]
     shown = economic_screening_brief(saved)["cards"][0]["context"]
     assert shown["market_relative"]["market_conditioned_60d"] == conditional
     assert (
@@ -372,11 +374,15 @@ def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_b
     assert projected.context["moving_averages"] == technical["moving_averages"]
     assert projected.context["price_path"] == path
     second = replace(project(payloads(price=200)), ticker="5678")
-    before = select_economic_paths((baseline, second), policy=EconomicPathPolicy())
-    selected = select_economic_paths((projected, second), policy=EconomicPathPolicy())
-    assert [(c.ticker, c.rank, c.priority, c.paths) for c in selected.cards] == [
-        (c.ticker, c.rank, c.priority, c.paths) for c in before.cards
-    ]
+    selected = retained_economic_result(context=projected.context)
+    selected = replace(
+        selected,
+        eligible_count=2,
+        cards=(
+            selected.cards[0],
+            replace(selected.cards[0], ticker="5678", rank=2, context=second.context),
+        ),
+    )
     if state == "old_selection":
         del selected.cards[0].context["moving_averages"]
         del selected.cards[0].context["price_path"]
@@ -389,6 +395,7 @@ def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_b
     stored_bytes = runs.read_bytes()
     restored = store.read("technical-context")
     assert restored == document
+    assert [card.ticker for card in restored.result.cards] == ["1234", "5678"]
     saved = TypeAdapter(EconomicPathSelection).dump_python(restored.result, mode="json")
     canonical_before = canonical_json(saved)
     brief = economic_screening_brief(saved)["cards"][0]["context"]
@@ -460,7 +467,7 @@ def test_relative_window_reaches_l3_without_inventing_legacy_dates(legacy):
     original = deepcopy(data)
     projected = project(data)
     assert projected.paths == baseline.paths
-    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    selected = retained_economic_result(context=projected.context)
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     before = canonical_json(saved)
     assert saved["cards"][0]["context"]["market_relative"] == relative
@@ -481,7 +488,7 @@ def test_relative_window_reaches_l3_without_inventing_legacy_dates(legacy):
 
 
 @pytest.mark.parametrize("basis", ["actual_reported", "forecast_annual", None])
-def test_dividend_basis_survives_projection_and_brief_without_changing_rank(basis):
+def test_dividend_basis_survives_projection_and_brief_without_changing_paths(basis):
     data = payloads()
     financial = data["company_financials"]["financial"]
     details = {
@@ -502,7 +509,7 @@ def test_dividend_basis_survives_projection_and_brief_without_changing_rank(basi
     projected = project(data)
     assert projected.paths == baseline.paths
     assert data == source
-    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    selected = retained_economic_result(context=projected.context)
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
     assert {key: brief[key] for key in details} == details
@@ -520,7 +527,7 @@ def test_issuer_forecast_eps_survives_without_parent_profit_recalculation(foreca
     before = deepcopy(data)
     projected = project(data)
     assert projected.paths == baseline.paths
-    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    selected = retained_economic_result(context=projected.context)
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
     assert brief["forecast_eps_yen"] == forecast_eps
@@ -988,9 +995,7 @@ def test_external_previous_clocks_survive_selection_and_brief(tmp_path, kind, le
     header = metadata()
     runs = tmp_path / "runs.sqlite"
     publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
-    result = select_economic_paths((projected,), policy=EconomicPathPolicy())
-    prior = select_economic_paths((baseline,), policy=EconomicPathPolicy()).cards[0]
-    assert (result.cards[0].rank, result.cards[0].priority) == (prior.rank, prior.priority)
+    result = retained_economic_result(context=projected.context)
     selected = ScreeningSelection(header.generation_id, ("1234",), result)
     store = ScreeningSelectionStore(runs)
     assert store.publish("external-clocks", selected)
@@ -1065,9 +1070,7 @@ def test_minkabu_receipt_and_rating_counts_survive_selection_and_brief_without_r
     header = metadata()
     runs = tmp_path / "runs.sqlite"
     publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
-    result = select_economic_paths((projected,), policy=EconomicPathPolicy())
-    prior = select_economic_paths((baseline,), policy=EconomicPathPolicy()).cards[0]
-    assert (result.cards[0].rank, result.cards[0].priority) == (prior.rank, prior.priority)
+    result = retained_economic_result(context=projected.context)
     selected = ScreeningSelection(header.generation_id, ("1234",), result)
     store = ScreeningSelectionStore(runs)
     assert store.publish("minkabu-clock", selected)
@@ -1143,7 +1146,7 @@ def test_quants_not_computed_availability_survives_selection_and_brief(
     header = metadata()
     runs = tmp_path / "runs.sqlite"
     publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
-    result = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    result = retained_economic_result(context=projected.context)
     selected = ScreeningSelection(header.generation_id, ("1234",), result)
     store = ScreeningSelectionStore(runs)
     assert store.publish("quants-missing", selected)
@@ -1288,7 +1291,7 @@ def test_reported_balances_reach_l3_brief_without_changing_paths_or_filling_clai
     projected = project(inputs)
     assert projected.paths == baseline.paths
     assert projected.context["financial"]["edinet_reported_balances"] == balances
-    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    selected = retained_economic_result(context=projected.context)
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
     assert "edinet_reported_balances" in brief
@@ -1303,12 +1306,7 @@ def test_economic_result_roundtrip_and_history_identity(tmp_path):
     generation = ModelGeneration(**header.model_dump(), models=models(payloads()))
     runs = tmp_path / "runs.sqlite"
     publish_generation(generation, path=runs)
-    result = evaluate_economic_coordinates(
-        header,
-        tickers=("1234",),
-        coordinates={"1234": project_company("1234", models=generation.models, metadata=header)},
-        policy=EconomicPathPolicy(),
-    ).selection
+    result = ScreeningSelection(header.generation_id, ("1234",), retained_economic_result())
     store = ScreeningSelectionStore(runs)
     assert store.publish("policy-new", result)
     assert not store.publish("policy-new", result)
@@ -1542,19 +1540,11 @@ def owner_generation(
     return materialize_generation(stream)
 
 
-def test_owner_fy_and_cumulative_quarter_flow_through_economic_policy():
+def test_owner_fy_and_cumulative_quarter_reach_economic_coordinates():
     generation = owner_generation()
-    selection = evaluate_economic_coordinates(
-        generation,
-        tickers=("1001",),
-        coordinates={
-            "1001": project_company("1001", models=generation.models, metadata=generation)
-        },
-        policy=EconomicPathPolicy(),
-    ).selection
-    assert selection.result.tickers == ("1001",)
-    card = selection.result.cards[0]
-    paths = {item.path_id: item for item in card.paths}
+    card = project_company("1001", models=generation.models, metadata=generation)
+    paths = {item.path_id: item for item in card.paths if item.eligible}
+    assert set(paths) >= {"earning_power", "business_expansion", "operating_recovery"}
     income = paths["earning_power"]
     assert income.price_value == pytest.approx(110.0 / 800.0)
     assert income.business_value == pytest.approx(120.0 / 1350.0)
@@ -1732,7 +1722,7 @@ def test_reported_cf_details_reach_l3_brief_without_changing_candidate_paths(per
     projected = project(inputs)
     assert projected.paths == baseline.paths
     assert projected.context["financial"]["edinet_reported_flows"] == reported
-    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    selected = retained_economic_result(context=projected.context)
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
     assert brief["edinet_reported_flows"] == reported
@@ -1751,7 +1741,7 @@ def test_accounting_change_notice_reaches_brief_without_disabling_paths(flag):
     data["company_financials"]["earnings_price"]["accounting_disclosures"] = [disclosure]
     projected = project(data)
     assert projected.paths == baseline.paths
-    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    selected = retained_economic_result(context=projected.context)
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     context = economic_screening_brief(saved)["cards"][0]["context"]["accounting_change_context"]
     assert context["read_semantics"] == "positive_native_flags_not_comparability_clearance"
