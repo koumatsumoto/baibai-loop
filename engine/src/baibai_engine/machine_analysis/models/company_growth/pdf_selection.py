@@ -8,11 +8,15 @@ from typing import Literal
 from baibai_engine.machine_analysis.models.company_growth.calculations import _margin
 from baibai_engine.machine_analysis.models.company_growth.models import (
     Change,
+    Measurement,
     Metric,
     Observation,
     PeriodState,
     SourceDocument,
     Value,
+)
+from baibai_engine.machine_analysis.observations.financials.financial_periods import (
+    is_annual_period,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
     PdfFinancialSelection,
@@ -197,7 +201,7 @@ def apply_pdf_changes(
         if (
             change.to_start != current.current_start
             or change.to_end != current.current_end
-            or change.measurement not in {"reported", "quarter"}
+            or not _statement_comparison_measurement(current, change.measurement)
             or change.metric not in current_metrics
             or (
                 change.measurement == "quarter"
@@ -244,6 +248,17 @@ def apply_pdf_changes(
     return tuple(result)
 
 
+def _statement_comparison_measurement(current: PdfStatement, measurement: Measurement) -> bool:
+    if measurement == "annual_ttm":
+        # 年度そのものの窓だけ。同じFYを旧nativeの前年値へ戻して増減を反転させない。
+        return (
+            current.current_start is not None
+            and current.current_end is not None
+            and is_annual_period(current.current_start, current.current_end)
+        )
+    return measurement in {"reported", "quarter"}
+
+
 def pdf_comparison_prior(
     selected: PdfFinancialSelection | None, observation: Observation, change: Change
 ) -> Observation | None:
@@ -255,7 +270,7 @@ def pdf_comparison_prior(
         or (change.from_start, change.from_end)
         != (current.comparative_start, current.comparative_end)
         or (change.to_start, change.to_end) != (current.current_start, current.current_end)
-        or change.measurement not in {"reported", "quarter"}
+        or not _statement_comparison_measurement(current, change.measurement)
         or current.comparative_start is None
         or current.comparative_end is None
     ):
