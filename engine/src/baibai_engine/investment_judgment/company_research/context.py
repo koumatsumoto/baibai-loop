@@ -129,6 +129,8 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
                 else {}
             ),
             "business_understanding": assessment.findings.business_understanding[:400],
+            "value_gap_explanation": assessment.findings.value_gap_explanation[:400],
+            "value_gap_explanation_truncated": len(assessment.findings.value_gap_explanation) > 400,
             "realization": {
                 "mechanism": assessment.findings.realization.mechanism[:400],
                 "timing": assessment.findings.realization.timing,
