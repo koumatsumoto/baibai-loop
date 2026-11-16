@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.r2_transfer import _environment, _fake_aws, _fake_repo
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.parametrize("command", ["hydrate-market", "hydrate-portfolio"])
+def test_transfer_dispatches_the_requested_hydration_scope(tmp_path, command):
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", command],
+        env=_environment(bin_dir, log),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    expected = "hydrate" if command == "hydrate-market" else "hydrate-portfolio"
+    calls = log.read_text().splitlines()
+    assert any(f"baibai-jobs snapshots {expected} --mirror " in line for line in calls)
+    assert not any("s3api" in line or "s3 cp" in line for line in calls)
 
 
 @pytest.mark.parametrize(
