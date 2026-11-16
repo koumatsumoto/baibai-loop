@@ -43,6 +43,7 @@ from baibai_engine.investment_judgment.workflow.operation.progress import (
     proposal_scope,
     selection_binding,
 )
+from baibai_engine.investment_judgment.workflow.screening_brief import saved_discovery_context
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,
     GeneratedResearchSelectionV4,
@@ -439,6 +440,7 @@ class ProposalAuthoringContext:
     saved_market_context_assessment: JsonValue
     saved_analysis_context: JsonValue
     saved_selection_context: dict[str, JsonValue]
+    saved_discovery_context: dict[str, JsonValue] | None
     reported_buy_proposal_records: dict[str, JsonValue]
 
     def payload(self) -> dict[str, object]:
@@ -463,6 +465,7 @@ class ProposalAuthoringContext:
             "saved_market_context_assessment": deepcopy(self.saved_market_context_assessment),
             "saved_analysis_context": deepcopy(self.saved_analysis_context),
             "saved_selection_context": deepcopy(self.saved_selection_context),
+            "saved_discovery_context": deepcopy(self.saved_discovery_context),
             "reported_buy_proposal_records": deepcopy(self.reported_buy_proposal_records),
             "next_order_session": None
             if self.next_order_session is None
@@ -659,5 +662,6 @@ def build_proposal_context(
                 "selection_summary": selection.selection_summary,
                 "targets": [target.model_dump(mode="json") for target in selection.targets],
             },
+            saved_discovery_context(selection, selection_hash=scope.selection_sha256),
             _reported_buy_proposal_records(connection, scope, inputs, now=now),
         )
