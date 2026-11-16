@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 import urllib.error
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
+from baibai_engine.machine_analysis.screening.policies.technical_financial import (
+    TechnicalFinancialPolicy,
+)
 from baibai_jobs.observability import discord
 from baibai_jobs.observability.discord import (
     DeliveryError,
@@ -750,15 +754,15 @@ def test_unresolved_or_contradictory_pmi_stop_is_not_quieted(failures):
 
 
 @pytest.mark.parametrize(
-    "revision", ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12"]
+    "method", get_args(TechnicalFinancialPolicy.model_fields["method"].annotation)
 )
-def test_technical_financial_notice_does_not_call_unresolved_approved(revision):
+def test_technical_financial_notice_does_not_call_unresolved_approved(method):
     notice = {
         "models_ready": True,
         "company_count": 6,
         "model_count": 25,
         "candidate_count": 3,
-        "selection_method": f"technical-financial-discovery-{revision}",
+        "selection_method": method,
         "screening_summary": {
             "financial_gate": {
                 "research_candidate": 1,
