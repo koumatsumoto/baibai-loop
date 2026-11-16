@@ -178,6 +178,19 @@ def evaluate_financial_growth_gate(
             "matched_routes": list(matched),
             "routes": dict(routes),
             "checks": dict(checks),
+            "income_attribution_context": {
+                "read_semantics": "saved_income_not_normalized_or_common_share_cash",
+                "annual_variant": "full_fy" if uses_fy else "annual_ttm",
+                "metric_units": {
+                    key: value
+                    for key, value in _object(
+                        growth_model.payload.get("metric_units") if growth_model else None
+                    ).items()
+                    if key in {"operating_profit", "parent_profit"}
+                },
+                "annual": _income_context(reader, annual),
+                "quarter": _income_context(reader, quarter),
+            },
             "quarter_growth_context": {
                 "comparison_basis": projected.get("growth_comparison_basis"),
                 "metric_units": {
@@ -426,4 +439,31 @@ def _period_context(
             if key in saved
         },
         "source_disclosure_dates": cast(list[JsonValue], sorted(dates)),
+    }
+
+
+def _income_context(
+    reader: CompanyGrowthReader, observation: Observation | None
+) -> dict[str, JsonValue] | None:
+    if observation is None:
+        return None
+    saved = reader.saved_observation(observation)
+    return {
+        **{
+            key: saved[key]
+            for key in (
+                "measurement",
+                "period_start",
+                "period_end",
+                "statement_basis",
+                "accounting_standard",
+                "period_status",
+            )
+            if key in saved
+        },
+        "metrics": {
+            key: value
+            for key, value in _object(saved.get("metrics")).items()
+            if key in {"operating_profit", "parent_profit"}
+        },
     }

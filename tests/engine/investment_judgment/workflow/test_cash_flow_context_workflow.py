@@ -48,7 +48,7 @@ def test_first_comparison_and_detached_research_keep_cashflow_without_backfillin
             model.payload.setdefault("financial", {}).update(deepcopy(CASH_FLOW))
     publish_generation(fixed, path=path)
     selected = evaluate_fixed(fixed)
-    assert selected.result.policy.method == "technical-financial-discovery-v14"
+    assert selected.result.policy.method == "technical-financial-discovery-v15"
     if legacy:
         selected = replace(
             selected,
