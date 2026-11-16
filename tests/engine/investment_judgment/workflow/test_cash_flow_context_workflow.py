@@ -37,18 +37,29 @@ from baibai_engine.primitives.json import encode_json
 
 
 @pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("source_limits", [False, True])
 def test_first_comparison_and_detached_research_keep_cashflow_without_backfilling_old(
-    tmp_path, legacy
+    tmp_path, legacy, source_limits
 ):
     path = tmp_path / "runs"
     fixed, _, _, _ = seed(path)
     fixed = fixed.model_copy(deep=True, update={"generation_id": "cashflow-context-fixed"})
+    context = deepcopy(CASH_FLOW)
+    if source_limits:
+        context.update(
+            edinet_reported_flows={
+                "amounts": {"operating_cash_flow": -900, "free_cash_flow": None},
+                "consolidation_basis": "nonconsolidated",
+                "source_doc_id": "synthetic-edinet",
+            },
+            edinet_failure_reasons="metric_unavailable:capex,entity_scale_mismatch",
+        )
     for model in fixed.models:
         if model.subject == "1234" and model.model_id == "company_financials":
-            model.payload.setdefault("financial", {}).update(deepcopy(CASH_FLOW))
+            model.payload.setdefault("financial", {}).update(deepcopy(context))
     publish_generation(fixed, path=path)
     selected = evaluate_fixed(fixed)
-    assert selected.result.policy.method == "technical-financial-discovery-v21"
+    assert selected.result.policy.method == "technical-financial-discovery-v22"
     if legacy:
         selected = replace(
             selected,
@@ -86,10 +97,10 @@ def test_first_comparison_and_detached_research_keep_cashflow_without_backfillin
     card = next(c for c in first["screening"]["cards"] if c["ticker"] == "1234")
     assert (FIELD in card["financial_gate"]) is not legacy
     if not legacy:
-        assert card["financial_gate"][FIELD] == CASH_FLOW
+        assert card["financial_gate"][FIELD] == context
     detail = load_generated_selection_context(**args, comparison_tickers=("1234",))
     financial = detail["model_inputs"]["securities"]["1234"]["models"]["company_financials"]
-    assert {key: financial["financial"][key] for key in CASH_FLOW} == CASH_FLOW
+    assert {key: financial["financial"][key] for key in context} == context
     restored = read_publication(path=path, selection_id="cashflow-policy").selection
     assert encode_json(codec.dump_python(restored, mode="json")) == canonical
     ScreeningSelectionStore(path).publish("cashflow-policy", selected)

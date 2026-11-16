@@ -53,6 +53,7 @@ _DIVIDEND_FORECAST_CONTEXT = ("dps_forecast_annual", "dividend_forecast_source")
 _CASH_FLOW_CONTEXT = (
     "edinet_reported_flows",
     "edinet_capex_source",
+    "edinet_failure_reasons",
     "cfo",
     "cfo_source",
     "ocf_ttm",
