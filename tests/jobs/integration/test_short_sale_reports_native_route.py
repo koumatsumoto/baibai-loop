@@ -1,6 +1,5 @@
 """Ordinary short-report routing stays independent of L2 and exact on old stages."""
 
-import sqlite3
 from contextlib import closing
 from dataclasses import replace
 
@@ -30,7 +29,7 @@ def test_mixed_stage_only_skips_verified_migrated_sources(tmp_path, partial):
     alert_owner.initialize()
     alert = replace(alert_attempt("alert"), attempted_at=None)
     alert_owner.commit([alert])
-    source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
+    source = tmp_path / "source.sqlite"
     with closing(open_connection(source)) as connection, connection:
         receive_page(connection, short.pages[0], request_id="short", page_index=0)
         receive_page(connection, alert.pages[0], request_id="alert", page_index=0)
@@ -41,9 +40,9 @@ def test_mixed_stage_only_skips_verified_migrated_sources(tmp_path, partial):
         key: receipt["fingerprint"]
         for key, receipt in alert_owner.fixed().value()["receipts"].items()
     }
+    before = source.read_bytes()
     result = import_handoff(
         source,
-        target,
         ("short", "alert"),
         sources=MARKET_SOURCES,
         short_sale_reports_fingerprints=fingerprints,
@@ -53,10 +52,7 @@ def test_mixed_stage_only_skips_verified_migrated_sources(tmp_path, partial):
     assert result.report["migrated_short_sale_reports_requests"] == ["short"]
     assert result.report["migrated_margin_alerts_requests"] == ["alert"]
     assert result.report["replayed_requests"] == []
-    with sqlite3.connect(target) as connection:
-        assert (
-            connection.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == []
-        )
+    assert source.read_bytes() == before
 
 
 @pytest.mark.parametrize("damage", ["absent", "body", "clock", "page_gap", "filtered"])
@@ -82,16 +78,15 @@ def test_short_stage_fingerprint_mismatch_is_not_dropped(tmp_path, damage):
         index = 1
     else:
         page = JQuantsPage(page.source, {"date": DAY.isoformat()}, page.received_at, page.body)
-    source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
+    source = tmp_path / "source.sqlite"
     with closing(open_connection(source)) as connection, connection:
         receive_page(connection, page, request_id="short", page_index=index)
+    before = source.read_bytes()
     with pytest.raises(ValueError, match="legacy short_sale_reports"):
         import_handoff(
             source,
-            target,
             ("short",),
             sources=MARKET_SOURCES,
             short_sale_reports_fingerprints=fingerprints,
         )
-    with sqlite3.connect(target) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone()[0] == 0
+    assert source.read_bytes() == before
