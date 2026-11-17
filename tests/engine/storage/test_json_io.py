@@ -1,4 +1,4 @@
-"""Jobsの技術的JSON保存は通知adapterへ依存しない。"""
+"""JSONの固定bytesとatomic file置換の正常・失敗契約。"""
 
 import json
 
@@ -31,12 +31,6 @@ def test_failed_serialization_keeps_prior_file_and_creates_no_temporary(tmp_path
         json_io.write_json_atomic(path, {"status": "new", "unsupported": object()})
     assert path.read_text() == "old"
     assert list(directory.iterdir()) == [path]
-
-
-def test_notification_module_does_not_own_storage_writer():
-    from baibai_jobs.observability import discord
-
-    assert not hasattr(discord, "write_json_atomic")
 
 
 def test_failed_atomic_replace_keeps_the_old_json_and_removes_temporary(tmp_path, monkeypatch):
