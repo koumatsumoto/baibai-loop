@@ -225,6 +225,7 @@ def resume_selected_workspace(
     company_growth_periods: int | EllipsisType | None = ...,
 ) -> SelectedResearchPreparation:
     operation = OperationService(db_path).get(operation_id)
+    selection: ResearchSelectionRecord | None
     if now.utcoffset() is None or now < operation.started_at:
         raise ResearchWorkspaceConflictError("resume precedes the Operation start")
     manifest_path = workspace / "manifest.yaml"
