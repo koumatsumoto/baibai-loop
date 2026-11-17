@@ -552,8 +552,6 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         workspace=workspace,
         ticker="1234",
         db_path=tmp_path / "app",
-        assessment_id=assessment_id(),
-        supersedes_id=None,
         now=NOW,
     )
     assert published.assessment_id == assessment_id()
@@ -665,7 +663,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         assert proposal.liquidity_context[0].adv_yen == 125000000
 
 
-def test_cli_inputs_required_and_old_flags_are_removed(tmp_path, capsys):
+def test_cli_requires_saved_inputs_for_selection_and_prepare(tmp_path, capsys):
     result = main(
         [
             "selection-context",
@@ -682,8 +680,9 @@ def test_cli_inputs_required_and_old_flags_are_removed(tmp_path, capsys):
     )
     assert result == 3
     assert json.loads(capsys.readouterr().out)["status"] == "inputs_required"
-    with pytest.raises(SystemExit):
-        main(["prepare", "--request", "old", "--workspace", str(tmp_path / "workspace")], now=NOW)
+    with pytest.raises(SystemExit) as exc:
+        main(["prepare", "--workspace", str(tmp_path / "workspace")], now=NOW)
+    assert exc.value.code == 2
     assert not (tmp_path / "workspace").exists()
 
 
@@ -773,8 +772,6 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
             workspace=prepared.workspace,
             ticker="1234",
             db_path=tmp_path / "app",
-            assessment_id=assessment_id(),
-            supersedes_id=None,
             now=NOW,
         ).assessment_id
         == assessment_id()

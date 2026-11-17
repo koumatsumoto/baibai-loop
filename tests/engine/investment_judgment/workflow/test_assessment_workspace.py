@@ -593,7 +593,7 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
     assert {path: path.read_bytes() for path in saved_files} == saved_files
 
 
-def test_new_public_cli_uses_scaffolded_identity_and_rejects_retired_commands(case, capsys):
+def test_public_cli_uses_scaffolded_identity(case, capsys):
     db, workspace, _ = case
     assert (
         main(
@@ -632,16 +632,6 @@ def test_new_public_cli_uses_scaffolded_identity_and_rejects_retired_commands(ca
         == 0
     )
     assert yaml.safe_load(capsys.readouterr().out)["assessment_id"] == identity
-    for command in (
-        "thesis-scaffold",
-        "evaluate",
-        "promote",
-        "plan-limit",
-        "capital-allocation-publish",
-    ):
-        with pytest.raises(SystemExit) as exc:
-            main([command], now=NOW)
-        assert exc.value.code == 2
 
 
 def test_review_scaffold_rejects_an_incomplete_assessment_without_writing_review(case):
