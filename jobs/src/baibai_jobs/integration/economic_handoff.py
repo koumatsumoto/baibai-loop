@@ -214,24 +214,24 @@ def main(argv: list[str] | None = None) -> int:
             from baibai_jobs.acquisition.source_inputs import load_input
 
             selected_sources(args.group, args.source_id)
-            load_input(
-                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),
-                "economic-" + args.group,
-                args.db,
-                args.directory,
-            )
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                load_input(store, "economic-" + args.group, args.db, args.directory)
             return 0
         if args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
-            store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-            if args.command == "stage":
-                identity = save_handoff(store, args.stage_id, args.directory)
-                if output := os.environ.get("GITHUB_OUTPUT"):
-                    with Path(output).open("a", encoding="utf-8") as stream:
-                        print(f"handoff={identity}", file=stream)
-            else:
-                load_handoff(store, args.stage_id, args.directory)
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                if args.command == "stage":
+                    identity = save_handoff(store, args.stage_id, args.directory)
+                    if output := os.environ.get("GITHUB_OUTPUT"):
+                        with Path(output).open("a", encoding="utf-8") as stream:
+                            print(f"handoff={identity}", file=stream)
+                else:
+                    load_handoff(store, args.stage_id, args.directory)
             return 0
         if args.command == "acquire":
             load_project_env()
