@@ -104,8 +104,6 @@ def native_market_dependencies(store, tmp_path, monkeypatch):
     from baibai_jobs.acquisition import jquants_calendar_native, jquants_master_native
 
     calendar(store, tmp_path / "calendar", DAY, DAY)
-    for source in ("PRICE", "MASTER", "CALENDAR"):
-        monkeypatch.setenv(f"BAIBAI_{source}_NATIVE", "true")
     monkeypatch.setattr(jquants_calendar_native, "calendar_window", lambda *a: (DAY, DAY))
     for module, name in (
         (jquants_calendar_native, "acquire_calendar_native"),

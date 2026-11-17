@@ -330,8 +330,9 @@ def verify_object(
     """
 
     try:
-        schema = pq.read_schema(path)
-        metadata = pq.read_metadata(path)
+        with pq.ParquetFile(path) as parquet:
+            schema = parquet.schema_arrow
+            metadata = parquet.metadata
     except (OSError, ValueError) as exc:
         # pyarrow raises ArrowInvalid (a ValueError) for a bad footer and ArrowIOError
         # (an OSError) for an unreadable file.

@@ -308,6 +308,49 @@ def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_
     )
 
 
+@pytest.mark.parametrize("force", [False, True])
+def test_resume_validates_and_projects_one_saved_operation(tmp_path, monkeypatch, force):
+    prepared = prepare(tmp_path)
+    app = tmp_path / "app"
+    original_app = app.read_bytes()
+    original_inputs = (prepared.workspace / "domain-inputs.yaml").read_bytes()
+    original_get = OperationService.get
+    reads = []
+
+    def read_once(service, operation_id):
+        reads.append(operation_id)
+        assert len(reads) == 1, "resume expanded the full fixed input tree again"
+        return original_get(service, operation_id)
+
+    monkeypatch.setattr(OperationService, "get", read_once)
+    resumed = resume_selected_workspace(
+        operation_id=prepared.operation_id,
+        db_path=app,
+        workspace=prepared.workspace,
+        now=NOW + timedelta(days=1),
+        force=force,
+    )
+    assert reads == [prepared.operation_id]
+    assert resumed.operation_id == prepared.operation_id
+    assert resumed.selection_sha256 == prepared.selection_sha256
+    assert resumed.status == "resumed"
+    assert app.read_bytes() == original_app
+    assert (prepared.workspace / "domain-inputs.yaml").read_bytes() == original_inputs
+
+
+def test_workspace_binding_rejects_a_different_preloaded_operation(tmp_path):
+    from baibai_engine.investment_judgment.workflow.workspace.admission import (
+        validate_workspace_selection,
+    )
+
+    prepared = prepare(tmp_path)
+    operation = OperationService(tmp_path / "app").get(prepared.operation_id)
+    manifest = yaml.safe_load((prepared.workspace / "manifest.yaml").read_text())
+    other = operation.model_copy(update={"operation_id": "research-op-" + "0" * 32})
+    with pytest.raises(ResearchWorkspaceConflictError, match="another Operation"):
+        validate_workspace_selection(manifest, operation=other)
+
+
 def test_required_read_failure_and_over_capacity_do_not_write(tmp_path, monkeypatch):
     monkeypatch.setattr(
         selected_prepare,
