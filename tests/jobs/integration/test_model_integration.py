@@ -567,3 +567,44 @@ def test_cli_retention_read_precedes_integration_and_failure_never_falls_back(
     else:
         assert integrate.call_args.kwargs["preserve_generation_ids"] == ()
     assert (runs.read_bytes() if runs.exists() else None) == before
+
+
+def test_optional_checkpoint_failure_blocks_lake_pointer_after_selection(integration):
+    arguments, events = integration
+
+    def protect(**kwargs):
+        assert read_publication(path=kwargs["runs"]).selection_id == kwargs["selection_id"]
+        events.append("checkpoint")
+        raise ValueError("durable checkpoint failed")
+
+    checkpoint = SimpleNamespace(prior_generation_ids=(), protect=protect)
+    with pytest.raises(ValueError, match="durable checkpoint failed"):
+        job.integrate_models(**arguments, publication_checkpoint=checkpoint)
+    assert "checkpoint" in events
+    assert "publish" not in events
+
+
+def test_checkpoint_is_before_publish_and_guard_is_at_pointer(integration):
+    arguments, events = integration
+
+    def protect(**kwargs):
+        assert read_publication(path=kwargs["runs"]).selection_id == kwargs["selection_id"]
+        events.append("checkpoint")
+
+    checkpoint = SimpleNamespace(
+        prior_generation_ids=(),
+        protect=protect,
+        guard=lambda *_: events.append("checkpoint-guard"),
+    )
+    result = job.integrate_models(**arguments, publication_checkpoint=checkpoint)
+    assert result["models_ready"]
+    assert events.index("checkpoint") < events.index("checkpoint-guard") < events.index("publish")
+
+
+def test_checkpoint_rejects_mismatched_preservation_before_any_work(integration):
+    arguments, events = integration
+    with pytest.raises(ValueError, match="preservation conditions differ"):
+        job.integrate_models(
+            **arguments, publication_checkpoint=SimpleNamespace(prior_generation_ids=("missing",))
+        )
+    assert not events
