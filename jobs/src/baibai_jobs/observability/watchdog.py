@@ -417,7 +417,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--read-run-results", action="store_true")
     parser.add_argument("--economic", action="store_true")
     parser.add_argument("--market", action="store_true")
-    parser.add_argument("--weekdays-only", action="store_true")
     return parser
 
 
@@ -454,9 +453,6 @@ def main(
             if args.economic or args.market
             else SCHEDULED_FIRE_TIME,
         )
-        if args.weekdays_only and window_end.weekday() >= 5:
-            print("watchdog: daily market schedule is not due on this weekend")
-            return 0
         if args.economic:
             if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
                 raise WatchdogInputError("run listing must carry a workflow_runs array")
