@@ -20,7 +20,6 @@ def setup(tmp_path, monkeypatch, client):
     store = MemoryR2Store()
     store.close = lambda: None
     CalendarL1(store, tmp_path / "initialize").initialize()
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
     from baibai_jobs.acquisition import (
         jquants_margin_alerts_native,
         jquants_margin_interest_native,

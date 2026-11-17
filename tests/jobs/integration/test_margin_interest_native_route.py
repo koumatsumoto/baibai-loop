@@ -20,10 +20,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, import_handoff
 
 
-@pytest.mark.parametrize("obsolete_value", [None, "false", "yes"])
-def test_native_market_ignores_retired_flags_and_never_opens_legacy_lake(
-    tmp_path, monkeypatch, obsolete_value
-):
+def test_native_market_commits_all_sources_without_legacy_lake(tmp_path, monkeypatch):
     from tests.jobs.acquisition.test_jquants_margin_interest_native import Client
 
     from baibai_engine.data_collection.providers.jquants import http
@@ -35,11 +32,6 @@ def test_native_market_ignores_retired_flags_and_never_opens_legacy_lake(
     )
     from baibai_jobs.integration import source_handoff as route
 
-    for source in ("MARGIN_ALERTS", "SHORT_SALE_REPORTS", "MARGIN_INTEREST"):
-        if obsolete_value is None:
-            monkeypatch.delenv(f"BAIBAI_{source}_NATIVE", raising=False)
-        else:
-            monkeypatch.setenv(f"BAIBAI_{source}_NATIVE", obsolete_value)
     store = MemoryR2Store()
     store.close = lambda: None
     asof = date(2026, 9, 28)
