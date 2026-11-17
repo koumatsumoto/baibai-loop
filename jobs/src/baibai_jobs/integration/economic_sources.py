@@ -158,7 +158,12 @@ def integrate(
                         "status": "failed",
                         **{
                             key: row[key]
-                            for key in ("http_status", "error_types", "blocked_by_source_id")
+                            for key in (
+                                "http_status",
+                                "error_types",
+                                "blocked_by_source_id",
+                                "browser_download_diagnostic",
+                            )
                             if key in row
                         },
                     }

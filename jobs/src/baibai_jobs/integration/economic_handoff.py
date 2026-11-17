@@ -105,6 +105,8 @@ def acquire(
                 row["error_types"] = list(outcome.error_types)
             if outcome.blocked_by_source_id is not None:
                 row["blocked_by_source_id"] = outcome.blocked_by_source_id
+            if outcome.browser_download_diagnostic is not None:
+                row["browser_download_diagnostic"] = outcome.browser_download_diagnostic
         else:
             row.update(
                 status="ok",
@@ -129,7 +131,7 @@ def acquire(
     expected_unavailable = is_expected_pmi_refusal(
         "economic-" + group, [row for row in rows if row["status"] == "failed"]
     )
-    # Provider error text stays private; only exception class names cross into logs.
+    # Full provider error text stays private; the browser diagnostic is allowlisted at origin.
     write_json_atomic(directory / "result.json", report)
     if output := os.environ.get("GITHUB_OUTPUT"):
         with Path(output).open("a", encoding="utf-8") as stream:

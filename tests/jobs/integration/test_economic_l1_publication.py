@@ -395,6 +395,81 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(
     assert "private provider failure" not in json.dumps(report)
 
 
+@pytest.mark.parametrize(
+    ("navigation", "expected"),
+    [
+        ("html", "navigation returned HTTP 200 (content-type 'text/html')"),
+        ("error", "navigation failed: PlaywrightError (net::ERR_CONNECTION_RESET)"),
+        ("none", "navigation returned no response"),
+    ],
+)
+def test_browser_download_failure_keeps_only_safe_diagnostic_through_l1(
+    tmp_path, setup, monkeypatch, capsys, navigation, expected
+):
+    from unittest.mock import MagicMock
+
+    from playwright.sync_api import Error as PlaywrightError
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    import baibai_engine.data_collection.providers.federal_reserve.h15 as h15
+    from baibai_engine.data_collection.transport.browser import BrowserFetcher
+    from baibai_jobs.integration.economic_handoff import acquire as acquire_source
+
+    secret = "SYNTHETIC_SECRET_MARKER"
+    private_url = f"https://redirect.example.test/{secret}?token={secret}"
+    plain = MagicMock(return_value=f"<html>private response {secret}</html>")
+    monkeypatch.setattr(h15, "fetch_text", plain)
+    context = MagicMock()
+    page = context.new_page.return_value
+    response = page.goto.return_value
+    response.status = 200
+    response.headers = {"content-type": f"text/html; source={private_url}"}
+    if navigation == "error":
+        page.goto.side_effect = PlaywrightError(
+            f"Page.goto: net::ERR_CONNECTION_RESET at {private_url}"
+        )
+    elif navigation == "none":
+        page.goto.return_value = None
+    page.expect_download.return_value.__exit__.side_effect = PlaywrightTimeoutError(private_url)
+    monkeypatch.setattr(BrowserFetcher, "_ensure_context", lambda self: context)
+    database = tmp_path / "source.sqlite"
+    with closing(initialize_database(database)) as conn, conn:
+        confirm_source_response(
+            conn, source_id="fed-h15", fetched_at=AT, records_by_day={DAY: [{"value": "retained"}]}
+        )
+    directory = tmp_path / "browser-failure"
+    assert acquire_source("frb_h15", "", DAY, directory, database) == 1
+    source_report = json.loads((directory / "result.json").read_text())
+    diagnostic = "no download started within 60000 ms; " + expected
+    failure = {
+        "source_id": "fed-h15",
+        "status": "failed",
+        "error_types": ["IndicatorsProviderError", "BrowserDownloadTimeoutError", "TimeoutError"],
+        "browser_download_diagnostic": diagnostic,
+    }
+    assert source_report["sources"] == [{**failure, "history_recovery_required": False}]
+    plain.assert_called_once()
+    page.goto.assert_called_once()
+    page.expect_download.assert_called_once_with(timeout=60000)
+    page.close.assert_called_once_with()
+    response.body.assert_not_called()
+    with closing(sqlite3.connect(database)) as conn:
+        assert next(read_snapshots(conn, DAY, DAY, source_id="fed-h15")).records == (
+            {"value": "retained"},
+        )
+    store, _, _ = setup
+    save_handoff(store, "frb_h15-browser-failure", directory)
+    report = run(tmp_path, setup)
+    assert report["l1_published"]
+    assert report["l1_sealed"]
+    assert not report["handoffs"][0]["failed"]
+    assert report["handoffs"][0]["result"]["acquisition_failures"] == [failure]
+    public = json.dumps(report) + json.dumps(source_report) + capsys.readouterr().out
+    assert secret not in public
+    assert "redirect.example.test" not in public
+    assert "private response" not in public
+
+
 def test_pmi_group_stop_survives_private_handoff_and_l1_integration(tmp_path, setup):
     from baibai_engine.data_collection.receipts.native_sources.store import record_source_run
     from baibai_jobs.observability.discord import render_source_failures

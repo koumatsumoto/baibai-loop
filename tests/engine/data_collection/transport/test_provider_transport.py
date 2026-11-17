@@ -15,6 +15,7 @@ from tests.helpers.provider_fixtures import (
 )
 
 from baibai_engine.data_collection.transport.context import (
+    BrowserDownloadTimeoutError,
     BrowserUnavailableError,
     FetchContext,
     HttpSession,
@@ -273,7 +274,7 @@ class BrowserDownloadTests(TestCase):
 
                 with (
                     patch.object(BrowserFetcher, "_ensure_context", return_value=context),
-                    self.assertRaises(IndicatorsProviderError) as caught,
+                    self.assertRaises(BrowserDownloadTimeoutError) as caught,
                 ):
                     BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
 
@@ -282,6 +283,11 @@ class BrowserDownloadTests(TestCase):
                     f"navigation returned HTTP 200 (content-type {expected!r})",
                     str(caught.exception),
                 )
+                self.assertEqual(
+                    caught.exception.diagnostic,
+                    str(caught.exception).partition("https://example.test/data: ")[2],
+                )
+                self.assertNotIn("https://", caught.exception.diagnostic)
                 self.assertNotIn(secret, str(caught.exception))
                 self.assertNotIn("redirect.example.test", str(caught.exception))
                 page.goto.assert_called_once()
@@ -328,11 +334,16 @@ class BrowserDownloadTests(TestCase):
 
                 with (
                     patch.object(BrowserFetcher, "_ensure_context", return_value=context),
-                    self.assertRaises(IndicatorsProviderError) as caught,
+                    self.assertRaises(BrowserDownloadTimeoutError) as caught,
                 ):
                     BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
 
                 self.assertTrue(str(caught.exception).endswith(f"navigation failed: {expected}"))
+                self.assertEqual(
+                    caught.exception.diagnostic,
+                    str(caught.exception).partition("https://example.test/data: ")[2],
+                )
+                self.assertNotIn("https://", caught.exception.diagnostic)
                 self.assertNotIn(secret, str(caught.exception))
                 self.assertNotIn("redirect.example.test", str(caught.exception))
                 page.goto.assert_called_once()
