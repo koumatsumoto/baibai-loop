@@ -481,7 +481,7 @@ def test_read_has_no_network_or_store_writes(tmp_path, monkeypatch):
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
 
 
-def test_valuation_import_does_not_start_research_or_aggregate_read_api():
+def test_valuation_import_does_not_load_judgment_or_screening():
     subprocess.run(
         [
             sys.executable,
