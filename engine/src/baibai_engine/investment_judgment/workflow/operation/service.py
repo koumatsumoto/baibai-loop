@@ -446,6 +446,7 @@ class OperationService:
                     raise OperationConflictError(
                         "Research selection is immutable; no replacement targets"
                     )
+                del incoming
                 progress = validate_progress(
                     connection,
                     selected_before,
@@ -488,6 +489,8 @@ class OperationService:
                             "empty selection ends with a reason; do not fabricate a Proposal"
                         )
                     _validate_complete(before.session_kind, payload)
+                # 保存payloadを展開する前に、検証済みの型付き入力を解放する。
+                del selected_before
                 operation = OperationSession.model_validate(
                     {
                         **before.model_dump(mode="json", exclude={"payload"}),
