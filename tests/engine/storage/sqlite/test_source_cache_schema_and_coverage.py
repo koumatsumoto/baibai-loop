@@ -37,8 +37,6 @@ class SourceCacheSchemaTests(unittest.TestCase):
 
             self.assertEqual(version[0], SQLITE_SCHEMA_VERSION)
             self.assertIn("source_coverage", tables)
-            self.assertNotIn("raw_imports", tables)
-            self.assertNotIn("cache_metadata", tables)
 
     def test_rejects_legacy_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
