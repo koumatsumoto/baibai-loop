@@ -333,13 +333,19 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
         assert forbidden not in str(child)
 
 
-def test_source_cli_has_no_standalone_publication_or_lease_inputs(monkeypatch):
+def test_source_cli_exposes_acquisition_handoff_commands_without_opening_a_store(
+    monkeypatch, capsys
+):
     def forbidden(**kwargs):
-        pytest.fail("retired publication command constructed a remote store")
+        pytest.fail("argument handling constructed a remote store")
 
     monkeypatch.setattr(sources, "Boto3R2Store", forbidden)
+    with pytest.raises(SystemExit) as help_result:
+        sources.main(["--help"])
+    assert help_result.value.code == 0
+    assert "{prepare,resolve,acquire,inspect,ready}" in capsys.readouterr().out
     with pytest.raises(SystemExit) as error:
-        sources.main(["publish"])
+        sources.main(["unknown-command"])
     assert error.value.code == 2
 
 
