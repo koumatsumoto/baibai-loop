@@ -49,8 +49,6 @@ def promote(
     workspace: Path,
     ticker: str,
     db_path: Path | None,
-    assessment_id: str | None = None,
-    supersedes_id: str | None = None,
     now: datetime,
 ) -> PromoteResult:
     """Publish the canonical assessment/review only when everything is ready.
@@ -84,13 +82,9 @@ def promote(
     resolved_assessment_id = identity["assessment_id"]
     if not isinstance(resolved_assessment_id, str):
         raise ResearchWorkspaceDataError("assessment publication ID must be a string")
-    if assessment_id is not None and assessment_id != resolved_assessment_id:
-        raise ResearchWorkspaceConflictError("assessment ID differs from the scaffolded identity")
     saved_supersedes = identity["supersedes_id"]
     if saved_supersedes is not None and not isinstance(saved_supersedes, str):
         raise ResearchWorkspaceDataError("assessment supersedes ID must be a string or null")
-    if supersedes_id is not None and supersedes_id != saved_supersedes:
-        raise ResearchWorkspaceConflictError("supersedes ID differs from the scaffolded identity")
     try:
         AssessmentStoreService(db_path, clock=lambda: now).publish_reviewed_assessment(
             resolved_assessment_id,
