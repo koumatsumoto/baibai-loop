@@ -1,4 +1,4 @@
-"""File identities are independent of byte content and transfer chunk boundaries."""
+"""File digests cover exact bytes regardless of transfer chunk boundaries."""
 
 import hashlib
 

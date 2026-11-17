@@ -658,25 +658,20 @@ def test_a_release_reference_is_not_admissible_as_partition_lineage() -> None:
     # dataset manifests and objects kept whole, and nothing here walks that closure yet.
     # A partition that claimed it would name a lineage no publisher, reader, or
     # retention plan keeps.
-    with pytest.raises(ValueError, match="PartitionManifest"):
-        load_lake_model_json(
-            json.dumps(
-                {
-                    "values": {"year": 2026, "month": 8},
-                    "objects": [],
-                    "sources": [
-                        {
-                            "kind": "lake_release",
-                            "source_id": "release-1",
-                            "key": release_manifest_key(release_id="release-1"),
-                            "sha256": "e" * 64,
-                            "manifest_version": 2,
-                        }
-                    ],
-                }
-            ),
-            PartitionManifest,
-        )
+    partitions = _dataset_payload()["partitions"]
+    assert isinstance(partitions, list)
+    partition = partitions[0]
+    partition["sources"] = [
+        {
+            "kind": "lake_release",
+            "source_id": "release-1",
+            "key": release_manifest_key(release_id="release-1"),
+            "sha256": "e" * 64,
+            "manifest_version": 2,
+        }
+    ]
+    with pytest.raises(ValueError, match=r"union_tag_invalid at sources\.0"):
+        load_lake_model_json(json.dumps(partition), PartitionManifest)
 
 
 def test_key_builders_are_deterministic_and_traversal_safe() -> None:
@@ -768,31 +763,42 @@ def test_lake_domain_is_exposed_by_the_root_cli() -> None:
     assert _COMMANDS["snapshots"] == "baibai_jobs.publication.snapshot_cli"
 
 
-@pytest.mark.parametrize("command", ["export-all", "release", "validate"])
-@pytest.mark.parametrize("entrypoint", ["dispatch", "write"])
-def test_retired_manual_publication_cli_rejects_before_io(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str, entrypoint: str
+@pytest.mark.parametrize(
+    ("entrypoint", "commands"),
+    [
+        ("dispatch", "{inventory,resolve,hydrate,hydrate-portfolio,dehydrate,gc}"),
+        ("write", "{hydrate,hydrate-portfolio,dehydrate,gc}"),
+    ],
+)
+def test_snapshot_cli_lists_current_commands_and_rejects_unknown_before_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    entrypoint: str,
+    commands: str,
 ) -> None:
-    from baibai_jobs.publication import snapshot_write_cli
+    from baibai_jobs.publication import snapshot_cli, snapshot_write_cli
 
     def unexpected_io(*args: object, **kwargs: object) -> None:
-        pytest.fail("retired publication CLI must not open a store")
+        pytest.fail("command parsing must not open a store")
 
+    monkeypatch.setattr(snapshot_cli, "open_lake", unexpected_io)
+    monkeypatch.setattr(snapshot_cli, "inventory", unexpected_io)
     monkeypatch.setattr(snapshot_write_cli, "open_lake", unexpected_io)
-    monkeypatch.setattr(snapshot_write_cli, "create_release", unexpected_io, raising=False)
-    arguments = (
-        ["export-all", "--sqlite", str(tmp_path / "market.sqlite")]
-        if command == "export-all"
-        else (
-            ["release", "create", "--dataset-manifest", str(tmp_path / "dataset.json")]
-            if command == "release"
-            else ["validate", "--manifest", str(tmp_path / "dataset.json")]
-        )
-    )
+    monkeypatch.setattr(snapshot_write_cli, "plan_gc", unexpected_io)
     main = lake_main if entrypoint == "dispatch" else snapshot_write_cli.main
     before = {path: path.read_bytes() if path.is_file() else None for path in tmp_path.rglob("*")}
+    if entrypoint == "dispatch":
+        assert main(["--help"]) == 0
+    else:
+        with pytest.raises(SystemExit) as raised:
+            main(["--help"])
+        assert raised.value.code == 0
+    help_output = capsys.readouterr()
+    assert commands in help_output.out
+    assert not help_output.err
     with pytest.raises(SystemExit) as raised:
-        main([*arguments, "--mirror", str(tmp_path / "mirror")])
+        main(["unknown-command", "--mirror", str(tmp_path / "mirror")])
     assert raised.value.code == 2
     assert {
         path: path.read_bytes() if path.is_file() else None for path in tmp_path.rglob("*")
