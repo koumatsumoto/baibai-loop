@@ -16,6 +16,8 @@ app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
 machine_bundle_keys=(market.sqlite runs.sqlite)
 transfer_staging=""
+evidence_dir=""
+evidence_pending_key=""
 
 cleanup_staging() {
   if [[ -n "${transfer_staging}" && -d "${transfer_staging}" ]]; then
@@ -26,6 +28,147 @@ cleanup_staging() {
   fi
 }
 trap cleanup_staging EXIT
+
+transfer_evidence() {
+  [[ -n "${evidence_dir}" ]] || return 0
+  python3 - "${evidence_dir}" "$1" "${2:-}" "${3:-}" "${4:-}" \
+    "${repo_root}" "${PUBLICATION_LEASE_HANDLE:-}" "${evidence_pending_key}" \
+    "${transfer_staging}" <<'PYTHON'
+import errno
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+root, phase, key, expected, ack, repo, handle, pending, staging = sys.argv[1:]
+root = Path(root)
+handle = Path(handle) if Path(handle).is_absolute() else Path(repo) / handle
+
+def digest(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+try:
+    record = {"phase": phase, "at_utc": datetime.now(timezone.utc).isoformat()}
+    if phase == "started":
+        lease = json.loads(handle.read_bytes())
+        record.update(
+            code_commit=subprocess.check_output(
+                ["git", "-C", repo, "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+            ).strip(),
+            script_sha256=digest(Path(repo) / "jobs/scripts/r2_transfer.sh"),
+            lease={name: lease[name] for name in (
+                "owner", "purpose", "acquired_at_utc", "expires_at_utc"
+            )},
+            lease_handle_sha256=digest(handle),
+            readback_accepted=False,
+        )
+        root.mkdir(mode=0o700)
+        root.chmod(0o700)
+    if key:
+        if key not in {"market.sqlite", "runs.sqlite", "machine-manifest.json"}:
+            raise ValueError("unexpected evidence key")
+        record.update(key=key, if_match=expected or None)
+    if phase in {"snapshot_ready", "put_started", "put_ack"}:
+        body = root / key
+        if phase == "snapshot_ready":
+            source = Path(staging) / key
+            try:
+                os.link(source, body)
+            except OSError as error:
+                if error.errno != errno.EXDEV:
+                    raise
+                with source.open("rb") as incoming, body.open("xb") as retained:
+                    shutil.copyfileobj(incoming, retained)
+                    retained.flush()
+                    os.fsync(retained.fileno())
+                if digest(source) != digest(body):
+                    raise ValueError("retained transfer copy differs")
+        if body.is_symlink() or not body.is_file():
+            raise ValueError("body is not a regular retained file")
+        body.chmod(0o600)
+        record.update(body=key, sha256=digest(body), size=body.stat().st_size)
+        with body.open("rb") as stream:
+            os.fsync(stream.fileno())
+        if phase != "snapshot_ready":
+            ready = json.loads((root / (key + ".snapshot_ready.json")).read_bytes())
+            if any(record[name] != ready[name] for name in ("sha256", "size", "if_match")):
+                raise ValueError("prepared body or precondition changed")
+            start = json.loads((root / "attempt.started.json").read_bytes())
+            if digest(handle) != start["lease_handle_sha256"]:
+                raise ValueError("publication handle changed")
+    if phase == "put_ack":
+        record["put_response_etag"] = ack
+    if phase in {"stopped", "completed"}:
+        record.update(outcome_unknown_key=pending or None, readback_accepted=False)
+        if phase == "completed":
+            for name in ("market.sqlite", "runs.sqlite", "machine-manifest.json"):
+                if not (root / (name + ".put_ack.json")).is_file():
+                    raise ValueError("missing PUT acknowledgement")
+    path = root / ((key or "attempt") + "." + phase + ".json")
+    with path.open("x", encoding="utf-8") as stream:
+        json.dump(record, stream, ensure_ascii=False, sort_keys=True)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError):
+    print("transfer evidence could not be recorded (" + phase + ")", file=sys.stderr)
+    raise SystemExit(1) from None
+PYTHON
+}
+
+finish_evidence() {
+  local status=$?
+  trap - EXIT
+  if [[ ${status} -eq 0 ]]; then
+    if ! transfer_evidence completed; then
+      status=1
+      transfer_evidence stopped || true
+    fi
+  else
+    transfer_evidence stopped || true
+  fi
+  cleanup_staging
+  exit "${status}"
+}
+
+transfer_body() {
+  printf '%s/%s\n' "${evidence_dir:-${transfer_staging}}" "$1"
+}
+
+put_with_evidence() {
+  local key="$1" expected="$2" response version status
+  local -a condition=()
+  if [[ -n "${expected}" ]]; then condition+=(--if-match "${expected}"); fi
+  transfer_evidence put_started "${key}" "${expected}"
+  evidence_pending_key="${key}"
+  if response="$(aws s3api put-object \
+    --bucket "${stores_bucket}" --key "${key}" --body "$(transfer_body "${key}")" \
+    "${condition[@]}" --endpoint-url "${endpoint}" --query ETag --output text 2>/dev/null)"; then
+    if [[ -z "${response}" || "${response}" == "None" ]] \
+      || ! version="$(etag_body "${response}")" \
+      || [[ "${version}" == "None" || "${version}" == "null" ]] \
+      || [[ "${response}" != "${version}" && "${response}" != "\"${version}\"" ]]; then
+      printf 'machine PUT outcome unknown; evidence retained\n' >&2
+      return 1
+    fi
+  else
+    status=$?
+    printf 'machine PUT outcome unknown; evidence retained\n' >&2
+    return "${status}"
+  fi
+  transfer_evidence put_ack "${key}" "${expected}" "${version}"
+  evidence_pending_key=""
+}
 
 load_credentials() {
   if [[ -z "${R2_ACCOUNT_ID:-}" || -z "${R2_ACCESS_KEY_ID:-}" || -z "${R2_SECRET_ACCESS_KEY:-}" ]]; then
@@ -256,13 +399,18 @@ write_machine_manifest() {
     done
     printf '\n  }\n}\n'
   } > "${file}"
+  transfer_evidence snapshot_ready "${machine_manifest_key}"
   verify_publication_lease
-  aws s3api put-object \
-    --bucket "${stores_bucket}" \
-    --key "${machine_manifest_key}" \
-    --body "${file}" \
-    --endpoint-url "${endpoint}" \
-    >/dev/null
+  if [[ -n "${evidence_dir}" ]]; then
+    put_with_evidence "${machine_manifest_key}" ""
+  else
+    aws s3api put-object \
+      --bucket "${stores_bucket}" \
+      --key "${machine_manifest_key}" \
+      --body "${file}" \
+      --endpoint-url "${endpoint}" \
+      >/dev/null
+  fi
   cleanup_staging
   transfer_staging=""
   printf 'machine bundle receipt written: %s\n' "${machine_manifest_key}"
@@ -463,12 +611,13 @@ _push_keys() {
   fi
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   # Report snapshot, backup and upload times separately for each store.
-  local key source started uploaded_version
+  local key source body started uploaded_version
   local -a snapshot_seconds=()
   for key in "$@"; do
     source="$(store_path "${key}")"
+    body="${transfer_staging}/${key}"
     started="${SECONDS}"
-    snapshot_sqlite "${source}" "${transfer_staging}/${key}" "${key}"
+    snapshot_sqlite "${source}" "${body}" "${key}"
     # The copy that leaves here carries only what the lake does not hold — but only
     # once the lake holds anything. A lake release pointer is where that authority is
     # declared, so it is read rather than assumed: before the first publication (an
@@ -476,16 +625,24 @@ _push_keys() {
     # after it the emptying is mandatory rather than best-effort.
     if [[ "${key}" == "market.sqlite" ]] \
       && remote_object_exists "lake/pointers/market/current.json"; then
-      dehydrate_market_snapshot "${transfer_staging}/${key}"
+      if [[ -n "${evidence_dir}" ]]; then
+        dehydrate_market_snapshot "${body}" >/dev/null
+      else
+        dehydrate_market_snapshot "${body}"
+      fi
     fi
+    transfer_evidence snapshot_ready "${key}" "${expected_version}"
     snapshot_seconds+=("$((SECONDS - started))")
   done
   local index=0
   for key in "$@"; do
+    body="${transfer_staging}/${key}"
     started="${SECONDS}"
     if [[ -n "${expected_version}" ]]; then
       if [[ "${key}" != "baibai.sqlite" ]]; then verify_publication_lease; fi
+      transfer_evidence backup_started "${key}" "${expected_version}"
       backup_remote_key "${key}" "${expected_version}"
+      transfer_evidence backup_checked "${key}" "${expected_version}"
     fi
     local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
@@ -494,13 +651,17 @@ _push_keys() {
       # PutObject's If-Match is checked atomically when R2 commits the object. The
       # earlier read avoids an expensive snapshot after an already-visible race;
       # this condition closes the remaining race through backup and upload.
-      uploaded_version="$(aws s3api put-object \
-        --bucket "${stores_bucket}" \
-        --key "${key}" \
-        --body "${transfer_staging}/${key}" \
-        --if-match "${expected_version}" \
-        --endpoint-url "${endpoint}" \
-        --query ETag --output text)"
+      if [[ -n "${evidence_dir}" ]]; then
+        put_with_evidence "${key}" "${expected_version}"
+      else
+        uploaded_version="$(aws s3api put-object \
+          --bucket "${stores_bucket}" \
+          --key "${key}" \
+          --body "${body}" \
+          --if-match "${expected_version}" \
+          --endpoint-url "${endpoint}" \
+          --query ETag --output text)"
+      fi
       if [[ "${key}" == "baibai.sqlite" ]]; then
         # Only this PUT's response identifies our snapshot; a later HEAD could
         # observe a different writer and authorize a stale working copy.
@@ -516,14 +677,14 @@ _push_keys() {
       aws s3api put-object \
         --bucket "${stores_bucket}" \
         --key "${key}" \
-        --body "${transfer_staging}/${key}" \
+        --body "${body}" \
         --if-none-match '*' \
         --endpoint-url "${endpoint}" \
         >/dev/null
     fi
     printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss\n' \
       "${key}" \
-      "$(wc -c < "${transfer_staging}/${key}" | tr -d ' \n')" \
+      "$(wc -c < "${body}" | tr -d ' \n')" \
       "${snapshot_seconds[index]}" \
       "${backup_elapsed}" \
       "$((SECONDS - started))"
@@ -638,10 +799,24 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-portfolio|publish-lake|push-machine|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
+if [[ "${1:-}" == "push-machine" && $# -ne 1 ]]; then
+  [[ $# -eq 3 && "$2" == "--evidence-dir" && -n "$3" ]] || { usage; exit 2; }
+  evidence_dir="$3"
+  umask 077
+  transfer_evidence started
+  trap finish_evidence EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+fi
+
 load_credentials
+if [[ -n "${evidence_dir}" ]]; then
+  # Evidence describes one attempt, not a CLI retry whose first outcome was lost.
+  export AWS_MAX_ATTEMPTS=1 AWS_RETRY_MODE=standard
+fi
 case "${1:-}" in
   pull-app)
     pull_app
