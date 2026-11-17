@@ -82,15 +82,7 @@ quote不足/古さ/権利未解決は該当時価を未評価とし、cash・予
 
 受領済みactionと基準日・種別・比率が一致した分だけ数量basisを解決する。別action・粗い係数で照合不能・価格/calendar欠測は未評価のまま残す。確認済みeventより前のraw quoteを新数量に掛けない。既存保存Proposal/Outcomeは不変で、新しい提案・新IDの実績だけへ反映する。
 
-切替期間の新コードはschema29/30を読み書きできる。29では旧eventとmetadata v3だけを保存し、通常の記帳・判断保存・表示を継続する。株数変更の適用は30だけで、draft作成は移行ではない。旧コードは29だけを扱えるため、30への公開前に利用中のwriter/readerを新コードへ更新する。
-
-取得ETagと組にした29の作業copyを、次の明示コマンドで別ファイルへ移行する。元ファイル・過去公開・未公開差分を保持し、全保存row/ID/hashの一致を確認して[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)の条件付きPUTで反映する。並行writerが先に公開したらCASで拒否されるので、作業copyを保持して新正本から準備し直す。移行が先なら旧ETagのwriterを拒否する。開かれているローカルDBの置換や、通常dailyの自動移行はしない。応答不明時は公開状態を確認し、再送で上書きしない。backupの同日key置換にも注意する。
-
-```bash
-uv run python -m tools.enable_share_conversions --source <SCHEMA29_COPY> --destination <NEW_SCHEMA30_COPY>
-```
-
-同じ公開ETagからfresh pullして30と保存結果を読み戻し、通常記帳・daily/materializeと全writerの更新、残る29作業copyの扱いを確認したら、29のread/write許容・ledger書込guard・一回移行toolと専用テスト/説明をまとめて撤去する。旧29の退避は当時のcodeと組で保持する。30へ新記録が入った後は29 snapshotへ戻さず、30を理解する新コードで前向きに修正する。
+draft作成は移行ではなく、適用にはapplication schema30が必要。29の通常保存を保つ限定互換、一回切替・読戻し・撤去条件は[運用手順](../../../jobs/OPERATIONS.md#share-conversion-cutover)に集約する。
 
 <a id="historical-outcome"></a>
 ## Historical Outcome
