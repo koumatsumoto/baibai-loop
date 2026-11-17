@@ -29,6 +29,7 @@ from baibai_engine.storage.snapshots.reader import (
 )
 from baibai_engine.storage.sqlite.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only as market_connection
+from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.snapshot_publication import (
     _fetch,
@@ -93,8 +94,7 @@ def row_fingerprint(rows: Iterable[Sequence[object]]) -> dict[str, Any]:
 def snapshot_market(path: Path) -> dict[str, dict[str, Any]]:
     with closing(market_connection(path)) as connection:
         connection.execute("BEGIN")
-        if connection.execute("PRAGMA user_version").fetchone()[0] != 51:
-            raise ValueError("recovery requires market schema 51")
+        validate_current_schema(connection)
         return {
             name: row_fingerprint(
                 connection.execute(

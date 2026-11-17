@@ -38,8 +38,9 @@ from baibai_engine.primitives.json import encode_json
 
 @pytest.mark.parametrize("legacy", [False, True])
 @pytest.mark.parametrize("source_limits", [False, True])
+@pytest.mark.parametrize("financing_details", [False, True])
 def test_first_comparison_and_detached_research_keep_cashflow_without_backfilling_old(
-    tmp_path, legacy, source_limits
+    tmp_path, legacy, source_limits, financing_details
 ):
     path = tmp_path / "runs"
     fixed, _, _, _ = seed(path)
@@ -53,6 +54,11 @@ def test_first_comparison_and_detached_research_keep_cashflow_without_backfillin
                 "source_doc_id": "synthetic-edinet",
             },
             edinet_failure_reasons="metric_unavailable:capex,entity_scale_mismatch",
+        )
+    if financing_details:
+        context.setdefault("edinet_reported_flows", {}).setdefault("amounts", {}).update(
+            financing_lease_repayments_cash_effect=-12,
+            financing_noncontrolling_dividends_cash_effect=None,
         )
     for model in fixed.models:
         if model.subject == "1234" and model.model_id == "company_financials":

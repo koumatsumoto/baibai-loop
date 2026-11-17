@@ -42,6 +42,8 @@ class EdinetMetricRecord:
     ocf_other_payables_cash_effect: float | None = None
     capex_ppe_reported: float | None = None
     capex_intangible_reported: float | None = None
+    financing_lease_repayments_cash_effect: float | None = None
+    financing_noncontrolling_dividends_cash_effect: float | None = None
     fcf_ttm: float | None = None
     net_cash: float | None = None
     equity: float | None = None
@@ -80,6 +82,8 @@ class EdinetMetricRecord:
         "ocf_other_payables_cash_effect",
         "capex_ppe_reported",
         "capex_intangible_reported",
+        "financing_lease_repayments_cash_effect",
+        "financing_noncontrolling_dividends_cash_effect",
         "fcf_ttm",
         "net_cash",
         "equity",

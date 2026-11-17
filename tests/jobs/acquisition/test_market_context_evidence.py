@@ -14,7 +14,7 @@ import baibai_jobs.acquisition.market_context as evidence
 from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.investment_judgment.market_assessment.models import AssessmentInput
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
 from baibai_jobs.integration.native_source_merge import verify_stores
@@ -108,7 +108,7 @@ def test_common_integration_preserves_exact_market_receipts_without_schema_migra
     assert len(entries) == 1
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     with closing(open_connection(market)) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 51
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION
     with closing(initialize_database(economic)) as conn:
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 13
     market_before = market.read_bytes()

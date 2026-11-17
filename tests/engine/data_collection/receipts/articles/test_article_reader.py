@@ -10,7 +10,10 @@ from tests.helpers.article_acquisition import receipt
 from baibai_engine.data_collection.receipts.articles import store
 from baibai_engine.data_collection.receipts.articles.storage_contracts import ARTICLE_RECEIPTS_DDL
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only as read_market
-from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+)
 
 
 def packet(path, ddl=ARTICLE_RECEIPTS_DDL):
@@ -37,7 +40,7 @@ def test_old_enclosing_version_reads_exact_article_without_rewriting(tmp_path):
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             conn.execute("DELETE FROM article_source_receipts")
     assert path.read_bytes() == before
-    with pytest.raises(SQLiteSchemaError, match="expected=51"):
+    with pytest.raises(SQLiteSchemaError, match=f"expected={SQLITE_SCHEMA_VERSION}"):
         read_market(path)
 
 

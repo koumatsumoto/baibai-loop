@@ -436,6 +436,10 @@ def _metric_record_payload(
         "ocf_other_payables_cash_effect": record.ocf_other_payables_cash_effect,
         "capex_ppe_reported": record.capex_ppe_reported,
         "capex_intangible_reported": record.capex_intangible_reported,
+        "financing_lease_repayments_cash_effect": record.financing_lease_repayments_cash_effect,
+        "financing_noncontrolling_dividends_cash_effect": (
+            record.financing_noncontrolling_dividends_cash_effect
+        ),
         "fcf_ttm": record.fcf_ttm,
         "net_cash": record.net_cash,
         "equity": record.equity,

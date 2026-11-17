@@ -53,7 +53,9 @@ _METRIC_SELECT = (
     "ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
     "ocf_payables_cash_effect, ocf_contract_liabilities_cash_effect, "
     "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
-    "capex_ppe_reported, capex_intangible_reported"
+    "capex_ppe_reported, capex_intangible_reported, "
+    "financing_lease_repayments_cash_effect, "
+    "financing_noncontrolling_dividends_cash_effect"
 )
 
 

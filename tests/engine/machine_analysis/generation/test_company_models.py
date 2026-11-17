@@ -346,7 +346,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1-balance-context-v1-cfo-source-v1-capital-actions-v3-repeated-completion"
+        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v2-book-source-v1-balance-context-v1-cfo-source-v1-capital-actions-v3-repeated-completion"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
@@ -583,6 +583,8 @@ def test_reported_cf_details_keep_sign_null_scope_and_totals_through_generation(
             ("IncreaseDecreaseInContractLiabilitiesOpeCF", "6"),
             ("IncreaseDecreaseInAdvancesReceivedOpeCF", "7"),
             ("PurchaseOfPropertyPlantAndEquipmentInvCF", "-20"),
+            ("RepaymentsOfLeaseObligationsFinCF", "-4"),
+            ("DividendsPaidToNonControllingInterestsFinCF", "0"),
         ),
     )
     expected = {
@@ -594,6 +596,8 @@ def test_reported_cf_details_keep_sign_null_scope_and_totals_through_generation(
         "ocf_other_payables_cash_effect": None,
         "capex_ppe_reported": 20.0,
         "capex_intangible_reported": None,
+        "financing_lease_repayments_cash_effect": -4.0,
+        "financing_noncontrolling_dividends_cash_effect": 0.0,
     }
     if kind in {"160", "170"}:
         expected = {

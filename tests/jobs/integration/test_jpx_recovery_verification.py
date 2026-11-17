@@ -44,7 +44,10 @@ def test_fingerprints_preserve_raw_bytes_duplicate_rows_and_not_row_order():
     )
 
 
-def test_market_snapshot_covers_exact_owner_tables_and_refuses_old_schema(tmp_path):
+@pytest.mark.parametrize("obsolete_version", [50, 51])
+def test_market_snapshot_covers_exact_owner_tables_and_refuses_old_schema(
+    tmp_path, obsolete_version
+):
     database = market_store(tmp_path / "market.sqlite")
     snapshot = verification.snapshot_market(database)
     assert len(snapshot) == 12
@@ -55,9 +58,21 @@ def test_market_snapshot_covers_exact_owner_tables_and_refuses_old_schema(tmp_pa
     with pytest.raises(ValueError, match="unsupported"):
         verification.coverage(database, "sql")
     with sqlite3.connect(database) as connection:
-        connection.execute("PRAGMA user_version=50")
+        connection.execute(f"PRAGMA user_version={obsolete_version}")
+    before = database.read_bytes()
     with pytest.raises(SQLiteSchemaError, match="schema"):
         verification.snapshot_market(database)
+    assert database.read_bytes() == before
+
+
+def test_market_snapshot_refuses_unwritten_store_without_initializing_it(tmp_path):
+    database = tmp_path / "market.sqlite"
+    with sqlite3.connect(database):
+        pass
+    before = database.read_bytes()
+    with pytest.raises(SQLiteSchemaError, match="schema"):
+        verification.snapshot_market(database)
+    assert database.read_bytes() == before
 
 
 @pytest.mark.parametrize(
