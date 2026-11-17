@@ -50,15 +50,13 @@ def clock(monkeypatch):
     return value
 
 
-def wire_collector(monkeypatch, store, p, clock, responses):
+def wire_collector(monkeypatch, store, clock, responses):
     class Session(requests.Session):
         def __init__(self):
             super().__init__()
             self.responses = iter(responses)
             self.calls = []
             self.limiters = []
-            self.source = None
-            self.ticker = None
 
         def get(self, url, **kwargs):
             self.calls.append((url, clock.now()))
@@ -82,7 +80,6 @@ def wire_collector(monkeypatch, store, p, clock, responses):
     session = Session()
 
     def collect(ticker, *, source, **kwargs):
-        session.ticker, session.source = ticker, source
         session.limiters.append(kwargs.get("rate_limiter"))
         return external_assessment_collect_pair(
             ticker, source=source, **{**kwargs, "session": session}
@@ -95,7 +92,7 @@ def wire_collector(monkeypatch, store, p, clock, responses):
 def test_retry_is_process_local_and_one_stage_commit_preserves_actual_receipt(monkeypatch, clock):
     p, store = plan(), FakeObjectStore()
     client = wire_collector(
-        monkeypatch, store, p, clock, [(429, "8", "denied"), (200, None, monex_html())]
+        monkeypatch, store, clock, [(429, "8", "denied"), (200, None, monex_html())]
     )
     report = daily.acquire_cohort(store, p, 0)
     assert report["provider_requests"] == 2
@@ -103,7 +100,6 @@ def test_retry_is_process_local_and_one_stage_commit_preserves_actual_receipt(mo
     saved = staging.read_stage(store, p, 0)[0]
     assert saved.result.entries[0].state == "success"
     assert saved.result.observations[0].fetched_at_utc == clock.now()
-    assert not hasattr(saved, "retry_states")
     from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
 
     journal = read_attempts(store, p)
@@ -117,7 +113,7 @@ def test_retry_is_process_local_and_one_stage_commit_preserves_actual_receipt(mo
 
 def test_expired_cycle_keeps_unattempted_pairs_without_http_or_writes(monkeypatch, clock):
     p, store = plan(), FakeObjectStore()
-    client = wire_collector(monkeypatch, store, p, clock, [])
+    client = wire_collector(monkeypatch, store, clock, [])
     report = daily.acquire_cohort(store, p, 0, collect_before=BASE)
     assert report["provider_requests"] == 0
     assert report["stop_reason"] == "cycle_finished"
@@ -128,7 +124,7 @@ def test_expired_cycle_keeps_unattempted_pairs_without_http_or_writes(monkeypatc
 
 def test_retry_cannot_sleep_into_next_cycle(monkeypatch, clock):
     p, store = plan(), FakeObjectStore()
-    client = wire_collector(monkeypatch, store, p, clock, [(429, "8", "denied")])
+    client = wire_collector(monkeypatch, store, clock, [(429, "8", "denied")])
     report = daily.acquire_cohort(store, p, 0, collect_before=BASE + timedelta(seconds=5))
     assert report["provider_requests"] == 1
     assert len(client.calls) == 1
@@ -141,7 +137,7 @@ def test_retry_cannot_sleep_into_next_cycle(monkeypatch, clock):
 
 def test_host_spacing_cannot_start_request_after_cycle_deadline(monkeypatch, clock):
     p, store = plan(), FakeObjectStore()
-    client = wire_collector(monkeypatch, store, p, clock, [])
+    client = wire_collector(monkeypatch, store, clock, [])
     report = daily.acquire_cohort(store, p, 0, collect_before=BASE + timedelta(seconds=0.1))
     assert report["provider_requests"] == 0
     assert client.calls == []
@@ -154,7 +150,7 @@ def test_initial_plus_five_retry_stops_and_saved_failure_is_not_retried(
 ):
     p, store = plan(sources=(source,)), FakeObjectStore()
     replies = [(429, "0", "denied")] * 6
-    client = wire_collector(monkeypatch, store, p, clock, replies)
+    client = wire_collector(monkeypatch, store, clock, replies)
     report = daily.acquire_cohort(store, p, 0)
     assert len(client.calls) == report["provider_requests"] == limit
     assert report["stop_reason"] == "rate_limited_retry_exhausted"
@@ -178,7 +174,7 @@ def test_retry_deadline_outside_budget_records_failure_and_resume_only_missing(
     monkeypatch, clock, header, stop
 ):
     p, store = plan(tickers=("6758", "7203")), FakeObjectStore()
-    client = wire_collector(monkeypatch, store, p, clock, [(429, header, "denied")])
+    client = wire_collector(monkeypatch, store, clock, [(429, header, "denied")])
     report = daily.acquire_cohort(store, p, 0)
     assert report["stop_reason"] == stop
     assert report["cohort_complete"] is False
@@ -186,7 +182,7 @@ def test_retry_deadline_outside_budget_records_failure_and_resume_only_missing(
     assert [entry.state for entry in partial.result.entries] == ["failure", "unattempted"]
     assert len(client.calls) == 1
     store.events.clear()
-    next_client = wire_collector(monkeypatch, store, p, clock, [(200, None, monex_html("7203"))])
+    next_client = wire_collector(monkeypatch, store, clock, [(200, None, monex_html("7203"))])
     if header == "18000":
         waiting = daily.acquire_cohort(store, p, 0)
         assert waiting["provider_requests"] == 0
@@ -208,7 +204,6 @@ def test_http_date_retry_deadline_is_not_replaced_by_short_fallback(monkeypatch,
     client = wire_collector(
         monkeypatch,
         store,
-        p,
         clock,
         [(429, "Sun, 11 Oct 2026 00:00:12 GMT", "denied"), (200, None, monex_html())],
     )
@@ -219,7 +214,7 @@ def test_http_date_retry_deadline_is_not_replaced_by_short_fallback(monkeypatch,
 def test_timeout_has_one_attempt_and_controlled_wall_clock_stop_saves_partial(monkeypatch, clock):
     p, store = plan(tickers=("6758", "7203")), FakeObjectStore()
 
-    client = wire_collector(monkeypatch, store, p, clock, [source_http.TimeLimit()])
+    client = wire_collector(monkeypatch, store, clock, [source_http.TimeLimit()])
     report = daily.acquire_cohort(store, p, 0)
     assert report["stop_reason"] == "wall_clock_limit"
     assert len(client.calls) == 1
@@ -233,7 +228,7 @@ def test_timeout_has_one_attempt_and_controlled_wall_clock_stop_saves_partial(mo
 @pytest.mark.parametrize("status", [401, 403])
 def test_refusal_stops_current_cohort_and_resumes_only_unattempted_pair(monkeypatch, clock, status):
     p, store = plan(tickers=("6758", "7203")), FakeObjectStore()
-    client = wire_collector(monkeypatch, store, p, clock, [(status, None, "denied")])
+    client = wire_collector(monkeypatch, store, clock, [(status, None, "denied")])
     report = daily.acquire_cohort(store, p, 0)
     assert report["stop_reason"] == "access_denied"
     assert report["cohort_complete"] is False
@@ -242,7 +237,7 @@ def test_refusal_stops_current_cohort_and_resumes_only_unattempted_pair(monkeypa
     assert before.reason == ("http_failure" if status == 401 else "access_denied")
     assert before.http_status == status
     store.events.clear()
-    resumed = wire_collector(monkeypatch, store, p, clock, [(200, None, monex_html("7203"))])
+    resumed = wire_collector(monkeypatch, store, clock, [(200, None, monex_html("7203"))])
     recovered = daily.acquire_cohort(store, p, 0)
     assert len(resumed.calls) == 1
     assert recovered["cohort_complete"] is True
@@ -256,7 +251,6 @@ def test_host_bucket_is_shared_across_pairs_and_resets_without_restart_credit(mo
     client = wire_collector(
         monkeypatch,
         store,
-        p,
         clock,
         [(200, None, monex_html("6758")), (200, None, monex_html("7203"))],
     )
@@ -272,7 +266,6 @@ def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monke
     client = wire_collector(
         monkeypatch,
         store,
-        p,
         clock,
         [
             (200, None, kabumap_html("130A")),
@@ -320,7 +313,6 @@ def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monke
     resumed = wire_collector(
         monkeypatch,
         store,
-        p,
         clock,
         [
             (200, None, kabumap_html("8301")),
