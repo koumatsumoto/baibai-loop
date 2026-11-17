@@ -111,7 +111,6 @@ def validate_source_handoff(
 
 def import_handoff(
     source: Path,
-    target: Path,
     request_ids: Sequence[str],
     *,
     sources: Sequence[JQuantsSource],
@@ -127,10 +126,7 @@ def import_handoff(
     Daily, resume and manual replay all supply the native cutover fingerprints.
     Saved packets remain readable evidence, not an alternate L2 projection path.
     """
-    with (
-        closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as original,
-        closing(open_connection(target)),
-    ):
+    with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as original:
         validate_source_handoff(original, sources=sources)
         retained_ids = {
             row[0]

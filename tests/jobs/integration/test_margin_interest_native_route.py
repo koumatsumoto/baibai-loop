@@ -140,7 +140,7 @@ def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
     short_fingerprints = {
         key: row["fingerprint"] for key, row in shorts.fixed().value()["receipts"].items()
     }
-    source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
+    source = tmp_path / "source.sqlite"
     with closing(open_connection(source)) as connection, connection:
         receive_page(connection, page, request_id="margin", page_index=0)
         receive_page(
@@ -149,11 +149,11 @@ def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
             request_id="short",
             page_index=0,
         )
+    before = source.read_bytes()
     if damage:
         with pytest.raises(ValueError, match="legacy margin_interest"):
             import_handoff(
                 source,
-                target,
                 ("margin", "short"),
                 sources=MARKET_SOURCES,
                 margin_interest_fingerprints=fingerprints,
@@ -162,7 +162,6 @@ def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
     else:
         result = import_handoff(
             source,
-            target,
             ("margin", "short"),
             sources=MARKET_SOURCES,
             margin_interest_fingerprints=fingerprints,
@@ -172,8 +171,4 @@ def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
         assert result.report["migrated_margin_interest_requests"] == ["margin"]
         assert result.report["migrated_short_sale_reports_requests"] == ["short"]
         assert result.report["replayed_requests"] == []
-        with closing(open_connection(target)) as connection:
-            assert (
-                connection.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall()
-                == []
-            )
+    assert source.read_bytes() == before

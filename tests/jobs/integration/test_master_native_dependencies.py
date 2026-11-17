@@ -427,6 +427,7 @@ def test_old_mixed_stage_verifies_migrated_master_and_calendar_without_legacy_pr
         for identity, receipt in calendar_owner.fixed().value()["receipts"].items()
     }
     target = tmp_path / "target.sqlite"
+    before = (packet / "receipts.sqlite").read_bytes()
     result = _replay(
         "jquants-market",
         target,
@@ -441,9 +442,7 @@ def test_old_mixed_stage_verifies_migrated_master_and_calendar_without_legacy_pr
     assert result.complete
     assert result.report["migrated_master_requests"] == ["old-empty"]
     assert result.report["migrated_calendar_requests"] == ["calendar"]
-    with sqlite3.connect(target) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone() == (0,)
-        assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone() == (0,)
+    assert not target.exists()
     with pytest.raises(ValueError, match="differs from the native cutover"):
         _replay(
             "jquants-market",
@@ -456,6 +455,8 @@ def test_old_mixed_stage_verifies_migrated_master_and_calendar_without_legacy_pr
             short_sale_reports_fingerprints={},
             margin_interest_fingerprints={},
         )
+    assert not (tmp_path / "bad.sqlite").exists()
+    assert (packet / "receipts.sqlite").read_bytes() == before
 
 
 def test_native_backfill_alias_does_not_refetch_fulfilled_cohort_dates(tmp_path, monkeypatch):

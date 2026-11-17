@@ -194,7 +194,6 @@ def _replay(
             raise ValueError("native margin interest replay requires retained cutover fingerprints")
         return import_jquants_handoff(
             path,
-            database,
             _handoff_ids(report, "request_ids"),
             sources=JQUANTS_MARKET_SOURCES,
             master_fingerprints=master_fingerprints,
