@@ -308,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
             return refresh_tender_offer_exits_command(
                 sqlite_path=exits_path,
                 asof_date=_parse_iso_date(args.asof),
-                acquisition=exits_edinet,
+                download_csv_zip=exits_edinet.download_csv_zip,
             )
 
     if args.command == "extract-edinet-metrics":

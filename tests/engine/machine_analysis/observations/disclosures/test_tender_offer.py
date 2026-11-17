@@ -1391,7 +1391,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 result = delisting_cli.refresh_tender_offer_exits_command(
                     sqlite_path=sqlite_path,
                     asof_date=self.ASOF,
-                    acquisition=acquisition,
+                    download_csv_zip=acquisition.download_csv_zip,
                     stdout=output,
                 )
             self.assertEqual(result, 0)
@@ -1425,7 +1425,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     result = delisting_cli.refresh_tender_offer_exits_command(
                         sqlite_path=sqlite_path,
                         asof_date=self.ASOF,
-                        acquisition=acquisition,
+                        download_csv_zip=acquisition.download_csv_zip,
                         stdout=io.StringIO(),
                     )
                 self.assertEqual(result, 1)
@@ -1453,7 +1453,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 result = delisting_cli.refresh_tender_offer_exits_command(
                     sqlite_path=sqlite_path,
                     asof_date=self.ASOF,
-                    acquisition=acquisition,
+                    download_csv_zip=acquisition.download_csv_zip,
                     stdout=io.StringIO(),
                 )
             self.assertEqual(result, 1)
@@ -1490,7 +1490,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 result = delisting_cli.refresh_tender_offer_exits_command(
                     sqlite_path=sqlite_path,
                     asof_date=self.ASOF,
-                    acquisition=acquisition,
+                    download_csv_zip=acquisition.download_csv_zip,
                     stdout=io.StringIO(),
                 )
             self.assertEqual(result, 1)
