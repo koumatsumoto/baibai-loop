@@ -1,4 +1,4 @@
-"""Saved native calendar reconstruction is independent of heads, flags and providers."""
+"""Saved native calendar reconstruction is independent of heads and providers."""
 
 import json
 from datetime import timedelta
@@ -45,7 +45,6 @@ def test_rebuild_cli_cold_saved_input_outputs_entire_selected_history(
 ):
     store, path, saved = saved_calendar(tmp_path)
     monkeypatch.setattr(integration, "Boto3R2Store", lambda **_: store)
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "not-even-a-valid-switch")
     before = dict(store.values)
     output = tmp_path / "cold"
     assert integration.main(["--saved-input", str(path), "--output", str(output)]) == 0

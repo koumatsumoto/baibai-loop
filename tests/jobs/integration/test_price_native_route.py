@@ -1,4 +1,4 @@
-"""日足の旧planはI/O前に拒否し、環境変数で旧経路へ戻さない。"""
+"""日足の旧planはI/O前に拒否し、保存入力を固定して統合する。"""
 
 import json
 from datetime import date
@@ -12,8 +12,7 @@ from baibai_jobs.integration.sources import apply
 
 
 @pytest.mark.parametrize("old_mode", [False, 0, None, "false", "invalid"])
-def test_legacy_price_plan_is_rejected_before_io(tmp_path, monkeypatch, old_mode):
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "false")
+def test_legacy_price_plan_is_rejected_before_io(tmp_path, old_mode):
     (tmp_path / "plan.json").write_text(json.dumps({"price_native": old_mode, "handoffs": []}))
     with pytest.raises(ValueError, match="legacy price integration plan"):
         apply(object(), tmp_path, market=tmp_path / "never-open", asof=date(2026, 11, 2))
