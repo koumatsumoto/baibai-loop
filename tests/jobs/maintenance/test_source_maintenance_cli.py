@@ -350,17 +350,7 @@ def test_main_invalidate_coverage_deletes_only_the_rows_overlapping_the_argv_win
     assert "stored observations unchanged" in result.stdout
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["bootstrap-cache", "--asof", "2026-05-08"],
-        ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "all"],
-        ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "jquants-market"],
-        ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "jquants-financial"],
-        ["backfill-history", "--start", "2026-05-08", "--end", "2026-05-08"],
-    ],
-)
-def test_removed_jquants_commands_fail_before_environment_or_provider_setup(argv, tmp_path):
+def test_unknown_command_fails_before_environment_or_provider_setup(tmp_path):
     database = tmp_path / "absent.sqlite"
     with (
         patch.object(app, "load_project_env", side_effect=AssertionError("env read")),
@@ -369,7 +359,7 @@ def test_removed_jquants_commands_fail_before_environment_or_provider_setup(argv
         patch("requests.Session", side_effect=AssertionError("HTTP constructed")),
         pytest.raises(SystemExit) as caught,
     ):
-        app.main(argv)
+        app.main(["not-a-maintenance-command", "--sqlite-path", str(database)])
     assert caught.value.code == 2
     assert not database.exists()
     assert not _STORE.exists()
