@@ -26,7 +26,6 @@ import yaml
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
-    PortfolioLedgerError,
     ReleaseEvent,
     ReservationEvent,
 )
@@ -77,10 +76,7 @@ def _pct(numerator: Decimal | float, denominator: Decimal | float) -> float:
 
 
 def build_limit_outcomes(*, app_db: Path, market_db: Path, asof: date) -> dict[str, object]:
-    try:
-        ledger = LedgerStoreService(app_db).load()
-    except (PortfolioLedgerError, OSError, ValueError) as error:
-        raise LimitOutcomeMeasurementError(f"cannot read the ledger: {error}") from error
+    ledger = LedgerStoreService(app_db).load()
     if not market_db.exists():
         raise LimitOutcomeMeasurementError(f"market store is unavailable: {market_db}")
 
@@ -298,8 +294,9 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
 
     try:
         payload = build_limit_outcomes(app_db=args.db, market_db=args.sqlite_path, asof=args.asof)
-    except (LimitOutcomeMeasurementError, OSError, sqlite3.Error) as error:
-        print(f"error: {error}", file=sys.stderr)
+    except (OSError, ValueError, RuntimeError, sqlite3.Error) as error:
+        # Validation and store errors can embed private ledger values or paths.
+        print(f"error: limit outcome measurement failed ({type(error).__name__})", file=sys.stderr)
         return 1
     text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
     try:
@@ -310,7 +307,7 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
         else:
             print(text, file=stdout or sys.stdout, end="")
     except OSError as error:
-        print(f"error: {error}", file=sys.stderr)
+        print(f"error: limit outcome report write failed ({type(error).__name__})", file=sys.stderr)
         return 1
     return 0
 
