@@ -723,7 +723,7 @@ uv run baibai-jobs snapshots gc --mirror stores --apply --plan-hash <HASH>
 
 ## Storeをseedする
 
-初回だけ4keyすべて不存在を確認してseed.shを使う。既存一件でも通常更新/復旧へ戻る。1〜3keyの部分seedは供用前・writerなし・exact key確認済みの場合だけ初回復旧とし、無条件上書きしない。次のapplication更新はpull-appで世代ごと取得する。
+初回だけ4keyすべて不存在を確認して`jobs/scripts/r2_transfer.sh seed-all`を使う。既存一件でも通常更新/復旧へ戻る。1〜3keyの部分seedは供用前・writerなし・exact key確認済みの場合だけ初回復旧とし、無条件上書きしない。次のapplication更新はpull-appで世代ごと取得する。
 
 ## 定期maintenance
 
