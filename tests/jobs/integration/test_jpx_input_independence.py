@@ -114,6 +114,7 @@ def test_actual_acquisition_stage_and_daily_apply(source, failure, tmp_path, mon
             is None
         )
     store = MemoryR2Store()
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
     monkeypatch.setattr(source_handoff, "Boto3R2Store", lambda **kwargs: store)
     stage = source + "-probe"
     assert (
