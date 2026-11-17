@@ -22,7 +22,7 @@ from baibai_engine.investment_judgment.judgment_retrospective.document import (
     retrospective_sha256,
 )
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import connect_existing
 
 
 class RetrospectiveConflictError(ValueError):
@@ -94,8 +94,7 @@ class RetrospectiveStoreService:
 
     def save(self, draft: RetrospectiveDraft) -> RetrospectiveRecord:
         draft = RetrospectiveDraft.model_validate(draft.model_dump(mode="python"))
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 result = self._save(connection, draft)

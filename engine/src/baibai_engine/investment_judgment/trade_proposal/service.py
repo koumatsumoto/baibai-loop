@@ -60,7 +60,7 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import connect_existing
 
 
 def _limit_for_partial_buy(item: BuyItem) -> Decimal:
@@ -427,8 +427,7 @@ class TradeProposalService:
         # Revalidate even callers using model_copy/model_construct; these APIs bypass validators.
         proposal = load_proposal_draft(proposal)
         now = self._clock()
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 existing = connection.execute(

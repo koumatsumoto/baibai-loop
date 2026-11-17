@@ -57,7 +57,11 @@ from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import RUNS_DB_PATH
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import (
+    connect_existing,
+    connect_rw,
+    initialize_database,
+)
 from baibai_engine.storage.sqlite.read import read_rows
 
 _SCREENING_CODEC = TypeAdapter(ScreeningSelection)
@@ -403,8 +407,7 @@ class OperationService:
         expected_payload: OperationPayload | None = None,
     ) -> OperationSession:
         payload.validate_metadata()
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 row = connection.execute(
