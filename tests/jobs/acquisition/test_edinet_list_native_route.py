@@ -532,6 +532,7 @@ def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
     from baibai_jobs.integration import sources
 
     store = MemoryR2Store()
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(sources, "_load_handle", lambda _: object())
     monkeypatch.setattr(sources, "verify_held", lambda *_: None)

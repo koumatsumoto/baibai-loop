@@ -122,6 +122,7 @@ def _seal_command(tmp_path, monkeypatch, store, database, entry, replay, *, capt
     handle, _ = acquire(store, "operator")
     lease = tmp_path / "lease.json"
     _save_handle(lease, handle)
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
     return ["seal", "--directory", str(work), "--lease-handle", str(lease)], work
 

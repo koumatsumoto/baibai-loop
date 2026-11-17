@@ -140,6 +140,7 @@ def test_new_plan_omits_financial_mode_and_old_financial_stages(tmp_path, monkey
     store = MemoryR2Store()
     empty_edinet_input(store, tmp_path / "native")
     monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "false")
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
     monkeypatch.setattr(integration, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(integration, "available_ready", lambda _: ([], []))
     monkeypatch.setattr(integration, "pending_handoffs", lambda _: [])

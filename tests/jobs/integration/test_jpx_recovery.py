@@ -89,6 +89,7 @@ def test_exact_jpx_plan_replays_and_seals_without_rewriting_original_failure(
     store, selections = failed_stages
     original_objects = {key: row.body for key, row in store.values.items()}
     empty_edinet_input(store, tmp_path)
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
 
     def no_discovery(*args, **kwargs):
