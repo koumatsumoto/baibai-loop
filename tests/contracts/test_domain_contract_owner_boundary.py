@@ -56,7 +56,7 @@ def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(mod
     assert not [
         name
         for name in json.loads(result.stdout)
-        if name not in {"baibai_engine.storage", "baibai_engine.primitives.yaml"}
+        if name != "baibai_engine.storage"
         and any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
     ]
 
