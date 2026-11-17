@@ -131,8 +131,6 @@ def initialize(
         collector_binding=external_assessment_collector_binding(source=source),
         sources=(source,) if source is not None else SOURCES,
     )
-    if len(plan.cohorts) > 256:
-        raise ValueError("external assessment cohort count exceeds the supported Actions matrix")
     save_new_plan(store, plan)
     return plan
 
