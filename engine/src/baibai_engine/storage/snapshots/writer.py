@@ -762,7 +762,6 @@ def _open_immutable(path: Path) -> Iterator[sqlite3.Connection]:
     with closing(
         sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
     ) as connection:
-        connection.execute("PRAGMA case_sensitive_like=ON")
         yield connection
 
 
