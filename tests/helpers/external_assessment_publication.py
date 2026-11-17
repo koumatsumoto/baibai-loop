@@ -52,7 +52,11 @@ from baibai_jobs.acquisition.external_assessments.collection import (
 )
 from baibai_jobs.acquisition.external_assessments.raw import RawBundle
 from baibai_jobs.acquisition.external_assessments.staging import CohortStage, stage_bytes, stage_key
-from baibai_jobs.integration.external_assessment_ready import prepare_plan, save_ready
+from baibai_jobs.integration.external_assessment_ready import (
+    PreparedPlan,
+    prepare_saved_stages,
+    save_ready,
+)
 from baibai_jobs.publication.lease import acquire, verify_held
 from tests.helpers.external_assessment_html import (
     kabumap_html,
@@ -340,6 +344,17 @@ def _stage(store, plan, index, entries, responses=()):
     keys = (upload_bundle(store, plan, index, tuple(responses)),) if responses else ()
     store.store_object(
         stage_key(plan, index), stage_bytes(plan, CohortStage(journal, raw_bundle_keys=keys))
+    )
+
+
+def prepare_plan(
+    store: ObjectStore, plan: RunPlan, *, confirmed_partial: bool = False, cumulative: bool = False
+) -> PreparedPlan:
+    return prepare_saved_stages(
+        plan,
+        staging.read_stages(store, plan),
+        confirmed_partial=confirmed_partial,
+        cumulative=cumulative,
     )
 
 

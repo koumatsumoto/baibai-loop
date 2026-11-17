@@ -9,6 +9,7 @@ from tests.helpers.external_assessment_publication import (
     _plan,
     _stage,
     pair_responses,
+    prepare_plan,
 )
 from tests.helpers.external_assessment_publication import (
     independent_plans as independent_plans,
@@ -34,7 +35,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.integration.external_assessment_ready import load_ready, prepare_plan, save_ready
+from baibai_jobs.integration.external_assessment_ready import load_ready, save_ready
 from baibai_jobs.integration.external_assessments import (
     VALUATION_DATASET,
     merge_ready,

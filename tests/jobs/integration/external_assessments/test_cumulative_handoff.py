@@ -9,6 +9,7 @@ from tests.helpers.external_assessment_publication import (
     _plan,
     _stage,
     pair_responses,
+    prepare_plan,
 )
 from tests.helpers.external_assessment_publication import publication as publication
 
@@ -20,7 +21,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 from baibai_jobs.integration.external_assessment_ready import (
     available_ready,
     load_ready,
-    prepare_plan,
     read_acknowledgement,
     save_ready,
 )
