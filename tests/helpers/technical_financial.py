@@ -22,20 +22,20 @@ def _no_match(models):
     market.payload["price"]["turnover_activity_20d"]["current_to_prior_mean_ratio"] = 0.5
 
 
-def _seed(path, *, all_nonmatching=False, tickers=_TICKERS):
+def _seed(path):
     metadata = _metadata().model_copy(
         update={
             "subject_plan": {
-                **{ticker: GenerationSubject(scope="stock", model_ids=_IDS) for ticker in tickers},
+                **{ticker: GenerationSubject(scope="stock", model_ids=_IDS) for ticker in _TICKERS},
                 "market": GenerationSubject(scope="market", model_ids=("market_context",)),
             }
         }
     )
     models = []
-    for ticker in tickers:
+    for ticker in _TICKERS:
         if ticker != "5678":
             technical = tuple(model.model_copy(update={"subject": ticker}) for model in _models())
-            if ticker == "4567" or all_nonmatching:
+            if ticker == "4567":
                 _no_match(technical)
             models.extend(technical)
         if ticker == "6789":

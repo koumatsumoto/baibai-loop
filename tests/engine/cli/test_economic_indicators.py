@@ -12,11 +12,19 @@ import pytest
 from tests.helpers.indicator_store import (
     _store_multpl_earnings_yield,
     observation,
+    series_definition,
     store_h15_observations,
 )
 
-from baibai_engine.cli.economic_indicators import main
+from baibai_engine.cli.economic_indicators import _print_observations, main
 from baibai_engine.data_collection.receipts.native_sources.store import open_connection
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+    QueryResult,
+)
 
 
 class IndicatorCliTests(unittest.TestCase):
@@ -28,6 +36,58 @@ class IndicatorCliTests(unittest.TestCase):
             db = Path(tmp) / "indicators.sqlite"
 
             self.assertEqual(main(["get", "jp.cpi.stale", "--latest", "--db", str(db)]), 1)
+
+
+def test_native_cli_keeps_vintage_without_explanatory_notes(tmp_path, capsys):
+    database = tmp_path / "indicators.sqlite"
+    observed_at = date(2026, 1, 30)
+    vintage_at = datetime(2026, 2, 1, 13, 45, tzinfo=UTC)
+    with closing(open_connection(database)) as connection:
+        store_h15_observations(connection, [observation("us.10y", observed_at, 4.0, vintage_at)])
+        connection.commit()
+    before = database.read_bytes()
+    result = IndicatorsService(database).get_range("us.10y", start=observed_at, end=observed_at)
+    assert result.observations[0].vintage_at == vintage_at
+    assert result.observations[0].notes == ()
+
+    assert (
+        main(
+            ["get", "us.10y", "--start", "2026-01-30", "--end", "2026-01-30", "--db", str(database)]
+        )
+        == 0
+    )
+    assert capsys.readouterr().out.splitlines() == [
+        "series_id\tobserved_at\tvalue\tunit\tprovider",
+        "us.10y\t2026-01-30\t4\tpercent\tfrb_h15",
+        "# 2026-01-30: vintage_at=2026-02-01 13:45:00+00:00; quality_flags=",
+    ]
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("flags", "notes", "metadata"),
+    [(("secondary_delivery",), (), True), ((), ("source caveat",), True), ((), (), False)],
+)
+def test_observation_metadata_does_not_require_notes(flags, notes, metadata, capsys):
+    series = series_definition()
+    item = ObservationRecord(
+        series_id=series.series_id,
+        observed_at=date(2026, 1, 30),
+        value=4.0,
+        unit=series.unit,
+        source_url=series.source_url,
+        quality_flags=flags,
+        notes=notes,
+    )
+    _print_observations(QueryResult(series, (item,)))
+    lines = capsys.readouterr().out.splitlines()
+    expected = [
+        "series_id\tobserved_at\tvalue\tunit\tprovider",
+        "test.series\t2026-01-30\t4\tpercent\tmof_jgb",
+    ]
+    if metadata:
+        expected.append(f"# 2026-01-30: vintage_at=None; quality_flags={','.join(flags)}")
+    assert lines == expected + [f"# {note}" for note in notes]
 
 
 def test_derived_cli_reports_computation_without_source_fetch(tmp_path, capsys):
