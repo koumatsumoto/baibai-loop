@@ -10,7 +10,7 @@ from tests.engine.machine_analysis.screening.test_technical_strategy import (
     _conditioned,
     _strategy_models,
 )
-from tests.tools.test_technical_discovery import _metadata
+from tests.helpers.technical_discovery import _metadata
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,

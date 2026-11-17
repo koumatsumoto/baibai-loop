@@ -272,7 +272,21 @@ def test_turnover_window_reaches_selection_and_brief_without_changing_candidate_
 
 def test_old_model_and_retained_fixture_keep_context_and_saved_hash():
     selected = retained_economic_result()
-    assert project(payloads()).context == selected.cards[0].context
+    current = project(payloads()).context
+    retained = selected.cards[0].context
+    assert {k: v for k, v in current.items() if k != "capital_action_context"} == {
+        k: v for k, v in retained.items() if k != "capital_action_context"
+    }
+    assert current["capital_action_context"] == {
+        "observations": [],
+        "share_basis_adjustments": [],
+        "earnings_price_unavailable_reason": None,
+    }
+    assert retained["capital_action_context"] == {
+        "observations": [],
+        "share_basis_adjustments": [],
+        "capital_basis_reason": None,
+    }
     saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
     assert "turnover_window" not in saved["cards"][0]["context"]
     # Fixed saved bytes from before window projection; no historical rank recomputation.
@@ -286,6 +300,7 @@ def test_old_model_and_retained_fixture_keep_context_and_saved_hash():
     assert "price_path" not in brief
     assert "turnover_activity_20d" not in brief
     assert "market_conditioned_60d" not in brief["market_relative"]
+    assert brief["capital_action_context"] == retained["capital_action_context"]
 
 
 @pytest.mark.parametrize("include_conditioned_turnover", [True, False])

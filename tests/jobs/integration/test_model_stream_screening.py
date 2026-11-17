@@ -326,7 +326,7 @@ def test_full_models_are_released_as_companies_are_consumed(tmp_path):
 def test_normal_job_publishes_all_t_g_states_without_old_economic_ranking(
     integration, tmp_path, monkeypatch
 ):
-    from tests.tools.test_technical_financial_candidates import _seed
+    from tests.helpers.technical_financial import _seed
 
     from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 

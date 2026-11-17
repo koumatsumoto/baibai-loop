@@ -19,13 +19,15 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.disco
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
-    initialize_run_store,
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
     published_run_payload,
     serialize_published_run_yaml,
 )
-from baibai_engine.storage.sqlite.machine_analysis import RUN_STORE_SCHEMA_VERSION
+from baibai_engine.storage.sqlite.machine_analysis import (
+    RUN_STORE_SCHEMA_VERSION,
+    initialize_run_store,
+)
 
 
 def test_schema8_keeps_generation_and_selection_separate_from_legacy_runs(tmp_path: Path) -> None:

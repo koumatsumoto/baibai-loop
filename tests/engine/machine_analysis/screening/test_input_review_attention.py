@@ -7,7 +7,7 @@ from typing import get_args
 
 import pytest
 from tests.engine.machine_analysis.screening.test_technical_financial import row
-from tests.tools.test_technical_discovery import _metadata
+from tests.helpers.technical_discovery import _metadata
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,

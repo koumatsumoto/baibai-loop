@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.storage.sqlite.application import LATEST_VERSION
-from baibai_engine.storage.sqlite.application.schema import SUPPORTED_APPLICATION_SCHEMA_VERSIONS
+from baibai_engine.storage.sqlite.application.schema import (
+    APPLICATION_SCHEMA_VERSION,
+    SUPPORTED_APPLICATION_SCHEMA_VERSIONS,
+)
 from baibai_engine.storage.sqlite.application.write import (
     backup_database,
     initialize_database,
@@ -19,11 +21,11 @@ from baibai_engine.storage.sqlite.application.write import (
 def test_initialize_creates_only_the_current_application_schema(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
 
-    assert initialize_database(path) == LATEST_VERSION
-    assert initialize_database(path) == LATEST_VERSION
+    assert initialize_database(path) == APPLICATION_SCHEMA_VERSION
+    assert initialize_database(path) == APPLICATION_SCHEMA_VERSION
 
     with closing(sqlite3.connect(path)) as connection, connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == APPLICATION_SCHEMA_VERSION
         tables = {
             row[0]
             for row in connection.execute(

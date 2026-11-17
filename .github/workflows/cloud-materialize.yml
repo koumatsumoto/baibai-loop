@@ -49,9 +49,9 @@ jobs:
           umask 077
           jobs/scripts/r2_transfer.sh pull-app > "$RUNNER_TEMP/materialize-pull-app-private.log" 2>&1
 
-      # Market data enriches application facts but must be fully hydrated before use.
+      # Market data enriches application facts; hydrate only its display inputs.
       # Keep acquisition failure visible while still publishing independent portfolio views.
-      - name: Pull and hydrate market store from the lake release
+      - name: Pull market store and hydrate portfolio inputs from its lake release
         id: market
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -59,7 +59,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           jobs/scripts/r2_transfer.sh pull-market
-          jobs/scripts/r2_transfer.sh hydrate-market
+          jobs/scripts/r2_transfer.sh hydrate-portfolio
 
       - name: Materialize read models
         id: materialize

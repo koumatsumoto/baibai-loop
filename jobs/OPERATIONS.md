@@ -739,7 +739,7 @@ TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な�
 
 [Web契約](../web/backend/src/baibai_web/materialize.py)を使い、core保存後にapplicationと同local marketから生成する。表示失敗でsource/model sealを止めたり戻したりしない。
 
-mainのcloud-materializeは検証済applicationと固定releaseを使う。market失敗は赤いrunに残し、未検証値を読ませず時価等を未評価にしてledger fact/保存成績/提案を配信する。market復旧と表示公開を別確認する。
+mainのcloud-materializeは検証済applicationと固定releaseを使う。単独表示更新は同じmarket originの価格・calendar・masterだけをhydrateし、無関係な原本cacheを取得・消去しない。別releaseへの部分更新はせず、originが合わなければmarketを未検証として扱う。通常dailyの全体hydrateとは別である。market失敗は赤いrunに残し、未検証値を読ませず時価等を未評価にしてledger fact/保存成績/提案を配信する。market復旧と表示公開を別確認する。
 
 ```bash
 uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving

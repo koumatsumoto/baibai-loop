@@ -13,7 +13,7 @@ from tests.engine.machine_analysis.screening.test_unresolved_financial_input_rev
 )
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
-from tests.tools.test_technical_discovery import _metadata
+from tests.helpers.technical_discovery import _metadata
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding

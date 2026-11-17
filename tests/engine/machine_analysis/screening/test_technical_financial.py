@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
-from tests.tools.test_technical_financial_candidates import _seed
+from tests.helpers.technical_financial import _seed
 
 from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection

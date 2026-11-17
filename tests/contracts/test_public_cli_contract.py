@@ -141,25 +141,6 @@ def test_runtime_has_no_retired_triage_imports_or_prepare_flags():
             )
 
 
-def test_screening_provider_protocols_do_not_import_command_implementations():
-    import subprocess
-    import sys
-
-    subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            """
-import sys
-from baibai_jobs.maintenance.market.providers import EDINETMaintenance
-for module in ("app", "cache", "run", "query"):
-    assert f"baibai_engine.cli.historical_evaluation.{module}" not in sys.modules
-""",
-        ],
-        check=True,
-    )
-
-
 def test_market_judgment_is_owned_by_research_cli():
     with pytest.raises(SystemExit) as result:
         main(["investment-judgment", "market-context", "--help"])

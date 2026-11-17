@@ -40,6 +40,7 @@ WRITE_COMMANDS = frozenset(
         "dehydrate",
         "gc",
         "hydrate",
+        "hydrate-portfolio",
     }
 )
 
@@ -54,12 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def add_write_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    hydrate = commands.add_parser(
-        "hydrate", help="fill a market SQLite store's lake tables from one fixed release"
-    )
-    hydrate.add_argument("--mirror", type=Path, required=True)
-    hydrate.add_argument("--store", type=Path, required=True)
-    _add_release_target(hydrate)
+    for command, help_text in (
+        ("hydrate", "fill a market SQLite store's lake tables from one fixed release"),
+        ("hydrate-portfolio", "fill only portfolio display inputs inside the store's release"),
+    ):
+        hydrate = commands.add_parser(command, help=help_text)
+        hydrate.add_argument("--mirror", type=Path, required=True)
+        hydrate.add_argument("--store", type=Path, required=True)
+        _add_release_target(hydrate)
 
     dehydrate = commands.add_parser(
         "dehydrate", help="empty a market SQLite copy of every row one release already holds"
@@ -80,7 +83,7 @@ def add_write_commands(commands: argparse._SubParsersAction[argparse.ArgumentPar
 
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
-    if args.command == "hydrate":
+    if args.command in {"hydrate", "hydrate-portfolio"}:
         return _hydrate(args)
     if args.command == "dehydrate":
         return _dehydrate(args)
@@ -160,8 +163,17 @@ def _hydrate(args: argparse.Namespace) -> int:
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
             release, still_current = _resolve_release_target(args, cache.source)
-            _clear_independent_list_cache(args, release)
-            dataset_names = release.dataset_names()
+            if args.command == "hydrate-portfolio":
+                # Saved proposals/outcomes live in App. Only valuation and names need
+                # market rows; unrelated native receipt caches are not ours to clear.
+                dataset_names: tuple[str, ...] = (
+                    "jquants.daily_bars",
+                    "jquants.market_calendar",
+                    "jquants.master_snapshots",
+                )
+            else:
+                _clear_independent_list_cache(args, release)
+                dataset_names = release.dataset_names()
             with prefetching_hydration_cache(
                 cache,
                 release=release,

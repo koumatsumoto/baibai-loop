@@ -9,8 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.sqlite.application.paths import DEFAULT_DB_PATH as DEFAULT_DB_PATH
-from baibai_engine.storage.sqlite.application.paths import database_path as database_path
+from baibai_engine.storage.sqlite.application.paths import database_path as _database_path
 from baibai_engine.storage.sqlite.application.schema import (
     APPLICATION_SCHEMA_VERSION,
     SCHEMA_SQL,
@@ -20,7 +19,7 @@ from baibai_engine.storage.sqlite.application.schema import (
 
 def connect_rw(path: Path | None = None) -> sqlite3.Connection:
     """Open a writable connection with domain integrity checks enabled."""
-    resolved = database_path(path)
+    resolved = _database_path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(resolved, isolation_level=None)
     connection.row_factory = sqlite3.Row
@@ -78,7 +77,7 @@ def backup_database(
     that cannot produce a checkpoint never reduces the ones already held.
     Until verification succeeds, the temporary file stays outside the generation set.
     """
-    source_path = database_path(path)
+    source_path = _database_path(path)
     if not source_path.exists():
         return None
     instant = now or datetime.now(JST)

@@ -116,13 +116,12 @@ merge_economic_store() {
 }
 
 hydrate_market() {
-  # The store arrives from R2 holding only what the lake does not own. Filling it is
-  # what makes it the store every reader already expects, and it fails closed on the
-  # published row counts, so a fill that silently did nothing cannot reach screening.
+  # Daily fills every lake table; standalone display needs only its portfolio inputs.
+  # Both use the same fixed-release validation and published row counts.
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run baibai-jobs snapshots hydrate \
+      uv run baibai-jobs snapshots "$1" \
         --mirror "${lake_mirror}" \
         --store "$(store_path market.sqlite)" \
         --bucket "${stores_bucket}"
@@ -639,7 +638,7 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-portfolio|publish-lake|push-machine|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -654,7 +653,10 @@ case "${1:-}" in
   # halves that put the rest in and take it back out. They are separate from the pull and
   # the push because their time and their transfer are worth reporting on their own.
   hydrate-market)
-    hydrate_market
+    hydrate_market hydrate
+    ;;
+  hydrate-portfolio)
+    hydrate_market hydrate-portfolio
     ;;
   publish-lake)
     [[ $# -eq 1 ]] || { usage; exit 2; }
