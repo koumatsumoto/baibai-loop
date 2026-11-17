@@ -144,18 +144,23 @@ class OperationService:
                 selection_id=selection_id,
                 known_at=selection.input_known_at,
             )
+            if publication is None or selection.inputs.screening_selection is None:
+                raise OperationConflictError("screening selection differs from chosen generation")
+            published_at = publication.published_at
+            published_json = encode_json(
+                _SCREENING_CODEC.dump_python(publication.selection, mode="json")
+            )
+            # 比較用JSONがあれば、入力側の展開時まで元の全社木を保持する必要はない。
+            del publication
             if (
-                publication is None
-                or selection.inputs.screening_selection is None
-                or encode_json(_SCREENING_CODEC.dump_python(publication.selection, mode="json"))
+                published_json
                 != encode_json(
                     _SCREENING_CODEC.dump_python(selection.inputs.screening_selection, mode="json")
                 )
-                or publication.published_at != selection.inputs.screening_published_at
+                or published_at != selection.inputs.screening_published_at
             ):
                 raise OperationConflictError("screening selection differs from chosen generation")
-            # 照合済みの全社木をpayloadの保存時まで同時に保持しない。
-            del publication
+            del published_json
         if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
             raise OperationConflictError(
                 "current ticker must be a four-character alphanumeric code"
