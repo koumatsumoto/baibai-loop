@@ -62,7 +62,7 @@ def test_first_comparison_detail_and_runless_resume_keep_saved_relation(tmp_path
     )
     publish_generation(fixed, path=path)
     selected = evaluate_fixed(fixed)
-    assert selected.result.policy.method == "technical-financial-discovery-v25"
+    assert selected.result.policy.method == "technical-financial-discovery-v26"
     if legacy:
         selected = replace(
             selected,

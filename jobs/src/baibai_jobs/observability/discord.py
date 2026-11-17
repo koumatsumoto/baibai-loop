@@ -229,6 +229,7 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
         "technical-financial-discovery-v23",
         "technical-financial-discovery-v24",
         "technical-financial-discovery-v25",
+        "technical-financial-discovery-v26",
     }
     pool_label = "探索閲覧（予備・代替含む）" if integrated else "候補"
     lines = [f"モデル生成: {companies}社 / {models}件 / {pool_label}{candidates}社", *cache_warning]
