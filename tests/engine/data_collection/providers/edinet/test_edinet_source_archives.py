@@ -168,18 +168,19 @@ def test_retention_rolls_back_insert_when_readback_fails(tmp_path):
 
 def test_retention_does_not_commit_a_callers_pending_transaction(tmp_path):
     path = tmp_path / "market.sqlite"
+    pending_archive = _zip(b"pending")
     with closing(open_connection(path)) as connection:
         connection.execute(
             "INSERT INTO edinet_source_archives "
             "(doc_id, source_type, stored_on, zip_content) VALUES (?, ?, ?, ?)",
-            ("S100PENDING", 5, "2026-01-01", _zip(b"pending")),
+            ("S100PENDING", 5, "2026-01-01", pending_archive),
         )
         with pytest.raises(ValueError, match="idle connection"):
             retain_source_archive(
                 connection, "S100TEST", 5, _zip(b"new"), stored_on=date(2026, 1, 1)
             )
         assert connection.in_transaction
-        assert read_source_archive(connection, "S100PENDING", 5) == _zip(b"pending")
+        assert read_source_archive(connection, "S100PENDING", 5) == pending_archive
         with closing(connect_read_only(path)) as other:
             assert read_source_archive(other, "S100PENDING", 5) is None
         connection.rollback()
