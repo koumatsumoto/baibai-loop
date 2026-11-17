@@ -10,9 +10,9 @@ from pathlib import Path
 
 import yaml
 
+from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.write import (
     backup_database,
-    database_path,
     initialize_database,
 )
 from baibai_engine.storage.sqlite.read import connect_read_only

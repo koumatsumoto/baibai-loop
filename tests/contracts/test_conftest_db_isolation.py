@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from baibai_engine.storage.sqlite.application.write import DEFAULT_DB_PATH, database_path
+from baibai_engine.storage.sqlite.application.paths import DEFAULT_DB_PATH, database_path
 from baibai_engine.storage.sqlite.machine_analysis import DEFAULT_RUN_STORE_PATH, run_store_path
 
 
