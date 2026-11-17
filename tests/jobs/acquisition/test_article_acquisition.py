@@ -22,6 +22,11 @@ from baibai_jobs.acquisition.receipts import download_fixed
 from baibai_jobs.integration.article_handoff import import_handoff
 
 
+class CLIStore(MemoryR2Store):
+    def close(self):
+        pass
+
+
 @pytest.fixture(autouse=True)
 def _no_transport_wait(monkeypatch):
     # Request spacing has virtual-clock coverage at the transport owner.
@@ -277,7 +282,7 @@ def test_failure_in_one_source_does_not_stop_another_private_stage(tmp_path, mon
         return {"source": source, "status": "completed"}
 
     monkeypatch.setattr(articles, "acquire_source", acquire)
-    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: MemoryR2Store())
+    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: CLIStore())
     assert (
         articles.main(
             [
@@ -330,7 +335,7 @@ def test_saved_tsr_body_limit_is_a_successful_finite_continuation(tmp_path, monk
         return report if source == "tsr_data" else {"source": source, "status": "not_due"}
 
     monkeypatch.setattr(articles, "acquire_source", acquire)
-    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: MemoryR2Store())
+    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: CLIStore())
     assert (
         articles.main(
             [
@@ -448,7 +453,7 @@ def test_large_index_retains_all_pending_work_outside_the_mutable_summary(tmp_pa
             report if source == "tsr_data" else {"source": source, "status": "not_due"}
         ),
     )
-    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: MemoryR2Store())
+    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: CLIStore())
     assert (
         articles.main(
             [
@@ -949,7 +954,7 @@ def test_article_cli_resolves_current_tsr_slot_after_a_long_host_queue(tmp_path,
         return {"source": kwargs["source"], "status": "not_due"}
 
     monkeypatch.setattr(articles, "datetime", Clock)
-    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: MemoryR2Store())
+    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: CLIStore())
     monkeypatch.setattr(articles, "acquire_source", acquire)
     args = [
         "--group",

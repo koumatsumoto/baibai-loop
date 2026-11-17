@@ -497,178 +497,191 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return int(integration_failed)
-        store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-        directory.mkdir(parents=True, exist_ok=True)
-        if args.command == "plan":
-            if (directory / "plan.json").exists():
-                raise FileExistsError("integration inputs are already fixed")
-            if args.recover_jpx_stage:
-                handoffs = _jpx_recovery_handoffs(store, args.recover_jpx_stage)
-                external: list[dict[str, str]] = []
-                failed: list[dict[str, str]] = []
-            else:
-                started = _plan_progress("external_ready")
-                external, failed = available_ready(store)
-                _plan_progress("external_ready", started)
-                started = _plan_progress("market_handoffs")
-                market_handoffs = available_handoffs(store, market=True)
-                _plan_progress("market_handoffs", started)
-                started = _plan_progress("article_handoffs")
-                article_handoffs = pending_handoffs(store)
-                _plan_progress("article_handoffs", started)
-                handoffs = [
-                    entry
-                    for entry in [*market_handoffs, *article_handoffs]
-                    if entry.get("source")
-                    not in {
-                        "jquants-financial",
-                        "edinet-list",
-                        "edinet-metrics",
-                        "edinet-facts",
-                    }
-                ]
-            started = _plan_progress("edinet_input")
-            edinet_input = fix_edinet_input(store, directory).model_dump(mode="json")
-            _plan_progress("edinet_input", started)
-            write_json_atomic(
-                directory / "plan.json",
-                {
-                    "handoffs": handoffs,
-                    "edinet_input": edinet_input,
-                    "external": external,
-                    "external_failed": failed,
-                },
-            )
-        elif args.command == "apply":
-            if args.asof is None:
-                raise ValueError("--asof is required")
-            report = apply(store, directory, market=args.market, asof=args.asof)
-            public_report = dict(report)
-            if "jpx_publication" in public_report:
-                public_report["jpx_publication"] = "private readback plan"
-            if "tradingview_publication" in public_report:
-                public_report["tradingview_publication"] = "private readback plan"
-            public_report["handoffs"] = [
-                {
-                    **item,
-                    "article_delta": "private readback plan",
-                    "result": {
-                        "receipt_count": len(item["result"].get("receipt_ids", [])),
-                        "observation_count": len(item["result"].get("observation_ids", [])),
-                        "artifact_count": len(item["result"].get("artifact_ids", [])),
-                        "failed": item["failed"],
+        with closing(
+            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        ) as store:
+            directory.mkdir(parents=True, exist_ok=True)
+            if args.command == "plan":
+                if (directory / "plan.json").exists():
+                    raise FileExistsError("integration inputs are already fixed")
+                if args.recover_jpx_stage:
+                    handoffs = _jpx_recovery_handoffs(store, args.recover_jpx_stage)
+                    external: list[dict[str, str]] = []
+                    failed: list[dict[str, str]] = []
+                else:
+                    started = _plan_progress("external_ready")
+                    external, failed = available_ready(store)
+                    _plan_progress("external_ready", started)
+                    started = _plan_progress("market_handoffs")
+                    market_handoffs = available_handoffs(store, market=True)
+                    _plan_progress("market_handoffs", started)
+                    started = _plan_progress("article_handoffs")
+                    article_handoffs = pending_handoffs(store)
+                    _plan_progress("article_handoffs", started)
+                    handoffs = [
+                        entry
+                        for entry in [*market_handoffs, *article_handoffs]
+                        if entry.get("source")
+                        not in {
+                            "jquants-financial",
+                            "edinet-list",
+                            "edinet-metrics",
+                            "edinet-facts",
+                        }
+                    ]
+                started = _plan_progress("edinet_input")
+                edinet_input = fix_edinet_input(store, directory).model_dump(mode="json")
+                _plan_progress("edinet_input", started)
+                write_json_atomic(
+                    directory / "plan.json",
+                    {
+                        "handoffs": handoffs,
+                        "edinet_input": edinet_input,
+                        "external": external,
+                        "external_failed": failed,
                     },
-                }
-                if item["entry"].get("namespace") == ARTICLE_NAMESPACE
-                else item
-                for item in cast(list[dict[str, Any]], report["handoffs"])
-            ]
-            print(json.dumps(public_report, sort_keys=True))
-        else:
-            if args.lease_handle is None:
-                raise ValueError("common integration writes require the publication lease")
-            handle = _load_handle(args.lease_handle)
-            verify_held(store, handle)
-            generations = canonical_generations(store)
-            guarded = GuardedInputStore(store, lambda: verify_held(store, handle))
-            if args.command == "inputs":
-                if args.identity is None or args.asof is None:
-                    raise ValueError("--identity and --asof are required")
-                input_report: dict[str, Any] = {"updated": [], "failed": []}
-                groups = (
-                    tuple(group for group in SOURCE_INPUT_GROUPS if not group.startswith("edinet-"))
-                    if args.group is None
-                    else (args.group,)
                 )
-                for group in groups:
-                    if group in ARTICLE_SOURCES:
-                        continue
-                    if group not in SOURCE_INPUT_GROUPS:
-                        raise ValueError("economic inputs are published by economic L1 integration")
-                    result = publish_inputs(
-                        guarded,
-                        market=args.market,
-                        economic=directory / "unused-market-input",
-                        identity=args.identity,
-                        asof=args.asof,
-                        generations=generations,
-                        only_group=group,
-                    )
-                    input_report["updated"].extend(result["updated"])
-                    input_report["failed"].extend(result["failed"])
-                for source in (
-                    COLLECTION_SOURCES
-                    if args.group is None
-                    else (args.group,)
-                    if args.group in ARTICLE_SOURCES
-                    else ()
-                ):
-                    try:
-                        publish_planning_input(guarded, source, generations)
-                    except (ValueError, LakeCASConflict) as error:
-                        input_report["failed"].append(
-                            {"group": source, "reason": type(error).__name__}
+            elif args.command == "apply":
+                if args.asof is None:
+                    raise ValueError("--asof is required")
+                report = apply(store, directory, market=args.market, asof=args.asof)
+                public_report = dict(report)
+                if "jpx_publication" in public_report:
+                    public_report["jpx_publication"] = "private readback plan"
+                if "tradingview_publication" in public_report:
+                    public_report["tradingview_publication"] = "private readback plan"
+                public_report["handoffs"] = [
+                    {
+                        **item,
+                        "article_delta": "private readback plan",
+                        "result": {
+                            "receipt_count": len(item["result"].get("receipt_ids", [])),
+                            "observation_count": len(item["result"].get("observation_ids", [])),
+                            "artifact_count": len(item["result"].get("artifact_ids", [])),
+                            "failed": item["failed"],
+                        },
+                    }
+                    if item["entry"].get("namespace") == ARTICLE_NAMESPACE
+                    else item
+                    for item in cast(list[dict[str, Any]], report["handoffs"])
+                ]
+                print(json.dumps(public_report, sort_keys=True))
+            else:
+                if args.lease_handle is None:
+                    raise ValueError("common integration writes require the publication lease")
+                handle = _load_handle(args.lease_handle)
+                verify_held(store, handle)
+                generations = canonical_generations(store)
+                guarded = GuardedInputStore(store, lambda: verify_held(store, handle))
+                if args.command == "inputs":
+                    if args.identity is None or args.asof is None:
+                        raise ValueError("--identity and --asof are required")
+                    input_report: dict[str, Any] = {"updated": [], "failed": []}
+                    groups = (
+                        tuple(
+                            group
+                            for group in SOURCE_INPUT_GROUPS
+                            if not group.startswith("edinet-")
                         )
-                    else:
-                        input_report["updated"].append(source)
-                print(json.dumps(input_report, sort_keys=True))
-                return int(bool(input_report["failed"]))
-            report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
-            if any(
-                item["entry"]["source"] in _JPX_COLLECTION
-                and item["applied"]
-                and item["result"]["retained_bundles"]
-                for item in report["handoffs"]
-            ):
-                report["jpx_readback"] = verify_jpx_publication(
-                    store,
-                    expected=report.get("jpx_publication", {}),
-                    directory=directory / "jpx-readback",
-                    generations=generations,
-                )
-            if report.get("external"):
-                report["external_results"] = verify_and_seal(
-                    store,
-                    report["external"],
-                    handle=handle,
-                    directory=directory / "external-readback",
-                )
-            if any(
-                item["entry"]["source"] == "tradingview" and item["applied"]
-                for item in report["handoffs"]
-            ):
-                report["tradingview_readback"] = verify_tradingview_publication(
-                    store,
-                    expected=report.get("tradingview_publication", {}),
-                    directory=directory / "tradingview-readback",
-                    generations=generations,
-                )
-            for outcome in report["handoffs"]:
-                if not outcome["entry"]["market"]:
-                    raise ValueError("economic handoffs must be sealed by economic L1 integration")
-                if outcome["entry"].get("invalid"):
-                    continue
-                if (
-                    outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
-                    or outcome["entry"]["source"] == "tradingview"
-                ) and not outcome["applied"]:
-                    # No seal without a captured closure; keep the handoff discoverable for repair.
-                    continue
-                if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
-                    outcome["article_readback"] = verify_delta(
+                        if args.group is None
+                        else (args.group,)
+                    )
+                    for group in groups:
+                        if group in ARTICLE_SOURCES:
+                            continue
+                        if group not in SOURCE_INPUT_GROUPS:
+                            raise ValueError(
+                                "economic inputs are published by economic L1 integration"
+                            )
+                        result = publish_inputs(
+                            guarded,
+                            market=args.market,
+                            economic=directory / "unused-market-input",
+                            identity=args.identity,
+                            asof=args.asof,
+                            generations=generations,
+                            only_group=group,
+                        )
+                        input_report["updated"].extend(result["updated"])
+                        input_report["failed"].extend(result["failed"])
+                    for source in (
+                        COLLECTION_SOURCES
+                        if args.group is None
+                        else (args.group,)
+                        if args.group in ARTICLE_SOURCES
+                        else ()
+                    ):
+                        try:
+                            publish_planning_input(guarded, source, generations)
+                        except (ValueError, LakeCASConflict) as error:
+                            input_report["failed"].append(
+                                {"group": source, "reason": type(error).__name__}
+                            )
+                        else:
+                            input_report["updated"].append(source)
+                    print(json.dumps(input_report, sort_keys=True))
+                    return int(bool(input_report["failed"]))
+                report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
+                if any(
+                    item["entry"]["source"] in _JPX_COLLECTION
+                    and item["applied"]
+                    and item["result"]["retained_bundles"]
+                    for item in report["handoffs"]
+                ):
+                    report["jpx_readback"] = verify_jpx_publication(
                         store,
-                        delta=outcome["article_delta"],
-                        directory=directory / "article-readback",
+                        expected=report.get("jpx_publication", {}),
+                        directory=directory / "jpx-readback",
                         generations=generations,
                     )
-                seal_integrated(
-                    guarded,
-                    outcome["entry"],
-                    generations=generations,
-                    recovery=outcome["recovery"],
-                )
-            report["canonical_generations"] = generations
-            write_json_atomic(directory / "applied.json", report)
+                if report.get("external"):
+                    report["external_results"] = verify_and_seal(
+                        store,
+                        report["external"],
+                        handle=handle,
+                        directory=directory / "external-readback",
+                    )
+                if any(
+                    item["entry"]["source"] == "tradingview" and item["applied"]
+                    for item in report["handoffs"]
+                ):
+                    report["tradingview_readback"] = verify_tradingview_publication(
+                        store,
+                        expected=report.get("tradingview_publication", {}),
+                        directory=directory / "tradingview-readback",
+                        generations=generations,
+                    )
+                for outcome in report["handoffs"]:
+                    if not outcome["entry"]["market"]:
+                        raise ValueError(
+                            "economic handoffs must be sealed by economic L1 integration"
+                        )
+                    if outcome["entry"].get("invalid"):
+                        continue
+                    if (
+                        outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
+                        or outcome["entry"]["source"] == "tradingview"
+                    ) and not outcome["applied"]:
+                        # Keep an uncaptured handoff discoverable for repair, not sealed.
+                        continue
+                    if (
+                        outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
+                        and outcome["applied"]
+                    ):
+                        outcome["article_readback"] = verify_delta(
+                            store,
+                            delta=outcome["article_delta"],
+                            directory=directory / "article-readback",
+                            generations=generations,
+                        )
+                    seal_integrated(
+                        guarded,
+                        outcome["entry"],
+                        generations=generations,
+                        recovery=outcome["recovery"],
+                    )
+                report["canonical_generations"] = generations
+                write_json_atomic(directory / "applied.json", report)
     except Exception as error:
         print(f"common source integration failed: {type(error).__name__}", file=sys.stderr)
         return 1

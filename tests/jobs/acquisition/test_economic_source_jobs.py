@@ -244,6 +244,7 @@ def test_h15_failure_keeps_typed_causes_without_publishing_private_error_text(
     row = report["sources"][0]
     assert row["status"] == "failed"
     assert row["error_types"] == ["IndicatorsProviderError", "TimeoutError"]
+    assert "browser_download_diagnostic" not in row
     assert "http_status" not in row
     assert "blocked_by_source_id" not in row
     public = json.dumps(report) + capsys.readouterr().out

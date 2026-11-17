@@ -216,7 +216,7 @@ def materialize_saved_input(
                 if scope.get("adopted") == attempt.request_id
             ):
                 raise ValueError("adopted calendar request differs from its fixed dates")
-    with sqlite3.connect(market) as connection:
+    with closing(sqlite3.connect(market)) as connection, connection:
         # This is a disposable execution copy. The migrated raw authority lives
         # in native packs, not in a second source_pages export on every run.
         if connection.execute(

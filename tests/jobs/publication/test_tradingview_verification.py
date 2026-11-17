@@ -135,6 +135,7 @@ def seal_command(tmp_path, monkeypatch, remote, entry, replay, *, expected=None)
     handle, _ = acquire(remote, "operator")
     lease = tmp_path / "lease.json"
     _save_handle(lease, handle)
+    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
     return ["seal", "--directory", str(work), "--lease-handle", str(lease)], work
 
@@ -327,6 +328,7 @@ def test_context_failure_keeps_the_original_stage_pending_without_readback_closu
     handle, _ = acquire(remote, "operator")
     lease = tmp_path / "lease.json"
     _save_handle(lease, handle)
+    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
     for _ in range(2):
         report = sources.apply(remote, work, market=database, asof=DAY)

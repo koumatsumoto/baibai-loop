@@ -30,7 +30,7 @@ def setup_plan(monkeypatch, *, fail=None):
 
         return run
 
-    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: object())
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: SimpleNamespace(close=lambda: None))
     for name, target in zip(
         PHASES,
         ("available_ready", "available_handoffs", "pending_handoffs", "fix_edinet_input"),

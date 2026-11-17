@@ -19,8 +19,6 @@ def _repository_root(root: Path) -> Path:
 
 
 def test_the_repository_root_is_established_before_the_layout_is_trusted(tmp_path: Path) -> None:
-    # Every store path is root-relative, so scanning a subtree finds no retired path
-    # however many the repository holds. Refuse before that clean answer is believed.
     _repository_root(tmp_path)
     subtree = tmp_path / "engine"
 
@@ -30,7 +28,6 @@ def test_the_repository_root_is_established_before_the_layout_is_trusted(tmp_pat
 
 def test_a_repository_root_passes_the_layout_guard(tmp_path: Path) -> None:
     root = _repository_root(tmp_path)
-    assert not (root / "method").exists()
     reject_noncanonical_store_paths(root)
 
 

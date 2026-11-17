@@ -7,7 +7,6 @@ import sqlite3
 
 import pytest
 from tests.engine.data_collection.providers.jquants.test_calendar_native import AT, DAY, attempt
-from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
@@ -67,10 +66,9 @@ def test_partial_calendar_and_other_native_receipts_are_verified_without_reproje
     alerts = MarginAlertsL1(store, tmp_path / "alerts")
     alerts.initialize()
     alerts.commit([MarginAlertsAttempt("other", DAY, None, (other,))])
-    target = market_store(tmp_path / "target.sqlite")
+    before = old.read_bytes()
     result = import_handoff(
         old,
-        target,
         ["old-calendar", "other"],
         sources=MARKET_SOURCES,
         calendar_fingerprints=fingerprints,
@@ -82,22 +80,19 @@ def test_partial_calendar_and_other_native_receipts_are_verified_without_reproje
     assert result.report["migrated_calendar_requests"] == ["old-calendar"]
     assert result.report["migrated_margin_alerts_requests"] == ["other"]
     assert result.report["replayed_requests"] == []
-    with sqlite3.connect(target) as conn:
-        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == []
+    assert old.read_bytes() == before
 
 
 @pytest.mark.parametrize("proof", [{}, {"old-calendar": "f" * 64}])
 def test_missing_or_different_raw_proof_stops_before_any_legacy_import(tmp_path, proof):
     old = tmp_path / "old.sqlite"
     packet(old, attempt("old-calendar"))
-    target = market_store(tmp_path / "target.sqlite")
-    before = hashlib.sha256(target.read_bytes()).digest()
+    before = hashlib.sha256(old.read_bytes()).digest()
     with pytest.raises(ValueError, match="finite cutover"):
         import_handoff(
             old,
-            target,
             ["old-calendar", "other"],
             sources=MARKET_SOURCES,
             calendar_fingerprints=proof,
         )
-    assert hashlib.sha256(target.read_bytes()).digest() == before
+    assert hashlib.sha256(old.read_bytes()).digest() == before

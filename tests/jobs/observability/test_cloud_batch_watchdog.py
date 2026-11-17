@@ -930,13 +930,15 @@ def test_main_sends_nothing_while_the_days_batch_is_still_running(
     assert "watchdog: in_flight" in capsys.readouterr().out
 
 
-def test_main_alerts_once_when_no_run_succeeded_in_the_window(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("day", ["2026-08-01", "2026-08-02"])
+@pytest.mark.parametrize("mode", [None, "--economic", "--market"])
+def test_main_alerts_once_on_weekends_when_no_run_succeeded_in_the_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], day, mode
 ) -> None:
     payload = _listing(_run(created_at=datetime(2026, 7, 30, 9, 0, tzinfo=UTC)))
 
     exit_code, transport = _run_main(
-        tmp_path, monkeypatch, payload, argv=["--check-date", "2026-08-01"]
+        tmp_path, monkeypatch, payload, argv=["--check-date", day, *([mode] if mode else [])]
     )
 
     assert exit_code == 0
@@ -1017,7 +1019,7 @@ def test_the_watchdog_uses_only_checkout_as_an_external_action() -> None:
     ]
 
 
-def test_the_watchdog_covers_daily_macro_and_weekday_market_schedules() -> None:
+def test_the_watchdog_covers_daily_integration_and_acquisition_schedules() -> None:
     workflow = yaml.load(WATCHDOG_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert isinstance(workflow, dict)
     daily_raw = (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
@@ -1031,7 +1033,6 @@ def test_the_watchdog_covers_daily_macro_and_weekday_market_schedules() -> None:
 
     assert watchdog_days == "*"
     assert batch_days == "*"
-    assert "--weekdays-only" not in str(workflow["jobs"]["watchdog"])
     assert "--market" in str(workflow["jobs"]["market"])
     assert "--economic" in str(workflow["jobs"]["economic"])
     assert (int(watchdog_hour), int(watchdog_minute)) > (int(batch_hour), int(batch_minute))

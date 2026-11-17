@@ -9,6 +9,7 @@ from tests.helpers.external_assessment_publication import (
     _stage,
     integrate_ready_plans,
     pair_responses,
+    prepare_plan,
 )
 from tests.helpers.external_assessment_publication import publication as publication
 
@@ -17,7 +18,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     decode_attempt as external_assessment_decode_attempt,
 )
 from baibai_jobs.acquisition.external_assessments.sources import inspect_ready
-from baibai_jobs.integration.external_assessment_ready import prepare_plan
 
 
 @pytest.mark.parametrize("normal_null", [False, True])

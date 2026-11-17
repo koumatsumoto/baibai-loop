@@ -36,6 +36,7 @@ GENERATIONS = {"lake_release_id": "fixed", "lake_manifest_sha256": "a" * 64}
 
 def _input_cli(tmp_path, monkeypatch, *, lease_now=None):
     remote = MemoryR2Store()
+    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
     market = market_store(tmp_path / "market.sqlite", 2)
     with closing(open_connection(market)) as conn, conn:

@@ -57,6 +57,14 @@ class SourceWithheldError(IndicatorsProviderError):
         self.status_code = status_code
 
 
+class BrowserDownloadTimeoutError(IndicatorsProviderError):
+    """No download started; the browser supplies only its bounded navigation outcome."""
+
+    def __init__(self, message: str, *, diagnostic: str) -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic
+
+
 class BrowserUnavailableError(IndicatorsProviderError):
     """No browser could be started, so nothing was learned about the source.
 

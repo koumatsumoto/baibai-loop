@@ -34,7 +34,6 @@ from baibai_engine.storage.snapshots.keys import (
     validate_sha256,
 )
 
-ManifestLayer = LakeLayer
 CoverageStatus = Literal["complete", "partial"]
 ReleaseProfile = Literal["production"]
 MAX_LAKE_JSON_BYTES = 16 * 1024 * 1024
@@ -230,7 +229,7 @@ class DatasetManifest(BaseModel):
 
     manifest_version: Literal[2]
     dataset: str
-    layer: ManifestLayer
+    layer: LakeLayer
     contract_version: int = Field(ge=1)
     build_id: str
     sources: tuple[SourceRef, ...]

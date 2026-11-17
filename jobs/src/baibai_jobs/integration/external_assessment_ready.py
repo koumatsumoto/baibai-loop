@@ -23,7 +23,6 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     load_stage,
     prefix,
     read_plan,
-    read_stages,
     read_terminal,
     require_extension,
     stage_bytes,
@@ -38,15 +37,6 @@ class PreparedPlan:
     accounting: dict[str, object]
     confirmed_partial: bool
     cumulative: bool = False
-
-
-def prepare_plan(
-    store: ObjectStore, plan: RunPlan, *, confirmed_partial: bool = False, cumulative: bool = False
-) -> PreparedPlan:
-    """Validate one exact plan's handoff without importing or publishing anything."""
-    return prepare_saved_stages(
-        plan, read_stages(store, plan), confirmed_partial=confirmed_partial, cumulative=cumulative
-    )
 
 
 def prepare_saved_stages(

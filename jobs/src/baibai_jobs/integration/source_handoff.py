@@ -194,7 +194,6 @@ def _replay(
             raise ValueError("native margin interest replay requires retained cutover fingerprints")
         return import_jquants_handoff(
             path,
-            database,
             _handoff_ids(report, "request_ids"),
             sources=JQUANTS_MARKET_SOURCES,
             master_fingerprints=master_fingerprints,
@@ -727,7 +726,6 @@ def main(argv: list[str] | None = None) -> int:
 
             if args.asof is None:
                 raise ValueError("--asof is required")
-            store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
             saved_input = json.loads((directory / "result.json").read_text())
             master_input = (
                 InputSnapshot.model_validate(saved_input["master_native_input"])
@@ -747,67 +745,72 @@ def main(argv: list[str] | None = None) -> int:
             if args.source == "tradingview" and calendar_input is None:
                 raise ValueError("native TradingView resume requires its fixed calendar input")
 
-            price_fingerprints = None
-            if args.source == "jquants-market":
-                from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                price_fingerprints = None
+                if args.source == "jquants-market":
+                    from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
 
-                price_fingerprints = {
-                    identity: receipt["fingerprint"]
-                    for identity, receipt in PriceL1(store, directory / "price-native")
-                    .fixed()
-                    .value()["receipts"]
-                    .items()
-                }
-            source = args.source
-            for index, entry in enumerate(
-                available_handoffs(store, source=source, include_integrated=True)
-            ):
-                if entry.get("invalid") or entry.get("late_before_integrated"):
-                    continue
-                integrated = entry.get("integration")
-                if isinstance(integrated, dict) and (
-                    integrated["status"] == "needs_explicit_recovery"
-                    or integrated["integrated_at"] <= saved_input["created_at"]
+                    price_fingerprints = {
+                        identity: receipt["fingerprint"]
+                        for identity, receipt in PriceL1(store, directory / "price-native")
+                        .fixed()
+                        .value()["receipts"]
+                        .items()
+                    }
+                source = args.source
+                for index, entry in enumerate(
+                    available_handoffs(store, source=source, include_integrated=True)
                 ):
-                    continue
-                if args.source == "tradingview" and entry["asof"] != args.asof.isoformat():
-                    continue
-                packet = directory / f"resume-{source}-{index}"
-                download_fixed(store, entry, packet)
-                if source not in {"tradingview", "jquants-market"}:
-                    _replay(source, args.database, packet)
-                else:
-                    report = json.loads((packet / "result.json").read_bytes())
-                    context = _replay_context(
-                        store,
-                        source,
-                        directory,
-                        report,
-                        master_input=master_input,
-                        calendar_input=calendar_input,
-                        price_fingerprints=price_fingerprints,
-                    )
-                    from baibai_jobs.acquisition.calendar_dependencies import (
-                        verify_stage_calendar_dependencies,
-                    )
+                    if entry.get("invalid") or entry.get("late_before_integrated"):
+                        continue
+                    integrated = entry.get("integration")
+                    if isinstance(integrated, dict) and (
+                        integrated["status"] == "needs_explicit_recovery"
+                        or integrated["integrated_at"] <= saved_input["created_at"]
+                    ):
+                        continue
+                    if args.source == "tradingview" and entry["asof"] != args.asof.isoformat():
+                        continue
+                    packet = directory / f"resume-{source}-{index}"
+                    download_fixed(store, entry, packet)
+                    if source not in {"tradingview", "jquants-market"}:
+                        _replay(source, args.database, packet)
+                    else:
+                        report = json.loads((packet / "result.json").read_bytes())
+                        context = _replay_context(
+                            store,
+                            source,
+                            directory,
+                            report,
+                            master_input=master_input,
+                            calendar_input=calendar_input,
+                            price_fingerprints=price_fingerprints,
+                        )
+                        from baibai_jobs.acquisition.calendar_dependencies import (
+                            verify_stage_calendar_dependencies,
+                        )
 
-                    # Native packets carry fixed references, not legacy dependencies.
-                    # Old stage dependency evidence is verified against the cutover.
-                    fingerprints = context.get("calendar_fingerprints")
-                    if fingerprints is not None:
-                        verify_stage_calendar_dependencies(store, entry, fingerprints)
-                    _replay(source, args.database, packet, store=store, **context)
+                        # Native packets carry fixed references, not legacy dependencies.
+                        # Old stage dependency evidence is verified against the cutover.
+                        fingerprints = context.get("calendar_fingerprints")
+                        if fingerprints is not None:
+                            verify_stage_calendar_dependencies(store, entry, fingerprints)
+                        _replay(source, args.database, packet, store=store, **context)
         elif args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
-            store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-            if args.command == "stage":
-                save_handoff(store, args.stage_id, directory, market=True)
-                if output := os.environ.get("GITHUB_OUTPUT"):
-                    with Path(output).open("a", encoding="utf-8") as stream:
-                        print(f"handoff={args.stage_id}", file=stream)
-            else:
-                load_handoff(store, args.stage_id, directory, market=True)
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                if args.command == "stage":
+                    save_handoff(store, args.stage_id, directory, market=True)
+                    if output := os.environ.get("GITHUB_OUTPUT"):
+                        with Path(output).open("a", encoding="utf-8") as stream:
+                            print(f"handoff={args.stage_id}", file=stream)
+                else:
+                    load_handoff(store, args.stage_id, directory, market=True)
         elif args.command in {"acquire", "export"}:
             if args.asof is None or (args.command == "export" and args.since is None):
                 raise ValueError("--asof and export --since are required")

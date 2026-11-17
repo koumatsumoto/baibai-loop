@@ -69,6 +69,7 @@ def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
 ) -> None:
     _fixed_pointer(monkeypatch)
     remote = _remote_bundle()
+    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
     monkeypatch.setattr(sources, "_load_handle", lambda _: object())
     monkeypatch.setattr(sources, "verify_held", lambda *_: None)

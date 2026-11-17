@@ -96,7 +96,7 @@ def test_import_shares_each_bundle_digest_without_changing_receipts(
         identity: digest for values in expected.values() for identity, digest in values.items()
     }
     months = {(2026, 9), (2026, 10)}
-    assert actual == (0 if acknowledged else len(digests), months, digests, observations)
+    assert actual == (0 if acknowledged else len(digests), digests, observations)
     assert retained == (months, digests)
     assert bundle_receipts == expected
     assert sorted(calls) == sorted(digests)
@@ -132,6 +132,14 @@ def test_empty_stage_needs_no_digest(originals, monkeypatch):
         pytest.fail("an unattempted stage has no original to digest")
 
     monkeypatch.setattr(integration, "equity_web_response_digest", unexpected)
+    retained, bundle_receipts = (set(), {}), {}
     assert integration._import_confirmed_originals(
-        store, plan, {0: (CohortStage(new_result(plan, 0)), "unused")}, database
-    ) == (0, set(), {}, ())
+        store,
+        plan,
+        {0: (CohortStage(new_result(plan, 0)), "unused")},
+        database,
+        retained=retained,
+        bundle_receipts=bundle_receipts,
+    ) == (0, {}, ())
+    assert retained == (set(), {})
+    assert bundle_receipts == {}

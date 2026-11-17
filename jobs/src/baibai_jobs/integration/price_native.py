@@ -179,7 +179,7 @@ def model_input(
             descriptor=descriptor,
         )
         # Validate all native input and retain membership before replacing anything.
-        with sqlite3.connect(market) as connection:
+        with closing(sqlite3.connect(market)) as connection, connection:
             connection.execute("DELETE FROM jquants_daily_bars")
             connection.execute("DELETE FROM jquants_source_pages WHERE source='daily_bars'")
             connection.execute("DELETE FROM source_coverage WHERE source='jquants_daily_bars'")

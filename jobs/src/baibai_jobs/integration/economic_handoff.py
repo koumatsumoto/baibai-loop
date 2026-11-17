@@ -105,6 +105,8 @@ def acquire(
                 row["error_types"] = list(outcome.error_types)
             if outcome.blocked_by_source_id is not None:
                 row["blocked_by_source_id"] = outcome.blocked_by_source_id
+            if outcome.browser_download_diagnostic is not None:
+                row["browser_download_diagnostic"] = outcome.browser_download_diagnostic
         else:
             row.update(
                 status="ok",
@@ -129,7 +131,7 @@ def acquire(
     expected_unavailable = is_expected_pmi_refusal(
         "economic-" + group, [row for row in rows if row["status"] == "failed"]
     )
-    # Provider error text stays private; only exception class names cross into logs.
+    # Full provider error text stays private; the browser diagnostic is allowlisted at origin.
     write_json_atomic(directory / "result.json", report)
     if output := os.environ.get("GITHUB_OUTPUT"):
         with Path(output).open("a", encoding="utf-8") as stream:
@@ -214,24 +216,24 @@ def main(argv: list[str] | None = None) -> int:
             from baibai_jobs.acquisition.source_inputs import load_input
 
             selected_sources(args.group, args.source_id)
-            load_input(
-                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),
-                "economic-" + args.group,
-                args.db,
-                args.directory,
-            )
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                load_input(store, "economic-" + args.group, args.db, args.directory)
             return 0
         if args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
-            store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-            if args.command == "stage":
-                identity = save_handoff(store, args.stage_id, args.directory)
-                if output := os.environ.get("GITHUB_OUTPUT"):
-                    with Path(output).open("a", encoding="utf-8") as stream:
-                        print(f"handoff={identity}", file=stream)
-            else:
-                load_handoff(store, args.stage_id, args.directory)
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                if args.command == "stage":
+                    identity = save_handoff(store, args.stage_id, args.directory)
+                    if output := os.environ.get("GITHUB_OUTPUT"):
+                        with Path(output).open("a", encoding="utf-8") as stream:
+                            print(f"handoff={identity}", file=stream)
+                else:
+                    load_handoff(store, args.stage_id, args.directory)
             return 0
         if args.command == "acquire":
             load_project_env()

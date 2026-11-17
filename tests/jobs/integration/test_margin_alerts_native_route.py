@@ -1,6 +1,5 @@
 """Margin-alert native routing preserves independent acquisition and mixed stages."""
 
-import sqlite3
 from contextlib import closing
 from dataclasses import replace
 
@@ -33,7 +32,7 @@ def test_mixed_stage_skips_only_exact_migrated_alerts(tmp_path, tamper):
     short_fingerprints = {
         key: row["fingerprint"] for key, row in shorts.fixed().value()["receipts"].items()
     }
-    source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
+    source = tmp_path / "source.sqlite"
     with closing(open_connection(source)) as connection, connection:
         receive_page(connection, received.pages[0], request_id="alert", page_index=0)
         receive_page(connection, short, request_id="short", page_index=0)
@@ -44,11 +43,11 @@ def test_mixed_stage_skips_only_exact_migrated_alerts(tmp_path, tamper):
     fingerprints = {
         key: value["fingerprint"] for key, value in owner.fixed().value()["receipts"].items()
     }
+    before = source.read_bytes()
     if tamper:
         with pytest.raises(ValueError, match="differs from the native cutover"):
             import_handoff(
                 source,
-                target,
                 ("alert", "short"),
                 sources=MARKET_SOURCES,
                 margin_alerts_fingerprints=fingerprints,
@@ -57,7 +56,6 @@ def test_mixed_stage_skips_only_exact_migrated_alerts(tmp_path, tamper):
     else:
         result = import_handoff(
             source,
-            target,
             ("alert", "short"),
             sources=MARKET_SOURCES,
             margin_alerts_fingerprints=fingerprints,
@@ -67,8 +65,4 @@ def test_mixed_stage_skips_only_exact_migrated_alerts(tmp_path, tamper):
         assert result.report["migrated_margin_alerts_requests"] == ["alert"]
         assert result.report["migrated_short_sale_reports_requests"] == ["short"]
         assert result.report["replayed_requests"] == []
-        with sqlite3.connect(target) as connection:
-            assert (
-                connection.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall()
-                == []
-            )
+    assert source.read_bytes() == before

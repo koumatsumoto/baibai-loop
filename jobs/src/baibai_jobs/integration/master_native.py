@@ -348,7 +348,7 @@ def materialize_saved_input(
             required_snapshot=_required_snapshot(saved),
         )
         # All selected snapshots must validate before any old execution row changes.
-        with sqlite3.connect(market) as connection:
+        with closing(sqlite3.connect(market)) as connection, connection:
             if replace_all:
                 connection.execute("DELETE FROM jquants_master_snapshots")
                 connection.execute("DELETE FROM jquants_source_pages WHERE source='master'")
