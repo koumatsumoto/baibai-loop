@@ -12,7 +12,7 @@ from tests.engine.machine_analysis.screening.test_financial_growth import (
     models,
     payloads,
 )
-from tests.tools.test_technical_discovery import _metadata, _models
+from tests.helpers.technical_discovery import _metadata, _models
 
 from baibai_engine.machine_analysis.models.company_financials.earnings import (
     EarningsPrice,
@@ -227,7 +227,7 @@ def test_expansion_input_review_keeps_known_negative_net_assets():
 
 
 def test_known_technical_nonmatch_does_not_hide_share_review():
-    from tests.tools.test_technical_financial_candidates import _no_match
+    from tests.helpers.technical_financial import _no_match
 
     data = case(reason="missing_capital_basis")
     from tests.engine.machine_analysis.screening.test_technical_strategy import _strategy_models

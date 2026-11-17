@@ -3,13 +3,10 @@
 from copy import deepcopy
 
 import pytest
-from tests.tools.test_technical_discovery import _metadata, _models
-from tools.experiments import technical_discovery as research_cli
+from tests.helpers.technical_discovery import _metadata, _models
 
 from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
-    RESEARCH_POLICY_ID,
     STRATEGY_POLICY_ID,
-    evaluate_technical_discovery,
     evaluate_technical_strategy,
 )
 
@@ -113,16 +110,6 @@ def test_context_keeps_shape_and_turnover_without_synthesizing_joint_event():
     assert not any(
         "turnover" in key for key in result["routes"]["market_down_resilience"]["conditions"]
     )
-
-
-def test_research_api_is_same_owner_and_old_output_does_not_gain_new_rules():
-    assert research_cli.evaluate_technical_discovery is evaluate_technical_discovery
-    original = evaluate_technical_discovery("1234", models=_models(), metadata=_metadata())
-    new = evaluate_technical_discovery("1234", models=_strategy_models(), metadata=_metadata())
-    assert original == new
-    assert original["policy_id"] == RESEARCH_POLICY_ID == research_cli.POLICY_ID
-    assert len(original["routes"]) == 5
-    assert "state" not in original
 
 
 def test_down_mean_keeps_frequency_without_making_it_a_gate():

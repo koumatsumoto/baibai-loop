@@ -1,4 +1,4 @@
-"""保存TAから探索理由を返す。研究互換と現行戦略を区別し、投資採否は行わない。"""
+"""保存TAから現行の探索理由を返す。投資採否は行わない。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from pydantic import JsonValue
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
 from baibai_engine.primitives.stocks import normalize_ticker
 
-RESEARCH_POLICY_ID = "technical-discovery-research-v1"
 STRATEGY_POLICY_ID = "technical-discovery-v1"
 MODEL_IDS = ("technical_analysis", "market_context")
 _WINDOW_FIELDS = (
@@ -156,7 +155,7 @@ def _route(conditions: dict[str, bool | None], *, price_ready: bool) -> dict[str
     }
 
 
-def evaluate_technical_discovery(
+def _base_context(
     ticker: str,
     *,
     models: tuple[GeneratedModel, ...],
@@ -293,8 +292,8 @@ def evaluate_technical_discovery(
     }
     routes = {name: _route(checks, price_ready=price_ready) for name, checks in conditions.items()}
     return {
-        "kind": "technical_discovery_research_diagnostic",
-        "policy_id": RESEARCH_POLICY_ID,
+        "kind": "technical_discovery_strategy",
+        "policy_id": STRATEGY_POLICY_ID,
         "generation_id": metadata.generation_id,
         "as_of": metadata.as_of.isoformat(),
         "evaluation_time": metadata.evaluation_time.isoformat(),
@@ -392,7 +391,7 @@ def evaluate_technical_strategy(
     metadata: GenerationMetadata,
 ) -> dict[str, JsonValue]:
     """広域の探索理由を返す。MAクロス日・買付採否・主体別資金流入は推定しない。"""
-    row = evaluate_technical_discovery(ticker, models=models, metadata=metadata)
+    row = _base_context(ticker, models=models, metadata=metadata)
     by_id = {model.model_id: model for model in models if model.model_id in MODEL_IDS}
     ta, market = by_id.get("technical_analysis"), by_id.get("market_context")
     expected = row["expected_price_date"]
@@ -448,8 +447,6 @@ def evaluate_technical_strategy(
     )
     return {
         **row,
-        "kind": "technical_discovery_strategy",
-        "policy_id": STRATEGY_POLICY_ID,
         "state": state,
         "matched_routes": matched,
         "routes": routes,
