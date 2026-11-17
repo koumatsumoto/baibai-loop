@@ -778,35 +778,38 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("created-at must be a past timezone-aware clock")
     reports = []
     group_budget = GroupBudget(GROUP_BYTES[args.group])
-    store = ArticleObjectMetrics(
+    with closing(
         Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-    )
-    started = time.monotonic()
-    with requests.Session() as session:
-        for source in GROUPS[args.group]:
-            try:
-                report = acquire_source(
-                    store,
-                    source=source,
-                    slot=slot_at(datetime.now(UTC) if source in TSR_SOURCES else args.created_at),
-                    identity=args.identity,
-                    directory=args.directory / source,
-                    session=session,
-                    group_budget=group_budget,
-                )
-            except Exception as error:
-                report = {"source": source, "status": "failed", "reason": type(error).__name__}
-                descriptor = args.directory / source / "stage.json"
-                if descriptor.exists():
-                    saved = json.loads(descriptor.read_text())
-                    report.update(
-                        {
-                            "stage_id": saved["stage_id"],
-                            "manifest_sha256": saved["manifest_sha256"],
-                            "private_saved_planning_failed": True,
-                        }
+    ) as raw_store:
+        store = ArticleObjectMetrics(raw_store)
+        started = time.monotonic()
+        with requests.Session() as session:
+            for source in GROUPS[args.group]:
+                try:
+                    report = acquire_source(
+                        store,
+                        source=source,
+                        slot=slot_at(
+                            datetime.now(UTC) if source in TSR_SOURCES else args.created_at
+                        ),
+                        identity=args.identity,
+                        directory=args.directory / source,
+                        session=session,
+                        group_budget=group_budget,
                     )
-            reports.append(report)
+                except Exception as error:
+                    report = {"source": source, "status": "failed", "reason": type(error).__name__}
+                    descriptor = args.directory / source / "stage.json"
+                    if descriptor.exists():
+                        saved = json.loads(descriptor.read_text())
+                        report.update(
+                            {
+                                "stage_id": saved["stage_id"],
+                                "manifest_sha256": saved["manifest_sha256"],
+                                "private_saved_planning_failed": True,
+                            }
+                        )
+                reports.append(report)
     print(
         json.dumps(
             {
