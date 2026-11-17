@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
+from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -26,6 +27,11 @@ from baibai_engine.portfolio.ledger.store import LedgerStoreService
 def workspace_selection(
     manifest: Mapping[str, object], *, db_path: Path | None, active: bool = False
 ) -> ResearchSelection:
+    operation = OperationService(db_path).get(_manifest_operation_id(manifest))
+    return validate_workspace_selection(manifest, operation=operation, active=active)
+
+
+def _manifest_operation_id(manifest: Mapping[str, object]) -> str:
     expected_keys = {
         "schema_version",
         "operation_id",
@@ -44,8 +50,15 @@ def workspace_selection(
         raise ResearchWorkspaceConflictError("workspace manifest fields differ from V2")
     if manifest.get("schema_version") != 2:
         raise ResearchWorkspaceConflictError("workspace requires an explicit V2 cutover")
-    identifier = _nonempty_string(manifest.get("operation_id"), label="manifest.operation_id")
-    operation = OperationService(db_path).get(identifier)
+    return _nonempty_string(manifest.get("operation_id"), label="manifest.operation_id")
+
+
+def validate_workspace_selection(
+    manifest: Mapping[str, object], *, operation: OperationSession, active: bool = False
+) -> ResearchSelection:
+    """既読Operationへの束縛を検証し、全社入力を再読・再展開しない。"""
+    if _manifest_operation_id(manifest) != operation.operation_id:
+        raise ResearchWorkspaceConflictError("workspace belongs to another Operation")
     selection = selection_binding(operation.payload)
     if (
         selection is None

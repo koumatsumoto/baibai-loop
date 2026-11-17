@@ -35,7 +35,10 @@ from baibai_engine.investment_judgment.workflow.selection_policy import (
     CURRENT_RESEARCH_CAPACITY,
     validate_capacity,
 )
-from baibai_engine.investment_judgment.workflow.workspace.admission import workspace_selection
+from baibai_engine.investment_judgment.workflow.workspace.admission import (
+    validate_workspace_selection,
+    workspace_selection,
+)
 from baibai_engine.investment_judgment.workflow.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceError,
@@ -222,9 +225,7 @@ def resume_selected_workspace(
     company_growth_periods: int | EllipsisType | None = ...,
 ) -> SelectedResearchPreparation:
     operation = OperationService(db_path).get(operation_id)
-    selection = selection_binding(operation.payload)
-    if selection is None:
-        raise ResearchWorkspaceConflictError("Operation has no fixed selection")
+    selection: ResearchSelectionRecord | None
     if now.utcoffset() is None or now < operation.started_at:
         raise ResearchWorkspaceConflictError("resume precedes the Operation start")
     manifest_path = workspace / "manifest.yaml"
@@ -233,9 +234,13 @@ def resume_selected_workspace(
         if manifest.get("operation_id") != operation_id:
             raise ResearchWorkspaceConflictError("workspace belongs to another Operation")
         # Force repairs generated projection, never changes binding or authored drafts.
-        workspace_selection(manifest, db_path=db_path)
+        selection = validate_workspace_selection(manifest, operation=operation)
         if isinstance(company_growth_periods, EllipsisType):
             company_growth_periods = cast("int | None", manifest.get("company_growth_periods", 12))
+    else:
+        selection = selection_binding(operation.payload)
+        if selection is None:
+            raise ResearchWorkspaceConflictError("Operation has no fixed selection")
     return _materialize(
         operation,
         selection,
