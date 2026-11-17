@@ -15,7 +15,10 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
     delete_source_coverage,
     source_coverage_sources,
 )
-from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    SQLiteSchemaError,
+    validate_current_schema,
+)
 
 
 def invalidate_coverage_command(
@@ -47,7 +50,13 @@ def invalidate_coverage_command(
         print(f"SQLite cache not found: {sqlite_path}", file=sys.stderr)
         return 1
     try:
-        conn = open_connection(sqlite_path)
+        # Invalidation cannot create or rebuild a store, even if it vanished after the check.
+        conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=rw", uri=True)
+        try:
+            validate_current_schema(conn)
+        except BaseException:
+            conn.close()
+            raise
     except (SQLiteSchemaError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
