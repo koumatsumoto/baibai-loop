@@ -130,7 +130,7 @@ def _work_in_tmp_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         (
             ["refresh-tender-offer-exits", "--asof", "2026-05-08"],
             "refresh_tender_offer_exits_command",
-            "acquisition",
+            "download_csv_zip",
         ),
     ],
 )
@@ -142,7 +142,10 @@ def test_main_explicit_edinet_commands_pass_and_close_maintenance_provider(
         result = _run_cli(argv, edinet=edinet)
     assert result.exit_code == 0, result.stderr
     routed = command.call_args.kwargs[provider_arg]
-    assert (routed if provider_arg == "acquisition" else routed.edinet_refresh) is edinet
+    if provider_arg == "acquisition":
+        assert routed is edinet
+    else:
+        assert routed == edinet.download_csv_zip
     assert edinet.close_count == 1
 
 
@@ -196,7 +199,7 @@ def test_main_refresh_tender_offer_exits_uses_the_requested_store_and_acquisitio
         )
     assert factory.call_args.kwargs["sqlite_path"] == sqlite_path
     assert command.call_args.kwargs["sqlite_path"] == sqlite_path
-    assert command.call_args.kwargs["acquisition"] is edinet
+    assert command.call_args.kwargs["download_csv_zip"] == edinet.download_csv_zip
     assert "reader" not in command.call_args.kwargs
     assert edinet.close_count == 1
 
