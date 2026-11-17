@@ -8,7 +8,7 @@ import pytest
 from pydantic import TypeAdapter
 from tests.engine.machine_analysis.screening.test_input_review_attention import result
 from tests.engine.machine_analysis.screening.test_technical_financial import row
-from tests.tools.test_technical_discovery import _metadata
+from tests.helpers.technical_discovery import _metadata
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,

@@ -6,7 +6,7 @@ import pytest
 from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed, row
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
-from tests.tools.test_technical_financial_candidates import _seed
+from tests.helpers.technical_financial import _seed
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding

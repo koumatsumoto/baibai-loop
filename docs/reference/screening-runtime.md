@@ -73,31 +73,7 @@ ModelGenerationとScreeningSelectionは別identity。通常生成で政策を適
 
 ## 読取専用の研究診断
 
-以下は私有copyから新しい私有JSONへ出す診断で、通常政策の再適用・Research開始・保存・売買はしない。非zero終了の出力を採用せず、私有JSONを公開log/artifactへ出さない。
-
-### TA探索と財務・成長案の有限診断
-
-[旧五入口の比較caller](../../tools/experiments/inspect_technical_financial_candidates.py)は、同じGenerationの広いstock planを分母とし、TA非合致・未判定・財務未評価も残す。旧wrapperのlabelは比較条件の識別で、現在の日次政策ではない。
-
-```bash
-uv run python -m tools.experiments.inspect_technical_financial_candidates \
-  --generation-id <FIXED_GENERATION_ID> --runs-path <READ_ONLY_RUNS_COPY> \
-  --out <NEW_PRIVATE_JSON>
-```
-
-上位の不足理由と対応する元quarter観測を分ける。空の補助配列は悪化/取得失敗の認定でなく、曖昧な比較・PDFは元reason/sourceを読む。前年符号を逆算せず、年次赤字・CF/負債欠測を救済しない。残す対象だけ同じGenerationのSelection ID/cutoffで`--compare-ticker`へ進め、診断件数をResearch枠や採択数にしない。
-
-### 保存TAの状態と遷移を分ける
-
-[二世代比較caller](../../tools/experiments/inspect_technical_transitions.py)は前後stock planのunionと元診断を残す。
-
-```bash
-uv run python -m tools.experiments.inspect_technical_transitions \
-  --previous-generation-id <PREVIOUS_ID> --current-generation-id <CURRENT_ID> \
-  --runs-path <READ_ONLY_RUNS_COPY> --out <NEW_PRIVATE_JSON>
-```
-
-同じ/非連続の価格日、policy/model revision不一致、価格/モデル欠測は比較不能。欠測を含む状態からの合致は入力回復と分け、新規母集団入りや計算時刻の違いを価格イベントとしない。`known_state_pairs=0`は新規0件の確認ではない。市場相対は比較指数の同一性も必要で、指数不一致は当該経路だけへ局所化する。別経路の新合致と継続状態を両方残し、遷移をhard gateへ自動接続しない。
+次のcallerは私有copyから新しい私有JSONへ出す診断で、通常政策の再適用・Research開始・保存・売買はしない。非zero終了の出力を採用せず、私有JSONを公開log/artifactへ出さない。
 
 <a id="decision-cohort-diagnostic"></a>
 ### 現行判断の比較前診断
@@ -112,4 +88,4 @@ uv run python -m tools.experiments.inspect_decision_cohort \
 
 候補と調査対象のunionを残し、0対象でも候補を消さない。全レーンの保存閲覧集合と順序を使い、予備や候補外の明示調査を経済的適格へ格上げしない。運用用SelectionとProposalの原公開Selectionは役割/hashが異なり、正当な移行は既存receiptで照合する。未選定・未完・経済的見送りを分け、全開始Operationを分母とする比較や第二の判断正本、[旧較正](estimate-calibration.md)の再生成には使わない。
 
-どの診断も完全PIT・事前登録・利益/指値の因果効果を証明しない。正式比較の対象/窓/metricは結果を見る前に決め、保存完了時刻を約定可能時刻とせず、選定/提案の公開以後と取引可能時刻を別に確かめる。後日の訂正・本人報告・取引・Retrospectiveを当時本文に混ぜない。有限の政策比較と残る受入は[#1680](https://github.com/koumatsumoto/baibai-loop/issues/1680)・[#2184](https://github.com/koumatsumoto/baibai-loop/issues/2184)で追跡し、機能受入を投資効果へ換算しない。
+この診断も完全PIT・事前登録・利益/指値の因果効果を証明しない。正式比較の対象/窓/metricは結果を見る前に決め、保存完了時刻を約定可能時刻とせず、選定/提案の公開以後と取引可能時刻を別に確かめる。後日の訂正・本人報告・取引・Retrospectiveを当時本文に混ぜない。有限の政策比較と残る受入は[#1680](https://github.com/koumatsumoto/baibai-loop/issues/1680)・[#2184](https://github.com/koumatsumoto/baibai-loop/issues/2184)で追跡し、機能受入を投資効果へ換算しない。
