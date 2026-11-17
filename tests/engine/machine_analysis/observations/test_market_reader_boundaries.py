@@ -32,8 +32,11 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
     record_range_source_coverage,
     record_source_coverage,
 )
-from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
-from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    open_connection,
+)
 
 
 @pytest.mark.parametrize(
@@ -63,14 +66,12 @@ def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) ->
     end = date(2026, 2, 2)
 
     assert read_next_earnings_dates(path, end) == {"1301": date(2026, 2, 3)}
-    assert unreadable_store_reason(path) is None
     assert path.read_bytes() == before
 
     with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
-    reason = unreadable_store_reason(path)
-    assert reason is not None
-    assert f"user_version={SQLITE_SCHEMA_VERSION - 1}," in reason
+    with pytest.raises(SQLiteSchemaError, match=f"user_version={SQLITE_SCHEMA_VERSION - 1},"):
+        read_next_earnings_dates(path, end)
 
 
 @pytest.mark.parametrize("scoped", [False, True])
@@ -425,3 +426,37 @@ def test_edinet_coverage_and_rows_share_a_snapshot(tmp_path, monkeypatch, reader
     rows = result.rows if reader_kind == "baseline" else result
     assert len(rows) == 2
     assert reader(path, BASE) is None
+
+
+@pytest.mark.parametrize("damage", ["none", "old_schema", "broken_file", "count_mismatch"])
+def test_edinet_failure_recording_uses_one_baseline_read(tmp_path, monkeypatch, damage):
+    from tests.helpers.edinet_saved_inputs import BASE, _seed
+
+    from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import (
+        _record_edinet_extraction_failure,
+    )
+
+    path = tmp_path / "market.sqlite"
+    _seed(path)
+    if damage == "broken_file":
+        path.write_bytes(b"not a SQLite database")
+    elif damage != "none":
+        with closing(sqlite3.connect(path)) as conn, conn:
+            if damage == "old_schema":
+                conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+            else:
+                conn.execute(
+                    "UPDATE source_coverage SET record_count = 99 WHERE source = 'edinet_metrics'"
+                )
+    before = path.read_bytes()
+    connect = sqlite3.connect
+    opened = []
+
+    def track(database, *args, **kwargs):
+        opened.append(str(database))
+        return connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", track)
+    _record_edinet_extraction_failure(path, BASE, "provider unavailable")
+    assert opened == [path.resolve().as_uri() + "?mode=ro"]
+    assert path.read_bytes() == before

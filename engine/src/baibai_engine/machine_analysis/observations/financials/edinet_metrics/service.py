@@ -42,7 +42,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write
 from baibai_engine.machine_analysis.observations.financials.edinet_models import (
     EdinetMetricRecord,
 )
-from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, connect_current
 
 
@@ -470,8 +469,6 @@ def _record_edinet_extraction_failure(
     cannot establish that replacement is safe, so nothing is written. This path
     does not migrate a store. An absent store has no snapshot to preserve.
     """
-    if sqlite_path.exists() and unreadable_store_reason(sqlite_path) is not None:
-        return
     try:
         baseline = read_edinet_metric_baseline(sqlite_path, asof_date)
     except (EDINETMetricBaselineError, SQLiteSchemaError, sqlite3.Error, OSError, ValueError):
