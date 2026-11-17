@@ -36,6 +36,7 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
     stored_days,
 )
 from baibai_engine.data_collection.transport.context import (
+    BrowserDownloadTimeoutError,
     FetchContext,
     ProviderFetchStoppedError,
     ProviderRateLimitError,
@@ -58,6 +59,7 @@ class SourceRefreshFailure:
     http_status: int | None = None
     error_types: tuple[str, ...] = ()
     blocked_by_source_id: str | None = None
+    browser_download_diagnostic: str | None = None
 
 
 type SourceRefreshOutcome = SourceRefreshSuccess | SourceRefreshFailure
@@ -155,6 +157,7 @@ def refresh_sources(
                 cause: BaseException | None = error
                 http_status = None
                 error_types = []
+                browser_download_diagnostic = None
                 while cause is not None:
                     error_types.append(type(cause).__name__)
                     if (
@@ -163,6 +166,10 @@ def refresh_sources(
                         and cause.response is not None
                     ):
                         http_status = cause.response.status_code
+                    if browser_download_diagnostic is None and isinstance(
+                        cause, BrowserDownloadTimeoutError
+                    ):
+                        browser_download_diagnostic = cause.diagnostic
                     cause = cause.__cause__
                 if isinstance(error, ProviderRateLimitError) or (
                     isinstance(error, ProviderFetchStoppedError)
@@ -171,7 +178,11 @@ def refresh_sources(
                     stopped_groups[source_policy(catalog[source_id]).acquisition_group] = source_id
                 outcomes.append(
                     SourceRefreshFailure(
-                        source_id, redact_credentials(str(error)), http_status, tuple(error_types)
+                        source_id,
+                        redact_credentials(str(error)),
+                        http_status,
+                        tuple(error_types),
+                        browser_download_diagnostic=browser_download_diagnostic,
                     )
                 )
     return tuple(outcomes)

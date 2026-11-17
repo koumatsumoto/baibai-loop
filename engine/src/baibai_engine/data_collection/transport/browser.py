@@ -17,6 +17,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from baibai_engine.data_collection.transport.context import (
+    BrowserDownloadTimeoutError,
     BrowserUnavailableError,
     IndicatorsProviderError,
 )
@@ -213,9 +214,12 @@ class BrowserFetcher:
                         )
                 download = download_info.value
             except PlaywrightTimeoutError as exc:
-                raise IndicatorsProviderError(
-                    f"browser could not download from {url}: "
+                diagnostic = (
                     f"no download started within {_NAV_TIMEOUT_MS} ms; {navigation_outcome}"
+                )
+                raise BrowserDownloadTimeoutError(
+                    f"browser could not download from {url}: {diagnostic}",
+                    diagnostic=diagnostic,
                 ) from exc
             path = download.path()
             size = Path(path).stat().st_size
