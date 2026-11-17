@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 from tests.helpers.external_assessment_html import kabumap_html, kabumap_not_computed_html
-from tests.helpers.external_assessment_publication import RECEIVED, _plan, _stage
+from tests.helpers.external_assessment_publication import RECEIVED, _plan, _stage, prepare_plan
 from tests.helpers.external_assessment_publication import publication as publication
 from tests.helpers.external_assessment_responses import response
 
@@ -19,7 +19,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
 from baibai_jobs.acquisition.external_assessments.staging import save_new_plan
 from baibai_jobs.integration.external_assessment_ready import (
     load_ready,
-    prepare_plan,
     read_acknowledgement,
     save_ready,
 )

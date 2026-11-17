@@ -4,6 +4,7 @@ import json
 from collections import Counter
 
 import pytest
+from tests.helpers.external_assessment_publication import prepare_plan
 from tests.helpers.external_assessment_publication import publication as publication
 from tests.jobs.integration.external_assessments.test_cumulative_handoff import (
     add_cohort,
@@ -16,7 +17,6 @@ from baibai_jobs.integration.external_assessment_ready import (
     acknowledgement_key,
     available_ready,
     load_ready,
-    prepare_plan,
     save_ready,
 )
 

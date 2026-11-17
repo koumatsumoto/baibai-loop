@@ -144,13 +144,12 @@ def _import_confirmed_originals(
     stages: dict[int, tuple[CohortStage, str]],
     sqlite_path: Path,
     *,
-    retained: tuple[set[tuple[int, int]], dict[str, str]] | None = None,
+    retained: tuple[set[tuple[int, int]], dict[str, str]],
+    bundle_receipts: dict[str, dict[str, str]],
     acknowledged: dict[str, dict[str, str]] | None = None,
-    bundle_receipts: dict[str, dict[str, str]] | None = None,
-) -> tuple[int, set[tuple[int, int]], dict[str, str], tuple[ExternalAssessmentObservation, ...]]:
+) -> tuple[int, dict[str, str], tuple[ExternalAssessmentObservation, ...]]:
     """Import one bounded bundle at a time; defer L2 until every bundle is valid."""
     source_inserted = 0
-    source_months: set[tuple[int, int]] = set()
     selected_digests: dict[str, str] = {}
     typed: list[ExternalAssessmentObservation] = []
     attempts: dict[str, tuple[str, str, list[str]]] = {}
@@ -169,8 +168,7 @@ def _import_confirmed_originals(
             digests = {item.receipt_id: equity_web_response_digest(item) for item in responses}
             if acknowledged and key in acknowledged and digests != acknowledged[key]:
                 raise ValueError("acknowledged external original changed")
-            if bundle_receipts is not None:
-                bundle_receipts[key] = digests
+            bundle_receipts[key] = digests
             for response in responses:
                 if (response.source, response.requested_ticker) not in pairs or (
                     response.receipt_id in selected_digests
@@ -188,13 +186,11 @@ def _import_confirmed_originals(
                 else:
                     previous[2].append(response.receipt_id)
                 selected_digests[response.receipt_id] = digests[response.receipt_id]
-                source_months.add((response.received_at_utc.year, response.received_at_utc.month))
             source_inserted += equity_web_import_responses(sqlite_path, responses)
-            if retained is not None:
-                retained[0].update(
-                    (item.received_at_utc.year, item.received_at_utc.month) for item in responses
-                )
-                retained[1].update(digests)
+            retained[0].update(
+                (item.received_at_utc.year, item.received_at_utc.month) for item in responses
+            )
+            retained[1].update(digests)
             # Responses and their decompressed bodies die with this bundle iteration.
             del responses
         for entry in stage.result.entries:
@@ -221,7 +217,7 @@ def _import_confirmed_originals(
                 and (attempt_info is None or attempt_info[:2] != (entry.source, entry.ticker))
             ):
                 raise ValueError("failed HTTP 200 attempt has no retained original")
-    return source_inserted, source_months, selected_digests, tuple(typed)
+    return source_inserted, selected_digests, tuple(typed)
 
 
 def merge_ready(
@@ -249,7 +245,7 @@ def merge_ready(
                 item.cumulative and read_acknowledgement(store, item, reference) is not None
             ):
                 continue
-            added, _, digests, own = _import_confirmed_originals(
+            added, digests, own = _import_confirmed_originals(
                 store,
                 item.plan,
                 item.stages,
