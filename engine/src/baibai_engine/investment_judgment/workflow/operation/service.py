@@ -136,6 +136,7 @@ class OperationService:
             selection.inputs.generation.model_dump(mode="json")
         ):
             raise ValueError("model input slice differs from its canonical generation")
+        del canonical
         selection_id = selection.inputs.screening_selection_id
         if selection_id is not None:
             publication = read_publication(
@@ -153,6 +154,8 @@ class OperationService:
                 or publication.published_at != selection.inputs.screening_published_at
             ):
                 raise OperationConflictError("screening selection differs from chosen generation")
+            # 照合済みの全社木をpayloadの保存時まで同時に保持しない。
+            del publication
         if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
             raise OperationConflictError(
                 "current ticker must be a four-character alphanumeric code"
@@ -189,6 +192,7 @@ class OperationService:
                     )
                 if progress.outcomes:
                     payload = with_progress(payload, progress)
+                del selection
                 operation_id = f"research-op-{uuid4().hex}"
                 operation = OperationSession(
                     operation_id=operation_id,
