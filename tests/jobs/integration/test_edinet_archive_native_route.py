@@ -189,6 +189,7 @@ def test_common_plan_fixes_both_heads_and_updates_all_consumers_without_latest(
 ):
     store, _, owner, lists, archives, _ = fixtures(tmp_path)
     monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "false")
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
     work = tmp_path / "integration"
     assert sources.main(["plan", "--directory", str(work)]) == 0

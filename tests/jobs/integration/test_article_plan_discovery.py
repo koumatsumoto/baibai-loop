@@ -31,6 +31,7 @@ def test_daily_plan_fixes_article_handoff_without_acquisition_summary(tmp_path, 
         not_before=None,
     )
     del store.values[source_key("boj_news")]
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
     empty_edinet_input(store, tmp_path)
     store.get_keys.clear()

@@ -49,6 +49,7 @@ def test_article_seal_requires_readback_but_never_acknowledges_l1(tmp_path, monk
             }
         )
     )
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(sources, "_load_handle", lambda _: object())
     monkeypatch.setattr(sources, "canonical_generations", lambda _: {"lake_release_id": "fixed"})
