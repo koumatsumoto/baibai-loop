@@ -17,6 +17,7 @@ from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -72,11 +73,25 @@ def _read(
     before = store.head(key)
     if before is None or not 0 < before.size <= max_bytes or (etag and before.etag != etag):
         raise ValueError(f"fixed remote object changed or exceeds bound: {key}")
-    if not isinstance(store, VerifiedObjectReader):
-        raise ValueError("cutover requires bounded verified object reads")
-    body = store.get_verified_bytes(key, sha256=sha256, max_bytes=max_bytes)
+    body: bytes | None
+    if key in {MARKET, MANIFEST} and isinstance(store, Boto3R2Store):
+        # The normal shell writer does not attach private-JSON SHA metadata.
+        # Bound its real transfer and verify the explicit plan's body digest instead.
+        with TemporaryDirectory(prefix="schema-52-read-") as directory:
+            path = Path(directory) / "body"
+            store.download_file(key, path, expect_bytes=before.size, max_bytes=before.size)
+            body = path.read_bytes()
+    else:
+        if not isinstance(store, VerifiedObjectReader):
+            raise ValueError("cutover requires bounded verified object reads")
+        body = store.get_verified_bytes(key, sha256=sha256, max_bytes=max_bytes)
     after = store.head(key)
-    if body is None or after != before or len(body) != before.size:
+    if (
+        body is None
+        or after != before
+        or len(body) != before.size
+        or hashlib.sha256(body).hexdigest() != sha256
+    ):
         raise ValueError(f"fixed remote read was not stable: {key}")
     return body, before.etag
 
