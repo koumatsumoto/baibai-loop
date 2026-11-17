@@ -31,6 +31,7 @@ from baibai_engine.storage.sqlite.merge import (
     TableMerge,
     count,
     merge_fact_tables,
+    open_merge_target,
     schema_name,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import (
@@ -104,8 +105,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             raise MergeError(f"market store does not exist: {path}")
     _require_schema(source)
     _require_schema(target)
-    uri = target.resolve().as_uri()
-    with closing(sqlite3.connect(uri, uri=True, isolation_level=None)) as connection:
+    with closing(open_merge_target(target)) as connection:
         connection.execute("ATTACH DATABASE ? AS source", (f"{source.resolve().as_uri()}?mode=ro",))
         try:
             _require_attached_version(connection, path=source, schema="source")
