@@ -120,6 +120,10 @@ try:
         os.fsync(directory)
     finally:
         os.close(directory)
+    if os.environ.get("FINANCE_RECOVERY_EVIDENCE_PREFIX"):
+        sys.path[:0] = [str(Path(repo) / "engine/src"), str(Path(repo) / "jobs/src")]
+        from baibai_jobs.integration.finance_recovery_evidence import persist_transfer_record
+        persist_transfer_record(root, path)
 except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError):
     print("transfer evidence could not be recorded (" + phase + ")", file=sys.stderr)
     raise SystemExit(1) from None
