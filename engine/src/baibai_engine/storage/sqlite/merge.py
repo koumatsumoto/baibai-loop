@@ -17,6 +17,7 @@ import re
 import sqlite3
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 # SQLite cannot bind a table, column or schema name, so every statement below interpolates
 # the ones it needs. Two guards keep that interpolation from carrying anything but a plain
@@ -28,6 +29,14 @@ _SCHEMAS = frozenset({"main", "source"})
 
 class MergeError(RuntimeError):
     """The stores cannot be merged, so the target is left untouched."""
+
+
+def open_merge_target(path: Path) -> sqlite3.Connection:
+    """A merge cannot seed a replacement if its checked target disappears."""
+    try:
+        return sqlite3.connect(path.resolve().as_uri() + "?mode=rw", uri=True, isolation_level=None)
+    except sqlite3.Error as error:
+        raise MergeError(f"could not open existing merge target: {path}") from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +297,7 @@ __all__ = [
     "internal_name",
     "merge_fact_tables",
     "merge_table",
+    "open_merge_target",
     "require_identical_columns",
     "require_matching_payloads",
     "schema_name",

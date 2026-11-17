@@ -35,6 +35,7 @@ from baibai_engine.storage.sqlite.merge import (
     MergeReport,
     RowFilter,
     merge_fact_tables,
+    open_merge_target,
     require_identical_columns,
     require_matching_payloads,
     source_only_rows,
@@ -91,9 +92,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
     for path in (source, target):
         if not path.is_file():
             raise MergeError(f"economic source store does not exist: {path}")
-    with closing(
-        sqlite3.connect(target.resolve().as_uri(), uri=True, isolation_level=None)
-    ) as connection:
+    with closing(open_merge_target(target)) as connection:
         try:
             validate_current_schema(connection)
             connection.execute(
@@ -148,9 +147,7 @@ def reconcile_stores(
         if not path.is_file():
             raise MergeError(f"economic source store does not exist: {path}")
     with (
-        closing(
-            sqlite3.connect(target.resolve().as_uri(), uri=True, isolation_level=None)
-        ) as connection,
+        closing(open_merge_target(target)) as connection,
         tempfile.TemporaryDirectory(
             prefix=".economic-publication-", dir=target.parent
         ) as directory,
