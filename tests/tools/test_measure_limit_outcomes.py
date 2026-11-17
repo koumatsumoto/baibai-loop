@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
@@ -587,3 +589,95 @@ def test_cli_never_overwrites_an_input_store(tmp_path: Path, target: str, alias:
         == 1
     )
     assert (app_db.read_bytes(), market.read_bytes()) == original
+
+
+@pytest.mark.parametrize(
+    ("fault", "error_type"),
+    [
+        ("ledger_payload", "ValidationError"),
+        ("obsolete_schema", "RuntimeError"),
+        ("missing_market", "LimitOutcomeMeasurementError"),
+        ("market_schema", "OperationalError"),
+        ("invalid_low", "LimitOutcomeMeasurementError"),
+    ],
+)
+def test_cli_failure_reports_type_without_private_values_or_paths(
+    tmp_path, capsys, fault, error_type
+):
+    private = tmp_path / "PRIVATECANARY"
+    private.mkdir()
+    app, market = _expired_case(private)
+    with closing(sqlite3.connect(app)) as connection, connection:
+        if fault == "ledger_payload":
+            payload = json.loads(
+                connection.execute("SELECT payload FROM ledger_meta").fetchone()[0]
+            )
+            payload["portfolio_scope"] = "PRIVATECANARY"
+            connection.execute("UPDATE ledger_meta SET payload=?", (json.dumps(payload),))
+        elif fault == "obsolete_schema":
+            connection.execute("PRAGMA user_version=1000000")
+    with closing(sqlite3.connect(market)) as connection, connection:
+        if fault == "market_schema":
+            connection.execute("DROP TABLE jquants_daily_bars")
+        elif fault == "invalid_low":
+            connection.execute("UPDATE jquants_daily_bars SET low=-1")
+    source_bytes = app.read_bytes(), market.read_bytes()
+    market_arg = private / "missing.sqlite" if fault == "missing_market" else market
+    output = private / "report.yaml"
+
+    assert (
+        main(
+            [
+                "--db",
+                str(app),
+                "--sqlite-path",
+                str(market_arg),
+                "--asof",
+                ASOF.isoformat(),
+                "--out",
+                str(output),
+            ]
+        )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"error: limit outcome measurement failed ({error_type})\n"
+    assert "PRIVATECANARY" not in captured.err
+    assert str(tmp_path) not in captured.err
+    assert not output.exists()
+    assert (app.read_bytes(), market.read_bytes()) == source_bytes
+    if fault == "missing_market":
+        assert not market_arg.exists()
+
+
+def test_cli_output_failure_keeps_existing_file_without_logging_its_path(tmp_path, capsys):
+    app, market = _expired_case(tmp_path)
+    output = tmp_path / "PRIVATECANARY.yaml"
+    output.write_text("existing private report")
+    source_bytes = app.read_bytes(), market.read_bytes()
+
+    assert (
+        main(
+            [
+                "--db",
+                str(app),
+                "--sqlite-path",
+                str(market),
+                "--asof",
+                ASOF.isoformat(),
+                "--out",
+                str(output),
+            ]
+        )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: limit outcome report write failed (FileExistsError)\n"
+    assert "PRIVATECANARY" not in captured.err
+    assert str(tmp_path) not in captured.err
+    assert output.read_text() == "existing private report"
+    assert (app.read_bytes(), market.read_bytes()) == source_bytes
