@@ -3,8 +3,7 @@ from __future__ import annotations
 import gzip
 import sqlite3
 import subprocess
-from collections.abc import Iterator
-from contextlib import closing, contextmanager
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -175,59 +174,7 @@ def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects
     )
 
 
-def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: Path) -> None:
-    sqlite_path = market_store(tmp_path / "market.sqlite")
-    dataset = LAKE_DATASETS["jquants.daily_bars"]
-    uri = f"{sqlite_path.resolve().as_uri()}?mode=ro&immutable=1"
-    with (
-        closing(sqlite3.connect(uri, uri=True)) as legacy,
-        writer_module._open_immutable(sqlite_path) as indexed,
-    ):
-        legacy.execute("PRAGMA case_sensitive_like=OFF")
-        for period in ((2026, 1), (2026, 2)):
-            legacy_rows = list(writer_module._period_rows(legacy, dataset, period))
-            indexed_rows = list(writer_module._period_rows(indexed, dataset, period))
-            assert indexed_rows == legacy_rows
-
-
-def test_indexed_like_keeps_partition_object_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sqlite_path = market_store(tmp_path / "market.sqlite")
-    mirror = tmp_path / "mirror"
-    indexed_open = writer_module._open_immutable
-
-    @contextmanager
-    def legacy_open(path: Path) -> Iterator[sqlite3.Connection]:
-        with closing(
-            sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
-        ) as connection:
-            connection.execute("PRAGMA case_sensitive_like=OFF")
-            yield connection
-
-    monkeypatch.setattr(writer_module, "_open_immutable", legacy_open)
-    legacy = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        build_id="legacy-like",
-    )
-    monkeypatch.setattr(writer_module, "_open_immutable", indexed_open)
-    indexed = _export(
-        dataset_name="jquants.daily_bars",
-        sqlite_path=sqlite_path,
-        mirror_root=mirror,
-        producer_git_commit=_COMMIT,
-        build_id="indexed-like",
-    )
-
-    assert [(item.values, item.objects[0].key) for item in indexed.manifest.partitions] == [
-        (item.values, item.objects[0].key) for item in legacy.manifest.partitions
-    ]
-
-
-def test_blob_date_still_fails_closed_with_indexed_like(tmp_path: Path) -> None:
+def test_blob_date_fails_closed_before_publication(tmp_path: Path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
     with closing(sqlite3.connect(sqlite_path)) as connection, connection:
         connection.execute(
