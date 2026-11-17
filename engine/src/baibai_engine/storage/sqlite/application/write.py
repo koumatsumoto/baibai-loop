@@ -27,6 +27,25 @@ def connect_rw(path: Path | None = None) -> sqlite3.Connection:
     return connection
 
 
+def connect_existing(path: Path | None = None) -> sqlite3.Connection:
+    """Append to a supported application store without creating or migrating it."""
+    resolved = _database_path(path).resolve()
+    connection = sqlite3.connect(resolved.as_uri() + "?mode=rw", uri=True, isolation_level=None)
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        current = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        if current not in SUPPORTED_APPLICATION_SCHEMA_VERSIONS:
+            raise RuntimeError(
+                "application append requires a supported existing schema "
+                f"(found user_version={current}, supported={SUPPORTED_APPLICATION_SCHEMA_VERSIONS})"
+            )
+        return connection
+    except BaseException:
+        connection.close()
+        raise
+
+
 KEPT_BACKUP_GENERATIONS = 10
 """How many local checkpoints survive.
 
