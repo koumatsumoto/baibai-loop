@@ -23,6 +23,7 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.schema import SUPPORTED_APPLICATION_SCHEMA_VERSIONS
 from baibai_web.sources.proposal import DbProposalSource
 
 B = "investment-proposal-00000000-0000-4000-8000-000000000004"
@@ -78,8 +79,13 @@ def records_case(tmp_path):
     return case, original, wrong, service, correction
 
 
-def test_correction_report_serving_and_preview_preserve_originals_and_ledger(records_case):
+@pytest.mark.parametrize("schema_version", SUPPORTED_APPLICATION_SCHEMA_VERSIONS)
+def test_correction_report_serving_and_preview_preserve_originals_and_ledger(
+    records_case, schema_version
+):
     case, a, b, service, draft = records_case
+    with closing(sqlite3.connect(case.app)) as connection:
+        connection.execute(f"PRAGMA user_version={schema_version}")
     before = snapshot(case.app)
     corrected = service.correct(draft, expected_latest_ref=ref(b))
     assert service.correct(draft, expected_latest_ref=ref(b)) == corrected
@@ -267,3 +273,56 @@ def test_cli_report_roundtrip_and_conflicting_report(records_case, tmp_path, cap
 
     with pytest.raises(ProposalConflictError, match="immutable"):
         service.report(report.model_copy(update={"proposal_ref": ref(b)}))
+
+
+@pytest.mark.parametrize("command", ["report", "correct"])
+@pytest.mark.parametrize(
+    "state", ["missing_parent", "missing_file", "unwritten", "unversioned", "unsupported"]
+)
+def test_record_append_does_not_initialize_or_migrate_another_store(
+    records_case, tmp_path, capsys, command, state
+):
+    case, a, b, _service, correction = records_case
+    app = tmp_path / "other" / "app #1?.sqlite"
+    if state != "missing_parent":
+        app.parent.mkdir()
+    if state == "unwritten":
+        app.touch()
+    elif state in {"unversioned", "unsupported"}:
+        with closing(sqlite3.connect(app)) as connection, connection:
+            connection.execute("CREATE TABLE unrelated_state(value TEXT)")
+            connection.execute("INSERT INTO unrelated_state VALUES ('retained')")
+            if state == "unsupported":
+                connection.execute("PRAGMA user_version=999")
+    draft = tmp_path / "record.json"
+    if command == "report":
+        draft.write_text(
+            HumanProposalReportDraft(
+                report_id="synthetic-not-purchased",
+                proposal_ref=ref(a),
+                outcome="not_purchased",
+                statement="合成の非購入報告。",
+                reported_at=PUBLISHED + timedelta(minutes=5),
+            ).model_dump_json()
+        )
+        arguments = [command, str(draft)]
+    else:
+        draft.write_text(correction.model_dump_json())
+        arguments = [
+            command,
+            str(draft),
+            "--expected-latest-id",
+            b.proposal_id,
+            "--expected-latest-sha256",
+            proposal_draft_sha256(b),
+        ]
+    entries_before = set(tmp_path.rglob("*"))
+    original = case.app.read_bytes()
+    before = app.read_bytes() if app.exists() else None
+
+    assert investment_judgment.main(["proposal-records", "--db", str(app), *arguments]) == 3
+
+    assert capsys.readouterr().out == ""
+    assert (app.read_bytes() if app.exists() else None) == before
+    assert set(tmp_path.rglob("*")) == entries_before
+    assert case.app.read_bytes() == original
