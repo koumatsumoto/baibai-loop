@@ -131,8 +131,12 @@ def _select(rows: Sequence[JQuantsFinancialSummary], field: str) -> JQuantsFinan
     return row
 
 
-def _value(rows: Sequence[JQuantsFinancialSummary], metric: Metric, field: str) -> Value:
-    row = _select(rows, field)
+def _value(
+    rows: Sequence[JQuantsFinancialSummary],
+    metric: Metric,
+    field: str,
+    row: JQuantsFinancialSummary | None,
+) -> Value:
     if row is None:
         observed = latest_disclosure_candidates(
             [item for item in rows if getattr(item, field) is not None]
@@ -156,10 +160,6 @@ def _value(rows: Sequence[JQuantsFinancialSummary], metric: Metric, field: str) 
     if metric == "parent_profit" and statement_basis(row) != "consolidated":
         return Value(reason="parent_attribution_unverified", documents=(_document(row),))
     return Value(value=getattr(row, field), documents=(_document(row),))
-
-
-def _compatible(rows: Sequence[JQuantsFinancialSummary]) -> bool:
-    return comparable_reporting_basis(rows)
 
 
 def _cumulative_revision_gap(
@@ -232,11 +232,14 @@ def _closest_groups(
     ]
 
 
+type _PeriodSources = dict[str, JQuantsFinancialSummary | None]
+
+
 def _select_operands(
-    groups: Sequence[Sequence[JQuantsFinancialSummary]], field: str
+    sources: Sequence[_PeriodSources], field: str
 ) -> list[JQuantsFinancialSummary]:
     # 別の会計identityを開示順で上書きせず、同じ実期間の値が一致した時だけ使う。
-    selected = [_select(group, field) for group in groups]
+    selected = [source[field] for source in sources]
     if not selected or any(row is None for row in selected):
         return []
     rows = [row for row in selected if row is not None]
@@ -249,13 +252,14 @@ def _select_operands(
 
 
 def _derived(
-    current: Sequence[JQuantsFinancialSummary],
+    anchor: JQuantsFinancialSummary,
     groups: Sequence[Sequence[JQuantsFinancialSummary]],
     all_rows: Sequence[JQuantsFinancialSummary],
     *,
+    reported: dict[Metric, Value],
+    period_sources: dict[AccountingPeriodKey, _PeriodSources],
     ttm: bool,
 ) -> tuple[date, dict[Metric, Value], PeriodStatus]:
-    anchor = current[0]
     assert anchor.period_start is not None
     assert anchor.period_end is not None
     days = period_days(anchor)
@@ -266,7 +270,7 @@ def _derived(
     ):
         return (
             anchor.period_start,
-            {m: _value(current, m, f) for m, f in _AMOUNT_FIELDS},
+            {metric: reported[metric] for metric, _ in _AMOUNT_FIELDS},
             "available",
         )
     start = (
@@ -332,23 +336,28 @@ def _derived(
                 start = annual_start
         else:
             start = previous_end + timedelta(days=1)
+    current_sources = period_sources[accounting_period_identity(anchor)]
+    prior_sources = [
+        [period_sources[accounting_period_identity(group[0])] for group in cohort]
+        for cohort in selected_groups
+    ]
     metrics: dict[Metric, Value] = {}
     for metric, field in _AMOUNT_FIELDS:
-        current_value = _value(current, metric, field)
+        current_value = reported[metric]
         if current_value.value is None:
             metrics[metric] = current_value
             continue
         if period_reason is not None:
             metrics[metric] = Value(reason=period_reason)
             continue
-        row = _select(current, field)
+        row = current_sources[field]
         assert row is not None
-        candidates = [_select_operands(groups, field) for groups in selected_groups]
+        candidates = [_select_operands(cohort, field) for cohort in prior_sources]
         if any(not candidate for candidate in candidates):
             metrics[metric] = Value(reason="operand_unavailable")
             continue
         sources = [row, *(operand for cohort in candidates for operand in cohort)]
-        if not _compatible(sources):
+        if not comparable_reporting_basis(sources):
             metrics[metric] = Value(
                 reason="statement_basis_incomparable"
                 if len({statement_basis(source) for source in sources}) != 1
@@ -399,8 +408,15 @@ def build_period_states(
     for row in rows:
         grouped.setdefault(accounting_period_identity(row), []).append(row)
     groups = list(grouped.values())
+    # Only complete cohorts share a selection. A historical revision check still
+    # selects from the disclosures known at its counterpart's clock.
+    sources: dict[AccountingPeriodKey, _PeriodSources] = {
+        key: {field: _select(group, field) for _, field in (*_REPORTED_FIELDS, *_BALANCE_FIELDS)}
+        for key, group in grouped.items()
+    }
     states: list[PeriodState] = []
-    for _, group in sorted(grouped.items()):
+    for key, group in sorted(grouped.items()):
+        selected = sources[key]
         anchor = latest_disclosure_candidates(group)[0]
         assert anchor.period_start is not None
         assert anchor.period_end is not None
@@ -409,9 +425,9 @@ def build_period_states(
         basis = next(iter(bases)) if len(bases) == 1 else "basis_unresolved"
         standards = {accounting_standard(r) for r in latest_basis}
         standard = next(iter(standards)) if len(standards) == 1 else None
-        reported = {m: _value(group, m, f) for m, f in _REPORTED_FIELDS}
+        reported = {m: _value(group, m, f, selected[f]) for m, f in _REPORTED_FIELDS}
         _margin(reported, sector)
-        balances = {m: _value(group, m, f) for m, f in _BALANCE_FIELDS}
+        balances = {m: _value(group, m, f, selected[f]) for m, f in _BALANCE_FIELDS}
         observations = [
             Observation(
                 period_start=anchor.period_start,
@@ -431,7 +447,9 @@ def build_period_states(
             ),
         ]
         for ttm in (False, True):
-            start, metrics, period_status = _derived(group, groups, rows, ttm=ttm)
+            start, metrics, period_status = _derived(
+                group[0], groups, rows, reported=reported, period_sources=sources, ttm=ttm
+            )
             _margin(metrics, sector)
             observations.append(
                 Observation(
