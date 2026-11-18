@@ -570,6 +570,8 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 <a id="price-native-l1"></a>
 **日足。** 正常空L1と価格0行の公開拒否は別。native暦で休場を証明できる未試行日だけを公開coverageから除き、raw不足は残す。旧v1へ遡及しない。統合は毎回固定L1から各日を正規化し、13列すべてが一致する取引日だけ作業用SQLiteの書換えを省く。構築中はこの実行専用のSQLiteに書込み予約を取るため、同じ作業ファイルを別のwriterと共有しない（読取は可能）。
 
+日次の空の転送DBが同じ固定releaseを指す場合、次にnative L1から再生成する旧日足だけは最初にhydrateしない。原本の欠損・訂正を旧株価では埋めない。旧releaseの日足そのものを再現・検査するには通常の `hydrate-market` を使う。
+
 <a id="financial-native-l1"></a>
 **財務。** [固定reader](src/baibai_jobs/integration/financial_native.py)は旧inline/共有固定入力も読む。旧SQL/Parquetの明示reader・cold再構築は保持する。旧mode/旧財務handoffを含む通常planは作り直し、旧Selectionを再署名しない。Operation再開とcold計算を混同しない。
 

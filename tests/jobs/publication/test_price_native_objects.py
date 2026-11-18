@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -29,8 +30,13 @@ from baibai_engine.storage.snapshots.reader import (
     resolve_current_release,
 )
 from baibai_engine.storage.snapshots.writer import LakeBuildError, validate_snapshot_parity
-from baibai_jobs.integration.price_native import rebuild_saved_input
-from baibai_jobs.publication import l1_price_export
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    read_lake_store_origin,
+    write_lake_store_origin,
+)
+from baibai_jobs.integration.price_native import model_input, rebuild_saved_input
+from baibai_jobs.publication import l1_price_export, snapshot_write_cli
 from baibai_jobs.publication import snapshot_publication as publication
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -319,6 +325,99 @@ def test_publication_uses_native_price_input_without_rollout_mode(tmp_path, monk
             assert connection.execute(
                 "SELECT close, adjustment_factor, volume, ex_right_type FROM jquants_daily_bars"
             ).fetchall() == [(100.0, 0.5, None, "1")]
+
+
+def test_daily_hydrate_rebuilds_native_prices_but_explicit_hydrate_still_needs_old_objects(
+    tmp_path, monkeypatch
+):
+    names = (DATASET.name, "jquants.market_calendar", "jquants.master_snapshots")
+    narrow_release_policy(monkeypatch, datasets=names)
+    monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
+    monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
+    store = MemoryR2Store()
+    owner = PriceL1(store, tmp_path / "native")
+    owner.initialize()
+    second = DAY + timedelta(days=1)
+    owner.commit([attempt("first", DAY), attempt("second", second)])
+    src = market_store(tmp_path / "source.sqlite", daily_bars=(), short_sale_reports=())
+    mirror = tmp_path / "mirror"
+    previous, _, _ = publish(store, src, mirror, identity="previous", asof=second)
+    origin = read_lake_store_origin(src)
+    assert origin is not None
+    transfer = market_store(tmp_path / "transfer.sqlite", daily_bars=(), short_sale_reports=())
+    with closing(sqlite3.connect(transfer)) as conn, conn:
+        write_lake_store_origin(conn, origin)
+
+    def fill(command):
+        return snapshot_write_cli.main(
+            [
+                command,
+                "--mirror",
+                str(mirror),
+                "--store",
+                str(transfer),
+                "--release",
+                origin.release_id,
+                "--manifest-sha256",
+                origin.release_manifest_sha256,
+            ]
+        )
+
+    # No previous price body can be read; only a normal daily transfer can defer it.
+    (mirror / previous.partitions[0].objects[0].key).unlink()
+    assert fill("hydrate") == 1
+    assert fill("hydrate-portfolio") == 1
+    assert fill("hydrate-for-daily") == 0
+    with closing(sqlite3.connect(transfer)) as conn:
+        assert conn.execute("SELECT count(*) FROM jquants_daily_bars").fetchone() == (0,)
+        for table in ("jquants_market_calendar", "jquants_master_snapshots"):
+            assert conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() == (1,)
+
+    # A gap in the old Lake never substitutes a stale quote for a native correction or withdrawal.
+    owner.commit(
+        [
+            attempt("correction", DAY, tick=1, rows=records(DAY, revision=9)),
+            attempt("withdrawn", second, tick=1, rows=[]),
+        ]
+    )
+    saved = model_input(
+        store, owner.fixed(), as_of=second, evaluated_at=AT + timedelta(days=1), market=transfer
+    )
+    assert saved.descriptor["summary"]["normal_empty_days"] == 1
+    with closing(sqlite3.connect(transfer)) as conn, conn:
+        assert conn.execute(
+            "SELECT close FROM jquants_daily_bars WHERE ticker='1001'"
+        ).fetchall() == [(120.0,)]
+        assert (
+            conn.execute(
+                "SELECT 1 FROM jquants_daily_bars WHERE traded_at=?", (second.isoformat(),)
+            ).fetchone()
+            is None
+        )
+        # A populated transfer is not the disposable empty daily case.
+    assert fill("hydrate-for-daily") == 1
+    with closing(sqlite3.connect(transfer)) as conn, conn:
+        conn.execute("DELETE FROM jquants_daily_bars")
+        write_lake_store_origin(conn, LakeStoreOrigin("other", "b" * 64))
+    assert fill("hydrate-for-daily") == 1
+
+    with closing(sqlite3.connect(transfer)) as conn, conn:
+        write_lake_store_origin(conn, origin)
+    initial = snapshot_write_cli._daily_rebuilds_prices
+
+    def raced(release, path):
+        assert initial(release, path)
+        with closing(sqlite3.connect(path)) as conn, conn:
+            conn.execute(
+                "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES('1001',?,17)",
+                (DAY.isoformat(),),
+            )
+        return True
+
+    monkeypatch.setattr(snapshot_write_cli, "_daily_rebuilds_prices", raced)
+    assert fill("hydrate-for-daily") == 1
+    with closing(sqlite3.connect(transfer)) as conn:
+        assert conn.execute("SELECT close FROM jquants_daily_bars").fetchall() == [(17.0,)]
 
 
 pytestmark = pytest.mark.usefixtures("native_master_calendar_publication")

@@ -766,8 +766,11 @@ def test_lake_domain_is_exposed_by_the_root_cli() -> None:
 @pytest.mark.parametrize(
     ("entrypoint", "commands"),
     [
-        ("dispatch", "{inventory,resolve,hydrate,hydrate-portfolio,dehydrate,gc}"),
-        ("write", "{hydrate,hydrate-portfolio,dehydrate,gc}"),
+        (
+            "dispatch",
+            "{inventory,resolve,hydrate,hydrate-for-daily,hydrate-portfolio,dehydrate,gc}",
+        ),
+        ("write", "{hydrate,hydrate-for-daily,hydrate-portfolio,dehydrate,gc}"),
     ],
 )
 def test_snapshot_cli_lists_current_commands_and_rejects_unknown_before_io(

@@ -12,7 +12,9 @@ from tests.helpers.r2_transfer import _environment, _fake_aws, _fake_repo
 ROOT = Path(__file__).resolve().parents[3]
 
 
-@pytest.mark.parametrize("command", ["hydrate-market", "hydrate-portfolio"])
+@pytest.mark.parametrize(
+    "command", ["hydrate-market", "hydrate-market-for-daily", "hydrate-portfolio"]
+)
 def test_transfer_dispatches_the_requested_hydration_scope(tmp_path, command):
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
@@ -24,7 +26,11 @@ def test_transfer_dispatches_the_requested_hydration_scope(tmp_path, command):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    expected = "hydrate" if command == "hydrate-market" else "hydrate-portfolio"
+    expected = {
+        "hydrate-market": "hydrate",
+        "hydrate-market-for-daily": "hydrate-for-daily",
+        "hydrate-portfolio": "hydrate-portfolio",
+    }[command]
     calls = log.read_text().splitlines()
     assert any(f"baibai-jobs snapshots {expected} --mirror " in line for line in calls)
     assert not any("s3api" in line or "s3 cp" in line for line in calls)
@@ -36,7 +42,7 @@ def test_transfer_dispatches_the_requested_hydration_scope(tmp_path, command):
         ("cloud-daily-batch.yml", "daily", "pull-machine", "integration.sources apply"),
     ],
 )
-def test_machine_pull_and_full_hydrate_precede_first_market_reader(
+def test_machine_pull_and_daily_hydrate_precede_first_market_reader(
     workflow: str, job: str, pull: str, first_reader: str
 ) -> None:
     document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
@@ -44,7 +50,9 @@ def test_machine_pull_and_full_hydrate_precede_first_market_reader(
     commands = [str(step.get("run", "")) for step in steps]
     pull_steps = [i for i, command in enumerate(commands) if f"r2_transfer.sh {pull}" in command]
     hydrate_steps = [
-        i for i, command in enumerate(commands) if "r2_transfer.sh hydrate-market" in command
+        i
+        for i, command in enumerate(commands)
+        if "r2_transfer.sh hydrate-market-for-daily" in command
     ]
     reader_steps = [i for i, command in enumerate(commands) if first_reader in command]
     assert len(pull_steps) == len(hydrate_steps) == len(reader_steps) == 1

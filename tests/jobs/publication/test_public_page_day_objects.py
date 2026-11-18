@@ -349,11 +349,10 @@ def test_bounded_hydration_and_export_reuse_only_same_sealed_receipts(tmp_path, 
             yield session, cache
 
     monkeypatch.setattr(write_cli, "open_lake", local_r2_input)
-    monkeypatch.setenv("BAIBAI_REUSE_DAILY_WEB_INPUTS", "1")
     assert (
         write_cli.main(
             [
-                "hydrate",
+                "hydrate-for-daily",
                 "--mirror",
                 str(mirror),
                 "--store",

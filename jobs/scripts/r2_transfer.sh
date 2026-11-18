@@ -259,8 +259,7 @@ merge_economic_store() {
 }
 
 hydrate_market() {
-  # Daily fills every lake table; standalone display needs only its portfolio inputs.
-  # Both use the same fixed-release validation and published row counts.
+  # The mode determines which fixed-release tables the next consumer needs.
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
@@ -810,7 +809,7 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 if [[ "${1:-}" == "push-machine" && $# -ne 1 ]]; then
@@ -840,6 +839,9 @@ case "${1:-}" in
   # the push because their time and their transfer are worth reporting on their own.
   hydrate-market)
     hydrate_market hydrate
+    ;;
+  hydrate-market-for-daily)
+    hydrate_market hydrate-for-daily
     ;;
   hydrate-portfolio)
     hydrate_market hydrate-portfolio

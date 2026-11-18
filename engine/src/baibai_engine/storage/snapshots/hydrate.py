@@ -44,6 +44,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
     read_lake_store_origin,
+    read_lake_store_origin_from_connection,
     write_lake_store_origin,
 )
 
@@ -171,6 +172,7 @@ def hydrate_market_store(
     store: Path,
     dataset_names: Sequence[str],
     still_current: Callable[[], tuple[str, str]] | None = None,
+    require_empty_dataset: str | None = None,
 ) -> HydrateReport:
     """Replace the lake-owned tables of ``store`` with the contents of one release.
 
@@ -196,6 +198,20 @@ def hydrate_market_store(
             connection = sqlite3.connect(temporary)
             try:
                 connection.execute("PRAGMA journal_mode=OFF")
+                if require_empty_dataset is not None:
+                    # Check the actual captured copy, not just a pre-lock planning read.
+                    if read_lake_store_origin_from_connection(connection) != LakeStoreOrigin(
+                        release.release_id, release.manifest_sha256
+                    ):
+                        raise LakeHydrateError(
+                            "deferred native input no longer has the fixed store origin"
+                        )
+                    deferred = catalog[require_empty_dataset]
+                    _require_contract_shape(connection, deferred)
+                    if connection.execute(
+                        f"SELECT 1 FROM {deferred.sqlite_table} LIMIT 1"  # nosec B608
+                    ).fetchone():
+                        raise LakeHydrateError(f"{require_empty_dataset} is not empty in transfer")
                 for name in sorted(partitions):
                     dataset = accepted_dataset(release, catalog[name])
                     _require_contract_shape(connection, catalog[name])
