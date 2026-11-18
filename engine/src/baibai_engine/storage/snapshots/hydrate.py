@@ -338,6 +338,19 @@ def dehydrate_market_store(
     Matching origin and row counts are required, but do not prove equality of row values.
     The caller must not change lake-owned rows between publication and this snapshot.
     """
+    return _dehydrate_copy(
+        store, catalog=catalog, release=release, still_current=still_current, omitted={}
+    )
+
+
+def _dehydrate_copy(
+    store: Path,
+    *,
+    catalog: Mapping[str, LakeDataset],
+    release: FixedRelease,
+    still_current: Callable[[], tuple[str, str]] | None,
+    omitted: Mapping[str, int],
+) -> DehydrateReport:
     catalog = freeze_catalog(catalog)
 
     if not store.is_file():
@@ -370,6 +383,10 @@ def dehydrate_market_store(
                     f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
                 ).fetchone()[0]
             )
+            if dataset.sqlite_table in omitted:
+                if held or name not in release.dataset_manifests:
+                    raise LakeHydrateError("a projected transfer table had unexpected rows")
+                held = omitted[dataset.sqlite_table]
             if name not in release.dataset_manifests:
                 if held:
                     raise LakeHydrateError(
@@ -382,7 +399,8 @@ def dehydrate_market_store(
                     f"{name} holds {held} row(s) but release {release.release_id} "
                     f"publishes {published.get(name, 0)}; publish before emptying"
                 )
-            connection.execute(f"DELETE FROM {dataset.sqlite_table}")  # nosec B608
+            if dataset.sqlite_table not in omitted:
+                connection.execute(f"DELETE FROM {dataset.sqlite_table}")  # nosec B608
             removed[name] = held
         connection.commit()
         connection.execute("VACUUM")

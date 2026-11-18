@@ -133,6 +133,29 @@ class SQLiteSchemaError(RuntimeError):
     """Raised when an existing SQLite cache is not the current schema."""
 
 
+@lru_cache(maxsize=1)
+def transfer_schema_shape() -> tuple[
+    frozenset[tuple[str, str, str, str | None]], dict[str, tuple[tuple[object, ...], ...]]
+]:
+    """Recognize the ordinary transfer shape without rejecting old DDL quoting/spacing."""
+    expected = sqlite3.connect(":memory:")
+    try:
+        expected.executescript(_SCHEMA_SQL)
+        objects = frozenset(
+            expected.execute(
+                "SELECT type,name,tbl_name,CASE WHEN type='index' THEN sql END FROM sqlite_schema"
+            )
+        )
+        columns = {
+            name: tuple(expected.execute(f'PRAGMA table_xinfo("{name}")'))
+            for kind, name, _, _ in objects
+            if kind == "table"
+        }
+        return objects, columns
+    finally:
+        expected.close()
+
+
 def open_connection(db_path: Path) -> sqlite3.Connection:
     """Open a current cache or create a fresh one; reject every obsolete shape."""
     db_path.parent.mkdir(parents=True, exist_ok=True)

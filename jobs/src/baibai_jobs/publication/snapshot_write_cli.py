@@ -31,6 +31,7 @@ from baibai_engine.storage.snapshots.reader import (
     resolve_release_ref,
 )
 from baibai_engine.storage.snapshots.retention import LakeRetentionError, apply_gc, plan_gc
+from baibai_engine.storage.snapshots.transfer import make_market_transfer
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -69,6 +70,9 @@ def add_write_commands(commands: argparse._SubParsersAction[argparse.ArgumentPar
     )
     dehydrate.add_argument("--mirror", type=Path, required=True)
     dehydrate.add_argument("--store", type=Path, required=True)
+    dehydrate.add_argument(
+        "--source", type=Path, help="build this transfer copy from the working store"
+    )
     _add_release_target(dehydrate)
 
     gc = commands.add_parser("gc", help="plan or apply deletion of unreachable objects")
@@ -140,10 +144,13 @@ def _resolve_release_target(
     ), still_current
 
 
-def _clear_independent_list_cache(args: argparse.Namespace, release: FixedRelease) -> None:
-    if "edinet.list_responses" in release.dataset_names() or not args.store.exists():
+def _clear_independent_list_cache(
+    args: argparse.Namespace, release: FixedRelease, *, store_path: Path | None = None
+) -> None:
+    path = args.store if store_path is None else store_path
+    if "edinet.list_responses" in release.dataset_names() or not path.exists():
         return
-    with closing(connect_read_only(args.store)) as connection:
+    with closing(connect_read_only(path)) as connection:
         if connection.execute("SELECT 1 FROM edinet_list_responses LIMIT 1").fetchone() is None:
             return
     from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
@@ -154,7 +161,7 @@ def _clear_independent_list_cache(args: argparse.Namespace, release: FixedReleas
         raise ValueError("native EDINET receipt cache verification requires --bucket")
     with closing(Boto3R2Store(bucket=args.bucket)) as store:
         fixed = EdinetListL1(store, args.mirror / "edinet-native").freeze()
-        clear_verified_receipt_cache(fixed, args.store)
+        clear_verified_receipt_cache(fixed, path)
 
 
 def _hydrate(args: argparse.Namespace) -> int:
@@ -210,10 +217,22 @@ def _dehydrate(args: argparse.Namespace) -> int:
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (_, cache):
             release, still_current = _resolve_release_target(args, cache.source)
-            _clear_independent_list_cache(args, release)
-            report = dehydrate_market_store(
-                args.store, release=release, still_current=still_current, catalog=LAKE_DATASETS
-            )
+            if args.source is None:
+                _clear_independent_list_cache(args, release)
+                report = dehydrate_market_store(
+                    args.store, release=release, still_current=still_current, catalog=LAKE_DATASETS
+                )
+            else:
+                report = make_market_transfer(
+                    args.source,
+                    args.store,
+                    release=release,
+                    still_current=still_current,
+                    catalog=LAKE_DATASETS,
+                    prepare_copy=lambda path: _clear_independent_list_cache(
+                        args, release, store_path=path
+                    ),
+                )
     except (
         LakeCredentialError,
         LakeHydrateError,

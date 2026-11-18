@@ -1033,6 +1033,8 @@ def test_market_dehydrate_resolves_current_and_leaves_identity_check_to_the_core
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
     environment["SNAPSHOT_FAKE_COPY"] = "1"
+    snapshot_calls = tmp_path / "snapshot-calls"
+    environment["SNAPSHOT_LOG"] = str(snapshot_calls)
     environment["AWS_FAKE_EXISTING_KEY"] = "lake/pointers/market/current.json"
 
     completed = subprocess.run(
@@ -1050,6 +1052,11 @@ def test_market_dehydrate_resolves_current_and_leaves_identity_check_to_the_core
         for command in log.read_text(encoding="utf-8").splitlines()
         if command.startswith("dehydrate ")
     )
+    assert "--source " in dehydrate
+    assert "--store " in dehydrate
+    calls = snapshot_calls.read_text(encoding="utf-8").splitlines()
+    assert len(calls) == 1
+    assert "baibai_engine.storage.sqlite.snapshot check --path " in calls[0]
     assert "--release" not in dehydrate
     assert "--manifest-sha256" not in dehydrate
 
