@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
+from itertools import islice
+from math import isfinite
 
 # Chosen maturity policy: exclude contracts with fewer than seven days left.
 # This limits near-expiry exposure; it does not prove all settlement effects vanish.
@@ -80,18 +82,16 @@ def option_iv_readings(quotes: Sequence[OptionQuote], asof: date) -> OptionIvRea
     in that average; one-sided or asymmetric errors need not.
     """
     by_expiry = usable_expiries(quotes, asof)
-    if not by_expiry:
+    priced = (
+        (expiry, volatility)
+        for expiry in sorted(by_expiry)
+        if (volatility := _atm_volatility(by_expiry[expiry])) is not None
+    )
+    nearest = list(islice(priced, 2))
+    if not nearest:
         return OptionIvReadings()
-    expiries = sorted(by_expiry)
-    atm = {expiry: _atm_volatility(by_expiry[expiry]) for expiry in expiries}
-    priced = [expiry for expiry in expiries if atm[expiry] is not None]
-    if not priced:
-        return OptionIvReadings()
-    front = priced[0]
-    front_volatility = atm[front]
-    assert front_volatility is not None  # `priced` holds only the expiries it priced
-    second = priced[1] if len(priced) > 1 else None
-    second_volatility = atm[second] if second is not None else None
+    front, front_volatility = nearest[0]
+    second, second_volatility = nearest[1] if len(nearest) == 2 else (None, None)
     near_days = (front - asof).days
     far_days = (second - asof).days if second is not None else None
     # Interpolated skew and term need both legs. An exact 30-day skew uses only
@@ -343,13 +343,15 @@ def quotes_from_records(records: Sequence[Mapping[str, object]]) -> list[OptionQ
 
 
 def _as_float(value: object) -> float | None:
+    if type(value) is float:
+        return value if isfinite(value) else None
     if isinstance(value, bool) or not isinstance(value, int | float | str):
         return None
     try:
         parsed = float(value)
     except ValueError:
         return None
-    return parsed if parsed == parsed and abs(parsed) != float("inf") else None
+    return parsed if isfinite(parsed) else None
 
 
 def as_date(value: object) -> date | None:

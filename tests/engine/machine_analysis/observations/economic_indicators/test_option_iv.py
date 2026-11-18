@@ -119,6 +119,14 @@ class OptionIvReadingsTest(unittest.TestCase):
         self.assertAlmostEqual(split.iv_30d, clean.iv_30d, places=9)
         self.assertAlmostEqual(lopsided.iv_30d - clean.iv_30d, 4.0, places=9)
 
+    def test_first_two_priced_expiries_skip_an_unpaired_front(self) -> None:
+        unpaired = [quote for quote in _chain(NEAR) if quote.put_call == PUT]
+        priced = [*_chain(MID), *_chain(FAR, level=2.0)]
+        self.assertEqual(
+            option_iv_readings([*_chain(WIDE, level=15.0), *unpaired, *priced], ASOF),
+            option_iv_readings(priced, ASOF),
+        )
+
     def test_the_at_the_money_average_reaches_for_a_strike_quoting_both_sides(self) -> None:
         # The level requires both sides at one strike. If the nearest strike lacks
         # a call, select the nearest paired strike rather than a put-only value.
@@ -873,7 +881,10 @@ class OptionAcquisitionTest(unittest.TestCase):
 
     def test_emergency_snapshot_is_retained_but_only_settlement_is_calculated(self) -> None:
         connection = self._database()
-        settled = _chain_records()
+        settled = [
+            {**row, "IV": str(row["IV"]), "other_provider_data": {"values": [0, None]}}
+            for row in _chain_records()
+        ]
         intervention = _records(
             [*_chain(NEAR, underlying=39_000.0), *_chain(FAR, underlying=39_000.0)], snapshot="001"
         )
@@ -891,14 +902,8 @@ class OptionAcquisitionTest(unittest.TestCase):
         self.assertEqual(
             result[0].value, option_iv_readings(quotes_from_records(settled), ASOF).iv_30d
         )
-        self.assertEqual(
-            len(
-                next(
-                    read_snapshots(connection, ASOF, ASOF, source_id="jquants-options-n225")
-                ).records
-            ),
-            len(settled) + len(intervention),
-        )
+        original = next(read_snapshots(connection, ASOF, ASOF, source_id="jquants-options-n225"))
+        self.assertEqual(original.records, (*settled, *intervention))
 
     def test_missing_maturity_bracket_is_not_an_empty_source_response(self) -> None:
         connection = self._database()
