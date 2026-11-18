@@ -38,6 +38,9 @@ from baibai_engine.machine_analysis.models.market_context.activity import (
 from baibai_engine.machine_analysis.models.market_context.benchmark import NIKKEI225_ETF_PROXY
 from baibai_engine.machine_analysis.models.market_context.price_path import compare_price_path
 from baibai_engine.machine_analysis.models.technical_analysis.price_path import observe_price_path
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    ObservedFilingHistory,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observation_population,
 )
@@ -176,8 +179,10 @@ def read_and_generate_models(
         for row in financial_rows:
             documents[row.ticker].append(row)
         phase_started = _phase_progress("edinet_comparisons")
+        filing_history = ObservedFilingHistory.read(connection, through=as_of)
         comparisons = read_comparison_population(
             connection,
+            filing_history=filing_history,
             as_of=as_of,
             tickers=subjects,
             known_at=evaluation_time,
@@ -190,6 +195,9 @@ def read_and_generate_models(
             diagnostics=sys.stderr,
         )
         _phase_progress("edinet_comparisons", phase_started)
+        edinet = EDINETReader(path).load_metric_records(as_of, filing_history=filing_history)
+        # Keep the results, not the full filing graph, through price/model assembly.
+        del filing_history
         phase_started = _phase_progress("pdf_financials")
         pdf_statements = read_pdf_statements(
             connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
@@ -352,7 +360,6 @@ def read_and_generate_models(
         include_tradingview=True,
         include_retired=False,
     )
-    edinet = EDINETReader(path).load_metric_records(as_of)
     trends = read_trend_inputs(
         path,
         release_id=market_release.release_id,

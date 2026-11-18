@@ -16,6 +16,7 @@ from tests.engine.machine_analysis.observations.financials.test_edinet_compariso
     metadata,
 )
 
+from baibai_engine.machine_analysis.observations.disclosures import edinet_document_store
 from baibai_engine.machine_analysis.observations.financials import edinet_comparison_reader as owner
 from baibai_engine.machine_analysis.observations.financials import edinet_comparisons as extraction
 from baibai_engine.primitives.json import canonical_json
@@ -52,7 +53,9 @@ def read(monkeypatch):
         counts.update(extract=0, xml=0)
         store, archives = fixed or fixed_archives({(doc, 1): body for doc, body in bodies})
         store.get_keys.clear()
-        monkeypatch.setattr(owner, "read_observed_documents", lambda *a, **k: documents)
+        monkeypatch.setattr(
+            edinet_document_store, "read_observed_documents", lambda *a, **k: documents
+        )
         result = owner.read_comparison_population(
             ByteConnection(bodies, forbidden=route == "native"),
             as_of=kwargs.pop("as_of", ASOF),

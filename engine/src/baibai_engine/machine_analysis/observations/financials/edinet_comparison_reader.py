@@ -17,12 +17,9 @@ from baibai_engine.data_collection.providers.edinet.annual_filings import (
     usable_document,
 )
 from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
-from baibai_engine.data_collection.providers.edinet.document_events import (
-    canonicalize_document_events,
-)
 from baibai_engine.data_collection.providers.edinet.fields import parse_sec_code
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
-    read_observed_documents,
+    ObservedFilingHistory,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
@@ -48,6 +45,7 @@ def read_comparison_population(
     archives: FixedEdinetArchives | None = None,
     prior_observations: Iterable[dict[str, JsonValue]] = (),
     diagnostics: TextIO | None = None,
+    filing_history: ObservedFilingHistory | None = None,
 ) -> dict[str, tuple[FilingComparisons, ...]]:
     """Already received type=1 only. No missing ZIP can trigger a fetch or fallback.
 
@@ -59,9 +57,11 @@ def read_comparison_population(
     """
     if known_at is not None and known_at.tzinfo is None:
         raise ValueError("comparison cutoff requires an aware datetime")
-    documents, quarantined = canonicalize_document_events(
-        read_observed_documents(connection, through=as_of), origin_start=None
-    )
+    if filing_history is None:
+        filing_history = ObservedFilingHistory.read(connection, through=as_of)
+    elif filing_history.through != as_of:
+        raise ValueError("filing history cutoff differs from comparison cutoff")
+    documents, quarantined = filing_history.filings, filing_history.quarantined
     selected = set(tickers) if tickers is not None else None
     blocked_tickers = {
         event.ticker

@@ -12,6 +12,7 @@ import pytest
 from tests.engine.machine_analysis.observations.financials.test_edinet_holder_capital import (
     original,
 )
+from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
@@ -329,8 +330,9 @@ def test_sql_presence_outside_the_fixed_native_pair_is_not_a_normal_missing_doc(
     "mode", ["legacy", "fixed", "native_error", "input_mismatch", "late_seal", "late_evaluation"]
 )
 def test_generation_injects_only_the_fixed_holder_input_and_keeps_optional_failure(
-    monkeypatch, caplog, mode
+    tmp_path, monkeypatch, caplog, mode
 ):
+    market = market_store(tmp_path / "market.sqlite")
     archive_reader = object()
     late = mode.startswith("late_")
     selected = KNOWN + timedelta(seconds=1) if late else KNOWN
@@ -340,13 +342,12 @@ def test_generation_injects_only_the_fixed_holder_input_and_keeps_optional_failu
     seal = KNOWN + timedelta(seconds=2) if mode == "late_evaluation" else KNOWN
     evaluation = KNOWN + timedelta(seconds=2) if mode == "late_seal" else KNOWN
     calls = []
-    connection = SimpleNamespace(execute=lambda command: calls.append(command), close=lambda: None)
 
     class AfterHolder(Exception):
         pass
 
     def holder(actual, **kwargs):
-        assert actual is connection
+        assert actual.in_transaction
         if fixed is None:
             assert "archives" not in kwargs
             assert "selected_at" not in kwargs
@@ -365,18 +366,12 @@ def test_generation_injects_only_the_fixed_holder_input_and_keeps_optional_failu
     def following(*args, **kwargs):
         raise AfterHolder
 
-    monkeypatch.setattr(inputs, "read_master_snapshot", lambda *a, **k: None)
-    monkeypatch.setattr(inputs, "connect_read_only", lambda *a: connection)
-    monkeypatch.setattr(inputs, "read_financial_documents", lambda *a, **k: [])
-    monkeypatch.setattr(inputs, "read_comparison_population", lambda *a, **k: {})
-    monkeypatch.setattr(inputs, "read_pdf_statements", lambda *a, **k: {})
-    monkeypatch.setattr(inputs, "read_capital_actions", lambda *a, **k: {})
     monkeypatch.setattr(inputs, "read_holder_capital", holder)
     monkeypatch.setattr(inputs, "read_fixed_holder_capital", holder)
     monkeypatch.setattr(inputs, "read_price_calendar", following)
     arguments = dict(
         generation_id="holder-input",
-        market_snapshot=SimpleNamespace(path=Path("/not-opened"), sealed_at=seal),
+        market_snapshot=SimpleNamespace(path=market, sealed_at=seal),
         market_release=InputRelease(release_id="fixture", manifest_sha256="a" * 64),
         economic_input=None,
         as_of=DAY,
@@ -392,7 +387,7 @@ def test_generation_injects_only_the_fixed_holder_input_and_keeps_optional_failu
     else:
         with pytest.raises(AfterHolder):
             inputs.read_and_generate_models(**arguments)
-        assert calls == ["BEGIN", "holder"]
+        assert calls == ["holder"]
     if mode in {"native_error", "input_mismatch"}:
         assert "holder-capital unavailable" in caplog.text
         assert "private" not in caplog.text

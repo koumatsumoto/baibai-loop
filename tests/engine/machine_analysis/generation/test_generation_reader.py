@@ -219,6 +219,26 @@ def test_calendar_short_history_and_current_holiday_gap_are_distinct():
         assert resolved.trading_dates == dates
 
 
+def test_filing_history_cannot_cross_dates_in_either_financial_read(tmp_path):
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+        ObservedFilingHistory,
+    )
+    from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
+        read_comparison_population,
+    )
+    from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+
+    path = market_store(tmp_path / "market.sqlite")
+    _seed(path)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("BEGIN")
+        earlier = ObservedFilingHistory.read(connection, through=TARGET - timedelta(days=1))
+        with pytest.raises(ValueError, match="filing history cutoff"):
+            read_comparison_population(connection, as_of=TARGET, filing_history=earlier)
+        with pytest.raises(ValueError, match="filing history cutoff"):
+            EDINETReader(path).load_metric_records(TARGET, filing_history=earlier)
+
+
 @pytest.mark.parametrize("corrupt", [False, True])
 def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract(
     tmp_path, mocker, corrupt
@@ -235,7 +255,15 @@ def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract
         connection.execute("UPDATE edinet_metrics SET consolidation_basis='consolidated'")
         if corrupt:
             connection.execute("DELETE FROM edinet_metrics WHERE ticker='8306'")
-    reader = mocker.spy(generation_reader.EDINETReader, "load_metric_records")
+    statements = []
+    original_connect = sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        connection = original_connect(*args, **kwargs)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    mocker.patch.object(sqlite3, "connect", traced_connect)
     mocker.patch("requests.Session", side_effect=AssertionError("must not fetch EDINET"))
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
         arguments = dict(
@@ -261,7 +289,9 @@ def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract
         with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute("UPDATE edinet_metrics SET cash=999")
     result = materialize_generation(stream)
-    assert reader.call_count == 1
+    # Holder uses its own filing and receipt scope; only the two full reads are interchangeable.
+    filing_reads = [sql for sql in statements if "FROM edinet_documents d WHERE" in sql]
+    assert len([sql for sql in filing_reads if "d.doc_type_code IN" not in sql]) == 1
     assert result.inputs["market_snapshot"].sha256 == snapshot.ref.sha256
     for ticker in ("7203", "8306"):
         financial = result.result("company_financials", ticker).payload["financial"]

@@ -71,8 +71,15 @@ def select_document_candidates(
     origin_start: date | None = None,
 ) -> DocumentSelection:
     """Select the latest usable EDINET CSV-capable filing per ticker."""
+    return select_folded_candidates(
+        *canonicalize_document_events(documents, origin_start=origin_start)
+    )
+
+
+def select_folded_candidates(
+    folded: Sequence[Mapping[str, Any]], quarantined: tuple[QuarantinedDocumentEvent, ...]
+) -> DocumentSelection:
     candidates: dict[str, EdinetDocumentCandidate] = {}
-    folded, quarantined = canonicalize_document_events(documents, origin_start=origin_start)
     for document in folded:
         raw_doc_id = coalesce_field(document, "docID", "doc_id")
         raw_type = text_or_none(coalesce_field(document, "docTypeCode", "doc_type_code"))
