@@ -335,7 +335,9 @@ def _external(e: Row, ticker: str, limit: date, cutoff: datetime) -> Reading | N
     return None
 
 
-def _article(payload: Row, domain: str, limit: date, cutoff: datetime) -> Reading | None:
+def _article(
+    payload: Row, domain: str, scope_id: str, limit: date, cutoff: datetime
+) -> Reading | None:
     valid = []
     for v in _rows(payload.get("observations")):
         c, e, ref = _obj(v.get("claim")), _obj(v.get("evidence")), _obj(v.get("exact_evidence"))
@@ -350,6 +352,7 @@ def _article(payload: Row, domain: str, limit: date, cutoff: datetime) -> Readin
             or len(ref["observation_sha256"]) != 64
             or ref["observation_sha256"] != e.get("observation_sha256")
             or c.get("domain") != domain
+            or _at(c, "scope", "scope_id") != scope_id
             or c.get("kind") != "reported_fact"
             or c.get("negated") is not False
             or c.get("status") not in ("decided", "reported")
@@ -364,10 +367,19 @@ def _article(payload: Row, domain: str, limit: date, cutoff: datetime) -> Readin
             continue
         if not math.isfinite(amount):
             continue
-        if domain == "social" and c.get("predicate") == "overnight_call_rate_target":
+        if (
+            domain == "social"
+            and c.get("predicate") == "overnight_call_rate_target"
+            and _at(c, "scope", "target") == "uncollateralized_overnight_call_rate"
+        ):
             phrase = "無担保コール翌日物の誘導目標"
         elif domain == "industry" and c.get("predicate") == "profitable_company_share":
-            phrase = f"{_at(c, 'scope', 'label')}の調査対象に占める黒字企業"
+            label = _at(c, "scope", "label")
+            if not isinstance(label, str) or not label:
+                continue
+            size = _at(c, "scope", "population_size")
+            sample = f"調査対象{size:,}社" if type(size) is int and size > 0 else "調査対象"
+            phrase = f"{label}の{sample}に占める黒字企業"
         else:
             continue
         note = (
@@ -524,7 +536,12 @@ def estimate_missing(
         for s in (peers if isinstance(peers, list) else [])
         if isinstance(s, str)
         and s.startswith("industry:")
-        and (r := _article(model("industry_trends", s), "industry", limit, cutoff)) is not None
+        and (
+            r := _article(
+                model("industry_trends", s), "industry", s.removeprefix("industry:"), limit, cutoff
+            )
+        )
+        is not None
     ]
     readings = (
         _finance(f, legacy, limit),
@@ -535,7 +552,9 @@ def estimate_missing(
         max(industry_facts, key=lambda r: r.observed_on or date.min)
         if industry_facts
         else _industry(sec, limit),
-        _article(model("social_trends", "market:global"), "social", limit, cutoff)
+        _article(
+            model("social_trends", "market:global"), "social", "jp-monetary-policy", limit, cutoff
+        )
         or _households(global_market, limit, cutoff),
     )
     rows = []

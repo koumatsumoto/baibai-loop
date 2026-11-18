@@ -283,6 +283,10 @@ def test_known_monetary_fact_not_its_future_plan_or_other_issuer_claim():
                 "negated": False,
                 "predicate": "overnight_call_rate_target",
                 "attribution": "日本銀行",
+                "scope": {
+                    "scope_id": "jp-monetary-policy",
+                    "target": "uncollateralized_overnight_call_rate",
+                },
                 "quantity": {"unit": "percent", "value": rate, "approximate": True},
             },
             "evidence": {"received_at": EARLIER, "observation_sha256": HASH},
@@ -306,3 +310,39 @@ def test_known_monetary_fact_not_its_future_plan_or_other_issuer_claim():
     assert r["source_url"] == "https://www.boj.or.jp/"
     p["observations"][0]["evidence"]["received_at"] = LATE
     assert _estimate(s)["social_trends"]["assessment"] == "insufficient"
+
+
+def test_industry_claim_itself_must_belong_to_the_fixed_subject_and_sample():
+    s = _sel()
+    g = s["inputs"]["generation"]
+    g["subject_plan"]["1234"]["related_subjects"] = ["industry:example"]
+    claim = {
+        "domain": "industry",
+        "kind": "reported_fact",
+        "status": "reported",
+        "negated": False,
+        "scope": {
+            "scope_id": "different",
+            "period_end": "2026-03-31",
+            "label": "合成業",
+            "population_size": 21,
+        },
+        "attribution": "業種調査",
+        "predicate": "profitable_company_share",
+        "quantity": {"unit": "percent", "value": "75"},
+    }
+    p = {
+        "observations": [
+            {
+                "claim": claim,
+                "evidence": {"received_at": EARLIER, "observation_sha256": HASH},
+                "exact_evidence": {"observation_sha256": HASH},
+            }
+        ]
+    }
+    _put(s, "industry_trends", p, "industry:example")
+    assert _estimate(s)["industry_trends"]["assessment"] == "insufficient"
+    claim["scope"]["scope_id"] = "example"
+    r = _estimate(s)["industry_trends"]
+    assert r["assessment"] == "context_only"
+    assert "21社" in r["summary"]

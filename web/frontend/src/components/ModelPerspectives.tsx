@@ -69,7 +69,7 @@ export function ModelPerspectives({ assessment }: { assessment: SavedAssessmentV
           </tbody>
         </table>
       </div>
-      <p className="text-xs leading-6 text-muted-foreground">当初の評価を優先し、空欄は提案時に固定された資料で補足します。支持・逆風は各指標に限り、買い・売りの票ではありません。</p>
+      <p className="text-xs leading-6 text-muted-foreground">当初の作者評価を優先します。「資料からの推定」は提案時の資料を後から表示用に解釈したもので、当初の作者・査読者の判断ではありません。支持・逆風は各指標に限り、売買の票ではありません。</p>
       <details className="rounded-lg border p-4">
         <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">7モデルの理由・根拠を読む</summary>
         <div className="mt-5 grid divide-y">
