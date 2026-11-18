@@ -188,8 +188,9 @@ def test_expired_active_sell_reservation_is_retained(tmp_path):
     assert inputs.available_cash_yen == Decimal(210000)
 
 
-def test_scaffold_keeps_signal_integration_as_authoring_not_a_price_gate(tmp_path):
-    case = backend_case(tmp_path)
+@pytest.mark.parametrize("holding", [False, True])
+def test_scaffold_keeps_signal_integration_as_authoring_not_a_price_gate(tmp_path, holding):
+    case = backend_case(tmp_path, holding=holding)
     raw = scaffold_proposal(
         operation_id=case.operation.operation_id,
         proposal_id=PROPOSAL_ID,
@@ -203,6 +204,18 @@ def test_scaffold_keeps_signal_integration_as_authoring_not_a_price_gate(tmp_pat
     assert [reason["code"] for reason in item["blockers"]] == ["proposal_content_requires_review"]
     assert "モデル観測・一次資料" in item["rationale"]
     assert any("全シグナルのコメントは要求しない" in text for text in item["review_conditions"])
+    assert any("絶対騰落" in text and "自己除外同業" in text for text in item["review_conditions"])
+    if holding:
+        assert "当初の仮説" in item["rationale"]
+        assert "残存見返り" in item["rationale"]
+        assert "回収" in raw["comparison"]
+        assert "指値と数量" not in raw["comparison"]
+        assert "買付" not in "".join(item["review_conditions"])
+    else:
+        assert "指値で待つ" in item["rationale"]
+        assert "調査を保留" in item["rationale"]
+        assert "現金維持" in raw["comparison"]
+        assert "回収" not in raw["comparison"]
     assert raw["review"]["draft_sha256"] == "0" * 64
 
 

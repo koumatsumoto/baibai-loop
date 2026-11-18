@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import date
 from typing import cast
 
 from pydantic import JsonValue
@@ -19,6 +20,15 @@ _LEGACY_COMPANY_MODELS = (
     "technical_analysis",
     "external_assessment",
     "market_context",
+)
+_PROPOSAL_MODELS = frozenset(
+    {
+        "external_assessment",
+        "market_context",
+        "industry_trends",
+        "social_trends",
+        "technical_analysis",
+    }
 )
 
 
@@ -77,11 +87,42 @@ def _analysis_source(saved: ModelInputSlice) -> dict[str, JsonValue]:
     return source
 
 
+def _r20_index_sector_windows(market: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """共通暦R20と個社20barの同業欄は、同じ「20日」でも端点がずれる。"""
+
+    def endpoints(*path: str) -> list[JsonValue] | None:
+        value: JsonValue | None = market
+        for key in path:
+            value = value.get(key) if isinstance(value, dict) else None
+        if not isinstance(value, dict):
+            return None
+        start, end = value.get("comparison_start_date"), value.get("comparison_end_date")
+        if not isinstance(start, str) or not isinstance(end, str):
+            return None
+        try:
+            first, last = date.fromisoformat(start), date.fromisoformat(end)
+        except ValueError:
+            return None
+        return [first.isoformat(), last.isoformat()] if first < last else None
+
+    index = endpoints("price_path_relative", "comparisons", "R20")
+    sector = endpoints("relative", "sector")
+    return {
+        "index_r20_window": index,
+        "sector_20bar_window": sector,
+        "alignment": "endpoints_unavailable"
+        if index is None or sector is None
+        else "same_recorded_endpoints"
+        if index == sector
+        else "different_recorded_endpoints",
+    }
+
+
 def project_generated_inputs(
     saved: ModelInputSlice,
     *,
     company_growth_periods: int | None = 12,
-    model_ids: frozenset[str] | None = None,
+    proposal_view: bool = False,
 ) -> dict[str, JsonValue]:
     """モデル固有の意味を維持し、未生成と生成内の欠測を区別して提示する。"""
     securities: dict[str, object] = {}
@@ -98,9 +139,25 @@ def project_generated_inputs(
         for index, model in enumerate(saved.models):
             if model.subject != ticker:
                 continue
-            if model_ids is not None and model.model_id not in model_ids:
+            if proposal_view and model.model_id not in _PROPOSAL_MODELS:
                 continue
-            if scope == "stock" and model.model_id == "company_growth":
+            payload: dict[str, JsonValue]
+            if proposal_view and scope == "stock" and model.model_id == "technical_analysis":
+                # 選定時の中期経路を短期の市場/同業比較と併読する。欠測や別期限を現在値で補わない。
+                payload = {
+                    key: deepcopy(model.payload[key])
+                    for key in (
+                        "as_of",
+                        "history_end_date",
+                        "price_basis",
+                        "read_semantics",
+                        "price_momentum_revision",
+                        "price_momentum",
+                    )
+                    if key in model.payload
+                }
+                payload["full_result_ref"] = f"/inputs/generation/models/{index}/payload"
+            elif scope == "stock" and model.model_id == "company_growth":
                 payload = project_company_growth(
                     model.payload, ticker=ticker, periods=company_growth_periods
                 )
@@ -122,8 +179,11 @@ def project_generated_inputs(
             "calculation_revisions": revisions,
             "not_generated": [name for name in expected if name not in available],
         }
-        if model_ids is not None:
-            row["omitted_from_view"] = sorted(available - model_ids)
+        if proposal_view:
+            row["omitted_from_view"] = sorted(available - _PROPOSAL_MODELS)
+            market = models.get("market_context")
+            if scope == "stock" and isinstance(market, dict):
+                row["r20_index_sector_windows"] = _r20_index_sector_windows(market)
         if plan is None:
             securities[ticker] = {**models, **row}
         else:
@@ -147,11 +207,7 @@ def project_generated_inputs(
                 "shared_subjects": shared_subjects,
             },
         )
-    common = (
-        saved.result("market_context", "market")
-        if model_ids is None or "market_context" in model_ids
-        else None
-    )
+    common = saved.result("market_context", "market")
     return cast(
         dict[str, JsonValue],
         {

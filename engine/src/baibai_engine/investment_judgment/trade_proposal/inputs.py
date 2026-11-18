@@ -83,9 +83,6 @@ from baibai_engine.storage.sqlite.source_cache.read import (
 DEFAULT_BUDGET_MIN_YEN = 200_000
 DEFAULT_BUDGET_MAX_YEN = 300_000
 PROPOSAL_TERMS_POLICY_REVISION = "author-selected-terms-v1"
-_ENVIRONMENT_MODELS = frozenset(
-    {"external_assessment", "market_context", "industry_trends", "social_trends"}
-)
 
 
 def proposal_input_policy_id() -> str:
@@ -654,7 +651,7 @@ def build_proposal_context(
                 market_connection=market_connection,
             ),
             saved_context,
-            project_generated_inputs(selection.inputs.generation, model_ids=_ENVIRONMENT_MODELS)
+            project_generated_inputs(selection.inputs.generation, proposal_view=True)
             if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4))
             else None,
             {

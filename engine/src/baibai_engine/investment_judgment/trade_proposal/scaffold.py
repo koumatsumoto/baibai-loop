@@ -33,6 +33,21 @@ def scaffold_proposal(
         sqlite_path=sqlite_path,
         now=now,
     )
+    if context.research_scope.targets[0].purpose == "holding":
+        decision = (
+            "当初の仮説と現値からの残存見返りを別々に確認し、保有継続・売却・判断保留を比べる。"
+        )
+        terms_review = (
+            "売却では回収下限・未約定時の継続保有を比べ、判断不足では再確認する事実と時点を記す。"
+        )
+        alternative = "売却下限での回収と保有継続・回復待ちを比べる。"
+    else:
+        decision = "今買う・指値で待つ・現金を選ぶ・調査を保留する理由を区別する。"
+        terms_review = "買付では未約定・部分約定・新情報の後に何を再確認するかを記す。"
+        alternative = (
+            "docs/reference/trade-proposal.md#limit-selectionに従い、指値と数量、残cash、"
+            "no-addで増量できない代償を、現金維持で逃す反発・回避できる損失と比べる。"
+        )
     items: list[ProposalItem] = []
     for outcome in context.research_scope.outcomes:
         if outcome.status == "unfinished":
@@ -42,9 +57,8 @@ def scaffold_proposal(
         else:
             reference = outcome.assessment_ref
             rationale = (
-                "保存した銘柄評価を踏まえ、今買う・待つ・見送る等の行動と比較理由を記述する。"
-                "重要なモデル観測・一次資料と仮定の関係を示し、"
-                "価格局面だけでPmax・購入条件・売却条件を変えない。"
+                f"{decision} モデル観測・一次資料によって企業の利益・普通株に帰属する資金の見通し、"
+                "価格条件、または次に確かめる事実の何が変わったかを記す。変わらない場合も区別する。"
             )
             message = "行動・具体条件・比較理由の執筆と独立検証が未了です。"
             code = "proposal_content_requires_review"
@@ -55,10 +69,11 @@ def scaffold_proposal(
                 assessment_ref=reference,
                 rationale=rationale,
                 review_conditions=(
-                    "根拠・入力と見直す時点を確認し、買付では未約定・部分約定・新情報の後に何を再確認するかを記す。",
+                    terms_review,
                     (
-                        "採否を変える材料について時点・basis・期間と再確認条件を揃え、"
-                        "同じ原情報の重複加点を避ける。全シグナルのコメントは要求しない。"
+                        "相対強弱が理由なら、自己の絶対騰落と同じ端点の指数代理・自己除外同業を照合する。"
+                        "市場倍率と地合い、別期間の勢いを分け、相対強弱だけでPmaxや売却を決めない。"
+                        "全シグナルのコメントは要求しない。"
                     ),
                 ),
                 blockers=(
@@ -83,14 +98,8 @@ def scaffold_proposal(
         request_scope=context.request_scope,
         research_scope=context.research_scope,
         headline="提案の要点を記述してください。",
-        comparison=(
-            "完成した評価を現金維持等と比べ、選択理由と反転条件を記す。新規買付は"
-            "docs/reference/trade-proposal.md#limit-selectionに従い、"
-            "limit候補の見返り・選択数量・cashと待機案、no-addで増量できない代償を比較する。"
-            "売却は作者下限での回収と保有継続・回復待ちを比べる。"
-            "未完成を経済的見送りへ混ぜない。"
-        ),
-        forgone="採らない行動と理由（新規買付では別の指値・待機案）を記述してください。",
+        comparison=f"{alternative} 選んだ行動と、それを変える次の価格または企業事実を記す。",
+        forgone="採らなかった行動とその理由を記述してください。",
         market_context_assessment_id=context.market_context_assessment_id,
         inputs=context.inputs,
         items=tuple(items),
