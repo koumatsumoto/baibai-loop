@@ -14,7 +14,11 @@ from baibai_engine.storage.sqlite.read import written_schema_version
 
 DEFAULT_RUN_STORE_PATH = RUNS_DB_PATH
 
+# DDL is unchanged. Mark a database containing references so an earlier
+# binary cannot prune an anchor or restore a dangling row as an ordinary gzip.
 RUN_STORE_SCHEMA_VERSION = 8
+SHARED_GROWTH_STORE_VERSION = 9
+READABLE_RUN_STORE_VERSIONS = (RUN_STORE_SCHEMA_VERSION, SHARED_GROWTH_STORE_VERSION)
 
 SCHEMA_SQL = """
 CREATE TABLE screening_run (
@@ -105,7 +109,7 @@ def register_run_clock(connection: sqlite3.Connection) -> None:
 def initialize_run_store(path: Path | None = None) -> int:
     with closing(connect_rw(path)) as connection:
         current = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if current == RUN_STORE_SCHEMA_VERSION:
+        if current in READABLE_RUN_STORE_VERSIONS:
             return current
         tables = connection.execute(
             "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
@@ -113,7 +117,8 @@ def initialize_run_store(path: Path | None = None) -> int:
         if current != 0 or tables is not None:
             raise RuntimeError(
                 "machine-analysis store uses an obsolete schema; explicit migration is required "
-                f"(found user_version={current}, expected={RUN_STORE_SCHEMA_VERSION})"
+                f"(found user_version={current}, expected={RUN_STORE_SCHEMA_VERSION} "
+                f"or {SHARED_GROWTH_STORE_VERSION})"
             )
         try:
             connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA_SQL)
@@ -132,10 +137,11 @@ def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
     try:
         register_run_clock(connection)
         version = written_schema_version(connection)
-        if version is not None and version != RUN_STORE_SCHEMA_VERSION:
+        if version is not None and version not in READABLE_RUN_STORE_VERSIONS:
             raise RuntimeError(
                 "screening run store schema is not current "
-                f"(found {version}, expected {RUN_STORE_SCHEMA_VERSION}); use explicit migration"
+                f"(found {version}, expected {RUN_STORE_SCHEMA_VERSION} or "
+                f"{SHARED_GROWTH_STORE_VERSION}); use explicit migration"
             )
         return connection
     except BaseException:

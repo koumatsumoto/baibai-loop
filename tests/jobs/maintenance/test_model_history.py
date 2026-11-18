@@ -336,3 +336,54 @@ def test_cli_is_local_preparation_not_publication(snapshots, tmp_path, capsys):
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "prepared_local_history_copy"
     assert report["added_model_count"] == 3
+
+
+def test_partial_growth_restore_does_not_require_its_unselected_storage_parent(tmp_path):
+    from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+    from baibai_engine.storage.sqlite.machine_analysis import initialize_run_store
+
+    source, current, output = (tmp_path / n for n in ("source", "current", "output"))
+    initialize_run_store(current)
+    proof = [hashlib.sha256(str(i).encode()).hexdigest() for i in range(180)]
+    for n in ("early", "later"):
+        model = GeneratedModel(
+            model_id="company_growth",
+            subject="1234",
+            calculation_revision="fixed",
+            payload={"originals": proof, "input_release": n},
+        )
+        publish_generation(
+            generation().model_copy(update={"generation_id": n, "models": (model,)}), path=source
+        )
+    saved = execute(source, "SELECT payload_gzip FROM generated_model WHERE generation_id='later'")[
+        0
+    ][0]
+    assert not saved.startswith(b"\x1f\x8b")
+    report = restore((source, current), output, generation_ids=("later",))
+    assert report["added_model_count"] == 1
+    assert read_generation("early", path=output) is None
+    assert read_generation("later", path=output) == read_generation("later", path=source)
+    again = restore((source, output), tmp_path / "twice", generation_ids=("later",))
+    assert again["added_model_count"] == 0
+
+    execute(source, "DELETE FROM generated_model WHERE generation_id='early'")
+    with pytest.raises(ValueError, match="missing or changed"):
+        restore((source, output), tmp_path / "refused", generation_ids=("later",))
+    assert not (tmp_path / "refused").exists()
+
+
+def test_unknown_tag_within_growth_reference_namespace_is_not_a_portable_full_row(tmp_path):
+    from baibai_engine.storage.sqlite.machine_analysis import initialize_run_store
+
+    source, current = tmp_path / "source", tmp_path / "current"
+    initialize_run_store(current)
+    publish(source, "available")
+    execute(
+        source,
+        "UPDATE generated_model SET model_id='company_growth',payload_gzip=? "
+        "WHERE model_id='company_financials'",
+        (b"\0growth/9\0other",),
+    )
+    with pytest.raises(ValueError, match="unknown company growth storage"):
+        restore((source, current), tmp_path / "refused", generation_ids=("available",))
+    assert not (tmp_path / "refused").exists()

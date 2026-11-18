@@ -176,7 +176,7 @@ receipt再生成が必要な明示復旧だけ、bucket直下のmutable一件を
 
 ### 保持copyから欠落Generationを戻す
 
-現在のrunsを古いcopyで丸ごと戻すと、後発Generation/Selectionを失う。検証済み・静止中のcurrentと旧sourceのSHAを固定し、必要なGeneration IDを明示して、新しい隔離copyへ欠落分だけ追記する。同IDのheader・revision・圧縮payload・Selectionが異なれば全体を停止する。再計算・再圧縮・時点更新はせず、current側の追加政策や他tableも残す。
+現在のrunsを古いcopyで丸ごと戻すと、後発Generation/Selectionを失う。検証済み・静止中のcurrentと旧sourceのSHAを固定し、必要なGeneration IDを明示して、新しい隔離copyへ欠落分だけ追記する。同IDのheader・revision・保存値・Selectionが衝突すれば全体を停止する。CompanyGrowthが同社・同計算版の固定全文を共用するときも、その時点の入力・値を再計算せず照合する。部分復旧は共有元の別世代を取り込まず、指定世代の自己完結した全文を作る。他のモデル・Selectionの圧縮済み本文とcurrent側の追加政策は変えない。
 
 ```bash
 uv run baibai-jobs restore-model-history \
@@ -187,6 +187,9 @@ uv run baibai-jobs restore-model-history \
 ```
 
 複数IDは`--generation-id`を繰り返す。既存outputやWAL/journal付き入力は使わない。この成功はlocal copyの準備だけで、L1/共有入力/L3の復元や本番反映を意味しない。元copyは保持し、通常readerで対象と現行の保存値/IDを照合する。本番へ反映する場合は別途writer不在・単一lease・freshなmarket/runsの組とCASを確認し、currentが進んでいればそのfresh copyへ作り直す。取得世代の合う通常`push-runs`と公開読戻しを使い、古いmachine全体への上書きやCAS失敗後の盲再送をしない。
+
+
+RunsのDDLは同じだが、共有を初めて含む書込みは同じtransactionでformatを8から9にする。初回公開は旧版のwriter・手動整理の終端と単一leaseを確認する。既存の全文や他世代の一括変換はしない。9を旧バイナリで開いたり、番号だけ8に戻したりしない。旧版へ戻す必要があれば現行copyを保全して書込みを止め、後発の全世代・他tableを含めて自己完結した旧形式で再現を検証する。単なる過去snapshotへの巻戻しや部分復旧は代替にならない。
 
 ### machine公開後の失敗再開
 

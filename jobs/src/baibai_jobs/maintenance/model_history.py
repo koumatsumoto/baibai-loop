@@ -12,8 +12,9 @@ from collections.abc import Sequence
 from contextlib import closing
 from pathlib import Path
 
+from baibai_engine.machine_analysis.generation.growth_storage import model_bytes, standalone_model
 from baibai_engine.storage.sqlite.machine_analysis import (
-    RUN_STORE_SCHEMA_VERSION,
+    READABLE_RUN_STORE_VERSIONS,
 )
 
 
@@ -30,7 +31,10 @@ def _check_snapshot(path: Path, expected_sha256: str) -> None:
     if _sha256(path) != expected_sha256:
         raise ValueError("snapshot SHA256 mismatch")
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
-        if connection.execute("PRAGMA user_version").fetchone()[0] != RUN_STORE_SCHEMA_VERSION:
+        if (
+            connection.execute("PRAGMA user_version").fetchone()[0]
+            not in READABLE_RUN_STORE_VERSIONS
+        ):
             raise ValueError("history recovery requires the current run-store schema")
         # An INSERT trigger could alter existing rows despite an append-only caller.
         if connection.execute("SELECT 1 FROM sqlite_schema WHERE type='trigger'").fetchone():
@@ -44,15 +48,30 @@ def _check_models(connection: sqlite3.Connection, generation_id: str) -> None:
     current_count = connection.execute(
         "SELECT COUNT(*) FROM main.generated_model WHERE generation_id=?", (generation_id,)
     ).fetchone()[0]
-    mismatch = connection.execute(
-        "SELECT 1 FROM history.generated_model h LEFT JOIN main.generated_model c "
+    if source_count != current_count:
+        raise ValueError(f"conflicting generated_model rows: {generation_id}")
+    for model_id, subject, source_rev, current_rev, source_blob, current_blob in connection.execute(
+        "SELECT h.model_id,h.subject,h.calculation_revision,c.calculation_revision,"
+        "h.payload_gzip,c.payload_gzip FROM history.generated_model h "
+        "LEFT JOIN main.generated_model c "
         "ON (c.generation_id=h.generation_id AND c.model_id=h.model_id AND c.subject=h.subject) "
         "WHERE h.generation_id=? AND (c.generation_id IS NULL "
         "OR c.calculation_revision IS NOT h.calculation_revision "
-        "OR c.payload_gzip IS NOT h.payload_gzip) LIMIT 1",
+        "OR c.payload_gzip IS NOT h.payload_gzip "
+        "OR (h.model_id='company_growth' AND substr(h.payload_gzip,1,1)=x'00'))",
         (generation_id,),
-    ).fetchone()
-    if source_count != current_count or mismatch:
+    ):
+        if (
+            source_rev == current_rev
+            and model_id == "company_growth"
+            and (source_blob.startswith(b"\0") or current_blob.startswith(b"\0"))
+        ):
+            history = model_bytes(
+                connection, model_id, subject, source_rev, source_blob, database="history"
+            )
+            current = model_bytes(connection, model_id, subject, current_rev, current_blob)
+            if history == current:
+                continue
         raise ValueError(f"conflicting generated_model rows: {generation_id}")
 
 
@@ -108,11 +127,25 @@ def _append_history(
         )
         inserted_models += connection.execute(
             "INSERT INTO main.generated_model "
-            "(generation_id,model_id,subject,calculation_revision,payload_gzip) "
             "SELECT generation_id,model_id,subject,calculation_revision,payload_gzip "
-            "FROM history.generated_model WHERE generation_id=?",
+            "FROM history.generated_model WHERE generation_id=? "
+            "AND NOT (model_id='company_growth' AND substr(payload_gzip,1,1)=x'00')",
             (generation_id,),
         ).rowcount
+        for model_id, subject, revision, blob in connection.execute(
+            "SELECT model_id,subject,calculation_revision,payload_gzip "
+            "FROM history.generated_model WHERE generation_id=? "
+            "AND model_id='company_growth' AND substr(payload_gzip,1,1)=x'00'",
+            (generation_id,),
+        ):
+            portable = standalone_model(
+                connection, model_id, subject, revision, blob, database="history"
+            )
+            connection.execute(
+                "INSERT INTO main.generated_model VALUES (?,?,?,?,?)",
+                (generation_id, model_id, subject, revision, portable),
+            )
+            inserted_models += 1
     for selection_id in selection_ids:
         connection.execute(
             "INSERT INTO main.screening_selection "
@@ -138,7 +171,7 @@ def restore_model_history(
     current_sha256: str,
     generation_ids: Sequence[str],
 ) -> dict[str, object]:
-    """Write a NEW local copy, preserving current rows and exact historical compressed bytes.
+    """Write a NEW local copy, preserving current rows and complete historical model inputs.
 
     Inputs must be verified, inactive snapshots. This does not acquire a production
     lease, refresh a remote CAS, publish a pair, or reconstruct missing L1/L3 data.

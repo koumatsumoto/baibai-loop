@@ -15,8 +15,14 @@ from baibai_engine.machine_analysis.generation.contracts import (
     validate_full_plan,
     validate_model_scope,
 )
+from baibai_engine.machine_analysis.generation.growth_storage import (
+    GrowthWriter,
+    model_bytes,
+    preserve_growth_before_deleting,
+)
 from baibai_engine.primitives.json import canonical_json, encode_json
 from baibai_engine.storage.sqlite.machine_analysis import (
+    SHARED_GROWTH_STORE_VERSION,
     connect_rw,
     initialize_run_store,
 )
@@ -49,7 +55,7 @@ class ModelGenerationStore:
             metadata.model_dump(mode="json", include=set(GenerationMetadata.model_fields))
         )
         identity = metadata.generation_id
-        initialize_run_store(self._path)
+        version = initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -58,7 +64,17 @@ class ModelGenerationStore:
                 ).fetchone()
                 if existing is not None and header != existing[0]:
                     raise GenerationConflictError("generation identity has different content")
+                growth = None
                 if existing is None:
+                    # The physical body must already have been fixed at this cutoff.
+                    previous = connection.execute(
+                        "SELECT generation_id FROM model_generation WHERE as_of<=? "
+                        "AND run_clock(evaluation_time)<=run_clock(?) "
+                        "ORDER BY as_of DESC,run_clock(evaluation_time) DESC, "
+                        "generation_id DESC LIMIT 1",
+                        (metadata.as_of.isoformat(), metadata.evaluation_time.isoformat()),
+                    ).fetchone()
+                    growth = None if previous is None else GrowthWriter(previous[0])
                     connection.execute(
                         "INSERT INTO model_generation VALUES (?,?,?,?)",
                         (
@@ -77,15 +93,28 @@ class ModelGenerationStore:
                     seen.add(key)
                     # GeneratedModel has already validated this tree as JsonValue.
                     # Keep canonical bytes without normalizing/copying it again.
-                    payload = encode_json(model.payload)
                     if existing is None:
+                        if growth is not None and model.model_id == "company_growth":
+                            full = growth.store(
+                                connection,
+                                model.subject,
+                                model.calculation_revision,
+                                model.payload,
+                            )
+                            if full.startswith(b"\0") and version != SHARED_GROWTH_STORE_VERSION:
+                                connection.execute(
+                                    f"PRAGMA user_version={SHARED_GROWTH_STORE_VERSION}"
+                                )
+                                version = SHARED_GROWTH_STORE_VERSION
+                        else:
+                            full = gzip.compress(encode_json(model.payload).encode(), mtime=0)
                         connection.execute(
                             "INSERT INTO generated_model VALUES (?,?,?,?,?)",
                             (
                                 identity,
                                 *key,
                                 model.calculation_revision,
-                                gzip.compress(payload.encode(), mtime=0),
+                                full,
                             ),
                         )
                     else:
@@ -97,7 +126,8 @@ class ModelGenerationStore:
                         if (
                             saved is None
                             or saved[0] != model.calculation_revision
-                            or gzip.decompress(saved[1]).decode() != payload
+                            or model_bytes(connection, *key, saved[0], saved[1]).decode()
+                            != encode_json(model.payload)
                         ):
                             raise GenerationConflictError(
                                 "generation identity has different model content"
@@ -116,6 +146,7 @@ class ModelGenerationStore:
 
 def delete_generations(connection: sqlite3.Connection, identities: Sequence[str]) -> None:
     """呼出元のtransaction内で指定世代だけを削除する。参照元の処理は所有しない。"""
+    preserve_growth_before_deleting(connection, set(identities))
     for identity in identities:
         connection.execute("DELETE FROM generated_model WHERE generation_id=?", (identity,))
         connection.execute("DELETE FROM model_generation WHERE generation_id=?", (identity,))

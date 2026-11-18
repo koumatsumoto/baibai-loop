@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import gzip
-import json
 import sqlite3
 from collections.abc import Generator, Iterator, Sequence
 from contextlib import closing, contextmanager
@@ -18,6 +16,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
     research_subjects,
     validate_model_scope,
 )
+from baibai_engine.machine_analysis.generation.growth_storage import model_payload
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
@@ -121,7 +120,7 @@ def _subject_models(
                 "WHERE generation_id=? AND model_id=? AND subject=?",
                 (generation_id, model_id, subject),
             ).fetchone()
-            model = _decode_model(model_id, subject, saved[0], saved[1])
+            model = _decode_model(model_id, subject, saved[0], saved[1], connection)
             validate_model_scope(metadata, model)
             models.append(model)
         yield subject, tuple(models)
@@ -135,13 +134,17 @@ def _read_metadata(connection: sqlite3.Connection, generation_id: str) -> Genera
 
 
 def _decode_model(
-    model_id: str, subject: str, calculation_revision: str, payload_gzip: bytes
+    model_id: str,
+    subject: str,
+    calculation_revision: str,
+    payload_gzip: bytes,
+    connection: sqlite3.Connection,
 ) -> GeneratedModel:
     return GeneratedModel(
         model_id=model_id,
         subject=subject,
         calculation_revision=calculation_revision,
-        payload=json.loads(gzip.decompress(payload_gzip)),
+        payload=model_payload(connection, model_id, subject, calculation_revision, payload_gzip),
     )
 
 
@@ -167,7 +170,10 @@ def _read[Collection: (ModelGeneration, ModelInputSlice)](
             "(SELECT value FROM json_each(?))) ORDER BY model_id,subject",
             (generation_id, scope, scope),
         )
-        models = tuple(_decode_model(*row) for row in rows)
+        models = tuple(
+            _decode_model(model_id, subject, revision, blob, connection)
+            for model_id, subject, revision, blob in rows
+        )
         # Keep decoded models and nested metadata typed: dumping a temporary
         # generation would recursively copy every retained owner payload again.
         fields = dict(metadata)
