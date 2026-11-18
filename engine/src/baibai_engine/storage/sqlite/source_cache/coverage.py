@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from bisect import bisect_left
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 
@@ -421,6 +422,18 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
         interval_start <= start and interval_end >= end
         for interval_start, interval_end in covered_intervals(conn, source)
     )
+
+
+def uncovered_days(conn: sqlite3.Connection, source: str, days: Iterable[date]) -> list[date]:
+    """Classify all requested days against one read of the retained receipt intervals."""
+    intervals = covered_intervals(conn, source)
+    ends = [end for _, end in intervals]
+    missing: list[date] = []
+    for day in days:
+        i = bisect_left(ends, day)
+        if i == len(intervals) or day < intervals[i][0]:
+            missing.append(day)
+    return missing
 
 
 def date_covered(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
