@@ -529,7 +529,6 @@ def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(cha
     assert financial.payload["earnings_price"]["profit_ttm_yen"] is None
     assert financial.payload["earnings_price"]["earnings_yield"] is None
     assert financial.payload["earnings_price"]["market_cap_yen"] == 5_316_645_750
-    assert financial.payload["financial"]["eps"] is None
     assert financial.payload["financial"]["per_trailing"] is None
     assert financial.payload["financial"]["sales_ttm"] is None
     reader = CompanyGrowthReader(growth.payload)

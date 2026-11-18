@@ -67,7 +67,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v56-cash-equivalent-source"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v57-reported-profit"
 
 
 def _reported_source(
@@ -218,9 +218,7 @@ def build_financial_snapshot(
         else None
     )
     ev_ebitda = _safe_positive_ratio(latest_enterprise_value, ebitda_ttm)
-    # EPSとPERは同じ自己株控除後の株数を使う。
     per_trailing = _safe_positive_ratio(latest_market_cap, profit_ttm)
-    eps_ttm = _safe_ratio(profit_ttm, shares_ex_treasury)
     # 同じ開示行のTAとEqARから円経路を作り、普通株BPS経路との照合と鮮度で選ぶ。
     # 別開示日の値を掛け合わせたり、carry後の差だけで古いBPSへ戻したりしない。
     # 行内の近さは経路選択の条件であり、差の経済的な原因を確定するものではない。
@@ -360,7 +358,6 @@ def build_financial_snapshot(
         ev_ebitda=ev_ebitda,
         p_s=_safe_ratio(latest_market_cap, sales_ttm),
         pcfr=_safe_ratio(latest_market_cap, ocf_ttm if ocf_ttm and ocf_ttm > 0 else None),
-        eps=eps_ttm,
         dps_actual_annual=dps_actual_annual,
         dividend_actual_source=dividend.actual_source,
         dps_forecast_annual=dps_forecast_annual,

@@ -279,6 +279,34 @@ def test_exact_legacy_financial_identity_only_and_duplicate_models_not_summed():
     assert _estimate(s)["company_financials"]["assessment"] == "insufficient"
 
 
+@pytest.mark.parametrize(
+    ("statement", "basis", "label", "allocation"),
+    [
+        ("consolidated", "reported_profit_before_common_share_allocations", "親会社帰属利益", True),
+        ("nonconsolidated", "reported_profit_before_common_share_allocations", "単体純利益", True),
+        ("consolidated", None, "親会社帰属利益", False),
+        (None, None, "報告純利益", False),
+    ],
+)
+def test_price_ratio_names_the_saved_profit_not_a_common_share_return(
+    statement, basis, label, allocation
+):
+    s = _sel()
+    ep = {"price_date": DAY, "profit_ttm_yen": 1e8, "earnings_yield": 0.05}
+    if statement is not None:
+        ep["statement_basis"] = statement
+    f = {"earnings_price": ep}
+    if basis is not None:
+        f["earnings_basis"] = basis
+    _put(s, "company_financials", f)
+    row = _estimate(s)["company_financials"]
+    assert row["assessment"] == "supportive"
+    assert label in row["summary"]
+    assert "時価総額比5.0%" in row["summary"]
+    assert ("普通株への配分前" in row["summary"]) is allocation
+    assert "EPS" not in row["summary"]
+
+
 def test_cash_opposite_to_profit_only_when_end_and_accounting_basis_agree():
     s = _sel()
     _put(s, "market_context", {"master": {"sector_33": "機械", "snapshot_date": DAY}})
@@ -304,7 +332,7 @@ def test_cash_opposite_to_profit_only_when_end_and_accounting_basis_agree():
     row = _estimate(s)["company_financials"]
     assert row["assessment"] == "mixed"
     assert "2026-09-30までの12か月" in row["summary"]
-    assert "2026-10-19の価格基準" in row["summary"]
+    assert "2026-10-19の時価総額比" in row["summary"]
     f["financial"]["ocf_ttm_period"]["end"] = "2026-03-31"
     assert _estimate(s)["company_financials"]["assessment"] == "supportive"
     assert "営業CF" not in _estimate(s)["company_financials"]["summary"]

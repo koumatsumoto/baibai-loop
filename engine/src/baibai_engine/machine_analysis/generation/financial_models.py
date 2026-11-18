@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from datetime import date
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.machine_analysis.models.company_financials import REPORTED_PROFIT_BASIS
 from baibai_engine.machine_analysis.models.company_financials.earnings import earnings_price
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
@@ -176,7 +177,7 @@ def generate_financial_and_price_models(
                         "earnings_price": asdict(earnings),
                         "capital_action_evidence": [asdict(action) for action in capital_actions],
                         "provider_capital_observation": provider_capital,
-                        "earnings_basis": "reported_profit_before_common_share_allocations",
+                        "earnings_basis": REPORTED_PROFIT_BASIS,
                         "earnings_composition_basis": (
                             "selected_retained_pdf_restated_display_amounts"
                             if pdf_selection is not None and pdf_selection.current is not None
