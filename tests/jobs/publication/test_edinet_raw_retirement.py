@@ -359,9 +359,9 @@ def test_clear_compacts_only_legacy_raw_and_keeps_warm_ledger_clocks(legacy):
     assert store.get_keys == []
 
 
-@pytest.mark.parametrize("tight", [False, True])
+@pytest.mark.parametrize("tight_at", [None, "archive", "seal"])
 def test_native_release_does_not_compact_one_unrelated_free_page_unless_seal_needs_room(
-    legacy, monkeypatch, tight
+    legacy, monkeypatch, tight_at
 ):
     store, _, archives, saved, market, mirror, _ = legacy
     with publication.prepare_market_lake(
@@ -385,14 +385,14 @@ def test_native_release_does_not_compact_one_unrelated_free_page_unless_seal_nee
     monkeypatch.setattr(
         edinet_archive_native, "prepare_archive_execution", prepare_with_unrelated_free_page
     )
-    if tight:
-        monkeypatch.setattr(publication, "sqlite_seal_capacity", lambda *_: (100, 200, 199))
+    capacity = iter([199] if tight_at == "archive" else [201, 199 if tight_at == "seal" else 201])
+    monkeypatch.setattr(publication, "sqlite_seal_capacity", lambda *_: (100, 200, next(capacity)))
     with publication.prepare_market_lake(
         sqlite_path=market, mirror_root=mirror, store=store, release_id="next", edinet_input=saved
     ) as prepared:
         with sqlite3.connect(prepared.source_snapshot.path) as db:
             assert db.execute("PRAGMA freelist_count").fetchone() == (
-                0 if tight else free_pages[0],
+                0 if tight_at else free_pages[0],
             )
             assert db.execute("SELECT count(*) FROM edinet_source_archives").fetchone() == (0,)
             assert read_scope(db) == archives.scope

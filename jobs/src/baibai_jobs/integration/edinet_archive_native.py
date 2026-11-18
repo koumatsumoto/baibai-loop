@@ -139,11 +139,13 @@ def prepare_archive_execution(
         # A legacy release can be retried after DELETE committed but VACUUM failed.
         # An already native release need not rewrite the market for a few free pages.
         free = connection.execute("PRAGMA freelist_count").fetchone()[0]
-        if free and (
-            retained
-            or not keep_small_slack
-            or free * 8 >= connection.execute("PRAGMA page_count").fetchone()[0]
-        ):
+        kept_slack = (
+            free > 0
+            and keep_small_slack
+            and not retained
+            and free * 8 < connection.execute("PRAGMA page_count").fetchone()[0]
+        )
+        if free and not kept_slack:
             connection.execute("VACUUM")
     return {
         "exit_code": 0,
@@ -152,6 +154,7 @@ def prepare_archive_execution(
         "archive_count": len(archives.archive_keys),
         "cleared_archives": len(retained),
         "copied_archives": 0,
+        "kept_small_slack": kept_slack,
     }
 
 

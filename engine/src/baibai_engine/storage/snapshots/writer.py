@@ -119,7 +119,11 @@ class _BuiltPartition:
     manifest: PartitionManifest
 
 
-def sqlite_seal_capacity(source: Path, workspace: Path) -> tuple[int, int, int]:
+def sqlite_seal_capacity(source: Path, mirror_root: Path) -> tuple[int, int, int]:
+    # Before the first seal, probe the filesystem on which staging will be created.
+    workspace = mirror_root / "lake" / "staging"
+    while not workspace.exists():
+        workspace = workspace.parent
     size = source.stat().st_size
     return size, max(size * 2, 64 * 1024 * 1024), shutil.disk_usage(workspace).free
 
@@ -153,7 +157,7 @@ def sealed_sqlite_snapshot(
     sealed = workspace / "snapshot.sqlite"
     try:
         try:
-            source_bytes, required, free_bytes = sqlite_seal_capacity(sqlite_path, workspace)
+            source_bytes, required, free_bytes = sqlite_seal_capacity(sqlite_path, mirror_root)
             print(
                 f"lake snapshot capacity: source_bytes={source_bytes} "
                 f"required_bytes={required} free_bytes={free_bytes} "
