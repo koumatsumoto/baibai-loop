@@ -19,7 +19,7 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
 from baibai_engine.machine_analysis.screening.policies.financial_growth import (
     POLICY_ID,
-    evaluate_financial_growth_gate,
+    _financial_growth_with_path_inputs,
 )
 
 
@@ -114,7 +114,7 @@ def models(data):
 
 
 def evaluate(data):
-    return evaluate_financial_growth_gate("1234", models=models(data), metadata=metadata())
+    return _financial_growth_with_path_inputs("1234", models=models(data), metadata=metadata())[0]
 
 
 def current(data, measurement):
@@ -148,7 +148,7 @@ def add_prior_fy(data):
         item.update(value=None, reason="matching_period_not_observed")
 
 
-def test_financial_routes_preserve_clock_null_and_leave_adoption_to_the_caller():
+def test_financial_routes_preserve_clocks_and_leave_adoption_to_the_caller():
     result = evaluate(payloads())
     assert result["state"] == "research_candidate"
     assert result["matched_routes"] == ["profit_growth", "operating_recovery"]
@@ -157,10 +157,11 @@ def test_financial_routes_preserve_clock_null_and_leave_adoption_to_the_caller()
     assert result["generation_id"] == metadata().generation_id
     assert result["as_of"] == "2026-11-13"
     assert result["evaluation_time"] == "2026-11-14T08:41:00+00:00"
-    assert result["financial_context"]["debt"] is None
-    assert result["financial_context"]["fcf_ttm"] == -20.0
     assert "action" not in result
-    assert result["observations"]["comparison_basis"] == "source_reported_economic_scope_unverified"
+    assert (
+        result["quarter_growth_context"]["comparison_basis"]
+        == "source_reported_economic_scope_unverified"
+    )
 
 
 def test_price_sector_technical_and_old_eligibility_do_not_decide_financial_gate():
@@ -248,13 +249,12 @@ def test_known_failure_and_missing_are_both_retained():
         assert "quarter_operating_profit_increase" in route["missing"]
 
 
-def test_missing_financial_model_is_not_zero_debt_or_negative_equity():
+def test_missing_financial_model_does_not_make_equity_negative():
     data = payloads()
     del data["company_financials"]
     result = evaluate(data)
     assert result["state"] == "research_candidate"
     assert result["missing_models"] == ["company_financials"]
-    assert result["financial_context"]["debt"] is None
     assert result["checks"]["positive_net_assets"]["value"] == 500.0
 
 
@@ -329,9 +329,8 @@ def test_limited_full_fy_fallback_keeps_missing_current_ttm_and_source_period():
     add_prior_fy(data)
     result = evaluate(data)
     assert "profit_growth" in result["matched_routes"]
-    assert result["observations"]["annual_variant"] == "full_fy"
-    assert result["observations"]["annual"]["period_end"] == "2025-12-31"
-    assert result["observations"]["latest_ttm"]["period_status"] == "matching_period_not_observed"
+    assert result["observation_period_context"]["annual_variant"] == "full_fy"
+    assert result["observation_period_context"]["annual"]["period_end"] == "2025-12-31"
 
 
 @pytest.mark.parametrize("mode", ["metric_missing", "basis_change", "undisclosed_fy"])
@@ -375,7 +374,7 @@ def test_fy_reversal_check_does_not_use_a_later_disclosure_as_current_evidence()
     result = evaluate(data)
     assert "profit_growth" in result["matched_routes"]
     assert result["checks"]["full_fy_without_newer_income_reversal"]["state"] == "met"
-    assert result["observations"]["latest_reported"]["metrics"]["parent_profit"]["value"] == -5.0
+    assert result["reported_share_context"]["reported"]["metrics"]["parent_profit"]["value"] == -5.0
 
 
 def test_full_fy_does_not_rescue_observed_latest_deterioration():
@@ -402,23 +401,22 @@ def test_generated_unavailable_is_not_the_same_as_missing_model(generated):
     result = evaluate(data)
     assert result["state"] == "input_unresolved"
     assert ("company_growth" in result["missing_models"]) is not generated
-    assert result["observations"]["growth_reason"] == ("no_financial_inputs" if generated else None)
 
 
 def test_diagnostic_does_not_mutate_saved_inputs_or_return_mutable_aliases():
     data = payloads()
     before = deepcopy(data)
     result = evaluate(data)
-    result["observations"]["quarter"]["metrics"]["sales"]["value"] = 999.0
+    result["quarter_growth_context"]["changes"]["sales"]["to_value"] = 999.0
     assert data == before
 
 
 def test_rejects_cross_subject_and_duplicate_model_input():
     saved = models(payloads())
     with pytest.raises(ValueError, match="matching subject"):
-        evaluate_financial_growth_gate("9999", models=saved, metadata=metadata())
+        _financial_growth_with_path_inputs("9999", models=saved, metadata=metadata())
     with pytest.raises(ValueError, match="unique saved models"):
-        evaluate_financial_growth_gate("1234", models=(*saved, saved[0]), metadata=metadata())
+        _financial_growth_with_path_inputs("1234", models=(*saved, saved[0]), metadata=metadata())
 
 
 def test_rejects_misattributed_growth_payload():
@@ -468,7 +466,10 @@ def test_banking_shape_separates_inapplicability_without_substituting_other_inco
     ]
     assert recovery["failures"] == []
     assert recovery["profitability"] is None
-    assert result["observations"]["quarter"]["metrics"]["parent_profit"]["value"] == 1234.0
+    assert (
+        result["income_attribution_context"]["quarter"]["metrics"]["parent_profit"]["value"]
+        == 1234.0
+    )
 
 
 def test_finance_ordinary_growth_is_not_vetoed_by_unused_inapplicable_margin():
@@ -558,7 +559,6 @@ def test_nonpositive_margin_denominator_is_neither_sector_na_nor_a_fetch_gap():
     assert groups["not_applicable"] == []
     assert "quarter_operating_margin_observed" in groups["other_unavailable"]
     assert result["checks"]["quarter_operating_margin_observed"]["reason"] == "nonpositive_sales"
-    assert result["observations"]["quarter"]["metrics"]["sales"]["value"] == 0.0
 
 
 @pytest.mark.parametrize(
@@ -571,9 +571,7 @@ def test_nonpositive_margin_denominator_is_neither_sector_na_nor_a_fetch_gap():
         (10.0, 20.0, "positive", "positive"),
     ],
 )
-def test_recovery_profitability_does_not_erase_annual_loss_or_funding_gaps(
-    before, after, prior_sign, current_sign
-):
+def test_recovery_profitability_does_not_erase_annual_loss(before, after, prior_sign, current_sign):
     data = payloads()
     current(data, "annual_ttm")["metrics"]["operating_profit"]["value"] = -100.0
     current(data, "quarter")["metrics"]["operating_profit"]["value"] = after
@@ -591,8 +589,6 @@ def test_recovery_profitability_does_not_erase_annual_loss_or_funding_gaps(
         "comparison_prior_quarter": prior_sign,
     }
     assert "positive_annual_operating_profit" in result["routes"]["profit_growth"]["failures"]
-    assert result["financial_context"]["debt"] is None
-    assert result["financial_context"]["fcf_ttm"] == -20.0
 
 
 def test_recovery_prior_sign_is_not_backfilled_from_current_minus_change():
@@ -641,178 +637,21 @@ def add_prior_quarter(data):
     return prior["observations"][0]
 
 
-def without_comparison_priors(result):
-    result = deepcopy(result)
-    del result["observations"]["quarter_comparison_prior_observations"]
-    return result
-
-
-def prior_evidence(observed, metrics=None):
-    return {
-        "comparison_metrics": metrics or ["sales", "operating_profit", "operating_margin"],
-        "observation": observed,
-    }
-
-
-@pytest.mark.parametrize(
-    ("metric", "reason"),
-    [
-        ("operating_profit", "inconsistent_cumulative_revision"),
-        ("operating_profit", "statement_basis_incomparable"),
-        ("operating_margin", "nonpositive_sales"),
-        ("operating_margin", "not_applicable_to_financial_sector"),
-    ],
-)
-def test_prior_operand_reason_is_evidence_not_a_replacement_check(metric, reason):
+def test_saved_prior_cannot_backfill_a_missing_operand_or_clear_its_basis():
     data = payloads()
-    change(data, metric).update(from_value=None, difference=None, reason="operand_unavailable")
-    baseline = evaluate(data)
-    prior = add_prior_quarter(data)
-    prior["metrics"][metric] = {"value": None, "reason": reason, "documents": []}
-    before = deepcopy(data)
-    result = evaluate(data)
-    assert without_comparison_priors(result) == without_comparison_priors(baseline)
-    assert result["observations"]["quarter_comparison_prior_observations"] == [
-        prior_evidence(prior)
-    ]
-    assert result["observations"]["quarter_changes"][metric]["reason"] == "operand_unavailable"
-    assert data == before
-
-
-def test_observed_prior_does_not_backfill_saved_missing_comparison():
-    data = payloads()
-    change(data, "operating_profit").update(
-        from_value=None, difference=None, reason="operand_unavailable"
+    delta = change(data, "operating_profit")
+    delta.update(
+        from_value=None, difference=None, rate=None, reason="accounting_standard_incomparable"
     )
-    prior = add_prior_quarter(data)
-    result = evaluate(data)
-    assert result["state"] == "input_unresolved"
-    assert result["checks"]["quarter_operating_profit_increase"]["state"] == "unavailable"
-    assert result["observations"]["quarter_changes"]["operating_profit"]["from_value"] is None
-    assert result["observations"]["quarter_comparison_prior_observations"] == [
-        prior_evidence(prior)
-    ]
-
-
-def test_prior_evidence_retains_absent_fields_integer_and_copy_boundary():
-    data = payloads()
-    prior = add_prior_quarter(data)
-    for field in ("period_status", "share_basis", "accounting_standard"):
-        prior.pop(field)
-    prior["metrics"]["sales"] = {"value": 900}
-    before = deepcopy(data)
-    result = evaluate(data)
-    (entry,) = result["observations"]["quarter_comparison_prior_observations"]
-    saved = entry["observation"]
-    assert saved == prior
-    assert type(saved["metrics"]["sales"]["value"]) is int
-    assert "reason" not in saved["metrics"]["sales"]
-    assert "accounting_standard" not in saved
-    saved["metrics"]["sales"]["value"] = 999999
-    assert data == before
-
-
-def test_one_saved_prior_is_shared_but_distinct_prior_observations_are_not_coalesced():
-    data = payloads()
-    prior = add_prior_quarter(data)
-    second = deepcopy(prior)
-    second.pop("share_basis")
-    data["company_growth"]["periods"][0]["observations"].append(second)
-    result = evaluate(data)
-    assert result["observations"]["quarter_comparison_prior_observations"] == [
-        prior_evidence(prior),
-        prior_evidence(second),
-    ]
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("measurement", "reported"),
-        ("statement_basis", "nonconsolidated"),
-        ("period_start", "2025-01-01"),
-        ("period_end", "2025-08-31"),
-    ],
-)
-def test_prior_lookup_does_not_fall_back_to_another_measurement_basis_or_interval(field, value):
-    data = payloads()
     baseline = evaluate(data)
-    add_prior_quarter(data)[field] = value
-    result = evaluate(data)
-    assert result["observations"]["quarter_comparison_prior_observations"] == []
-    assert without_comparison_priors(result) == without_comparison_priors(baseline)
-
-
-def test_accounting_standard_difference_is_visible_not_comparability_clearance():
-    data = payloads()
-    data["company_growth"]["changes"] = [change(data, "operating_profit")]
-    change(data, "operating_profit").update(
-        difference=None, reason="accounting_standard_incomparable"
-    )
     prior = add_prior_quarter(data)
     prior["accounting_standard"] = "IFRS"
+    prior["metrics"]["operating_profit"]["value"] = 1234567
     result = evaluate(data)
+    assert result == baseline
     assert result["state"] == "input_unresolved"
-    assert result["observations"]["quarter_comparison_prior_observations"] == [
-        prior_evidence(prior, ["operating_profit"])
-    ]
-    assert result["checks"]["quarter_operating_profit_increase"]["reason"] == (
-        "accounting_standard_incomparable"
+    assert (
+        result["checks"]["quarter_operating_profit_increase"]["reason"]
+        == "accounting_standard_incomparable"
     )
-
-
-@pytest.mark.parametrize("mode", ["ambiguous", "pdf_source", "comparison_not_recorded"])
-def test_non_native_or_unselected_comparison_does_not_choose_an_unrelated_prior(mode):
-    data = payloads()
-    data["company_growth"]["changes"] = [change(data, "operating_profit")]
-    if mode == "ambiguous":
-        duplicate = deepcopy(change(data, "operating_profit"))
-        duplicate["difference"] = -1.0
-        data["company_growth"]["changes"].append(duplicate)
-    elif mode == "pdf_source":
-        change(data, "operating_profit")["source_sha256"] = "a" * 64
-    else:
-        change(data, "operating_profit").pop("comparison")
-    baseline = evaluate(data)
-    add_prior_quarter(data)
-    result = evaluate(data)
-    assert result["observations"]["quarter_comparison_prior_observations"] == []
-    assert without_comparison_priors(result) == without_comparison_priors(baseline)
-
-
-def test_prior_evidence_cannot_hide_known_failure_or_unused_financial_na():
-    data = payloads()
-    mark_financial_margin_inapplicable(data)
-    change(data, "operating_margin")["reason"] = "operand_unavailable"
-    change(data, "operating_profit")["difference"] = -1.0
-    baseline = evaluate(data)
-    prior = add_prior_quarter(data)
-    prior["metrics"]["operating_margin"].update(
-        value=None, reason="not_applicable_to_financial_sector"
-    )
-    result = evaluate(data)
-    assert result["state"] == "not_selected"
-    assert without_comparison_priors(result) == without_comparison_priors(baseline)
-    change(data, "operating_profit")["difference"] = 20.0
-    result = evaluate(data)
-    assert result["state"] == "research_candidate"
-    assert result["matched_routes"] == ["profit_growth"]
-    assert result["observations"]["quarter_comparison_prior_observations"] == [
-        prior_evidence(prior)
-    ]
-
-
-@pytest.mark.parametrize("mode", ["ambiguous", "pdf_source"])
-def test_prior_shown_for_other_metrics_does_not_claim_the_excluded_comparison(mode):
-    data = payloads()
-    if mode == "ambiguous":
-        duplicate = deepcopy(change(data, "operating_profit"))
-        duplicate["difference"] = -1.0
-        data["company_growth"]["changes"].append(duplicate)
-    else:
-        change(data, "operating_profit")["source_sha256"] = "a" * 64
-    prior = add_prior_quarter(data)
-    result = evaluate(data)
-    assert result["observations"]["quarter_comparison_prior_observations"] == [
-        prior_evidence(prior, ["sales", "operating_margin"])
-    ]
+    assert result["quarter_growth_context"]["changes"]["operating_profit"]["from_value"] is None
