@@ -15,11 +15,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -76,6 +77,7 @@ from baibai_engine.storage.snapshots.writer import (
     SealedSQLiteSnapshot,
     export_market_snapshot,
     sealed_sqlite_snapshot,
+    sqlite_seal_capacity,
 )
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
@@ -254,13 +256,24 @@ def prepare_market_lake(
             )
         }
     _phase_progress("base_resolve", phase_started)
+    kept_small_slack = False
     if fixed_edinet is not None:
         from baibai_jobs.integration.edinet_archive_native import prepare_archive_execution
 
         if read_lake_store_origin(sqlite_path) != _pointer_origin(previous):
             raise LakePublishError("fixed EDINET publication requires the serving store origin")
         phase_started = _phase_progress("retain_edinet_archives")
-        prepare_archive_execution(fixed_edinet.archives, sqlite_path)
+        keep_small_slack = False
+        if (
+            serving_release is not None
+            and "edinet.source_archives" not in serving_release.dataset_manifests
+        ):
+            _, required, free = sqlite_seal_capacity(sqlite_path, mirror_root)
+            keep_small_slack = free >= required
+        archive_report = prepare_archive_execution(
+            fixed_edinet.archives, sqlite_path, keep_small_slack=keep_small_slack
+        )
+        kept_small_slack = bool(archive_report["kept_small_slack"])
         published_coverage_start.pop("edinet.source_archives", None)
         _phase_progress("retain_edinet_archives", phase_started)
     alerts_identity = None
@@ -330,6 +343,12 @@ def prepare_market_lake(
             previous=previous_interest,
         )
         _phase_progress("native_margin_interest", phase_started)
+    if kept_small_slack:
+        # Credit projections and other files can consume the earlier headroom.
+        _, required, free = sqlite_seal_capacity(sqlite_path, mirror_root)
+        if free < required:
+            with closing(sqlite3.connect(sqlite_path)) as connection:
+                connection.execute("VACUUM")
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         native_calendar_enabled = "jquants.market_calendar" in policy_names

@@ -119,7 +119,9 @@ def project_archive_execution(archives: FixedEdinetArchives, database: Path) -> 
     }
 
 
-def prepare_archive_execution(archives: FixedEdinetArchives, database: Path) -> dict[str, object]:
+def prepare_archive_execution(
+    archives: FixedEdinetArchives, database: Path, *, keep_small_slack: bool = False
+) -> dict[str, object]:
     """Keep requested scope, not a second full ZIP inventory, in the execution copy.
 
     A legacy hydrated copy is removed only after every held original is verified
@@ -127,15 +129,23 @@ def prepare_archive_execution(archives: FixedEdinetArchives, database: Path) -> 
     this transition does not GET all originals again. Scope outside the fixed head
     is not silently discarded. Empty cold/retry copies need no old ZIP hydration.
     """
-    with closing(open_connection(database)) as connection, connection:
-        connection.execute("BEGIN IMMEDIATE")
-        retained = _verified_cache_inventory(archives, connection)
-        connection.execute("DELETE FROM edinet_source_archives")
-        project_archive_scope(archives, connection)
-    with closing(sqlite3.connect(database)) as connection:
-        # DELETE must commit before VACUUM. Recheck free pages on retry too, so a
-        # failed first compaction cannot send old BLOB pages to the next seal.
-        if connection.execute("PRAGMA freelist_count").fetchone()[0]:
+    with closing(open_connection(database)) as connection:
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            retained = _verified_cache_inventory(archives, connection)
+            if retained:
+                connection.execute("DELETE FROM edinet_source_archives")
+            project_archive_scope(archives, connection)
+        # A legacy release can be retried after DELETE committed but VACUUM failed.
+        # An already native release need not rewrite the market for a few free pages.
+        free = connection.execute("PRAGMA freelist_count").fetchone()[0]
+        kept_slack = (
+            free > 0
+            and keep_small_slack
+            and not retained
+            and free * 8 < connection.execute("PRAGMA page_count").fetchone()[0]
+        )
+        if free and not kept_slack:
             connection.execute("VACUUM")
     return {
         "exit_code": 0,
@@ -144,6 +154,7 @@ def prepare_archive_execution(archives: FixedEdinetArchives, database: Path) -> 
         "archive_count": len(archives.archive_keys),
         "cleared_archives": len(retained),
         "copied_archives": 0,
+        "kept_small_slack": kept_slack,
     }
 
 
