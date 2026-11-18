@@ -10,6 +10,7 @@ from baibai_engine.machine_analysis.models.market_context.benchmark import (
 from baibai_engine.machine_analysis.models.market_context.history import trailing_return
 from baibai_engine.machine_analysis.models.market_context.security import (
     calculate_security_market_context,
+    price_return,
 )
 from baibai_engine.machine_analysis.models.market_context.snapshot import (
     _Series,
@@ -32,7 +33,7 @@ def test_a_52_week_price_extreme_uses_252_observed_closes_not_252_calendar_days(
         master=None,
         benchmark_ticker="1321",
         benchmark_prices={},
-        peer_prices=(),
+        peer_returns=(),
     )["price"]
     assert (result["low_52w"], result["high_52w"], result["bar_count"]) == (50.0, 120.0, 253)
     assert result["return_60d"] == pytest.approx(0.2)
@@ -64,7 +65,9 @@ def test_individual_market_keeps_invalid_latest_date_and_independent_peer(invali
         master=master,
         benchmark_ticker="1321",
         benchmark_prices=dict.fromkeys(DAYS, 100.0),
-        peer_prices=({DAYS[0]: 100.0, DAY: 110.0}, {DAYS[0]: 100.0, DAY: invalid}),
+        peer_returns=[
+            value for end in (110.0, invalid) if (value := price_return(100.0, end)) is not None
+        ],
     )
     price = result["price"]
     assert price["resolved_date"] == DAY.isoformat()
@@ -90,7 +93,7 @@ def test_invalid_interior_price_does_not_cancel_independent_endpoint_return():
         master=None,
         benchmark_ticker="1321",
         benchmark_prices=dict.fromkeys(DAYS, 100.0),
-        peer_prices=(),
+        peer_returns=(),
     )
     assert result["price"]["close"] == 100.0
     assert result["price"]["return_20d"] == 0.0
@@ -138,7 +141,7 @@ def test_turnover_average_counts_only_finite_nonnegative_observations(
         master=None,
         benchmark_ticker="1321",
         benchmark_prices=dict.fromkeys(DAYS, 100.0),
-        peer_prices=(),
+        peer_returns=(),
     )
     price = result["price"]
     assert price["avg_turnover_20d_oku"] == (valid_turnover / 1e8 if valid_count == 10 else None)
@@ -170,7 +173,7 @@ def test_turnover_window_keeps_sparse_dates_and_outlier_separate_from_median(bar
         master=None,
         benchmark_ticker="1321",
         benchmark_prices={},
-        peer_prices=(),
+        peer_returns=(),
     )["price"]
     if not bars:
         assert price is None

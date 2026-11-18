@@ -12,6 +12,7 @@ from baibai_engine.machine_analysis.models.market_context.security import (
     _PEER_RETURN_WINDOW_BARS,
     _window_endpoints,
     calculate_security_market_context,
+    price_return,
 )
 from baibai_engine.machine_analysis.models.market_context.snapshot import (
     SECURITY_LOOKBACK_CALENDAR_DAYS,
@@ -39,6 +40,10 @@ def build_security_market_contexts(
     ):
         raise ValueError("prepared market context does not match the requested scope")
     start = asof_date - timedelta(days=SECURITY_LOOKBACK_CALENDAR_DAYS)
+
+    # Bound retained peer values by the master population even when illiquid
+    # targets have many different pairs of endpoints. A miss recomputes exactly.
+    samples: dict[str, tuple[tuple[date, date], dict[str, float]]] = {}
     contexts: dict[str, dict[str, object]] = {}
     for ticker in tickers:
         bars = [
@@ -46,44 +51,31 @@ def build_security_market_contexts(
             for bar in price_bars_by_ticker.get(ticker, ())
             if start <= bar.traded_at <= asof_date
         ]
-        benchmark_prices, peer_prices = _comparison_inputs(
-            ticker=ticker,
-            bars=bars,
-            prepared=prepared,
-        )
+        security = prepared.master.securities.get(ticker) if prepared.master is not None else None
+        endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)
+        peers = []
+        if security is not None and endpoints is not None:
+            sector = security.sector_33
+            sample = samples.get(sector)
+            if sample is None or sample[0] != endpoints:
+                values = {}
+                for peer in prepared.common_stock_tickers_by_sector.get(sector, ()):
+                    series = prepared.series_by_ticker.get(peer)
+                    if series is not None:
+                        value = price_return(
+                            series.price_on(endpoints[0]), series.price_on(endpoints[1])
+                        )
+                        if value is not None:
+                            values[peer] = value
+                sample = samples[sector] = endpoints, values
+            peers = [value for peer, value in sample[1].items() if peer != ticker]
         contexts[ticker] = calculate_security_market_context(
             ticker=ticker,
             bars=bars,
             master=prepared.master,
             calendar=calendar,
             benchmark_ticker=benchmark_ticker,
-            benchmark_prices=benchmark_prices,
-            peer_prices=peer_prices,
+            benchmark_prices=prepared.benchmark_prices,
+            peer_returns=peers,
         )
     return contexts
-
-
-def _comparison_inputs(
-    *,
-    ticker: str,
-    bars: Sequence[PriceBar],
-    prepared: PreparedMarketContext,
-) -> tuple[dict[date, float], list[dict[date, float]]]:
-    if not bars:
-        return {}, []
-    benchmark_prices = prepared.benchmark_prices
-    master = prepared.master
-    security = None if master is None else master.securities.get(ticker)
-    endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)
-    if security is None or endpoints is None:
-        return benchmark_prices, []
-    peer_prices = []
-    for peer in prepared.common_stock_tickers_by_sector.get(security.sector_33, ()):
-        if peer == ticker:
-            continue
-        series = prepared.series_by_ticker.get(peer)
-        if series is not None:
-            peer_prices.append(
-                {day: value for day in endpoints if (value := series.price_on(day)) is not None}
-            )
-    return benchmark_prices, peer_prices
