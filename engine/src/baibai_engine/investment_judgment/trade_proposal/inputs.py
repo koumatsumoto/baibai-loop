@@ -34,6 +34,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
+    previous_buy_proposals,
     proposal_records,
 )
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
@@ -433,6 +434,66 @@ def _reported_buy_proposal_records(
     return result
 
 
+def _previous_buy_context(
+    connection: sqlite3.Connection,
+    scope: ProposalResearchScope,
+    inputs: ProposalInputs,
+    *,
+    proposal_id: str | None,
+    now: datetime,
+) -> dict[str, JsonValue]:
+    held = {position.ticker for position in inputs.positions if position.quantity > 0}
+    tickers = tuple(t.ticker for t in scope.targets if t.purpose == "new" and t.ticker not in held)
+    rows: dict[str, JsonValue] = {}
+    for ticker, prior in previous_buy_proposals(
+        connection, tickers=tickers, known_at=now, exclude_proposal_id=proposal_id
+    ).items():
+        if prior.status != "available":
+            rows[ticker] = {"status": prior.status, "unavailable_reason": prior.reason}
+            continue
+        proposal, index = prior.proposal, prior.item_index
+        assert proposal is not None
+        assert index is not None
+        item = proposal.items[index]
+        assert item.action == "buy"
+        assert item.ticker == ticker
+        quote = next((q for q in proposal.inputs.quotes if q.ticker == ticker), None)
+        rows[ticker] = {
+            "status": "available",
+            "proposal_ref": {
+                "proposal_id": proposal.proposal_id,
+                "draft_sha256": proposal.review.draft_sha256,
+            },
+            "item_index": index,
+            "proposal_item_count": len(proposal.items),
+            "as_of": proposal.as_of.isoformat(),
+            "published_at": proposal.published_at.isoformat(),
+            "assessment_ref": item.assessment_ref.model_dump(mode="json"),
+            "previous_timing": item.timing,
+            "previous_terms": None
+            if item.terms is None
+            else item.terms.model_dump(
+                mode="json", include={"target_session", "limit_price_yen", "quantity", "conditions"}
+            ),
+            "previous_proposed_limit_yen": str(item.proposed_limit_yen)
+            if item.terms is None and item.proposed_limit_yen is not None
+            else None,
+            "terms_unavailable_reasons": [
+                reason.model_dump(mode="json") for reason in item.terms_unavailable_reasons
+            ],
+            "previous_quote": None if quote is None else quote.model_dump(mode="json"),
+            "previous_rationale": item.rationale,
+            "previous_review_conditions": list(item.review_conditions),
+            "human_report_scope": "whole_proposal",
+            "human_reports": [report.model_dump(mode="json") for report in prior.reports],
+        }
+    return {
+        "role": "previous_published_buy_not_current_terms_or_execution",
+        "recorded_through": now.isoformat(),
+        "targets": rows,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class ProposalAuthoringContext:
     operation_id: str
@@ -454,6 +515,7 @@ class ProposalAuthoringContext:
     reported_buy_proposal_records: dict[str, JsonValue]
     listing_designations: ListingDesignationCheck
     tender_filing_references: TenderFilingLookup | None
+    previous_buy_context: dict[str, JsonValue]
 
     def payload(self) -> dict[str, object]:
         return {
@@ -480,6 +542,7 @@ class ProposalAuthoringContext:
             "saved_discovery_context": deepcopy(self.saved_discovery_context),
             "saved_profit_context": deepcopy(self.saved_profit_context),
             "reported_buy_proposal_records": deepcopy(self.reported_buy_proposal_records),
+            "previous_buy_context": deepcopy(self.previous_buy_context),
             "listing_designations": self.listing_designations.model_dump(mode="json"),
             "tender_filing_references": self.tender_filing_references.model_dump(mode="json")
             if self.tender_filing_references is not None
@@ -678,4 +741,5 @@ def build_proposal_context(
             _reported_buy_proposal_records(connection, scope, inputs, now=now),
             listing,
             read_tender_filing_references(market_connection, tickers=flagged, known_at=now),
+            _previous_buy_context(connection, scope, inputs, proposal_id=proposal_id, now=now),
         )

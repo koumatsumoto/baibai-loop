@@ -49,6 +49,7 @@ def scaffold_proposal(
             "no-addで増量できない代償を、現金維持で逃す反発・回避できる損失と比べる。"
         )
     items: list[ProposalItem] = []
+    previous_targets = context.previous_buy_context.get("targets")
     for outcome in context.research_scope.outcomes:
         if outcome.status == "unfinished":
             reference = None
@@ -62,6 +63,20 @@ def scaffold_proposal(
             )
             message = "行動・具体条件・比較理由の執筆と独立検証が未了です。"
             code = "proposal_content_requires_review"
+        previous = (
+            previous_targets.get(outcome.ticker)
+            if outcome.purpose == "new" and isinstance(previous_targets, dict)
+            else None
+        )
+        previous_review: tuple[str, ...] = ()
+        if isinstance(previous, dict) and previous.get("status") == "available":
+            previous_review = (
+                (
+                    "前回の指値・対象日を今回へ流用せず、元提案全体への本人報告があっても約定・現保有や"
+                    "今後の一律見送りと決めず、企業の根拠・観測価格・取引条件のどれが今回の"
+                    "「買う・待つ・見送る」を変えたか（変化なしも含む）を記す。"
+                ),
+            )
         listing = context.listing_designations
         flags = (listing.designations_by_ticker or {}).get(outcome.ticker, ())
         listing_review: tuple[str, ...] = ()
@@ -118,6 +133,7 @@ def scaffold_proposal(
                 rationale=rationale,
                 review_conditions=(
                     terms_review,
+                    *previous_review,
                     *listing_review,
                     (
                         "相対強弱が理由なら、自己の絶対騰落と同じ端点の指数代理・自己除外同業を照合する。"
