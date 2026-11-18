@@ -13,6 +13,8 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
     covered_intervals,
     range_covered,
     record_range_source_coverage,
+    record_source_coverage,
+    uncovered_days,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
@@ -118,6 +120,34 @@ class DailyBarsCoverageTest(unittest.TestCase):
                 conn.close()
             self.assertFalse(sparse)
             self.assertTrue(after_fetch)
+
+
+def test_batch_coverage_uses_one_read_and_keeps_gaps_distinct_from_empty_receipts(tmp_path):
+    days = [date(2026, 11, i) for i in range(1, 10)]
+    with closing(open_connection(tmp_path / "market.sqlite")) as conn:
+        for i, (low, high, count, status) in enumerate(
+            (
+                (1, 2, 0, "ok"),
+                (2, 3, 1, "ok"),
+                (4, 4, 0, "partial"),
+                (5, 5, 0, "unavailable"),
+                (7, 8, 0, "ok"),
+            )
+        ):
+            record_source_coverage(
+                conn,
+                source="jquants_short_sale_reports",
+                coverage_key=str(i),
+                coverage_start=days[low - 1].isoformat(),
+                coverage_end=days[high - 1].isoformat(),
+                record_count=count,
+                status=status,
+            )
+        reads = []
+        conn.set_trace_callback(reads.append)
+        missing = uncovered_days(conn, "jquants_short_sale_reports", days)
+        assert missing == [days[3], days[4], days[5], days[8]]
+        assert len(reads) == 1
 
 
 class CoverageReadErrorsTest(unittest.TestCase):

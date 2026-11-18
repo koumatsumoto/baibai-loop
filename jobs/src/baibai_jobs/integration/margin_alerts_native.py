@@ -44,8 +44,8 @@ from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
 from baibai_engine.storage.snapshots.models import DatasetManifest
 from baibai_engine.storage.sqlite.source_cache.coverage import (
-    range_covered,
     record_range_source_coverage,
+    uncovered_days,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.native_projection_cache import verified_cached_scopes
@@ -174,9 +174,7 @@ def materialize_saved_input(
             connection.execute("BEGIN")
             scopes = _project_days(store, saved, connection, days=days, output=output)
             _record_unresolved(connection, scopes, evaluated_at)
-            unresolved = [
-                day for day in days if not range_covered(connection, MARGIN_ALERT_SOURCE, day, day)
-            ]
+            unresolved = uncovered_days(connection, MARGIN_ALERT_SOURCE, days)
             result = {
                 "rows": connection.execute("SELECT COUNT(*) FROM jquants_margin_alerts").fetchone()[
                     0
@@ -365,9 +363,7 @@ def model_input(
             output=market,
         )
         _record_unresolved(connection, scopes, evaluated_at)
-        unresolved = [
-            day for day in days if not range_covered(connection, MARGIN_ALERT_SOURCE, day, day)
-        ]
+        unresolved = uncovered_days(connection, MARGIN_ALERT_SOURCE, days)
         descriptor = dict(_descriptor(saved))
         summary = descriptor["summary"]
         assert isinstance(summary, dict)
