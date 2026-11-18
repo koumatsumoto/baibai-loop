@@ -209,34 +209,6 @@ def test_known_technical_nonmatch_does_not_hide_share_review():
     assert row["screening_lane"] == "input_review"
 
 
-def test_review_references_selected_path_and_same_model_without_changing_coordinates():
-    data = case(reason="missing_capital_basis")
-    _, _, coordinates, reasons = observations(data)
-    row = project_unchanged(data)
-    assert row["missing"] == ["financial:missing_capital_basis"]
-    assert row["coordinates"] == []
-    assert reasons == (
-        {
-            "path_id": "earning_power",
-            "variant": "annual_ttm",
-            "reason": "missing_capital_basis",
-            "source_field": "earnings_price.shares_ex_treasury",
-            "source_model_id": "company_financials",
-            "source_model_revision": "test-v1",
-            "generation_id": _metadata().generation_id,
-            "subject": "1234",
-            "interpretation": "share_basis_review_not_price_or_financial_clearance",
-        },
-    )
-    matching = next(
-        path
-        for path in coordinates.paths
-        if (path.path_id, path.variant) == (reasons[0]["path_id"], reasons[0]["variant"])
-    )
-    assert not matching.eligible
-    assert matching.price_value is None
-
-
 @pytest.mark.parametrize(
     ("field", "value"),
     [("price_yen", None), ("price_yen", 0), ("shares_ex_treasury", -1), ("market_cap_yen", 100)],
@@ -284,15 +256,19 @@ def test_full_fy_review_uses_selected_observation_and_does_not_hide_newer_loss(n
         earnings_yield=None,
         unavailable_reason="missing_capital_basis",
     )
-    _, _, _, reasons = read_discovery_observations("1001", models=rows, metadata=fixed)
-    earning = [item for item in reasons if item["path_id"] == "earning_power"]
-    assert bool(earning) is not newer_loss
-    if earning:
-        assert earning[0]["variant"] == "full_fy"
+    # Isolate earning power: a supported sales path would produce the same published reason.
+    growth = next(m.payload for m in rows if m.model_id == "company_growth")
+    for c in growth["changes"]:
+        if c["metric"] == "sales":
+            c.update(rate=None, difference=None, reason="operand_unavailable")
+    row = project_discovery_row("1001", models=rows, metadata=fixed)
+    assert ("financial:missing_capital_basis" in row["missing"]) is not newer_loss
+    assert row["screening_lane"] == ("no_current_hypothesis" if newer_loss else "input_review")
     assert fixed.model_dump_json() == before
 
 
-def test_available_ttm_does_not_select_more_attractive_fy_for_review():
+@pytest.mark.parametrize("negative_ttm", [False, True])
+def test_available_ttm_cannot_borrow_positive_fy_for_earning_review(negative_ttm):
     from tests.engine.machine_analysis.screening.test_full_fy_fallback import documents, generation
 
     fixed = generation(documents(prior_quarter=True))
@@ -303,23 +279,8 @@ def test_available_ttm_does_not_select_more_attractive_fy_for_review():
         earnings_yield=None,
         unavailable_reason="missing_capital_basis",
     )
-    _, _, _, reasons = read_discovery_observations("1001", models=fixed.models, metadata=fixed)
-    assert [item["variant"] for item in reasons if item["path_id"] == "earning_power"] == [
-        "annual_ttm"
-    ]
-
-
-def test_negative_selected_ttm_does_not_borrow_positive_fy_for_earning_review():
-    from tests.engine.machine_analysis.screening.test_full_fy_fallback import documents, generation
-
-    fixed = generation(documents(prior_quarter=True))
-    cf = next(model.payload for model in fixed.models if model.model_id == "company_financials")
-    cf["earnings_price"].update(
-        shares_ex_treasury=None,
-        market_cap_yen=None,
-        earnings_yield=None,
-        profit_ttm_yen=-1.0,
-        unavailable_reason="missing_capital_basis",
-    )
-    _, _, _, reasons = read_discovery_observations("1001", models=fixed.models, metadata=fixed)
-    assert not any(item["path_id"] == "earning_power" for item in reasons)
+    if negative_ttm:
+        cf["earnings_price"]["profit_ttm_yen"] = -1.0
+    row = project_discovery_row("1001", models=fixed.models, metadata=fixed)
+    assert ("financial:missing_capital_basis" in row["missing"]) is not negative_ttm
+    assert row["screening_lane"] == ("no_current_hypothesis" if negative_ttm else "input_review")

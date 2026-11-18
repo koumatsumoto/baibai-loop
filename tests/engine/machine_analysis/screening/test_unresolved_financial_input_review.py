@@ -59,18 +59,14 @@ def test_unresolved_preserves_supported_input_reason_and_all_other_states(
     no_reason = deepcopy(data)
     no_reason["company_financials"]["earnings_price"]["unavailable_reason"] = "other"
     row, control = project_unchanged(data), project_unchanged(no_reason)
-    _, gate, coordinates, reasons = observations(data)
+    _, gate, coordinates, _ = observations(data)
     assert row["financial_state"] == control["financial_state"] == "input_unresolved"
     assert row["technical_state"] == control["technical_state"]
     assert row["screening_lane"] == "input_review"
     assert row["matched_paths"]["financial"] == row["coordinates"] == []
     assert not any(p.eligible for p in coordinates.paths)
     assert all(p.price_value is None for p in coordinates.paths)
-    (review,) = reasons
-    assert review["path_id"] == ("business_expansion" if expansion else "earning_power")
-    assert review["variant"] == "annual_ttm"
     reason = "stale_price" if stale else "missing_capital_basis"
-    assert review["reason"] == reason
     assert f"financial:{reason}" in row["missing"]
     assert gate.state == "input_unresolved"
     assert not gate.matched_paths

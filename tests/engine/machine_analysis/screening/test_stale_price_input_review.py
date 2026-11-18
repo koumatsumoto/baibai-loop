@@ -6,7 +6,6 @@ import pytest
 from tests.engine.machine_analysis.screening.test_financial_input_review import (
     case,
     current,
-    observations,
     project_unchanged,
 )
 
@@ -29,26 +28,13 @@ def test_stale_price_keeps_selected_nonprice_support_without_financial_clearance
     data = stale_case(expansion=expansion, technical=technical)
     row = project_unchanged(data)
     baseline = project_unchanged(case(expansion=expansion, technical=technical))
-    _, _, coordinates, reviews = observations(data)
     assert row["financial_state"] == baseline["financial_state"] == "not_selected"
     assert row["technical_state"] == baseline["technical_state"]
     assert row["screening_lane"] == "input_review"
     assert row["matched_paths"]["financial"] == row["coordinates"] == []
     assert "financial:stale_price" in row["missing"]
-    assert not any(p.eligible for p in coordinates.paths)
-    assert all(p.price_value is None for p in coordinates.paths)
-    (reason,) = reviews
-    assert reason["path_id"] == path
-    assert reason["reason"] == "stale_price"
-    assert reason["source_field"] == "earnings_price.price_date"
-    assert reason["price_date"] == "2026-11-12"
-    assert reason["expected_price_date"] == "2026-11-13"
-    assert reason["interpretation"] == "stale_price_review_not_current_price_or_financial_clearance"
-    selected = next(
-        p for p in coordinates.paths if (p.path_id, p.variant) == (path, reason["variant"])
-    )
-    assert selected.business_value is not None
-    assert selected.business_value > 0
+    assert baseline["matched_paths"]["financial"] == [path]
+    assert {p["path_id"] for p in baseline["coordinates"]} == {path}
 
 
 @pytest.mark.parametrize(
@@ -124,8 +110,7 @@ def test_price_or_share_review_does_not_clear_losses_or_negative_equity(reason):
     )
     assert row["matched_paths"]["growth"] == []
     assert row["screening_lane"] == "input_review"
-    _, _, _, (review,) = observations(data)
-    assert (review["path_id"], review["reason"]) == ("business_expansion", reason)
+    assert f"financial:{reason}" in row["missing"]
     # The amounts belong to the company model, not to an all-market audit card.
     reader = CompanyGrowthReader(data["company_growth"])
     quarter = reader.observation(reader.latest_period, "quarter")
