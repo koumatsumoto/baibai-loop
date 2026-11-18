@@ -104,15 +104,31 @@ def test_stale_price_does_not_supply_missing_earning_power(problem):
     assert project_unchanged(data)["screening_lane"] == "no_current_hypothesis"
 
 
-def test_expansion_review_retains_loss_deterioration_and_negative_net_assets():
-    data = stale_case(expansion=True)
+@pytest.mark.parametrize("reason", ["stale_price", "missing_capital_basis"])
+def test_price_or_share_review_does_not_clear_losses_or_negative_equity(reason):
+    from baibai_engine.machine_analysis.models.company_growth.reading import CompanyGrowthReader
+
+    data = (
+        stale_case(expansion=True)
+        if reason == "stale_price"
+        else case(expansion=True, reason=reason, technical=False)
+    )
     current(data, "balance")["metrics"]["net_assets"]["value"] = -22.0
-    without_price_review = deepcopy(data)
-    without_price_review["company_financials"]["earnings_price"]["unavailable_reason"] = "other"
-    _, gate, _, reviews = observations(data)
-    assert gate == observations(without_price_review)[1]
-    assert gate["checks"]["positive_net_assets"]["value"] == -22.0
-    assert gate["checks"]["quarter_operating_profit_increase"]["value"] == -10.0
-    assert gate["routes"]["operating_recovery"]["state"] == "not_matched"
-    assert project_unchanged(data)["screening_lane"] == "input_review"
-    assert [p["path_id"] for p in reviews] == ["business_expansion"]
+    without_review = deepcopy(data)
+    without_review["company_financials"]["earnings_price"]["unavailable_reason"] = "other"
+    row = project_unchanged(data)
+    assert (
+        row["financial_state"]
+        == project_unchanged(without_review)["financial_state"]
+        == "not_selected"
+    )
+    assert row["matched_paths"]["growth"] == []
+    assert row["screening_lane"] == "input_review"
+    _, _, _, (review,) = observations(data)
+    assert (review["path_id"], review["reason"]) == ("business_expansion", reason)
+    # The amounts belong to the company model, not to an all-market audit card.
+    reader = CompanyGrowthReader(data["company_growth"])
+    quarter = reader.observation(reader.latest_period, "quarter")
+    balance = reader.observation(reader.latest_period, "balance")
+    assert balance.metrics["net_assets"].value == -22.0
+    assert reader.year_over_year(quarter, "operating_profit")[0].difference == -10.0

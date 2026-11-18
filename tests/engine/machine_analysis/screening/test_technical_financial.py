@@ -60,21 +60,10 @@ def test_financial_lanes_do_not_overwrite_growth_failure(growth, technical, fina
     )
 
 
-def test_each_stock_uses_its_own_financial_observations_even_without_technical_data(
-    tmp_path, monkeypatch
-):
+def test_each_stock_uses_its_own_financial_observations_even_without_technical_data(tmp_path):
     fixed = _seed(tmp_path / "runs")
     before = fixed.model_dump_json()
     meta = GenerationMetadata.model_validate(fixed.model_dump(exclude={"models"}))
-    real = observations._financial_growth_with_path_inputs
-    calls = []
-
-    def read(ticker, **kwargs):
-        calls.append(ticker)
-        assert {m.model_id for m in kwargs["models"]} <= {"company_growth", "company_financials"}
-        return real(ticker, **kwargs)
-
-    monkeypatch.setattr(observations, "_financial_growth_with_path_inputs", read)
     universe = tuple(t for t, p in meta.subject_plan.items() if p.scope == "stock")
     by = {
         t: observations.project_discovery_row(
@@ -83,7 +72,6 @@ def test_each_stock_uses_its_own_financial_observations_even_without_technical_d
         for t in universe
     }
     saved = observations.evaluate_discovery_rows(meta, tickers=universe, rows=by)
-    assert calls == list(universe)
     assert saved.result.tickers == saved.universe_tickers == tuple(sorted(universe))
     assert by["2345"]["financial_state"] == "not_selected"
     assert by["3456"]["financial_state"] == "input_unresolved"
@@ -91,3 +79,73 @@ def test_each_stock_uses_its_own_financial_observations_even_without_technical_d
     assert by["5678"]["financial_state"] == "research_candidate"
     assert saved.result.rows == tuple(by[t] for t in sorted(universe))
     assert fixed.model_dump_json() == before
+
+
+@pytest.mark.parametrize(
+    ("fault", "used_by_discovery"),
+    [
+        ("unrelated_period", False),
+        ("unrelated_share_change", False),
+        ("current_period", True),
+        ("comparison_prior", True),
+        ("coverage", True),
+    ],
+)
+def test_discovery_is_not_audit_of_an_entire_company_history(fault, used_by_discovery):
+    from copy import deepcopy
+
+    from tests.engine.machine_analysis.screening.test_financial_growth import (
+        change,
+        metadata,
+        models,
+        payloads,
+    )
+
+    from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
+
+    data = payloads()
+    raw = data["company_growth"]
+    prior = deepcopy(raw["periods"][-1])
+    prior.update(
+        fiscal_period="3Q",
+        fiscal_year_end="2025-12-31",
+        period_start="2025-01-01",
+        period_end="2025-09-30",
+    )
+    prior_quarter = prior["observations"][0]
+    prior_quarter.update(period_start="2025-07-01", period_end="2025-09-30")
+    prior["observations"] = [prior_quarter]
+    raw["periods"].insert(0, prior)
+    row = observations.project_discovery_row("1234", models=models(data), metadata=metadata())
+    if fault == "unrelated_period":
+        raw["periods"].insert(
+            0,
+            {
+                "fiscal_period": "1Q",
+                "fiscal_year_end": "2016-12-31",
+                "period_start": "2016-01-01",
+                "period_end": "not-a-date",
+                "observations": [],
+            },
+        )
+    elif fault == "unrelated_share_change":
+        raw["changes"].append(
+            {**change(data, "sales"), "metric": "average_shares", "difference": "not-a-number"}
+        )
+    elif fault == "current_period":
+        raw["periods"][-1]["period_end"] = "not-a-date"
+    elif fault == "comparison_prior":
+        prior_quarter["metrics"]["sales"]["value"] = "not-a-number"
+    else:
+        raw["coverage"]["observed_period_ends"] = ["not-a-date"]
+
+    with pytest.raises(ValidationError):
+        CompanyGrowth.model_validate(raw)
+    if used_by_discovery:
+        with pytest.raises(ValidationError):
+            observations.project_discovery_row("1234", models=models(data), metadata=metadata())
+    else:
+        assert (
+            observations.project_discovery_row("1234", models=models(data), metadata=metadata())
+            == row
+        )

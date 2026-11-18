@@ -2,9 +2,11 @@
 
 import json
 from contextlib import closing
+from copy import deepcopy
 from datetime import datetime, timedelta
 
 import pytest
+from tests.engine.investment_judgment.workflow.test_growth_projection_copy import growth_payload
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
 from baibai_engine.cli.operation import main
@@ -18,12 +20,96 @@ from baibai_engine.investment_judgment.workflow.operation.models import Operatio
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
+    _generated_selection,
     prepare_selected_workspace,
     resume_selected_workspace,
 )
+from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
+
+
+@pytest.mark.parametrize("entry", ["start", "prepare"])
+@pytest.mark.parametrize(
+    ("fault_ticker", "fault", "error"),
+    [
+        ("1234", "old_date", r"periods\.0\.period_start"),
+        ("2345", "old_date", r"periods\.0\.period_start"),
+        ("1234", "unused_shares", "average_shares.value"),
+        ("2345", "unused_shares", "average_shares.value"),
+        ("2345", "wrong_ticker", "different subject"),
+        ("3456", "unused_shares", None),  # 同じ世代だがこのCaseに固定しない会社。
+        (None, None, None),
+    ],
+)
+def test_new_case_checks_only_the_full_growth_reports_it_seals(
+    tmp_path, entry, fault_ticker, fault, error
+):
+    runs, app, ws = tmp_path / "runs", tmp_path / "app", tmp_path / "ws"
+    tickers = ("1234", "2345", "3456")
+    history = growth_payload("current")
+    models = []
+    for ticker in tickers:
+        raw = {**deepcopy(history), "ticker": ticker}
+        if ticker == fault_ticker:
+            if fault == "old_date":
+                raw["periods"][0]["period_start"] = "invalid date"
+            elif fault == "unused_shares":
+                reported = next(
+                    obs
+                    for obs in raw["periods"][0]["observations"]
+                    if obs["measurement"] == "reported"
+                )
+                reported["metrics"]["average_shares"]["value"] = "invalid shares"
+            else:
+                raw["ticker"] = "9999"
+        models.append(
+            GeneratedModel(
+                model_id="company_growth",
+                calculation_revision="fixture",
+                subject=ticker,
+                payload=raw,
+            )
+        )
+    source = seed_generated_selection(runs=runs, now=NOW, tickers=tickers, models=models)
+    draft = generated_draft_for(source).model_copy(
+        update={"targets": source.targets[:1], "comparison_tickers": ("2345",)}
+    )
+    service = OperationService(app, runs_path=runs)
+    if entry == "start":
+        # Same authentic source slice, even when the supplied model itself is malformed.
+        fixed = _generated_selection(draft, runs_path=runs, app_path=app)
+        supplied = OperationPayload(checkpoint="start", artifacts=(fixed.model_dump(mode="json"),))
+
+        def start():
+            return service.start(
+                session_kind="capital-allocation",
+                as_of=NOW.date(),
+                started_at=NOW,
+                payload=supplied,
+            )
+    else:
+
+        def start():
+            return prepare_selected_workspace(
+                draft=draft, db_path=app, runs_path=runs, workspace=ws, now=NOW
+            )
+
+    original = runs.read_bytes()
+    if error:
+        with pytest.raises(ValueError, match=error):
+            start()
+        assert service.active() is None
+        assert not app.exists()  # 未完結果・defer提案を記録できるOperationさえ作らない。
+        assert not (ws / "manifest.yaml").exists()
+    else:
+        op = service.get(start().operation_id)
+        fixed = selection_binding(op.payload)
+        assert op.status == "active"
+        assert fixed.evidence_subjects() == ("1234", "2345")
+        assert {m.subject for m in fixed.inputs.generation.models} == {"1234", "2345"}
+    assert runs.read_bytes() == original
 
 
 @pytest.mark.parametrize(

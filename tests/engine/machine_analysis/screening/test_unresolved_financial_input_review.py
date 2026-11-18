@@ -72,11 +72,15 @@ def test_unresolved_preserves_supported_input_reason_and_all_other_states(
     reason = "stale_price" if stale else "missing_capital_basis"
     assert review["reason"] == reason
     assert f"financial:{reason}" in row["missing"]
+    assert gate.state == "input_unresolved"
+    assert not gate.matched_paths
+    assert "quarter_sales_increase" in gate.missing
+    assert {"growth:" + name for name in gate.missing} == {
+        name for name in row["missing"] if name.startswith("growth:")
+    }
     if expansion:
-        for key in ("positive_quarter_operating_profit", "positive_annual_operating_profit"):
-            assert gate["checks"][key]["state"] == "not_met"
-    assert gate["checks"]["quarter_sales_increase"]["state"] == "unavailable"
-    assert gate["routes"]["operating_recovery"]["state"] == "unresolved"
+        assert "positive_quarter_operating_profit" not in gate.missing
+        assert "positive_annual_operating_profit" not in gate.missing
 
 
 @pytest.mark.parametrize("problem", ["no_support", "unknown_price_reason", "missing_model"])

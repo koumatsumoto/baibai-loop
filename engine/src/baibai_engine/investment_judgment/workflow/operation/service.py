@@ -55,6 +55,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
+from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import RUNS_DB_PATH
@@ -133,15 +134,22 @@ class OperationService:
         if session_kind != expected_kind or ticker != expected_ticker:
             raise OperationConflictError("Operation kind/ticker differs from Research scope")
         # 共有scopeは元の完全headerから解く。入力sliceの共有モデル欠落を見逃さない。
+        subjects = selection.evidence_subjects()
         canonical = read_research_model_inputs(
             selection.inputs.generation.generation_id,
-            targets=selection.evidence_subjects(),
+            targets=subjects,
             path=self._runs_path,
         )
         if canonical is None or encode_json(canonical.model_dump(mode="json")) != encode_json(
             selection.inputs.generation.model_dump(mode="json")
         ):
             raise ValueError("model input slice differs from its canonical generation")
+        # 探索は必要な観測だけを読む。Caseの根拠にする企業だけ全期間の原本を確かめる。
+        for model in canonical.models:
+            if model.model_id != "company_growth" or model.subject not in subjects:
+                continue
+            if CompanyGrowth.model_validate(model.payload).ticker != model.subject:
+                raise ValueError("growth payload belongs to a different subject")
         del canonical
         selection_id = selection.inputs.screening_selection_id
         if selection_id is not None:
@@ -149,7 +157,7 @@ class OperationService:
                 selection_id,
                 path=self._runs_path,
                 known_at=selection.input_known_at,
-                subjects=selection.evidence_subjects(),
+                subjects=subjects,
             )
             if (
                 proven is None

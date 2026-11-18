@@ -187,23 +187,6 @@ def test_no_supported_financial_hypothesis_is_not_a_share_only_gap(problem):
         assert row["technical_state"] == "matched"
 
 
-def test_expansion_share_review_preserves_observed_loss_and_negative_assets():
-    data = case(expansion=True, reason="missing_capital_basis", technical=False)
-    current(data, "balance")["metrics"]["net_assets"]["value"] = -22.0
-    _, gate, _, reviews = observations(data)
-    assert gate["checks"]["positive_net_assets"] == {
-        "state": "not_met",
-        "value": -22.0,
-        "reason": None,
-    }
-    assert gate["checks"]["quarter_operating_profit_increase"]["value"] == -10.0
-    assert gate["checks"]["quarter_operating_profit_increase"]["state"] == "not_met"
-    assert gate["routes"]["operating_recovery"]["state"] == "not_matched"
-    assert "positive_net_assets" in gate["routes"]["operating_recovery"]["failures"]
-    assert [item["path_id"] for item in reviews] == ["business_expansion"]
-    assert project_unchanged(data)["screening_lane"] == "input_review"
-
-
 def test_known_technical_nonmatch_does_not_hide_share_review():
     from tests.helpers.technical_financial import _no_match
 
