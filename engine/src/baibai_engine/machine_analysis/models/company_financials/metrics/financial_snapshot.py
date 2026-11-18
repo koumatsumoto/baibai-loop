@@ -15,7 +15,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.capital im
     _shares_excluding_treasury,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
-    _resolve_dividend_carry,
+    _reported_dividend,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     FinancialSnapshot,
@@ -67,7 +67,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v57-reported-profit"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v58-issuer-period-dividends"
 
 
 def _reported_source(
@@ -152,12 +152,8 @@ def build_financial_snapshot(
     bs_carry_forward_lag_days = max(
         (lag for lag in carried_lags.values() if lag is not None), default=None
     )
-    # 配当側で原本実績の比較可能性を判断する。資本の換算値を DPS へ流用しない。
-    # 独立して使える現行予想を優先し、受理した実績または未解決を snapshot へ渡す。
-    dividend = _resolve_dividend_carry(summaries, adjustment_events, latest_price, asof_date)
-    dps_actual_annual = dividend.dps_actual_annual
-    dps_forecast_annual = dividend.dps_forecast_annual
-    dividend_yield = dividend.dividend_yield
+    reported_dividend = _reported_dividend(summaries, adjustment_events, asof_date)
+    dividend_forecast = latest_forecast_source(summaries, dividend=True)
     per_forward = (
         latest_price / forecast_eps
         if latest_price is not None and forecast_eps is not None and forecast_eps > 0
@@ -350,20 +346,17 @@ def build_financial_snapshot(
         forecast_profit_yen=forecast_profit,
         forecast_ordinary_profit_yen=forecast_ordinary_profit,
         earnings_forecast_source=forecast_source_trace(forecast),
-        dividend_forecast_source=forecast_source_trace(
-            latest_forecast_source(summaries, dividend=True), dividend=True
-        ),
+        dividend_forecast_source=forecast_source_trace(dividend_forecast, dividend=True),
         per_trailing=per_trailing,
         pbr=pbr,
         ev_ebitda=ev_ebitda,
         p_s=_safe_ratio(latest_market_cap, sales_ttm),
         pcfr=_safe_ratio(latest_market_cap, ocf_ttm if ocf_ttm and ocf_ttm > 0 else None),
-        dps_actual_annual=dps_actual_annual,
-        dividend_actual_source=dividend.actual_source,
-        dps_forecast_annual=dps_forecast_annual,
-        dividend_yield=dividend_yield,
-        dividend_basis=dividend.basis,
-        dividend_split_factor=dividend.split_factor,
+        dps_actual_annual=reported_dividend.amount,
+        dividend_actual_source=reported_dividend.source,
+        dividend_actual_basis=reported_dividend.basis,
+        dividend_split_factor=reported_dividend.split_factor,
+        dps_forecast_annual=dividend_forecast.dps_forecast_annual if dividend_forecast else None,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
         ocf_ttm_period=_ttm_period(summaries, "cfo", ttm_rules),

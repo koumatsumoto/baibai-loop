@@ -441,7 +441,9 @@ def test_actual_dividend_source_survives_generation_and_l3_without_claiming_fore
     assert_unclassified_financial_facts(financial, models[0].payload["financial"])
     assert financial["dps_actual_annual"] == 0.0
     assert financial["dps_forecast_annual"] is None
-    assert financial["dividend_basis"] == "actual_reported"
+    assert financial["dividend_actual_basis"] == "actual_reported"
+    assert "dividend_yield" not in financial
+    assert "dividend_basis" not in financial
     assert financial["dividend_actual_source"]["period_end"] == "2026-03-31"
     assert financial["dividend_actual_source"]["documents"][0]["disclosure_number"] == (
         "synthetic-annual"
@@ -559,7 +561,6 @@ def test_missing_or_invalid_price_keeps_financial_observations_and_only_nulls_pr
         "ev_ebitda",
         "p_s",
         "pcfr",
-        "dividend_yield",
         "fcf_yield",
         "net_cash_to_market_cap",
     ):
