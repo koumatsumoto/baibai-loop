@@ -111,11 +111,13 @@ def _reported_dividend(
     row = rows[0]
     source = _actual_dps_source(rows)
     amount = row.dps_actual_annual
-    if "dps_actual_annual" in row.unresolved_actual_fields or (
-        amount != 0 and period_days(row) is None
+    if (
+        "dps_actual_annual" in row.unresolved_actual_fields
+        or amount is None
+        or amount < 0
+        or (amount != 0 and period_days(row) is None)
     ):
         return _ReportedDividend(None, UNRESOLVED_ACTUAL_DIVIDEND_BASIS, None, source)
-    assert amount is not None
     start = row.period_start
     if start is not None and _dividend_basis_requires_resolution(
         ticker_bars, accrual_start=start, basis_date=asof_date
@@ -126,9 +128,4 @@ def _reported_dividend(
             return _ReportedDividend(None, UNRESOLVED_DIVIDEND_BASIS, factor, source)
     else:
         factor = None
-    return _ReportedDividend(
-        amount,
-        "actual_reported" if amount >= 0 else UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
-        factor,
-        source,
-    )
+    return _ReportedDividend(amount, "actual_reported", factor, source)

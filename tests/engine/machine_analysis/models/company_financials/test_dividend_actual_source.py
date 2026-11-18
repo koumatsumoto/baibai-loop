@@ -158,9 +158,12 @@ def test_guidance_is_independent_of_previous_dividend_and_its_basis(dps):
 
 
 def test_negative_source_amount_is_not_verified_cash_or_a_substitute_for_guidance():
-    result = snapshot(annual(dps=-1.0), current())
-    assert result.dps_actual_annual == -1.0
+    source = annual(dps=-1.0)
+    result = snapshot(source, current())
+    assert source.dps_actual_annual == -1.0
+    assert result.dps_actual_annual is None
     assert result.dividend_actual_basis == "unresolved_actual_dividend"
+    assert result.dividend_actual_source["documents"][0]["disclosure_number"] == "synthetic-2025"
     assert result.dps_forecast_annual is None
 
 
