@@ -6,6 +6,7 @@ from contextlib import closing
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from hashlib import sha256
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -27,6 +28,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
     selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.workspace import resume_selected_workspace
+from baibai_engine.machine_analysis.models.company_growth import calculations
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_changes,
     build_period_states,
@@ -199,7 +201,15 @@ def test_cumulative_difference_and_reported_eps_never_share_arithmetic():
 def test_later_q1_correction_only_blocks_a_known_changed_cumulative_pair(corrected, expected):
     records = [document(2024, 1, 100), document(2024, 2, 230)]
     records.append(document(2024, 1, corrected, DiscDate="2025-02-01", DiscNo="correction"))
-    result = states(records)
+    with patch.object(calculations, "_select", wraps=calculations._select) as select:
+        result = states(records)
+    sales_cohorts = [
+        [row.disclosure_number for row in call.args[0]]
+        for call in select.call_args_list
+        if call.args[1] == "sales"
+    ]
+    assert sales_cohorts.count([records[0]["DiscNo"], "correction"]) == 1
+    assert [records[0]["DiscNo"]] in sales_cohorts  # What was known at the H1 disclosure.
     value = amount(result[1], "quarter", "sales")
     assert value.value == expected
     if expected is None:
@@ -977,39 +987,40 @@ def test_ttm_tied_prior_ends_do_not_resolve_conflicting_actual_starts():
     ("measurement", "quarter"), [("quarter", 2), ("quarter", 4), ("annual_ttm", 1)]
 )
 def test_all_tied_identities_keep_their_cumulative_revision_history(measurement, quarter):
-    from itertools import permutations
+    from itertools import product
 
     prior_quarter = quarter - 1 if measurement == "quarter" else quarter
-    records = [
+    a = [
         document(2024, prior_quarter, 100, 10, DiscNo="a-old"),
+        document(2024, prior_quarter, 100, 10, DiscNo="a-unchanged", DiscDate="2025-07-01"),
+    ]
+    b = [
         document(2024, prior_quarter, 90, 10, CurPerType="2Q", DiscNo="b-old"),
+        document(
+            2024,
+            prior_quarter,
+            100,
+            10,
+            CurPerType="2Q",
+            DiscNo="b-correction",
+            DiscDate="2025-06-01",
+        ),
     ]
     counterpart = document(2024, quarter if measurement == "quarter" else 4, 230, 25)
-    records.append(counterpart)
-    records.extend(
-        [
-            document(
-                2024,
-                prior_quarter,
-                100,
-                10,
-                CurPerType="2Q",
-                DiscNo="b-correction",
-                DiscDate="2025-06-01",
-            ),
-            document(2024, prior_quarter, 100, 10, DiscNo="a-unchanged", DiscDate="2025-07-01"),
-        ]
-    )
+    other = [counterpart]
     if measurement == "annual_ttm":
-        records.append(document(2025, quarter, 120, 12))
-    for ordered in permutations(records):
-        result = states(ordered)
-        value = amount(result[-1], measurement, "sales")
-        assert value.value is None
-        assert value.reason == "inconsistent_cumulative_revision"
-        assert amount(result[-1], measurement, "operating_profit").value == (
-            27 if measurement == "annual_ttm" else 15
-        )
+        other.append(document(2025, quarter, 120, 12))
+    # Both orders of the tied identities and both receipt orders within each.
+    for a_rows, b_rows in product((a, a[::-1]), (b, b[::-1])):
+        for first, last in ((a_rows, b_rows), (b_rows, a_rows)):
+            result = states([*first, *other, *last])
+            value = amount(result[-1], measurement, "sales")
+            assert value.value is None
+            assert value.reason == "inconsistent_cumulative_revision"
+            assert amount(result[-1], measurement, "operating_profit").value == (
+                27 if measurement == "annual_ttm" else 15
+            )
+    records = [*a, *b, *other]
     # A later disclosure of the containing cumulative resolves the known change.
     records.append({**counterpart, "DiscDate": "2025-07-02", "DiscNo": "counterpart-corrected"})
     value = amount(states(records)[-1], measurement, "sales")
