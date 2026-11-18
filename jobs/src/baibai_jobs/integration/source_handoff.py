@@ -556,7 +556,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-class _ReplayContext(TypedDict, total=False):
+class ReplayContext(TypedDict, total=False):
     master_input: InputSnapshot
     calendar_input: InputSnapshot
     master_fingerprints: Mapping[str, str]
@@ -579,10 +579,10 @@ def _replay_context(
     margin_alerts_fingerprints: Mapping[str, str] | None = None,
     short_sale_reports_fingerprints: Mapping[str, str] | None = None,
     margin_interest_fingerprints: Mapping[str, str] | None = None,
-) -> _ReplayContext:
+) -> ReplayContext:
     """Prefer saved native inputs; latest heads are only for legacy replay migration."""
 
-    context: _ReplayContext = {}
+    context: ReplayContext = {}
     if source == "jquants-market" and price_fingerprints is None:
         from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
 

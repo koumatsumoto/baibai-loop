@@ -61,7 +61,7 @@ from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
-from baibai_jobs.integration.source_handoff import _JPX_COLLECTION, _replay
+from baibai_jobs.integration.source_handoff import _JPX_COLLECTION, ReplayContext, _replay
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.jpx_verification import (
     capture_publication as capture_jpx_publication,
@@ -96,6 +96,10 @@ def fix_edinet_input(store: ObjectStore, directory: Path) -> InputSnapshot:
     return retain_edinet_input(store, lists, archives, selected_at=datetime.now(UTC))
 
 
+def _fingerprints(head: dict[str, Any]) -> dict[str, str]:
+    return {identity: receipt["fingerprint"] for identity, receipt in head["receipts"].items()}
+
+
 def apply(
     store: Boto3R2Store,
     directory: Path,
@@ -119,84 +123,62 @@ def apply(
     if plan.get("edinet_input") is None:
         raise ValueError("fixed EDINET input is absent; create a new integration plan")
     edinet_input = read_edinet_input(store, InputSnapshot.model_validate(plan["edinet_input"]))
-    margin_alerts_fingerprints = None
-    if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
+    # Article and JPX replay consume neither a J-Quants head nor a full-history
+    # selection. The later model/publication step fixes its own source inputs.
+    replay_sources = {
+        entry["source"]
+        for entry in plan["handoffs"]
+        if not (entry.get("invalid") or entry.get("late_before_integrated"))
+    }
+    needs_jquants = "jquants-market" in replay_sources
+    needs_tradingview = "tradingview" in replay_sources
+    context: ReplayContext = {}
+    if needs_jquants:
         from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
             MarginAlertsL1,
         )
-
-        margin_alerts_fingerprints = {
-            identity: receipt["fingerprint"]
-            for identity, receipt in MarginAlertsL1(store, directory / "margin-alerts-native")
-            .fixed()
-            .value()["receipts"]
-            .items()
-        }
-    short_sale_reports_fingerprints = None
-    if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
+        from baibai_engine.data_collection.providers.jquants.margin_interest_native import (
+            MarginInterestL1,
+        )
         from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
             ShortSaleReportsL1,
         )
 
-        short_sale_reports_fingerprints = {
-            identity: receipt["fingerprint"]
-            for identity, receipt in ShortSaleReportsL1(
-                store, directory / "short-sale-reports-native"
-            )
-            .fixed()
-            .value()["receipts"]
-            .items()
-        }
-    margin_interest_fingerprints = None
-    if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
-        from baibai_engine.data_collection.providers.jquants.margin_interest_native import (
-            MarginInterestL1,
+        context["margin_alerts_fingerprints"] = _fingerprints(
+            MarginAlertsL1(store, directory / "margin-alerts-native").fixed().value()
         )
+        context["short_sale_reports_fingerprints"] = _fingerprints(
+            ShortSaleReportsL1(store, directory / "short-sale-reports-native").fixed().value()
+        )
+        context["margin_interest_fingerprints"] = _fingerprints(
+            MarginInterestL1(store, directory / "margin-interest-native").fixed().value()
+        )
+    if needs_jquants or needs_tradingview:
+        from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+        from baibai_jobs.integration.calendar_native import fixed_input as fixed_calendar_input
 
-        margin_interest_fingerprints = {
-            identity: receipt["fingerprint"]
-            for identity, receipt in MarginInterestL1(store, directory / "margin-interest-native")
-            .fixed()
-            .value()["receipts"]
-            .items()
-        }
-    from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
-    from baibai_jobs.integration.calendar_native import fixed_input as calendar_fixed_input
-
-    fixed_calendar = CalendarL1(store, directory / "calendar-native").fixed()
-    calendar_fingerprints = {
-        identity: receipt["fingerprint"]
-        for identity, receipt in fixed_calendar.value()["receipts"].items()
-    }
-    # Replay materializes its own required dates; full history is built before model publication.
-    calendar_input = calendar_fixed_input(
-        store, fixed_calendar, as_of=asof, evaluated_at=datetime.now(UTC)
-    )
-    price_fingerprints = None
-    if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
+        fixed_calendar = CalendarL1(store, directory / "calendar-native").fixed()
+        context["calendar_fingerprints"] = _fingerprints(fixed_calendar.value())
+        if needs_tradingview:
+            context["calendar_input"] = fixed_calendar_input(
+                store, fixed_calendar, as_of=asof, evaluated_at=datetime.now(UTC)
+            )
+    if needs_jquants:
         from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
 
-        price_fingerprints = {
-            identity: receipt["fingerprint"]
-            for identity, receipt in PriceL1(store, directory / "price-native")
-            .fixed()
-            .value()["receipts"]
-            .items()
-        }
-    from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
-    from baibai_jobs.integration.master_native import fixed_input
+        context["price_fingerprints"] = _fingerprints(
+            PriceL1(store, directory / "price-native").fixed().value()
+        )
+    if needs_jquants or needs_tradingview:
+        from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+        from baibai_jobs.integration.master_native import fixed_input as fixed_master_input
 
-    fixed_master = MasterL1(store, directory / "master-native").fixed()
-    master_fingerprints = {
-        identity: receipt["fingerprint"]
-        for identity, receipt in fixed_master.value()["receipts"].items()
-    }
-    master_input = fixed_input(
-        store,
-        fixed_master,
-        as_of=asof,
-        evaluated_at=datetime.now(UTC),
-    )
+        fixed_master = MasterL1(store, directory / "master-native").fixed()
+        context["master_fingerprints"] = _fingerprints(fixed_master.value())
+        if needs_tradingview:
+            context["master_input"] = fixed_master_input(
+                store, fixed_master, as_of=asof, evaluated_at=datetime.now(UTC)
+            )
     # Only this owner's canonical corruption is global and fatal.
     with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_market_schema(conn)
@@ -220,7 +202,7 @@ def apply(
         else:
             try:
                 download_fixed(store, entry, packet)
-                if calendar_fingerprints is not None:
+                if (calendar_fingerprints := context.get("calendar_fingerprints")) is not None:
                     from baibai_jobs.acquisition.calendar_dependencies import (
                         verify_stage_calendar_dependencies,
                     )
@@ -249,14 +231,7 @@ def apply(
                     market,
                     packet,
                     store=store,
-                    master_input=master_input,
-                    master_fingerprints=master_fingerprints,
-                    calendar_input=calendar_input,
-                    calendar_fingerprints=calendar_fingerprints,
-                    price_fingerprints=price_fingerprints,
-                    margin_alerts_fingerprints=margin_alerts_fingerprints,
-                    short_sale_reports_fingerprints=short_sale_reports_fingerprints,
-                    margin_interest_fingerprints=margin_interest_fingerprints,
+                    **context,
                 )
                 result = replay.report
                 failed = recovery = not replay.complete
