@@ -183,7 +183,9 @@ def publish_input(
         stage_id = f"{group}-{identity}"
         write_json_atomic(directory / "result.json", report)
         key = input_key(group)
-        prior = read_private(store, key)
+        # The lease guards PUTs; reads can use metadata from the underlying GET.
+        reader = store.store if isinstance(store, GuardedInputStore) else store
+        prior = read_private(reader, key)
         reusable = None
         current_stage = None
         if prior is not None:
@@ -192,7 +194,7 @@ def publish_input(
                 old_stage = old_pointer.get("stage_id") if isinstance(old_pointer, dict) else None
                 if isinstance(old_stage, str) and old_stage.startswith(group + "-"):
                     old_prefix = stage_prefix(old_stage, namespace="source-inputs")
-                    old_handoff = read_private(store, old_prefix + "/handoff.json")
+                    old_handoff = read_private(reader, old_prefix + "/handoff.json")
                     if old_handoff is not None:
                         candidate = json.loads(old_handoff.payload)
                         result = candidate.get("result") if isinstance(candidate, dict) else None

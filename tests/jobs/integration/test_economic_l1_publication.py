@@ -15,7 +15,7 @@ from baibai_engine.data_collection.receipts.native_sources.store import initiali
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs
-from baibai_jobs.acquisition.source_inputs import load_input
+from baibai_jobs.acquisition.source_inputs import input_key, load_input
 from baibai_jobs.integration.economic_sources import integrate
 from baibai_jobs.publication.lease import _save_handle, acquire, release
 
@@ -223,6 +223,32 @@ def test_backup_is_exact_fresh_base_and_no_stage_does_not_republish(tmp_path, se
     assert result["inputs_updated"] == []
     assert result["inputs_reused"] == ["economic-" + group for group in acquisition_groups()]
     assert store.get_bytes("indicators.sqlite.bak") == old
+
+
+def test_changed_planning_pointer_after_checked_get_stops_before_any_new_put(
+    tmp_path, setup, monkeypatch
+):
+    store, lease, _ = setup
+    run(tmp_path, setup)
+    first = input_key("economic-" + acquisition_groups()[0])
+    before = list(store.put_keys)
+
+    def checked(key, *, max_bytes):
+        result = store.get_bytes_with_metadata(key)
+        if key == first:
+            store.store_object(key, b'{"stage_id":"replaced"}')
+        return result
+
+    monkeypatch.setattr(store, "get_checked_object", checked, raising=False)
+    with pytest.raises(LakePublishError, match="private JSON object changed"):
+        integrate(
+            store,
+            tmp_path / "next",
+            database=tmp_path / "next.sqlite",
+            asof=DAY + timedelta(days=1),
+            lease_handle=lease,
+        )
+    assert store.put_keys == before
 
 
 @pytest.mark.parametrize("guard", [3, 4], ids=["before-publication", "before-source-state"])
