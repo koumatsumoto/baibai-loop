@@ -249,6 +249,9 @@ def model_input(
         summary["raw_coverage_status"] = "partial" if ranges else "complete"
         summary["coverage_status"] = "partial" if required_unresolved else "complete"
         selected["summary"] = summary
+        if matching_days:
+            connection.execute("CREATE TEMP TABLE matching_price_days(day TEXT PRIMARY KEY)")
+            connection.executemany("INSERT INTO matching_price_days VALUES(?)", matching_days)
         descriptor = retain_price_input(store, selected)
         digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
         identity = InputSnapshot(
@@ -258,8 +261,6 @@ def model_input(
             descriptor=descriptor,
         )
         if matching_days:
-            connection.execute("CREATE TEMP TABLE matching_price_days(day TEXT PRIMARY KEY)")
-            connection.executemany("INSERT INTO matching_price_days VALUES(?)", matching_days)
             # Keep obsolete dates inside SQLite: even an invalid UTF-8 date in the
             # old projection must be removed. Use the existing date index for deletion.
             connection.execute(
