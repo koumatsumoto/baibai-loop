@@ -5,17 +5,18 @@ from __future__ import annotations
 import json
 from collections import Counter
 from copy import deepcopy
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import JsonValue, TypeAdapter
 
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelection,
-    GeneratedResearchSelectionV4,
+    GeneratedResearchSelectionV5,
+    GeneratedSelection,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     ResearchSelectionRecord as ResearchSelection,
 )
+from baibai_engine.machine_analysis.screening.discovery_contract import DiscoverySelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     RESEARCH_LANES,
     ResearchLane,
@@ -33,14 +34,29 @@ SCREENING_EXCLUSION_SCOPES: tuple[ScreeningExclusionScope, ...] = (
 def saved_discovery_context(
     selection: ResearchSelection, *, selection_hash: str
 ) -> dict[str, JsonValue] | None:
-    if not isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
+    if not isinstance(selection, GeneratedSelection):
         return None
     saved = selection.inputs.screening_selection
-    if saved is None or not isinstance(saved.result, TechnicalFinancialSelection):
+    if saved is None or not isinstance(
+        saved.result, (TechnicalFinancialSelection, DiscoverySelection)
+    ):
         return None
     result = saved.result
-    rows = {row.ticker: row for row in result.rows}
-    codec = TypeAdapter(TechnicalFinancialRow)
+    used = set(selection.evidence_subjects())
+    policies: dict[str, JsonValue] = {}
+    if isinstance(result, DiscoverySelection):
+        rows = {
+            r["ticker"]: cast(JsonValue, deepcopy(r)) for r in result.rows if r["ticker"] in used
+        }
+    else:
+        codec = TypeAdapter(TechnicalFinancialRow)
+        rows = {
+            r.ticker: codec.dump_python(r, mode="json") for r in result.rows if r.ticker in used
+        }
+        policies = {
+            "technical_policy_id": result.technical_policy_id,
+            "financial_policy_id": result.financial_policy_id,
+        }
     # 選定時の支持・不利・欠測を照合する。全社展開や現在政策での再判定はしない。
     return {
         "role": "selection_time_discovery_evidence_not_final_judgment",
@@ -54,17 +70,24 @@ def saved_discovery_context(
         "research_as_of": selection.research_as_of.isoformat(),
         "input_known_at": selection.input_known_at.isoformat(),
         "policy": result.policy.model_dump(mode="json"),
-        "technical_policy_id": result.technical_policy_id,
-        "financial_policy_id": result.financial_policy_id,
-        "rows": [
-            codec.dump_python(rows[target.ticker], mode="json")
-            for target in selection.targets
-            if target.ticker in rows
-        ],
+        **policies,
+        "rows": [rows[target.ticker] for target in selection.targets if target.ticker in rows],
         "not_in_saved_rows": [
             target.ticker for target in selection.targets if target.ticker not in rows
         ],
-        "full_result_ref": "/inputs/screening_selection/result",
+        **(
+            {
+                "source_sha256": selection.inputs.screening_selection.source_sha256,
+                "detail_scope": "finite_case_not_full_screening_publication",
+                "comparison_rows": [rows[t] for t in selection.comparison_tickers if t in rows],
+                "comparisons_not_in_saved_rows": [
+                    t for t in selection.comparison_tickers if t not in rows
+                ],
+            }
+            if isinstance(selection, GeneratedResearchSelectionV5)
+            and selection.inputs.screening_selection is not None
+            else {"full_result_ref": "/inputs/screening_selection/result"}
+        ),
     }
 
 

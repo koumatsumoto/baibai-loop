@@ -21,6 +21,10 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     has_published_proposal_for_operation,
     load_investment_proposal,
 )
+from baibai_engine.investment_judgment.workflow.case_screening import (
+    read_case_screening,
+    same_case_screening,
+)
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationHeader,
     OperationPayload,
@@ -44,14 +48,13 @@ from baibai_engine.investment_judgment.workflow.operation.validation import (
     validate_selection,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelectionV4,
+    GeneratedResearchSelectionV5,
     ResearchSelectionRecord,
     SelectedTarget,
     selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-from baibai_engine.machine_analysis.screening.selection_query import matches_validated_publication
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import RUNS_DB_PATH
@@ -109,9 +112,9 @@ class OperationService:
             raise OperationConflictError(
                 "start with `investment-judgment prepare`; one research_selection is required"
             )
-        if not isinstance(selection, GeneratedResearchSelectionV4):
+        if not isinstance(selection, GeneratedResearchSelectionV5):
             raise OperationConflictError(
-                "new Research requires Selection V4; legacy selections are resume-only"
+                "new Research requires Selection V5; legacy selections are resume-only"
             )
         if selection.capacity != CURRENT_RESEARCH_CAPACITY:
             raise OperationConflictError("new Research requires the current capacity policy")
@@ -132,7 +135,7 @@ class OperationService:
         # 共有scopeは元の完全headerから解く。入力sliceの共有モデル欠落を見逃さない。
         canonical = read_research_model_inputs(
             selection.inputs.generation.generation_id,
-            targets=tuple(target.ticker for target in selection.targets),
+            targets=selection.evidence_subjects(),
             path=self._runs_path,
         )
         if canonical is None or encode_json(canonical.model_dump(mode="json")) != encode_json(
@@ -141,17 +144,20 @@ class OperationService:
             raise ValueError("model input slice differs from its canonical generation")
         del canonical
         selection_id = selection.inputs.screening_selection_id
-        if selection_id is not None and (
-            selection.inputs.screening_selection is None
-            or not matches_validated_publication(
+        if selection_id is not None:
+            proven = read_case_screening(
+                selection_id,
                 path=self._runs_path,
-                selection_id=selection_id,
                 known_at=selection.input_known_at,
-                published_at=selection.inputs.screening_published_at,
-                selection=selection.inputs.screening_selection,
+                subjects=selection.evidence_subjects(),
             )
-        ):
-            raise OperationConflictError("screening selection differs from chosen generation")
+            if (
+                proven is None
+                or proven[0] != selection.inputs.screening_published_at
+                or selection.inputs.screening_selection is None
+                or not same_case_screening(selection.inputs.screening_selection, proven[1])
+            ):
+                raise OperationConflictError("screening selection differs from chosen generation")
         if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
             raise OperationConflictError(
                 "current ticker must be a four-character alphanumeric code"

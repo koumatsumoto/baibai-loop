@@ -85,7 +85,9 @@ def test_recorded_notice_to_fixed_research_and_runless_resume_without_old_backfi
         selected.result.lane_tickers("growth_research").index("1234")
         // selected.result.policy.page_size
     )
-    first = load_generated_selection_context(**arguments, screening_page=target_page)
+    first = load_generated_selection_context(
+        **arguments, screening_lane="growth_research", screening_page=target_page
+    )
     assert first["model_inputs"]["securities"] == {}
     card = next(card for card in first["screening"]["cards"] if card["ticker"] == "1234")
     assert ("accounting_change_context" in card["financial_paths"]) is not legacy
@@ -122,7 +124,6 @@ def test_recorded_notice_to_fixed_research_and_runless_resume_without_old_backfi
         draft=draft, db_path=app, workspace=tmp_path / "workspace", runs_path=path, now=now
     )
     saved = selection_binding(OperationService(app).get(prepared.operation_id).payload)
-    assert saved.inputs.screening_selection == selected
     projection = project_research_inputs(saved)
     assert (
         projection["screening_selection"]["result"]["comparison_rows"][0]["financial_paths"]

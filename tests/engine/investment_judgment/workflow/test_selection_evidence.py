@@ -28,7 +28,6 @@ from baibai_engine.investment_judgment.trade_proposal.service import TradePropos
 from baibai_engine.investment_judgment.workflow.operation import service as operation_service
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelection,
     parse_selection,
     selection_sha256,
 )
@@ -118,20 +117,29 @@ def evidence_case(tmp_path, monkeypatch, *, generation_version=1, selection_vers
             ),
         )
         selection = seed_generated_selection(**kwargs)
-        if selection_version == 3:
-            raw = selection.model_dump(mode="json")
-            raw["schema_version"] = 3
-            del raw["inputs"]["saved_company_context"]
-            return GeneratedResearchSelection.model_validate(raw)
-        return selection
+        from tests.helpers.generated_selection import legacy_selection_payload
+
+        from baibai_engine.investment_judgment.workflow.selection import parse_selection
+
+        return parse_selection(
+            legacy_selection_payload(selection, kwargs["runs"], version=selection_version)
+        )
 
     monkeypatch.setattr(proposal_helpers, "seed_generated_selection", seed)
-    # 旧V3の開始だけをfixture化し、署名を作る前に通常gateへ戻す。
-    with monkeypatch.context() as historical_start:
-        if selection_version == 3:
-            historical_start.setattr(
-                operation_service, "GeneratedResearchSelectionV4", GeneratedResearchSelection
-            )
+    from tests.helpers.db_seed import seed_historical_operation
+    from tests.helpers.research_selection import historical_operation
+
+    from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
+
+    def install_historical_operation(service, *, payload, started_at, **_):
+        record = historical_operation(selection_binding(payload)).model_copy(
+            update={"payload": payload, "started_at": started_at}
+        )
+        seed_historical_operation(service._db_path, record)
+        return record
+
+    with monkeypatch.context() as history:
+        history.setattr(operation_service.OperationService, "start", install_historical_operation)
         case = backend_case(tmp_path)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     original = service.publish(reviewed_proposal(case))

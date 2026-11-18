@@ -55,7 +55,9 @@ def test_forecast_card_detail_and_detached_research_keep_same_recorded_source(tm
         selected.result.lane_tickers("growth_research").index("1234")
         // selected.result.policy.page_size
     )
-    first = load_generated_selection_context(**arguments, screening_page=target_page)
+    first = load_generated_selection_context(
+        **arguments, screening_lane="growth_research", screening_page=target_page
+    )
     assert first["model_inputs"]["securities"] == {}
     card = next(card for card in first["screening"]["cards"] if card["ticker"] == "1234")
     assert card["financial_gate"]["forecast_context"] == FORECAST
@@ -100,7 +102,6 @@ def test_forecast_card_detail_and_detached_research_keep_same_recorded_source(tm
     saved_row = projection["screening_selection"]["result"]["comparison_rows"][0]
     assert saved_row["financial_gate"]["forecast_context"] == FORECAST
     assert saved_row["technical"]["observations"]["momentum_12_1"] == momentum
-    assert saved.inputs.screening_selection == selected
     path.unlink()
     resumed = resume_selected_workspace(
         operation_id=prepared.operation_id,
@@ -158,7 +159,7 @@ def test_legacy_saved_card_is_not_backfilled_from_available_forecast_model(tmp_p
         runs_path=path,
         db_path=tmp_path / "app",
     )
-    first = load_generated_selection_context(**arguments)
+    first = load_generated_selection_context(**arguments, screening_lane="growth_research")
     assert first["model_inputs"]["securities"] == {}
     assert all(
         "forecast_context" not in card["financial_gate"] for card in first["screening"]["cards"]

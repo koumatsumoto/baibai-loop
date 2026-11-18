@@ -10,8 +10,7 @@ from math import isfinite
 from pydantic import JsonValue, ValidationError
 
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelection,
-    GeneratedResearchSelectionV4,
+    GeneratedSelection,
     ResearchSelectionRecord,
 )
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
@@ -147,7 +146,7 @@ def saved_profit_context(
     selection: ResearchSelectionRecord, *, selection_hash: str
 ) -> dict[str, JsonValue] | None:
     """選定時のCFとGrowthの同期間観測を並べ、同数値を独立確認にしない。"""
-    if not isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
+    if not isinstance(selection, GeneratedSelection):
         return None
     saved = selection.inputs.generation
     models = {

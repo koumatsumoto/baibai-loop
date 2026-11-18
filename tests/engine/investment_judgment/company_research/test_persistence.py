@@ -38,7 +38,7 @@ from baibai_engine.investment_judgment.workflow.operation.models import Operatio
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelectionV4,
+    GeneratedResearchSelectionV5,
     parse_selection,
     selection_sha256,
 )
@@ -383,7 +383,7 @@ def test_selection_v4_freezes_only_selected_context_and_resume_never_reads_lates
     )
     operation = OperationService(path).get(prepared.operation_id)
     saved = selection_binding(operation.payload)
-    assert isinstance(saved, GeneratedResearchSelectionV4)
+    assert isinstance(saved, GeneratedResearchSelectionV5)
     assert set(saved.inputs.saved_company_context) == {"1234"}
     assert saved.inputs.saved_company_context["1234"].research.record == r1
     before = (tmp_path / "workspace/domain-inputs.yaml").read_bytes()

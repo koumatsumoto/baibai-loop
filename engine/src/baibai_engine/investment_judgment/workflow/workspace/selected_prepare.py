@@ -12,6 +12,7 @@ from typing import Literal, cast
 from baibai_engine.investment_judgment.company_research.query import read_company_contexts
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
+from baibai_engine.investment_judgment.workflow.case_screening import read_case_screening
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationPayload,
@@ -21,10 +22,10 @@ from baibai_engine.investment_judgment.workflow.operation.progress import select
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.operation.validation import validate_target_purposes
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchInputsV4,
-    GeneratedResearchSelection,
+    GeneratedResearchInputsV5,
     GeneratedResearchSelectionDraft,
-    GeneratedResearchSelectionV4,
+    GeneratedResearchSelectionV5,
+    GeneratedSelection,
     ResearchScope,
     ResearchSelectionRecord,
     ResearchTarget,
@@ -46,7 +47,6 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
     _write_workspace_file,
 )
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
@@ -68,7 +68,7 @@ def _same_draft(
     draft: GeneratedResearchSelectionDraft,
 ) -> bool:
     return (
-        isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4))
+        isinstance(selection, GeneratedSelection)
         and selection.request == draft.request
         and selection.research_as_of == draft.research_as_of
         and selection.input_known_at == draft.input_known_at
@@ -76,33 +76,44 @@ def _same_draft(
         and selection.selection_summary == draft.selection_summary
         and selection.inputs.generation.generation_id == draft.generation_id
         and selection.inputs.screening_selection_id == draft.screening_selection_id
+        and (
+            selection.comparison_tickers
+            if isinstance(selection, GeneratedResearchSelectionV5)
+            else ()
+        )
+        == draft.comparison_tickers
     )
 
 
 def _generated_selection(
     draft: GeneratedResearchSelectionDraft, *, runs_path: Path, app_path: Path
-) -> GeneratedResearchSelectionV4:
+) -> GeneratedResearchSelectionV5:
     if draft.request.scope == "discover_new" and draft.screening_selection_id is None:
         raise ValueError("discovery requires an explicit saved screening selection")
+    subjects = (*[t.ticker for t in draft.targets], *draft.comparison_tickers)
     publication = None
     if draft.screening_selection_id is not None:
-        publication = read_publication(path=runs_path, selection_id=draft.screening_selection_id)
-        if publication is None or publication.generation.generation_id != draft.generation_id:
+        publication = read_case_screening(
+            draft.screening_selection_id,
+            path=runs_path,
+            known_at=draft.input_known_at,
+            subjects=subjects,
+        )
+        if publication is None or publication[1].generation_id != draft.generation_id:
             raise ValueError("screening selection differs from the chosen generation")
-    models = read_research_model_inputs(
-        draft.generation_id, targets=tuple(t.ticker for t in draft.targets), path=runs_path
-    )
+    models = read_research_model_inputs(draft.generation_id, targets=subjects, path=runs_path)
     if models is None:
         raise ValueError("chosen model generation is unavailable")
     context = latest_assessment(app_path, as_of=draft.research_as_of, known_at=draft.input_known_at)
-    return GeneratedResearchSelectionV4(
+    return GeneratedResearchSelectionV5(
+        comparison_tickers=draft.comparison_tickers,
         request=draft.request,
         research_as_of=draft.research_as_of,
         input_known_at=draft.input_known_at,
         selection_summary=draft.selection_summary,
         targets=draft.targets,
         capacity=CURRENT_RESEARCH_CAPACITY,
-        inputs=GeneratedResearchInputsV4(
+        inputs=GeneratedResearchInputsV5(
             saved_company_context=read_company_contexts(
                 app_path,
                 tickers=tuple(t.ticker for t in draft.targets),
@@ -111,8 +122,8 @@ def _generated_selection(
             ),
             generation=models,
             screening_selection_id=draft.screening_selection_id,
-            screening_selection=None if publication is None else publication.selection,
-            screening_published_at=None if publication is None else publication.published_at,
+            screening_selection=None if publication is None else publication[1],
+            screening_published_at=None if publication is None else publication[0],
             saved_market_context_assessment=None
             if context is None
             else assessment_projection(context, as_of=draft.research_as_of),
@@ -276,7 +287,7 @@ def _materialize(
     }
     has_growth = (
         any(model.model_id == "company_growth" for model in selection.inputs.generation.models)
-        if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4))
+        if isinstance(selection, GeneratedSelection)
         else any("company_growth" in row for row in selection.inputs.securities_context.values())
     )
     if has_growth:

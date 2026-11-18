@@ -26,9 +26,9 @@ from baibai_engine.investment_judgment.company_research.context import CompanyCo
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchInputsV4,
+    GeneratedResearchInputsV5,
     GeneratedResearchSelectionDraft,
-    GeneratedResearchSelectionV4,
+    GeneratedResearchSelectionV5,
     ResearchRequest,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
@@ -284,7 +284,7 @@ def test_native_descriptor_and_generation_identity_cannot_be_substituted(tmp_pat
         publish_generation(
             generation.model_copy(update={"inputs": {"financial": changed}}), path=runs
         )
-    altered = GeneratedResearchSelectionV4(
+    altered = GeneratedResearchSelectionV5(
         request=ResearchRequest(
             text="固定原本から調査", scope="specified_stocks", requested_tickers=("1234",)
         ),
@@ -293,7 +293,7 @@ def test_native_descriptor_and_generation_identity_cannot_be_substituted(tmp_pat
         selection_summary="保存入力の参照を確認",
         targets=(selected_target("1234"),),
         capacity=CURRENT_RESEARCH_CAPACITY,
-        inputs=GeneratedResearchInputsV4(
+        inputs=GeneratedResearchInputsV5(
             generation=fixed.model_copy(update={"inputs": {"financial": changed}}),
             saved_company_context={
                 "1234": CompanyContext(research=NotFound(), assessment=NotFound())

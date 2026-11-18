@@ -11,19 +11,15 @@ from pydantic import JsonValue, TypeAdapter
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-    _project_economic_paths,
+from baibai_engine.machine_analysis.screening.policies.discovery import read_discovery_observations
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    PathCoordinates,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_paths import PathCoordinates
 from baibai_engine.machine_analysis.screening.policies.financial_growth import (
     POLICY_ID as FINANCIAL_POLICY_ID,
 )
-from baibai_engine.machine_analysis.screening.policies.financial_growth import (
-    _financial_growth_with_path_inputs,
-)
 from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
     STRATEGY_POLICY_ID,
-    evaluate_technical_strategy,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
@@ -46,20 +42,8 @@ def technical_financial_selection_id(
 def project_technical_financial_row(
     ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
 ) -> TechnicalFinancialRow:
-    technical = evaluate_technical_strategy(ticker, models=models, metadata=metadata)
-    # 財務による独立発見をTAの合否・欠測で止めない。
-    gate, path_growth = _financial_growth_with_path_inputs(
-        ticker,
-        models=tuple(
-            model for model in models if model.model_id in {"company_financials", "company_growth"}
-        ),
-        metadata=metadata,
-    )
-    coordinates, input_reviews = _project_economic_paths(
-        ticker,
-        index={model.model_id: model for model in models},
-        metadata=metadata,
-        growth_read=path_growth,
+    technical, gate, coordinates, input_reviews = read_discovery_observations(
+        ticker, models=models, metadata=metadata
     )
     paths = _PATH_CODEC.dump_python(coordinates.paths, mode="json")
     financial_paths: dict[str, JsonValue] = {

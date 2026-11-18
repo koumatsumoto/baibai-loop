@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from hashlib import sha256
 from typing import Annotated, Literal, Self
@@ -24,6 +25,7 @@ from baibai_engine.investment_judgment.company_research.context import (
     CompanyContext,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import (
+    CURRENT_RESEARCH_CAPACITY,
     ResearchCapacity,
     validate_capacity,
 )
@@ -213,16 +215,23 @@ class GeneratedResearchSelectionDraft(_Contract):
     screening_selection_id: Text | None = None
     selection_summary: Text
     targets: tuple[SelectedTarget, ...] = ()
+    comparison_tickers: tuple[Ticker, ...] = Field(default=(), exclude_if=lambda value: not value)
 
     @model_validator(mode="after")
     def validate_selection(self) -> Self:
+        _validate_comparisons(
+            self.comparison_tickers,
+            self.targets,
+            self.screening_selection_id,
+            CURRENT_RESEARCH_CAPACITY,
+        )
         _validate_subjects(self.request, self.targets, ())
         if self.research_as_of > self.input_known_at.astimezone(JST).date():
             raise ValueError("research_as_of is after the input cutoff's JST date")
         return self
 
 
-class _GeneratedSelection(_Contract):
+class GeneratedSelection(_Contract):
     kind: Literal["research_selection"] = "research_selection"
     schema_version: int
     request: ResearchRequest
@@ -240,9 +249,7 @@ class _GeneratedSelection(_Contract):
         generation = self.inputs.generation
         if self.request.scope == "discover_new" and self.inputs.screening_selection_id is None:
             raise ValueError("discovery requires an explicit saved screening selection")
-        if set(generation.subjects) != set(
-            research_subjects(generation, tuple(t.ticker for t in self.targets))
-        ):
+        if set(generation.subjects) != set(research_subjects(generation, self.evidence_subjects())):
             raise ValueError(
                 "model input scope must exactly cover targets and their shared contexts"
             )
@@ -259,8 +266,11 @@ class _GeneratedSelection(_Contract):
             raise ValueError("screening publication is after input_known_at")
         return self
 
+    def evidence_subjects(self) -> tuple[str, ...]:
+        return tuple(t.ticker for t in self.targets)
 
-class GeneratedResearchSelection(_GeneratedSelection):
+
+class GeneratedResearchSelection(GeneratedSelection):
     """旧V3のfield集合・dumpを保持する。"""
 
     schema_version: Literal[3] = 3
@@ -270,10 +280,9 @@ class GeneratedResearchInputsV4(GeneratedResearchInputs):
     saved_company_context: dict[Ticker, CompanyContext]
 
 
-class GeneratedResearchSelectionV4(_GeneratedSelection):
+class GeneratedSelectionWithContext(GeneratedSelection):
     """prepare時点の開始材料。最終Assessmentの全因果provenanceではない。"""
 
-    schema_version: Literal[4] = 4
     inputs: GeneratedResearchInputsV4
 
     @model_validator(mode="after")
@@ -300,8 +309,78 @@ class GeneratedResearchSelectionV4(_GeneratedSelection):
         return self
 
 
+class GeneratedResearchSelectionV4(GeneratedSelectionWithContext):
+    schema_version: Literal[4] = 4
+
+
+@dataclass(frozen=True, slots=True)
+class PopulationGroup:
+    """分類だけ。全社を実際に調査したとも、欠測を落選とも扱わない。"""
+
+    scope: str
+    technical_state: str | None
+    financial_state: str | None
+    tickers: tuple[str, ...]
+    models_recorded: Annotated[bool | None, Field(exclude_if=lambda v: v is None)] = None
+
+
+@dataclass(frozen=True, slots=True)
+class CaseScreening(ScreeningSelection):
+    """resultの明細は有限行のみ。全体の明細はsource_sha256が指す発行物に属する。"""
+
+    source_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] = field(kw_only=True)
+    population_groups: tuple[PopulationGroup, ...] = field(kw_only=True)
+    legacy_candidate_count: Annotated[int | None, Field(ge=0, exclude_if=lambda v: v is None)] = (
+        field(kw_only=True, default=None)
+    )
+
+
+class GeneratedResearchInputsV5(GeneratedResearchInputsV4):
+    screening_selection: CaseScreening | None = None
+
+
+class GeneratedResearchSelectionV5(GeneratedSelectionWithContext):
+    """母集団の識別と有限Caseの証拠。対照は深掘りや提案対象ではない。"""
+
+    schema_version: Literal[5] = 5
+    comparison_tickers: tuple[Ticker, ...] = Field(default=(), exclude_if=lambda value: not value)
+    inputs: GeneratedResearchInputsV5
+
+    def evidence_subjects(self) -> tuple[str, ...]:
+        return (*super().evidence_subjects(), *self.comparison_tickers)
+
+    @model_validator(mode="after")
+    def explicit_comparisons(self) -> Self:
+        _validate_comparisons(
+            self.comparison_tickers, self.targets, self.inputs.screening_selection_id, self.capacity
+        )
+        return self
+
+
+def _validate_comparisons(
+    comparisons: tuple[str, ...],
+    targets: tuple[SelectedTarget, ...],
+    selection_id: str | None,
+    capacity: ResearchCapacity,
+) -> None:
+    # A separate evidence budget: do not recreate the full market by naming every company.
+    if len(comparisons) > capacity.max_deep_research_targets:
+        raise ValueError("explicit comparison evidence exceeds this Case's research capacity")
+    if (
+        (comparisons and selection_id is None)
+        or len(set(comparisons)) != len(comparisons)
+        or set(comparisons).intersection(t.ticker for t in targets)
+    ):
+        raise ValueError(
+            "explicit screening comparisons require a publication and distinct non-target tickers"
+        )
+
+
 type ResearchSelectionRecord = (
-    ResearchSelection | GeneratedResearchSelection | GeneratedResearchSelectionV4
+    ResearchSelection
+    | GeneratedResearchSelection
+    | GeneratedResearchSelectionV4
+    | GeneratedResearchSelectionV5
 )
 
 
@@ -323,6 +402,8 @@ def _validate_subjects(
 
 
 def parse_selection(payload: Mapping[str, object]) -> ResearchSelectionRecord:
+    if payload.get("schema_version") == 5:
+        return GeneratedResearchSelectionV5.model_validate(payload)
     if payload.get("schema_version") == 4:
         return GeneratedResearchSelectionV4.model_validate(payload)
     if payload.get("schema_version") == 3:
@@ -354,6 +435,6 @@ def selection_sha256(selection: ResearchSelectionRecord) -> str:
 
 
 def saved_market_assessment(selection: ResearchSelectionRecord) -> JsonValue:
-    if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
+    if isinstance(selection, GeneratedSelection):
         return selection.inputs.saved_market_context_assessment
     return selection.inputs.market_context.get("saved_market_context_assessment")

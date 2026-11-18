@@ -38,6 +38,7 @@ def context(path, *, selected=None, known_at=NOW, comparisons=(), scope="discove
         runs_path=path,
         db_path=path.parent / "absent-app",
         comparison_tickers=comparisons,
+        screening_lane="growth_research",  # 明示した旧公表の保存根拠を比較。
     )
 
 

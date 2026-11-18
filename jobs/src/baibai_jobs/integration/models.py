@@ -44,15 +44,14 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import (
     InputRelease as ModelInputRelease,
 )
-from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-    TechnicalFinancialPolicy,
-    TechnicalFinancialRow,
-    TechnicalFinancialSelection,
+from baibai_engine.machine_analysis.screening.discovery_contract import (
+    DiscoveryRow,
+    DiscoverySelection,
+    discovery_publication_id,
 )
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
-    project_technical_financial_row,
-    technical_financial_selection_id,
+from baibai_engine.machine_analysis.screening.policies.discovery import (
+    evaluate_discovery_rows,
+    project_discovery_row,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.json import write_json_atomic
@@ -79,7 +78,7 @@ def _phase_progress(phase: str, started: float | None = None) -> float:
 
 
 def _project_company_models(
-    generation: ModelGenerationStream, rows: dict[str, TechnicalFinancialRow]
+    generation: ModelGenerationStream, rows: dict[str, DiscoveryRow]
 ) -> Iterator[GeneratedModel]:
     # 通常assemblyは個社の全モデルを続けて返し、その後に共有subjectを返す。
     # 順序が変わった列を部分判定で選ばず、writerのtransaction内で止める。
@@ -89,7 +88,7 @@ def _project_company_models(
     def project() -> None:
         if models:
             subject = models[0].subject
-            rows[subject] = project_technical_financial_row(
+            rows[subject] = project_discovery_row(
                 subject, models=tuple(models), metadata=generation.metadata
             )
             models.clear()
@@ -115,7 +114,6 @@ def integrate_models(
     as_of: date,
     lease_handle: Path,
     growth_start: date | None,
-    policy: TechnicalFinancialPolicy,
     edinet_input: InputSnapshot | None = None,
     preserve_generation_ids: tuple[str, ...] = (),
 ) -> dict[str, object]:
@@ -205,7 +203,7 @@ def integrate_models(
         _phase_progress("model_inputs", phase_started)
         phase_started = _phase_progress("model_generation")
         generations = ModelGenerationStore(runs)
-        rows: dict[str, TechnicalFinancialRow] = {}
+        rows: dict[str, DiscoveryRow] = {}
         saved = generations.publish_stream(
             replace(generation, models=_project_company_models(generation, rows))
         )
@@ -227,13 +225,9 @@ def integrate_models(
         _phase_progress("model_generation", phase_started)
         subjects = generation.subjects
         phase_started = _phase_progress("screening")
-        selection = evaluate_technical_financial_rows(
-            generation.metadata, tickers=subjects, rows=rows, policy=policy
-        )
-        assert isinstance(selection.result, TechnicalFinancialSelection)
-        selection_id = technical_financial_selection_id(
-            generation.metadata.generation_id, policy=policy
-        )
+        selection = evaluate_discovery_rows(generation.metadata, tickers=subjects, rows=rows)
+        assert isinstance(selection.result, DiscoverySelection)
+        selection_id = discovery_publication_id(generation.metadata.generation_id)
         ScreeningSelectionStore(runs).publish(selection_id, selection)
         _phase_progress("screening", phase_started)
         phase_started = _phase_progress("lake_publish")
@@ -267,7 +261,7 @@ def integrate_models(
         "models_ready": True,
         "generation_id": generation.metadata.generation_id,
         "selection_id": selection_id,
-        "selection_method": policy.method,
+        "selection_method": selection.result.policy.method,
         "company_count": len(subjects),
         "model_count": saved.model_count,
         "candidate_count": len(selection.result.tickers),
@@ -293,7 +287,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=date.fromisoformat,
         help="optional accounting-period start; omitted retains all available periods",
     )
-    parser.add_argument("--screening-page-size", type=int, default=36)
     parser.add_argument("--integration-report", type=Path)
     parser.add_argument(
         "--preserve-existing-generations",
@@ -325,7 +318,6 @@ def main(argv: list[str] | None = None) -> int:
             as_of=args.asof,
             lease_handle=args.lease_handle,
             growth_start=args.growth_start,
-            policy=TechnicalFinancialPolicy(page_size=args.screening_page_size),
             edinet_input=edinet_input,
             preserve_generation_ids=preserve_generation_ids,
         )

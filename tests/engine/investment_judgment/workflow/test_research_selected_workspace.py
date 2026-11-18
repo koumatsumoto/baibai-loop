@@ -79,6 +79,7 @@ def test_discover_new_preserves_selected_noncandidate_from_fixed_generation(tmp_
     runs = tmp_path / "runs"
     value = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
     context = load_generated_selection_context(
+        screening_lane="growth_research",  # 旧保存の候補外からの選定。
         request=value.request,
         research_as_of=NOW.date(),
         generation_id=value.inputs.generation.generation_id,
@@ -565,7 +566,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     saved_selection = selection_binding(
         OperationService(tmp_path / "app").get(prepared.operation_id).payload
     )
-    assert saved_selection.schema_version == (4 if generated else 2)
+    assert saved_selection.schema_version == (5 if generated else 2)
     fixed_hash = selection_sha256(saved_selection)
     workspace = prepared.workspace
     assert not (workspace / "research-workspace.yaml").exists()

@@ -133,8 +133,14 @@ def test_context_export_keeps_normal_replacement_and_stdout(tmp_path, capsys):
     runs, app, argv = _context(tmp_path)
     before = runs.read_bytes(), app.read_bytes()
     output = tmp_path / "context.json"
+    # The fixture is an actual legacy publication, not an indexed current opportunity set.
+    assert main([*argv, "--out", str(output)], now=NOW) == 3
+    assert output.read_text() == capsys.readouterr().out
+    assert json.loads(output.read_text())["missing_inputs"] == [
+        {"code": "unindexed_legacy_publication"}
+    ]
     for _ in range(2):
-        assert main([*argv, "--out", str(output)], now=NOW) == 0
+        assert main([*argv, "--compare-ticker", "1234", "--out", str(output)], now=NOW) == 0
         assert output.read_text() == capsys.readouterr().out
         assert json.loads(output.read_text())["status"] == "ready"
         assert (runs.read_bytes(), app.read_bytes()) == before

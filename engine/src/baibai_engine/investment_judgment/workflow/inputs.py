@@ -16,8 +16,9 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelection,
-    GeneratedResearchSelectionV4,
+    GeneratedResearchSelectionV5,
+    GeneratedSelection,
+    GeneratedSelectionWithContext,
     ResearchSelectionRecord,
     selection_targets,
 )
@@ -47,7 +48,7 @@ def project_research_inputs(
             "targets": [target.model_dump(mode="json") for target in selection.targets],
         },
     }
-    if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
+    if isinstance(selection, GeneratedSelection):
         return {
             **project_generated_inputs(
                 selection.inputs.generation, company_growth_periods=company_growth_periods
@@ -58,13 +59,15 @@ def project_research_inputs(
                         mode="json", include={"saved_company_context"}
                     )["saved_company_context"]
                 }
-                if isinstance(selection, GeneratedResearchSelectionV4)
+                if isinstance(selection, GeneratedSelectionWithContext)
                 else {}
             ),
             "research_as_of": selection.research_as_of.isoformat(),
             "known_at": selection.input_known_at.isoformat(),
             "saved_market_context_assessment": selection.inputs.saved_market_context_assessment,
-            "screening_selection": None
+            "screening_selection": _case_screening_context(selection)
+            if isinstance(selection, GeneratedResearchSelectionV5)
+            else None
             if selection.inputs.screening_selection is None
             else {
                 "selection_id": selection.inputs.screening_selection_id,
@@ -153,3 +156,60 @@ def project_research_inputs(
             **selection_context,
         },
     )
+
+
+def _case_screening_context(selection: GeneratedResearchSelectionV5) -> dict[str, JsonValue] | None:
+    screening = selection.inputs.screening_selection
+    if screening is None:
+        return None
+    result = selection.inputs.model_dump(mode="json", include={"screening_selection": {"result"}})[
+        "screening_selection"
+    ]["result"]
+    if isinstance(screening.result, TechnicalFinancialSelection):
+        detail_subjects = {row.ticker for row in screening.result.rows}
+        result["comparison_rows"] = result.pop("rows")
+    else:
+        detail_subjects = set(screening.result.tickers)
+    universe = set(screening.universe_tickers)
+    return {
+        "selection_id": selection.inputs.screening_selection_id,
+        "source_sha256": screening.source_sha256,
+        "published_at": selection.inputs.screening_published_at.isoformat()
+        if selection.inputs.screening_published_at
+        else None,
+        "generation_id": screening.generation_id,
+        "universe_count": len(screening.universe_tickers),
+        **(
+            {"candidate_count": screening.legacy_candidate_count}
+            if screening.legacy_candidate_count is not None
+            else {"explorable_count_not_investment_eligibility": len(universe)}
+        ),
+        "population": [
+            {
+                "scope": item.scope,
+                "technical_state": item.technical_state,
+                "financial_state": item.financial_state,
+                **(
+                    {"models_recorded": item.models_recorded}
+                    if item.models_recorded is not None
+                    else {}
+                ),
+                "count": len(item.tickers),
+            }
+            for item in screening.population_groups
+        ],
+        "comparison_tickers": list(selection.comparison_tickers),
+        "outside_published_universe": [
+            t for t in selection.evidence_subjects() if t not in universe
+        ],
+        "no_saved_screening_detail": [
+            t for t in selection.evidence_subjects() if t not in detail_subjects
+        ],
+        "detail_scope": "other_company_details_not_retained",
+        **(
+            {"price_inputs": deepcopy(screening.price_inputs)}
+            if screening.price_inputs is not None
+            else {}
+        ),
+        "result": result,
+    }

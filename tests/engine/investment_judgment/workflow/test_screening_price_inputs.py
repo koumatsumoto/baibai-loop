@@ -13,7 +13,7 @@ from tests.engine.machine_analysis.screening.test_economic_path_inputs import (
     models,
     payloads,
 )
-from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
+from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.model_generation import publish_generation
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
@@ -85,6 +85,7 @@ def test_zero_candidate_price_inputs_reach_initial_and_fixed_research(tmp_path, 
     known = datetime(2026, 1, 8, tzinfo=UTC)
     request = ResearchRequest(text="合成の候補調査", scope="discover_new")
     context = load_generated_selection_context(
+        screening_lane="growth_research",  # 保存済み旧政策の価格契約。
         request=request,
         generation_id=None,
         screening_selection_id=None,
@@ -118,7 +119,6 @@ def test_zero_candidate_price_inputs_reach_initial_and_fixed_research(tmp_path, 
         now=known,
     )
     selected = selection_binding(OperationService(app).get(prepared.operation_id).payload)
-    assert selected.inputs.screening_selection == screening
     projected = project_research_inputs(selected)
     assert projected["screening_selection"]["price_inputs"] == summary
     inputs_before = (prepared.workspace / "domain-inputs.yaml").read_bytes()
@@ -139,6 +139,13 @@ def test_legacy_selection_keeps_hash_payload_and_resume_without_price_summary(tm
     now = datetime(2026, 11, 1, tzinfo=UTC)
     runs, app = tmp_path / "runs", tmp_path / "app"
     original = seed_generated_selection(runs=runs, now=now)
+    from tests.helpers.db_seed import seed_historical_operation
+    from tests.helpers.generated_selection import legacy_selection_payload
+    from tests.helpers.research_selection import historical_operation
+
+    from baibai_engine.investment_judgment.workflow.selection import parse_selection
+
+    original = parse_selection(legacy_selection_payload(original, runs))
     # 追加前のmain 18135aeで同じ合成fixtureを保存して取得したhash。
     expected_hash = "aaed9564f60b8fa9e0f6cd23d407ed09b1a67a5513fd303a59442242d0879e56"
     assert selection_sha256(original) == expected_hash
@@ -160,6 +167,7 @@ def test_legacy_selection_keeps_hash_payload_and_resume_without_price_summary(tm
     with closing(sqlite3.connect(runs)) as connection:
         assert connection.execute("SELECT * FROM screening_selection").fetchall() == before
     context = load_generated_selection_context(
+        screening_lane="growth_research",  # 保存済み旧政策の価格契約。
         request=original.request,
         generation_id=None,
         screening_selection_id=None,
@@ -169,12 +177,10 @@ def test_legacy_selection_keeps_hash_payload_and_resume_without_price_summary(tm
         db_path=app,
     )
     assert "price_inputs" not in context["screening"]
-    prepared = prepare_selected_workspace(
-        draft=generated_draft_for(original),
-        db_path=app,
-        workspace=tmp_path / "workspace",
-        runs_path=runs,
-        now=now,
+    history = historical_operation(original)
+    seed_historical_operation(app, history)
+    prepared = resume_selected_workspace(
+        operation_id=history.operation_id, db_path=app, workspace=tmp_path / "workspace", now=now
     )
     assert prepared.selection_sha256 == expected_hash
     selected = selection_binding(OperationService(app).get(prepared.operation_id).payload)

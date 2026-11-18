@@ -739,7 +739,7 @@ def test_naive_progress_instant_is_rejected_without_recording_an_assessment(case
     assert service.get(operation.operation_id) == operation
 
 
-@pytest.mark.parametrize("version", ["legacy", "3", "4"])
+@pytest.mark.parametrize("version", ["legacy", "3", "4", "5"])
 @pytest.mark.parametrize("scope", ["specified_stocks", "review_positions"])
 def test_research_projection_keeps_common_request_and_target_roles(tmp_path, version, scope):
     from baibai_engine.investment_judgment.workflow.selection import parse_selection
@@ -751,11 +751,12 @@ def test_research_projection_keeps_common_request_and_target_roles(tmp_path, ver
         selected = seed_generated_selection(
             runs=tmp_path / "runs.sqlite", now=NOW, tickers=tickers, scope=scope
         )
-        if version == "3":
-            raw = selected.model_dump(mode="json")
-            raw["schema_version"] = 3
-            del raw["inputs"]["saved_company_context"]
-            selected = parse_selection(raw)
+        if version in {"3", "4"}:
+            from tests.helpers.generated_selection import legacy_selection_payload
+
+            selected = parse_selection(
+                legacy_selection_payload(selected, tmp_path / "runs.sqlite", version=int(version))
+            )
     before = selected.model_dump_json()
     projected = project_research_inputs(selected)
     purpose = "holding" if scope == "review_positions" else "new"
@@ -779,11 +780,12 @@ def test_screening_result_projection_serializes_only_the_result(tmp_path, monkey
     from baibai_engine.investment_judgment.workflow.selection import parse_selection
 
     selected = seed_generated_selection(runs=tmp_path / "runs.sqlite", now=NOW, tickers=("1234",))
-    if version == "3":
-        raw = selected.model_dump(mode="json")
-        raw["schema_version"] = 3
-        del raw["inputs"]["saved_company_context"]
-        selected = parse_selection(raw)
+    if version in {"3", "4"}:
+        from tests.helpers.generated_selection import legacy_selection_payload
+
+        selected = parse_selection(
+            legacy_selection_payload(selected, tmp_path / "runs.sqlite", version=int(version))
+        )
     before = selected.model_dump_json()
     inputs_type = type(selected.inputs)
     dump = inputs_type.model_dump
