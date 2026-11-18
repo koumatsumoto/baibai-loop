@@ -1,4 +1,4 @@
-"""Yearly record metadata preserves receipts and the old monthly wire layout."""
+"""Immutable record packs preserve moving edges and previously saved layouts."""
 
 import hashlib
 import json
@@ -153,9 +153,13 @@ def test_old_monthly_root_rebuilds_without_rewriting_it_after_later_corrections(
     assert path.read_bytes() == after
 
 
-def test_unchanged_years_are_reused_and_warm_transport_scales_with_year_blocks(tmp_path):
+def test_packed_history_is_reused_when_the_latest_year_changes(tmp_path):
     path = tmp_path / "economic.sqlite"
-    seed_months(path)
+    days = {date(year, 4, 1): [{"PAYEMS": "100000"}] for year in range(2018, 2026)}
+    with closing(initialize_database(path)) as connection, connection:
+        confirm_source_response(
+            connection, source_id="fred-payems", fetched_at=CLOCK, records_by_day=days
+        )
     store = MemoryR2Store()
     first = freeze(store, path)
     expected = current(path)
@@ -164,25 +168,26 @@ def test_unchanged_years_are_reused_and_warm_transport_scales_with_year_blocks(t
     store.put_keys.clear()
     assert freeze(store, path) == first
     assert rebuild_economic_input(store, path, first).context == expected
-    # Three yearly record blocks and one root, read once for retain and rebuild.
-    assert len(store.head_keys) == 8
-    assert len(store.get_keys) == 8
+    old = root(store, first)["months"]
+    assert set(old) == {
+        "fred-payems/2018",  # The moving lower edge.
+        "fred-payems/2019-2024",  # Six interior years share one remote read.
+        "fred-payems/2025",  # The moving upper edge.
+    }
+    packed = block(store, old["fred-payems/2019-2024"])["records"]
+    assert [item["key"][1] for item in packed] == [f"{year}-04-01" for year in range(2019, 2025)]
+    # Three blocks and one root, read once for retain and once for a cold rebuild.
+    assert len(store.head_keys) == len(store.get_keys) == 8
     assert not store.put_keys
     with closing(initialize_database(path)) as connection, connection:
         confirm_source_response(
             connection,
             source_id="fred-payems",
             fetched_at=CLOCK + timedelta(minutes=1),
-            records_by_day={
-                date(year, month, 1): [
-                    {"PAYEMS": "200000" if (year, month) == (2025, 4) else str(100000 + month)}
-                ]
-                for year in (2023, 2024, 2025)
-                for month in range(1, 13)
-            },
+            records_by_day={**days, date(2025, 4, 1): [{"PAYEMS": "200000"}]},
         )
     second = freeze(store, path)
-    old, new = root(store, first)["months"], root(store, second)["months"]
+    new = root(store, second)["months"]
     assert {key for key in old if old[key] != new[key]} == {"fred-payems/2025"}
     assert len(store.put_keys) == 2  # Changed year plus new acquisition-state root.
     assert rebuild_economic_input(store, path, first).context == expected

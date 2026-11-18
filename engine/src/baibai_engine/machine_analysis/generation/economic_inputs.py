@@ -7,11 +7,12 @@ import importlib.metadata
 import sqlite3
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from itertools import batched
 from pathlib import Path
 from threading import Lock
 from typing import Any, Literal
@@ -105,8 +106,8 @@ class _Selection(_Fixed):
     # Native bounds come from the Reading/observation owners. Documents retain
     # every latest request, and flows still start at date.min (publication days).
     record_ranges: dict[str, tuple[date, date]]
-    # Keep the saved wire name: old monthly and new yearly record blocks have
-    # identical receipts, and readers resolve their digests, not calendar labels.
+    # The saved wire name predates yearly and packed records. Readers resolve
+    # immutable digests; calendar labels do not determine their contents.
     months: dict[str, Digest]
     # Valid complete FRED state has one shared clock; never repeat it in each block.
     confirmations: dict[str, tuple[str, Digest] | None]
@@ -291,6 +292,29 @@ def retain_economic_input(
     )
 
 
+def _record_blocks(
+    by_year: dict[str, list[_Receipt]],
+) -> Iterator[tuple[str, list[_Receipt]]]:
+    # Native days arrive in order. Keep the two moving ends independent so a
+    # rolling window or today's correction does not rewrite the intervening years.
+    years = list(by_year)
+    if not years:
+        return
+    yield years[0], by_year[years[0]]
+    # At most one record per native day: ten years comfortably fit the existing
+    # object limit without tying pack boundaries to daily receipt counts.
+    for group in batched(years[1:-1], 10, strict=False):
+        if len(group) == 1:
+            yield group[0], by_year[group[0]]
+        else:
+            yield (
+                f"{group[0]}-{group[-1]}",
+                [receipt for year in group for receipt in by_year[year]],
+            )
+    if len(years) > 1:
+        yield years[-1], by_year[years[-1]]
+
+
 def _retain_economic_input(
     retain: Callable[[Any], str],
     source: Path,
@@ -321,29 +345,11 @@ def _retain_economic_input(
         # projection is not a bounded-capture-I/O guarantee for these sources.
         validate_collection_confirmations(connection)
 
-        def remember(
-            kind: str,
-            row: tuple[Any, ...],
-            *,
-            confirmed: bool = False,
-            checked_at: str | None = None,
-        ) -> None:
+        def remember_document(row: tuple[Any, ...]) -> None:
             key = tuple(row[:3])
-            # A selected record has at most one receipt per native day. Year
-            # blocks reduce round trips while keeping unchanged years reusable.
-            # Documents keep their existing request grouping and receipt order.
-            if kind == "records":
-                period = key[1][:4]
-            elif len(key[1]) >= 10 and key[1][4:5] == "-":
-                period = key[1][:7]
-            else:
-                period = "documents"
+            period = key[1][:7] if len(key[1]) >= 10 and key[1][4:5] == "-" else "documents"
             block = blocks.setdefault(key[0] + "/" + period, {"records": [], "documents": []})
-            block[kind].append(
-                _Receipt(
-                    key=key, sha256=_row_digest(row), confirmed=confirmed, checked_at=checked_at
-                )
-            )
+            block["documents"].append(_Receipt(key=key, sha256=_row_digest(row)))
 
         for source_id in sources:
             state = connection.execute(
@@ -366,8 +372,9 @@ def _retain_economic_input(
             )
             if source_id in document_sources:
                 for document_row in read_document_rows(connection, source_id):
-                    remember("documents", document_row)
+                    remember_document(document_row)
             else:
+                by_year: dict[str, list[_Receipt]] = {}
                 for row in read_snapshot_rows(
                     connection, *record_ranges[source_id], source_id=source_id
                 ):
@@ -378,12 +385,18 @@ def _retain_economic_input(
                         key[:2],
                     ).fetchone()
                     complete = confirmations[source_id] is not None
-                    remember(
-                        "records",
-                        row,
-                        confirmed=check is not None and complete,
-                        checked_at=str(check[0]) if check is not None and not complete else None,
+                    by_year.setdefault(key[1][:4], []).append(
+                        _Receipt(
+                            key=key,
+                            sha256=_row_digest(row),
+                            confirmed=check is not None and complete,
+                            checked_at=str(check[0])
+                            if check is not None and not complete
+                            else None,
+                        )
                     )
+                for period, receipts in _record_blocks(by_year):
+                    blocks[source_id + "/" + period] = {"records": receipts, "documents": []}
 
         # This is the same pre-interpretation boundary as stored_market_context:
         # 201st receipt proves truncation; failed/invalid/tied receipts are inputs.
@@ -398,7 +411,7 @@ def _retain_economic_input(
                 end.isoformat(timespec="microseconds"),
             ),
         ):
-            remember("documents", _row(connection, "documents", tuple(key)))
+            remember_document(_row(connection, "documents", tuple(key)))
 
     def retain_block(item: tuple[str, dict[str, list[_Receipt]]]) -> tuple[str, str]:
         name, rows = item
