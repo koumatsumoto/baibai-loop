@@ -70,7 +70,7 @@ Collection→L2、観測→モデル、生成→政策、Portfolio→L3の依存
 
 原本/全履歴の日次複写を避け、必要投影と不変objectを再利用する。実装済みcold再生成・旧release依存・source別の取得/保持/復旧は[観測](reference/model-observations.md#source-owners)とOPERATIONSへ。保持/容量/時間の実データ受入は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)に残る。
 
-[経済固定入力](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)は当時採用した原本と確認/失敗を固定する。後日訂正や採用へ差替えず、冷再計算には保持原本と当時のengine/config/runtimeを要する。原本欠落は当時欠測でなく失敗。通常生成では、同じ実行でR2から検証済みの不変metadataだけを上限付きで次の再構築へ渡し、直後の重複通信を避ける。別実行のcacheやL2を原本の代用にせず、原本rowとrecipeの検査、cold読取のremote検証を保つ。旧hash-only世代の失われたDBは復元できず、全generation exact再生・過去市場PIT・一律I/O上限も保証しない。
+[経済固定入力](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)は当時採用した原本と確認/失敗を固定する。後日訂正や採用へ差替えず、冷再計算には保持原本と当時のengine/config/runtimeを要する。原本欠落は当時欠測でなく失敗。新規選択は年別の原本ブロックごとに固定形式を選ぶ。32件以上で当時の原本キー・確認時計が旧SHAと同じ64文字以内に収まる年はrootに直接記述し、対象全行のSHAを順に検証する。それ以外は同じ旧子オブジェクトをそのまま使う。判定はそのブロックだけで決まり、別の年・文書が増えても、先月省いた子の保存をあとから必要としない。rootの保存量は旧root以下、既存の旧rootは詰め直さず子も検証する。冷再計算は当時のキーでnative原本を取り直し、全行とrecipeが一致したときだけ観測を返す。同一実行で検証済みの不変metadataは上限付きで再利用し、前回L2や可変headを原本の代用にはしない。旧hash-only世代の失われたDBは復元できず、全generation exact再生・過去市場PIT・一律I/O上限も保証しない。
 
 配置・政策変更でも保存identityと再開入力を保ち、配置だけでkey/ID/hash/意味revision・原bytes・受領時刻・source identityを変えない。Company Financialsの旧Selection canonicalは元公開hashの根拠として[保持](../jobs/OPERATIONS.md#financials-identity-cutover)し、通常readerへ旧aliasを戻さない。
 
