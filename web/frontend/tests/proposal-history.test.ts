@@ -4,9 +4,9 @@ import { createMemoryRouter, MemoryRouter, RouterProvider, useSearchParams } fro
 import { describe, expect, it } from 'vitest'
 
 import type { ProposalHistoryView, SavedProposalView } from '../src/api/types'
-import { groupProposalReports, proposalReportHref, publicationPeriod } from '../src/lib/proposal-history'
+import { groupProposalReports, proposalReportHref, publicationPeriod, reportListSummary } from '../src/lib/proposal-history'
 import { ProposalHistory } from '../src/pages/ProposalHistoryPage'
-import { buyFixture, newProposalFixture, reviewedDeferFixture } from './fixtures/proposals'
+import { buyFixture, holdFixture, newProposalFixture, partialBuyFixture, reviewedDeferFixture, sellFixture } from './fixtures/proposals'
 
 function view(proposals: SavedProposalView[], missing: string[] = []): ProposalHistoryView {
   return { generated_at: '2026-11-20T00:00:00Z', status: missing.length ? 'partial' : (proposals.length ? 'ready' : 'empty'), error: missing.length ? '一部を読めません' : null, proposals, unavailable_proposal_ids: missing }
@@ -98,6 +98,38 @@ describe('stock report list and selection', () => {
     expect(html).toContain('&lt;script&gt;unsafe&lt;/script&gt;')
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('line-clamp')
+  })
+
+  it('uses the whole short headline only for an individual ticker and retains long reasoning at its exact link', () => {
+    const rationale = '売上は伸びた。'.repeat(24) + 'ただし返済額が未確定のため買わない。'
+    const item = { ...reviewedDeferFixture, rationale }
+    const proposal = { ...older, headline: '返済後に残る資金が未確認のため、購入は保留。', items: [item] }
+    const list = render(view([proposal]))
+    expect(list).toContain(proposal.headline)
+    expect(list).not.toContain('売上は伸びた')
+    expect(render(view([proposal]), proposal.proposal_id, item.ticker)).toContain(rationale)
+    const multi = { ...proposal, items: [item, buyFixture] }
+    const other = render(view([multi]))
+    expect(other).not.toContain(proposal.headline)
+    expect(other).toContain(item.blockers[0].message)
+    expect(other).toContain(buyFixture.rationale)
+  })
+
+  it('uses concise saved facts across actions instead of a misleading start of a long paragraph', () => {
+    const long = '一見利益が増えたように見える。'.repeat(16)
+    const summary = (item: SavedProposalView['items'][number]) => reportListSummary({
+      proposal: { ...older, headline: long }, item: { ...item, rationale: long },
+    })
+    expect(summary(buyFixture)).toContain('指値で待つ案：1200.0000円・100株')
+    expect(summary(partialBuyFixture)).toBe('買い指値案。作者の上限は1400.1000000000000001円。具体的な指値・数量は未確定。')
+    const noAction = { ...reviewedDeferFixture, action: 'no_action' as const, assessment: null }
+    expect(summary(noAction)).toContain('新規購入を見送った')
+    expect(summary(holdFixture)).toContain('当初の投資仮説')
+    expect(summary(sellFixture)).toContain('全量売却を提案')
+    const manyUnknowns = { ...reviewedDeferFixture, blockers: [{ code: 'reason', message: long }] }
+    expect(summary(manyUnknowns)).toBe('判断に必要な条件がそろわず保留。確認事項は個別レポートに記録。')
+    const tiny = { ...reviewedDeferFixture, rationale: '買わない。' }
+    expect(reportListSummary({ proposal: older, item: tiny })).toBe('買わない。')
   })
 
   it('labels corrected originals in list and detail without rewriting the old decision', () => {
