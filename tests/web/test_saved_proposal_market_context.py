@@ -200,3 +200,47 @@ def test_only_fixed_artifact_identity_not_current_checkpoint_controls_market_rea
             selection_binding(case.operation.payload)
         )
     assert case.app.read_bytes() == before
+
+
+@pytest.mark.parametrize("unfinished", [True, False])
+def test_issuer_label_survives_without_live_master_and_does_not_create_an_assessment(
+    tmp_path, monkeypatch, unfinished
+):
+    from functools import partial
+
+    from tests.engine.investment_judgment.trade_proposal import test_saved_market_context as setup
+    from tests.helpers.generated_selection import seed_generated_selection
+
+    from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+
+    fixed = GeneratedModel(
+        model_id="market_context",
+        subject="1234",
+        calculation_revision="fixture",
+        payload={
+            "master": {
+                "name": "当時の親会社",
+                "sector_33": "合成業種",
+                "snapshot_date": setup.START.date().isoformat(),
+            }
+        },
+    )
+    monkeypatch.setattr(
+        setup, "seed_generated_selection", partial(seed_generated_selection, models=(fixed,))
+    )
+    case, _, runs, _ = _case(
+        tmp_path, action="defer" if unfinished else "no_action", unfinished=unfinished
+    )
+    runs.rename(tmp_path / "unused-runs.sqlite")
+    case.market.rename(tmp_path / "unused-market.sqlite")
+    source = DbProposalSource(case.app)
+    viewed = source.latest().items[0]
+    assert source.history().proposals[0].items[0] == viewed
+    if unfinished:
+        assert (viewed.company_name, viewed.sector) == ("当時の親会社", "合成業種")
+        assert viewed.unfinished is not None
+        assert viewed.assessment is None
+    else:
+        signed = case.pair.document.input_snapshot
+        assert signed.company_name != "当時の親会社"
+        assert (viewed.company_name, viewed.sector) == (signed.company_name, signed.sector)

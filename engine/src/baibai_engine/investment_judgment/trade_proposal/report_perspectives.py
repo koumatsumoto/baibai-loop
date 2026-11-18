@@ -1,4 +1,4 @@
-"""当時の選定で固定された観測から作る、報告用の限定的な見立て。採否/点数は作らない。"""
+"""当時の選定で固定した銘柄情報と、報告用の限定的な見立て。採否/点数は作らない。"""
 
 from __future__ import annotations
 
@@ -485,10 +485,28 @@ def _industry(sec: Row, limit: date) -> Reading | None:
     )
 
 
-def estimate_missing(
-    selection: Row, *, ticker: str, recorded: set[str], selection_sha256: str
-) -> Row | None:
-    """Caller verifies the exact as-published selection; no current DB, ledger or price access."""
+@dataclass(frozen=True)
+class _FixedTarget:
+    inputs: Row
+    version: int
+    cutoff: datetime
+    research_as_of: date
+    model_as_of: date
+    entries: list[Row]
+
+    def model(self, key: str, subject: str) -> Row:
+        rows = [r for r in self.entries if r.get("model_id") == key and r.get("subject") == subject]
+        return _own(rows[0].get("payload"), subject) if len(rows) == 1 else {}
+
+    def market(self, ticker: str) -> Row:
+        if self.version == 2:
+            stock = _own(_at(self.inputs, "securities_context", ticker), ticker)
+            return _own(stock.get("market_context"), ticker)
+        return self.model("market_context", ticker)
+
+
+def _fixed_target(selection: Row, ticker: str) -> _FixedTarget | None:
+    # The caller verifies the as-published selection hash. A later name or model is not a fallback.
     version = selection.get("schema_version")
     cutoff = _stamp(selection.get("input_known_at"))
     if (
@@ -498,20 +516,51 @@ def estimate_missing(
     ):
         return None
     limit = _day(selection.get("research_as_of"), cutoff.astimezone(JST).date())
-    if not limit or set(MODELS) <= recorded:
+    if not limit:
         return None
     i = _obj(selection.get("inputs"))
     g = _obj(i.get("generation"))
+    model_as_of = limit
+    if version != 2:
+        issued = _stamp(i.get("screening_published_at"))
+        if i.get("screening_published_at") is not None and (not issued or issued > cutoff):
+            return None
+        clock = _stamp(g.get("evaluation_time"))
+        day = _day(g.get("as_of"), limit)
+        if not day or not clock or clock > cutoff:
+            return None
+        model_as_of = min(day, clock.astimezone(JST).date())
+    return _FixedTarget(i, version, cutoff, limit, model_as_of, _rows(g.get("models")))
+
+
+def saved_master_identity(
+    selection: Row, *, ticker: str, proposal_as_of: date, prepared_at: datetime
+) -> tuple[str, str | None] | None:
+    """The issuer label for an unfinished target comes from its own dated master row only."""
+    target = _fixed_target(selection, ticker)
+    if target is None or target.cutoff > prepared_at or target.research_as_of > proposal_as_of:
+        return None
+    master = _own(target.market(ticker).get("master"), ticker)
+    name, sector = master.get("name"), master.get("sector_33")
+    if not _day(master.get("snapshot_date"), target.model_as_of) or not isinstance(name, str):
+        return None
+    if not name.strip():
+        return None
+    return name, sector if isinstance(sector, str) and sector.strip() else None
+
+
+def estimate_missing(
+    selection: Row, *, ticker: str, recorded: set[str], selection_sha256: str
+) -> Row | None:
+    """Caller verifies the exact as-published selection; no current DB, ledger or price access."""
+    if set(MODELS) <= recorded or (target := _fixed_target(selection, ticker)) is None:
+        return None
+    version, cutoff, limit = target.version, target.cutoff, target.research_as_of
+    i, model = target.inputs, target.model
+    g = _obj(i.get("generation"))
     generation_id = g.get("generation_id")
     legacy = {}
-    entries = _rows(g.get("models"))
-
-    def model(key: str, subject: str) -> Row:
-        rows = [r for r in entries if r.get("model_id") == key and r.get("subject") == subject]
-        if len(rows) != 1:
-            return {}
-        return _own(rows[0].get("payload"), subject)
-
+    sec = target.market(ticker)
     if version == 2:
         analysis = _obj(i.get("analysis"))
         run_at = _stamp(analysis.get("run_at"))
@@ -519,7 +568,7 @@ def estimate_missing(
             analysis_row = _own(_at(analysis, "analyses", ticker), ticker)
             legacy = _own(analysis_row.get("metrics"), ticker)
         own = _own(_at(i, "securities_context", ticker), ticker)
-        sec, global_market = _own(own.get("market_context"), ticker), _obj(i.get("market_context"))
+        global_market = _obj(i.get("market_context"))
         f, growth, ext, technical = (
             {},
             *(
@@ -528,13 +577,7 @@ def estimate_missing(
             ),
         )
     else:
-        issued = _stamp(i.get("screening_published_at"))
-        if i.get("screening_published_at") is not None and (not issued or issued > cutoff):
-            return None
-        clock = _stamp(g.get("evaluation_time"))
-        if not _day(g.get("as_of"), limit) or not clock or clock > cutoff:
-            return None
-        sec, global_market = model("market_context", ticker), model("market_context", "market")
+        global_market = model("market_context", "market")
         f, growth, ext, technical = (
             model(k, ticker)
             for k in (
