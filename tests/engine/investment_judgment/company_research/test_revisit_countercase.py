@@ -132,6 +132,11 @@ def test_prepare_and_resume_keep_countercase_without_later_assessment_substituti
     selected = selection_binding(operation.payload)
     saved = selected.inputs.saved_company_context["1234"].assessment
     assert saved.invalidation_conditions == pair.document.investment_case.invalidation_conditions
+    assert saved.historical_price_case.case == pair.document.price_value_case
+    assert (
+        saved.historical_price_case.market_price_fact_id
+        == pair.document.valuation.market_price_fact_id
+    )
     assert saved.valuation_context.status == pair.document.valuation.status
     assert saved.independent_review.strongest_countercase == pair.review.strongest_countercase
     assert saved.strongest_countercase == COUNTERCASE
@@ -181,6 +186,7 @@ def test_legacy_selection_does_not_backfill_or_change_canonical_identity(tmp_pat
     )
     raw["inputs"]["saved_company_context"]["1234"]["assessment"].pop("independent_review", None)
     raw["inputs"]["saved_company_context"]["1234"]["assessment"].pop("valuation_context", None)
+    raw["inputs"]["saved_company_context"]["1234"]["assessment"].pop("historical_price_case", None)
     canonical = encode_json(raw)
     parsed = parse_selection(raw)
     assert encode_json(parsed.model_dump(mode="json")) == canonical
@@ -188,6 +194,7 @@ def test_legacy_selection_does_not_backfill_or_change_canonical_identity(tmp_pat
     brief = company_context_brief(parsed.inputs.saved_company_context["1234"])["assessment"]
     assert "strongest_countercase" not in brief
     assert "strongest_countercase_truncated" not in brief
+    assert "price_value_case" not in brief
     assert "valuation_context" not in brief
     assert "independent_review" not in brief
     assert "invalidation_conditions" not in brief

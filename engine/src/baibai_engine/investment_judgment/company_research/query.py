@@ -13,6 +13,7 @@ from baibai_engine.investment_judgment.company_research.context import (
     AvailableAssessment,
     AvailableResearch,
     CompanyContext,
+    HistoricalPriceCase,
     NotFound,
     Unreadable,
     company_context_brief,
@@ -69,6 +70,12 @@ def _assessment_context(
             valuation_context=AssessmentValuationContext(
                 status=pair.document.valuation.status,
                 unresolved_reason=pair.document.valuation.unresolved_reason,
+            ),
+            historical_price_case=None
+            if pair.document.price_value_case is None
+            else HistoricalPriceCase(
+                case=pair.document.price_value_case,
+                market_price_fact_id=pair.document.valuation.market_price_fact_id,
             ),
             independent_review=AssessmentReviewContext(
                 reviewed_at=pair.review.reviewed_at,
