@@ -43,10 +43,19 @@ def observe_price_path(
     a real pair can prove a threshold match even with unknown days; a non-match
     requires every date to be accounted for and at least one past price.
     """
-    retained = {
-        bar.traded_at: bar.price
-        for bar in bars
-        if bar.traded_at <= calendar.as_of and isfinite(bar.price) and bar.price > 0
+    statistics_days = {day for n in (20, 60) for day in (calendar.windows.get(n) or ())}
+    observed_rows: dict[date, PriceBar] = {}
+    retained = {}
+    for bar in bars:
+        if bar.traded_at <= calendar.as_of and isfinite(bar.price) and bar.price > 0:
+            retained[bar.traded_at] = bar.price
+        if bar.traded_at in statistics_days:
+            observed_rows[bar.traded_at] = bar
+    # An observed close can be usable even when other daily fields are incomplete.
+    statistics_bars = {
+        day: bar
+        for day, bar in observed_rows.items()
+        if day in retained and day_states.get(day) in ("priced", "mixed", "invalid")
     }
     prices = {day: value for day, value in retained.items() if day_states.get(day) == "priced"}
     expected = calendar.expected_price_date
@@ -103,25 +112,8 @@ def observe_price_path(
             unavailable_reason=reason,
         )
         if differences in (20, 60):
-            # Other OHLCV fields can be partial without invalidating a real close.
-            # Keep the existing six-field coverage and annotation contract above.
-            statistics = close_path_statistics(
-                {
-                    bar.traded_at: bar
-                    for bar in bars
-                    if bar.traded_at in retained
-                    and day_states.get(bar.traded_at) in ("priced", "mixed", "invalid")
-                },
-                window=window,
-            )
-            # R20 needs only recent recovery/failure, not another shape score.
-            item["path_statistics"] = (
-                statistics
-                if differences == 60
-                else {
-                    key: statistics[key]
-                    for key in ("status", "price_row_basis", "drawdown_episodes")
-                }
+            item["path_statistics"] = close_path_statistics(
+                statistics_bars, window=window, recovery_only=differences == 20
             )
         observations[ref] = item
         if value is not None:
