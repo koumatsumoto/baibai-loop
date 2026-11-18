@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
 
-from baibai_engine.investment_judgment.stock_assessment.price_value import reviewed_price_value_case
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
     FIXED_VALUE_DELAY_MONTHS,
     Projection,
@@ -231,7 +230,7 @@ def _exposure(row: ExposureRow) -> SavedExposureRowView:
 
 
 def _saved_price_value(pair: ReviewedAssessment) -> SavedPriceValueView | None:
-    finding = reviewed_price_value_case(pair)
+    finding = pair.recorded_price_value()
     if finding is None:
         return None
     snapshot = pair.document.input_snapshot

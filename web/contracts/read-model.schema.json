@@ -9,35 +9,6 @@
     "views/proposal-history.json": "#/$defs/ProposalHistoryView"
   },
   "$defs": {
-    "AcquisitionLimit": {
-      "additionalProperties": false,
-      "description": "仮説に不可欠な一時の請求権だけ。残余事業や通常配当の一律期限ではない。",
-      "properties": {
-        "value_fact_id": {
-          "minLength": 1,
-          "title": "Value Fact Id",
-          "type": "string"
-        },
-        "last_eligible_trade_date": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Last Eligible Trade Date"
-        }
-      },
-      "required": [
-        "value_fact_id",
-        "last_eligible_trade_date"
-      ],
-      "title": "AcquisitionLimit",
-      "type": "object"
-    },
     "DashboardView": {
       "properties": {
         "generated_at": {
@@ -574,35 +545,6 @@
       "title": "PortfolioOutcomeView",
       "type": "object"
     },
-    "PriceOnlyCondition": {
-      "additionalProperties": false,
-      "description": "事業・権利を変えない価格による反転。明示上限のない説明を指値に解釈しない。",
-      "properties": {
-        "explanation": {
-          "minLength": 1,
-          "title": "Explanation",
-          "type": "string"
-        },
-        "ceiling_yen": {
-          "anyOf": [
-            {
-              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Ceiling Yen"
-        }
-      },
-      "required": [
-        "explanation",
-        "ceiling_yen"
-      ],
-      "title": "PriceOnlyCondition",
-      "type": "object"
-    },
     "ProposalCorrection": {
       "additionalProperties": false,
       "properties": {
@@ -791,6 +733,32 @@
     "SHA256": {
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
+    },
+    "SavedAcquisitionLimitView": {
+      "properties": {
+        "value_fact_id": {
+          "title": "Value Fact Id",
+          "type": "string"
+        },
+        "last_eligible_trade_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Eligible Trade Date"
+        }
+      },
+      "required": [
+        "value_fact_id",
+        "last_eligible_trade_date"
+      ],
+      "title": "SavedAcquisitionLimitView",
+      "type": "object"
     },
     "SavedAssessmentRefView": {
       "properties": {
@@ -2752,6 +2720,32 @@
       "title": "SavedPortfolioExposureView",
       "type": "object"
     },
+    "SavedPriceOnlyConditionView": {
+      "properties": {
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "ceiling_yen": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ceiling Yen"
+        }
+      },
+      "required": [
+        "explanation",
+        "ceiling_yen"
+      ],
+      "title": "SavedPriceOnlyConditionView",
+      "type": "object"
+    },
     "SavedPriceValueView": {
       "properties": {
         "status": {
@@ -2787,7 +2781,7 @@
         "price_only_condition": {
           "anyOf": [
             {
-              "$ref": "#/$defs/PriceOnlyCondition"
+              "$ref": "#/$defs/SavedPriceOnlyConditionView"
             },
             {
               "type": "null"
@@ -2797,7 +2791,7 @@
         "acquisition_limit": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AcquisitionLimit"
+              "$ref": "#/$defs/SavedAcquisitionLimitView"
             },
             {
               "type": "null"

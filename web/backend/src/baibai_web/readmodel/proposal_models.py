@@ -6,10 +6,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, JsonValue
 
-from baibai_engine.investment_judgment.stock_assessment.price_value import (
-    AcquisitionLimit,
-    PriceOnlyCondition,
-)
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
     ProposalCorrection,
@@ -158,12 +154,22 @@ class SavedOpportunityFactView(BaseModel):
     source_ids: list[str]
 
 
+class SavedPriceOnlyConditionView(BaseModel):
+    explanation: str
+    ceiling_yen: Decimal | None
+
+
+class SavedAcquisitionLimitView(BaseModel):
+    value_fact_id: str
+    last_eligible_trade_date: date | None
+
+
 class SavedPriceValueView(BaseModel):
     status: Literal["supported_at_quote", "not_supported_at_quote", "undetermined"]
     observed_quote: SavedOpportunityQuoteView | None
     price_compatible_conditions: str | None
-    price_only_condition: PriceOnlyCondition | None
-    acquisition_limit: AcquisitionLimit | None
+    price_only_condition: SavedPriceOnlyConditionView | None
+    acquisition_limit: SavedAcquisitionLimitView | None
     value_facts: list[SavedOpportunityFactView]
     sources: list[SavedAssessmentSourceView]
 

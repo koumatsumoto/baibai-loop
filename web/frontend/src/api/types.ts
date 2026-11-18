@@ -2,14 +2,6 @@
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
 
-/**
- * 仮説に不可欠な一時の請求権だけ。残余事業や通常配当の一律期限ではない。
- */
-export interface AcquisitionLimit {
-  value_fact_id: string
-  last_eligible_trade_date: string | null
-}
-
 export interface DashboardView {
   generated_at: string
   ledger_exists: boolean
@@ -92,14 +84,6 @@ export interface PortfolioOutcomeView {
   benchmark_cumulative_return_pct: number | null
 }
 
-/**
- * 事業・権利を変えない価格による反転。明示上限のない説明を指値に解釈しない。
- */
-export interface PriceOnlyCondition {
-  explanation: string
-  ceiling_yen: string | null
-}
-
 export interface ProposalCorrection {
   correction_id: NonEmptyStr
   erroneous_ref: ProposalReference
@@ -135,6 +119,11 @@ export interface ReservationView {
 }
 
 export type SHA256 = string
+
+export interface SavedAcquisitionLimitView {
+  value_fact_id: string
+  last_eligible_trade_date: string | null
+}
 
 export interface SavedAssessmentRefView {
   assessment_id: string
@@ -428,12 +417,17 @@ export interface SavedPortfolioExposureView {
   common_factor_unclassified_tickers: string[]
 }
 
+export interface SavedPriceOnlyConditionView {
+  explanation: string
+  ceiling_yen: string | null
+}
+
 export interface SavedPriceValueView {
   status: 'supported_at_quote' | 'not_supported_at_quote' | 'undetermined'
   observed_quote: SavedOpportunityQuoteView | null
   price_compatible_conditions: string | null
-  price_only_condition: PriceOnlyCondition | null
-  acquisition_limit: AcquisitionLimit | null
+  price_only_condition: SavedPriceOnlyConditionView | null
+  acquisition_limit: SavedAcquisitionLimitView | null
   value_facts: SavedOpportunityFactView[]
   sources: SavedAssessmentSourceView[]
 }
