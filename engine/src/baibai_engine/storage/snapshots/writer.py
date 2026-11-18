@@ -62,6 +62,8 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION
 
 _ROW_GROUP_SIZE = 65_536
+_BINARY_VERIFY_BYTES = 1024 * 1024
+_BINARY_VERIFY_GROUPS = 64
 _PARQUET_VERSION = "2.6"
 _COMPRESSION = "zstd"
 _COMPRESSION_LEVEL = 9
@@ -583,6 +585,30 @@ def _coverage_status(
     return "complete" if range_covered(connection, source, start, end) else "partial"
 
 
+def _binary_verify_batches(metadata: Iterable[tuple[int, int]]) -> Iterator[tuple[int, list[int]]]:
+    """Group small one-row archives within their uncompressed byte and count budgets."""
+    groups: list[int] = []
+    size = 0
+    for index, (rows, nbytes) in enumerate(metadata):
+        # Old multirow groups have no per-row size bound. Keep their original
+        # one-row read, as for any single large or unknown-size archive.
+        small = rows == 1 and 0 < nbytes <= _BINARY_VERIFY_BYTES
+        if groups and (
+            not small
+            or size + nbytes > _BINARY_VERIFY_BYTES
+            or len(groups) == _BINARY_VERIFY_GROUPS
+        ):
+            yield len(groups), groups
+            groups, size = [], 0
+        if small:
+            groups.append(index)
+            size += nbytes
+        else:
+            yield 1, [index]
+    if groups:
+        yield len(groups), groups
+
+
 def _validate_parquet(
     path: Path,
     *,
@@ -610,7 +636,19 @@ def _validate_parquet(
             dataset.arrow_schema_for(source_kind), check_metadata=True
         ):
             raise LakeBuildError(f"Parquet Arrow schema mismatch: {path}")
-        for batch in parquet.iter_batches(batch_size=_row_batch_size(dataset)):
+        plan: Iterable[tuple[int, list[int] | None]] = [(_ROW_GROUP_SIZE, None)]
+        if dataset.has_binary_payload:
+            meta = parquet.metadata
+            groups = (meta.row_group(index) for index in range(meta.num_row_groups))
+            plan = _binary_verify_batches(
+                (group.num_rows, group.total_byte_size) for group in groups
+            )
+        batches = (
+            batch
+            for size, indices in plan
+            for batch in parquet.iter_batches(batch_size=size, row_groups=indices)
+        )
+        for batch in batches:
             actual = list(zip(*(column.to_pylist() for column in batch.columns), strict=True))
             if actual != list(islice(expected, len(actual))):
                 raise LakeBuildError(f"Parquet values or row order differ from SQLite: {path}")
