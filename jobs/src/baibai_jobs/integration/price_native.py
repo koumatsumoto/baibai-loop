@@ -13,6 +13,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from itertools import batched, groupby
+from operator import itemgetter
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +104,24 @@ def price_day_unresolved(item: PriceDay, scope: dict[str, Any]) -> bool:
     )
 
 
+def _retained_sql_text(raw: bytes) -> str | bytes:
+    # A malformed TEXT value in this disposable projection cannot match native text.
+    try:
+        return raw.decode()
+    except UnicodeDecodeError:
+        return raw
+
+
+def _same_price_day(
+    connection: sqlite3.Connection, day: str, rebuilt: tuple[tuple[Any, ...], ...]
+) -> bool:
+    retained = connection.execute(
+        "SELECT * FROM jquants_daily_bars WHERE traded_at=? ORDER BY ticker", (day,)
+    ).fetchall()
+    # Bound this comparison to one day. Missing, extra or changed values require a rewrite.
+    return len(retained) == len(rebuilt) and retained == sorted(rebuilt, key=itemgetter(0))
+
+
 def model_input(
     store: ObjectStore,
     fixed: FixedPriceL1,
@@ -161,11 +180,25 @@ def model_input(
     }
     ranges: list[dict[str, str]] = []
     required_unresolved = False
-    with lake_session() as session:
-        projection = session.connection
-        for index, batch in enumerate(
-            _native_batches(days, scopes=head["scopes"], receipts=head["receipts"])
-        ):
+    coverage: list[tuple[date, str, int, bool]] = []
+    uri = market.resolve().as_uri() + "?mode=rw"
+    with closing(sqlite3.connect(uri, uri=True)) as connection, connection:
+        connection.text_factory = _retained_sql_text
+        # Reserve only this runner's disposable SQLite copy. Nothing in its main
+        # tables changes until all L1 pages and the fixed selection are verified.
+        connection.execute("PRAGMA temp_store=FILE")
+        page_size = connection.execute("PRAGMA temp.page_size").fetchone()[0]
+        # Keep the prior 4 GB runner spill ceiling for a completely cold reconstruction.
+        connection.execute(f"PRAGMA temp.max_page_count={4_000_000_000 // page_size}")
+        connection.execute("BEGIN IMMEDIATE")
+        matching_days: list[tuple[str]] = []
+        connection.execute(
+            "CREATE TEMP TABLE rebuilt_price_rows AS SELECT * FROM jquants_daily_bars WHERE 0"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX rebuilt_price_keys ON rebuilt_price_rows(ticker,traded_at)"
+        )
+        for batch in _native_batches(days, scopes=head["scopes"], receipts=head["receipts"]):
             requests = tuple(
                 read_price_requests(
                     store, scopes=head["scopes"], receipts=head["receipts"], days=batch
@@ -177,10 +210,16 @@ def model_input(
             ):
                 raise ValueError("price input contains receipts later than the evaluation clock")
             results = rebuild_price_days(requests, days=batch)
-            materialize_price_days(
-                projection, results.values(), l1_coverage_status="partial", append=index > 0
-            )
             for day, item in results.items():
+                key = day.isoformat()
+                if item.rows and _same_price_day(connection, key, item.rows):
+                    matching_days.append((key,))
+                elif item.rows:
+                    connection.executemany(
+                        "INSERT INTO rebuilt_price_rows VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        item.rows,
+                    )
+                coverage.append((day, item.status, len(item.rows), bool(item.incomplete_requests)))
                 unresolved = price_day_unresolved(item, scopes[day.isoformat()])
                 required_unresolved = required_unresolved or (unresolved and day not in closed)
                 summary["normal_empty_days"] += int(
@@ -210,6 +249,9 @@ def model_input(
         summary["raw_coverage_status"] = "partial" if ranges else "complete"
         summary["coverage_status"] = "partial" if required_unresolved else "complete"
         selected["summary"] = summary
+        if matching_days:
+            connection.execute("CREATE TEMP TABLE matching_price_days(day TEXT PRIMARY KEY)")
+            connection.executemany("INSERT INTO matching_price_days VALUES(?)", matching_days)
         descriptor = retain_price_input(store, selected)
         digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
         identity = InputSnapshot(
@@ -218,40 +260,35 @@ def model_input(
             sha256=digest,
             descriptor=descriptor,
         )
-        # Validate all native input and retain membership before replacing anything.
-        with closing(sqlite3.connect(market)) as connection, connection:
-            connection.execute("DELETE FROM jquants_daily_bars")
-            connection.execute("DELETE FROM jquants_source_pages WHERE source='daily_bars'")
-            connection.execute("DELETE FROM source_coverage WHERE source='jquants_daily_bars'")
-            # SQLite enforces the key; insertion order does not require a full-history sort.
-            cursor = projection.execute("SELECT * FROM daily_bars")
-            while rows := cursor.fetchmany(10000):
-                connection.executemany(
-                    "INSERT INTO jquants_daily_bars VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows
-                )
-            row_counts = dict(
-                projection.execute(
-                    "SELECT traded_at,COUNT(*) FROM daily_bars GROUP BY traded_at"
-                ).fetchall()
+        if matching_days:
+            # Keep obsolete dates inside SQLite: even an invalid UTF-8 date in the
+            # old projection must be removed. Use the existing date index for deletion.
+            connection.execute(
+                "DELETE FROM jquants_daily_bars WHERE traded_at IN ("
+                "SELECT traded_at FROM jquants_daily_bars GROUP BY traded_at "
+                "EXCEPT SELECT day FROM matching_price_days)"
             )
-            for day, _request_id, status, _, _rejected, _excluded, incomplete in projection.execute(
-                "SELECT * FROM price_receipt_status ORDER BY day"
-            ).fetchall():
-                scope = scopes[day.isoformat()]
-                failed = bool(scope.get("failure") or scope.get("held") or incomplete)
-                record_source_coverage(
-                    connection,
-                    source="jquants_daily_bars",
-                    coverage_key="native:" + day.isoformat(),
-                    coverage_start=day.isoformat(),
-                    coverage_end=day.isoformat(),
-                    record_count=row_counts.get(day.isoformat(), 0),
-                    status="partial" if failed and status == "ok" else status,
-                    fetched_at_utc=scope.get("confirmed_at")
-                    or scope.get("last_attempt_at")
-                    or evaluated_at.isoformat(),
-                    error="native acquisition unresolved" if failed else None,
-                )
+        else:
+            connection.execute("DELETE FROM jquants_daily_bars")
+        connection.execute("INSERT INTO jquants_daily_bars SELECT * FROM rebuilt_price_rows")
+        connection.execute("DELETE FROM jquants_source_pages WHERE source='daily_bars'")
+        connection.execute("DELETE FROM source_coverage WHERE source='jquants_daily_bars'")
+        for day, status, count, incomplete in coverage:
+            scope = scopes[day.isoformat()]
+            failed = bool(scope.get("failure") or scope.get("held") or incomplete)
+            record_source_coverage(
+                connection,
+                source="jquants_daily_bars",
+                coverage_key="native:" + day.isoformat(),
+                coverage_start=day.isoformat(),
+                coverage_end=day.isoformat(),
+                record_count=count,
+                status="partial" if failed and status == "ok" else status,
+                fetched_at_utc=scope.get("confirmed_at")
+                or scope.get("last_attempt_at")
+                or evaluated_at.isoformat(),
+                error="native acquisition unresolved" if failed else None,
+            )
     return identity
 
 

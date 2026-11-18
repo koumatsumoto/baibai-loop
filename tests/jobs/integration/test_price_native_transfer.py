@@ -3,8 +3,8 @@
 import json
 import sqlite3
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
-from types import SimpleNamespace
 
 import pytest
 from tests.helpers.lake_release import market_store
@@ -93,55 +93,36 @@ def fixed_prices(tmp_path):
     return store, owner.fixed()
 
 
-def transfer_order(monkeypatch, order):
-    """Only replace the transfer cursor, retaining real native rebuild and SQLite writes."""
-    transferred = []
-
-    class Projection:
-        def __init__(self, connection):
-            self.connection = connection
-
-        def __getattr__(self, name):
-            return getattr(self.connection, name)
-
-        def execute(self, query, *args):
-            if query.startswith("SELECT * FROM daily_bars"):
-                assert query == "SELECT * FROM daily_bars"
-                query += (
-                    " ORDER BY traded_at,ticker"
-                    if order == "legacy"
-                    else " ORDER BY traded_at DESC,ticker DESC"
-                )
-                self.connection.execute(query)
-                return self
-            return self.connection.execute(query, *args)
-
-        def fetchmany(self, size):
-            assert size == 10000
-            rows = self.connection.fetchmany(2)
-            if order == "duplicate" and rows and transferred:
-                rows.append(transferred[0])
-            transferred.extend(rows)
-            return rows
-
-    @contextmanager
-    def projected_session():
-        with lake_session() as session:
-            yield SimpleNamespace(connection=Projection(session.connection))
-
-    monkeypatch.setattr(price_native, "lake_session", projected_session)
-    return transferred
-
-
-def test_transfer_preserves_all_values_identity_and_coverage_in_any_order(
-    tmp_path, monkeypatch, fixed_prices
-):
+def test_rebuild_preserves_matching_days_and_repairs_other_days(tmp_path, fixed_prices):
     store, fixed = fixed_prices
     results = []
-    orders = []
-    for order in ("legacy", "reverse"):
-        transferred = transfer_order(monkeypatch, order)
-        market = market_store(tmp_path / f"{order}.sqlite")
+    for state in ("cold", "warm"):
+        market = market_store(tmp_path / f"{state}.sqlite")
+        if state == "warm":
+            with sqlite3.connect(market) as conn:
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    reversed(results[0][1]["jquants_daily_bars"]),
+                )
+                conn.execute(
+                    "UPDATE jquants_daily_bars SET ex_right_type='incorrect' WHERE traded_at=?",
+                    ((DAY + timedelta(days=2)).isoformat(),),
+                )
+                conn.execute(
+                    "INSERT INTO jquants_daily_bars(ticker,traded_at) VALUES('1301','1990-01-01')"
+                )
+                conn.execute(
+                    "UPDATE jquants_daily_bars SET ex_right_type=CAST(X'80' AS TEXT) "
+                    "WHERE traded_at=? AND ticker='1301'",
+                    ((DAY + timedelta(days=2)).isoformat(),),
+                )
+                conn.execute(
+                    "INSERT INTO jquants_daily_bars(ticker,traded_at) VALUES('1301',CAST(X'80' AS TEXT))"
+                )
+                conn.execute(
+                    "CREATE TRIGGER keep_matching_day BEFORE DELETE ON jquants_daily_bars "
+                    f"WHEN OLD.traded_at='{DAY.isoformat()}' BEGIN SELECT RAISE(ABORT,'unchanged day'); END"
+                )
         saved = price_native.model_input(
             store,
             fixed,
@@ -156,9 +137,7 @@ def test_transfer_preserves_all_values_identity_and_coverage_in_any_order(
         prices = read_price_bars(market, start=DAY, end=DAY + timedelta(days=3))
         assert len(prices) == len(states) == 2
         results.append((saved, rows_at(market), prices, states))
-        orders.append(transferred)
-    assert orders[0] == list(reversed(orders[1]))
-    assert len(orders[0]) == 4
+    assert len(results[0][1]["jquants_daily_bars"]) == 4
     assert results[0] == results[1]
     summary = results[0][0].descriptor["summary"]
     assert (
@@ -167,7 +146,7 @@ def test_transfer_preserves_all_values_identity_and_coverage_in_any_order(
     assert summary["coverage_status"] == "partial"
 
 
-@pytest.mark.parametrize("failure", ["duplicate", "coverage"])
+@pytest.mark.parametrize("failure", ["duplicate", "coverage", "retain"])
 def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
     tmp_path, monkeypatch, fixed_prices, failure
 ):
@@ -176,7 +155,7 @@ def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
     with sqlite3.connect(market) as connection:
         connection.execute(
             "INSERT INTO jquants_source_pages VALUES (?,?,?,?,?,?,?)",
-            ("daily_bars", 0, "old", "{}", AT.isoformat(), DAY.isoformat(), b"old"),
+            ("old", 0, "daily_bars", "{}", AT.isoformat(), DAY.isoformat(), b"old"),
         )
         price_native.record_source_coverage(
             connection,
@@ -189,8 +168,27 @@ def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
             fetched_at_utc=AT.isoformat(),
         )
     before = rows_at(market)
-    transferred = transfer_order(monkeypatch, failure)
-    if failure == "coverage":
+    store.put_keys.clear()
+    if failure == "duplicate":
+        rebuild = price_native.rebuild_price_days
+
+        def duplicate(*args, **kwargs):
+            result = rebuild(*args, **kwargs)
+            last = DAY + timedelta(days=2)
+            if last in result:
+                item = result[last]
+                result[last] = replace(item, rows=(*item.rows, item.rows[0]))
+            return result
+
+        monkeypatch.setattr(price_native, "rebuild_price_days", duplicate)
+    elif failure == "retain":
+
+        def fail_before_retain(*args, **kwargs):
+            assert rows_at(market) == before  # Readers still see the unchanged generation.
+            raise sqlite3.IntegrityError("retain failure")
+
+        monkeypatch.setattr(price_native, "retain_price_input", fail_before_retain)
+    else:
         record = price_native.record_source_coverage
 
         def fail_after_write(*args, **kwargs):
@@ -198,7 +196,9 @@ def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
             raise sqlite3.IntegrityError("coverage failure")
 
         monkeypatch.setattr(price_native, "record_source_coverage", fail_after_write)
-    with pytest.raises(sqlite3.IntegrityError, match=r"UNIQUE constraint failed|coverage failure"):
+    with pytest.raises(
+        sqlite3.IntegrityError, match=r"UNIQUE constraint failed|coverage failure|retain failure"
+    ):
         price_native.model_input(
             store,
             fixed,
@@ -206,8 +206,9 @@ def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
             evaluated_at=AT + timedelta(hours=1),
             market=market,
         )
-    assert len(transferred) >= 4  # Failure follows a successful insert batch.
     assert rows_at(market) == before
+    if failure != "coverage":
+        assert not store.put_keys
 
 
 def test_native_price_paths_use_small_runner_session(tmp_path, monkeypatch, fixed_prices):
@@ -244,8 +245,8 @@ def test_native_price_paths_use_small_runner_session(tmp_path, monkeypatch, fixe
     assert cold["rows"] == direct["rows"] == 4
     with sqlite3.connect(market) as connection:
         assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone() == (4,)
-    assert len(observed) == 3
-    assert len({item["temp_directory"] for item in observed}) == 3
+    assert len(observed) == 2  # Only the two standalone Parquet builders need DuckDB.
+    assert len({item["temp_directory"] for item in observed}) == len(observed)
     for settings in observed:
         assert settings["memory_limit"] == "953.6 MiB"
         assert settings["threads"] == "2"

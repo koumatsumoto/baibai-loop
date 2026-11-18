@@ -24,6 +24,10 @@ DAY = date(2026, 11, 5)
 AT = datetime(2026, 11, 5, tzinfo=UTC)
 
 
+def _targets_market(database, market):
+    return database in (market, market.resolve().as_uri() + "?mode=rw")
+
+
 def _prepare(tmp_path, source):
     store = MemoryR2Store()
     market = market_store(tmp_path / "market.sqlite")
@@ -94,7 +98,7 @@ def test_projection_closes_after_commit_or_rollback(tmp_path, monkeypatch, sourc
             super().close()
 
     def tracked(database, *args, **kwargs):
-        if database == market:
+        if _targets_market(database, market):
             connection = connect(database, *args, factory=TrackedConnection, **kwargs)
             connections.append(connection)
             return connection
@@ -133,14 +137,17 @@ def test_projection_rejection_does_not_change_execution_store(
     opened = []
 
     def unavailable(database, *args, **kwargs):
-        if database == market:
-            opened.append(database)
-            raise sqlite3.OperationalError("injected open failure")
+        if _targets_market(database, market):
+            opened.append(market)
+            if failure == "connect":
+                raise sqlite3.OperationalError("injected open failure")
         return connect(database, *args, **kwargs)
 
     monkeypatch.setattr(sqlite3, "connect", unavailable)
     error = LakePublishError if failure == "missing-pack" else sqlite3.OperationalError
     with pytest.raises(error):
         project()
-    assert opened == ([] if failure == "missing-pack" else [market])
+    # Price reserves the disposable working store for day equality checks even if a later
+    # pack is missing. Both raw rejection and open failure leave its main bytes untouched.
+    assert opened == ([market] if failure == "connect" or source == "price" else [])
     assert market.read_bytes() == before
