@@ -23,7 +23,6 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
     TechnicalFinancialSelection,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
     project_technical_financial_row,
 )
 
@@ -185,10 +184,9 @@ def test_value_and_unavailable_reason_stay_together(case):
     assert actual.screening_lane == "growth_research"
 
 
-@pytest.mark.parametrize("version", range(1, 21))
-def test_old_policy_keeps_absence_and_canonical_bytes_without_regeneration(version):
+def test_old_policy_keeps_absence_and_canonical_bytes():
     legacy = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}"),
+        TechnicalFinancialPolicy(method="technical-financial-discovery-v20"),
         "T",
         "G",
         (row("1234"),),
@@ -207,8 +205,6 @@ def test_old_policy_keeps_absence_and_canonical_bytes_without_regeneration(versi
         "observations" not in technical_financial_screening_brief(restored)["cards"][0]["technical"]
     )
     assert "market_conditioned_60d" not in brief(restored.rows[0])["technical"]
-    with pytest.raises(ValueError, match=r"historical.*read-only"):
-        evaluate_technical_financial_rows(_metadata(), tickers=(), rows={}, policy=restored.policy)
 
 
 def test_benchmark_sensitivity_reaches_card_without_reselecting_routes():

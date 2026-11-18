@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 from tests.engine.investment_judgment.workflow.test_technical_financial_context import seed
 from tests.engine.machine_analysis.screening.test_forecast_context import FORECAST
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
+from tests.helpers.archived_technical_financial import SIX_STOCK_ORDER, archived_from_models
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
@@ -37,7 +37,7 @@ def test_forecast_card_detail_and_detached_research_keep_same_recorded_source(tm
         if model.subject == "1234" and model.model_id == "company_financials":
             model.payload["financial"].update(FORECAST)
     publish_generation(fixed, path=path)
-    selected = evaluate_fixed(fixed)
+    selected = archived_from_models(fixed, order=SIX_STOCK_ORDER)
     ScreeningSelectionStore(path).publish("forecast-policy", selected)
     publication = read_publication(path=path, selection_id="forecast-policy")
     now = publication.published_at + timedelta(seconds=1)
@@ -126,7 +126,7 @@ def test_legacy_saved_card_is_not_backfilled_from_available_forecast_model(tmp_p
         if model.subject == "1234" and model.model_id == "company_financials":
             model.payload["financial"].update(FORECAST)
     publish_generation(fixed, path=path)
-    selected = evaluate_fixed(fixed)
+    selected = archived_from_models(fixed, order=SIX_STOCK_ORDER)
     legacy = replace(
         selected,
         result=replace(

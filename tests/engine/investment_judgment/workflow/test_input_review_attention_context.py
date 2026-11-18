@@ -52,10 +52,6 @@ def test_saved_policy_order_and_workspace_bytes_survive_runless_resume(
         pytest.fail("saved policy was recomputed")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.technical_financial.discovery_display_order",
-        forbidden,
-    )
-    monkeypatch.setattr(
         "baibai_engine.machine_analysis.screening.policies.technical_financial_selection.project_technical_financial_row",
         forbidden,
     )

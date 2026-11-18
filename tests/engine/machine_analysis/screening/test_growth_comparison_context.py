@@ -12,6 +12,7 @@ from tests.engine.machine_analysis.screening.test_financial_growth import (
 )
 from tests.engine.machine_analysis.screening.test_growth_period_context import project
 from tests.engine.machine_analysis.screening.test_technical_financial import row
+from tests.helpers.archived_technical_financial import stored_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
@@ -22,9 +23,6 @@ from baibai_engine.machine_analysis.screening.policies.financial_growth import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
 )
 
 
@@ -41,9 +39,7 @@ def test_selected_comparisons_reach_card_exactly_and_independently():
         "operating_margin": "ratio",
     }
     assert context["comparison_basis"] == "source_reported_economic_scope_unverified"
-    result = evaluate_technical_financial_rows(
-        metadata(), tickers=("1234",), rows={"1234": projected}, policy=TechnicalFinancialPolicy()
-    ).result
+    result = stored_result((projected,), order=("1234",))
     card = technical_financial_screening_brief(result)["cards"][0]
     assert card["financial_gate"]["quarter_growth_context"] == context
     card["financial_gate"]["quarter_growth_context"]["changes"]["sales"]["from_value"] = 0
@@ -106,5 +102,3 @@ def test_v13_preserves_existing_periods_but_does_not_invent_comparisons():
     card = technical_financial_screening_brief(restored)["cards"][0]["financial_gate"]
     assert "quarter_growth_context" not in card
     assert card["observation_period_context"] == {"annual_variant": "annual_ttm"}
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

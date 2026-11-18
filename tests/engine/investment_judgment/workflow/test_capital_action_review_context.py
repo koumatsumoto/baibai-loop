@@ -9,7 +9,7 @@ from tests.engine.machine_analysis.screening.test_capital_action_input_review im
     REASON,
     native_generation,
 )
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
+from tests.helpers.archived_technical_financial import archived_from_models
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
@@ -32,9 +32,6 @@ from baibai_engine.machine_analysis.screening.contracts import ScreeningSelectio
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
 )
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
-)
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import encode_json
@@ -43,7 +40,7 @@ from baibai_engine.primitives.json import encode_json
 def seed(path, *, version=None):
     fixed = native_generation(completed_action=True)
     publish_generation(fixed, path=path)
-    selected = evaluate_fixed(fixed)
+    selected = archived_from_models(fixed, order=("1001",))
     assert selected.result.policy.method == "technical-financial-discovery-v26"
     if version is not None:
         row = selected.result.rows[0]
@@ -155,7 +152,7 @@ def test_action_gap_survives_first_card_detail_prepare_and_runless_resume(tmp_pa
 @pytest.mark.parametrize("version", range(1, 7))
 def test_old_policy_keeps_absence_despite_available_capital_model(tmp_path, version):
     path = tmp_path / "runs"
-    fixed, selected, now = seed(path, version=version)
+    _fixed, selected, now = seed(path, version=version)
     codec = TypeAdapter(ScreeningSelection)
     canonical = encode_json(codec.dump_python(selected, mode="json"))
     original = path.read_bytes()
@@ -171,10 +168,3 @@ def test_old_policy_keeps_absence_despite_available_capital_model(tmp_path, vers
     assert encode_json(codec.dump_python(restored, mode="json")) == canonical
     ScreeningSelectionStore(path).publish("capital-action-selection", selected)
     assert path.read_bytes() == original
-    with pytest.raises(ValueError, match=r"historical.*read-only"):
-        evaluate_technical_financial_rows(
-            fixed,
-            tickers=("1001",),
-            rows={"1001": selected.result.rows[0]},
-            policy=selected.result.policy,
-        )

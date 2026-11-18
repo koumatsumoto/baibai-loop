@@ -1,262 +1,43 @@
-"""予備laneの有限注意順。代表抽出や投資優位をtestしない。"""
-
-from copy import deepcopy
-from dataclasses import replace
-from hashlib import sha256
-from typing import get_args
+"""過去の公表に書かれた順・理由だけを読む。新規選定の抽選はない。"""
 
 import pytest
+from pydantic import TypeAdapter
 from tests.engine.machine_analysis.screening.test_technical_financial import row
-from tests.helpers.technical_discovery import _metadata
+from tests.helpers.archived_technical_financial import stored_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
 )
-from baibai_engine.machine_analysis.screening.policies import technical_financial as owner
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-    discovery_display_order,
 )
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
-    technical_financial_selection_id,
-)
-
-
-def review(ticker, routes=("a",), *, share_gap=False):
-    original = row(ticker, routes, state="input_unresolved")
-    if not share_gap:
-        return original
-    return replace(
-        original,
-        screening_lane="input_review",
-        financial_gate={
-            **original.financial_gate,
-            "state": "not_selected",
-            "checks": {"net_assets": {"state": "not_met", "value": -10}},
-        },
-        financial_paths={
-            **original.financial_paths,
-            "input_review_reasons": [
-                {"path_id": "earning_power", "reason": "missing_capital_basis"},
-                {"path_id": "business_expansion", "reason": "missing_capital_basis"},
-            ],
-        },
-    )
-
-
-def result(rows, *, method="technical-financial-discovery-v12", order=None):
-    return TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(method=method),
-        "T",
-        "G",
-        tuple(rows),
-        discovery_display_order(rows) if order is None else order,
-        {},
-    )
-
-
-def test_input_review_keeps_its_lane_local_order_and_slots():
-    # The third company only has explicit financial-input questions, not a T pass.
-    reviews = (review("2001", ("a",)), review("2002", ("b",)), review("2003", (), share_gap=True))
-    growth = tuple(row(str(1000 + i), ("a",)) for i in range(50))
-    alternative = replace(
-        row("3001", ("b",), state="not_selected"),
-        financial_paths={"matched_routes": ["earning_power"], "paths": []},
-        screening_lane="alternative_financial_research",
-    )
-    rows = (*growth, *reviews, alternative)
-    order = discovery_display_order(rows)
-    review_tickers = {r.ticker for r in reviews}
-    assert tuple(t for t in order if t in review_tickers) == discovery_display_order(reviews)
-    # Other lanes may reorder internally, without moving the review slots.
-    previous = owner._route_display_order(rows)
-    assert [i for i, t in enumerate(order) if t not in review_tickers] == [
-        i for i, t in enumerate(previous) if t not in review_tickers
-    ]
-    assert set(order) == {r.ticker for r in rows}
-
-
-def test_one_company_hash_is_stable_and_does_not_rank_by_values():
-    rows = tuple(review(t) for t in ("1001", "1002", "1003", "100A", "2001", "3001"))
-    expected = tuple(
-        sorted(
-            (r.ticker for r in rows),
-            key=lambda t: (sha256(f"baibai-loop/attention-control/v1\0{t}".encode()).digest(), t),
-        )
-    )
-    assert expected != tuple(sorted(expected))
-    assert discovery_display_order(rows) == expected
-    assert discovery_display_order(tuple(reversed(rows))) == expected
-    changed = tuple(
-        replace(r, financial_gate={**r.financial_gate, "checks": {"profit": i * 1000000}})
-        for i, r in enumerate(rows)
-    )
-    assert discovery_display_order(changed) == expected
-
-
-def test_hash_collision_has_a_deterministic_ticker_tie_break(monkeypatch):
-    class Collision:
-        def digest(self):
-            return b"same"
-
-    monkeypatch.setattr(owner, "sha256", lambda _: Collision())
-    assert discovery_display_order((review("2002"), review("100A"), review("1001"))) == (
-        "1001",
-        "100A",
-        "2002",
-    )
-
-
-def test_multiple_routes_share_one_company_key_and_keep_all_review_questions(monkeypatch):
-    rows = (review("1001", ("a", "b")), review("1002", (), share_gap=True), review("1003"))
-    before = deepcopy(rows)
-    original = owner.sha256
-    keys = []
-
-    def observe(value):
-        keys.append(value)
-        return original(value)
-
-    monkeypatch.setattr(owner, "sha256", observe)
-    order = discovery_display_order(rows)
-    assert sorted(keys) == [f"baibai-loop/attention-control/v1\0{r.ticker}".encode() for r in rows]
-    assert len(order) == len(set(order)) == 3
-    assert rows == before
-    brief = technical_financial_screening_brief(result(rows), lane="input_review")
-    gap = next(c for c in brief["cards"] if c["ticker"] == "1002")
-    assert gap["financial_gate"]["state"] == "not_selected"
-    assert gap["financial_gate"]["checks"]["net_assets"]["value"] == -10
-    assert gap["financial_paths"]["matched_routes"] == []
-    assert gap["financial_paths"]["coordinates"] == []
-    assert len(gap["financial_paths"]["input_review_reasons"]) == 2
-
-
-@pytest.mark.parametrize("size", [0, 1, 36, 37, 73])
-def test_all_pages_are_unique_repeatable_and_keep_unmatched_inputs(size):
-    rows = tuple(
-        review(str(1000 + i), () if i % 2 else ("a",), share_gap=bool(i % 2)) for i in range(size)
-    )
-    saved = result(rows)
-    pages = [
-        technical_financial_screening_brief(saved, lane="input_review", page=p)
-        for p in range((size + 35) // 36 + 1)
-    ]
-    tickers = tuple(c["ticker"] for page in pages for c in page["cards"])
-    assert tickers == saved.lane_tickers("input_review")
-    assert len(tickers) == len(set(tickers)) == size
-    assert pages[-1]["cards"] == []
-    assert pages[-1]["page"]["next"] is None
-    for page in pages:
-        assert page == technical_financial_screening_brief(
-            saved, lane="input_review", page=page["page"]["index"]
-        )
-
-
-def test_brief_explains_lane_local_order_and_counts_companies_not_routes():
-    rows = (review("1001"), review("1002", (), share_gap=True), row("3001"))
-    saved = result(rows)
-    brief = technical_financial_screening_brief(saved, lane="input_review")
-    assert (
-        brief["presentation"]["kind"] == "saved_lane_local_route_round_robin_not_investment_ranking"
-    )
-    assert brief["presentation"]["ties"] == "stable_company_hash_then_ticker_not_quality_or_return"
-    assert brief["lanes"]["input_review"]["financial_gate_states"] == {
-        "input_unresolved": 1,
-        "not_selected": 1,
-    }
-    for lane in ("growth_research", "alternative_financial_research"):
-        other = technical_financial_screening_brief(saved, lane=lane)
-        assert (
-            other["presentation"]["ties"] == "stable_company_hash_then_ticker_not_quality_or_return"
-        )
-    detail = technical_financial_screening_brief(saved, page=None)
-    assert detail["cards"] == []
-    assert detail["presentation"]["ties"] == (
-        "stable_company_hash_then_ticker_not_quality_or_return"
-    )
 
 
 @pytest.mark.parametrize(
-    "method",
+    ("version", "ties"),
     [
-        "technical-financial-discovery-v1",
-        "technical-financial-discovery-v2",
-        "technical-financial-discovery-v3",
-        "technical-financial-discovery-v4",
-        "technical-financial-discovery-v5",
-        "technical-financial-discovery-v6",
-        "technical-financial-discovery-v7",
-        "technical-financial-discovery-v8",
-        "technical-financial-discovery-v9",
-        "technical-financial-discovery-v10",
-        "technical-financial-discovery-v11",
+        (2, "ticker_code_order_not_quality_or_return"),
+        (3, "stable_company_hash_then_ticker_not_quality_or_return"),
+        (12, "stable_company_hash_then_ticker_not_quality_or_return"),
     ],
 )
-def test_historical_policy_keeps_stored_order_description_and_cannot_regenerate(method):
-    rows = (review("1001"), review("1002"), review("1003"))
-    stored_order = ("1003", "1001", "1002")
-    saved = result(rows, method=method, order=stored_order)
-    brief = technical_financial_screening_brief(saved, lane="input_review")
-    assert tuple(c["ticker"] for c in brief["cards"]) == stored_order
-    if method in {
-        "technical-financial-discovery-v3",
-        "technical-financial-discovery-v4",
-        "technical-financial-discovery-v5",
-        "technical-financial-discovery-v6",
-        "technical-financial-discovery-v7",
-        "technical-financial-discovery-v8",
-        "technical-financial-discovery-v9",
-        "technical-financial-discovery-v10",
-        "technical-financial-discovery-v11",
-    }:
-        assert (
-            brief["presentation"]["ties"] == "stable_company_hash_then_ticker_not_quality_or_return"
-        )
-        assert "financial_gate_states" in brief["lanes"]["input_review"]
-    else:
-        assert brief["presentation"]["ties"] == "ticker_code_order_not_quality_or_return"
-        assert "financial_gate_states" not in brief["lanes"]["input_review"]
-    with pytest.raises(ValueError, match=r"historical.*read-only"):
-        evaluate_technical_financial_rows(_metadata(), tickers=(), rows={}, policy=saved.policy)
-    assert technical_financial_selection_id(
-        "fixed", policy=saved.policy
-    ) != technical_financial_selection_id("fixed", policy=TechnicalFinancialPolicy())
-
-
-def test_input_lane_does_not_promote_rows_without_a_hypothesis():
-    outside = replace(review("9999"), screening_lane="no_current_hypothesis")
-    assert discovery_display_order((outside, review("1001"))) == ("1001",)
-
-
-@pytest.mark.parametrize(
-    "method", get_args(TechnicalFinancialPolicy.model_fields["method"].annotation)
-)
-def test_policy_owns_saved_attention_order_without_changing_serialization(method):
-    policy = TechnicalFinancialPolicy(method=method)
-    version = int(method.rsplit("v", 1)[1])
-    expected = (
-        "ticker_code" if version < 3 else "input_review_hash" if version < 12 else "all_lanes_hash"
+def test_original_order_and_its_historical_label_survive(version, ties):
+    rows = tuple(row(t, state="input_unresolved") for t in ("1001", "1002", "1003"))
+    order = ("1003", "1001", "1002")
+    value = stored_result(
+        rows,
+        order=order,
+        policy=TechnicalFinancialPolicy(
+            method=f"technical-financial-discovery-v{version}", page_size=2
+        ),
     )
-    assert policy.attention_order == expected
-    assert policy.model_dump(mode="json") == {"method": policy.method, "page_size": 36}
-    assert "attention_order" not in policy.model_json_schema()["properties"]
-    saved = TechnicalFinancialSelection(policy, "T", "G", (), (), {})
-    for lane in ("growth_research", "input_review", "alternative_financial_research"):
-        brief = technical_financial_screening_brief(saved, lane=lane)
-        hash_order = version >= 12 or (version >= 3 and lane == "input_review")
-        assert brief["presentation"]["ties"] == (
-            "stable_company_hash_then_ticker_not_quality_or_return"
-            if hash_order
-            else "ticker_code_order_not_quality_or_return"
-        )
-        assert ("financial_gate_states" in brief["lanes"]["input_review"]) == (version >= 3)
-    whole = technical_financial_screening_brief(saved, page=None)
-    assert whole["presentation"]["ties"] == (
-        "input_review_company_hash_other_lanes_ticker_code_not_quality_or_return"
-        if 3 <= version < 12
-        else "stable_company_hash_then_ticker_not_quality_or_return"
-        if version >= 12
-        else "ticker_code_order_not_quality_or_return"
-    )
+    codec = TypeAdapter(TechnicalFinancialSelection)
+    raw = codec.dump_json(value)
+    decoded = codec.validate_json(raw)
+    pages = [
+        technical_financial_screening_brief(decoded, lane="input_review", page=p) for p in (0, 1)
+    ]
+    assert tuple(c["ticker"] for page in pages for c in page["cards"]) == order
+    assert all(page["presentation"]["ties"] == ties for page in pages)
+    assert codec.dump_json(decoded) == raw

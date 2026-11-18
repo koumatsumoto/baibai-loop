@@ -15,7 +15,6 @@ from baibai_engine.investment_judgment.workflow.selection_query import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-    discovery_display_order,
 )
 
 
@@ -52,7 +51,7 @@ def test_finite_diagnostic_counts_companies_not_routes_and_never_changes_candida
         row("2000", state="input_unresolved"),
     )
     result = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(page_size=2), "T", "G", rows, discovery_display_order(rows), {}
+        TechnicalFinancialPolicy(page_size=2), "T", "G", rows, ("1000", "2000"), {}
     )
     codec = TypeAdapter(TechnicalFinancialSelection)
     before = codec.dump_json(result)

@@ -9,7 +9,7 @@ from pydantic import TypeAdapter
 from tests.engine.investment_judgment.workflow.test_technical_financial_context import args, seed
 from tests.engine.machine_analysis.screening.test_accounting_notice_context import NOTICE
 from tests.engine.machine_analysis.screening.test_economic_path_inputs import payloads
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
+from tests.helpers.archived_technical_financial import SIX_STOCK_ORDER, archived_from_models
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
@@ -49,7 +49,7 @@ def test_recorded_notice_to_fixed_research_and_runless_resume_without_old_backfi
         if model.subject == "1234" and model.model_id == "company_financials":
             model.payload["earnings_price"] = earnings
     publish_generation(fixed, path=path)
-    selected = evaluate_fixed(fixed)
+    selected = archived_from_models(fixed, order=SIX_STOCK_ORDER)
     expected = next(
         row.financial_paths["accounting_change_context"]
         for row in selected.result.rows

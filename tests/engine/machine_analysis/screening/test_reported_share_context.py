@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 from pydantic import TypeAdapter
-from tests.engine.machine_analysis.screening.test_financial_growth import metadata, payloads
+from tests.engine.machine_analysis.screening.test_financial_growth import payloads
 from tests.engine.machine_analysis.screening.test_growth_period_context import project
 from tests.engine.machine_analysis.screening.test_technical_financial import row
 
@@ -14,9 +14,6 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
 )
 
 FIELD = "reported_share_context"
@@ -140,5 +137,3 @@ def test_old_v19_does_not_backfill_reported_share_context():
     restored = codec.validate_json(original)
     assert codec.dump_json(restored) == original
     assert FIELD not in technical_financial_screening_brief(restored)["cards"][0]["financial_gate"]
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

@@ -13,10 +13,8 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-    discovery_display_order,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
     project_technical_financial_row,
 )
 
@@ -68,7 +66,6 @@ def test_cashflow_and_its_period_reach_card_without_changing_profit_gates(cfo, t
     assert actual.technical == control.technical
     assert actual.financial_paths == control.financial_paths
     assert actual.screening_lane == control.screening_lane
-    assert discovery_display_order((actual,)) == discovery_display_order((control,))
     saved = TechnicalFinancialSelection(
         TechnicalFinancialPolicy(), "T", "G", (actual,), ("1234",), {}
     )
@@ -100,11 +97,10 @@ def test_unrecorded_and_ungenerated_cf_are_distinct():
     assert actual.financial_gate["state"] == "research_candidate"
 
 
-@pytest.mark.parametrize("version", range(1, 9))
-def test_old_policy_does_not_backfill_cf_or_regenerate(version):
+def test_old_policy_does_not_backfill_cf():
     legacy = row("1234")
     saved = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}"),
+        TechnicalFinancialPolicy(method="technical-financial-discovery-v8"),
         "T",
         "G",
         (legacy,),
@@ -116,5 +112,3 @@ def test_old_policy_does_not_backfill_cf_or_regenerate(version):
     restored = codec.validate_json(raw)
     assert codec.dump_json(restored) == raw
     assert FIELD not in technical_financial_screening_brief(restored)["cards"][0]["financial_gate"]
-    with pytest.raises(ValueError, match=r"historical.*read-only"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

@@ -1,20 +1,17 @@
 """商い拡大の相対条件と円規模・観測不足を同じ候補で読む。"""
 
 from copy import deepcopy
-from dataclasses import asdict, replace
+from dataclasses import asdict
 
 import pytest
 from tests.engine.machine_analysis.screening.test_financial_input_review import (
     case,
     project_unchanged,
 )
-from tests.engine.machine_analysis.screening.test_input_review_attention import result
+from tests.helpers.archived_technical_financial import stored_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-    discovery_display_order,
 )
 
 FIELD = "turnover_activity_20d"
@@ -64,7 +61,9 @@ def test_original_activity_values_window_and_absence_reach_first_card(state):
         activity = {}
     data = payloads(activity)
     row = project_unchanged(data)
-    card = technical_financial_screening_brief(result((row,)), lane=row.screening_lane)["cards"][0]
+    card = technical_financial_screening_brief(
+        stored_result((row,), order=("1234",)), lane=row.screening_lane
+    )["cards"][0]
     assert row.technical[FIELD] == activity
     assert card["technical"][FIELD] == activity
     if state == "incomplete":
@@ -90,7 +89,9 @@ def test_unrecorded_activity_is_not_filled_or_turned_into_zero(missing_model):
     row = project_unchanged(data)
     assert row.financial_gate == baseline.financial_gate
     assert FIELD not in row.technical
-    brief = technical_financial_screening_brief(result((row,)), comparison_tickers=("1234",))
+    brief = technical_financial_screening_brief(
+        stored_result((row,), order=("1234",)), comparison_tickers=("1234",)
+    )
     assert all(FIELD not in card["technical"] for card in brief["cards"])
     detail = brief["comparison_rows"][0]
     assert FIELD not in detail["technical"]
@@ -110,10 +111,6 @@ def test_same_ratio_at_different_yen_scale_does_not_change_T_G_F_or_attention():
     del left["technical"][FIELD], right["technical"][FIELD]
     assert left == right
     assert small.technical["routes"]["turnover_expansion"]["state"] == "matched"
-    companion = replace(small, ticker="2345")
-    assert discovery_display_order((small, companion)) == discovery_display_order(
-        (large, companion)
-    )
 
 
 def test_unknown_activity_fields_are_preserved_without_new_inference():

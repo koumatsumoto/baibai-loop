@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 from pydantic import TypeAdapter
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
+from tests.helpers.archived_technical_financial import SIX_STOCK_ORDER, archived_from_models
 from tests.helpers.technical_financial import _seed
 
 from baibai_engine.machine_analysis.generation.contracts import (
@@ -12,11 +12,9 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GenerationSubject,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-    TechnicalFinancialPolicy,
     TechnicalFinancialRow,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
     project_technical_financial_row,
 )
 
@@ -28,7 +26,7 @@ BASIS = "One group business; not whole-company exposure or survey membership"
 @pytest.mark.parametrize("basis", [None, {}, {SUBJECT: ""}, {SUBJECT: BASIS, OTHER: "B"}])
 def test_only_recorded_relation_is_added_without_changing_paths_gates_or_order(tmp_path, basis):
     fixed = _seed(tmp_path / "runs")
-    original = evaluate_fixed(fixed)
+    original = archived_from_models(fixed, order=SIX_STOCK_ORDER)
     ticker = original.result.rows[0].ticker
     plan = deepcopy(fixed.subject_plan)
     plan[ticker] = plan[ticker].model_copy(
@@ -37,7 +35,7 @@ def test_only_recorded_relation_is_added_without_changing_paths_gates_or_order(t
     plan[SUBJECT] = GenerationSubject(scope="sector", model_ids=("industry_trends",))
     plan[OTHER] = GenerationSubject(scope="sector", model_ids=("industry_trends",))
     linked = fixed.model_copy(update={"subject_plan": plan})
-    result = evaluate_fixed(linked)
+    result = archived_from_models(linked, order=SIX_STOCK_ORDER)
     codec = TypeAdapter(TechnicalFinancialRow)
     expected = {"related_subjects": [SUBJECT, OTHER]}
     if basis is not None:
@@ -71,15 +69,3 @@ def test_missing_relation_stays_absent_and_legacy_row_roundtrips(tmp_path, scope
     canonical = codec.dump_json(row)
     assert b"related_subject_context" not in canonical
     assert codec.dump_json(codec.validate_json(canonical)) == canonical
-
-
-@pytest.mark.parametrize("version", range(1, 25))
-def test_every_historical_policy_remains_read_only(tmp_path, version):
-    fixed = _seed(tmp_path / "runs")
-    metadata = GenerationMetadata.model_validate(fixed.model_dump(exclude={"models"}))
-    policy = TechnicalFinancialPolicy.model_validate(
-        {"method": f"technical-financial-discovery-v{version}"}
-    )
-    assert TechnicalFinancialPolicy.model_validate_json(policy.model_dump_json()) == policy
-    with pytest.raises(ValueError, match="historical technical-financial policy is read-only"):
-        evaluate_technical_financial_rows(metadata, tickers=(), rows={}, policy=policy)

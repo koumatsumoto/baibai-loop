@@ -3,7 +3,8 @@
 from datetime import timedelta
 
 import pytest
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed, row
+from tests.engine.machine_analysis.screening.test_technical_financial import row
+from tests.helpers.archived_technical_financial import SIX_STOCK_ORDER, archived_from_models
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.technical_financial import _seed
@@ -29,7 +30,6 @@ from baibai_engine.investment_judgment.workflow.workspace.selected_prepare impor
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-    discovery_display_order,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -52,7 +52,7 @@ def seed(path):
                                 metric, {"value": None, "reason": "not_observed", "documents": []}
                             )
     publish_generation(fixed, path=path)
-    selected = evaluate_fixed(fixed)
+    selected = archived_from_models(fixed, order=SIX_STOCK_ORDER)
     ScreeningSelectionStore(path).publish("technical-policy", selected)
     publication = read_publication(path=path, selection_id="technical-policy")
     now = publication.published_at + timedelta(seconds=1)
@@ -228,7 +228,7 @@ def test_display_capacity_never_removes_saved_candidates():
         "T",
         "G",
         rows,
-        discovery_display_order(rows),
+        tuple(r.ticker for r in reversed(rows)),
         {"planned_stocks": 73},
     )
     pages = [technical_financial_screening_brief(result, page=page) for page in range(3)]
@@ -262,7 +262,7 @@ def test_alternative_lane_is_explicit_and_keeps_known_failure():
         "T",
         "G",
         (alternative,),
-        discovery_display_order((alternative,)),
+        (alternative.ticker,),
         {},
     )
     primary = technical_financial_screening_brief(result)

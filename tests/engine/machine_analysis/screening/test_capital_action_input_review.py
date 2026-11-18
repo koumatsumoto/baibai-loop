@@ -13,6 +13,7 @@ from tests.engine.machine_analysis.screening.test_full_fy_fallback import AS_OF,
 from tests.engine.machine_analysis.screening.test_unresolved_financial_input_review import (
     unresolved_case,
 )
+from tests.helpers.archived_technical_financial import stored_result
 from tests.helpers.model_generation import materialize_generation
 
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
@@ -23,11 +24,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-    TechnicalFinancialPolicy,
-)
 from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
     project_technical_financial_row,
 )
 
@@ -164,10 +161,8 @@ def test_normal_generation_retains_action_unknown_in_review_not_pricing():
         "business_expansion",
     }
     assert {r["reason"] for r in row.financial_paths["input_review_reasons"]} == {REASON}
-    selected = evaluate_technical_financial_rows(
-        fixed, tickers=("1001",), rows={"1001": row}, policy=TechnicalFinancialPolicy()
-    )
-    assert selected.result.lane_tickers("input_review") == ("1001",)
+    selected = stored_result((row,), order=("1001",))
+    assert selected.lane_tickers("input_review") == ("1001",)
     cf = next(model.payload for model in fixed.models if model.model_id == "company_financials")
     assert cf["earnings_price"]["unavailable_reason"] == REASON
     for key in ("shares_ex_treasury", "market_cap_yen", "earnings_yield"):

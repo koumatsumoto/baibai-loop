@@ -151,7 +151,7 @@ def test_valid_policy_copy_revalidates_only_settings_and_preserves_saved_bytes(
     assert store.read("fixed") == selected
 
 
-def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp_path, monkeypatch):
+def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp_path):
     path = tmp_path / "runs.sqlite"
     original = generation()
     publish_generation(original, path=path)
@@ -167,13 +167,6 @@ def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp
         ),
     )
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("storage must not execute candidate policy")
-
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.technical_financial_selection.evaluate_technical_financial_rows",
-        forbidden,
-    )
     store = ScreeningSelectionStore(path)
     assert store.publish("selection-a", selected)
     assert not store.publish("selection-a", selected)

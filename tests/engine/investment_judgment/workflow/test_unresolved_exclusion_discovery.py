@@ -6,7 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import TypeAdapter
 from tests.engine.investment_judgment.workflow.test_technical_financial_context import args, seed
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed, row
+from tests.engine.machine_analysis.screening.test_technical_financial import row
+from tests.helpers.archived_technical_financial import archived_from_models
 from tests.helpers.model_generation import publish_generation
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
@@ -20,7 +21,6 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
     TechnicalFinancialPolicy,
     TechnicalFinancialRow,
     TechnicalFinancialSelection,
-    discovery_display_order,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -84,7 +84,7 @@ def test_unresolved_scope_finds_nontechnical_rows_with_failures_and_missing_mode
         row("6000", ("trend",), "not_selected"),
     )
     result = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(page_size=2), "T", "G", rows, discovery_display_order(rows), {}
+        TechnicalFinancialPolicy(page_size=2), "T", "G", rows, ("1000", "5000"), {}
     )
     codec = TypeAdapter(TechnicalFinancialSelection)
     before = codec.dump_json(result)
@@ -139,7 +139,7 @@ def test_normal_saved_context_preserves_cutoff_order_and_only_explicit_detail_lo
         if model.subject == "3456" and model.model_id == "technical_analysis":
             model.payload["price_path"]["current_row_state"] = "no_trade"
     publish_generation(fixed, path=path)
-    selected = evaluate_fixed(fixed)
+    selected = archived_from_models(fixed, order=("4567", "5678", "6789", "1234"))
     selected = replace(
         selected,
         result=replace(

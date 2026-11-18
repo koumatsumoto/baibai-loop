@@ -8,7 +8,7 @@ import pytest
 from pydantic import TypeAdapter
 from tests.engine.investment_judgment.workflow.test_financial_input_review_context import seed
 from tests.engine.machine_analysis.screening.test_activity_context import ACTIVITY, FIELD
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
+from tests.helpers.archived_technical_financial import FOUR_STOCK_ORDER, archived_from_models
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
@@ -47,7 +47,7 @@ def test_first_comparison_and_detached_research_keep_activity_without_backfillin
         if model.subject == "1234" and model.model_id == "market_context":
             model.payload.setdefault("price", {})[FIELD] = deepcopy(ACTIVITY)
     publish_generation(fixed, path=path)
-    selected = evaluate_fixed(fixed)
+    selected = archived_from_models(fixed, order=FOUR_STOCK_ORDER)
     assert selected.result.policy.method == "technical-financial-discovery-v26"
     if legacy:
         selected = replace(

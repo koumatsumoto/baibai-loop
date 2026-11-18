@@ -6,6 +6,7 @@ import pytest
 from pydantic import TypeAdapter
 from tests.engine.machine_analysis.screening.test_financial_growth import metadata, models, payloads
 from tests.engine.machine_analysis.screening.test_technical_financial import row
+from tests.helpers.archived_technical_financial import stored_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
@@ -15,7 +16,6 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
     TechnicalFinancialSelection,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
     project_technical_financial_row,
 )
 
@@ -41,11 +41,9 @@ def test_adopted_periods_and_all_source_dates_reach_first_card_without_value_cha
     }
     assert context["annual"]["period_start"] == "2025-10-01"
     assert context["balance"]["period_start"] == "2026-09-30"
-    saved = evaluate_technical_financial_rows(
-        metadata(), tickers=("1234",), rows={"1234": actual}, policy=TechnicalFinancialPolicy()
-    )
-    assert saved.result.policy.method == "technical-financial-discovery-v26"
-    card = technical_financial_screening_brief(saved.result)["cards"][0]
+    saved = stored_result((actual,), order=("1234",))
+    assert saved.policy.method == "technical-financial-discovery-v26"
+    card = technical_financial_screening_brief(saved)["cards"][0]
     assert card["financial_gate"]["observation_period_context"] == context
     assert actual.financial_gate["checks"]["positive_quarter_operating_profit"]["value"] == 100
     assert actual.financial_gate["state"] == "research_candidate"
@@ -78,10 +76,9 @@ def test_missing_growth_stays_unknown_without_using_generation_date_as_period():
     assert context["balance"] is None
 
 
-@pytest.mark.parametrize("version", range(1, 13))
-def test_old_selection_without_period_context_is_exact_and_cannot_be_regenerated(version):
+def test_old_selection_without_period_context_is_exact():
     saved = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}"),
+        TechnicalFinancialPolicy(method="technical-financial-discovery-v12"),
         "T",
         "G",
         (row("1234"),),
@@ -96,5 +93,3 @@ def test_old_selection_without_period_context_is_exact_and_cannot_be_regenerated
         "observation_period_context"
         not in technical_financial_screening_brief(restored)["cards"][0]["financial_gate"]
     )
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)
