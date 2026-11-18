@@ -6,8 +6,6 @@ import pytest
 from pydantic import TypeAdapter
 from tests.engine.machine_analysis.screening.test_financial_growth import (
     change,
-    metadata,
-    models,
     payloads,
 )
 from tests.engine.machine_analysis.screening.test_growth_period_context import project
@@ -16,9 +14,6 @@ from tests.helpers.archived_technical_financial import stored_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
-)
-from baibai_engine.machine_analysis.screening.policies.financial_growth import (
-    evaluate_financial_growth_gate,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
@@ -29,10 +24,11 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
 def test_selected_comparisons_reach_card_exactly_and_independently():
     data = payloads()
     prior = deepcopy(data)
-    diagnostic = evaluate_financial_growth_gate("1234", models=models(data), metadata=metadata())
     projected = project(data)
     context = projected.financial_gate["quarter_growth_context"]
-    assert context["changes"] == diagnostic["observations"]["quarter_changes"]
+    assert context["changes"] == {
+        metric: change(data, metric) for metric in ("sales", "operating_profit", "operating_margin")
+    }
     assert context["metric_units"] == {
         "sales": "JPY",
         "operating_profit": "JPY",

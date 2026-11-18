@@ -17,7 +17,6 @@ from baibai_engine.machine_analysis.models.company_growth.reading import (
     CompanyGrowthReader,
     metric_value,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_path_context import _growth_coverage
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
     _can_use_full_fy,
     _change,
@@ -34,20 +33,6 @@ _COMPARABILITY_REASONS = {
     "comparison_intervals_unaligned",
     "ambiguous_growth_comparison",
 }
-_FINANCIAL_CONTEXT = (
-    "cash",
-    "debt",
-    "fcf_ttm",
-    "ocf_ttm",
-    "ocf_ttm_period",
-    "edinet_reported_flows",
-    "edinet_reported_balances",
-    "edinet_source_doc_id",
-    "edinet_source_period_end",
-    "forecast_full_year_loss_flag",
-    "earnings_forecast_source",
-    "net_share_change_yoy",
-)
 _FORECAST_CONTEXT = (
     "forecast_profit_yen",
     "forecast_eps_yen",
@@ -70,14 +55,6 @@ _QUARTER_METRICS: tuple[Metric, ...] = ("sales", "operating_profit", "operating_
 _SHARE_METRICS: tuple[Metric, ...] = ("parent_profit", "reported_basic_eps", "average_shares")
 
 type CheckState = Literal["met", "not_met", "unavailable"]
-
-
-def evaluate_financial_growth_gate(
-    ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
-) -> dict[str, JsonValue]:
-    """Read one financial policy; the caller supplies one fixed subject/generation."""
-    gate, _ = _financial_growth_with_path_inputs(ticker, models=models, metadata=metadata)
-    return gate
 
 
 def _financial_growth_with_path_inputs(
@@ -243,23 +220,6 @@ def _financial_growth_with_path_inputs(
                 "quarter": _period_context(reader, quarter),
                 "balance": _period_context(reader, balance),
             },
-            "observations": {
-                "annual": reader.saved_observation(annual),
-                "annual_variant": "full_fy" if uses_fy else "annual_ttm",
-                "quarter": reader.saved_observation(quarter),
-                "balance": reader.saved_observation(balance),
-                "latest_reported": reader.saved_observation(reported),
-                "latest_ttm": reader.saved_observation(latest_ttm),
-                "quarter_changes": changes,
-                "quarter_comparison_prior_observations": _comparison_priors(
-                    reader, quarter, changes
-                ),
-                "growth_status": growth.get("status"),
-                "growth_reason": growth.get("reason"),
-                "comparison_basis": growth.get("comparison_basis"),
-                "coverage": _growth_coverage(_object(growth.get("coverage"))),
-            },
-            "financial_context": {key: financial.get(key) for key in _FINANCIAL_CONTEXT},
             **(
                 {"reported_balance_context": financial["edinet_reported_balances"]}
                 if "edinet_reported_balances" in financial
@@ -295,31 +255,6 @@ def _financial_growth_with_path_inputs(
         }
     )
     return gate, path_growth
-
-
-def _comparison_priors(
-    reader: CompanyGrowthReader,
-    quarter: Observation | None,
-    changes: dict[str, JsonValue | None],
-) -> list[JsonValue]:
-    if quarter is None:
-        return []
-    priors: dict[int, dict[str, JsonValue]] = {}
-    for metric in _QUARTER_METRICS:
-        for change in reader.year_over_year(quarter, metric):
-            # Follow the already selected comparison, not a second selection rule.
-            # PDF-derived priors are not raw observations in periods.observations.
-            if change.source_sha256 is not None or reader.saved_change(change) != changes[metric]:
-                continue
-            for prior in reader.comparison_prior(quarter, change):
-                entry = priors.setdefault(
-                    id(prior),
-                    {"comparison_metrics": [], "observation": reader.saved_observation(prior)},
-                )
-                metrics = cast(list[JsonValue], entry["comparison_metrics"])
-                if metric not in metrics:
-                    metrics.append(metric)
-    return list(priors.values())
 
 
 def _object(value: JsonValue | None) -> dict[str, JsonValue]:
