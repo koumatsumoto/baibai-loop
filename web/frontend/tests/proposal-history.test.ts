@@ -4,7 +4,7 @@ import { createMemoryRouter, MemoryRouter, RouterProvider, useSearchParams } fro
 import { describe, expect, it } from 'vitest'
 
 import type { ProposalHistoryView, SavedProposalView } from '../src/api/types'
-import { groupProposalReports, proposalReportHref, publicationPeriod, reportListSummary } from '../src/lib/proposal-history'
+import { groupProposalReports, proposalActionLabel, proposalReportHref, publicationPeriod, reportListSummary } from '../src/lib/proposal-history'
 import { ProposalHistory } from '../src/pages/ProposalHistoryPage'
 import { buyFixture, holdFixture, newProposalFixture, partialBuyFixture, reviewedDeferFixture, sellFixture } from './fixtures/proposals'
 
@@ -124,7 +124,7 @@ describe('stock report list and selection', () => {
     expect(summary(partialBuyFixture)).toBe('買い指値案。作者の上限は1400.1000000000000001円。具体的な指値・数量は未確定。')
     const noAction = { ...reviewedDeferFixture, action: 'no_action' as const, assessment: null }
     expect(summary(noAction)).toContain('新規購入を見送った')
-    expect(summary(holdFixture)).toContain('当初の投資仮説')
+    expect(summary(holdFixture)).toContain('今回の保有仮説')
     expect(summary(sellFixture)).toContain('全量売却を提案')
     const manyUnknowns = { ...reviewedDeferFixture, blockers: [{ code: 'reason', message: long }] }
     expect(summary(manyUnknowns)).toBe('判断に必要な条件がそろわず保留。確認事項は個別レポートに記録。')
@@ -175,4 +175,18 @@ it('preserves exact report selection through repeated navigation and router Back
   await router.navigate(1)
   expect(html()).toContain(buyFixture.rationale)
   router.dispose()
+})
+
+
+it('keeps allocation comparisons distinct from an entire sale', () => {
+  expect(proposalActionLabel(sellFixture)).toBe('全量売却')
+  const reasons = ['consider_partial_recovery', 'consider_full_recovery'] as const
+  for (const reason_code of reasons) {
+    const item = { ...sellFixture, rationale: '長'.repeat(101), reason_code }
+    const result = reportListSummary({ proposal: { ...older, items: [item, holdFixture] }, item })
+    expect(result).toContain('注文条件は提示していない')
+    expect(result).not.toContain('全量売却を提案')
+  }
+  expect(proposalActionLabel({ ...sellFixture, reason_code: 'consider_partial_recovery' })).toBe('一部回収の条件案')
+  expect(proposalActionLabel({ ...sellFixture, reason_code: 'consider_full_recovery' })).toBe('全量回収の条件案')
 })

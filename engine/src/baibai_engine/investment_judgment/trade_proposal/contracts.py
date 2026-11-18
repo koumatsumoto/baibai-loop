@@ -66,7 +66,10 @@ type SHA256 = Annotated[NonEmptyStr, Field(pattern=r"^[0-9a-f]{64}$")]
 type RequestScope = Literal["discover_new", "specified_stocks", "review_positions"]
 type ProposalAction = Literal["buy", "hold", "sell", "no_action", "defer"]
 type HoldingBasis = Literal["investment_case_intact", "sufficient_remaining_reward"]
-type SellReason = Literal["economic_invalidation", "insufficient_remaining_reward"]
+type ConditionalRecovery = Literal["consider_full_recovery", "consider_partial_recovery"]
+type SellReason = (
+    Literal["economic_invalidation", "insufficient_remaining_reward"] | ConditionalRecovery
+)
 
 
 class ProposalError(ValueError):
@@ -109,6 +112,15 @@ class PositionInput(_ProposalValue):
         if len(set(self.common_factors)) != len(self.common_factors):
             raise ValueError("position common factors must be unique")
         return self
+
+
+def can_compare_partial_recovery(position: PositionInput, board_lot: int | None) -> bool:
+    """At least one board lot can be removed and a positive holding would remain."""
+    return bool(
+        position.quantity_basis_confirmed
+        and board_lot is not None
+        and 0 < board_lot < position.quantity
+    )
 
 
 class QuoteInput(_ProposalValue):
@@ -330,8 +342,20 @@ class SellItem(_ProposalItem):
     terms: LimitTerms | None
     terms_unavailable_reasons: JsonTuple[GateReason] = ()
 
+    @property
+    def conditional_recovery(self) -> ConditionalRecovery | None:
+        if self.reason_code in ("consider_full_recovery", "consider_partial_recovery"):
+            return self.reason_code
+        return None
+
     @model_validator(mode="after")
     def _terms(self) -> Self:
+        if self.conditional_recovery is not None and (
+            self.terms is not None or self.remaining_reward is not None
+        ):
+            raise ValueError(
+                "conditional recovery cannot include order terms or a remaining return finding"
+            )
         if self.position.ticker != self.ticker:
             raise ValueError("sell item position ticker differs")
         _validate_terms_availability(self.terms, self.terms_unavailable_reasons)
@@ -523,6 +547,12 @@ class TradeProposalDraft(_ProposalValue):
                     or (item.timing == "at_current_limit" and ceiling > quote.price_yen)
                 ):
                     raise ValueError("proposed limit ceiling contradicts the actual quote timing")
+            if (
+                item.action == "sell"
+                and item.conditional_recovery == "consider_partial_recovery"
+                and not can_compare_partial_recovery(item.position, self.inputs.board_lot)
+            ):
+                raise ValueError("partial recovery requires more than one confirmed board lot")
             if item.action in {"hold", "sell"} and positions.get(item.ticker) != item.position:
                 raise ValueError("item position differs from the saved current position")
             if item.action in {"buy", "sell"} and item.terms is not None:
@@ -616,6 +646,8 @@ def proposal_draft_sha256(proposal: TradeProposalDraft) -> str:
 def order_readiness(item: ProposalItem) -> Literal["ready", "needs_terms", "not_applicable"]:
     """保存条件の完成度だけを投影し、発注・受理・約定を推定しない。"""
 
+    if item.action == "sell" and item.conditional_recovery is not None:
+        return "not_applicable"
     if item.action in {"buy", "sell"}:
         return "ready" if item.terms is not None else "needs_terms"
     return "not_applicable"

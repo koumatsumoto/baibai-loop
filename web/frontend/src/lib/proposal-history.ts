@@ -8,6 +8,12 @@ export const ACTION_LABEL: Record<SavedProposalView['items'][number]['action'], 
   defer: '判断保留',
 }
 
+export function proposalActionLabel(item: SavedProposalView['items'][number]) {
+  if (item.action === 'sell' && item.reason_code === 'consider_full_recovery') return '全量回収の条件案'
+  if (item.action === 'sell' && item.reason_code === 'consider_partial_recovery') return '一部回収の条件案'
+  return ACTION_LABEL[item.action]
+}
+
 const publicationClock = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -67,8 +73,11 @@ export function reportListSummary({ proposal, item }: ReportEntry): string {
       return '他の選択肢と比較し、今回は新規購入を見送った。'
     }
     case 'hold':
-      return item.holding_basis === 'investment_case_intact' ? '当初の投資仮説が続いているため、保有を継続。' : '今後の見返りが十分と判断し、保有を継続。'
+      return item.holding_basis === 'investment_case_intact' ? '今回の保有仮説を点検し、保有を継続。' : '今後の見返りが十分と判断し、保有を継続。'
     case 'sell':
+      if (item.reason_code === 'consider_partial_recovery' || item.reason_code === 'consider_full_recovery') {
+        return `${proposalActionLabel(item)}。保有継続との比較で、注文条件は提示していない。`
+      }
       return item.reason_code === 'economic_invalidation' ? '重要な投資仮説が成立しなくなったため、全量売却を提案。' : '保有を続ける見返りが足りないため、全量売却を提案。'
   }
 }
