@@ -96,7 +96,8 @@ def balance_days(
     """Finite backfill includes its last balance day, unlike a live publication plan."""
     if start > end:
         raise ValueError("invalid margin balance interval")
-    sessions, unknown = calendar_sessions(calendar.index(), start=start, end=end)
+    index = calendar.index()
+    sessions, unknown = calendar_sessions(index, start=start, end=end)
     weeks: dict[tuple[int, int], list[date]] = {}
     daily = []
     for day, opened in sessions.items():
@@ -120,7 +121,7 @@ def balance_days(
             )
             if candidate < friday:
                 later, incomplete = calendar_sessions(
-                    calendar.index(), start=candidate + timedelta(days=1), end=friday
+                    index, start=candidate + timedelta(days=1), end=friday
                 )
                 if any(state is True for state in later.values()):
                     continue
