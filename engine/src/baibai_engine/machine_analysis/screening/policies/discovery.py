@@ -75,7 +75,7 @@ def project_discovery_row(
     amount = close if isinstance(close, (int, float)) and not isinstance(close, bool) else None
     earnings = _object(source.get("company_financials", {}).get("earnings_price"))
     financial = source.get("company_financials", {})
-    book = _object(coordinates.context.get("financial")).get("book_equity")
+    book = _object(financial.get("financial")).get("book_equity")
     actions = financial.get("capital_action_evidence")
     adjustments = earnings.get("share_basis_adjustments")
     f_paths = [path for path in coordinates.paths if path.eligible]

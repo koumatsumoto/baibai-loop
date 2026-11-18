@@ -47,7 +47,8 @@ def test_stale_price_keeps_selected_nonprice_support_without_financial_clearance
     selected = next(
         p for p in coordinates.paths if (p.path_id, p.variant) == (path, reason["variant"])
     )
-    assert selected.evidence["selected_variant"] == reason["variant"]
+    assert selected.business_value is not None
+    assert selected.business_value > 0
 
 
 @pytest.mark.parametrize(

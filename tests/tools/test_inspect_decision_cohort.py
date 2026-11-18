@@ -14,7 +14,7 @@ from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.operation_proposal import PUBLISHED, proposal_for, seed_proposal
 from tests.helpers.research_selection import historical_operation, selection
-from tests.helpers.retained_economic_selection import ranked_path_fixture, retained_economic_result
+from tests.helpers.retained_economic_selection import retained_economic_result
 from tools.experiments.inspect_decision_cohort import inspect_decision_cohort, main
 
 from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
@@ -23,7 +23,8 @@ from baibai_engine.investment_judgment.workflow.selection import GeneratedResear
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathPolicy,
-    PathCoordinates,
+    PathNormalization,
+    RankedPath,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -67,27 +68,27 @@ def _start(tmp_path, tickers=("1234", "5678"), *, screening_result=None):
                 model_revisions={},
                 not_generated=(),
                 paths=(
-                    ranked_path_fixture(
-                        PathCoordinates(
-                            "earning_power",
-                            "synthetic",
-                            value,
-                            value,
-                            "price",
-                            "business",
-                            True,
-                            {},
-                        ),
-                        percentile=percentile,
-                        population=4,
-                        midrank=float(rank),
+                    RankedPath(
+                        path_id="earning_power",
+                        variant="synthetic",
+                        price_value=value,
+                        business_value=value,
+                        price_group="price",
+                        business_group="business",
+                        price_percentile=percentile,
+                        business_percentile=percentile,
+                        price_population=4,
+                        business_population=4,
+                        score=percentile,
+                        evidence={},
+                        normalization=PathNormalization(percentile, 4, midrank),
                     ),
                 ),
             )
-            for rank, ticker, value, percentile in (
-                (1, "1234", 4.0, 0.875),
-                (2, "5678", 3.0, 0.625),
-                (3, "9012", 2.0, 0.375),
+            for rank, ticker, value, percentile, midrank in (
+                (1, "1234", 4.0, 0.875, 4.0),
+                (2, "5678", 3.0, 0.625, 3.0),
+                (3, "9012", 2.0, 0.375, 2.0),
             )
         ),
     )
@@ -178,6 +179,11 @@ def test_exact_baseline_keeps_candidates_selection_actions_and_unfinished_distin
     assert rows["9012"]["research_status"] == "not_selected"
     assert rows["9012"]["proposal_item"] is None
     assert rows["9012"]["research_target"] is None
+    # Even the unselected company's published rank/coordinate survive without the source generation.
+    assert [
+        (r["ticker"], r["candidate"]["rank"], r["candidate"]["paths"][0]["price_value"])
+        for r in baseline["rows"]
+    ] == [("1234", 1, 4.0), ("5678", 2, 3.0), ("9012", 3, 2.0)]
     assert rows["1234"]["retrospective_origin"]["proposal_id"] == proposal.proposal_id
     assert observed["baseline_sha256"] == sha256(canonical_json(baseline).encode()).hexdigest()
     # 後日の同ticker評価も、このcohortの参照と内容を置換しない。

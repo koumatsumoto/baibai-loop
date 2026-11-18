@@ -22,7 +22,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.models.company_growth.reading import CompanyGrowthReader
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pages
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
+from baibai_engine.machine_analysis.screening.policies.discovery import read_discovery_observations
 from baibai_engine.primitives.json import canonical_json
 
 
@@ -53,6 +53,27 @@ def comparisons(growth, measurement):
         for item in growth.payload["changes"]
         if item["measurement"] == measurement and item["to_end"] == "2026-03-31"
     }
+
+
+def discovery_paths(generated):
+    market = GeneratedModel(
+        model_id="market_context",
+        subject="9268",
+        calculation_revision="synthetic",
+        payload={"master": {"sector_33": "卸売業"}},
+    )
+    metadata = GenerationMetadata(
+        generation_id="synthetic-restated-fy",
+        as_of=ASOF,
+        evaluation_time=datetime(2026, 11, 1, tzinfo=UTC),
+        inputs={
+            "market": InputSnapshot(kind="lake_release", reference="synthetic", sha256="a" * 64)
+        },
+    )
+    _, _, coordinates, _ = read_discovery_observations(
+        "9268", models=(*generated, market), metadata=metadata
+    )
+    return coordinates.paths
 
 
 @pytest.mark.parametrize("prior_basis", ["IFRS", "JP", None])
@@ -119,29 +140,16 @@ def test_annual_reader_and_l3_keep_restated_prior_source_and_dates():
 def test_annual_growth_path_cannot_use_old_increase_instead_of_restated_decline():
     docs, pdf = annual_inputs()
     generated = models(documents=docs, pdfs=[pdf])
-    market = GeneratedModel(
-        model_id="market_context",
-        subject="9268",
-        calculation_revision="synthetic",
-        payload={"master": {"sector_33": "卸売業"}},
-    )
-    metadata = GenerationMetadata(
-        generation_id="synthetic-restated-fy",
-        as_of=ASOF,
-        evaluation_time=datetime(2026, 11, 1, tzinfo=UTC),
-        inputs={
-            "market": InputSnapshot(kind="lake_release", reference="synthetic", sha256="a" * 64)
-        },
-    )
-    row = project_company("9268", models=(*generated, market), metadata=metadata)
-    path = next(
-        p for p in row.paths if p.path_id == "business_expansion" and p.variant == "annual_ttm"
-    )
+    paths = discovery_paths(generated)
+    path = next(p for p in paths if p.path_id == "business_expansion" and p.variant == "annual_ttm")
     assert path.business_value == pytest.approx((315_507 - 400_000) / 400_000)
     assert not path.eligible
     # The correction is not a new company veto or an investment decision.
-    assert any(p.path_id == "earning_power" and p.eligible for p in row.paths)
-    assert path.evidence["sales_change"]["source_sha256"] == pdf.source_sha256
+    assert any(p.path_id == "earning_power" and p.eligible for p in paths)
+    change = comparisons(generated[1], "annual_ttm")["sales"]
+    assert (change["from_value"], change["to_value"]) == (400_000_000_000, 315_507_000_000)
+    assert (change["from_end"], change["to_end"]) == ("2025-03-31", "2026-03-31")
+    assert change["source_sha256"] == pdf.source_sha256
 
 
 @pytest.mark.parametrize("mode", ["no_pdf", "future_pdf"])

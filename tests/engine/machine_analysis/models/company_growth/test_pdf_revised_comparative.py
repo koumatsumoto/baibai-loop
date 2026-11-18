@@ -1,29 +1,24 @@
 """後発の当期額不変だけで、組替と矛盾する旧前年の成長を復活させない。"""
 
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import date
 
 import pytest
 from tests.engine.machine_analysis.models.company_growth.test_pdf_annual_comparison import (
     annual_inputs,
     comparisons,
+    discovery_paths,
 )
 from tests.engine.machine_analysis.observations.financials.test_pdf_selection import models
-from tests.helpers.pdf_statements import ASOF, base, pages
+from tests.helpers.pdf_statements import base, pages
 
 from baibai_engine.investment_judgment.workflow.company_growth_projection import (
     project_company_growth,
-)
-from baibai_engine.machine_analysis.generation.contracts import (
-    GeneratedModel,
-    GenerationMetadata,
-    InputSnapshot,
 )
 from baibai_engine.machine_analysis.models.company_growth.calculations import build_changes
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.models.company_growth.pdf_selection import apply_pdf_changes
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pages
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
 
 REASON = "restated_comparative_unverified_after_revision"
 
@@ -170,33 +165,15 @@ def test_l3_and_financial_path_keep_unverified_comparison_without_a_company_veto
     growth = generated[1]
     projected = project_company_growth(growth.payload, ticker="9268")
     yoy = projected["latest_observations"]["annual_ttm"]["yoy"]
-    assert all(
-        item["reason"] == REASON
-        for item in yoy
-        if item["metric"] in {"sales", "operating_profit", "parent_profit", "operating_margin"}
-    )
-    market = GeneratedModel(
-        model_id="market_context",
-        subject="9268",
-        calculation_revision="synthetic",
-        payload={"master": {"sector_33": "卸売業"}},
-    )
-    metadata = GenerationMetadata(
-        generation_id="synthetic-revised-comparison",
-        as_of=ASOF,
-        evaluation_time=datetime(2026, 11, 1, tzinfo=UTC),
-        inputs={
-            "market": InputSnapshot(kind="lake_release", reference="synthetic", sha256="a" * 64)
-        },
-    )
-    row = project_company("9268", models=(*generated, market), metadata=metadata)
-    path = next(
-        p for p in row.paths if p.path_id == "business_expansion" and p.variant == "annual_ttm"
-    )
+    by_metric = {item["metric"]: item for item in yoy}
+    for metric in ("sales", "operating_profit", "parent_profit", "operating_margin"):
+        assert by_metric[metric]["reason"] == REASON
+        assert by_metric[metric]["from_value"] is None
+    paths = discovery_paths(generated)
+    path = next(p for p in paths if p.path_id == "business_expansion" and p.variant == "annual_ttm")
     assert not path.eligible
     assert path.business_value is None
-    assert path.evidence["sales_change"]["reason"] == REASON
-    assert any(p.path_id == "earning_power" and p.eligible for p in row.paths)
+    assert any(p.path_id == "earning_power" and p.eligible for p in paths)
 
 
 @pytest.mark.parametrize("published", [date(2026, 5, 15), date(2026, 6, 1)])

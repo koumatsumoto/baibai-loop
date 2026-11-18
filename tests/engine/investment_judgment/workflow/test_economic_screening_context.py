@@ -12,7 +12,7 @@ import yaml
 from pydantic import TypeAdapter
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
-from tests.helpers.retained_economic_selection import ranked_path_fixture, retained_economic_result
+from tests.helpers.retained_economic_selection import retained_economic_result
 from tests.helpers.retained_model_generation import seed_generation
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
@@ -47,7 +47,8 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
 )
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    PathCoordinates,
+    PathNormalization,
+    RankedPath,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
@@ -205,10 +206,20 @@ def seed_economic_generation(path, *, scoped=True):
             "reference_date": "2026-10-23",
         },
         "external_assessment": {
+            "minkabu_latest": {
+                "strong_buy_count": 0,
+                "buy_count": 2,
+                "analyst_eps_yen": 0,
+                "origin": None,
+                "share_basis": None,
+            },
             "comparisons": [
                 {
-                    "metric": "target_price",
+                    "distributor": "rakuten",
+                    "metric": "rating",
                     "state": "first_observation",
+                    "latest_value": 3.5,
+                    "latest_count": 0,
                     "comparable": False,
                     "delta": None,
                     "origin": "same-origin",
@@ -233,7 +244,7 @@ def seed_economic_generation(path, *, scoped=True):
                     }
                     for state in ("recovered", "count_changed", "not_comparable")
                 ),
-            ]
+            ],
         },
         "full_result_reference": {"generation_id": generation.generation_id},
     }
@@ -252,20 +263,20 @@ def seed_economic_generation(path, *, scoped=True):
                 priority=percentile,
                 strongest_path="operating_recovery",
                 paths=(
-                    ranked_path_fixture(
-                        PathCoordinates(
-                            "operating_recovery",
-                            "quarter",
-                            price,
-                            business,
-                            "food",
-                            "food",
-                            True,
-                            evidence,
-                        ),
-                        percentile=percentile,
-                        population=2,
-                        midrank=float(rank),
+                    RankedPath(
+                        path_id="operating_recovery",
+                        variant="quarter",
+                        price_value=price,
+                        business_value=business,
+                        price_group="food",
+                        business_group="food",
+                        price_percentile=percentile,
+                        business_percentile=percentile,
+                        price_population=2,
+                        business_population=2,
+                        score=percentile,
+                        evidence=evidence,
+                        normalization=PathNormalization(percentile, 2, midrank),
                     ),
                 ),
                 model_revisions=dict.fromkeys(
@@ -273,9 +284,9 @@ def seed_economic_generation(path, *, scoped=True):
                 ),
                 not_generated=(),
             )
-            for rank, ticker, price, business, percentile in (
-                (1, "5678", 0.2, 0.06, 0.75),
-                (2, "1234", 0.1, 0.03, 0.25),
+            for rank, ticker, price, business, percentile, midrank in (
+                (1, "5678", 0.2, 0.06, 0.75, 2.0),
+                (2, "1234", 0.1, 0.03, 0.25, 1.0),
             )
         ),
     )
@@ -366,6 +377,16 @@ def test_initial_cards_keep_evidence_without_reading_candidate_details(
         1,
     )
     assert [item["delta"] for item in external["comparable_changes"]] == [10.0]
+    assert external["minkabu"] == {
+        "strong_buy_count": 0,
+        "buy_count": 2,
+        "analyst_eps_yen": 0,
+        "origin": None,
+        "share_basis": None,
+    }
+    rating_source = next(s for s in external["sources"] if s.get("distributor") == "rakuten")
+    assert rating_source["states"][0]["metrics"] == {"rating": 3.5}
+    assert rating_source["states"][0]["observation_counts"]["rating"] == {"latest_count": 0}
     # 表示を編集しても保存政策の観測やidentityを変更しない。
     change["to_value"] = 999
     assert (

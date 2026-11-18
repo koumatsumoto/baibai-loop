@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date, timedelta
-from math import isclose
+from math import isclose, isfinite
 from typing import cast
 
 from pydantic import JsonValue
@@ -25,13 +24,6 @@ from baibai_engine.machine_analysis.models.company_growth.reading import (
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     is_annual_period,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_path_context import (
-    _external_context,
-    _growth_coverage,
-    _number,
-    _object,
-    _text,
-)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CompanyCoordinates,
     PathCoordinates,
@@ -41,29 +33,8 @@ _PATH_METRICS: tuple[Metric, ...] = (
     "sales",
     "operating_profit",
     "operating_margin",
-    "parent_profit",
 )
 _INCOME_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin", "parent_profit")
-
-
-def project_company(
-    ticker: str, *, models: Sequence[GeneratedModel], metadata: GenerationMetadata
-) -> CompanyCoordinates:
-    coordinates, _ = project_company_with_input_reviews(ticker, models=models, metadata=metadata)
-    return coordinates
-
-
-def project_company_with_input_reviews(
-    ticker: str, *, models: Sequence[GeneratedModel], metadata: GenerationMetadata
-) -> tuple[CompanyCoordinates, tuple[dict[str, JsonValue], ...]]:
-    """価格座標は埋めず、選択済み事業仮説の価格入力確認を別に返す。"""
-    index = {model.model_id: model for model in models}
-    return _project_economic_paths(
-        ticker,
-        index=index,
-        metadata=metadata,
-        growth_read=read_policy_growth(index.get("company_growth")),
-    )
 
 
 def read_policy_growth(model: GeneratedModel | None) -> CompanyGrowthReader:
@@ -82,7 +53,6 @@ def _project_economic_paths(
     financial = _object(valuation.get("financial"))
     earnings = _object(valuation.get("earnings_price"))
     earnings_read = read_earnings_price(earnings) if earnings else None
-    growth = payloads.get("company_growth", {})
     market = payloads.get("market_context", {})
     master = _object(market.get("master"))
     sector = _text(master.get("sector_33"))
@@ -212,29 +182,6 @@ def _project_economic_paths(
                 and _is_positive(profit_yield)
                 and _is_positive(margin)
                 and (not fy or not full_fy_income_adverse),
-                evidence={
-                    "earnings_components": None if fy else earnings.get("profit_components"),
-                    "earnings_basis": (
-                        "reported_parent_profit" if fy else valuation.get("earnings_basis")
-                    ),
-                    "earnings_period_start": _date_text(observation.period_start)
-                    if fy and observation is not None
-                    else _date_text(earnings_period[0]),
-                    "earnings_period_end": _date_text(observation.period_end)
-                    if fy and observation is not None
-                    else _date_text(earnings_period[1]),
-                    "profit_observation": _observation(
-                        growth_read.saved_observation(observation), "parent_profit"
-                    )
-                    if fy
-                    else None,
-                    "business_observation": _observation(
-                        growth_read.saved_observation(observation), "operating_margin"
-                    ),
-                    "same_period_and_statement_basis": income_aligned,
-                    "selected_variant": annual_variant,
-                    "newer_earning_weakness": full_fy_income_adverse if fy else None,
-                },
             )
         )
     # Do not escape an observed deterioration through a missing companion metric.
@@ -258,7 +205,7 @@ def _project_economic_paths(
         if _recovery_available(changes["quarter"]) or quarter_deterioration
         else annual_variant
     )
-    for variant, observation in {"quarter": quarter, **annual_observations}.items():
+    for variant in changes:
         sales_variant = annual_variant if variant == "quarter" else variant
         sales_observation = annual_observations[sales_variant]
         sales = metric_value(
@@ -288,16 +235,6 @@ def _project_economic_paths(
                 eligible=variant == expansion_variant
                 and _is_positive(sales_price)
                 and _is_positive(rate),
-                evidence={
-                    "sales_observation": _observation(
-                        growth_read.saved_observation(sales_observation), "sales"
-                    ),
-                    "sales_change": sales_change,
-                    "change_observation": _observation(
-                        growth_read.saved_observation(observation), "sales"
-                    ),
-                    "selected_variant": expansion_variant,
-                },
             )
         )
         op_change = change["operating_profit"]
@@ -318,17 +255,6 @@ def _project_economic_paths(
                 and _is_positive(improvement)
                 and _is_positive(margin_improvement)
                 and _is_positive(recovery_price),
-                evidence={
-                    "operating_change": op_change,
-                    "margin_change": margin_change,
-                    "operating_observation": _observation(
-                        growth_read.saved_observation(observation), "operating_profit"
-                    ),
-                    "margin_observation": _observation(
-                        growth_read.saved_observation(observation), "operating_margin"
-                    ),
-                    "selected_variant": recovery_variant,
-                },
             )
         )
     # 選択した分母の出典があっても、利益と同期間の普通株/平均資本とは限らない。
@@ -352,22 +278,6 @@ def _project_economic_paths(
             price_group=f"{sector_group}:book_price",
             business_group=f"{sector_group}:reported_profit_book",
             eligible=book_price is not None and _is_positive(implied_profit_book),
-            evidence={
-                "pbr": pbr,
-                "earnings_yield": y,
-                "same_current_market_cap": capital_pricing_aligned,
-                "book_amount_implied_by_pbr": _ratio(financial_cap, pbr),
-                "earnings_components": earnings.get("profit_components"),
-                "book_provenance": (
-                    "selected_model_book_in_context_financial_book_equity"
-                    if financial.get("book_equity") is not None
-                    else "individual_book_source_scope_and_measurement_date_not_exposed"
-                ),
-                "interpretation": (
-                    "reported_profit_to_model_implied_book_"
-                    "not_verified_common_or_average_equity_roe"
-                ),
-            },
         )
     )
     if sector is None:
@@ -377,164 +287,14 @@ def _project_economic_paths(
                 price_value=item.price_value if item.path_id == "earning_power" else None,
                 business_value=None,
                 eligible=False,
-                evidence={**item.evidence, "peer_group_unavailable": "sector_not_observed"},
             )
             for item in paths
         ]
-    definition = None if metadata.subject_plan is None else metadata.subject_plan.get(ticker)
-    expected = () if definition is None else definition.model_ids
-    technical = payloads.get("technical_analysis", {})
-    external = payloads.get("external_assessment", {})
-    saved_annual = growth_read.saved_observation(annual)
-    saved_full_fy = growth_read.saved_observation(full_fy)
-    context: dict[str, JsonValue] = {
-        "generation_id": metadata.generation_id,
-        "related_subjects": [] if definition is None else list(definition.related_subjects),
-        "price_date": earnings.get("price_date"),
-        "expected_price_date": valuation.get("expected_price_date"),
-        "market_cap_yen": cap,
-        "pricing_valid": pricing_valid,
-        "provider_capital_crosscheck": _provider_capital_crosscheck(
-            _object(valuation.get("provider_capital_observation")),
-            financial,
-            expected_price_date=_text(valuation.get("expected_price_date")),
-            model_as_of=_text(valuation.get("as_of")),
-        ),
-        "holder_capital_evidence": valuation.get("holder_capital_evidence"),
-        "capital_action_context": {
-            "observations": valuation.get("capital_action_evidence", []),
-            "earnings_price_unavailable_reason": earnings.get("unavailable_reason"),
-            "share_basis_adjustments": list(earnings_read.share_basis_adjustments)
-            if earnings_read is not None
-            else [],
-        },
-        "accounting_change_context": {
-            "read_semantics": "positive_native_flags_not_comparability_clearance",
-            "disclosures": [
-                item
-                for item in (earnings_read.accounting_disclosures if earnings_read else ())
-                if any(value == "true" for value in _object(item.get("flags")).values())
-            ],
-        },
-        "latest_growth_period": _date_text(anchor.period_end) if anchor is not None else None,
-        "annual_observation": {
-            "selected_variant": annual_variant,
-            "full_fy_observation": saved_full_fy,
-            "full_fy_period_start": saved_full_fy.get("period_start"),
-            "full_fy_period_end": saved_full_fy.get("period_end"),
-            "full_fy_age_days": (
-                (metadata.as_of - full_fy.period_end).days if full_fy is not None else None
-            ),
-            "latest_ttm_period_status": saved_annual.get("period_status"),
-            "latest_ttm_basis": {
-                key: saved_annual.get(key)
-                for key in ("period_start", "period_end", "statement_basis", "accounting_standard")
-            },
-            "latest_ttm_metrics": saved_annual.get("metrics"),
-            "latest_reported_observation": (
-                growth_read.saved_observation(reported) if reported is not None else None
-            ),
-            "latest_quarter_observation": growth_read.saved_observation(quarter),
-            "capital_fallback": "not_used_without_same_fy_book_provenance",
-        },
-        "turnover_20d_oku": _object(market.get("price")).get("avg_turnover_20d_oku"),
-        "turnover_observation_date": _object(market.get("price")).get("resolved_date"),
-        **(
-            {"turnover_window": _object(market.get("price"))["turnover_window"]}
-            if "turnover_window" in _object(market.get("price"))
-            else {}
-        ),
-        **(
-            {"turnover_activity_20d": _object(market.get("price"))["turnover_activity_20d"]}
-            if "turnover_activity_20d" in _object(market.get("price"))
-            else {}
-        ),
-        "growth_comparison_basis": growth.get("comparison_basis"),
-        "growth_status": growth.get("status"),
-        "growth_reason": growth.get("reason"),
-        "growth_coverage": _growth_coverage(_object(growth.get("coverage"))),
-        "latest_growth_changes": {
-            "sales": {
-                "latest_quarter": changes["quarter"]["sales"],
-                "selected_variant": expansion_variant,
-                "selected_comparison": changes[expansion_variant]["sales"],
-            },
-            "operating_profit": {
-                "latest_quarter": changes["quarter"]["operating_profit"],
-                "selected_variant": recovery_variant,
-                "selected_comparison": changes[recovery_variant]["operating_profit"],
-            },
-            "operating_margin": {
-                "latest_quarter": changes["quarter"]["operating_margin"],
-                "selected_variant": recovery_variant,
-                "selected_comparison": changes[recovery_variant]["operating_margin"],
-            },
-        },
-        "financial": {
-            key: financial.get(key)
-            for key in (
-                "forecast_profit_yen",
-                # Issuer EPS may subtract preferred claims or use another share
-                # denominator; parent profit/current shares is not a substitute.
-                "forecast_eps_yen",
-                "forecast_ordinary_profit_yen",
-                "earnings_forecast_source",
-                "forecast_full_year_loss_flag",
-                "book_equity",
-                "edinet_reported_balances",
-                "cash",
-                "debt",
-                "fcf_ttm",
-                "edinet_ocf_ttm",
-                "edinet_reported_flows",
-                "ocf_ttm_period",
-                "ocf_ttm",
-                "ttm_quality_ocf_yield",
-                "capex_ttm",
-                "edinet_capex_source",
-                "consolidation_basis",
-                "edinet_failure_reasons",
-                "edinet_source_period_start",
-                "edinet_source_period_end",
-                "edinet_source_doc_id",
-                "ttm_quality_fcf_yield",
-                "dividend_yield",
-                "dividend_basis",
-                "dps_actual_annual",
-                "dps_forecast_annual",
-                "dividend_forecast_source",
-                "dividend_split_factor",
-                "net_share_change_yoy",
-                "tradable_share_change_yoy",
-            )
-            if key not in {"book_equity", "edinet_reported_balances"} or key in financial
-        },
-        "price_momentum": technical.get("price_momentum"),
-        "rsi_14bar": technical.get("rsi_14bar"),
-        "bollinger_20bar": technical.get("bollinger_20bar"),
-        **{key: technical[key] for key in ("moving_averages", "price_path") if key in technical},
-        "market_relative": market.get("relative"),
-        "external_assessment": _external_context(external),
-        "path_inputs": [
-            {
-                "path_id": item.path_id,
-                "variant": item.variant,
-                "price_value": item.price_value,
-                "business_value": item.business_value,
-                "eligible": item.eligible,
-            }
-            for item in paths
-        ],
-        "full_result_reference": {"generation_id": metadata.generation_id, "subject": ticker},
-    }
     coordinates = CompanyCoordinates(
         ticker=ticker,
         name=_text(master.get("name")),
         sector=sector,
         paths=tuple(paths),
-        context=context,
-        model_revisions={key: model.calculation_revision for key, model in index.items()},
-        not_generated=tuple(model for model in expected if model not in index),
     )
     return coordinates, tuple(
         {
@@ -657,40 +417,6 @@ def _full_fy_change(
     return saved
 
 
-def _provider_capital_crosscheck(
-    provider: dict[str, JsonValue],
-    financial: dict[str, JsonValue],
-    *,
-    expected_price_date: str | None,
-    model_as_of: str | None = None,
-) -> dict[str, JsonValue]:
-    """Compare gross values as an observation, not a correction or ranking rule.
-
-    The vendor field can be delayed, revised, or use another share basis. A gap
-    does not identify which source is wrong; even agreement cannot prove freshness.
-    """
-    source_date = _text(provider.get("price_date"))
-    close = _positive(provider.get("close_yen"))
-    cap_million = _positive(provider.get("market_cap_million_yen"))
-    issued = _positive(financial.get("shares_outstanding"))
-    same_day = source_date is not None and source_date == expected_price_date
-    estimated_gross = (
-        close * issued if close is not None and issued is not None and same_day else None
-    )
-    provider_gross = cap_million * 1_000_000 if cap_million is not None else None
-    return {
-        "source": "jquants_daily_bar_market_cap_million_yen",
-        "source_price_date": source_date,
-        "shares_basis_model_as_of": model_as_of,
-        "provider_gross_market_cap_yen": provider_gross,
-        "reported_issued_shares": issued,
-        "gross_market_cap_from_issued_yen": estimated_gross,
-        "provider_to_reported_gross_ratio": _ratio(provider_gross, estimated_gross),
-        "same_expected_price_date": same_day,
-        "interpretation": "comparison_only_provider_may_be_stale_or_on_another_basis",
-    }
-
-
 def _positive(value: JsonValue | None) -> float | None:
     number = _number(value)
     return number if _is_positive(number) else None
@@ -708,29 +434,11 @@ def _ratio(numerator: float | None, denominator: float | None) -> float | None:
     )
 
 
-def _date_text(value: date | None) -> str | None:
-    return value.isoformat() if value is not None else None
-
-
 def _date(value: JsonValue | None) -> date | None:
     try:
         return date.fromisoformat(value) if isinstance(value, str) else None
     except ValueError:
         return None
-
-
-def _observation(observation: dict[str, JsonValue], name: str) -> dict[str, JsonValue]:
-    result: dict[str, JsonValue] = {
-        "measurement": observation.get("measurement"),
-        "period_start": observation.get("period_start"),
-        "period_end": observation.get("period_end"),
-        "statement_basis": observation.get("statement_basis"),
-        "metric": name,
-        "observation": _object(_object(observation.get("metrics")).get(name)),
-    }
-    if "accounting_standard" in observation:
-        result["accounting_standard"] = observation["accounting_standard"]
-    return result
 
 
 def _change(
@@ -768,3 +476,19 @@ def _recovery_available(changes: dict[str, dict[str, JsonValue]]) -> bool:
         and _number(margin.get("difference")) is not None
         and all(op.get(key) is not None and op.get(key) == margin.get(key) for key in dates)
     )
+
+
+def _object(value: JsonValue | None) -> dict[str, JsonValue]:
+    return value if isinstance(value, dict) else {}
+
+
+def _number(value: JsonValue | None) -> float | None:
+    return (
+        float(value)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+        else None
+    )
+
+
+def _text(value: JsonValue | None) -> str | None:
+    return value if isinstance(value, str) else None
