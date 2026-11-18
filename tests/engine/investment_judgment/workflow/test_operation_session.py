@@ -136,7 +136,9 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
         == 0
     )
     completed = OperationService(db).get(operation.operation_id)
-    assert json.loads(capsys.readouterr().out) == completed.public()
+    assert json.loads(capsys.readouterr().out) == completed.model_dump(
+        mode="json", exclude={"payload"}
+    )
     assert completed.status == "completed"
     assert completed.payload == payload.model_copy(
         update={"result": "調査作業を終了、評価は未完了", "next": "新しい明示依頼を待つ"}

@@ -181,7 +181,8 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
 
     assert code == 0
     emitted = _emitted(capsys)
-    assert emitted["payload"]["checkpoint"] == "fixed research checkpoint"
+    assert emitted["operation_id"] == operation_id
+    assert "payload" not in emitted
     with closing(sqlite3.connect(db)) as connection, connection:
         row = connection.execute(
             "SELECT status, json_extract(payload, '$.checkpoint') "

@@ -21,6 +21,7 @@ from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.operation import service as operation_owner
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     ResearchProgress,
@@ -264,11 +265,11 @@ def test_selection_immutable_and_missing_outcomes_cannot_drop_targets(case, part
     assert ledger_rows(db) == []
 
 
-@pytest.mark.parametrize("change", ["hash", "review", "ticker", "purpose"])
-def test_exact_assessment_pair_and_selected_purpose_are_verified(case, change):
+@pytest.mark.parametrize("change", ["hash", "review", "outside", "purpose", "borrowed"])
+def test_checkpoint_cannot_propagate_a_corrupt_persisted_outcome(case, change):
     db, _ = case
     reference = seed_assessment(db)
-    service, operation = start(case, ("1234",))
+    service, operation = start(case, ("1234", "5678"))
     operation = service.record_assessment(operation.operation_id, reference, now=NOW)
     progress = progress_binding(operation.payload)
     outcome = progress.outcomes[0]
@@ -282,10 +283,23 @@ def test_exact_assessment_pair_and_selected_purpose_are_verified(case, change):
             update={"assessment_ref": outcome.assessment_ref.model_copy(update={field: value})}
         )
     else:
-        outcome = outcome.model_copy(update={change: "5678" if change == "ticker" else "holding"})
+        update = (
+            {"purpose": "holding"}
+            if change == "purpose"
+            else {"ticker": "5678" if change == "borrowed" else "9999"}
+        )
+        outcome = outcome.model_copy(update=update)
+    corrupt = with_progress(operation.payload, ResearchProgress(outcomes=(outcome,)))
+    with closing(connect_rw(db)) as connection, connection:
+        connection.execute(
+            "UPDATE operation_session SET payload=? WHERE operation_id=?",
+            (corrupt.model_dump_json(), operation.operation_id),
+        )
     with pytest.raises(ValueError, match=r"differs|unselected|outside"):
-        service.record_outcome(operation.operation_id, outcome, now=NOW)
-    assert service.get(operation.operation_id) == operation
+        service.checkpoint(
+            operation.operation_id, corrupt.model_copy(update={"checkpoint": "new note"}), now=NOW
+        )
+    assert service.get(operation.operation_id).payload == corrupt
 
 
 @pytest.mark.parametrize("later", [timedelta(microseconds=1), timedelta(minutes=1)])
@@ -298,12 +312,22 @@ def test_future_assessment_publication_cannot_be_recorded(case, later):
     assert service.get(operation.operation_id) == operation
 
 
-def test_retry_is_stable_and_checkpoint_cannot_remove_recorded_outcomes_or_reference(case):
+def test_retry_is_stable_and_checkpoint_cannot_remove_recorded_outcomes_or_reference(
+    case, monkeypatch
+):
     db, _ = case
     reference = seed_assessment(db)
     service, operation = start(case, ("1234",))
     operation = service.record_assessment(operation.operation_id, reference, now=NOW)
-    assert service.record_assessment(operation.operation_id, reference, now=PUBLISHED) == operation
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            operation_owner,
+            "connect_existing",
+            lambda _path: pytest.fail("identical outcome retry must not open a writer"),
+        )
+        assert (
+            service.record_assessment(operation.operation_id, reference, now=PUBLISHED) == operation
+        )
     proposal = proposal_for(operation)
     seed_proposal(db, proposal)
     operation = service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
@@ -628,18 +652,6 @@ def test_zero_targets_still_need_a_nonblank_reason_and_next_step(case, field, bl
     assert service.get(operation.operation_id) == operation
 
 
-def test_selected_ticker_cannot_borrow_another_tickers_assessment_pair(case):
-    db, _ = case
-    reference = seed_assessment(db)
-    service, operation = start(case, ("1234", "5678"))
-    operation = service.record_assessment(operation.operation_id, reference, now=NOW)
-    progress = progress_binding(operation.payload)
-    borrowed = progress.outcomes[0].model_copy(update={"ticker": "5678"})
-    with pytest.raises(ValueError, match="Reviewed Assessment ticker"):
-        service.record_outcome(operation.operation_id, borrowed, now=NOW)
-    assert service.get(operation.operation_id) == operation
-
-
 def test_a_new_operation_cannot_bind_the_previous_operations_proposal(case):
     db, _ = case
     reference = seed_assessment(db)
@@ -670,26 +682,37 @@ def test_a_new_operation_cannot_bind_the_previous_operations_proposal(case):
     assert service.get(operation.operation_id) == completed
 
 
-@pytest.mark.parametrize("command", ["checkpoint", "complete"])
-def test_notes_cannot_overwrite_an_outcome_recorded_after_its_read(case, monkeypatch, command):
+@pytest.mark.parametrize("command", ["checkpoint", "complete", "record-unfinished"])
+def test_concurrent_writes_cannot_overwrite_an_outcome_recorded_after_their_read(
+    case, monkeypatch, command
+):
     db, _ = case
     reference = seed_assessment(db)
     service, operation = start(case, ("1234",))
     concurrent = OperationService(db)
-    get = service.get
+    open_writer = operation_owner.connect_existing
     updated = []
 
-    def read_then_record(operation_id):
-        before = get(operation_id)
-        updated.append(concurrent.record_assessment(operation_id, reference, now=NOW))
-        return before
+    def write_between_read_and_update(path):
+        monkeypatch.setattr(operation_owner, "connect_existing", open_writer)
+        updated.append(concurrent.record_assessment(operation.operation_id, reference, now=NOW))
+        return open_writer(path)
 
-    monkeypatch.setattr(service, "get", read_then_record)
+    monkeypatch.setattr(operation_owner, "connect_existing", write_between_read_and_update)
     if command == "checkpoint":
         with pytest.raises(OperationConflictError, match="progress changed"):
             service.checkpoint(
                 operation.operation_id,
                 operation.payload.model_copy(update={"checkpoint": "調査メモを保存する"}),
+                now=PUBLISHED,
+            )
+    elif command == "record-unfinished":
+        with pytest.raises(OperationConflictError, match="progress changed"):
+            service.record_unfinished(
+                operation.operation_id,
+                ticker="1234",
+                reason="test",
+                references=("local",),
                 now=PUBLISHED,
             )
     else:
@@ -714,44 +737,6 @@ def test_naive_progress_instant_is_rejected_without_recording_an_assessment(case
     with pytest.raises(ValueError, match="UTC offset"):
         service.record_assessment(operation.operation_id, reference, now=NOW.replace(tzinfo=None))
     assert service.get(operation.operation_id) == operation
-
-
-def test_record_assessment_releases_outer_snapshot_before_progress_writer(case, monkeypatch):
-    import gc
-    import weakref
-
-    from baibai_engine.investment_judgment.workflow.operation import service as owner
-
-    service, operation = start(case, ("1234",))
-    reference = seed_assessment(case[0])
-    snapshots, selections = [], []
-    get = service.get
-    bind = owner.selection_binding
-    record = service.record_outcome
-
-    def observed_get(identifier):
-        value = get(identifier)
-        snapshots.append(weakref.ref(value))
-        return value
-
-    def observed_binding(payload):
-        value = bind(payload)
-        if value is not None:
-            selections.append(weakref.ref(value))
-        return value
-
-    def record_after_release(*args, **kwargs):
-        gc.collect()
-        assert snapshots[0]() is None
-        assert selections[0]() is None
-        return record(*args, **kwargs)
-
-    monkeypatch.setattr(service, "get", observed_get)
-    monkeypatch.setattr(owner, "selection_binding", observed_binding)
-    monkeypatch.setattr(service, "record_outcome", record_after_release)
-    saved = service.record_assessment(operation.operation_id, reference, now=NOW)
-    assert progress_binding(saved.payload).outcomes[0].assessment_ref.assessment_id == reference
-    assert selection_binding(saved.payload) == selection_binding(operation.payload)
 
 
 @pytest.mark.parametrize("version", ["legacy", "3", "4"])

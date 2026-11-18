@@ -85,13 +85,19 @@ def proposal_scope(operation_id: str, payload: OperationPayload) -> ProposalRese
     selection = selection_binding(payload)
     if selection is None:
         raise ValueError("fixed research_selection is required")
-    progress = progress_binding(payload)
-    require_coverage(selection_targets(selection), progress.outcomes, complete=True)
+    return fixed_proposal_scope(operation_id, selection, progress_binding(payload))
+
+
+def fixed_proposal_scope(
+    operation_id: str, selection: ResearchSelection, progress: ResearchProgress
+) -> ProposalResearchScope:
+    targets = selection_targets(selection)
+    require_coverage(targets, progress.outcomes, complete=True)
     return ProposalResearchScope.model_validate(
         {
             "operation_id": operation_id,
             "selection_sha256": selection_sha256(selection),
-            "targets": [item.model_dump(mode="json") for item in selection_targets(selection)],
+            "targets": [item.model_dump(mode="json") for item in targets],
             "outcomes": [item.model_dump(mode="json") for item in progress.outcomes],
         }
     )

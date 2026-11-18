@@ -22,7 +22,10 @@ from baibai_engine.storage.paths import RUNS_DB_PATH
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine operation")
+    parser = argparse.ArgumentParser(
+        prog="baibai-engine operation",
+        description="Writes return a header. Use show <operation_id> for the complete session.",
+    )
     parser.add_argument("--db", type=Path)
     parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
@@ -99,89 +102,65 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     service = OperationService(args.db, runs_path=args.runs_path)
     current_time = now or datetime.now(JST)
+    output: object
     try:
         if args.command == "selection-evidence":
             from baibai_engine.investment_judgment.workflow.selection_evidence import (
                 read_selection_evidence,
             )
 
-            _emit(
-                read_selection_evidence(
-                    operation_id=args.operation_id,
-                    sha256=args.selection_sha256,
-                    proposal_id=args.proposal_id,
-                    db_path=args.db,
-                ),
-                output_format=args.format,
-            )
-        elif args.command == "start":
-            payload = _load_payload(args.payload)
-            operation = service.start(
-                session_kind=args.kind,
-                as_of=args.as_of,
-                ticker=args.ticker,
-                started_at=current_time,
-                payload=payload,
-            )
-            _emit(operation.public(), output_format=args.format)
-        elif args.command == "checkpoint":
-            _emit(
-                service.checkpoint(
-                    args.operation_id, _load_payload(args.payload), now=current_time
-                ).public(),
-                output_format=args.format,
-            )
-        elif args.command == "complete":
-            _emit(
-                service.complete(
-                    args.operation_id,
-                    result=args.result,
-                    next=args.next,
-                    completed_at=current_time,
-                ).public(),
-                output_format=args.format,
-            )
-        elif args.command == "record-assessment":
-            _emit(
-                service.record_assessment(
-                    args.operation_id, args.assessment_id, now=current_time
-                ).public(),
-                output_format=args.format,
-            )
-        elif args.command == "record-proposal":
-            _emit(
-                service.record_proposal(
-                    args.operation_id, args.proposal_id, now=current_time
-                ).public(),
-                output_format=args.format,
-            )
-        elif args.command == "record-unfinished":
-            _emit(
-                service.record_unfinished(
-                    args.operation_id,
-                    ticker=args.ticker,
-                    reason=args.reason,
-                    references=tuple(args.ref),
-                    now=current_time,
-                ).public(),
-                output_format=args.format,
+            output = read_selection_evidence(
+                operation_id=args.operation_id,
+                sha256=args.selection_sha256,
+                proposal_id=args.proposal_id,
+                db_path=args.db,
             )
         elif args.command == "show":
             if args.operation_id is not None:
                 if args.status is not None:
                     raise ValueError("--status cannot be combined with operation_id")
-                _emit(service.get(args.operation_id).public(), output_format=args.format)
+                output = service.get(args.operation_id).public()
             else:
-                _emit(
-                    {
-                        "operations": [
-                            operation.public() for operation in service.list(status=args.status)
-                        ]
-                    },
-                    output_format=args.format,
+                output = {
+                    "operations": [item.public() for item in service.list(status=args.status)]
+                }
+        else:
+            if args.command == "start":
+                operation = service.start(
+                    session_kind=args.kind,
+                    as_of=args.as_of,
+                    ticker=args.ticker,
+                    started_at=current_time,
+                    payload=_load_payload(args.payload),
                 )
-        else:  # pragma: no cover
-            raise AssertionError(f"unreachable operation command: {args.command}")
+            elif args.command == "checkpoint":
+                operation = service.checkpoint(
+                    args.operation_id, _load_payload(args.payload), now=current_time
+                )
+            elif args.command == "complete":
+                operation = service.complete(
+                    args.operation_id, result=args.result, next=args.next, completed_at=current_time
+                )
+            elif args.command == "record-assessment":
+                operation = service.record_assessment(
+                    args.operation_id, args.assessment_id, now=current_time
+                )
+            elif args.command == "record-proposal":
+                operation = service.record_proposal(
+                    args.operation_id, args.proposal_id, now=current_time
+                )
+            elif args.command == "record-unfinished":
+                operation = service.record_unfinished(
+                    args.operation_id,
+                    ticker=args.ticker,
+                    reason=args.reason,
+                    references=tuple(args.ref),
+                    now=current_time,
+                )
+            else:  # pragma: no cover
+                raise AssertionError(f"unreachable operation command: {args.command}")
+            output = operation.model_dump(mode="json", exclude={"payload"})
+        _emit(output, output_format=args.format)
     except (OSError, ValueError, RuntimeError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
