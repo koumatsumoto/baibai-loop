@@ -153,9 +153,6 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
 ):
     import baibai_jobs.integration.models as job
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-        TechnicalFinancialPolicy,
-    )
 
     publication = configure(monkeypatch)
     monkeypatch.setattr(job, "_load_handle", lambda _path: None)
@@ -196,7 +193,6 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
         as_of=sunday,
         lease_handle=tmp_path / "lease",
         growth_start=None,
-        policy=TechnicalFinancialPolicy(page_size=36),
     )
     saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     assert saved.inputs["calendar"].descriptor["head_sha256"] == fixed.content_id

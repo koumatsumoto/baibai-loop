@@ -53,7 +53,10 @@ def inspect_decision_cohort(*, db_path: Path, operation_id: str) -> dict[str, ob
     assert operation.completed_at is not None
     selected = selection_binding(operation.payload)
     if not isinstance(selected, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
-        raise ValueError("decision cohort requires saved generated-model Selection inputs")
+        raise ValueError(
+            "historical full-card cohort requires stored V3/V4 generated-model inputs; "
+            "inspect finite Case evidence for new research"
+        )
     screening = selected.inputs.screening_selection
     if screening is not None and not isinstance(
         screening.result, (EconomicPathSelection, TechnicalFinancialSelection)

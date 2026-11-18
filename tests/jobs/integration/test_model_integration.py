@@ -26,9 +26,6 @@ from baibai_engine.machine_analysis.generation.contracts import (
 from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
-from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-    TechnicalFinancialPolicy,
-)
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_jobs.observability.discord import render_generation, render_message
@@ -161,7 +158,7 @@ def integration(tmp_path, monkeypatch):
     def publish(received, *, store, before_pointer_switch):
         assert received is prepared
         assert read_publication(path=tmp_path / "runs").selection_id == (
-            "selection-models-new-release-technical-financial-discovery-v26"
+            "selection-models-new-release-opportunity-discovery-v1"
         )
         before_pointer_switch()
         events.append("publish")
@@ -186,7 +183,6 @@ def integration(tmp_path, monkeypatch):
         as_of=date(2026, 10, 23),
         lease_handle=tmp_path / "lease",
         growth_start=date(2023, 10, 23),
-        policy=TechnicalFinancialPolicy(page_size=36),
     )
     return arguments, events
 
@@ -199,19 +195,18 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     assert result["models_ready"] is True
     publication = read_publication(path=arguments["runs"])
     assert read_publication(path=arguments["runs"]).selection_id == result["selection_id"]
-    assert publication.selection.result.policy.method == "technical-financial-discovery-v26"
-    assert result["selection_method"] == "technical-financial-discovery-v26"
+    assert publication.selection.result.policy.method == "opportunity-discovery-v1"
+    assert result["selection_method"] == "opportunity-discovery-v1"
     assert (
         not {"screening_status", "market_updated", "delta_measured", "entered", "exited"}
         & result.keys()
     )
-    assert result["candidate_count"] == 1
+    assert result["candidate_count"] == 2
     assert result["company_count"] == 2
     assert result["model_count"] == 2
     assert render_generation(result) == [
-        "モデル生成: 2社 / 2件 / 探索閲覧（予備・代替含む）1社",
-        "財務成長: 仮説合致0 / 未確定2 / 非合致0社",
-        "TA価格経路入力: 適格0/2社",
+        "モデル生成: 2社 / 2件 / 探索母集団2社",
+        "同日価格観測: 適格0/2社",
     ]
     assert result["screening_price_inputs"]["valid_count"] == 0
     assert result["screening_price_inputs"]["universe_count"] == 2
@@ -324,7 +319,7 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
         raise AssertionError("must not continue after failed generation")
 
     monkeypatch.setattr(job, "read_and_generate_models", late_failure)
-    monkeypatch.setattr(job, "evaluate_technical_financial_rows", forbidden)
+    monkeypatch.setattr(job, "evaluate_discovery_rows", forbidden)
     monkeypatch.setattr(job, "prune_model_cache", forbidden)
     with pytest.raises(ValueError, match="late calculation failure"):
         job.integrate_models(**arguments)

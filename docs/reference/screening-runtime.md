@@ -4,7 +4,13 @@
 
 旧版も当時の内容・理由・順序・identityで読む。未記録の区画を現在のモデル・既定値で補わず、現政策で再選抜しない。
 
-## 固定して読む
+## 正準の探索観測
+
+新しい日次発行は、当時の普通株全分母と、株別の観測価格・基準日、経済経路の価格/事業座標、確認すべき不足だけを一つの発行物に固定する。候補外だった会社も含める。全社分の詳細カード・閲覧順位は新規作成しない。詳細を確かめる時だけ同じGenerationの対象別モデルを読む。未観測を不合格、調整価格を発注価格、資本異動の件数を新株主の権利とみなさない。
+
+旧形式には新しい一覧をさかのぼって作らない。通常の読取りが「旧発行物で索引なし」を返す時は、必要な旧情報を同じIDで明示的に読む。今の世代の根拠で補わない。
+
+## 旧レーンの発行物を固定して読む
 
 初回`selection-context`のSelection ID、`research_as_of`、`input_known_at`を保存する。続きも同じ依頼scopeで、それぞれ`--screening-selection-id`、`--research-asof`、timezone付き`--known-at`へ渡す。`--known-at`省略は実行時刻なので、固定した続きには使わない。
 
@@ -76,9 +82,9 @@ ModelGenerationとScreeningSelectionは別identity。通常生成で政策を適
 次のcallerは私有copyから新しい私有JSONへ出す診断で、通常政策の再適用・Research開始・保存・売買はしない。非zero終了の出力を採用せず、私有JSONを公開log/artifactへ出さない。
 
 <a id="decision-cohort-diagnostic"></a>
-### 現行判断の比較前診断
+### 既存の全カードを固定した旧判断の比較前診断
 
-[完了Operationの比較caller](../../tools/experiments/inspect_decision_cohort.py)は保存入力・評価pair・Proposalを照合する。
+[完了Operationの比較caller](../../tools/experiments/inspect_decision_cohort.py)は旧V3/V4の保存入力・評価pair・Proposalを照合する。新しい有限Caseに、保存していない全社カードを補うための契約ではない。
 
 ```bash
 uv run python -m tools.experiments.inspect_decision_cohort \

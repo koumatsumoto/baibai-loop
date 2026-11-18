@@ -1,0 +1,83 @@
+"""通常の探索では全社カードを開かない。旧発行物の明示読は別経路。"""
+
+from __future__ import annotations
+
+import gzip
+from contextlib import closing
+from dataclasses import dataclass
+from datetime import date, datetime
+from pathlib import Path
+from typing import Literal
+
+from pydantic import TypeAdapter
+
+from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.discovery_contract import (
+    DiscoveryPolicy,
+    DiscoveryRow,
+    DiscoverySelection,
+)
+from baibai_engine.machine_analysis.screening.selection_query import find_publication_header
+from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
+
+SUFFIX = "-" + DiscoveryPolicy().method
+
+
+@dataclass(frozen=True, slots=True)
+class _IndexedPublication(ScreeningSelection):
+    result: DiscoverySelection
+
+
+# The publication identity already selects this format; do not validate old full-card unions.
+_CODEC = TypeAdapter(_IndexedPublication)
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryIndexRead:
+    status: Literal["no_publication", "unindexed_legacy", "indexed"]
+    selection_id: str | None = None
+    generation_id: str | None = None
+    as_of: date | None = None
+    evaluation_time: datetime | None = None
+    published_at: datetime | None = None
+    rows: tuple[DiscoveryRow, ...] = ()
+    universe_tickers: tuple[str, ...] = ()
+
+
+def read_discovery_index(
+    *,
+    path: Path,
+    selection_id: str | None = None,
+    as_of: date | None = None,
+    known_at: datetime | None = None,
+) -> DiscoveryIndexRead:
+    if not path.is_file():
+        return DiscoveryIndexRead("no_publication")
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        header = find_publication_header(
+            connection, selection_id=selection_id, as_of=as_of, known_at=known_at
+        )
+        if header is None:
+            return DiscoveryIndexRead("no_publication")
+        identity, published, generation, day, evaluation = header
+        clocks = (
+            identity,
+            generation,
+            date.fromisoformat(day),
+            datetime.fromisoformat(evaluation),
+            datetime.fromisoformat(published),
+        )
+        if not identity.endswith(SUFFIX):
+            return DiscoveryIndexRead("unindexed_legacy", *clocks)
+        (wire,) = connection.execute(
+            "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (identity,)
+        ).fetchone()
+        saved = _CODEC.validate_json(gzip.decompress(wire))
+        if (
+            saved.generation_id != generation
+            or saved.result.tickers != saved.universe_tickers
+            or len(set(saved.universe_tickers)) != len(saved.universe_tickers)
+        ):
+            raise ValueError("indexed discovery content differs from its publication")
+        return DiscoveryIndexRead("indexed", *clocks, saved.result.rows, saved.universe_tickers)
