@@ -131,6 +131,15 @@ contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id�
 
 ## 判断の振り返り
 
+正式提案の振り返りは、先にその全項目を開く。発行時の理由・再調査条件（保留なら当初の障害と再開条件も）に並べて、後から何を比較し、次回に何を変えようと記録したかを読む。
+
+```bash
+uv run baibai-engine investment-judgment judgment-retrospective coverage \
+  --proposal-id <PROPOSAL_ID> --known-at '<CUTOFF_WITH_TIMEZONE>' --db <APP_DB>
+```
+
+記録なし、教訓だけ、比較しても未解決、作者が結論を書いた状態を分ける。どれも勝率・約定・新事実取得の証明ではない。たとえば元の資料を読み直して学んだことは有用でも、後日の企業実績を確かめたことにはならない。訂正された元提案を別の有効判断に数えず、同社でも別提案・評価だけの比較を付け替えない。確かめるべき項目は下のscaffoldへ、書かれた比較は返されたID/hashでgetし根拠を読む。次回変える点（または変えない理由）を定め、新しい根拠と価格で通常の調査・評価に戻る。未選定企業・未発行の調査や対照損益をここからは測れない。
+
 旧判断と後日事実を照合する。企業知識の更新はResearch、現評価はrefreshへ分け、新Operation/Selection/Review/現在市場入力は不要。
 
 ```bash

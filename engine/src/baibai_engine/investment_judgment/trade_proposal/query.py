@@ -218,7 +218,9 @@ def _known_reports(
     return tuple(sorted(reports, key=lambda report: (report.recorded_at, report.report_id)))
 
 
-def _known_erroneous(connection: sqlite3.Connection, proposal_id: str, known_at: datetime) -> bool:
+def is_erroneous_proposal_as_of(
+    connection: sqlite3.Connection, proposal_id: str, known_at: datetime
+) -> bool:
     row = connection.execute(
         "SELECT correction_id,replacement_proposal_id,recorded_at FROM proposal_correction "
         "WHERE erroneous_proposal_id=?",
@@ -320,7 +322,7 @@ def previous_buy_proposals(
                     ):
                         raise ProposalConflictError("stored proposal history action differs")
                     continue
-                if _known_erroneous(connection, proposal_id, known_at):
+                if is_erroneous_proposal_as_of(connection, proposal_id, known_at):
                     continue
                 proposal = load_investment_proposal(connection, proposal_id)
                 index = next(
