@@ -61,7 +61,9 @@ def test_native_commercial_paper_reaches_reported_balances_without_changing_peri
     assert balances["amounts"]["net_cash"] == record.net_cash
     assert balances["source_doc_id"] == "S100ZEFD"
     assert balances["amount_unit"] == "JPY"
-    assert balances["interpretation"] == "reported_financial_balances_not_common_equity_surplus"
+    assert balances["interpretation"] == (
+        "selected_debt_components_not_proof_of_total_debt_or_distributable_cash"
+    )
     assert balances["measurement_date"] == {"date": None, "reason": "fact_date_not_retained"}
     assert balances["filing_fiscal_period"]["end"] == date(2027, 3, 31)
 

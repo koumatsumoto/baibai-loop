@@ -404,9 +404,6 @@ def build_financial_snapshot(
         ttm_quality_ocf_yield=ocf_quality,
         ttm_quality_sales=sales_quality,
         ttm_quality_fcf_yield=(edinet_metrics.ttm_quality_fcf if edinet_metrics else None),
-        ttm_quality_net_cash=(
-            edinet_metrics.ttm_quality_net_cash if edinet_metrics else TTMQuality.UNAVAILABLE
-        ),
         shares_outstanding=shares_outstanding,
         accruals_to_assets=accruals_to_assets,
         net_share_change_yoy=net_share_change_yoy,

@@ -126,7 +126,6 @@ class FinancialSnapshot:
     ttm_quality_ocf_yield: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_sales: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_fcf_yield: TTMQuality | None = None
-    ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
     shares_outstanding: float | None = None
     # accruals_to_assets = (profit_ttm - cfo_ttm) / average total assets — Sloan
     # 1996. High positive accruals are an earnings-quality flag (reported NI

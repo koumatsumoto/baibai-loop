@@ -360,6 +360,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
         "investment_securities": 10.0,
     }
     assert missing[0].payload["financial"]["debt"] is None
+    assert "ttm_quality_net_cash" not in missing[0].payload["financial"]
     assert missing[0].payload["financial"]["edinet_reported_flows"] is None
     assert missing[0].payload["financial"]["edinet_reported_balances"] is None
     assert present[0].payload["earnings_price"] == missing[0].payload["earnings_price"]
@@ -367,7 +368,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert "er_annual" not in financial
     assert "holder_capital_evidence" not in present[0].payload
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-cf-details-v2-book-source-v1-balance-context-v2-cfo-source-v1-capital-actions-v3-repeated-completion-issuer-capital-sources-v2"
+        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-cf-details-v2-book-source-v1-balance-context-v3-cfo-source-v1-capital-actions-v3-repeated-completion-issuer-capital-sources-v2"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
@@ -477,6 +478,8 @@ def test_native_balances_keep_source_scope_missing_zero_and_unknown_measurement_
         ("jppfs_cor:CashAndDeposits", "InterimInstant", "100"),
         ("jppfs_cor:CashAndCashEquivalents", "InterimInstant", "60"),
         ("jppfs_cor:LongTermLoansPayable", "InterimInstant", "40"),
+        # Current lease debt can be disclosed only in notes within this balance.
+        ("jppfs_cor:OtherCL", "InterimInstant", "7"),
         # Neither a parent-only balance nor an associate is the selected security balance.
         ("jppfs_cor:InvestmentSecurities", "InterimInstant_NonConsolidatedMember", "999"),
         ("jppfs_cor:SharesOfSubsidiariesAndAssociates", "InterimInstant", "700"),
@@ -509,7 +512,11 @@ def test_native_balances_keep_source_scope_missing_zero_and_unknown_measurement_
     assert balances["document_type"] == "160"
     assert balances["filing_fiscal_period"] == {"start": "2026-01-01", "end": "2026-12-31"}
     assert balances["measurement_date"] == {"date": None, "reason": "fact_date_not_retained"}
-    assert balances["interpretation"] == "reported_financial_balances_not_common_equity_surplus"
+    assert record.ttm_quality_net_cash == "exact"
+    assert "ttm_quality_net_cash" not in financial
+    assert balances["interpretation"] == (
+        "selected_debt_components_not_proof_of_total_debt_or_distributable_cash"
+    )
     assert ("metric_unavailable:investment_securities" in balances["failure_reasons"]) == (
         securities is None
     )
