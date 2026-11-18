@@ -96,6 +96,40 @@ def test_observed_zero_missing_price_and_non_neutral_coverage_remain_separate():
     ]
 
 
+def test_existing_capital_and_new_investment_answer_different_questions():
+    book = {
+        "path_id": "capital_productivity",
+        "variant": "reported_profit_latest_book",
+        "price_group": "sector:book_price",
+        "price_value": 1.25,
+        "business_value": 0.08,
+    }
+    expansion = {
+        "path_id": "business_expansion",
+        "variant": "quarter",
+        "price_group": "sector:annual_ttm_sales_price",
+        "price_value": 2.0,
+        "business_value": 0.03,
+    }
+    rows = [
+        observation(
+            ticker,
+            matched_paths={"growth": [], "financial": [c["path_id"] for c in coordinates]},
+            coordinates=coordinates,
+        )
+        for ticker, coordinates in [("1001", [book]), ("1002", [book, expansion])]
+    ]
+    universe = [r["ticker"] for r in rows]
+    earnings = _explore(rows, universe, question="earning_power", page=0)
+    assert [r["observations"] for r in earnings["rows"]] == rows
+    investing = _explore(rows, universe, question="reinvestment", page=0)
+    assert [r["ticker"] for r in investing["rows"]] == ["1002"]
+    exact = PriceCoordinateMinimum("earning_power", "annual_ttm", "reported", 0.05)
+    narrowed = _explore(rows, universe, question="earning_power", page=0, minimum=exact)
+    assert narrowed["coordinate_comparison"]["not_comparable"] == 2
+    assert narrowed["rows"] == []
+
+
 def test_question_pages_reach_every_match_without_promotion_or_replacement():
     rows = [observation(str(2000 + i)) for i in range(32)]
     universe = [r["ticker"] for r in rows]
