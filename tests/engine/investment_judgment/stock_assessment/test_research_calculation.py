@@ -85,6 +85,121 @@ def evaluated_pair(assessment, review):
     )
 
 
+def _waiting_input():
+    payload = inputs_payload()
+    payload["input_snapshot"]["facts"][0]["value"] = 100
+    valuation = payload["valuation"]
+    valuation.update(horizon_months=12, required_annual_return_pct=10)
+    valuation["base"].update(terminal_value_per_share_yen=108, cash_distribution_per_share_yen=2)
+    valuation["downside"].update(terminal_value_per_share_yen=78, cash_distribution_per_share_yen=2)
+    payload["price_comparison"] = {
+        "price_yen": 95,
+        "hypothetical_quantity": 200,
+        "waiting_terms": {
+            "initial_cash_yen": 20100,
+            "deadline": "2026-10-09",
+            "lot_size": 100,
+            "partial_fill_quantity": 100,
+            "one_way_fee_bps": 10,
+            "base_missed_distribution_per_share_yen": 1,
+            "downside_missed_distribution_per_share_yen": 2,
+        },
+    }
+    return payload
+
+
+def test_waiting_paths_compare_same_cash_after_release_fees_and_eligible_distributions(
+    tmp_path, capsys
+):
+    path = tmp_path / "wait.json"
+    raw = _waiting_input()
+    path.write_text(json.dumps(raw))
+    before = path.read_bytes()
+    paths_before = set(tmp_path.rglob("*"))
+    assert workspace_cli.main(["calculate", str(path)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    wait = result["waiting_paths"]
+    assert wait["terminal_date"] == "2027-09-07"
+    assert Decimal(wait["whole_cash_required_terminal_wealth_yen"]) == 22110
+    assert Decimal(wait["cash_outside_full_limit_set_aside_yen"]) == 1081
+    assert Decimal(wait["buy_now_unspent_cash_yen"]) == 80
+    for name, expected_now, expected_wait in (
+        ("base", "22058.4", ["20100", "21479.7", "22859.4"]),
+        ("downside", "16064.4", ["20100", "18382.7", "16665.4"]),
+    ):
+        case = wait["cases"][name]
+        assert Decimal(case["buy_now_terminal_wealth_yen"]) == Decimal(expected_now)
+        assert [p["filled_quantity"] for p in case["wait_paths"]] == [0, 100, 200]
+        for row, wealth in zip(case["wait_paths"], expected_wait, strict=True):
+            assert Decimal(row["terminal_wealth_yen"]) == Decimal(wealth)
+            assert Decimal(row["cash_after_deadline_yen"]) == 20100 - row[
+                "filled_quantity"
+            ] * Decimal("95.095")
+            assert Decimal(row["difference_vs_buy_now_yen"]) == Decimal(wealth) - Decimal(
+                expected_now
+            )
+            assert Decimal(row["difference_vs_cash_yen"]) == Decimal(wealth) - 20100
+    assert path.read_bytes() == before
+    assert set(tmp_path.rglob("*")) == paths_before
+    # Removing the opt-in keeps the existing full-fill output unchanged.
+    del raw["price_comparison"]["waiting_terms"]
+    assert {k: v for k, v in result.items() if k != "waiting_paths"} == calculate(
+        CalculationInput.model_validate(raw)
+    )
+
+
+def test_one_lot_has_only_none_and_full_and_best_alternative_can_be_cash():
+    raw = _waiting_input()
+    raw["price_comparison"]["hypothetical_quantity"] = 100
+    terms = raw["price_comparison"]["waiting_terms"]
+    del terms["partial_fill_quantity"]
+    terms.update(
+        initial_cash_yen=10000, one_way_fee_bps=0, downside_missed_distribution_per_share_yen=0
+    )
+    wait = calculate(CalculationInput.model_validate(raw))["waiting_paths"]
+    downside = wait["cases"]["downside"]
+    assert [p["filled_quantity"] for p in downside["wait_paths"]] == [0, 100]
+    filled = downside["wait_paths"][1]
+    assert Decimal(filled["difference_vs_buy_now_yen"]) == 500
+    assert Decimal(filled["difference_vs_cash_yen"]) == -1500
+    assert Decimal(downside["wait_paths"][0]["cash_after_deadline_yen"]) == 10000
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("initial_cash_yen", 20000, "cannot cover"),  # include entry costs
+        ("partial_fill_quantity", 50, "whole-lot"),
+        ("partial_fill_quantity", 200, "smaller"),
+        ("deadline", "2026-09-07", "deadline"),
+        ("deadline", "2027-09-08", "deadline"),
+        ("downside_missed_distribution_per_share_yen", 3, "exceeds"),
+        ("base_missed_distribution_per_share_yen", -1, "greater than or equal"),
+        ("one_way_fee_bps", True, "finite"),
+    ],
+)
+def test_unusable_waiting_assumptions_are_rejected(field, value, message):
+    raw = _waiting_input()
+    raw["price_comparison"]["waiting_terms"][field] = value
+    with pytest.raises(ValueError, match=message):
+        calculate(CalculationInput.model_validate(raw))
+
+
+@pytest.mark.parametrize(
+    ("outer", "value", "message"),
+    [
+        ("price_yen", 100, "below the reference"),
+        ("hypothetical_quantity", None, "whole-lot"),
+        ("hypothetical_quantity", 150, "whole-lot"),
+    ],
+)
+def test_waiting_comparison_does_not_invent_or_round_order_terms(outer, value, message):
+    raw = _waiting_input()
+    raw["price_comparison"][outer] = value
+    with pytest.raises(ValueError, match=message):
+        calculate(CalculationInput.model_validate(raw))
+
+
 def test_cli_generates_ratio_compatible_with_existing_tolerance_without_writes(tmp_path, capsys):
     payload = inputs_payload()
     path = tmp_path / "inputs.json"

@@ -121,7 +121,7 @@ uv run baibai-engine investment-judgment trade-proposal-context \
 
 contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って比較する。相対強弱を判断理由に使う時は、[固定した比較と価格経路](../../../docs/reference/trade-proposal.md#fixed-price-comparison)から反対の読みを一つ検討し、価値・採否・次の確認事項のどれが変わったかを残す。`trade-proposal-check <DRAFT> --db <APP_DB>`→別作業者の内容Review→`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。
 
-新規購入の待機は、現quote未満の指値で買う意思が完成した`buy / wait_limit`、追加情報を見て採否を決める未完の`defer`、経済比較を終えて現金維持を選ぶ`no_action`を分ける。MA回復待ちを買い指値やstop注文へ変換しない。確認後は残期間・今後分配・新根拠・現在価格を見直し、共通要因の重複、流動性、残cashと他案を既存の比較へ結ぶ。値上がりだけで許容価格を上げず、投稿上の損切り率や保有比率を共通規則にしない。
+新規購入の待機は、現quote未満の指値で買う意思が完成した`buy / wait_limit`、追加情報を見て採否を決める未完の`defer`、経済比較を終えて現金維持を選ぶ`no_action`を分ける。指値だけが魅力的に見えるときは、[未成立・部分成立・全成立と現金の同一元手比較](../../../docs/reference/trade-proposal.md#wait-paths)で確かめる。MA回復待ちを買い指値やstop注文へ変換しない。確認後は残期間・今後分配・新根拠・現在価格を見直し、共通要因の重複、流動性、残cashと他案を既存の比較へ結ぶ。値上がりだけで許容価格を上げず、投稿上の損切り率や保有比率を共通規則にしない。
 
 全対象が理由/参照付きunfinishedで、公開済みProposalも束縛参照もない場合だけProposalを省ける。resultに確認範囲/評価未完、nextに未解決の問い/再調査条件を記す。reviewedや未束縛の公開済みProposalがあれば通常経路を使い、経済的見送り/保有判断をunfinishedにしない。0対象は選定理由を残し空Proposalなしで完了する。
 

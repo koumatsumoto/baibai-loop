@@ -26,6 +26,10 @@ from baibai_engine.investment_judgment.stock_assessment.scenario import (
     two_case_balance,
 )
 from baibai_engine.investment_judgment.stock_assessment.valuation import Valuation
+from baibai_engine.investment_judgment.stock_assessment.wait_comparison import (
+    WaitingTerms,
+    waiting_paths,
+)
 from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
@@ -71,6 +75,7 @@ class PriceComparisonInput(BaseModel):
     model_config = _CONFIG
     price_yen: Annotated[Decimal, Field(gt=0)]
     hypothetical_quantity: Annotated[int, Field(gt=0)] | None = None
+    waiting_terms: WaitingTerms | None = None
 
     @field_validator("price_yen", mode="before")
     @classmethod
@@ -249,4 +254,17 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
     result_payload["projection_numbers"] = context
     if inputs.price_comparison is not None:
         result_payload["price_comparison_numbers"] = _price_comparison(inputs)
+        if terms := inputs.price_comparison.waiting_terms:
+            result_payload["waiting_paths"] = waiting_paths(
+                terms,
+                reference_price=price,
+                reference_price_as_of=price_fact.as_of,
+                limit=inputs.price_comparison.price_yen,
+                quantity=inputs.price_comparison.hypothetical_quantity,
+                as_of=snapshot.as_of,
+                horizon_months=valuation.horizon_months,
+                required_annual_return_pct=valuation.required_annual_return_pct,
+                base=valuation.base,
+                downside=valuation.downside,
+            )
     return result_payload
