@@ -49,8 +49,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.service
     extract_edinet_facts_command,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
-    read_fixed_holder_capital,
-    read_holder_capital,
+    extract_holder_capital,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.objects.r2 import LakePublishError
@@ -220,20 +219,16 @@ def consumer_outputs(database, *, fixed=None):
             connection, as_of=ASOF, archives=fixed.archives if fixed is not None else None
         )
         assert comparisons["436A"][0].pairs
-        holders = (
-            read_fixed_holder_capital(
-                connection,
-                as_of=ASOF,
-                known_at=max(KNOWN, fixed.selected_at),
-                tickers=("1234",),
-                snapshot_sealed_at=max(KNOWN, fixed.selected_at),
-                archives=fixed.archives,
-                selected_at=fixed.selected_at,
-            )
-            if fixed is not None
-            else read_holder_capital(connection, as_of=ASOF, known_at=KNOWN, tickers=("1234",))
-        )
-        assert holders[0]["1234"][0].total_stocks == 2500000
+    # A researcher can open one already-identified original. This is not a population scan.
+    original = (fixed.archives if fixed is not None else reader).read_xbrl_zip("S100HOLD")
+    holder = extract_holder_capital(
+        original,
+        document_id="S100HOLD",
+        submitted_at=datetime.fromisoformat("2026-10-30T10:00:00+09:00"),
+        known_at=KNOWN,
+    )
+    assert holder is not None
+    assert (holder.ticker, holder.total_stocks) == ("1234", 2500000)
     assert (
         extract_edinet_facts_command(
             asof=ASOF,
@@ -247,7 +242,7 @@ def consumer_outputs(database, *, fixed=None):
     with sqlite3.connect(database) as connection:
         facts = connection.execute("SELECT * FROM edinet_segment_facts ORDER BY 1,2,3,4").fetchall()
         assert facts
-    return reader.list_documents(DAY), comparisons, holders, exits, facts
+    return reader.list_documents(DAY), comparisons, holder, exits, facts
 
 
 def test_cold_input_preserves_exact_originals_scope_and_existing_consumers(tmp_path):
@@ -426,3 +421,56 @@ def test_compact_fixed_list_projection_can_supply_targeted_references_without_ar
         assert (ref.doc_id, ref.role) == ("SFICTREG", "offeror_filing")
         assert read.origin_list_receipts[DAY].receipt_id == UUID(int=4).hex
         assert read.origin_list_receipts[DAY].received_at == AT
+
+
+def test_daily_reads_the_relevant_annual_archive_without_opening_holder_reports(
+    tmp_path, monkeypatch
+):
+    from tests.helpers.lake_release import market_store
+    from tests.helpers.model_generation import materialize_generation
+
+    from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
+    from baibai_engine.machine_analysis.generation.edinet_inputs import (
+        read_edinet_input,
+        retain_edinet_input,
+    )
+    from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
+    from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+        DEFAULT_TTM_RULES,
+    )
+    from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+    from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
+
+    store, _, _, lists, archives, _ = fixtures(tmp_path)
+    db = market_store(tmp_path / "market.sqlite")
+    materialize_lists(lists, db)
+    identity = retain_edinet_input(store, lists, archives, selected_at=KNOWN)
+    both = read_edinet_input(store, identity)
+    reads = []
+    original = FixedEdinetArchives.read_xbrl_zip
+
+    def observed(self, doc_id):
+        reads.append(doc_id)
+        return original(self, doc_id)
+
+    monkeypatch.setattr(FixedEdinetArchives, "read_xbrl_zip", observed)
+    with sealed_sqlite_snapshot(sqlite_path=db, mirror_root=tmp_path / "mirror") as sealed:
+        generation = materialize_generation(
+            read_and_generate_models(
+                generation_id="document-scope",
+                market_snapshot=sealed,
+                market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
+                economic_input=None,
+                edinet_input=both,
+                as_of=ASOF,
+                evaluation_time=KNOWN,
+                ttm_rules=DEFAULT_TTM_RULES,
+                tickers=("1234", "436A"),
+            )
+        )
+    assert "S100HOLD" not in reads
+    assert "S100YRSR" in reads
+    assert generation.result("company_financials", "436A").payload["financial"][
+        "reported_comparisons"
+    ]
+    assert "holder_capital_evidence" not in generation.result("company_financials", "1234").payload

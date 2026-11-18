@@ -68,7 +68,7 @@ EDINETの金融残高は、簿価や予想と別の出典・連結範囲で読�
 
 期末株数と遡及分割EPS/BPSの混在は[資本補正](../../engine/src/baibai_engine/machine_analysis/models/company_financials/metrics/capital.py)の裏付けで扱い、数値一致だけで誤転記にしない。連続する分割の一部だけが反映済みの場合も、各per-share値と独立総額で既知の株式basisを照合し、複数basisが成立するfieldは未解決にする。JPX PDFの転換も完了と普通株basisを確認し、新発行済数と旧自己株を混ぜない。 後発事象による後日開示は明示効力日と公表日を分け、公表日前のas-ofへ戻さない。取得済み原本の実受領cutoffも別に保ち、予定・複数完了・不一致は株数の推定に使わない。
 
-大量保有報告は第三者申告で、発行会社確認/変更日確定ではなく、時価総額/順位を自動補正しない。受領UTC日だけなら翌日以降、評価前の固定snapshotがある場合だけ同日その固定時刻まで利用できる。通常生成は同じ固定EDINET pairのnative在庫/selected receipt、旧SQL/body-only readerはSQLの在庫/受領日を使う。latest確認や精密時計でcoarse dayの採否を広げない。
+大量保有報告の株式総数は第三者の申告で、発行会社の自己株数や変更日を確定しない。通常の企業財務には取り込まない。欄がない新しい世代を「報告なし・希薄化なし」と読まず、古い固定モデルの同欄は当時のpartial等の範囲のまま扱う。必要な個社調査では、受領した一覧で対象文書・訂正/撤回・受領時点を確かめ、[特定した原本の抽出](../../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_holder_capital.py)で発行会社・株式数・基準日を読む。文書の提出時計は受領時計ではなく、その確認だけで過去の可視性や現在の分母を証明しない。
 
 [発行会社の資本注記](../../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_issuer_capital_reader.py)は最新年次/訂正の同じ普通株表の期末表示。提出日contextや議決権表を接合せず、単位・scope・原文位置を保つ。信託/分割注記は未照合で、現在株数/価格分母の補完や、最新訂正の欠測から旧数値の復活に使わない。
 

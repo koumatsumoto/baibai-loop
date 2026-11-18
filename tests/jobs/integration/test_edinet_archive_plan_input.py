@@ -83,15 +83,14 @@ def test_source_plan_matches_sql_projection_inputs_and_holder_scope(tmp_path, la
     through = DAY + timedelta(days=1)
     with closing(sqlite3.connect(database)) as conn:
         projected = read_stored_documents(conn, through=through)
-        holders = read_observed_documents(conn, through=through, holder_only=True)
     assert inputs.stored_documents(through=through) == projected
     assert [day.isoformat() for day in inputs.failed_days] == result["failed_days"]
     folded, _ = canonicalize_document_events(projected, origin_start=None)
     assert next(doc for doc in folded if doc["docID"] == "S100ANNUAL")["docDescription"] is None
     assert next(doc for doc in folded if doc["docID"] == "S100HOLDER")["docDescription"] == "holder"
-    assert select_holder_archives(inputs.observed_documents(through=through), retained=set()) == (
-        select_holder_archives(holders, retained=set())
-    )
+    assert select_holder_archives(
+        inputs.observed_documents(through=through, holder_only=True), retained=set()
+    ) == select_holder_archives(projected, retained=set())
     assert owner.freeze().value() == before
 
 
@@ -127,8 +126,7 @@ def test_document_identity_checks_follow_date_and_holder_scope(tmp_path):
     database = tmp_path / "comparison.sqlite"
     materialize_lists(fixed, database)
     with closing(sqlite3.connect(database)) as conn:
-        holders = read_observed_documents(conn, through=DAY, holder_only=True)
-        assert inputs.observed_documents(through=DAY, holder_only=True) == holders
+        holders = inputs.observed_documents(through=DAY, holder_only=True)
         assert [doc["docID"] for doc in holders] == ["S100HOLDER"]
         for read in (
             lambda: read_observed_documents(conn, through=DAY),

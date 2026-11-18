@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-import sqlite3
 import sys
 import time
 from collections import defaultdict
@@ -13,7 +11,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from math import isfinite
 
-from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.comparison_evidence import SavedComparisonEvidence
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGenerationStream
@@ -49,10 +46,6 @@ from baibai_engine.machine_analysis.observations.financials.capital_action_pdf i
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
     read_comparison_population,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
-    read_fixed_holder_capital,
-    read_holder_capital,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -83,7 +76,6 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
 )
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
@@ -205,34 +197,6 @@ def read_and_generate_models(
             connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
         )
         _phase_progress("pdf_financials", phase_started)
-        phase_started = _phase_progress("holder_capital")
-        try:
-            if edinet_input is None:
-                holder_capital, holder_coverage = read_holder_capital(
-                    connection,
-                    as_of=as_of,
-                    tickers=subjects,
-                    known_at=evaluation_time,
-                    snapshot_sealed_at=market_snapshot.sealed_at,
-                )
-            else:
-                holder_capital, holder_coverage = read_fixed_holder_capital(
-                    connection,
-                    as_of=as_of,
-                    tickers=subjects,
-                    known_at=evaluation_time,
-                    snapshot_sealed_at=market_snapshot.sealed_at,
-                    archives=edinet_input.archives,
-                    selected_at=edinet_input.selected_at,
-                )
-        except (sqlite3.Error, EDINETProviderError, LakePublishError, ValueError, OSError) as error:
-            # A failed supplemental read must not erase independent market/financial data.
-            logging.getLogger(__name__).warning(
-                "holder-capital unavailable: %s", type(error).__name__
-            )
-            holder_capital, holder_coverage = {}, "unavailable"
-        else:
-            _phase_progress("holder_capital", phase_started)
         calendar = read_price_calendar(connection, as_of=as_of)
         path_calendar = price_calendar(calendar, as_of=as_of)
         state_start = min(
@@ -378,9 +342,6 @@ def read_and_generate_models(
             comparisons=comparisons.get(ticker, ()),
             pdf_statements=pdf_statements.get(ticker, ()),
             capital_actions=capital_actions.get(ticker, ()),
-            holder_capital=holder_capital.get(ticker, ()),
-            holder_coverage=holder_coverage,
-            holder_snapshot_sealed_at=market_snapshot.sealed_at,
             provider_capital=provider_capital.get(ticker),
             price_path=price_paths[ticker],
         )

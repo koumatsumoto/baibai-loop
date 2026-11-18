@@ -349,16 +349,11 @@ def test_native_financial_failure_keeps_start_only(integration, monkeypatch, pro
     assert CANARY not in progress.getvalue()
 
 
-@pytest.mark.parametrize(
-    "failure", [None, "edinet_comparisons", "pdf_financials", "holder_capital", "price_series"]
-)
-def test_input_read_boundaries_preserve_failure_and_holder_fallback(
-    tmp_path, monkeypatch, progress, caplog, failure
-):
+@pytest.mark.parametrize("failure", [None, "edinet_comparisons", "pdf_financials", "price_series"])
+def test_input_read_boundaries_preserve_failure(tmp_path, monkeypatch, progress, caplog, failure):
     phases = {
         "edinet_comparisons": "read_comparison_population",
         "pdf_financials": "read_pdf_statements",
-        "holder_capital": "read_holder_capital",
         "price_series": "read_price_bars",
     }
     error = ValueError(CANARY)
@@ -386,12 +381,11 @@ def test_input_read_boundaries_preserve_failure_and_holder_fallback(
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1301",),
         )
-        if failure in (None, "holder_capital"):
+        if failure is None:
             generated = inputs.read_and_generate_models(**arguments)
             assert generated.subjects == ("1301",)
             for phase in phases:
-                if phase != failure:
-                    assert f"phase={phase} state=done elapsed_seconds=" in progress.flushed
+                assert f"phase={phase} state=done elapsed_seconds=" in progress.flushed
         else:
             with pytest.raises(ValueError, match=CANARY) as caught:
                 inputs.read_and_generate_models(**arguments)
