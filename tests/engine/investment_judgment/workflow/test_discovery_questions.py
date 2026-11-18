@@ -156,6 +156,10 @@ def test_cli_question_to_one_fixed_company_and_finite_comparison(tmp_path, monke
         str(tmp_path / "not_an_app"),
     ]
     first = cli(base)
+    output = tmp_path / "discovery-context.json"
+    for _ in range(2):
+        assert cli([*base, "--out", str(output)]) == first
+        assert json.loads(output.read_text()) == first
     assert first["screening_selection_id"] == identity
     assert "candidate_tickers" not in first
     assert "model_inputs" not in first
