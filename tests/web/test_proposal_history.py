@@ -78,6 +78,19 @@ def test_history_keeps_corrected_original_visible_with_its_correction(tmp_path):
     assert all(row.corrections == [record] for row in view.proposals)
 
 
+def test_broken_shared_correction_does_not_lose_the_unreadable_ids(tmp_path):
+    case, first, second = _two_publications(tmp_path)
+    with closing(sqlite3.connect(case.app)) as connection, connection:
+        connection.execute(
+            "INSERT INTO proposal_correction VALUES (?,?,?,?,?)",
+            ("broken", second.proposal_id, first.proposal_id, PUBLISHED.isoformat(), "{}"),
+        )
+    history = build_proposal_history(DbProposalSource(case.app))
+    assert history.status == "unavailable"
+    assert history.proposals == []
+    assert history.unavailable_proposal_ids == sorted([first.proposal_id, second.proposal_id])
+
+
 @pytest.mark.parametrize("damage_all", [False, True])
 def test_damaged_publication_does_not_hide_other_reports_or_claim_full_history(
     tmp_path, damage_all

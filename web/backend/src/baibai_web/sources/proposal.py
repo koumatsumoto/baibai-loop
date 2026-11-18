@@ -5,10 +5,9 @@ from contextlib import closing
 from pathlib import Path
 
 from baibai_engine.investment_judgment.trade_proposal.query import (
-    latest_investment_proposal_id,
+    ProposalRecordReader,
     load_proposal_with_assessments,
     published_proposal_ids,
-    read_proposal_records,
     saved_proposal_market_context,
 )
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -24,17 +23,26 @@ class DbProposalSource:
     def latest(self) -> SavedProposalView | None:
         with closing(connect_read_only(self._path)) as connection:
             connection.execute("BEGIN")
-            proposal_id = latest_investment_proposal_id(connection)
-            return None if proposal_id is None else _project(connection, proposal_id)
+            records = ProposalRecordReader(connection)
+            proposal_id = records.latest_id()
+            return None if proposal_id is None else _project(connection, proposal_id, records)
 
     def history(self) -> ProposalHistoryRead:
         with closing(connect_read_only(self._path)) as connection:
             connection.execute("BEGIN")
             proposals = []
             unavailable = []
-            for proposal_id in published_proposal_ids(connection):
+            ids = published_proposal_ids(connection)
+            if not ids:
+                return ProposalHistoryRead((), ())
+            try:
+                records = ProposalRecordReader(connection)
+            except (OSError, ValueError, RuntimeError, sqlite3.Error):
+                # Broken shared corrections leave every publication unreadable, not absent.
+                return ProposalHistoryRead((), ids)
+            for proposal_id in ids:
                 try:
-                    proposals.append(_project(connection, proposal_id))
+                    proposals.append(_project(connection, proposal_id, records))
                 except (OSError, ValueError, RuntimeError, sqlite3.Error):
                     # One unreadable publication must stay visible as missing, not erase its peers.
                     unavailable.append(proposal_id)
@@ -42,10 +50,12 @@ class DbProposalSource:
             return ProposalHistoryRead(tuple(proposals), tuple(unavailable))
 
 
-def _project(connection: sqlite3.Connection, proposal_id: str) -> SavedProposalView:
+def _project(
+    connection: sqlite3.Connection, proposal_id: str, records: ProposalRecordReader
+) -> SavedProposalView:
     proposal, pairs = load_proposal_with_assessments(connection, proposal_id)
     view = project_saved_proposal(proposal, pairs)
-    view.corrections, view.human_reports = read_proposal_records(connection, proposal)
+    view.corrections, view.human_reports = records.read(proposal)
     view.saved_market_context = SavedMarketContextView.model_validate(
         saved_proposal_market_context(connection, proposal)
     )

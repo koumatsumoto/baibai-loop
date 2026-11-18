@@ -11,12 +11,11 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
+    ProposalRecordReader,
     _require_ref,
-    load_corrections,
     load_investment_proposal,
     load_latest_investment_proposal,
     proposal_records,
-    read_proposal_records,
 )
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
@@ -47,15 +46,11 @@ class ProposalRecordService:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 existing = connection.execute(
-                    "SELECT payload FROM proposal_correction WHERE correction_id=?",
+                    "SELECT erroneous_proposal_id FROM proposal_correction WHERE correction_id=?",
                     (draft.correction_id,),
                 ).fetchone()
                 if existing is not None:
-                    saved = next(
-                        r
-                        for r in load_corrections(connection)
-                        if r.correction_id == draft.correction_id
-                    )
+                    saved = ProposalRecordReader(connection).by_erroneous_id[existing[0]]
                     if saved.model_dump(exclude={"recorded_at"}) != draft.model_dump():
                         raise ProposalConflictError("immutable proposal correction differs")
                     connection.rollback()
@@ -80,7 +75,7 @@ class ProposalRecordService:
                         canonical_json(record.model_dump(mode="json")),
                     ),
                 )
-                load_corrections(connection)
+                ProposalRecordReader(connection)
                 connection.commit()
                 return record
             except BaseException:
@@ -101,7 +96,7 @@ class ProposalRecordService:
                     stored = HumanProposalReport.model_validate_json(existing[0])
                     if stored.proposal_ref != draft.proposal_ref:
                         raise ProposalConflictError("immutable human proposal report differs")
-                    _, reports = read_proposal_records(connection, proposal)
+                    _, reports = ProposalRecordReader(connection).read(proposal)
                     saved = next(
                         report for report in reports if report.report_id == draft.report_id
                     )

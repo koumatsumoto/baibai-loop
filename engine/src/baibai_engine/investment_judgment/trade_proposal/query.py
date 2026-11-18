@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from copy import deepcopy
 from datetime import date, datetime
 
@@ -136,34 +137,8 @@ def published_proposal_ids(connection: sqlite3.Connection) -> tuple[str, ...]:
 
 
 def load_latest_investment_proposal(connection: sqlite3.Connection) -> TradeProposal | None:
-    proposal_id = latest_investment_proposal_id(connection)
+    proposal_id = ProposalRecordReader(connection).latest_id()
     return None if proposal_id is None else load_investment_proposal(connection, proposal_id)
-
-
-def latest_investment_proposal_id(connection: sqlite3.Connection) -> str | None:
-    """全scopeから最大の(as_of, aware published_at, ID)を選ぶ。本文破損で旧版へ戻さない。"""
-
-    # Remove only erroneous records from chronological selection. A correction does
-    # not pin its replacement over a later, unrelated valid proposal.
-    excluded = {r.erroneous_ref.proposal_id for r in load_corrections(connection)}
-    rows = connection.execute(
-        "SELECT proposal_id,published_at,as_of FROM investment_proposal"
-    ).fetchall()
-    rows = [row for row in rows if row[0] not in excluded]
-    latest_day = max((row[2] for row in rows), default=None)
-    rows = [row for row in rows if row[2] == latest_day]
-    headers: list[tuple[datetime, str]] = []
-    for row in rows:
-        try:
-            instant = datetime.fromisoformat(str(row[1]))
-            if instant.utcoffset() is None:
-                raise ValueError("stored publication time must include a timezone")
-        except ValueError as error:
-            raise ProposalConflictError("invalid stored proposal publication header") from error
-        headers.append((instant, str(row[0])))
-    # Compare aware instants in Python: textual offsets and SQLite julianday
-    # respectively lose instant ordering and sub-millisecond precision.
-    return max(headers)[1] if headers else None
 
 
 def _require_ref(connection: sqlite3.Connection, reference: ProposalReference) -> TradeProposal:
@@ -177,12 +152,11 @@ def _rank(proposal: TradeProposal) -> tuple[date, datetime, str]:
     return proposal.as_of, proposal.published_at, proposal.proposal_id
 
 
-def load_corrections(connection: sqlite3.Connection) -> tuple[ProposalCorrection, ...]:
+def _read_corrections(connection: sqlite3.Connection) -> Iterator[ProposalCorrection]:
     rows = connection.execute(
         "SELECT correction_id,erroneous_proposal_id,replacement_proposal_id,recorded_at,payload "
         "FROM proposal_correction ORDER BY correction_id"
-    ).fetchall()
-    records = []
+    )
     for row in rows:
         record = ProposalCorrection.model_validate_json(row[4])
         if (
@@ -196,45 +170,78 @@ def load_corrections(connection: sqlite3.Connection) -> tuple[ProposalCorrection
         replacement = _require_ref(connection, record.replacement_ref)
         if _rank(replacement) >= _rank(erroneous) or record.recorded_at < erroneous.published_at:
             raise ProposalConflictError("correction must reference an earlier saved proposal")
-        records.append(record)
-    erroneous_ids = [record.erroneous_ref.proposal_id for record in records]
-    replacement_ids = {record.replacement_ref.proposal_id for record in records}
-    if len(set(erroneous_ids)) != len(erroneous_ids) or set(erroneous_ids) & replacement_ids:
-        raise ProposalConflictError("duplicate or chained proposal correction")
-    return tuple(records)
+        yield record
 
 
-def read_proposal_records(
-    connection: sqlite3.Connection, proposal: TradeProposal
-) -> tuple[list[ProposalCorrection], list[HumanProposalReport]]:
-    """同一transactionで検証済みの提案に、訂正と人間報告のexact参照を照合する。"""
-    proposal_id = proposal.proposal_id
-    corrections = [
-        record
-        for record in load_corrections(connection)
-        if proposal_id in (record.erroneous_ref.proposal_id, record.replacement_ref.proposal_id)
-    ]
-    reports = []
-    for row in connection.execute(
-        "SELECT report_id,recorded_at,payload FROM proposal_human_report WHERE proposal_id=?",
-        (proposal_id,),
-    ):
-        report = HumanProposalReport.model_validate_json(row[2])
-        if (
-            report.report_id != row[0]
-            or report.proposal_ref.proposal_id != proposal_id
-            or report.proposal_ref.draft_sha256 != proposal.review.draft_sha256
-            or report.recorded_at != datetime.fromisoformat(row[1])
-            or not proposal.published_at <= report.reported_at <= report.recorded_at
+class ProposalRecordReader:
+    """同じ読取transaction内でのみ、検証済みの訂正を対象提案ごとに再利用する。"""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+        self.by_erroneous_id: dict[str, ProposalCorrection] = {}
+        self._by_replacement: dict[str, list[ProposalCorrection]] = {}
+        for record in _read_corrections(connection):
+            erroneous = record.erroneous_ref.proposal_id
+            if erroneous in self.by_erroneous_id:
+                raise ProposalConflictError("duplicate or chained proposal correction")
+            self.by_erroneous_id[erroneous] = record
+            self._by_replacement.setdefault(record.replacement_ref.proposal_id, []).append(record)
+        if not self.by_erroneous_id.keys().isdisjoint(self._by_replacement):
+            raise ProposalConflictError("duplicate or chained proposal correction")
+
+    def latest_id(self) -> str | None:
+        """全scopeから最大の(as_of, aware published_at, ID)を選ぶ。本文破損で旧版へ戻さない。"""
+
+        # Remove only erroneous records from chronological selection. A correction does
+        # not pin its replacement over a later, unrelated valid proposal.
+        rows = self._connection.execute(
+            "SELECT proposal_id,published_at,as_of FROM investment_proposal"
+        ).fetchall()
+        rows = [row for row in rows if row[0] not in self.by_erroneous_id]
+        latest_day = max((row[2] for row in rows), default=None)
+        rows = [row for row in rows if row[2] == latest_day]
+        headers: list[tuple[datetime, str]] = []
+        for row in rows:
+            try:
+                instant = datetime.fromisoformat(str(row[1]))
+                if instant.utcoffset() is None:
+                    raise ValueError("stored publication time must include a timezone")
+            except ValueError as error:
+                raise ProposalConflictError("invalid stored proposal publication header") from error
+            headers.append((instant, str(row[0])))
+        # Compare aware instants in Python: textual offsets and SQLite julianday
+        # respectively lose instant ordering and sub-millisecond precision.
+        return max(headers)[1] if headers else None
+
+    def read(
+        self, proposal: TradeProposal
+    ) -> tuple[list[ProposalCorrection], list[HumanProposalReport]]:
+        """同一transactionで検証済みの提案ID・hash・時点に人間報告を照合する。"""
+        proposal_id = proposal.proposal_id
+        reports = []
+        for row in self._connection.execute(
+            "SELECT report_id,recorded_at,payload FROM proposal_human_report WHERE proposal_id=?",
+            (proposal_id,),
         ):
-            raise ProposalConflictError("stored human report identity or time differs")
-        reports.append(report)
-    reports.sort(key=lambda report: (report.recorded_at, report.report_id))
-    return corrections, reports
+            report = HumanProposalReport.model_validate_json(row[2])
+            if (
+                report.report_id != row[0]
+                or report.proposal_ref.proposal_id != proposal_id
+                or report.proposal_ref.draft_sha256 != proposal.review.draft_sha256
+                or report.recorded_at != datetime.fromisoformat(row[1])
+                or not proposal.published_at <= report.reported_at <= report.recorded_at
+            ):
+                raise ProposalConflictError("stored human report identity or time differs")
+            reports.append(report)
+        reports.sort(key=lambda report: (report.recorded_at, report.report_id))
+        correction = self.by_erroneous_id.get(proposal_id)
+        return (
+            [correction] if correction is not None else self._by_replacement.get(proposal_id, [])
+        ), reports
 
 
 def proposal_records(connection: sqlite3.Connection, proposal: TradeProposal) -> ProposalRecords:
-    corrections, reports = read_proposal_records(connection, proposal)
+    corrections, reports = ProposalRecordReader(connection).read(proposal)
     return {
         "corrections": [record.model_dump(mode="json") for record in corrections],
         "human_reports": [report.model_dump(mode="json") for report in reports],
