@@ -31,6 +31,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     RequestScope,
     ReservationInput,
     SecurityClassification,
+    TradeProposal,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
@@ -92,6 +93,8 @@ DEFAULT_BUDGET_MIN_YEN = 200_000
 DEFAULT_BUDGET_MAX_YEN = 300_000
 PROPOSAL_TERMS_POLICY_REVISION = "author-selected-terms-v1"
 
+type _ReportedBuy = tuple[str, TradeProposal]
+
 
 def proposal_input_policy_id() -> str:
     """提案条件の意味revisionと使用thresholdを新規入力へ固定する。"""
@@ -104,7 +107,7 @@ def _original_assessment(
     *,
     ticker: str,
     bought: ExecutionEvent | None,
-) -> tuple[AssessmentRef | None, str | None]:
+) -> tuple[AssessmentRef | None, str | None, _ReportedBuy | None]:
     reference = None if bought is None else bought.decision_reference
 
     def follows_reported_buy(published_at: datetime) -> bool:
@@ -142,6 +145,7 @@ def _original_assessment(
                         f"判断参照 {reference} の評価公開は買付より後です。"
                         "買付時の評価と確認できず、現在評価を当初理由として補完しない。"
                     ),
+                    (reference, proposal),
                 )
             if follows_reported_buy(proposal.published_at):
                 return (
@@ -150,10 +154,11 @@ def _original_assessment(
                         f"判断参照 {reference} の提案公開は買付より後です。"
                         "買付時の提案と確認できず、後から作った提案を当初理由として補完しない。"
                     ),
+                    (reference, proposal),
                 )
-            return item.assessment_ref, None
+            return item.assessment_ref, None, (reference, proposal)
     label = "報告に判断参照なし" if reference is None else f"判断参照 {reference}"
-    return None, f"{label}の当初評価・投資理由を確認できない。現在評価では補完しない。"
+    return None, f"{label}の当初評価・投資理由を確認できない。現在評価では補完しない。", None
 
 
 @contextmanager
@@ -181,8 +186,9 @@ def collect_proposal_inputs(
     budget_min_yen: int,
     budget_max_yen: int,
     market_connection: sqlite3.Connection | None = None,
+    original_buys: dict[str, _ReportedBuy] | None = None,
 ) -> ProposalInputs:
-    """台帳head/metaはcallerのtransaction、quote/basisは一つのmarket snapshotから読む。"""
+    """台帳・quoteを一度収集し、保有の起案時だけ対象の照合済み買付元も同じ読取内で渡す。"""
     if not connection.in_transaction:
         raise ProposalError("proposal input collection requires an existing transaction")
     if now.utcoffset() is None:
@@ -246,9 +252,11 @@ def collect_proposal_inputs(
     positions: list[PositionInput] = []
     for holding in portfolio.holdings:
         bought, _ = holding_episode(ledger, holding.ticker, now)
-        original_ref, unavailable = _original_assessment(
+        original_ref, unavailable, origin = _original_assessment(
             connection, ticker=holding.ticker, bought=bought
         )
+        if original_buys is not None and holding.ticker in tickers and origin is not None:
+            original_buys[holding.ticker] = origin
         positions.append(
             PositionInput(
                 ticker=holding.ticker,
@@ -373,8 +381,7 @@ def proposal_liquidity_context(
 
 def _reported_buy_proposal_records(
     connection: sqlite3.Connection,
-    scope: ProposalResearchScope,
-    inputs: ProposalInputs,
+    original_buys: dict[str, _ReportedBuy],
     *,
     now: datetime,
 ) -> dict[str, JsonValue]:
@@ -384,24 +391,7 @@ def _reported_buy_proposal_records(
         "recorded_through": now.isoformat(),
         "holdings": holdings,
     }
-    targets = {target.ticker for target in scope.targets if target.purpose == "holding"}
-    tickers = sorted(targets & {position.ticker for position in inputs.positions})
-    if not tickers:
-        return result
-    ledger, _ = load_ledger_in_transaction(connection)
-    for ticker in tickers:
-        bought, _ = holding_episode(ledger, ticker, now)
-        reference = None if bought is None else bought.decision_reference
-        if reference is None:
-            continue
-        binding = connection.execute(
-            "SELECT origin,proposal_id FROM position_decision_reference WHERE reference=?",
-            (reference,),
-        ).fetchone()
-        if binding is None or binding[0] != "proposal" or binding[1] is None:
-            continue
-        # The collector has verified this exact binding on the same App snapshot.
-        proposal = load_investment_proposal(connection, str(binding[1]))
+    for ticker, (reference, proposal) in sorted(original_buys.items()):
         row: dict[str, JsonValue] = {
             "ticker": ticker,
             "decision_reference": reference,
@@ -670,6 +660,7 @@ def build_proposal_context(
         if operation.started_at > now:
             raise ProposalError("Research Operation starts after the authoring instant")
         scope = proposal_scope(operation.operation_id, operation.payload)
+        original_buys: dict[str, _ReportedBuy] = {}
         inputs = collect_proposal_inputs(
             connection,
             tickers=tuple(target.ticker for target in scope.targets),
@@ -679,6 +670,7 @@ def build_proposal_context(
             budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
             budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
             market_connection=market_connection,
+            original_buys=original_buys if scope.targets[0].purpose == "holding" else None,
         )
         assessments = {
             outcome.assessment_ref.assessment_id: require_assessment_ref(
@@ -738,7 +730,7 @@ def build_proposal_context(
             },
             saved_discovery_context(selection, selection_hash=scope.selection_sha256),
             saved_profit_context(selection, selection_hash=scope.selection_sha256),
-            _reported_buy_proposal_records(connection, scope, inputs, now=now),
+            _reported_buy_proposal_records(connection, original_buys, now=now),
             listing,
             read_tender_filing_references(market_connection, tickers=flagged, known_at=now),
             _previous_buy_context(connection, scope, inputs, proposal_id=proposal_id, now=now),
