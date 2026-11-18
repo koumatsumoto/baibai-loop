@@ -61,7 +61,7 @@ def main() -> int:
     args = parser.parse_args()
     env = dict(os.environ)
     env["R2_STOP_ON_REJECTION"] = "1"
-    store = Boto3R2Store(bucket=args.bucket, env=env)
+    store = Boto3R2Store(bucket=args.bucket, env=env, verify_put_with_head=False)
     try:
         with tempfile.TemporaryDirectory(prefix="application-backup-") as temporary:
             key = preserve_application(
