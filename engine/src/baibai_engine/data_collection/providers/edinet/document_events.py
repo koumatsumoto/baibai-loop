@@ -10,16 +10,15 @@ from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.data_collection.providers.edinet.fields import (
+    DocumentOperation,
     coalesce_field,
     parse_sec_code,
     safe_error_value,
     text_or_none,
+    validated_document_operation,
 )
 from baibai_engine.data_collection.providers.edinet.fields import (
     parse_doc_id as _parse_doc_id,
-)
-from baibai_engine.data_collection.providers.edinet.fields import (
-    validate_document_statuses as _validate_native_statuses,
 )
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 
@@ -29,13 +28,6 @@ _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 def parse_doc_id(value: object) -> str:
     try:
         return _parse_doc_id(value)
-    except ValueError as error:
-        raise EDINETProviderError(str(error)) from error
-
-
-def _validate_document_statuses(document: Mapping[str, Any]) -> None:
-    try:
-        _validate_native_statuses(document)
     except ValueError as error:
         raise EDINETProviderError(str(error)) from error
 
@@ -65,25 +57,18 @@ def canonicalize_document_events(
     normalized = [dict(document) for document in documents]
     normalized.sort(key=_document_event_sort_key)
     origins: dict[str, dict[str, Any]] = {}
-    events: list[dict[str, Any]] = []
+    events: list[tuple[str, dict[str, Any], DocumentOperation]] = []
     for document in normalized:
-        _validate_document_statuses(document)
+        try:
+            operation = validated_document_operation(document)
+        except ValueError as error:
+            raise EDINETProviderError(str(error)) from error
         doc_id_raw = coalesce_field(document, "docID", "doc_id")
         if doc_id_raw is None:
             continue
         doc_id = parse_doc_id(doc_id_raw)
-        edit_status = text_or_none(
-            coalesce_field(document, "docInfoEditStatus", "doc_info_edit_status")
-        )
-        withdrawal_status = text_or_none(
-            coalesce_field(document, "withdrawalStatus", "withdrawal_status")
-        )
-        disclosure_status = text_or_none(
-            coalesce_field(document, "disclosureStatus", "disclosure_status")
-        )
-        is_event = edit_status == "1" or withdrawal_status == "1" or disclosure_status in {"1", "3"}
-        if is_event:
-            events.append(document)
+        if operation is not None:
+            events.append((doc_id, document, operation))
             continue
         origins[doc_id] = document
 
@@ -96,18 +81,9 @@ def canonicalize_document_events(
 
     quarantined: set[QuarantinedDocumentEvent] = set()
     withdrawn_by_event: set[str] = set()
-    for event in events:
-        doc_id = parse_doc_id(coalesce_field(event, "docID", "doc_id"))
-        edit_status = text_or_none(
-            coalesce_field(event, "docInfoEditStatus", "doc_info_edit_status")
-        )
-        withdrawal_status = text_or_none(
-            coalesce_field(event, "withdrawalStatus", "withdrawal_status")
-        )
-        disclosure_status = text_or_none(
-            coalesce_field(event, "disclosureStatus", "disclosure_status")
-        )
-        if withdrawal_status == "1":
+    parents_changed = False
+    for doc_id, event, operation in events:
+        if operation.withdrawal == "1":
             parent = text_or_none(coalesce_field(event, "parentDocID", "parent_doc_id"))
             if parent is None or parent not in origins:
                 quarantined.add(
@@ -125,7 +101,7 @@ def canonicalize_document_events(
             continue
         current = origins.get(doc_id)
         if current is None:
-            event_type = "edit" if edit_status == "1" else "disclosure"
+            event_type = "edit" if operation.edit == "1" else "disclosure"
             quarantined.add(
                 _quarantined_document_event(
                     event,
@@ -150,6 +126,7 @@ def canonicalize_document_events(
         current.update(event)
         new_parent = text_or_none(coalesce_field(current, "parentDocID", "parent_doc_id"))
         if new_parent != old_parent:
+            parents_changed = True
             if old_parent is not None:
                 children[old_parent].discard(doc_id)
             if new_parent is not None:
@@ -159,14 +136,14 @@ def canonicalize_document_events(
         if was_withdrawn:
             current["withdrawalStatus"] = "2"
             current["legalStatus"] = "0"
-        if edit_status == "1":
+        if operation.edit == "1":
             current["docInfoEditStatus"] = "2"
-        if disclosure_status == "1":
+        if operation.disclosure == "1":
             current["disclosureStatus"] = "2"
-        elif disclosure_status == "3":
+        elif operation.disclosure == "3":
             current["disclosureStatus"] = "0"
-    # Operation rows can replace parent metadata after the initial graph check.
-    _validate_parent_graph(origins)
+    if parents_changed:
+        _validate_parent_graph(origins)
     selected_origins: list[dict[str, Any]] = []
     for origin in origins.values():
         origin_date = text_or_none(coalesce_field(origin, "doc_date"))

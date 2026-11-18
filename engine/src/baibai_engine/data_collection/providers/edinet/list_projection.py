@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.edinet.fields import (
     parse_doc_id,
-    validate_document_statuses,
+    validated_document_operation,
 )
 from baibai_engine.data_collection.providers.edinet.receipts import EdinetListReceipt
 
@@ -167,7 +167,7 @@ def decode_list_response(
             raise ValueError("EDINET response date does not match the requested day")
     records = [dict(item) for item in results]
     for record in records:
-        validate_document_statuses(record)
+        validated_document_operation(record)
     keys: list[tuple[int, str]] = []
     sequences: set[int] = set()
     for record in records:
