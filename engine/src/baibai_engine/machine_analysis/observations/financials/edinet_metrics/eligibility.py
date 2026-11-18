@@ -8,10 +8,10 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.edinet.selection import (
-    select_document_candidates,
+    select_folded_candidates,
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
-    read_observed_documents,
+    ObservedFilingHistory,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.planning import (
     can_reuse_edinet_metric,
@@ -29,7 +29,7 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 def read_eligible_edinet_metrics(
-    sqlite_path: Path, asof_date: date
+    sqlite_path: Path, asof_date: date, *, filing_history: ObservedFilingHistory | None = None
 ) -> dict[str, EdinetMetricRecord]:
     """Select only compatible observations from the validated latest baseline.
 
@@ -41,11 +41,13 @@ def read_eligible_edinet_metrics(
     baseline = read_edinet_metric_baseline(sqlite_path, asof_date)
     if baseline is None:
         return {}
-    with closing(connect_read_only(sqlite_path)) as connection:
-        connection.execute("BEGIN")
-        selection = select_document_candidates(
-            read_observed_documents(connection, through=asof_date), origin_start=None
-        )
+    if filing_history is None:
+        with closing(connect_read_only(sqlite_path)) as connection:
+            connection.execute("BEGIN")
+            filing_history = ObservedFilingHistory.read(connection, through=asof_date)
+    elif filing_history.through != asof_date:
+        raise ValueError("filing history cutoff differs from metric cutoff")
+    selection = select_folded_candidates(filing_history.filings, filing_history.quarantined)
     plan = make_metric_extraction_plan(
         selection=selection,
         baseline=baseline,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
     import duckdb
 
 from baibai_engine.data_collection.providers.edinet.document_events import (
+    QuarantinedDocumentEvent,
     canonicalize_document_events,
 )
 from baibai_engine.data_collection.providers.edinet.document_rows import (
@@ -21,6 +23,24 @@ from baibai_engine.data_collection.providers.edinet.document_rows import (
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedFilingHistory:
+    """One cutoff's folded filings and unresolved operations from the caller's fixed input."""
+
+    through: date
+    filings: list[dict[str, Any]]
+    quarantined: tuple[QuarantinedDocumentEvent, ...]
+
+    @classmethod
+    def read(
+        cls, connection: sqlite3.Connection | duckdb.DuckDBPyConnection, *, through: date
+    ) -> ObservedFilingHistory:
+        filings, quarantined = canonicalize_document_events(
+            read_observed_documents(connection, through=through), origin_start=None
+        )
+        return cls(through, filings, quarantined)
 
 
 def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, Any]] | None:

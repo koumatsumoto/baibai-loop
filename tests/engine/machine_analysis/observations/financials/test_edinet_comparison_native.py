@@ -36,6 +36,7 @@ from baibai_engine.machine_analysis.generation.edinet_inputs import (
     read_edinet_input,
     retain_edinet_input,
 )
+from baibai_engine.machine_analysis.observations.disclosures import edinet_document_store
 from baibai_engine.machine_analysis.observations.financials import edinet_comparison_reader as owner
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.integration.edinet_archive_native import materialize_archives
@@ -101,7 +102,7 @@ def population(monkeypatch, documents, rows, route):
         assert through == ASOF
         return documents
 
-    monkeypatch.setattr(owner, "read_observed_documents", read_documents)
+    monkeypatch.setattr(edinet_document_store, "read_observed_documents", read_documents)
     return owner.read_comparison_population(
         ByteConnection(rows, forbidden=route == "native"),
         as_of=ASOF,
@@ -211,7 +212,9 @@ def test_native_member_damage_is_not_missing_acquisition_or_sql_fallback(
         del store.values[key]
     else:
         store.store_object(key, b"changed")
-    monkeypatch.setattr(owner, "read_observed_documents", lambda *a, **k: [document])
+    monkeypatch.setattr(
+        edinet_document_store, "read_observed_documents", lambda *a, **k: [document]
+    )
     with pytest.raises(LakePublishError):
         owner.read_comparison_population(
             ByteConnection([("S100YRSR", body)], forbidden=True), as_of=ASOF, archives=fixed
@@ -229,7 +232,9 @@ def test_native_reads_only_selected_type_one_and_keeps_publication_cutoff(monkey
             ("S100OTHER", 1): b"unselected issuer",
         }
     )
-    monkeypatch.setattr(owner, "read_observed_documents", lambda *a, **k: [document, other])
+    monkeypatch.setattr(
+        edinet_document_store, "read_observed_documents", lambda *a, **k: [document, other]
+    )
     published = datetime.fromisoformat(document["submitDateTime"] + "+09:00")
     connection = ByteConnection([], forbidden=True)
     assert (

@@ -13,6 +13,7 @@ from baibai_engine.data_collection.providers.edinet.document_events import (
 )
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    ObservedFilingHistory,
     read_edinet_documents,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.eligibility import (
@@ -37,8 +38,12 @@ class EDINETReader:
             )
         return records
 
-    def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
-        return read_eligible_edinet_metrics(self._sqlite_path, asof_date)
+    def load_metric_records(
+        self, asof_date: date, *, filing_history: ObservedFilingHistory | None = None
+    ) -> dict[str, EdinetMetricRecord]:
+        return read_eligible_edinet_metrics(
+            self._sqlite_path, asof_date, filing_history=filing_history
+        )
 
     def read_csv_zip(self, doc_id: str) -> bytes:
         return self._read_archive(doc_id, source_type=5)

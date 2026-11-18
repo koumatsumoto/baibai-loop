@@ -16,6 +16,7 @@ from tests.engine.machine_analysis.observations.financials.test_edinet_compariso
     metadata,
 )
 
+from baibai_engine.machine_analysis.observations.disclosures import edinet_document_store
 from baibai_engine.machine_analysis.observations.financials import edinet_comparison_reader as owner
 from baibai_engine.storage.objects.r2 import LakePublishError
 
@@ -28,7 +29,7 @@ def test_diagnostics_preserve_canonical_get_order_and_report_only_aggregates(
     documents = [metadata(), metadata("S100YV6Y")]
     bodies = [(row["docID"], archive(row["docID"])) for row in documents]
     store, fixed = fixed_archives({(doc, 1): body for doc, body in bodies})
-    monkeypatch.setattr(owner, "read_observed_documents", lambda *a, **k: documents)
+    monkeypatch.setattr(edinet_document_store, "read_observed_documents", lambda *a, **k: documents)
 
     def read(*, seeds=(), diagnostics=None):
         store.get_keys.clear()
@@ -87,7 +88,7 @@ def test_diagnostics_preserve_failure_and_stop_before_later_get(monkeypatch, fai
     documents = [metadata(), metadata("S100YV6Y")]
     bodies = {(row["docID"], 1): archive(row["docID"]) for row in documents}
     store, fixed = fixed_archives(bodies)
-    monkeypatch.setattr(owner, "read_observed_documents", lambda *a, **k: documents)
+    monkeypatch.setattr(edinet_document_store, "read_observed_documents", lambda *a, **k: documents)
     original_get = store.get_bytes
     private_error = RuntimeError("private transport detail")
 
@@ -124,7 +125,9 @@ def test_blocked_original_is_counted_and_validated_without_consuming_seed(monkey
     document = {**metadata(), "xbrlFlag": "0"}
     body = b"blocked original private bytes"
     store, fixed = fixed_archives({(document["docID"], 1): body})
-    monkeypatch.setattr(owner, "read_observed_documents", lambda *a, **k: [document])
+    monkeypatch.setattr(
+        edinet_document_store, "read_observed_documents", lambda *a, **k: [document]
+    )
     monkeypatch.setattr(owner.time, "perf_counter", lambda: 0.0)
 
     def forbidden_seed():
