@@ -578,7 +578,10 @@ def load_dataset_rows(
             # growing SQLite copy can exhaust a hosted runner even with bounded reads.
             if cache.evict_large_after_read:
                 for item, path in zip(partition.objects, paths, strict=True):
-                    if item.bytes > MAX_BUFFERED_OBJECT_BYTES:
+                    if (
+                        item.bytes > MAX_BUFFERED_OBJECT_BYTES
+                        and item.key not in cache.keep_for_export
+                    ):
                         path.unlink(missing_ok=True)
     return loaded
 

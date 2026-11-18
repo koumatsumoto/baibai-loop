@@ -242,6 +242,7 @@ class LakeObjectCache:
     source: LakeObjectSource
     transfers: TransferAccounting = field(default_factory=TransferAccounting)
     evict_large_after_read: bool = False
+    keep_for_export: frozenset[str] = frozenset()
 
     def retain_metadata(self, key: str, payload: bytes, *, sha256: str) -> Path:
         """Keep already-resolved immutable metadata beside its verified Parquet objects."""

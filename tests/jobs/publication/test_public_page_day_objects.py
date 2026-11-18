@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import sqlite3
 from contextlib import closing
@@ -22,6 +23,8 @@ from baibai_engine.data_collection.receipts.public_pages.models import EquityWeb
 from baibai_engine.data_collection.receipts.public_pages.snapshot_contracts import (
     EQUITY_WEB_SOURCE_RESPONSES as DATASET,
 )
+from baibai_engine.storage.snapshots import hydrate as hydrate_module
+from baibai_engine.storage.snapshots import writer
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -42,6 +45,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.publication import snapshot_publication as publication
+from baibai_jobs.publication import snapshot_write_cli as write_cli
 from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.public_page_verification import (
     history_digests,
@@ -68,13 +72,13 @@ def response(number, day, *, body=b"original", parent=None):
     )
 
 
-def build(database, mirror, identity, *, dataset=DATASET, previous=None):
+def build(database, mirror, identity, *, dataset=DATASET, previous=None, expected_origin=None):
     report = export_market_fixture(
         catalog={DATASET.name: dataset},
         sqlite_path=database,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
-        expected_store_origin=None,
+        expected_store_origin=expected_origin,
         created_at=AT + timedelta(days=40),
         previous=previous.dataset_manifests if previous is not None else None,
     )
@@ -314,6 +318,100 @@ def test_publication_keeps_exact_old_months_and_splits_only_changed_periods(tmp_
             )
         assert read_rows(mirror, original) == original_rows
         assert all(store.values[key].body == body for key, body in old_objects.items())
+
+
+def test_bounded_hydration_and_export_reuse_only_same_sealed_receipts(tmp_path, monkeypatch):
+    database, published = tmp_path / "source.sqlite", tmp_path / "published"
+    open_connection(database).close()
+    import_responses(database, tuple(response(n, n, body=bytes([n]) * 512) for n in range(1, 5)))
+    _, original = build(database, published, "old")
+    objects = original.dataset_manifest(DATASET.name).partitions[0].objects
+    monkeypatch.setattr(write_cli, "MAX_BUFFERED_OBJECT_BYTES", 1)
+    monkeypatch.setattr(hydrate_module, "MAX_BUFFERED_OBJECT_BYTES", 1)
+
+    def keys(budget):
+        return write_cli._publication_web_inputs(original, disk_free=budget * 16)
+
+    assert keys(0) == frozenset()
+    assert keys(objects[0].bytes) == {objects[0].key}
+    retained = keys(sum(o.bytes for o in objects))
+    assert retained == {o.key for o in objects}
+    market, mirror = tmp_path / "target.sqlite", tmp_path / "working"
+    open_connection(market).close()
+    cache = LakeObjectCache(
+        root=mirror,
+        source=LocalMirrorSource(published),
+        evict_large_after_read=True,
+        keep_for_export=retained,
+    )
+    with lake_session() as session:
+        hydrate_market_store(
+            session,
+            catalog={DATASET.name: DATASET},
+            release=original,
+            cache=cache,
+            store=market,
+            dataset_names=(DATASET.name,),
+        )
+    assert all((mirror / o.key).is_file() for o in objects)
+    expected_origin = LakeStoreOrigin(original.release_id, original.manifest_sha256)
+    written = []
+    encode = writer._build_period
+
+    def observed(**kwargs):
+        written.append(kwargs.get("object_label"))
+        return encode(**kwargs)
+
+    monkeypatch.setattr(writer, "_build_period", observed)
+    _, quiet = build(market, mirror, "quiet", previous=original, expected_origin=expected_origin)
+    assert written == []
+    assert quiet.dataset_manifest(DATASET.name).partitions[0].objects == objects
+    # Same IDs, clocks and counts are not equivalent to the old body or its ancillary fields.
+    with closing(sqlite3.connect(market)) as conn, conn:
+        conn.execute(
+            "UPDATE equity_web_source_responses SET body_gzip=? WHERE receipt_id=?",
+            (gzip.compress(b"late amendment", mtime=0), response(2, 2).receipt_id),
+        )
+        conn.execute(
+            "UPDATE equity_web_source_responses SET selected_encoding='shift_jis' "
+            "WHERE receipt_id=?",
+            (response(3, 3).receipt_id,),
+        )
+        conn.execute(
+            "DELETE FROM equity_web_source_responses WHERE receipt_id=?",
+            (response(4, 4).receipt_id,),
+        )
+    import_responses(market, (response(5, 5),))
+    _, amended = build(market, mirror, "amended", previous=quiet, expected_origin=expected_origin)
+    assert written == ["2026-10-03", "2026-10-04", "2026-10-06"]
+    _, rebuilt = build(market, tmp_path / "cold", "rebuilt", expected_origin=expected_origin)
+    assert (
+        amended.dataset_manifest(DATASET.name).partitions[0].objects
+        == rebuilt.dataset_manifest(DATASET.name).partitions[0].objects
+    )
+    assert read_rows(mirror, amended) != read_rows(published, original)
+    assert cache.transfers.fetched_objects == len(objects)
+
+
+def test_reuse_does_not_waive_final_published_body_check(tmp_path, monkeypatch):
+    database, mirror = tmp_path / "source.sqlite", tmp_path / "mirror"
+    open_connection(database).close()
+    import_responses(database, (response(1, 1), response(2, 2)))
+    _, original = build(database, mirror, "old")
+    before = set((mirror / "lake/manifests").rglob("*.json"))
+    promote = writer._promote_partitions
+
+    def change_checked_file(mirror_root, built):
+        assert all(part.staged_path is None for part in built)
+        result = promote(mirror_root, built)
+        path = mirror_root / built[0].manifest.objects[0].key
+        path.write_bytes(b"wrong bytes after verification")
+        return result
+
+    monkeypatch.setattr(writer, "_promote_partitions", change_checked_file)
+    with pytest.raises(LakeBuildError, match="checksum or size mismatch"):
+        build(database, mirror, "new", previous=original)
+    assert set((mirror / "lake/manifests").rglob("*.json")) == before
 
 
 pytestmark = pytest.mark.usefixtures(
