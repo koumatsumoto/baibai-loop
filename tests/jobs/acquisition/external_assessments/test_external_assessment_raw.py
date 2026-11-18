@@ -4,7 +4,7 @@ import io
 import json
 import tarfile
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 
 import pytest
 from tests.helpers.external_assessment_html import (
@@ -31,7 +31,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 )
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.storage.objects.r2 import (
-    Boto3R2Store,
     LakePublishError,
 )
 from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
@@ -348,110 +347,26 @@ def test_three_media_normal_and_rakuten_retry_fixture_bundle_sizing_and_restorat
         assert tuple(item.body for item in restored) == tuple(expected)
 
 
-def test_inventory_three_utc_dates_unclassified_and_exact_date_prefixes():
-    inventory = external_assessment_raw.retention_inventory(
-        [
-            (
-                external_assessment_raw.RAW_PREFIX + "utc-date/2026-10-09/html/sha256/hash.html.gz",
-                100,
-            ),
-            (
-                external_assessment_raw.RAW_PREFIX
-                + "utc-date/2026-10-09/receipts/jobs/monex/7203/1.json",
-                10,
-            ),
-            (
-                external_assessment_raw.RAW_PREFIX + "utc-date/2026-10-10/html/sha256/hash.html.gz",
-                200,
-            ),
-            (
-                external_assessment_raw.RAW_PREFIX + "utc-date/2026-10-11/html/sha256/hash.html.gz",
-                300,
-            ),
-            (
-                external_assessment_raw.RAW_PREFIX + "utc-date/2026-10-12/html/sha256/hash.html.gz",
-                400,
-            ),
-            (external_assessment_raw.RAW_PREFIX + "unclassified.html.gz", 500),
-            (external_assessment_raw.RAW_PREFIX + "unclassified.json", 50),
-        ],
-        as_of=date(2026, 10, 12),
-    )
-    assert inventory["keep_from_utc_date"] == "2026-10-10"
-    assert inventory["unclassified"] == {"objects": 2, "bytes": 550}
-    days = inventory["dates"]
-    assert days["2026-10-09"]["status"] == "delete_candidate"
-    assert days["2026-10-09"]["objects"] == 2
-    assert days["2026-10-09"]["bytes"] == 110
-    assert (
-        days["2026-10-09"]["prefix"] == external_assessment_raw.RAW_PREFIX + "utc-date/2026-10-09/"
-    )
-    assert all(days[day]["status"] == "keep" for day in ("2026-10-10", "2026-10-11", "2026-10-12"))
+@pytest.mark.parametrize("args", [[], ["--as-of", "2026-10-12"]])
+def test_raw_cli_requires_a_plan_before_opening_storage(args, monkeypatch):
+    def unexpected(**kwargs):
+        pytest.fail("no plan should reach object storage")
+
+    monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", unexpected)
+    with pytest.raises(SystemExit) as exit_info:
+        external_assessment_raw.main(args)
+    assert exit_info.value.code == 2
 
 
-def test_inventory_cli_lists_both_raw_roots_without_mutations(monkeypatch, capsys):
-    class InventoryStore:
-        def __init__(self, *, bucket):
-            assert bucket == "baibai-stores"
-            self.prefixes = []
-
-        def iter_objects(self, prefix):
-            self.prefixes.append(prefix)
-            return iter(())
-
-    store = InventoryStore(bucket="baibai-stores")
-    monkeypatch.delenv("R2_STORES_BUCKET", raising=False)
-    monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", lambda **kwargs: store)
-    assert external_assessment_raw.main(["--as-of", "2026-10-12"]) == 0
-    assert store.prefixes == [
-        external_assessment_raw.RAW_PREFIX,
-        external_assessment_raw.RETAINED_RAW_PREFIX,
-    ]
-    report = json.loads(capsys.readouterr().out)
-    assert report["mode"] == "read_only_inventory"
-    assert report["dates"] == {}
-
-
-def test_inventory_failure_does_not_log_sensitive_exception(monkeypatch, capsys):
+def test_preservation_failure_does_not_log_sensitive_exception(monkeypatch, capsys):
     def failed_store(**kwargs):
         raise ValueError("private credential and signed URL")
 
     monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", failed_store)
-    assert external_assessment_raw.main([]) == 1
+    assert external_assessment_raw.main(["--preserve-run-id", "synthetic-run"]) == 1
     output = capsys.readouterr()
     assert output.out == ""
-    assert output.err == "External Assessment raw inventory failed; type=ValueError\n"
-
-
-def test_r2_inventory_paginates_keys_and_sizes_without_getting_bodies(monkeypatch):
-    calls = []
-
-    class Paginator:
-        def paginate(self, **kwargs):
-            calls.append(kwargs)
-            yield {"Contents": [{"Key": "first", "Size": 10}]}
-            yield {}
-            yield {"Contents": [{"Key": "second", "Size": 20}]}
-
-    class Client:
-        def get_paginator(self, name):
-            assert name == "list_objects_v2"
-            return Paginator()
-
-    store = Boto3R2Store(
-        bucket="synthetic",
-        env={
-            "R2_ACCOUNT_ID": "a" * 32,
-            "R2_ACCESS_KEY_ID": "synthetic-key",
-            "R2_SECRET_ACCESS_KEY": "synthetic-secret",
-        },
-    )
-    monkeypatch.setattr(store, "_client", lambda: Client())
-    assert list(store.iter_objects(external_assessment_raw.RAW_PREFIX)) == [
-        ("first", 10),
-        ("second", 20),
-    ]
-    assert calls == [{"Bucket": "synthetic", "Prefix": external_assessment_raw.RAW_PREFIX}]
+    assert output.err == "External Assessment raw preservation failed; type=ValueError\n"
 
 
 def test_authorized_response_is_never_archived_or_treated_as_typed_success(connect):
@@ -624,12 +539,3 @@ def test_explicit_plan_preservation_cli_keeps_plan_stage_and_legacy_bytes(monkey
     assert len(store.puts) == 1
     assert all(store.objects[key] == value for key, value in before.items())
     assert store.objects[retained][0] == payload
-
-
-def test_retained_prefix_inventory_never_becomes_age_delete_candidate():
-    report = external_assessment_raw.retention_inventory(
-        [(external_assessment_raw.RETAINED_RAW_PREFIX + "utc-date/2020-01-01/bundles/old", 42)],
-        as_of=date(2026, 11, 2),
-    )
-    assert report["retained"] == {"objects": 1, "bytes": 42}
-    assert report["dates"] == {}

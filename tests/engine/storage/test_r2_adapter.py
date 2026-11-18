@@ -346,6 +346,30 @@ def metadata_store():
     )
 
 
+def test_list_returns_keys_and_sizes_across_pages_without_getting_bodies(monkeypatch):
+    calls = []
+
+    class Paginator:
+        def paginate(self, **kwargs):
+            calls.append(kwargs)
+            yield {"Contents": [{"Key": "first", "Size": 10}]}
+            yield {}
+            yield {"Contents": [{"Key": "second", "Size": 20}]}
+
+    class Client:
+        def get_paginator(self, name):
+            assert name == "list_objects_v2"
+            return Paginator()
+
+    store = metadata_store()
+    monkeypatch.setattr(store, "_client", lambda: Client())
+    assert list(store.iter_objects("scope/")) == [
+        ("first", 10),
+        ("second", 20),
+    ]
+    assert calls == [{"Bucket": "integration-test", "Prefix": "scope/"}]
+
+
 def test_get_metadata_is_from_one_response_and_closes_body(monkeypatch):
     from io import BytesIO
 
