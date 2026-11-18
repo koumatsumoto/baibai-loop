@@ -89,6 +89,13 @@ def test_annual_reader_and_l3_keep_restated_prior_source_and_dates():
     assert prior.measurement == "annual_ttm"
     assert (prior.period_start, prior.period_end) == (date(2024, 4, 1), date(2025, 3, 31))
     assert prior.metrics["sales"].value == 400_000_000_000
+    assert prior.metrics["sales"].precision == "published_display_amounts"
+    margin_change = reader.year_over_year(annual, "operating_margin")[0]
+    (margin_prior,) = reader.comparison_prior(annual, margin_change)
+    margin = margin_prior.metrics["operating_margin"]
+    assert margin.value == margin_change.from_value
+    assert margin.precision == "derived_from_truncated_display_amounts"
+    assert margin.documents == prior.metrics["sales"].documents
     (source,) = prior.metrics["sales"].documents
     assert (source.disclosed_at, source.source_sha256, source.source_url) == (
         pdf.published_on,
