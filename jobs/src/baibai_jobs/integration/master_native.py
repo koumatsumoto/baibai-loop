@@ -62,6 +62,7 @@ def _projection() -> Iterator[sqlite3.Connection]:
         tempfile.TemporaryDirectory(prefix=".master-projection-") as directory,
         closing(sqlite3.connect(Path(directory) / "master.sqlite")) as connection,
     ):
+        connection.executescript(JQUANTS_MASTER_SNAPSHOTS_DDL)
         yield connection
 
 
@@ -89,14 +90,21 @@ def _project(
     required_snapshot: str | None = None,
 ) -> dict[str, Any]:
     """Validate each adopted whole snapshot before exposing any replacement rows."""
-    projection.executescript(JQUANTS_MASTER_SNAPSHOTS_DDL)
     projection.execute(
-        "CREATE TABLE master_receipt_status("
+        "CREATE TEMP TABLE master_receipt_status("
         "day TEXT PRIMARY KEY, request_id TEXT, status TEXT NOT NULL, row_count INTEGER NOT NULL,"
         "failed INTEGER NOT NULL, held INTEGER NOT NULL, confirmed_at TEXT, last_attempt_at TEXT,"
         "error TEXT)"
     )
     adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
+    existing = projection.execute("SELECT 1 FROM jquants_master_snapshots LIMIT 1").fetchone()
+    insert = "INSERT INTO jquants_master_snapshots VALUES (?,?,?)"
+    if existing:
+        insert += (
+            " ON CONFLICT(snapshot_date,security_code) DO UPDATE"
+            " SET record_json=excluded.record_json"
+            " WHERE record_json IS NOT excluded.record_json"
+        )
     counts: dict[str, int] = {}
     invalid: dict[str, str] = {}
     for item in requests:
@@ -128,7 +136,17 @@ def _project(
             prefix = "closed master request: " if closed else MASTER_VALIDATION_ERROR_PREFIX
             invalid[day] = prefix + str(error)
             continue
-        projection.executemany("INSERT INTO jquants_master_snapshots VALUES (?,?,?)", snapshot.rows)
+        if day in counts:
+            raise ValueError("duplicate adopted master request")
+        if existing:
+            # The native snapshot includes non-common securities and unknown fields.
+            # Old codes absent from that whole snapshot cannot remain in this day.
+            projection.execute(
+                "DELETE FROM jquants_master_snapshots WHERE snapshot_date=? "
+                "AND security_code NOT IN (SELECT value FROM json_each(?))",
+                (day, json.dumps([code for _, code, _ in snapshot.rows])),
+            )
+        projection.executemany(insert, snapshot.rows)
         counts[day] = snapshot.persisted_count
     if set(counts) | set(invalid) != set(adopted.values()):
         raise ValueError("native master selection lacks an adopted request")
@@ -346,57 +364,58 @@ def materialize_saved_input(
         raise ValueError("native master selection requires its evaluation clock")
     evaluated_at = datetime.fromisoformat(clock)
     _validate_clock(scopes, evaluated_at)
-    with _projection() as projection:
+    # This execution copy is the staging area. No reader sees any replacement
+    # or coverage change until every fixed request has been checked.
+    uri = market.resolve().as_uri() + "?mode=rw"
+    with closing(sqlite3.connect(uri, uri=True)) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
         result = _project(
-            projection,
+            connection,
             read_master_requests(store, scopes=scopes, receipts=selected["receipts"], days=days),
             scopes=scopes,
             evaluated_at=evaluated_at,
             required_snapshot=_required_snapshot(saved),
         )
-        # All selected snapshots must validate before any old execution row changes.
-        with closing(sqlite3.connect(market)) as connection, connection:
-            if replace_all:
-                connection.execute("DELETE FROM jquants_master_snapshots")
-                connection.execute("DELETE FROM jquants_source_pages WHERE source='master'")
-                connection.execute("DELETE FROM source_coverage WHERE source=?", (MASTER_SOURCE,))
-            else:
-                for day in scopes:
-                    connection.execute(
-                        "DELETE FROM jquants_master_snapshots WHERE snapshot_date=?", (day,)
-                    )
-                    connection.execute(
-                        "DELETE FROM source_coverage WHERE source=? "
-                        "AND coverage_start=? AND coverage_end=?",
-                        (MASTER_SOURCE, day, day),
-                    )
-            rows = projection.execute(
-                "SELECT * FROM jquants_master_snapshots ORDER BY snapshot_date,security_code"
+        if replace_all:
+            connection.execute(
+                "DELETE FROM jquants_master_snapshots WHERE snapshot_date NOT IN "
+                "(SELECT day FROM master_receipt_status WHERE row_count>0)"
             )
-            while batch := rows.fetchmany(10000):
-                connection.executemany("INSERT INTO jquants_master_snapshots VALUES (?,?,?)", batch)
-            for (
-                day,
-                _,
-                status,
-                count,
-                failed,
-                held,
-                confirmed,
-                attempted,
-                error,
-            ) in projection.execute("SELECT * FROM master_receipt_status ORDER BY day"):
-                record_source_coverage(
-                    connection,
-                    source=MASTER_SOURCE,
-                    coverage_key=master_coverage_key(date.fromisoformat(day)),
-                    coverage_start=day,
-                    coverage_end=day,
-                    record_count=count,
-                    status=status,
-                    fetched_at_utc=confirmed or attempted or evaluated_at.isoformat(),
-                    error=error or ("native acquisition unresolved" if failed or held else None),
+            connection.execute("DELETE FROM jquants_source_pages WHERE source='master'")
+            connection.execute("DELETE FROM source_coverage WHERE source=?", (MASTER_SOURCE,))
+        else:
+            connection.execute(
+                "DELETE FROM jquants_master_snapshots WHERE snapshot_date IN "
+                "(SELECT day FROM master_receipt_status WHERE row_count=0)"
+            )
+            for day in scopes:
+                connection.execute(
+                    "DELETE FROM source_coverage WHERE source=? "
+                    "AND coverage_start=? AND coverage_end=?",
+                    (MASTER_SOURCE, day, day),
                 )
+        for (
+            day,
+            _,
+            status,
+            count,
+            failed,
+            held,
+            confirmed,
+            attempted,
+            error,
+        ) in connection.execute("SELECT * FROM master_receipt_status ORDER BY day"):
+            record_source_coverage(
+                connection,
+                source=MASTER_SOURCE,
+                coverage_key=master_coverage_key(date.fromisoformat(day)),
+                coverage_start=day,
+                coverage_end=day,
+                record_count=count,
+                status=status,
+                fetched_at_utc=confirmed or attempted or evaluated_at.isoformat(),
+                error=error or ("native acquisition unresolved" if failed or held else None),
+            )
     return result
 
 

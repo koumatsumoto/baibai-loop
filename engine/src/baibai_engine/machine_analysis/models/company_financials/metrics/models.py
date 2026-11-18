@@ -56,15 +56,6 @@ class FinancialSnapshot:
     sales_ttm: float | None
     ocf_ttm: float | None
     ocf_ttm_period: dict[str, object] | None = None
-    # 比較可能な直近実績の年間 DPS (原本値)・進行期の予想年間 DPS・carry 用配当利回り。
-    # dividend_yield は将来 carry なので明示 0 を含む非負の予想 DPS を優先する
-    # (forecast_annual)。ただし正の実績 DPS の 2 倍を超える予想は実績へ倒す。
-    # 予想不使用時は、会計期間から asof まで単位変更がない年間実績と明示 0 を追加の
-    # 支払別再計算なしで採用する (actual_reported)。期間内に分割・併合がある正の実績は
-    # 原本の基準を特定できないため未解決 (unresolved_split_basis)。独立して利用できる
-    # 予想があれば使い、無ければ利回りと E[r] を出さない。
-    # dividend_split_factor は配当計算窓に調整があれば累積 factor を記録する。
-    # 相殺して 1 でも記録する。変更なし・factor 不明は None。値だけでは解決状態を表さない。
     # 倍率/警告の元数値を同じsource traceと保持する。EPSはas-of株式basis。
     forecast_eps_yen: float | None = None
     forecast_profit_yen: float | None = None
@@ -75,8 +66,8 @@ class FinancialSnapshot:
     dividend_actual_source: dict[str, object] | None = None
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
-    dividend_yield: float | None = None
-    dividend_basis: str | None = None
+    # 予想や株価で補わず、実績額の株式単位・未解決を記録する。
+    dividend_actual_basis: str = "unavailable"
     dividend_split_factor: float | None = None
     # 過去開示から補ったBS項目と最大経過日数。
     bs_carry_forward_fields: str | None = None
@@ -157,7 +148,6 @@ class FinancialSnapshot:
         "pcfr",
         "dps_actual_annual",
         "dps_forecast_annual",
-        "dividend_yield",
         "dividend_split_factor",
         "sales_ttm",
         "ocf_ttm",

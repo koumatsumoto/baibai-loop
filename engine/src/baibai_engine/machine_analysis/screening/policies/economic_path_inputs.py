@@ -47,7 +47,7 @@ def _project_economic_paths(
     index: dict[str, GeneratedModel],
     metadata: GenerationMetadata,
     growth_read: CompanyGrowthReader,
-) -> tuple[CompanyCoordinates, tuple[dict[str, JsonValue], ...]]:
+) -> tuple[CompanyCoordinates, str | None]:
     payloads = {key: model.payload for key, model in index.items()}
     valuation = payloads.get("company_financials", {})
     financial = _object(valuation.get("financial"))
@@ -96,8 +96,12 @@ def _project_economic_paths(
         and expected_price_date is not None
         and earnings_read.price_date < expected_price_date <= metadata.as_of
     )
-    price_input_gap = share_input_gap or stale_price_gap
-    input_review_paths: list[tuple[str, str]] = []
+    price_input_reason = (
+        earnings_read.unavailable_reason
+        if earnings_read is not None and (share_input_gap or stale_price_gap)
+        else None
+    )
+    review_reason = None
     y = _number(earnings.get("earnings_yield")) if pricing_valid else None
     anchor = growth_read.latest_period
     annual = growth_read.observation(anchor, "annual_ttm")
@@ -161,14 +165,14 @@ def _project_economic_paths(
             else None
         )
         if (
-            price_input_gap
+            price_input_reason is not None
             and variant == annual_variant
             and income_aligned
             and _is_positive(profit)
             and _is_positive(margin)
             and (not fy or not full_fy_income_adverse)
         ):
-            input_review_paths.append(("earning_power", variant))
+            review_reason = price_input_reason
         paths.append(
             PathCoordinates(
                 path_id="earning_power",
@@ -218,12 +222,12 @@ def _project_economic_paths(
         sales_change = change["sales"]
         rate = _number(sales_change.get("rate"))
         if (
-            price_input_gap
+            price_input_reason is not None
             and variant == expansion_variant
             and _is_positive(sales)
             and _is_positive(rate)
         ):
-            input_review_paths.append(("business_expansion", variant))
+            review_reason = price_input_reason
         paths.append(
             PathCoordinates(
                 path_id="business_expansion",
@@ -296,32 +300,7 @@ def _project_economic_paths(
         sector=sector,
         paths=tuple(paths),
     )
-    return coordinates, tuple(
-        {
-            "path_id": path_id,
-            "variant": variant,
-            "reason": earnings.get("unavailable_reason"),
-            "source_field": "earnings_price.price_date"
-            if stale_price_gap
-            else "earnings_price.shares_ex_treasury",
-            "source_model_id": "company_financials",
-            "source_model_revision": index["company_financials"].calculation_revision,
-            "generation_id": metadata.generation_id,
-            "subject": ticker,
-            "interpretation": "stale_price_review_not_current_price_or_financial_clearance"
-            if stale_price_gap
-            else "share_basis_review_not_price_or_financial_clearance",
-            **(
-                {
-                    "price_date": earnings.get("price_date"),
-                    "expected_price_date": valuation.get("expected_price_date"),
-                }
-                if stale_price_gap
-                else {}
-            ),
-        }
-        for path_id, variant in input_review_paths
-    )
+    return coordinates, review_reason
 
 
 def _growth_policy_inputs(payload: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:

@@ -87,7 +87,7 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     assert income.forecast_eps == 31.9
     assert snapshot(stored) == snapshot(decode(records))
     result = snapshot(stored)
-    assert (result.dps_forecast_annual, result.dividend_yield) == (0, 0)
+    assert result.dps_forecast_annual == 0
     assert result.per_forward == 1074 / 31.9
     assert result.earnings_forecast_source
     assert result.earnings_forecast_source["disclosure_number"] == "income-correction"
@@ -491,17 +491,16 @@ def actual_document(number: str, **fields: Any) -> dict[str, Any]:
 @pytest.mark.parametrize("reverse", [False, True])
 def test_conflicting_actual_dps_does_not_hide_agreed_profit_and_sales(reverse: bool) -> None:
     from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
-        _resolve_dividend_carry,
+        _reported_dividend,
     )
     from baibai_engine.machine_analysis.models.company_financials.metrics.periods import _ttm_value
 
     rows = decode([actual_document("paid", DivAnn="7"), actual_document("zero", DivAnn="0")])
     if reverse:
         rows.reverse()
-    carry = _resolve_dividend_carry(rows, (), 100, ASOF)
-    assert carry.dividend_yield is None
-    assert carry.dps_actual_annual is None
-    assert carry.basis == "unresolved_actual_dividend"
+    reported = _reported_dividend(rows, (), ASOF)
+    assert reported.amount is None
+    assert reported.basis == "unresolved_actual_dividend"
     rules = DEFAULT_TTM_RULES
     assert _ttm_value(rows, "profit", rules)[0] == 100
     assert _ttm_value(rows, "sales", rules)[0] == 1000
@@ -621,13 +620,13 @@ def test_unknown_time_agreed_raw_guidance_is_order_invariant() -> None:
 
 def test_later_partial_actual_does_not_revive_conflicting_old_dps() -> None:
     from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
-        _resolve_dividend_carry,
+        _reported_dividend,
     )
 
     rows = decode([actual_document("paid", DivAnn="7"), actual_document("zero", DivAnn="0")])
     rows = [replace(row, disclosed_at=date(2026, 7, 10)) for row in rows]
     rows.extend(decode([actual_document("later-earnings-only")]))
-    assert _resolve_dividend_carry(rows, (), 100, ASOF).dps_actual_annual is None
+    assert _reported_dividend(rows, (), ASOF).amount is None
     assert snapshot(rows).sales_ttm == 1000
 
 
@@ -752,7 +751,7 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
 ) -> None:
 
     from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
-        _resolve_dividend_carry,
+        _reported_dividend,
     )
     from baibai_engine.machine_analysis.observations.prices.price_models import (
         JQuantsAdjustmentFactorEvent,
@@ -773,8 +772,8 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
             ticker="9999", traded_at=date(2026, 1, 15), adjustment_factor=0.5, ex_right_type="1"
         )
     ]
-    assert _resolve_dividend_carry(rows, events, 100, ASOF).dividend_yield is None
-    assert _resolve_dividend_carry(rows, (), 100, ASOF).dividend_yield == 0.07
+    assert _reported_dividend(rows, events, ASOF).amount is None
+    assert _reported_dividend(rows, (), ASOF).amount == 7
 
 
 @pytest.mark.parametrize("outside_day", ["2026-08-09", "2026-10-14"])
@@ -894,7 +893,6 @@ def test_expired_dividend_guidance_cannot_replace_current_zero_actual(
     )
     assert result.dps_forecast_annual is None
     assert result.dps_actual_annual == 0
-    assert result.dividend_yield == 0
 
 
 def test_actual_correction_does_not_withdraw_a_different_period_forecast() -> None:
@@ -926,7 +924,6 @@ def test_actual_correction_does_not_withdraw_a_different_period_forecast() -> No
     )
     assert result.dps_actual_annual == 0
     assert result.dps_forecast_annual == 40
-    assert result.dividend_yield == 0.04
 
 
 @pytest.mark.parametrize("standard", ["JP", "IFRS", "US"])
@@ -1029,14 +1026,13 @@ def test_prior_year_comparison_requires_actual_period_dates(missing_field):
 @pytest.mark.parametrize("dps", [0, 7])
 def test_actual_dividend_does_not_invent_missing_accrual_period(dps):
     from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
-        _resolve_dividend_carry,
+        _reported_dividend,
     )
 
     record = actual_document("missing-period", DivAnn=str(dps))
     record["CurPerSt"] = ""
-    result = _resolve_dividend_carry(decode([record]), (), 100, ASOF)
-    assert result.dps_actual_annual == (0 if dps == 0 else None)
-    assert result.dividend_yield == (0 if dps == 0 else None)
+    result = _reported_dividend(decode([record]), (), ASOF)
+    assert result.amount == (0 if dps == 0 else None)
     assert result.basis == ("actual_reported" if dps == 0 else "unresolved_actual_dividend")
 
 
@@ -1286,13 +1282,13 @@ def test_new_numeric_guidance_resolves_previous_unknown_revision():
 def test_actual_dividend_period_validity_keeps_unknown_or_observed_zero(field, value, dps):
 
     from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
-        _resolve_dividend_carry,
+        _reported_dividend,
     )
 
     record = actual_document("invalid-period", DivAnn=str(dps))
     record[field] = value
     expected = 0 if dps == 0 else None
-    assert _resolve_dividend_carry(decode([record]), (), 100, ASOF).dps_actual_annual == expected
+    assert _reported_dividend(decode([record]), (), ASOF).amount == expected
 
 
 @pytest.mark.parametrize("new_basis", ["Consolidated", "NonConsolidated"])
@@ -1544,7 +1540,6 @@ def test_previous_year_dividend_revision_does_not_withdraw_next_year_guidance():
     revised["NxFDivAnn"] = "0"
     result = snapshot(decode([old, revised]))
     assert result.dps_forecast_annual == 0
-    assert result.dividend_yield == 0
 
 
 @pytest.mark.parametrize(

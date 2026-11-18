@@ -12,7 +12,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.capital im
     _normalize_summaries_with_status,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
-    _resolve_dividend_carry,
+    _reported_dividend,
 )
 from baibai_engine.machine_analysis.observations.prices.price_basis import (
     asof_basis_prices,
@@ -54,8 +54,8 @@ def test_price_adjustment_and_financial_share_units_are_separate(kind, price_fac
     row = result.summaries[0]
     assert row.sales == source.sales
     assert row.profit == source.profit
-    carry = _resolve_dividend_carry([row], [event], 100.0, action_day)
-    assert carry.dps_actual_annual == (8.0 if unit_factor == 1.0 else None)
+    reported = _reported_dividend([row], [event], action_day)
+    assert reported.amount == (8.0 if unit_factor == 1.0 else None)
     if unit_factor is None:
         assert row.shares_outstanding is None
         assert row.dps_actual_annual == 8.0
@@ -83,11 +83,10 @@ def test_rights_issue_inside_dividend_year_does_not_require_split_payment_detail
     event = JQuantsAdjustmentFactorEvent("1111", date(2026, 2, 1), 0.8, "3")
     normalized = _normalize_summaries_with_status([source], [event], disclosed)
     assert normalized.summaries == [source]
-    carry = _resolve_dividend_carry(normalized.summaries, [event], 80.0, disclosed)
-    assert carry.dps_actual_annual == 8.0
-    assert carry.dividend_yield == 0.1
-    assert carry.basis == "actual_reported"
-    assert carry.split_factor is None
+    reported = _reported_dividend(normalized.summaries, [event], disclosed)
+    assert reported.amount == 8.0
+    assert reported.basis == "actual_reported"
+    assert reported.split_factor is None
 
 
 def test_rights_and_split_sequence_applies_only_split_to_share_counts():

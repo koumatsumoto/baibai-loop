@@ -62,8 +62,8 @@ def snapshot(*rows, events=()):
 @pytest.mark.parametrize("dps", [0.0, 40.0])
 def test_actual_source_keeps_reported_year_when_current_guidance_is_missing(year, dps):
     result = snapshot(annual(year, dps), current())
-    assert (result.dps_actual_annual, result.dividend_yield) == (dps, dps / 1000)
-    assert result.dividend_basis == "actual_reported"
+    assert result.dps_actual_annual == dps
+    assert result.dividend_actual_basis == "actual_reported"
     assert result.dps_forecast_annual is None
     assert result.dividend_forecast_source["status"] == "missing"
     assert result.dividend_forecast_source["period_end"] == "2026-12-31"
@@ -103,7 +103,9 @@ def test_same_day_sources_remain_order_independent_without_inventing_unknown_tim
     first, second = snapshot(known, unknown, current()), snapshot(current(), unknown, known)
     assert first == second
     assert first.dps_actual_annual == (None if conflict else 40.0)
-    assert first.dividend_basis == ("unresolved_actual_dividend" if conflict else "actual_reported")
+    assert first.dividend_actual_basis == (
+        "unresolved_actual_dividend" if conflict else "actual_reported"
+    )
     assert [item["disclosed_time"] for item in first.dividend_actual_source["documents"]] == [
         None,
         "15:30:00",
@@ -126,18 +128,43 @@ def test_unresolved_split_basis_does_not_erase_actual_period_or_turn_positive_ca
     result = snapshot(annual(dps=dps), current(), events=(event,))
     assert result.dividend_actual_source["period_end"] == "2025-12-31"
     assert result.dps_actual_annual == (0.0 if dps == 0 else None)
-    assert result.dividend_yield == (0.0 if dps == 0 else None)
+    assert result.dividend_actual_basis == (
+        "actual_reported" if dps == 0 else "unresolved_split_basis"
+    )
 
 
-def test_forecast_basis_and_missing_actual_do_not_invent_a_reported_source():
-    forecast = replace(current(), dividend_forecast_status="confirmed", dps_forecast_annual=50.0)
-    missing, present = snapshot(forecast), snapshot(annual(), forecast)
+@pytest.mark.parametrize("dps", [0.0, 50.0, 80.0, 82.0, 475.0])
+def test_guidance_is_independent_of_previous_dividend_and_its_basis(dps):
+    forecast = replace(current(), dividend_forecast_status="confirmed", dps_forecast_annual=dps)
+    split = JQuantsAdjustmentFactorEvent(
+        ticker="9999", traded_at=date(2026, 6, 1), adjustment_factor=0.5
+    )
+    missing, present, unresolved = (
+        snapshot(forecast),
+        snapshot(annual(), forecast),
+        snapshot(annual(), forecast, events=(split,)),
+    )
     assert missing.dividend_actual_source is None
     assert present.dividend_actual_source["period_end"] == "2025-12-31"
-    for result in (missing, present):
-        assert result.dividend_basis == "forecast_annual"
-        assert result.dps_forecast_annual == 50.0
-        assert result.dividend_yield == 0.05
+    assert [r.dividend_actual_basis for r in (missing, present, unresolved)] == [
+        "unavailable",
+        "actual_reported",
+        "unresolved_split_basis",
+    ]
+    assert [r.dps_actual_annual for r in (missing, present, unresolved)] == [None, 40, None]
+    for result in (missing, present, unresolved):
+        assert result.dps_forecast_annual == dps
+        assert result.dividend_forecast_source["period_end"] == "2026-12-31"
+
+
+def test_negative_source_amount_is_not_verified_cash_or_a_substitute_for_guidance():
+    source = annual(dps=-1.0)
+    result = snapshot(source, current())
+    assert source.dps_actual_annual == -1.0
+    assert result.dps_actual_annual is None
+    assert result.dividend_actual_basis == "unresolved_actual_dividend"
+    assert result.dividend_actual_source["documents"][0]["disclosure_number"] == "synthetic-2025"
+    assert result.dps_forecast_annual is None
 
 
 def test_post_asof_actual_source_does_not_replace_available_observation():
