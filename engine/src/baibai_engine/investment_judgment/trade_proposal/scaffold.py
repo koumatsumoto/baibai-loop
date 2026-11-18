@@ -42,7 +42,10 @@ def scaffold_proposal(
         )
         alternative = "売却下限での回収と保有継続・回復待ちを比べる。"
     else:
-        decision = "今買う・指値で待つ・現金を選ぶ・調査を保留する理由を区別する。"
+        decision = (
+            "観測価格で割安と判断したかと、同じ資金で今買う・指値で待つ・別案や現金を選ぶかを分ける。"
+            "価格だけを待つ場合と、不足があり調査を保留する場合を区別する。"
+        )
         terms_review = "買付では未約定・部分約定・新情報の後に何を再確認するかを記す。"
         alternative = (
             "docs/reference/trade-proposal.md#limit-selectionに従い、指値と数量、残cash、"

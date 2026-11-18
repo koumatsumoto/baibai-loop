@@ -53,6 +53,7 @@ from baibai_web.readmodel.proposal_models import (
     SavedNoActionItemView,
     SavedPermanentLossRiskView,
     SavedPortfolioExposureView,
+    SavedPriceValueView,
     SavedProposalItemView,
     SavedProposalView,
     SavedQuoteView,
@@ -228,6 +229,37 @@ def _exposure(row: ExposureRow) -> SavedExposureRowView:
     )
 
 
+def _saved_price_value(pair: ReviewedAssessment) -> SavedPriceValueView | None:
+    finding = pair.recorded_price_value()
+    if finding is None:
+        return None
+    snapshot = pair.document.input_snapshot
+    case = pair.document.price_value_case
+    assert case is not None
+    price_id = pair.document.valuation.market_price_fact_id
+    evidence = [fact for fact in snapshot.facts if fact.fact_id in case.value_fact_ids]
+    used_sources = {
+        source_id
+        for fact in snapshot.facts
+        if fact.fact_id == price_id or fact.fact_id in case.value_fact_ids
+        for source_id in fact.source_ids
+    }
+    return SavedPriceValueView.model_validate(
+        {
+            **finding,
+            # 口座の現在値を参照せず、その仮説で実際に引用された値と権利だけを表示する。
+            "value_facts": [
+                {**fact.model_dump(mode="json"), "value": str(fact.value)} for fact in evidence
+            ],
+            "sources": [
+                source.model_dump(mode="json")
+                for source in snapshot.sources
+                if source.source_id in used_sources
+            ],
+        }
+    )
+
+
 def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
     document, review = pair.document, pair.review
     case = document.investment_case
@@ -246,6 +278,7 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
         review_id=review.review_id,
         as_of=document.input_snapshot.as_of,
         stance=document.conclusion.stance,
+        price_value_case=_saved_price_value(pair),
         investment_case_explanation=case.explanation,
         investment_case_status=case.status,
         investment_case_status_reason=case.status_reason,

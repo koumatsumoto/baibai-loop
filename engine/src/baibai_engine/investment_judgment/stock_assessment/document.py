@@ -16,6 +16,7 @@ from pydantic import (
     AwareDatetime,
     BaseModel,
     Field,
+    JsonValue,
     field_validator,
     model_validator,
 )
@@ -43,6 +44,7 @@ from baibai_engine.investment_judgment.independent_review.contracts import (
 from baibai_engine.investment_judgment.stock_assessment.price_value import (
     PriceValueCase,
     price_value_errors,
+    reviewed_price_value_case,
 )
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
     FIXED_VALUE_DELAY_MONTHS,
@@ -380,6 +382,10 @@ class ReviewedAssessment:
     evaluation: AssessmentEvaluation
     # 利用側で保存行を再読せず、検証したpairと同じ公開時刻を使う。
     published_at: datetime
+
+    def recorded_price_value(self) -> dict[str, JsonValue] | None:
+        """この確定版で記された一株の判断。現在条件の評価や保存はしない。"""
+        return reviewed_price_value_case(self)
 
 
 def assessment_core_hash(document: StockAssessmentDocument) -> str:

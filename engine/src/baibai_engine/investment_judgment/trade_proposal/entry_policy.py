@@ -12,6 +12,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     current_derived_metric_errors,
     current_price_projection,
 )
+from baibai_engine.investment_judgment.stock_assessment.price_value import referenced_price_fact
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
     maximum_entry_price,
     project_buy_capital,
@@ -23,6 +24,10 @@ type BuyGateCode = Literal[
     "reviewed_assessment_required",
     "latest_assessment_required",
     "assessment_not_supported",
+    "price_value_case_unrecorded",
+    "price_value_undetermined",
+    "price_value_not_supported",
+    "limit_above_reviewed_price_condition",
     "valuation_basis_requires_refresh",
     "valuation_inputs_require_refresh",
     "already_held",
@@ -63,6 +68,27 @@ def _selected_board_lot_quantity(value: object, board_lot: int) -> int:
     return value
 
 
+def acquisition_blocker(
+    assessment: StockAssessmentDocument, target_session: date | None
+) -> GateReason | None:
+    case = assessment.price_value_case
+    eligibility = None if case is None else case.acquisition_limit
+    if eligibility is None:
+        return None
+    deadline = eligibility.last_eligible_trade_date
+    if target_session is None or deadline is None:
+        return GateReason(
+            code="right_acquisition_unconfirmed",
+            message="取得期限のある権利が提案の対象立会で買い手に帰属するか未確認です。",
+        )
+    if target_session > deadline:
+        return GateReason(
+            code="right_acquisition_expired",
+            message="提案の対象立会では、評価に含めた権利を新たに取得できません。",
+        )
+    return None
+
+
 def evaluate_buy_terms(
     assessment: StockAssessmentDocument,
     *,
@@ -80,6 +106,7 @@ def evaluate_buy_terms(
     budget_max_yen: Decimal,
     board_lot: int,
     selected_quantity: int | None = None,
+    target_session: date | None = None,
 ) -> BuyTermsEvaluation:
     """実quoteでgateを確認し、作者limitで上限と選択数量を分ける。"""
     if quote is not None and quote.ticker != assessment.input_snapshot.ticker:
@@ -118,6 +145,35 @@ def evaluate_buy_terms(
         block("quote_missing_or_stale", "現在 quote が欠測、未来日、または鮮度期限外です。")
     if price is None or price <= 0:
         block("positive_quote_required", "正の実 quote が必要です。")
+    # 一株の経済判断が未確認なら、現金で買える単元を提案の数量にしない。
+    case = assessment.price_value_case
+    condition_ceiling = None
+    if case is None:
+        block(
+            "price_value_case_unrecorded",
+            "元評価には価格に対する割安判断がありません。新たに評価・Reviewしてください。",
+        )
+    elif case.status == "undetermined":
+        block("price_value_undetermined", "一株の価値と観測価格の比較は未確定です。")
+    elif case.status == "not_supported_at_quote":
+        condition_ceiling = (
+            None if case.price_only_condition is None else case.price_only_condition.ceiling_yen
+        )
+        if condition_ceiling is None:
+            block(
+                "price_value_not_supported",
+                "この価格で割安を支持せず、同じ権利で買える具体的な価格条件もありません。",
+            )
+    else:
+        # 「100円で支持」の査読は、同じ日の120円での支持ではない。
+        reference = referenced_price_fact(assessment)
+        if reference is None or isinstance(reference.value, bool | str):
+            block("price_value_undetermined", "割安判断が参照した一株の実価格を確認できません。")
+        else:
+            condition_ceiling = finite_decimal(reference.value)
+    acquisition_issue = acquisition_blocker(assessment, target_session)
+    if acquisition_issue is not None:
+        blockers.append(acquisition_issue)
     valuation = assessment.valuation
     maximum = None
     if (
@@ -129,12 +185,19 @@ def evaluate_buy_terms(
         block("valuation_unresolved", "Base、期間、要求率の確定が必要です。")
     elif not blockers:
         # 評価や株式の単位が失効したら元評価を残し、今の購入上限とは比較しない。
-        maximum = maximum_entry_price(
+        base_ceiling = maximum_entry_price(
             valuation.base,
             horizon_months=valuation.horizon_months,
             required_annual_return_pct=valuation.required_annual_return_pct,
         )
-        if limit > maximum:
+        assert condition_ceiling is not None
+        maximum = min(base_ceiling, condition_ceiling)
+        if limit > condition_ceiling:
+            block(
+                "limit_above_reviewed_price_condition",
+                "指値が独立Review済みの同一権利の価格条件を超えています。",
+            )
+        if limit > base_ceiling:
             block("limit_above_pmax", "提案 limit が Base による購入上限を超えています。")
     if held_quantity > 0:
         block("already_held", "既保有銘柄の新規買付は初期 policy の対象外です。")
@@ -162,7 +225,7 @@ def evaluate_buy_terms(
             "selected_quantity_above_maximum",
             "選択数量が提案limit・確認済みcash・guideによる数量上限を超えています。",
         )
-    projection_basis = reviewed and latest and confirmed_basis
+    projection_basis = reviewed and latest and confirmed_basis and acquisition_issue is None
 
     def projection_at(value: Decimal | None) -> dict[str, object] | None:
         if value is None or value <= 0 or price is None or price <= 0:
@@ -210,7 +273,13 @@ def evaluate_buy_terms(
         maximum,
         0 if blockers else quantity,
         # 現金から買える単元数を、保有・残注文・執行済みの提案で使える数量にしない。
-        None if held_quantity > 0 or active_reservation or proposal_executed else maximum_quantity,
+        None
+        if maximum is None
+        or limit > maximum
+        or held_quantity > 0
+        or active_reservation
+        or proposal_executed
+        else maximum_quantity,
         None if maximum is None or price is None else price > maximum,
         current_projection,
         limit_projection,

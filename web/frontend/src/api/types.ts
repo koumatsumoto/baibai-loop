@@ -120,6 +120,11 @@ export interface ReservationView {
 
 export type SHA256 = string
 
+export interface SavedAcquisitionLimitView {
+  value_fact_id: string
+  last_eligible_trade_date: string | null
+}
+
 export interface SavedAssessmentRefView {
   assessment_id: string
   core_sha256: string
@@ -170,6 +175,7 @@ export interface SavedAssessmentView {
   review_id: string
   as_of: string
   stance: 'supported' | 'uncertain' | 'unsupported'
+  price_value_case: SavedPriceValueView | null
   investment_case_explanation: string
   investment_case_status: 'intact' | 'broken' | 'uncertain'
   investment_case_status_reason: string
@@ -377,6 +383,23 @@ export interface SavedNoActionItemView {
   action: 'no_action'
 }
 
+export interface SavedOpportunityFactView {
+  fact_id: string
+  value: string
+  unit: string
+  as_of: string
+  source_ids: string[]
+}
+
+export interface SavedOpportunityQuoteView {
+  fact_id: string
+  price_yen: string
+  as_of: string
+  observed_at: string | null
+  price_basis: string
+  source_ids: string[]
+}
+
 export interface SavedPermanentLossRiskView {
   axis: 'funding_liquidity' | 'debt_repayment' | 'cash_flow' | 'dilution' | 'customer_concentration' | 'structural_decline' | 'governance_accounting'
   assessment: 'acceptable' | 'adverse' | 'unknown'
@@ -392,6 +415,21 @@ export interface SavedPortfolioExposureView {
   sector: SavedExposureRowView | null
   common_factors: SavedExposureRowView[]
   common_factor_unclassified_tickers: string[]
+}
+
+export interface SavedPriceOnlyConditionView {
+  explanation: string
+  ceiling_yen: string | null
+}
+
+export interface SavedPriceValueView {
+  status: 'supported_at_quote' | 'not_supported_at_quote' | 'undetermined'
+  observed_quote: SavedOpportunityQuoteView | null
+  price_compatible_conditions: string | null
+  price_only_condition: SavedPriceOnlyConditionView | null
+  acquisition_limit: SavedAcquisitionLimitView | null
+  value_facts: SavedOpportunityFactView[]
+  sources: SavedAssessmentSourceView[]
 }
 
 export type SavedProposalItemView = SavedBuyItemView | SavedHoldItemView | SavedSellItemView | SavedNoActionItemView | SavedDeferItemView

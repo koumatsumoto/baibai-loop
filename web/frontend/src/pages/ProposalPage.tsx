@@ -22,6 +22,7 @@ import { AssessmentHypotheses } from '../components/AssessmentHypotheses'
 import { AssessmentValueGap } from '../components/AssessmentValueGap'
 import { ModelPerspectives } from '../components/ModelPerspectives'
 import { ReportSummary } from '../components/ReportSummary'
+import { PriceValueFinding } from '../components/PriceValueFinding'
 import { ProposalWarnings } from '../components/ProposalWarnings'
 import { SavedMarketContext } from '../components/SavedMarketContext'
 import { PageShell } from '../components/PageShell'
@@ -294,7 +295,7 @@ function AssessmentValue({ assessment }: { assessment: SavedAssessmentView }) {
   )
 }
 
-function SavedTerms({ terms }: { terms: SavedLimitTermsView }) {
+function SavedTerms({ terms, withPriceFinding }: { terms: SavedLimitTermsView; withPriceFinding: boolean }) {
   return (
     <div className="grid gap-4 rounded-lg border p-4">
       <p className="text-sm font-medium">保存された具体条件</p>
@@ -305,9 +306,9 @@ function SavedTerms({ terms }: { terms: SavedLimitTermsView }) {
         <Field label="保存想定金額">{terms.notional_yen} 円</Field>
         <Field label="保存時の対象取引日"><time dateTime={terms.target_session}>{terms.target_session}</time></Field>
         <Field label="条件の評価基準日"><time dateTime={terms.valuation_as_of}>{terms.valuation_as_of}</time></Field>
-        {terms.maximum_entry_price_yen !== null && <Field label="保存評価の条件付き上限（Pmax）">{terms.maximum_entry_price_yen} 円</Field>}
+        {terms.maximum_entry_price_yen !== null && <Field label={withPriceFinding ? "評価と価格条件による保存時の買付上限" : "保存評価の条件付き上限（Pmax）"}>{terms.maximum_entry_price_yen} 円</Field>}
       </dl>
-      {terms.maximum_entry_price_yen !== null && <p className="text-xs leading-6 text-muted-foreground">Pmaxは保存評価の条件付き上限です。適正価格・勝率・約定価格ではありません。</p>}
+      {terms.maximum_entry_price_yen !== null && <p className="text-xs leading-6 text-muted-foreground">{withPriceFinding ? "保存上限は、査読で裏付けた価格とBaseの算術上限の低い方です。" : "Pmaxは保存評価の条件付き上限です。"}適正価格・勝率・約定価格ではありません。</p>}
       <TextList items={terms.conditions} title="保存条件" />
       <ProposalWarnings warnings={terms.warnings} title="具体条件の保存時の注意事項" />
     </div>
@@ -486,8 +487,9 @@ function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }
 
 export function ProposalItemCard({ item }: { item: ProposalItem }) {
   return (
-    <SectionCard headingLevel={3} meta={<Badge variant="secondary">{ACTION_LABEL[item.action]} · {item.action}</Badge>} padded title={item.ticker}>
+    <SectionCard headingLevel={3} meta={<Badge variant="secondary">資金の判断：{ACTION_LABEL[item.action]} · {item.action}</Badge>} padded title={item.ticker}>
       <div className="grid min-w-0 gap-5">
+        <PriceValueFinding assessment={item.assessment} />
         <ReportSummary text={item.rationale} />
         {item.assessment !== null && <ModelPerspectives assessment={item.assessment} />}
         <details className="rounded-lg border p-4" data-proposal-details>
@@ -501,7 +503,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
               <Field label="保存株価の基準日"><time dateTime={item.saved_quote.price_as_of}>{item.saved_quote.price_as_of}</time></Field>
             </dl>}
             {item.action === 'buy' && <p className="text-sm text-muted-foreground">保存時の指値区分：{TIMING_LABEL[item.timing]}（{item.timing}）</p>}
-            {(item.action === 'buy' || item.action === 'sell') && (item.terms !== null ? <SavedTerms terms={item.terms} /> : <div className="grid gap-3">
+            {(item.action === 'buy' || item.action === 'sell') && (item.terms !== null ? <SavedTerms terms={item.terms} withPriceFinding={item.assessment?.price_value_case != null} /> : <div className="grid gap-3">
               <p className="text-sm font-medium">具体条件未確定</p>
               {item.action === 'buy' && item.proposed_limit_yen !== null && <dl><Field label="作者指定の上限（具体条件未確定）">{item.proposed_limit_yen} 円</Field></dl>}
               <Reasons reasons={item.terms_unavailable_reasons} title="具体条件が不足する理由" />

@@ -94,6 +94,12 @@ def buy_evaluation(
         quote=quote,
         proposed_limit_yen=proposed_limit_yen,
         selected_quantity=selected_quantity,
+        target_session=next_order_session(
+            sqlite_path=sqlite_path, now=now, connection=market_connection
+        )
+        if pair.document.price_value_case is not None
+        and pair.document.price_value_case.acquisition_limit is not None
+        else None,
         basis_confirmed=assessment_quote_basis(
             pair.document,
             quote,
