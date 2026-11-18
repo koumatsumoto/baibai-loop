@@ -179,12 +179,21 @@ def _case_screening_context(selection: GeneratedResearchSelectionV5) -> dict[str
         else None,
         "generation_id": screening.generation_id,
         "universe_count": len(screening.universe_tickers),
-        "candidate_count": screening.candidate_count,
+        **(
+            {"candidate_count": screening.legacy_candidate_count}
+            if screening.legacy_candidate_count is not None
+            else {"explorable_count_not_investment_eligibility": len(universe)}
+        ),
         "population": [
             {
                 "scope": item.scope,
                 "technical_state": item.technical_state,
                 "financial_state": item.financial_state,
+                **(
+                    {"models_recorded": item.models_recorded}
+                    if item.models_recorded is not None
+                    else {}
+                ),
                 "count": len(item.tickers),
             }
             for item in screening.population_groups

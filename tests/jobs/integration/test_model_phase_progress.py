@@ -279,7 +279,7 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
         ("economic_input_retain", "retain"),
         ("economic_input_rebuild", "rebuild"),
         ("model_inputs", "read_and_generate_models"),
-        ("screening", "evaluate_technical_financial_rows"),
+        ("screening", "evaluate_discovery_rows"),
         ("lake_publish", "publish_prepared_market_lake"),
     ],
 )
@@ -318,7 +318,7 @@ def test_diagnostic_fallback_does_not_hide_model_write_or_policy_failure(
     if phase == "model_generation":
         monkeypatch.setattr(models.ModelGenerationStore, "publish_stream", fail)
     else:
-        monkeypatch.setattr(models, "evaluate_technical_financial_rows", fail)
+        monkeypatch.setattr(models, "evaluate_discovery_rows", fail)
     with pytest.raises(error_type, match=CANARY) as caught:
         models.integrate_models(**arguments)
     assert caught.value is error

@@ -9,6 +9,11 @@ from typing import Annotated
 from pydantic import Field, TypeAdapter
 
 from baibai_engine.machine_analysis.screening.contracts import ScreeningResult, ScreeningSelection
+from baibai_engine.machine_analysis.screening.discovery_contract import (
+    DISCOVERY_SUFFIX,
+    DiscoverySelection,
+    validate_discovery_publication,
+)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialSelection,
@@ -25,6 +30,7 @@ class PopulationGroup:
     technical_state: str | None
     financial_state: str | None
     tickers: tuple[str, ...]
+    models_recorded: Annotated[bool | None, Field(exclude_if=lambda v: v is None)] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +39,9 @@ class CaseScreening(ScreeningSelection):
 
     source_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] = field(kw_only=True)
     population_groups: tuple[PopulationGroup, ...] = field(kw_only=True)
-    candidate_count: Annotated[int, Field(ge=0)] = field(kw_only=True)
+    legacy_candidate_count: Annotated[int | None, Field(ge=0, exclude_if=lambda v: v is None)] = (
+        field(kw_only=True, default=None)
+    )
 
 
 def _state(value: object) -> str | None:
@@ -50,13 +58,34 @@ def read_case_screening(
     used = set(subjects)
     result = source.result
     finite: ScreeningResult
-    states: dict[tuple[str, str | None, str | None], list[str]] = defaultdict(list)
-    if isinstance(result, TechnicalFinancialSelection):
+    states: dict[tuple[str, str | None, str | None, bool | None], list[str]] = defaultdict(list)
+    if selection_id.endswith(DISCOVERY_SUFFIX) != isinstance(result, DiscoverySelection):
+        raise ValueError("discovery publication identity differs from its format")
+    if isinstance(result, DiscoverySelection):
+        validate_discovery_publication(
+            selection_id=selection_id,
+            generation_id=source.generation_id,
+            result=result,
+            universe_tickers=source.universe_tickers,
+        )
+        # A planned row can explicitly have no models; absence of its identity is not equivalent.
+        for entry in result.rows:
+            states[
+                entry["screening_lane"],
+                entry["technical_state"],
+                entry["financial_state"],
+                entry["models_recorded"],
+            ].append(entry["ticker"])
+        finite = replace(
+            result, rows=tuple(entry for entry in result.rows if entry["ticker"] in used)
+        )
+    elif isinstance(result, TechnicalFinancialSelection):
         for row in result.rows:
             states[
                 row.screening_lane,
                 _state(row.technical.get("state")),
                 _state(row.financial_gate.get("state")),
+                None,
             ].append(row.ticker)
         finite = replace(
             result,
@@ -65,11 +94,11 @@ def read_case_screening(
         )
     elif isinstance(result, EconomicPathSelection):
         for card in result.cards:
-            states["saved_card", None, None].append(card.ticker)
+            states["saved_card", None, None, None].append(card.ticker)
         finite = replace(result, cards=tuple(card for card in result.cards if card.ticker in used))
     else:
         for view in result.views:
-            states[view.view_id, None, None].extend(row.ticker for row in view.companies)
+            states[view.view_id, None, None, None].extend(row.ticker for row in view.companies)
         finite = replace(
             result,
             views=tuple(
@@ -84,9 +113,12 @@ def read_case_screening(
         price_inputs=source.price_inputs,
         source_sha256=digest,
         population_groups=tuple(
-            PopulationGroup(*key, tuple(value)) for key, value in states.items()
+            PopulationGroup(scope, tech, fin, tuple(value), models)
+            for (scope, tech, fin, models), value in states.items()
         ),
-        candidate_count=len(result.tickers),
+        legacy_candidate_count=None
+        if isinstance(result, DiscoverySelection)
+        else len(result.tickers),
     )
 
 

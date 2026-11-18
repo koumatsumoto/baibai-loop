@@ -12,9 +12,6 @@ from tests.helpers.retained_model_generation import seed_generation
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import GeneratedLiquidityContext
 from baibai_engine.investment_judgment.trade_proposal.inputs import proposal_liquidity_context
-from baibai_engine.investment_judgment.workflow.calibration_context import (
-    research_calibration_context,
-)
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
@@ -107,10 +104,6 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(
     (adv,) = proposal_liquidity_context(saved)
     assert isinstance(adv, GeneratedLiquidityContext)
     assert adv.adv_yen == Decimal("125000000")
-    assert (
-        research_calibration_context(saved, context_path=tmp_path / "absent", as_of=AS_OF)["status"]
-        == "not_applicable"
-    )
     runs.unlink()
     resumed = resume_selected_workspace(
         operation_id=prepared.operation_id, db_path=db, workspace=workspace, now=NOW

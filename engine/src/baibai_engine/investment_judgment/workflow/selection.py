@@ -25,6 +25,7 @@ from baibai_engine.investment_judgment.company_research.context import (
 )
 from baibai_engine.investment_judgment.workflow.case_screening import CaseScreening
 from baibai_engine.investment_judgment.workflow.selection_policy import (
+    CURRENT_RESEARCH_CAPACITY,
     ResearchCapacity,
     validate_capacity,
 )
@@ -218,7 +219,12 @@ class GeneratedResearchSelectionDraft(_Contract):
 
     @model_validator(mode="after")
     def validate_selection(self) -> Self:
-        _validate_comparisons(self.comparison_tickers, self.targets, self.screening_selection_id)
+        _validate_comparisons(
+            self.comparison_tickers,
+            self.targets,
+            self.screening_selection_id,
+            CURRENT_RESEARCH_CAPACITY,
+        )
         _validate_subjects(self.request, self.targets, ())
         if self.research_as_of > self.input_known_at.astimezone(JST).date():
             raise ValueError("research_as_of is after the input cutoff's JST date")
@@ -324,14 +330,20 @@ class GeneratedResearchSelectionV5(GeneratedSelectionWithContext):
     @model_validator(mode="after")
     def explicit_comparisons(self) -> Self:
         _validate_comparisons(
-            self.comparison_tickers, self.targets, self.inputs.screening_selection_id
+            self.comparison_tickers, self.targets, self.inputs.screening_selection_id, self.capacity
         )
         return self
 
 
 def _validate_comparisons(
-    comparisons: tuple[str, ...], targets: tuple[SelectedTarget, ...], selection_id: str | None
+    comparisons: tuple[str, ...],
+    targets: tuple[SelectedTarget, ...],
+    selection_id: str | None,
+    capacity: ResearchCapacity,
 ) -> None:
+    # A separate evidence budget: do not recreate the full market by naming every company.
+    if len(comparisons) > capacity.max_deep_research_targets:
+        raise ValueError("explicit comparison evidence exceeds this Case's research capacity")
     if (
         (comparisons and selection_id is None)
         or len(set(comparisons)) != len(comparisons)

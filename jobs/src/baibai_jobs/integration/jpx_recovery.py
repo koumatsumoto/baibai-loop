@@ -17,9 +17,6 @@ from typing import Any, cast
 
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
-from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-    TechnicalFinancialPolicy,
-)
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore, R2OperationStopped
@@ -391,7 +388,6 @@ class Recovery:
             as_of=date.fromisoformat(self.contract.asof),
             lease_handle=self.handle_path,
             growth_start=None,
-            policy=TechnicalFinancialPolicy(),
             edinet_input=InputSnapshot.model_validate(self.contract.plan["edinet_input"]),
             preserve_generation_ids=tuple(self.prior["generation_ids"]),
         )
