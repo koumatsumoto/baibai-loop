@@ -1302,7 +1302,6 @@ def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:
     [
         ("pull-machine", "machine-manifest.json"),
         ("push-machine", "lake/pointers/market/current.json"),
-        ("push-app", "baibai.sqlite"),
         ("seed-all", "market.sqlite"),
     ],
 )

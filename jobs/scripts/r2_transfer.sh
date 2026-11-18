@@ -585,12 +585,12 @@ backup_remote_key() {
   # Retain the prior generation: some source history cannot be fetched again.
   # R2 needs direct CopyObject rather than `aws s3 cp`; large copies need a longer timeout.
   local key="$1" expected_version="${2:-}"
+  if [[ "${key}" == "baibai.sqlite" ]]; then
+    (cd "${repo_root}" && uv run python -m baibai_jobs.maintenance.application_backup \
+      --bucket "${stores_bucket}" --expected-etag "${expected_version}")
+    return
+  fi
   if remote_object_exists "${key}"; then
-    if [[ "${key}" == "baibai.sqlite" ]]; then
-      (cd "${repo_root}" && uv run python -m baibai_jobs.maintenance.application_backup \
-        --bucket "${stores_bucket}" --expected-etag "${expected_version}")
-      return
-    fi
     local backup_key
     backup_key="$(backup_key_for "${key}")"
     local -a source_condition=()

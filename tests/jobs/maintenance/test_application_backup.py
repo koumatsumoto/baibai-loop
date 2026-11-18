@@ -88,3 +88,29 @@ def test_wrong_expected_generation_stops_before_get(tmp_path):
         preserve_application(store, expected_etag="0" * 32, directory=tmp_path, day="20261118")
     assert not store.get_keys
     assert not store.put_keys
+
+
+def test_matching_legacy_daily_backup_is_verified_without_extra_storage(tmp_path):
+    store = seeded()
+    store.store_object("baibai.sqlite.bak-20261118", b"original application")
+    assert preserve(store, tmp_path) == "baibai.sqlite.bak-20261118"
+    assert not store.put_keys
+    assert store.get_keys == ["baibai.sqlite", "baibai.sqlite.bak-20261118"]
+
+
+@pytest.mark.parametrize("failure", ["absent", "403", "500"])
+def test_source_head_failure_never_authorizes_backup_or_put(tmp_path, monkeypatch, failure):
+    store = seeded()
+    expected = store.head("baibai.sqlite").etag
+
+    def failed_head(key):
+        assert key == "baibai.sqlite"
+        if failure == "absent":
+            return
+        raise R2Error("head failed", http_status=int(failure))
+
+    monkeypatch.setattr(store, "head", failed_head)
+    with pytest.raises((ValueError, R2Error)):
+        preserve_application(store, expected_etag=expected, directory=tmp_path, day="20261118")
+    assert not store.get_keys
+    assert not store.put_keys

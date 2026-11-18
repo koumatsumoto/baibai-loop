@@ -35,6 +35,11 @@ def preserve_application(
     key = f"baibai.sqlite.bak-{day}-{sha}"
     prior = store.head(key)
     if prior is None:
+        legacy_key = f"baibai.sqlite.bak-{day}"
+        legacy = store.head(legacy_key)
+        if legacy is not None and legacy.etag == expected and legacy.size == source.size:
+            key, prior = legacy_key, legacy
+    if prior is None:
         prior = store.put_file(
             key,
             body,
