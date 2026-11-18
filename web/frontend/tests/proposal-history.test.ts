@@ -121,7 +121,7 @@ describe('stock report list and selection', () => {
       proposal: { ...older, headline: long }, item: { ...item, rationale: long },
     })
     expect(summary(buyFixture)).toContain('指値で待つ案：1200.0000円・100株')
-    expect(summary(partialBuyFixture)).toContain('具体的な注文条件は未記録')
+    expect(summary(partialBuyFixture)).toBe('買い指値案。作者の上限は1400.1000000000000001円。具体的な指値・数量は未確定。')
     const noAction = { ...reviewedDeferFixture, action: 'no_action' as const, assessment: null }
     expect(summary(noAction)).toContain('新規購入を見送った')
     expect(summary(holdFixture)).toContain('当初の投資仮説')

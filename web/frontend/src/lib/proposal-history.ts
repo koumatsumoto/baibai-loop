@@ -53,7 +53,7 @@ export function reportListSummary({ proposal, item }: ReportEntry): string {
         const terms = item.terms
         return shortWhole(`${terms.target_session}の${action}：${terms.limit_price_yen}円・${terms.quantity}株。`) ?? `保存時の${action}。価格・数量は個別レポートに記録。`
       }
-      return shortWhole(item.proposed_limit_yen && `${item.proposed_limit_yen}円の${action}。具体的な注文条件は未記録。`) ?? '買い指値案。具体的な注文条件は未記録。'
+      return shortWhole(item.proposed_limit_yen && `${action}。作者の上限は${item.proposed_limit_yen}円。具体的な指値・数量は未確定。`) ?? `${action}。具体的な指値・数量は未確定。`
     }
     case 'no_action': {
       const valuation = item.assessment?.valuation
