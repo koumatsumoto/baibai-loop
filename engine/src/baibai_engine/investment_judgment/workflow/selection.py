@@ -430,8 +430,16 @@ def selection_targets(selection: ResearchSelectionRecord) -> tuple[ResearchTarge
     )
 
 
+def selection_payload_and_sha256(
+    selection: ResearchSelectionRecord,
+) -> tuple[dict[str, object], str]:
+    """Return the same normalized document whose bytes produce the selection identity."""
+    payload = selection.model_dump(mode="json")
+    return payload, sha256(encode_json(payload).encode()).hexdigest()
+
+
 def selection_sha256(selection: ResearchSelectionRecord) -> str:
-    return sha256(encode_json(selection.model_dump(mode="json")).encode()).hexdigest()
+    return selection_payload_and_sha256(selection)[1]
 
 
 def saved_market_assessment(selection: ResearchSelectionRecord) -> JsonValue:

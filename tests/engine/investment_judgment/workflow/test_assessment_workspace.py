@@ -100,6 +100,11 @@ def test_initial_scaffold_has_new_contract_and_stable_writer_identity(case):
     assert '<a id="public-research-reports"></a>' in reference.read_text()
     assert raw["kind"] == "stock_assessment"
     assert raw["schema_version"] == 1
+    drafts = raw["model_perspectives"]
+    assert len({r["model"] for r in drafts}) == len(drafts) == 7
+    assert all(
+        r["assessment"] is None and r["summary"] is None and not r["source_ids"] for r in drafts
+    )
     assert raw["findings"]["business_understanding"] is None
     assert raw["valuation"]["horizon_months"] is None
     assert raw["valuation"]["required_annual_return_pct"] is None

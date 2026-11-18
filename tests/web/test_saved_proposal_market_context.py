@@ -100,6 +100,7 @@ def test_optional_fixed_market_failure_does_not_erase_the_saved_judgment(tmp_pat
             )
     before = case.app.read_bytes()
     view = DbProposalSource(case.app).latest()
+    assert view.items[0].assessment.estimated_model_chart is None
     assert view.saved_market_context.status == "unavailable"
     assert (
         view.saved_market_context.reason

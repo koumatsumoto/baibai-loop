@@ -11,22 +11,41 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     ProposalCorrection,
 )
 
+PerspectiveModel = Literal[
+    "company_financials",
+    "company_growth",
+    "market_context",
+    "external_assessment",
+    "technical_analysis",
+    "industry_trends",
+    "social_trends",
+]
+
 
 class SavedModelPerspectiveView(BaseModel):
-    model: Literal[
-        "company_financials",
-        "company_growth",
-        "market_context",
-        "external_assessment",
-        "technical_analysis",
-        "industry_trends",
-        "social_trends",
-    ]
+    model: PerspectiveModel
     assessment: Literal[
         "supportive", "mixed", "adverse", "neutral", "insufficient", "not_applicable"
     ]
     summary: str
     source_ids: list[str]
+
+
+class EstimatedPerspectiveView(BaseModel):
+    model: PerspectiveModel
+    assessment: Literal["supportive", "mixed", "adverse", "neutral", "context_only", "insufficient"]
+    summary: str
+    evidence: str
+    observed_on: date | None
+    source_url: str | None = None
+
+
+class EstimatedModelChartView(BaseModel):
+    selection_sha256: str
+    input_known_at: datetime
+    research_as_of: date
+    generation_id: str | None
+    rows: list[EstimatedPerspectiveView]
 
 
 class SavedAssessmentSourceView(BaseModel):
@@ -193,6 +212,7 @@ class SavedAssessmentView(BaseModel):
     strongest_countercase: str | None = None
     realization: SavedValueRealizationView | None = None
     value_gap: SavedValueGapView | None = None
+    estimated_model_chart: EstimatedModelChartView | None = None
     model_perspectives: list[SavedModelPerspectiveView] = Field(default_factory=list)
     model_perspective_sources: list[SavedAssessmentSourceView] = Field(default_factory=list)
     risk_analysis: SavedAssessmentRisksView | None = None
