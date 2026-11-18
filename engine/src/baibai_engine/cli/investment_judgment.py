@@ -232,6 +232,15 @@ def build_parser() -> argparse.ArgumentParser:
         if command == "trade-proposal-scaffold":
             child.add_argument("--proposal-id", required=True)
             child.add_argument("--out", required=True, type=Path)
+    allocation = subparsers.add_parser(
+        "trade-proposal-compare-holdings",
+        help="compare explicit gross recovery scenarios without writes",
+    )
+    allocation.add_argument("assumptions", type=Path)
+    source = allocation.add_mutually_exclusive_group(required=True)
+    source.add_argument("--draft", type=Path)
+    source.add_argument("--proposal-id")
+    allocation.add_argument("--db", type=Path, help="application DB for a saved proposal only")
     for command in ("trade-proposal-check", "trade-proposal-publish"):
         child = subparsers.add_parser(command, help="check/publish a Trade Proposal")
         child.add_argument("draft", type=Path)
@@ -433,6 +442,52 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         "proposal output already exists"
                     ) from error
                 _emit({"proposal_draft": str(args.out), "proposal_id": args.proposal_id}, out)
+            case "trade-proposal-compare-holdings":
+                from contextlib import closing
+
+                from baibai_engine.investment_judgment.trade_proposal.contracts import (
+                    TradeProposalDraft,
+                )
+                from baibai_engine.investment_judgment.trade_proposal.holding_allocation import (
+                    AllocationAlternatives,
+                    compare_holding_allocations,
+                )
+                from baibai_engine.investment_judgment.trade_proposal.query import (
+                    is_erroneous_proposal_as_of,
+                    load_investment_proposal,
+                )
+                from baibai_engine.primitives.json import canonical_json
+                from baibai_engine.primitives.yaml import strict_safe_load
+                from baibai_engine.storage.sqlite.application.read import connect_read_only
+
+                def read_yaml(path: Path) -> object:
+                    try:
+                        return strict_safe_load(path.read_text(encoding="utf-8"))
+                    except yaml.YAMLError as error:
+                        raise ValueError(f"invalid comparison YAML: {path}") from error
+
+                plans = AllocationAlternatives.model_validate(read_yaml(args.assumptions))
+                fixed: TradeProposalDraft
+                if args.draft is not None:
+                    if args.db is not None:
+                        raise ValueError("--db is only for a saved --proposal-id")
+                    fixed = TradeProposalDraft.model_validate(read_yaml(args.draft))
+                    role = "draft_not_verified_publication"
+                else:
+                    with closing(connect_read_only(args.db)) as connection:
+                        connection.execute("BEGIN")
+                        fixed = load_investment_proposal(connection, args.proposal_id)
+                        if is_erroneous_proposal_as_of(connection, args.proposal_id, resolved_now):
+                            raise ValueError(
+                                "the selected original has a recorded error correction"
+                            )
+                    role = "exact_saved_proposal_not_current_terms"
+                out.write(
+                    canonical_json(
+                        {"source_role": role, **compare_holding_allocations(fixed, plans)}
+                    )
+                    + "\n"
+                )
             case "trade-proposal-check" | "trade-proposal-publish":
                 from baibai_engine.investment_judgment.trade_proposal.contracts import (
                     load_proposal_draft,
