@@ -85,6 +85,179 @@ def evaluated_pair(assessment, review):
     )
 
 
+def _waiting_input():
+    payload = inputs_payload()
+    payload["input_snapshot"]["facts"][0]["value"] = 100
+    valuation = payload["valuation"]
+    valuation.update(horizon_months=12, required_annual_return_pct=10)
+    valuation["base"].update(terminal_value_per_share_yen=108, cash_distribution_per_share_yen=2)
+    valuation["downside"].update(terminal_value_per_share_yen=78, cash_distribution_per_share_yen=2)
+    payload["price_comparison"] = {
+        "price_yen": 95,
+        "hypothetical_quantity": 200,
+        "waiting_terms": {
+            "initial_cash_yen": 20100,
+            "deadline": "2026-10-09",
+            "lot_size": 100,
+            "partial_fill_quantity": 100,
+            "entry_fee_bps": 10,
+            "terminal_sale_fee_bps": 10,
+            "base_missed_distribution_per_share_yen": 1,
+            "downside_missed_distribution_per_share_yen": 2,
+        },
+    }
+    return payload
+
+
+def test_waiting_paths_compare_same_cash_after_release_fees_and_eligible_distributions(
+    tmp_path, capsys
+):
+    path = tmp_path / "wait.json"
+    raw = _waiting_input()
+    path.write_text(json.dumps(raw))
+    before = path.read_bytes()
+    paths_before = set(tmp_path.rglob("*"))
+    assert workspace_cli.main(["calculate", str(path)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    wait = result["waiting_paths"]
+    assert wait["terminal_date"] == "2027-09-07"
+    assert Decimal(wait["whole_cash_required_terminal_wealth_yen"]) == 22110
+    assert Decimal(wait["cash_outside_full_limit_set_aside_yen"]) == 1081
+    assert Decimal(wait["buy_now_unspent_cash_yen"]) == 80
+    for name, expected_now, expected_wait in (
+        ("base", "22058.4", ["20100", "21479.7", "22859.4"]),
+        ("downside", "16064.4", ["20100", "18382.7", "16665.4"]),
+    ):
+        case = wait["cases"][name]
+        assert Decimal(case["buy_now_terminal_wealth_yen"]) == Decimal(expected_now)
+        assert [p["filled_quantity"] for p in case["wait_paths"]] == [0, 100, 200]
+        for row, wealth in zip(case["wait_paths"], expected_wait, strict=True):
+            assert Decimal(row["terminal_wealth_yen"]) == Decimal(wealth)
+            assert Decimal(row["cash_after_deadline_yen"]) == 20100 - row[
+                "filled_quantity"
+            ] * Decimal("95.095")
+            assert Decimal(row["difference_vs_buy_now_yen"]) == Decimal(wealth) - Decimal(
+                expected_now
+            )
+            assert Decimal(row["difference_vs_cash_yen"]) == Decimal(wealth) - 20100
+    assert path.read_bytes() == before
+    assert set(tmp_path.rglob("*")) == paths_before
+    # Removing the opt-in keeps the existing full-fill output unchanged.
+    del raw["price_comparison"]["waiting_terms"]
+    assert {k: v for k, v in result.items() if k != "waiting_paths"} == calculate(
+        CalculationInput.model_validate(raw)
+    )
+
+
+def test_one_lot_has_only_none_and_full_and_best_alternative_can_be_cash():
+    raw = _waiting_input()
+    raw["price_comparison"]["hypothetical_quantity"] = 100
+    terms = raw["price_comparison"]["waiting_terms"]
+    del terms["partial_fill_quantity"]
+    terms.update(
+        initial_cash_yen=10000,
+        entry_fee_bps=0,
+        terminal_sale_fee_bps=0,
+        downside_missed_distribution_per_share_yen=0,
+    )
+    wait = calculate(CalculationInput.model_validate(raw))["waiting_paths"]
+    downside = wait["cases"]["downside"]
+    assert [p["filled_quantity"] for p in downside["wait_paths"]] == [0, 100]
+    filled = downside["wait_paths"][1]
+    assert Decimal(filled["difference_vs_buy_now_yen"]) == 500
+    assert Decimal(filled["difference_vs_cash_yen"]) == -1500
+    assert Decimal(downside["wait_paths"][0]["cash_after_deadline_yen"]) == 10000
+
+
+@pytest.mark.parametrize(
+    ("date_label", "observed", "message"),
+    [
+        ("2027-10-30", None, "follows the valuation date"),
+        ("2026-09-04", "2026-09-08T09:01:00+09:00", "contradicts"),
+        ("2026-09-07", "2026-09-07T16:01:00+09:00", "contradicts"),
+    ],
+)
+def test_waiting_rejects_lookahead_only_for_the_opt_in(date_label, observed, message):
+    raw = _waiting_input()
+    raw["input_snapshot"]["facts"][0].update(as_of=date_label, observed_at=observed)
+    with pytest.raises(ValueError, match=message):
+        calculate(CalculationInput.model_validate(raw))
+    del raw["price_comparison"]["waiting_terms"]
+    assert "waiting_paths" not in calculate(CalculationInput.model_validate(raw))
+
+
+def test_waiting_price_date_is_the_japanese_session_date_not_the_utc_date():
+    raw = _waiting_input()
+    raw["input_snapshot"]["facts"][0].update(
+        as_of="2026-09-07", observed_at="2026-09-06T23:59:00Z", price_basis="realtime"
+    )
+    assert (
+        calculate(CalculationInput.model_validate(raw))["waiting_paths"]["reference_price_as_of"]
+        == "2026-09-07"
+    )
+
+
+def test_entry_cost_is_not_charged_again_on_terminal_proceeds_or_distribution():
+    raw = _waiting_input()
+    terms = raw["price_comparison"]["waiting_terms"]
+    terms.update(entry_fee_bps=20, terminal_sale_fee_bps=0)
+    wait = calculate(CalculationInput.model_validate(raw))["waiting_paths"]
+    # 200 shares: today's 100 plus a 0.2% entry cost, terminal 108+2 no exit cost.
+    assert Decimal(wait["cases"]["base"]["buy_now_terminal_wealth_yen"]) == 22060
+    # A 100-share fill misses one of the two distribution yen per share.
+    partial = wait["cases"]["base"]["wait_paths"][1]
+    assert Decimal(partial["terminal_wealth_yen"]) == 21481
+
+
+def test_lower_limit_can_fit_when_immediate_fee_makes_now_unaffordable():
+    raw = _waiting_input()
+    raw["price_comparison"]["waiting_terms"]["initial_cash_yen"] = 20000
+    wait = calculate(CalculationInput.model_validate(raw))["waiting_paths"]
+    assert wait["buy_now_cash_status"] == "insufficient"
+    assert wait["buy_now_unspent_cash_yen"] is None
+    case = wait["cases"]["downside"]
+    assert case["buy_now_terminal_wealth_yen"] is None
+    assert all(p["difference_vs_buy_now_yen"] is None for p in case["wait_paths"])
+    assert Decimal(case["wait_paths"][0]["terminal_wealth_yen"]) == 20000
+    assert Decimal(case["wait_paths"][-1]["difference_vs_cash_yen"]) == Decimal("-3434.60")
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("initial_cash_yen", 19000, "cannot cover"),  # full limit, including its fee
+        ("partial_fill_quantity", 50, "whole-lot"),
+        ("partial_fill_quantity", 200, "smaller"),
+        ("deadline", "2026-09-07", "deadline"),
+        ("deadline", "2027-09-08", "deadline"),
+        ("downside_missed_distribution_per_share_yen", 3, "exceeds"),
+        ("base_missed_distribution_per_share_yen", -1, "greater than or equal"),
+        ("entry_fee_bps", True, "finite"),
+        ("terminal_sale_fee_bps", 10000, "less than"),
+    ],
+)
+def test_unusable_waiting_assumptions_are_rejected(field, value, message):
+    raw = _waiting_input()
+    raw["price_comparison"]["waiting_terms"][field] = value
+    with pytest.raises(ValueError, match=message):
+        calculate(CalculationInput.model_validate(raw))
+
+
+@pytest.mark.parametrize(
+    ("outer", "value", "message"),
+    [
+        ("price_yen", 100, "below the reference"),
+        ("hypothetical_quantity", None, "whole-lot"),
+        ("hypothetical_quantity", 150, "whole-lot"),
+    ],
+)
+def test_waiting_comparison_does_not_invent_or_round_order_terms(outer, value, message):
+    raw = _waiting_input()
+    raw["price_comparison"][outer] = value
+    with pytest.raises(ValueError, match=message):
+        calculate(CalculationInput.model_validate(raw))
+
+
 def test_cli_generates_ratio_compatible_with_existing_tolerance_without_writes(tmp_path, capsys):
     payload = inputs_payload()
     path = tmp_path / "inputs.json"
