@@ -44,9 +44,7 @@ def _text(value: JsonValue | None) -> str | None:
 
 def read_discovery_observations(
     ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
-) -> tuple[
-    TechnicalDiscovery, GrowthDiscovery, CompanyCoordinates, tuple[dict[str, JsonValue], ...]
-]:
+) -> tuple[TechnicalDiscovery, GrowthDiscovery, CompanyCoordinates, str | None]:
     technical = evaluate_technical_strategy(ticker, models=models, metadata=metadata)
     # 財務による独立発見をTAの合否・欠測で止めない。
     gate, path_growth = read_growth_discovery(
@@ -56,19 +54,19 @@ def read_discovery_observations(
         ),
         metadata=metadata,
     )
-    coordinates, input_reviews = _project_economic_paths(
+    coordinates, review_reason = _project_economic_paths(
         ticker,
         index={model.model_id: model for model in models},
         metadata=metadata,
         growth_read=path_growth,
     )
-    return technical, gate, coordinates, input_reviews
+    return technical, gate, coordinates, review_reason
 
 
 def project_discovery_row(
     ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
 ) -> DiscoveryRow:
-    technical, gate, coordinates, reviews = read_discovery_observations(
+    technical, gate, coordinates, review_reason = read_discovery_observations(
         ticker, models=models, metadata=metadata
     )
     source = {model.model_id: model.payload for model in models}
@@ -83,15 +81,12 @@ def project_discovery_row(
     f_paths = [path for path in coordinates.paths if path.eligible]
     f_routes: list[str] = sorted({path.path_id for path in f_paths})
     g_state, t_state = gate.state, technical.state
-    needs_review = (
-        g_state in {"input_unresolved", "not_selected"} and not f_routes and bool(reviews)
+    financial_gap = (
+        review_reason if g_state in {"input_unresolved", "not_selected"} and not f_routes else None
     )
-    missing = {
-        "financial:" + reason
-        for item in reviews
-        if needs_review and isinstance(reason := item.get("reason"), str)
-    }
-    missing.update("growth:" + item for item in gate.missing)
+    missing = {"growth:" + item for item in gate.missing}
+    if financial_gap is not None:
+        missing.add("financial:" + financial_gap)
     expected = technical.expected_price_date
     day = _text(price.get("resolved_date"))
     return DiscoveryRow(
@@ -103,7 +98,7 @@ def project_discovery_row(
             growth_state=g_state,
             technical_match=t_state == "matched",
             financial_path_match=bool(f_routes),
-            financial_input_review=needs_review,
+            financial_input_review=financial_gap is not None,
         ),
         financial_state=g_state,
         technical_state=t_state,

@@ -22,10 +22,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-from baibai_engine.machine_analysis.screening.policies.discovery import (
-    project_discovery_row,
-    read_discovery_observations,
-)
+from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
 
 REASON = "indeterminate_treasury_after_capital_action"
 
@@ -155,13 +152,8 @@ def test_normal_generation_retains_action_unknown_in_review_not_pricing():
     assert row["technical_state"] == "unavailable"
     assert row["screening_lane"] == "input_review"
     assert row["matched_paths"]["financial"] == row["coordinates"] == []
-    assert f"financial:{REASON}" in row["missing"]
+    assert [s for s in row["missing"] if s.startswith("financial:")] == [f"financial:{REASON}"]
     assert row["capital_action"]["observations"] == 1
-    _, _, _, reviews = read_discovery_observations("1001", models=fixed.models, metadata=fixed)
-    assert {(record["path_id"], record["reason"]) for record in reviews} == {
-        ("earning_power", REASON),
-        ("business_expansion", REASON),
-    }
     cf = next(model.payload for model in fixed.models if model.model_id == "company_financials")
     assert cf["earnings_price"]["unavailable_reason"] == REASON
     for key in ("shares_ex_treasury", "market_cap_yen", "earnings_yield"):
