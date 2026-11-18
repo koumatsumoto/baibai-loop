@@ -37,8 +37,8 @@ DISCOVERY_QUESTIONS = {
         "前年の落ち込み・季節性・売却益だけなら回復を繰り延べられない。",
     ),
     "reinvestment": _Question(
-        "事業の伸びや資本活用は、追加投資と希薄化を超える一株価値を生むか。",
-        "売上や報告利益が増えても、投資額や他者への帰属が大きければ一株価値は増えない。",
+        "増えた売上は、追加投資や希薄化を差し引いても普通株一株の稼ぎを増やすか。",
+        "買収で売上が増えても、買収代金や追加の運転資金まで回収できるとは限らない。",
     ),
     "reported_assets": _Question(
         "報告された帳簿資本のうち、必要資本などを除き、誰がいつ普通株に返せるか。",
@@ -202,11 +202,11 @@ def _members(row: DiscoveryRow) -> set[str]:
     routes = row["matched_paths"]
     financial, growth = set(routes["financial"]), set(routes["growth"])
     result = {"universe"}
-    if "earning_power" in financial or "profit_growth" in growth:
+    if financial & {"earning_power", "capital_productivity"} or "profit_growth" in growth:
         result.add("earning_power")
     if "operating_recovery" in financial or "operating_recovery" in growth:
         result.add("operating_recovery")
-    if financial & {"business_expansion", "capital_productivity"}:
+    if "business_expansion" in financial:
         result.add("reinvestment")
     book = row["book_equity"]
     amount = book.get("amount_yen") if book is not None else None
