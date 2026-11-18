@@ -115,11 +115,19 @@ def prior_year_dates_match(
     prior_days = (prior_end - prior_start).days + 1
     current_days = (current_end - current_start).days + 1
     return (
-        prior_days > 0
-        and current_days > 0
-        and abs(prior_days - current_days) <= max(1, round(current_days * length_tolerance_ratio))
+        comparable_period_lengths(prior_days, current_days, tolerance_ratio=length_tolerance_ratio)
         and abs((prior_start - add_months_clamped(current_start, -12)).days) <= end_tolerance_days
         and abs((prior_end - add_months_clamped(current_end, -12)).days) <= end_tolerance_days
+    )
+
+
+def comparable_period_lengths(
+    prior_days: int, current_days: int, *, tolerance_ratio: float
+) -> bool:
+    return (
+        prior_days > 0
+        and current_days > 0
+        and abs(prior_days - current_days) <= max(1, round(current_days * tolerance_ratio))
     )
 
 

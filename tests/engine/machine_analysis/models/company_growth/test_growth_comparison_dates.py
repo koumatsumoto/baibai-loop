@@ -30,7 +30,10 @@ def period(start, end, value):
     )
 
 
-@pytest.mark.parametrize(("shift", "comparable"), [(0, True), (7, True), (8, False), (31, False)])
+@pytest.mark.parametrize(
+    ("shift", "comparable"),
+    [(-8, False), (-7, True), (0, True), (7, True), (8, False), (31, False)],
+)
 def test_yoy_does_not_treat_a_shifted_fiscal_quarter_as_the_same_season(shift, comparable):
     prior = period(
         date(2025, 6, 1) + timedelta(days=shift),
@@ -50,6 +53,19 @@ def test_53_week_quarter_can_differ_by_one_week_without_a_fiscal_month_shift():
     prior = period(date(2025, 6, 1), date(2025, 9, 7), 100)
     current = period(date(2026, 6, 1), date(2026, 8, 31), 120)
     assert build_changes((prior, current))[-1].rate == 0.2
+
+
+def test_leap_month_end_and_incompatible_newer_interval_keep_the_exact_prior():
+    current = period(date(2025, 1, 31), date(2025, 2, 28), 120)
+    # Feb 28 was month end in 2025, so Mar 7 is exactly seven days after the
+    # prior leap-year month end. A newer, incomparable interval must not win.
+    edge = period(date(2024, 2, 7), date(2024, 3, 7), 100)
+    earlier = period(date(2024, 1, 31), date(2024, 2, 29), 70)
+    change = build_changes((edge, earlier, current))[-1]
+    assert (change.from_end, change.from_value) == (edge.period_end, 100)
+    too_long = period(date(2024, 1, 25), edge.period_end, 999)
+    change = build_changes((too_long, earlier, current))[-1]
+    assert (change.from_end, change.from_value) == (earlier.period_end, 70)
 
 
 @pytest.mark.parametrize(

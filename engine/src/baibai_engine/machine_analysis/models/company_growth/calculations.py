@@ -33,10 +33,10 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     ACTUAL_FIELDS,
     annual_ttm_start,
+    comparable_period_lengths,
     compose_ttm_amount,
     is_annual_period,
     period_days,
-    prior_year_dates_match,
     prior_year_period_matches,
     resolve_actual_conflicts,
 )
@@ -456,28 +456,43 @@ def build_period_states(
     return tuple(states)
 
 
-def _observation_matches(prior: Observation, current: Observation) -> bool:
-    # 52/53週暦の最大1週差は許すが、決算月変更を同季節の前年比にしない。
-    return prior.measurement == current.measurement and prior_year_dates_match(
-        prior.period_start,
-        prior.period_end,
-        current.period_start,
-        current.period_end,
-        length_tolerance_ratio=0.1,
-        end_tolerance_days=7,
-    )
+def _latest_comparable_periods(
+    current: Observation, by_end: dict[tuple[str, int], list[Observation]]
+) -> list[Observation]:
+    current_days = (current.period_end - current.period_start).days + 1
+    if current_days <= 0:
+        return []
+    # 52/53週暦で許す前後1週間のみを新しい期末から照合する。同終端はすべて残す。
+    tolerance = 7
+    expected_start = add_months_clamped(current.period_start, -12).toordinal()
+    expected_end = add_months_clamped(current.period_end, -12).toordinal()
+    for end in range(expected_end + tolerance, expected_end - tolerance - 1, -1):
+        candidates = by_end.get((current.measurement, end))
+        if candidates is None:
+            continue
+        priors = [
+            prior
+            for prior in candidates
+            if abs(prior.period_start.toordinal() - expected_start) <= tolerance
+            and comparable_period_lengths(
+                end - prior.period_start.toordinal() + 1, current_days, tolerance_ratio=0.1
+            )
+        ]
+        if priors:
+            return priors
+    return []
 
 
 def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
     observations = [o for s in states for o in s.observations]
+    by_end: dict[tuple[str, int], list[Observation]] = {}
+    for item in observations:
+        by_end.setdefault((item.measurement, item.period_end.toordinal()), []).append(item)
     changes: list[Change] = []
     for current in observations:
-        candidates = [p for p in observations if _observation_matches(p, current)]
-        prior_end = max((p.period_end for p in candidates), default=None)
-        # Native accounting identities can share an actual interval. Keep every
-        # candidate at the selected end before inspecting metric values; neither
-        # input order nor an older good value may resolve a conflicting prior.
-        priors = [p for p in candidates if p.period_end == prior_end]
+        # Keep every comparable identity at the newest end, before inspecting metric values.
+        priors = _latest_comparable_periods(current, by_end)
+        prior_end = priors[0].period_end if priors else None
         prior_starts = {p.period_start for p in priors}
         prior_start = next(iter(prior_starts)) if len(prior_starts) == 1 else None
         for metric, value in current.metrics.items():
