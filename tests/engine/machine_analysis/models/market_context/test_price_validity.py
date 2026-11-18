@@ -22,6 +22,23 @@ DAY = date(2026, 11, 2)
 DAYS = tuple(DAY - timedelta(days=20 - index) for index in range(21))
 
 
+def test_a_52_week_price_extreme_uses_252_observed_closes_not_252_calendar_days():
+    days = [DAY - timedelta(days=2 * n) for n in reversed(range(253))]
+    values = [1.0, 50.0, *([100.0] * 250), 120.0]
+    result = calculate_security_market_context(
+        ticker="1301",
+        bars=[PriceBar(day, value, None) for day, value in zip(days, values, strict=True)],
+        calendar=price_calendar({}, as_of=DAY),
+        master=None,
+        benchmark_ticker="1321",
+        benchmark_prices={},
+        peer_prices=(),
+    )["price"]
+    assert (result["low_52w"], result["high_52w"], result["bar_count"]) == (50.0, 120.0, 253)
+    assert result["return_60d"] == pytest.approx(0.2)
+    assert result["realized_vol_20d"] is None
+
+
 @pytest.mark.parametrize("invalid", [0.0, -100.0, float("nan"), float("inf")])
 def test_invalid_endpoint_cannot_become_a_market_return(invalid):
     assert trailing_return([100.0, invalid], 1) is None
@@ -48,7 +65,6 @@ def test_individual_market_keeps_invalid_latest_date_and_independent_peer(invali
         benchmark_ticker="1321",
         benchmark_prices=dict.fromkeys(DAYS, 100.0),
         peer_prices=({DAYS[0]: 100.0, DAY: 110.0}, {DAYS[0]: 100.0, DAY: invalid}),
-        self_range_window_bars=750,
     )
     price = result["price"]
     assert price["resolved_date"] == DAY.isoformat()
@@ -56,7 +72,6 @@ def test_individual_market_keeps_invalid_latest_date_and_independent_peer(invali
     assert price["return_20d"] is None
     assert price["high_52w"] is None
     assert price["low_52w"] is None
-    assert price["self_range_percentile"] is None
     assert price["realized_vol_20d"] is None
     assert price["avg_turnover_20d_oku"] == 2.0
     relative = result["relative"]
@@ -76,7 +91,6 @@ def test_invalid_interior_price_does_not_cancel_independent_endpoint_return():
         benchmark_ticker="1321",
         benchmark_prices=dict.fromkeys(DAYS, 100.0),
         peer_prices=(),
-        self_range_window_bars=750,
     )
     assert result["price"]["close"] == 100.0
     assert result["price"]["return_20d"] == 0.0
@@ -125,7 +139,6 @@ def test_turnover_average_counts_only_finite_nonnegative_observations(
         benchmark_ticker="1321",
         benchmark_prices=dict.fromkeys(DAYS, 100.0),
         peer_prices=(),
-        self_range_window_bars=750,
     )
     price = result["price"]
     assert price["avg_turnover_20d_oku"] == (valid_turnover / 1e8 if valid_count == 10 else None)
@@ -158,7 +171,6 @@ def test_turnover_window_keeps_sparse_dates_and_outlier_separate_from_median(bar
         benchmark_ticker="1321",
         benchmark_prices={},
         peer_prices=(),
-        self_range_window_bars=750,
     )["price"]
     if not bars:
         assert price is None

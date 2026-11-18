@@ -18,9 +18,7 @@ from baibai_engine.storage.sqlite.read import read_store_if_written
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
-def security_context_from_store(
-    path: Path, *, ticker: str, as_of: date, self_range_window_bars: int
-) -> dict[str, object]:
+def security_context_from_store(path: Path, *, ticker: str, as_of: date) -> dict[str, object]:
     def read_calendar():
         with closing(connect_read_only(path)) as connection:
             return read_price_calendar(connection, as_of=as_of)
@@ -38,7 +36,6 @@ def security_context_from_store(
         sqlite_path=path,
         tickers=(ticker,),
         asof_date=as_of,
-        self_range_window_bars=self_range_window_bars,
         prepared=prepared,
         price_bars_by_ticker=prices,
         calendar=calendar,

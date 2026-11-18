@@ -19,16 +19,12 @@ from baibai_engine.machine_analysis.models.market_context.snapshot import (
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.prices.price_observation import PriceCalendar
 
-# 現行個別市場観測の窓。旧較正の倍率履歴とは別の入力政策として保持する。
-SELF_RANGE_WINDOW_BARS = 750
-
 
 def build_security_market_contexts(
     *,
     sqlite_path: Path,
     tickers: Sequence[str],
     asof_date: date,
-    self_range_window_bars: int,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
     prepared: PreparedMarketContext,
     price_bars_by_ticker: Mapping[str, Sequence[PriceBar]],
@@ -63,7 +59,6 @@ def build_security_market_contexts(
             benchmark_ticker=benchmark_ticker,
             benchmark_prices=benchmark_prices,
             peer_prices=peer_prices,
-            self_range_window_bars=self_range_window_bars,
         )
     return contexts
 

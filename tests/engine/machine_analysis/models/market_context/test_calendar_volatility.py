@@ -32,7 +32,6 @@ def context(bars=BARS, calendar=CALENDAR, as_of=ASOF):
         benchmark_ticker="1321",
         benchmark_prices={},
         peer_prices=(),
-        self_range_window_bars=750,
     )
 
 
