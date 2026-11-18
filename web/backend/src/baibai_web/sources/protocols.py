@@ -22,7 +22,7 @@ class LedgerSource(Protocol):
 
 
 class MarketSource(Protocol):
-    def security_names(self, *, as_of: date) -> Mapping[str, str]: ...
+    def security_names(self, *, as_of: date, tickers: tuple[str, ...]) -> Mapping[str, str]: ...
 
 
 @dataclass(frozen=True, slots=True)

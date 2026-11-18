@@ -183,6 +183,7 @@ def collect_proposal_inputs(
         raise ProposalError("ledger contains facts after the proposal instant")
     state = replay_events_through(ledger.events, now)
     held_tickers = {ticker for ticker, lots in state.lots.items() if lots}
+    relevant_tickers = tuple(sorted(set(tickers) | held_tickers))
     quotes: list[QuoteInput] = []
     quantity_basis: dict[str, bool] = {}
     prices: dict[str, MarketPrice] = {}
@@ -192,7 +193,7 @@ def collect_proposal_inputs(
                 require_closed_holding_basis(ledger, now=now, connection=market_connection)
             except UnresolvedHoldingQuantityError as error:
                 raise ProposalError(str(error)) from error
-            for ticker in sorted(set(tickers) | held_tickers):
+            for ticker in relevant_tickers:
                 if ticker in held_tickers:
                     observed, confirmed = holding_quote(
                         ledger,
@@ -224,9 +225,12 @@ def collect_proposal_inputs(
         # Classification must not observe a later correction than the saved quotes.
         master = (
             None
-            if market_connection is None
+            if market_connection is None or not relevant_tickers
             else read_master_snapshot(
-                sqlite_path, as_of=now.astimezone(JST).date(), connection=market_connection
+                sqlite_path,
+                as_of=now.astimezone(JST).date(),
+                tickers=relevant_tickers,
+                connection=market_connection,
             )
         )
     portfolio = summarize_portfolio(ledger, state, prices)
@@ -261,7 +265,7 @@ def collect_proposal_inputs(
     )
     classifications: list[SecurityClassification] = []
     if master is not None:
-        for ticker in sorted(set(tickers) | held_tickers):
+        for ticker in relevant_tickers:
             security = master.securities.get(ticker)
             if security is not None:
                 classifications.append(

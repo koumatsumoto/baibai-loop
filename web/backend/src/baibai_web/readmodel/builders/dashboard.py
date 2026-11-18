@@ -57,7 +57,9 @@ def build_dashboard(
     security_names: Mapping[str, str] = {}
     if snapshot.holdings:
         try:
-            security_names = market.security_names(as_of=today)
+            security_names = market.security_names(
+                as_of=today, tickers=tuple(holding.ticker for holding in snapshot.holdings)
+            )
         except (JQuantsProviderError, SQLiteSchemaError, sqlite3.Error) as error:
             _LOGGER.warning("保有の銘柄名を取得できないためtickerで表示します: %s", error)
     holdings = [
