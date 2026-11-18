@@ -586,6 +586,10 @@ backup_remote_key() {
   # R2 needs direct CopyObject rather than `aws s3 cp`; large copies need a longer timeout.
   local key="$1" expected_version="${2:-}"
   if [[ "${key}" == "baibai.sqlite" ]]; then
+    if [[ "${R2_APP_BACKUP_CREATE:-retain}" == "skip" ]]; then
+      printf 'application backup creation explicitly skipped\n'
+      return
+    fi
     (cd "${repo_root}" && uv run python -m baibai_jobs.maintenance.application_backup \
       --bucket "${stores_bucket}" --expected-etag "${expected_version}")
     return
@@ -911,6 +915,10 @@ case "${1:-}" in
     push_key_if_version indicators.sqlite "${indicator_version}"
     ;;
   push-app)
+    case "${R2_APP_BACKUP_CREATE:-retain}" in
+      retain|skip) ;;
+      *) printf 'R2_APP_BACKUP_CREATE must be retain or skip\n' >&2; exit 2 ;;
+    esac
     case "${R2_APP_BACKUP_PRUNE:-retain}" in
       retain|skip) ;;
       *) printf 'R2_APP_BACKUP_PRUNE must be retain or skip\n' >&2; exit 2 ;;
