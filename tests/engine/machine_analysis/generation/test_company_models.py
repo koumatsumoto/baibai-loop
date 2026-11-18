@@ -18,7 +18,10 @@ from baibai_engine.machine_analysis.generation.financial_models import (
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.observations.financials import capital_action_pdf
+from baibai_engine.machine_analysis.observations.financials import (
+    capital_action_pdf,
+    financial_documents,
+)
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import (
     parse_csv_zip_metric_record,
@@ -1056,7 +1059,7 @@ def test_cash_equivalent_trace_follows_existing_field_selection(correction):
         assert financial["cash_eq_source"]["period_end"] == "2026-06-30"
 
 
-def test_cash_equivalent_source_uses_latest_period_and_respects_cutoff():
+def test_cash_equivalent_source_uses_latest_period_and_respects_cutoff(mocker):
     annual, current, _ = cash_flow_documents()
     current = replace(current, cash_eq=200.0)
     late_annual = replace(
@@ -1070,11 +1073,29 @@ def test_cash_equivalent_source_uses_latest_period_and_respects_cutoff():
         disclosed_at=date(2026, 9, 1),
         disclosure_number="future-correction",
         cash_eq=400.0,
+        profit=300.0,
     )
-    financial = generate(documents=(current, late_annual, future), bars=())[0].payload["financial"]
+    documents = (current, late_annual, future)
+    project = mocker.spy(financial_documents, "project_financial_documents")
+    owner, growth, _ = generate(documents=documents, bars=())
+    project.assert_called_once_with(documents, ASOF)
+    financial = owner.payload["financial"]
+    # The retrospective model still reads the future correction for this old period.
+    reported = next(
+        item
+        for item in growth.payload["periods"][-1]["observations"]
+        if item["measurement"] == "reported"
+    )
+    assert reported["metrics"]["parent_profit"]["value"] == 300.0
     assert financial["cash_eq"] == 200.0
     assert financial["cash_eq_source"]["disclosure_number"] == "current-quarter"
     assert financial["cash_eq_source"]["disclosed_at"] == "2026-08-06"
+
+
+def test_financial_cutoff_projection_cannot_be_relabelled():
+    projected = financial_documents.FinancialDocumentsAt((document(),), ASOF)
+    with pytest.raises(ValueError, match="different as-of date"):
+        financial_documents.FinancialDocumentsAt.rows_for(projected, ASOF - timedelta(days=1))
 
 
 def test_cash_equivalent_source_survives_l3_without_becoming_edinet_cash():

@@ -39,6 +39,9 @@ from baibai_engine.machine_analysis.observations.financials.edinet_holder_capita
     HolderReportedCapital,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    FinancialDocumentsAt,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -107,8 +110,9 @@ def generate_financial_and_price_models(
     pdf_input = prepare_pdf_financials(documents, pdf_statements, as_of=as_of)
     pdf_selection = pdf_input.selection if pdf_input is not None else None
     pdf_supplement = pdf_input.supplement if pdf_input is not None else None
+    financial_documents = FinancialDocumentsAt(documents, as_of)
     earnings = earnings_price(
-        documents,
+        financial_documents,
         adjusted_price=latest,
         adjustment_events=adjustment_events,
         as_of=as_of,
@@ -128,7 +132,7 @@ def generate_financial_and_price_models(
     financial = financial_observation_payload(
         build_financial_snapshot(
             price,
-            documents,
+            financial_documents,
             edinet,
             ttm_rules,
             adjustment_events=adjustment_events,
