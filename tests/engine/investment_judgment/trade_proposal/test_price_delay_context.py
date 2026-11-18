@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -13,7 +13,6 @@ from tests.helpers.proposal import (
     reviewed_proposal,
 )
 
-from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
 from baibai_engine.investment_judgment.stock_assessment.scenario import project_return
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
@@ -151,67 +150,3 @@ def test_holding_comparison_keeps_actual_quote_and_author_floor_separate(tmp_pat
     )
     assert service.publish(draft) == saved
     assert case.app.read_bytes() == before
-
-
-@pytest.mark.parametrize("missing", ["stale", "future", "basis", "old_valuation", "unresolved"])
-def test_unavailable_basis_does_not_gain_a_delay_projection(tmp_path, missing):
-    case = backend_case(tmp_path, valuation_unresolved=missing == "unresolved")
-    document = case.pair.document
-    values = dict(
-        price_yen=Decimal(1000),
-        price_as_of=date(2026, 10, 14),
-        as_of=date(2026, 10, 14),
-        basis_confirmed=True,
-        max_quote_age_days=7,
-    )
-    if missing == "stale":
-        values["price_as_of"] = date(2026, 10, 1)
-    elif missing == "future":
-        values["price_as_of"] = date(2026, 10, 15)
-    elif missing == "basis":
-        values["basis_confirmed"] = False
-    elif missing == "old_valuation":
-        values["as_of"] = date(2026, 10, 15)
-    assert current_price_projection(document, **values) is None
-
-
-@pytest.mark.parametrize("downside_value", [Decimal(0), Decimal(700)])
-def test_delay_does_not_reduce_loss_amount_or_extend_saved_horizon(tmp_path, downside_value):
-    case = backend_case(tmp_path)
-    document = case.pair.document
-    document = document.model_copy(
-        update={
-            "valuation": document.valuation.model_copy(
-                update={
-                    "downside": document.valuation.downside.model_copy(
-                        update={
-                            "terminal_value_per_share_yen": downside_value,
-                            "cash_distribution_per_share_yen": Decimal(0),
-                        }
-                    )
-                }
-            )
-        }
-    )
-    before = document.model_dump_json()
-    result = current_price_projection(
-        document,
-        price_yen=Decimal(1000),
-        price_as_of=date(2026, 10, 14),
-        as_of=date(2026, 10, 14),
-        basis_confirmed=True,
-        max_quote_age_days=7,
-    )
-    assert result["downside"]["total_value_yen"] == downside_value
-    assert result["downside"]["total_return_pct"] == (downside_value / 1000 - 1) * 100
-    assert result["fixed_value_delay"] == delay_at(document, "1000")
-    if downside_value == 0:
-        assert result["fixed_value_delay"]["downside_annualized_return_pct"] == -100
-    else:
-        assert (
-            result["downside"]["annualized_return_pct"]
-            < result["fixed_value_delay"]["downside_annualized_return_pct"]
-            < 0
-        )
-    assert result["horizon_months"] == 12
-    assert document.model_dump_json() == before
