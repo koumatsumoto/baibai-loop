@@ -22,10 +22,10 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
 )
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    FinancialDocumentsAt,
     accounting_period_identity,
     accounting_standard,
     latest_disclosure_candidates,
-    project_financial_documents,
     reporting_basis_rows,
     statement_basis,
 )
@@ -121,7 +121,7 @@ def _accounting_disclosures(
 
 
 def earnings_price(
-    summaries: Sequence[JQuantsFinancialSummary],
+    summaries: Sequence[JQuantsFinancialSummary] | FinancialDocumentsAt,
     *,
     adjusted_price: PriceBar | None,
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
@@ -138,7 +138,7 @@ def earnings_price(
     if any(action.after_as_of(as_of) for action in capital_actions):
         raise ValueError("capital action is after the model as-of date")
     projected = sorted(
-        project_financial_documents(summaries, as_of),
+        FinancialDocumentsAt.rows_for(summaries, as_of),
         key=lambda row: (row.disclosed_at, row.disclosed_time or "", row.disclosure_number or ""),
     )
     normalized = _normalize_summaries_with_status(projected, adjustment_events, as_of)

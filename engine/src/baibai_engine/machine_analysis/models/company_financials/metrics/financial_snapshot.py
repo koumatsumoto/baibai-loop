@@ -46,11 +46,11 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.ratios imp
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    FinancialDocumentsAt,
     accounting_standard,
     comparable_reporting_basis,
     forecast_source_trace,
     latest_forecast_source,
-    project_financial_documents,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
@@ -90,7 +90,7 @@ def _reported_source(
 
 def build_financial_snapshot(
     latest_price: float | None,
-    summaries: Sequence[JQuantsFinancialSummary],
+    summaries: Sequence[JQuantsFinancialSummary] | FinancialDocumentsAt,
     edinet: EdinetMetricRecord | None,
     ttm_rules: TTMRules,
     *,
@@ -102,7 +102,7 @@ def build_financial_snapshot(
     if any(action.after_as_of(asof_date) for action in capital_actions):
         raise ValueError("capital action is after the model as-of date")
     normalization = _normalize_summaries_with_status(
-        project_financial_documents(summaries, asof_date),
+        FinancialDocumentsAt.rows_for(summaries, asof_date),
         adjustment_events,
         asof_date,
     )

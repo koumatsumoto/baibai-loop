@@ -318,6 +318,24 @@ def _ambiguous_short_period_revision(
     )
 
 
+class FinancialDocumentsAt:
+    """A generation-local projection; it cannot be reused at a different disclosure cutoff."""
+
+    def __init__(self, documents: Sequence[JQuantsFinancialSummary], as_of: date) -> None:
+        self._as_of = as_of
+        self._rows = tuple(project_financial_documents(documents, as_of))
+
+    @staticmethod
+    def rows_for(
+        documents: Sequence[JQuantsFinancialSummary] | FinancialDocumentsAt, as_of: date
+    ) -> Sequence[JQuantsFinancialSummary]:
+        if isinstance(documents, FinancialDocumentsAt):
+            if documents._as_of != as_of:
+                raise ValueError("financial document projection has a different as-of date")
+            return documents._rows
+        return project_financial_documents(documents, as_of)
+
+
 def project_financial_documents(
     summaries: Sequence[JQuantsFinancialSummary], asof_date: date
 ) -> list[JQuantsFinancialSummary]:
