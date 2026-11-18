@@ -31,6 +31,7 @@ export function assessmentFixture(label: string): SavedAssessmentView {
     strongest_countercase: null,
     realization: null,
     value_gap: null,
+    estimated_model_chart: null,
     model_perspectives: [],
     model_perspective_sources: [],
     risk_analysis: null,

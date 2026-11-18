@@ -106,3 +106,31 @@ it('分類チャートには一観点につき一判断を置き、説明と出�
   expect(html).not.toContain('総合点')
   expect(html).not.toContain('勝率')
 })
+
+it('当時の資料による見立てを区別し、元の不足判断を推定で置き換えない', () => {
+  const a = assessmentFixture('supplement')
+  a.model_perspectives = [{ model: 'company_growth', assessment: 'insufficient', summary: '元の作者が確認できず。', source_ids: [] }]
+  a.estimated_model_chart = {
+    selection_sha256: 'a'.repeat(64), input_known_at: '2026-10-26T03:00:00Z', research_as_of: '2026-10-26', generation_id: 'fixed-test',
+    rows: [
+      { model: 'company_growth', assessment: 'supportive', summary: '上書きしてはいけない', evidence: '古い選定', observed_on: '2026-09-30', source_url: null },
+      { model: 'social_trends', assessment: 'context_only', summary: '観測された金融条件。個社影響は未確定。', evidence: '当時の記事', observed_on: '2026-09-18', source_url: 'https://www.boj.or.jp/' },
+      { model: 'market_context', assessment: 'mixed', summary: '短期と長期で方向が逆。', evidence: '当時の市場代理', observed_on: '2026-10-23', source_url: null },
+    ],
+  }
+  const html = render(a)
+  expect(html).not.toContain('上書きしてはいけない')
+  expect(html).toContain('元の作者が確認できず。')
+  expect(html).toContain('2026-10-26 12:00')
+  expect(html).toContain('2026-09-18')
+  expect(html).toContain('元資料を開く')
+  const rows = html.split('<tbody>')[1].split('</tbody>')[0]
+  expect(rows.split('data-model="social_trends"')[1].split('</tr>')[0]).toContain('観測あり・個社への影響未判定')
+  expect(rows.split('data-model="company_growth"')[1].split('</tr>')[0]).not.toContain('資料からの推定')
+  expect(rows.split('data-model="market_context"')[1].split('</tr>')[0]).toContain('両方向')
+  expect(html.slice(0, html.indexOf('<table'))).toContain('投資仮説への支持・反証を意味しません')
+  a.model_perspectives = []
+  const estimatedOnly = render(a).split('<thead')[1].split('</thead>')[0]
+  expect(estimatedOnly).toContain('プラス側')
+  expect(estimatedOnly).not.toContain('支持')
+})

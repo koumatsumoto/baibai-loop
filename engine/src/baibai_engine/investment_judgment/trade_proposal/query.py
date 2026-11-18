@@ -25,10 +25,10 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     ProposalRecords,
     ProposalReference,
 )
+from baibai_engine.investment_judgment.trade_proposal.report_perspectives import estimate_missing
 from baibai_engine.investment_judgment.workflow.selection import (
-    saved_market_assessment,
     selection_from_artifacts,
-    selection_sha256,
+    selection_payload_and_sha256,
 )
 from baibai_engine.investment_judgment.workflow.selection_evidence import (
     read_selection_evidence_from_connection,
@@ -412,22 +412,17 @@ def proposal_records(connection: sqlite3.Connection, proposal: TradeProposal) ->
     }
 
 
-def saved_proposal_market_context(
+def _saved_proposal_selection(
     connection: sqlite3.Connection, proposal: TradeProposal
-) -> dict[str, object]:
+) -> tuple[dict[str, object] | None, str | None]:
+    """Read just the proposal-bound Selection, never the latest operation or market models."""
     scope = proposal.research_scope
-    result: dict[str, object] = {
-        "source": "proposal_fixed_selection",
-        "selection_sha256": scope.selection_sha256,
-        "status": "unavailable",
-        "assessment": None,
-    }
     # This optional historical evidence must not reapply active/current-progress admission.
     row = connection.execute(
         "SELECT payload FROM operation_session WHERE operation_id=?", (scope.operation_id,)
     ).fetchone()
     if row is None:
-        return {**result, "reason": "operation_not_found"}
+        return None, "operation_not_found"
     try:
         payload = json.loads(str(row[0]))
         if not isinstance(payload, dict):
@@ -437,31 +432,50 @@ def saved_proposal_market_context(
             raise ValueError("unreadable saved artifacts")
         selection = selection_from_artifacts(artifacts)
     except (ValueError, TypeError):
-        return {**result, "reason": "selection_unreadable"}
+        return None, "selection_unreadable"
     if selection is None:
-        return {**result, "reason": "selection_not_recorded"}
-    if selection_sha256(selection) == scope.selection_sha256:
-        assessment = saved_market_assessment(selection)
-    else:
-        try:
-            evidence = read_selection_evidence_from_connection(
-                connection,
-                operation_id=scope.operation_id,
-                sha256=scope.selection_sha256,
-                proposal_id=proposal.proposal_id,
-            )
-            # Only quote the saved market fragment; old model IDs/order remain opaque.
-            original = json.loads(evidence["canonical_json"])
-            if (
-                evidence["role"] != "as_published"
-                or not isinstance(original, dict)
-                or original.get("schema_version") not in (3, 4)
-                or not isinstance(original.get("inputs"), dict)
-            ):
-                raise ValueError("unreadable published selection")
-            assessment = original["inputs"].get("saved_market_context_assessment")
-        except (ValueError, TypeError, KeyError):
-            return {**result, "reason": "selection_hash_mismatch"}
+        return None, "selection_not_recorded"
+    normalized, digest = selection_payload_and_sha256(selection)
+    if digest == scope.selection_sha256:
+        return normalized, None
+    try:
+        evidence = read_selection_evidence_from_connection(
+            connection,
+            operation_id=scope.operation_id,
+            sha256=scope.selection_sha256,
+            proposal_id=proposal.proposal_id,
+        )
+        # Use the original evidence, not the migrated selection.
+        original = json.loads(evidence["canonical_json"])
+        if (
+            evidence["role"] != "as_published"
+            or not isinstance(original, dict)
+            or original.get("schema_version") not in (3, 4)
+            or not isinstance(original.get("inputs"), dict)
+        ):
+            raise ValueError("unreadable published selection")
+        return original, None
+    except (ValueError, TypeError, KeyError):
+        return None, "selection_hash_mismatch"
+
+
+def _market_context_from_selection(
+    proposal: TradeProposal, selection: dict[str, object] | None, reason: str | None
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "source": "proposal_fixed_selection",
+        "selection_sha256": proposal.research_scope.selection_sha256,
+        "status": "unavailable",
+        "assessment": None,
+    }
+    if selection is None:
+        return {**result, "reason": reason}
+    inputs = selection["inputs"]
+    assert isinstance(inputs, dict)
+    container = inputs.get("market_context") if selection.get("schema_version") == 2 else inputs
+    assessment = (
+        container.get("saved_market_context_assessment") if isinstance(container, dict) else None
+    )
     if assessment is None and proposal.market_context_assessment_id is None:
         return {**result, "status": "not_recorded"}
     if (
@@ -470,3 +484,34 @@ def saved_proposal_market_context(
     ):
         return {**result, "reason": "market_context_reference_mismatch"}
     return {**result, "status": "retained", "assessment": deepcopy(assessment)}
+
+
+def saved_proposal_market_context(
+    connection: sqlite3.Connection, proposal: TradeProposal
+) -> dict[str, object]:
+    return _market_context_from_selection(
+        proposal, *_saved_proposal_selection(connection, proposal)
+    )
+
+
+def saved_proposal_report_context(
+    connection: sqlite3.Connection, proposal: TradeProposal, pairs: dict[str, ReviewedAssessment]
+) -> tuple[dict[str, object], dict[str, dict[str, object]]]:
+    """Read one fixed selection for both sections; never use another case."""
+    selection, reason = _saved_proposal_selection(connection, proposal)
+    market = _market_context_from_selection(proposal, selection, reason)
+    charts: dict[str, dict[str, object]] = {}
+    if selection is not None:
+        for item in proposal.items:
+            if item.assessment_ref is None:
+                continue
+            pair = pairs[item.assessment_ref.assessment_id]
+            chart = estimate_missing(
+                selection,
+                ticker=item.ticker,
+                recorded={r.model for r in pair.document.model_perspectives},
+                selection_sha256=proposal.research_scope.selection_sha256,
+            )
+            if chart is not None:
+                charts[pair.assessment_id] = chart
+    return market, charts

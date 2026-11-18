@@ -8,11 +8,15 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     ProposalRecordReader,
     load_proposal_with_assessments,
     published_proposal_ids,
-    saved_proposal_market_context,
+    saved_proposal_report_context,
 )
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
-from baibai_web.readmodel.proposal_models import SavedMarketContextView, SavedProposalView
+from baibai_web.readmodel.proposal_models import (
+    EstimatedModelChartView,
+    SavedMarketContextView,
+    SavedProposalView,
+)
 from baibai_web.sources.protocols import ProposalHistoryRead
 
 
@@ -56,7 +60,12 @@ def _project(
     proposal, pairs = load_proposal_with_assessments(connection, proposal_id)
     view = project_saved_proposal(proposal, pairs)
     view.corrections, view.human_reports = records.read(proposal)
-    view.saved_market_context = SavedMarketContextView.model_validate(
-        saved_proposal_market_context(connection, proposal)
-    )
+    market, charts = saved_proposal_report_context(connection, proposal, pairs)
+    view.saved_market_context = SavedMarketContextView.model_validate(market)
+    for item in view.items:
+        assessment = item.assessment
+        if assessment is not None and assessment.assessment_id in charts:
+            assessment.estimated_model_chart = EstimatedModelChartView.model_validate(
+                charts[assessment.assessment_id]
+            )
     return view

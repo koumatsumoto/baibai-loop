@@ -162,19 +162,22 @@ class AssessmentConclusion(BaseModel):
         return _datetime(value)
 
 
+PerspectiveModel = Literal[
+    "company_financials",
+    "company_growth",
+    "market_context",
+    "external_assessment",
+    "technical_analysis",
+    "industry_trends",
+    "social_trends",
+]
+
+
 class ModelPerspective(BaseModel):
     """作者による個社への意味づけ。L2の生成状態や機械scoreではない。"""
 
     model_config = _CONFIG
-    model: Literal[
-        "company_financials",
-        "company_growth",
-        "market_context",
-        "external_assessment",
-        "technical_analysis",
-        "industry_trends",
-        "social_trends",
-    ]
+    model: PerspectiveModel
     assessment: Literal[
         "supportive", "mixed", "adverse", "neutral", "insufficient", "not_applicable"
     ]

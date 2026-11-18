@@ -212,6 +212,122 @@
       "title": "DashboardView",
       "type": "object"
     },
+    "EstimatedModelChartView": {
+      "properties": {
+        "selection_sha256": {
+          "title": "Selection Sha256",
+          "type": "string"
+        },
+        "input_known_at": {
+          "format": "date-time",
+          "title": "Input Known At",
+          "type": "string"
+        },
+        "research_as_of": {
+          "format": "date",
+          "title": "Research As Of",
+          "type": "string"
+        },
+        "generation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation Id"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/EstimatedPerspectiveView"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "selection_sha256",
+        "input_known_at",
+        "research_as_of",
+        "generation_id",
+        "rows"
+      ],
+      "title": "EstimatedModelChartView",
+      "type": "object"
+    },
+    "EstimatedPerspectiveView": {
+      "properties": {
+        "model": {
+          "enum": [
+            "company_financials",
+            "company_growth",
+            "market_context",
+            "external_assessment",
+            "technical_analysis",
+            "industry_trends",
+            "social_trends"
+          ],
+          "title": "Model",
+          "type": "string"
+        },
+        "assessment": {
+          "enum": [
+            "supportive",
+            "mixed",
+            "adverse",
+            "neutral",
+            "context_only",
+            "insufficient"
+          ],
+          "title": "Assessment",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "observed_on": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed On"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Url"
+        }
+      },
+      "required": [
+        "model",
+        "assessment",
+        "summary",
+        "evidence",
+        "observed_on",
+        "source_url"
+      ],
+      "title": "EstimatedPerspectiveView",
+      "type": "object"
+    },
     "HoldingView": {
       "properties": {
         "ticker": {
@@ -1188,6 +1304,17 @@
           ],
           "default": null
         },
+        "estimated_model_chart": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EstimatedModelChartView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "model_perspectives": {
           "items": {
             "$ref": "#/$defs/SavedModelPerspectiveView"
@@ -1262,6 +1389,7 @@
         "strongest_countercase",
         "realization",
         "value_gap",
+        "estimated_model_chart",
         "model_perspectives",
         "model_perspective_sources",
         "risk_analysis",

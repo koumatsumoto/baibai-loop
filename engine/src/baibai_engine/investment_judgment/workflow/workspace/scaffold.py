@@ -18,6 +18,7 @@ from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
 from baibai_engine.investment_judgment.stock_assessment.document import (
+    PerspectiveModel,
     StockAssessmentDocument,
     assessment_core_hash,
 )
@@ -54,6 +55,7 @@ from baibai_engine.storage.sqlite.application.read import connect_read_only
 _ASSESSMENT_DRAFT_HEADER = (
     "# 銘柄評価 draft。重要な支持・相反・不足をfindings、investment_case、"
     "conclusion.strongest_countercaseへつなぐ。\n"
+    "# 7観点は根拠・対象日を添えて判断、情報不足には不足する事実を記す。票・点数ではない。\n"
     "# 解析モデルの問い・basis・欠測: "
     "docs/reference/stock-assessment.md#analysis-domain-integration\n"
     "# price_value_case: 原観測と両立する条件を、普通株の受取を裏付ける非価格Factと照合する。\n"
@@ -233,6 +235,10 @@ def scaffold_assessment(
                     else [f"research_{ref}" for ref in value_capture.source_ids]
                 ),
             },
+            "model_perspectives": [
+                {"model": key, "assessment": None, "summary": None, "source_ids": []}
+                for key in get_args(PerspectiveModel)
+            ],
             "permanent_loss_risks": [],
             "findings": {
                 "business_understanding": (

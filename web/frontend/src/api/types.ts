@@ -29,6 +29,23 @@ export interface DashboardView {
   warnings: WarningView[]
 }
 
+export interface EstimatedModelChartView {
+  selection_sha256: string
+  input_known_at: string
+  research_as_of: string
+  generation_id: string | null
+  rows: EstimatedPerspectiveView[]
+}
+
+export interface EstimatedPerspectiveView {
+  model: 'company_financials' | 'company_growth' | 'market_context' | 'external_assessment' | 'technical_analysis' | 'industry_trends' | 'social_trends'
+  assessment: 'supportive' | 'mixed' | 'adverse' | 'neutral' | 'context_only' | 'insufficient'
+  summary: string
+  evidence: string
+  observed_on: string | null
+  source_url: string | null
+}
+
 export interface HoldingView {
   ticker: string
   company_name: string | null
@@ -188,6 +205,7 @@ export interface SavedAssessmentView {
   strongest_countercase: string | null
   realization: SavedValueRealizationView | null
   value_gap: SavedValueGapView | null
+  estimated_model_chart: EstimatedModelChartView | null
   model_perspectives: SavedModelPerspectiveView[]
   model_perspective_sources: SavedAssessmentSourceView[]
   risk_analysis: SavedAssessmentRisksView | null
