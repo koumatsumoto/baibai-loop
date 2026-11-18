@@ -244,6 +244,8 @@ jobs/scripts/publish.sh
 
 publish.shは引数なし。台帳preflight→取得世代への条件付きbackup/PUT→次回ETag記録→Web生成dispatchの順。時価/quote不足と取引保存障害を分け、DBだけの世代交換・未知世代の現HEAD補完はしない。App backupは元世代を読戻して実行JST日＋内容SHAのkeyへcreate-onlyで保存し、読戻し照合後に本体PUTへ進む。同日でも既存backupを置換しない。同内容の既存keyは本文一致時だけ再利用し、当日の日別keyも元ETag/sizeと本文が一致するなら重複保存しない。競合・拒否・応答不明は本体PUT前に停止する。従来の日別keyも残す。通常pruneは直近14個のbackup日付に属する全世代を保持し、永久削除をしない反映ではR2_APP_BACKUP_PRUNE=skipを指定する。保存量は日数だけでなく反映回数に増え、元Appとbackupの読戻し通信・一時容量も必要になる。正規の単一PUT由来ETagを持たない旧Appはこの経路で更新せず別途確認する。
 
+本人が追加backupを不要と明示し、更新後Appが旧提案・評価・台帳等の全旧行を保持することを旧新の正規copyで照合した追加専用反映では、`R2_APP_BACKUP_CREATE=skip` で新しいbackup生成だけを省略できる。既定はretain。取得ETag照合と最終If-Matchは省略されず、未知世代・競合は停止する。旧backupの保持・削除は独立した `R2_APP_BACKUP_PRUNE` で扱い、削除しない反映では両方にskipを指定する。既存情報を書き換える一般更新へこの省略判断を流用しない。
+
 保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。PUT後の記録失敗で旧DBを再送しない。dispatchだけ失敗/不明ならActionsを確認し、run未作成時だけcloud-materializeを再dispatchする。publish.sh全体は繰り返さない。通常はcurrent schemaだけを開く。schema29は下記の切替期間だけ扱う。
 
 <a id="share-conversion-cutover"></a>

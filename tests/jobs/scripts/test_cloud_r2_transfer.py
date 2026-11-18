@@ -654,12 +654,14 @@ def test_application_store_push_keeps_a_dated_generation(tmp_path: Path) -> None
     assert "--bucket baibai-stores" in backups[0]
 
 
+@pytest.mark.parametrize("backup_mode", ["retain", "skip"])
 @pytest.mark.parametrize("failure", ["unknown", "empty", "changed", "put-race"])
 def test_application_push_refuses_unknown_or_changed_generation(
-    tmp_path: Path, failure: str
+    tmp_path: Path, failure: str, backup_mode: str
 ) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
+    env["R2_APP_BACKUP_CREATE"] = backup_mode
     env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
     if failure != "unknown":
         (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text(
@@ -2012,3 +2014,62 @@ def test_application_retention_counts_dates_and_keeps_all_versions_of_retained_d
         if command.startswith("s3api delete-object ")
     ]
     assert set(deleted) == {dates[0], dates[1], extra[0]}
+
+
+def test_application_can_skip_new_backup_without_touching_old_backups(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env.update(R2_APP_BACKUP_CREATE="skip", R2_APP_BACKUP_PRUNE="skip", APP_BACKUP_FAKE_EXIT="1")
+    env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
+    generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
+    generation.write_text('"etag-stable"\n')
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "push-app"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "application backup creation explicitly skipped" in result.stdout
+    commands = _transfer_commands(log)
+    assert not any(
+        command.startswith(
+            (
+                "app-backup ",
+                "s3api copy-object ",
+                "s3api get-object ",
+                "s3api delete-object ",
+                "s3api list-objects",
+            )
+        )
+        for command in commands
+    )
+    puts = [command for command in commands if command.startswith("s3api put-object ")]
+    assert len(puts) == 1
+    assert "--key baibai.sqlite " in puts[0]
+    assert '--if-match "etag-stable"' in puts[0]
+    assert generation.read_text() == '"etag-put-1"\n'
+
+
+def test_application_rejects_unknown_backup_create_mode_before_write(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["R2_APP_BACKUP_CREATE"] = "unknown"
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "push-app"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "R2_APP_BACKUP_CREATE must be retain or skip" in result.stderr
+    assert not any(
+        command.startswith(
+            ("app-backup ", "s3api put-object ", "s3api copy-object ", "s3api delete-object ")
+        )
+        for command in _transfer_commands(log)
+    )
