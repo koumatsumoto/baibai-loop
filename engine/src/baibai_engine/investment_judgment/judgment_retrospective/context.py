@@ -20,10 +20,10 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
-    proposal_draft_sha256,
+    TradeProposal,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
-    load_investment_proposal,
+    load_proposal_with_assessments,
     proposal_records,
     saved_proposal_market_context,
 )
@@ -50,7 +50,7 @@ def _assessment_context(pair: ReviewedAssessment) -> dict[str, object]:
 
 
 def _proposal_record_context(
-    connection: sqlite3.Connection, proposal_id: str, *, recorded_at: datetime
+    connection: sqlite3.Connection, proposal: TradeProposal, *, recorded_at: datetime
 ) -> dict[str, object]:
     result: dict[str, object] = {
         "source": "proposal_receipts",
@@ -60,7 +60,7 @@ def _proposal_record_context(
         "records": None,
     }
     try:
-        records = proposal_records(connection, proposal_id)
+        records = proposal_records(connection, proposal)
     except (ValueError, TypeError, FileNotFoundError):
         # Optional later receipts must not invalidate the exact original judgment.
         return result
@@ -94,8 +94,8 @@ def origin_context(
     market_context: dict[str, object] | None = None
     pair = None
     if isinstance(origin, ProposalItemRef):
-        proposal = load_investment_proposal(connection, origin.proposal_id)
-        if proposal_draft_sha256(proposal) != origin.draft_sha256:
+        proposal, pairs = load_proposal_with_assessments(connection, origin.proposal_id)
+        if proposal.review.draft_sha256 != origin.draft_sha256:
             raise ValueError("Proposal reference differs from stored content")
         item = next((item for item in proposal.items if item.ticker == origin.ticker), None)
         if item is None or origin.ticker != ticker:
@@ -104,11 +104,9 @@ def origin_context(
         proposal_context = proposal.model_dump(mode="json", exclude={"items"})
         proposal_context["item"] = item.model_dump(mode="json")
         market_context = saved_proposal_market_context(connection, proposal)
-        record_context = _proposal_record_context(
-            connection, proposal.proposal_id, recorded_at=recorded_at
-        )
+        record_context = _proposal_record_context(connection, proposal, recorded_at=recorded_at)
         if item.assessment_ref is not None:
-            pair = require_assessment_ref(connection, item.assessment_ref)
+            pair = pairs[item.assessment_ref.assessment_id]
     else:
         pair = require_assessment_ref(connection, origin)
         published_at = pair.published_at

@@ -31,7 +31,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     RequestScope,
     ReservationInput,
     SecurityClassification,
-    proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
@@ -395,7 +394,7 @@ def _reported_buy_proposal_records(
             "decision_reference": reference,
             "proposal_ref": {
                 "proposal_id": proposal.proposal_id,
-                "draft_sha256": proposal_draft_sha256(proposal),
+                "draft_sha256": proposal.review.draft_sha256,
             },
             "scope": "whole_proposal",
             "status": "available",
@@ -403,7 +402,7 @@ def _reported_buy_proposal_records(
             "unavailable_reason": None,
         }
         try:
-            records = proposal_records(connection, proposal.proposal_id)
+            records = proposal_records(connection, proposal)
         except (ValueError, FileNotFoundError) as error:
             row.update(status="unavailable", unavailable_reason=str(error))
         else:

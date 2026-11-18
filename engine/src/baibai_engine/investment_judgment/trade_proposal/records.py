@@ -9,7 +9,6 @@ from pathlib import Path
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
-    proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
     _require_ref,
@@ -17,6 +16,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
     load_latest_investment_proposal,
     proposal_records,
+    read_proposal_records,
 )
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
@@ -64,7 +64,7 @@ class ProposalRecordService:
                 if (
                     latest is None
                     or ProposalReference(
-                        proposal_id=latest.proposal_id, draft_sha256=proposal_draft_sha256(latest)
+                        proposal_id=latest.proposal_id, draft_sha256=latest.review.draft_sha256
                     )
                     != expected_latest_ref
                 ):
@@ -101,11 +101,9 @@ class ProposalRecordService:
                     stored = HumanProposalReport.model_validate_json(existing[0])
                     if stored.proposal_ref != draft.proposal_ref:
                         raise ProposalConflictError("immutable human proposal report differs")
-                    records = proposal_records(connection, stored.proposal_ref.proposal_id)
+                    _, reports = read_proposal_records(connection, proposal)
                     saved = next(
-                        HumanProposalReport.model_validate_json(canonical_json(r))
-                        for r in records["human_reports"]
-                        if r["report_id"] == draft.report_id
+                        report for report in reports if report.report_id == draft.report_id
                     )
                     if saved.model_dump(exclude={"recorded_at"}) != draft.model_dump():
                         raise ProposalConflictError("immutable human proposal report differs")
@@ -134,5 +132,5 @@ class ProposalRecordService:
     def read(self, proposal_id: str) -> ProposalRecords:
         with closing(connect_read_only(self._db_path)) as connection:
             connection.execute("BEGIN")
-            load_investment_proposal(connection, proposal_id)
-            return proposal_records(connection, proposal_id)
+            proposal = load_investment_proposal(connection, proposal_id)
+            return proposal_records(connection, proposal)

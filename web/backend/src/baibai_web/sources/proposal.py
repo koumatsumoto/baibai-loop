@@ -1,17 +1,14 @@
 """正式保存提案を単一read-only transactionで読む。市場・台帳の現在値は取得しない。"""
 
-import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.investment_judgment.stock_assessment.store import require_assessment_ref
-from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
 from baibai_engine.investment_judgment.trade_proposal.query import (
-    load_investment_proposal,
-    load_latest_investment_proposal,
-    proposal_records,
+    latest_investment_proposal_id,
+    load_proposal_with_assessments,
     published_proposal_ids,
+    read_proposal_records,
     saved_proposal_market_context,
 )
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -27,10 +24,8 @@ class DbProposalSource:
     def latest(self) -> SavedProposalView | None:
         with closing(connect_read_only(self._path)) as connection:
             connection.execute("BEGIN")
-            proposal = load_latest_investment_proposal(connection)
-            if proposal is None:
-                return None
-            return _project(connection, proposal)
+            proposal_id = latest_investment_proposal_id(connection)
+            return None if proposal_id is None else _project(connection, proposal_id)
 
     def history(self) -> ProposalHistoryRead:
         with closing(connect_read_only(self._path)) as connection:
@@ -39,8 +34,7 @@ class DbProposalSource:
             unavailable = []
             for proposal_id in published_proposal_ids(connection):
                 try:
-                    proposal = load_investment_proposal(connection, proposal_id)
-                    proposals.append(_project(connection, proposal))
+                    proposals.append(_project(connection, proposal_id))
                 except (OSError, ValueError, RuntimeError, sqlite3.Error):
                     # One unreadable publication must stay visible as missing, not erase its peers.
                     unavailable.append(proposal_id)
@@ -48,35 +42,11 @@ class DbProposalSource:
             return ProposalHistoryRead(tuple(proposals), tuple(unavailable))
 
 
-def _project(connection: sqlite3.Connection, proposal: TradeProposal) -> SavedProposalView:
-    references = [item.assessment_ref for item in proposal.items if item.assessment_ref is not None]
-    references.extend(
-        item.position.original_assessment_ref
-        for item in proposal.items
-        if item.action in {"hold", "sell"} and item.position.original_assessment_ref is not None
-    )
-    if proposal.request_scope == "review_positions":
-        deferred = {item.ticker for item in proposal.items if item.action == "defer"}
-        references.extend(
-            position.original_assessment_ref
-            for position in proposal.inputs.positions
-            if position.ticker in deferred and position.original_assessment_ref is not None
-        )
-    # The proposal reader already requires every saved original reference. A
-    # broken pair is not an optional display gap; stay in that same transaction.
-    pairs = {
-        reference.assessment_id: require_assessment_ref(connection, reference)
-        for reference in references
-    }
+def _project(connection: sqlite3.Connection, proposal_id: str) -> SavedProposalView:
+    proposal, pairs = load_proposal_with_assessments(connection, proposal_id)
     view = project_saved_proposal(proposal, pairs)
-    return type(view).model_validate_json(
-        json.dumps(
-            {
-                **view.model_dump(mode="json"),
-                **proposal_records(connection, proposal.proposal_id),
-                "saved_market_context": SavedMarketContextView.model_validate(
-                    saved_proposal_market_context(connection, proposal)
-                ).model_dump(mode="json"),
-            }
-        )
+    view.corrections, view.human_reports = read_proposal_records(connection, proposal)
+    view.saved_market_context = SavedMarketContextView.model_validate(
+        saved_proposal_market_context(connection, proposal)
     )
+    return view

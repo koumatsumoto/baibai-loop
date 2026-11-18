@@ -16,6 +16,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.query import load_latest_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
+    HumanProposalReport,
     HumanProposalReportDraft,
     ProposalCorrectionDraft,
     ProposalReference,
@@ -180,6 +181,26 @@ def test_human_report_reads_order_by_receipt_instant_without_changing_saved_reco
             tuple(row) for row in connection.execute(query, (a.proposal_id,)).fetchall()
         ] == stored_before
     assert snapshot(case.app) == before
+
+
+def test_report_with_another_publications_digest_is_unreadable(records_case):
+    case, a, b, service, _draft = records_case
+    wrong = HumanProposalReport(
+        report_id="mismatched-receipt",
+        proposal_ref=ref(a).model_copy(update={"draft_sha256": ref(b).draft_sha256}),
+        outcome="not_purchased",
+        statement="合成の非購入報告。",
+        reported_at=PUBLISHED,
+        recorded_at=PUBLISHED,
+    )
+    with closing(sqlite3.connect(case.app)) as connection, connection:
+        connection.execute(
+            "INSERT INTO proposal_human_report VALUES (?,?,?,?)",
+            (wrong.report_id, a.proposal_id, PUBLISHED.isoformat(), wrong.model_dump_json()),
+        )
+    with pytest.raises(ProposalConflictError):
+        service.read(a.proposal_id)
+    assert service.read(b.proposal_id)["human_reports"] == []
 
 
 def test_later_unrelated_proposal_remains_latest(records_case):
