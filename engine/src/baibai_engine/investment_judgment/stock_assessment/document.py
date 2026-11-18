@@ -371,6 +371,17 @@ class AssessmentEvaluation:
     warnings: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ReviewedAssessment:
+    assessment_id: str
+    document: StockAssessmentDocument
+    review: AssessmentReview
+    core_sha256: str
+    evaluation: AssessmentEvaluation
+    # 利用側で保存行を再読せず、検証したpairと同じ公開時刻を使う。
+    published_at: datetime
+
+
 def assessment_core_hash(document: StockAssessmentDocument) -> str:
     encoded = canonical_json(document.model_dump(mode="json"))
     return hashlib.sha256(encoded.encode()).hexdigest()

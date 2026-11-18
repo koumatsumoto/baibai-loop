@@ -14,8 +14,10 @@ from baibai_engine.primitives.numbers import finite_decimal
 
 if TYPE_CHECKING:
     from baibai_engine.investment_judgment.company_research.contracts import ObservedFact, Source
-    from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
-    from baibai_engine.investment_judgment.stock_assessment.store import ReviewedAssessment
+    from baibai_engine.investment_judgment.stock_assessment.document import (
+        ReviewedAssessment,
+        StockAssessmentDocument,
+    )
 
 
 class PriceOnlyCondition(BaseModel):
