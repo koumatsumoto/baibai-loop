@@ -58,18 +58,21 @@ def normalize_daily_bars(records: Iterable[Mapping[str, Any]]) -> NormalizedRows
 
 def _price_values(record: Mapping[str, Any]) -> tuple[float | None, ...] | None:
     fields = ("O", "H", "L", "C", "Vo", "Va")
+    values: list[float | None] = []
+    observed = False
     try:
-        values = tuple(
-            None if record.get(field) is None else float(record[field]) for field in fields
-        )
+        for field in fields:
+            raw = record.get(field)
+            if raw is None:
+                values.append(None)
+                continue
+            if isinstance(raw, bool) or not isfinite(number := float(raw)):
+                return None
+            values.append(number)
+            observed = True
     except (TypeError, ValueError, OverflowError):
         return None
-    if any(isinstance(record.get(field), bool) for field in fields) or any(
-        value is not None and not isfinite(value) for value in values
-    ):
+    # Only six explicit native nulls prove no executions.
+    if not observed and any(field not in record for field in fields):
         return None
-    # Only six explicit native nulls prove no executions. A sparse row can
-    # retain a partial observation, but must not manufacture that evidence.
-    if all(value is None for value in values) and any(field not in record for field in fields):
-        return None
-    return values
+    return tuple(values)

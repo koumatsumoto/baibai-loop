@@ -61,6 +61,7 @@ def test_overflowing_optional_price_values_keep_the_price_observation(field, bad
     [
         (dict.fromkeys(FIELDS), "no_trade"),
         ({"C": 100}, "mixed"),
+        ({"Vo": 0}, "mixed"),
         ({**PRICED, "O": None}, "mixed"),
         (PRICED, "priced"),
         ({key: str(value) for key, value in PRICED.items()}, "priced"),
