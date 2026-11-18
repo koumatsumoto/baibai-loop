@@ -7,6 +7,7 @@ from tests.engine.machine_analysis.screening.test_financial_input_review import 
     case,
     change,
     current,
+    observations,
     project_unchanged,
 )
 from tests.engine.machine_analysis.screening.test_stale_price_input_review import stale_case
@@ -58,27 +59,24 @@ def test_unresolved_preserves_supported_input_reason_and_all_other_states(
     no_reason = deepcopy(data)
     no_reason["company_financials"]["earnings_price"]["unavailable_reason"] = "other"
     row, control = project_unchanged(data), project_unchanged(no_reason)
-    assert row.financial_gate == control.financial_gate
-    assert row.technical == control.technical
-    assert row.financial_gate["state"] == "input_unresolved"
-    assert row.screening_lane == "input_review"
-    assert row.financial_paths["matched_routes"] == []
-    assert not any(p["eligible"] for p in row.financial_paths["paths"])
-    assert all(p["price_value"] is None for p in row.financial_paths["paths"])
-    reasons = row.financial_paths["input_review_reasons"]
-    assert len(reasons) == 1
-    assert reasons[0]["path_id"] == ("business_expansion" if expansion else "earning_power")
-    assert reasons[0]["variant"] == "annual_ttm"
-    assert reasons[0]["reason"] == ("stale_price" if stale else "missing_capital_basis")
+    _, gate, coordinates, reasons = observations(data)
+    assert row["financial_state"] == control["financial_state"] == "input_unresolved"
+    assert row["technical_state"] == control["technical_state"]
+    assert row["screening_lane"] == "input_review"
+    assert row["matched_paths"]["financial"] == row["coordinates"] == []
+    assert not any(p.eligible for p in coordinates.paths)
+    assert all(p.price_value is None for p in coordinates.paths)
+    (review,) = reasons
+    assert review["path_id"] == ("business_expansion" if expansion else "earning_power")
+    assert review["variant"] == "annual_ttm"
+    reason = "stale_price" if stale else "missing_capital_basis"
+    assert review["reason"] == reason
+    assert f"financial:{reason}" in row["missing"]
     if expansion:
-        assert (
-            row.financial_gate["checks"]["positive_quarter_operating_profit"]["state"] == "not_met"
-        )
-        assert (
-            row.financial_gate["checks"]["positive_annual_operating_profit"]["state"] == "not_met"
-        )
-    assert row.financial_gate["checks"]["quarter_sales_increase"]["state"] == "unavailable"
-    assert row.financial_gate["routes"]["operating_recovery"]["state"] == "unresolved"
+        for key in ("positive_quarter_operating_profit", "positive_annual_operating_profit"):
+            assert gate["checks"][key]["state"] == "not_met"
+    assert gate["checks"]["quarter_sales_increase"]["state"] == "unavailable"
+    assert gate["routes"]["operating_recovery"]["state"] == "unresolved"
 
 
 @pytest.mark.parametrize("problem", ["no_support", "unknown_price_reason", "missing_model"])
@@ -93,9 +91,9 @@ def test_unresolved_alone_is_not_a_reason_to_enter_review(problem):
     else:
         del data["company_financials"]
     row = project_unchanged(data)
-    assert row.financial_gate["state"] in {"input_unresolved", "not_evaluated"}
-    assert row.screening_lane == "no_current_hypothesis"
-    assert "input_review_reasons" not in row.financial_paths
+    assert row["financial_state"] in {"input_unresolved", "not_evaluated"}
+    assert row["screening_lane"] == "no_current_hypothesis"
+    assert not any(k.startswith("financial:") for k in row["missing"])
 
 
 @pytest.mark.parametrize(

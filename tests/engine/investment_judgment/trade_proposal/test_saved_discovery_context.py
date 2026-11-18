@@ -182,10 +182,6 @@ def test_final_context_keeps_selected_row_and_counterevidence_without_source(
     monkeypatch.setattr(
         "baibai_engine.machine_analysis.generation.query.read_research_model_inputs", forbidden
     )
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.technical_financial_selection.project_technical_financial_row",
-        forbidden,
-    )
     before = app.read_bytes()
     context = _read(app, operation_id, tmp_path)
     payload = context.payload()

@@ -7,7 +7,7 @@ import pytest
 from pydantic import TypeAdapter
 from tests.engine.investment_judgment.workflow.test_technical_financial_context import args, seed
 from tests.engine.machine_analysis.screening.test_technical_financial import row
-from tests.helpers.archived_technical_financial import archived_from_models
+from tests.helpers.archived_technical_financial import stored_publication
 from tests.helpers.model_generation import publish_generation
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
@@ -133,13 +133,19 @@ def test_normal_saved_context_preserves_cutoff_order_and_only_explicit_detail_lo
     import baibai_engine.machine_analysis.generation.query as generation
 
     path = tmp_path / "runs"
-    fixed, _, _ = seed(path)
+    fixed, saved, _ = seed(path)
     fixed = fixed.model_copy(deep=True, update={"generation_id": "unresolved-diagnostic-fixed"})
     for model in fixed.models:
         if model.subject == "3456" and model.model_id == "technical_analysis":
             model.payload["price_path"]["current_row_state"] = "no_trade"
     publish_generation(fixed, path=path)
-    selected = archived_from_models(fixed, order=("4567", "5678", "6789", "1234"))
+    rows = tuple(
+        unresolved("3456", technical_state="unavailable", missing_model=True)
+        if r.ticker == "3456"
+        else r
+        for r in saved.result.rows
+    )
+    selected = stored_publication(fixed.generation_id, rows, order=("4567", "5678", "6789", "1234"))
     selected = replace(
         selected,
         result=replace(
@@ -162,13 +168,6 @@ def test_normal_saved_context_preserves_cutoff_order_and_only_explicit_detail_lo
 
     monkeypatch.setattr(generation, "read_model_inputs", read)
 
-    def forbidden(*a, **kw):
-        pytest.fail("diagnostic must not recompute policies")
-
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.technical_financial_selection.project_technical_financial_row",
-        forbidden,
-    )
     diagnostic = load_generated_selection_context(
         **arguments, screening_excluded=True, screening_excluded_scope="financial_unresolved"
     )

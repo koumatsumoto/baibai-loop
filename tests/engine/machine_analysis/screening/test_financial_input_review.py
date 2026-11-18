@@ -18,8 +18,9 @@ from baibai_engine.machine_analysis.models.company_financials.earnings import (
     EarningsPrice,
     ProfitComponent,
 )
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    project_technical_financial_row,
+from baibai_engine.machine_analysis.screening.policies.discovery import (
+    project_discovery_row,
+    read_discovery_observations,
 )
 
 
@@ -93,137 +94,114 @@ def case(*, expansion=False, reason=None, technical=True):
 
 def project_unchanged(data):
     before = deepcopy(data)
-    result = project_technical_financial_row("1234", models=models(data), metadata=_metadata())
+    result = project_discovery_row("1234", models=models(data), metadata=_metadata())
     assert data == before
     return result
 
 
+def observations(data):
+    return read_discovery_observations("1234", models=models(data), metadata=_metadata())
+
+
+@pytest.mark.parametrize("technical", [False, True])
 @pytest.mark.parametrize(
     ("expansion", "path"), [(False, "earning_power"), (True, "business_expansion")]
 )
-def test_complete_control_is_an_alternative_not_growth(expansion, path):
-    row = project_unchanged(case(expansion=expansion))
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.financial_paths["matched_routes"] == [path]
-    assert row.screening_lane == "alternative_financial_research"
+def test_financial_coordinates_do_not_require_a_technical_match_or_growth_route(
+    technical, expansion, path
+):
+    row = project_unchanged(case(expansion=expansion, technical=technical))
+    assert row["financial_state"] == "not_selected"
+    assert row["matched_paths"] == {"financial": [path], "growth": []}
+    assert row["screening_lane"] == "alternative_financial_research"
+    assert {c["path_id"] for c in row["coordinates"]} == {path}
+    assert all(
+        c["price_value"] is not None and c["business_value"] is not None for c in row["coordinates"]
+    )
 
 
 @pytest.mark.parametrize(
-    "reason",
-    ["missing_capital_basis", "indeterminate_treasury_after_later_issued_observation"],
+    "reason", ["missing_capital_basis", "indeterminate_treasury_after_later_issued_observation"]
 )
 @pytest.mark.parametrize("expansion", [False, True])
 @pytest.mark.parametrize("technical", [False, True])
-def test_supported_price_input_gap_is_review_not_growth_or_eligibility(
-    reason, expansion, technical
-):
-    baseline = project_unchanged(case(expansion=expansion, technical=technical))
+def test_supported_share_gap_requires_review_not_growth_or_clearance(reason, expansion, technical):
     data = case(reason=reason, expansion=expansion, technical=technical)
     row = project_unchanged(data)
-    assert row.financial_gate == baseline.financial_gate
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.financial_paths["matched_routes"] == []
-    assert not any(path["eligible"] for path in row.financial_paths["paths"])
-    assert all(path["price_value"] is None for path in row.financial_paths["paths"])
+    assert row["financial_state"] == "not_selected"
+    assert row["matched_paths"] == {"financial": [], "growth": []}
+    assert row["coordinates"] == []
+    assert row["screening_lane"] == "input_review"
+    assert f"financial:{reason}" in row["missing"]
     assert data["company_financials"]["earnings_price"]["shares_ex_treasury"] is None
-    assert row.screening_lane == "input_review"
-    assert "action" not in row.financial_gate
 
 
-def test_positive_expansion_does_not_erase_observed_loss_deterioration():
-    row = project_unchanged(case(expansion=True, reason="missing_capital_basis"))
-    assert row.financial_gate["checks"]["quarter_operating_profit_increase"]["state"] == "not_met"
-    assert row.financial_gate["checks"]["quarter_operating_profit_increase"]["value"] == -10.0
-    assert row.financial_gate["routes"]["operating_recovery"]["state"] == "not_matched"
-    assert row.screening_lane == "input_review"
-
-
-def test_missing_business_operand_is_not_a_price_only_gap():
-    data = case(reason="missing_capital_basis")
-    current(data, "annual_ttm")["metrics"]["operating_margin"].update(
-        value=None, reason="metric_not_observed"
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "missing_business_operand",
+        "different_income_basis",
+        "unknown_reason",
+        "known_zero_shares",
+        "old_price",
+        "no_positive_profit",
+        "unknown_sector",
+        "missing_profit",
+    ],
+)
+def test_no_supported_financial_hypothesis_is_not_a_share_only_gap(problem):
+    data = case(
+        reason=None if problem in {"unknown_sector", "missing_profit"} else "missing_capital_basis"
     )
+    earnings = data["company_financials"]["earnings_price"]
+    if problem == "missing_business_operand":
+        current(data, "annual_ttm")["metrics"]["operating_margin"].update(
+            value=None, reason="metric_not_observed"
+        )
+    elif problem == "different_income_basis":
+        earnings["statement_basis"] = "nonconsolidated"
+    elif problem == "unknown_reason":
+        earnings["unavailable_reason"] = "synthetic_unknown_failure"
+    elif problem == "known_zero_shares":
+        earnings["shares_ex_treasury"] = 0.0
+    elif problem == "old_price":
+        earnings["price_date"] = "2026-11-12"
+    elif problem == "no_positive_profit":
+        earnings["profit_ttm_yen"] = earnings["profit_components"][0]["amount_yen"] = -50.0
+    elif problem == "unknown_sector":
+        data["market_context"]["master"]["sector_33"] = None
+    else:
+        earnings.update(
+            earnings_yield=None,
+            profit_ttm_yen=None,
+            profit_components=[],
+            unavailable_reason="unavailable_annual_profit",
+        )
+        assert earnings["shares_ex_treasury"] == 100.0
     row = project_unchanged(data)
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.screening_lane == "no_current_hypothesis"
+    assert row["financial_state"] == "not_selected"
+    assert row["screening_lane"] == "no_current_hypothesis"
+    assert row["coordinates"] == []
+    assert not any(k.startswith("financial:") for k in row["missing"])
+    if problem == "no_positive_profit":
+        assert row["technical_state"] == "matched"
 
 
-def test_mismatched_income_basis_is_not_a_price_only_gap():
-    data = case(reason="missing_capital_basis")
-    data["company_financials"]["earnings_price"]["statement_basis"] = "nonconsolidated"
-    row = project_unchanged(data)
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.screening_lane == "no_current_hypothesis"
-
-
-def test_unknown_reason_is_not_treated_as_known_missing_shares():
-    row = project_unchanged(case(reason="synthetic_unknown_failure"))
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.screening_lane == "no_current_hypothesis"
-
-
-def test_known_nonpositive_share_count_is_not_missing_share_count():
-    data = case(reason="missing_capital_basis")
-    data["company_financials"]["earnings_price"]["shares_ex_treasury"] = 0.0
-    row = project_unchanged(data)
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.screening_lane == "no_current_hypothesis"
-
-
-def test_current_price_mismatch_is_not_a_share_only_gap():
-    data = case(reason="missing_capital_basis")
-    data["company_financials"]["earnings_price"]["price_date"] = "2026-11-12"
-    row = project_unchanged(data)
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.screening_lane == "no_current_hypothesis"
-
-
-def test_no_positive_business_hypothesis_is_not_promoted_by_technical_match():
-    data = case(reason="missing_capital_basis")
-    data["company_financials"]["earnings_price"]["profit_ttm_yen"] = -50.0
-    data["company_financials"]["earnings_price"]["profit_components"][0]["amount_yen"] = -50.0
-    row = project_unchanged(data)
-    assert row.technical["state"] == "matched"
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.screening_lane == "no_current_hypothesis"
-
-
-def test_unsupported_sector_only_gap_is_not_silently_part_of_first_price_fix():
-    data = case()
-    data["market_context"]["master"]["sector_33"] = None
-    row = project_unchanged(data)
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.screening_lane == "no_current_hypothesis"
-
-
-def test_price_coordinate_null_from_profit_gap_is_not_a_share_gap():
-    data = case()
-    data["company_financials"]["earnings_price"].update(
-        earnings_yield=None,
-        profit_ttm_yen=None,
-        profit_components=[],
-        unavailable_reason="unavailable_annual_profit",
-    )
-    row = project_unchanged(data)
-    assert data["company_financials"]["earnings_price"]["shares_ex_treasury"] == 100.0
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.financial_paths["matched_routes"] == []
-    assert row.screening_lane == "no_current_hypothesis"
-
-
-def test_expansion_input_review_keeps_known_negative_net_assets():
+def test_expansion_share_review_preserves_observed_loss_and_negative_assets():
     data = case(expansion=True, reason="missing_capital_basis", technical=False)
     current(data, "balance")["metrics"]["net_assets"]["value"] = -22.0
-    row = project_unchanged(data)
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.financial_gate["checks"]["positive_net_assets"] == {
+    _, gate, _, reviews = observations(data)
+    assert gate["checks"]["positive_net_assets"] == {
         "state": "not_met",
         "value": -22.0,
         "reason": None,
     }
-    assert "positive_net_assets" in row.financial_gate["routes"]["operating_recovery"]["failures"]
-    assert row.financial_paths["matched_routes"] == []
-    assert row.screening_lane == "input_review"
+    assert gate["checks"]["quarter_operating_profit_increase"]["value"] == -10.0
+    assert gate["checks"]["quarter_operating_profit_increase"]["state"] == "not_met"
+    assert gate["routes"]["operating_recovery"]["state"] == "not_matched"
+    assert "positive_net_assets" in gate["routes"]["operating_recovery"]["failures"]
+    assert [item["path_id"] for item in reviews] == ["business_expansion"]
+    assert project_unchanged(data)["screening_lane"] == "input_review"
 
 
 def test_known_technical_nonmatch_does_not_hide_share_review():
@@ -243,9 +221,9 @@ def test_known_technical_nonmatch_does_not_hide_share_review():
         else:
             data[model.model_id].update({k: v for k, v in model.payload.items() if k != "master"})
     row = project_unchanged(data)
-    assert row.technical["state"] == "not_matched"
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.screening_lane == "input_review"
+    assert row["technical_state"] == "not_matched"
+    assert row["financial_state"] == "not_selected"
+    assert row["screening_lane"] == "input_review"
 
 
 def test_review_references_selected_path_and_same_model_without_changing_coordinates():
@@ -260,7 +238,8 @@ def test_review_references_selected_path_and_same_model_without_changing_coordin
     )
     assert coordinates == project_company("1234", models=models(data), metadata=_metadata())
     row = project_unchanged(data)
-    assert reasons == tuple(row.financial_paths["input_review_reasons"])
+    assert row["missing"] == ["financial:missing_capital_basis"]
+    assert row["coordinates"] == []
     assert reasons == (
         {
             "path_id": "earning_power",
@@ -291,7 +270,7 @@ def test_review_references_selected_path_and_same_model_without_changing_coordin
 def test_reason_does_not_override_inconsistent_or_nonpositive_pricing(field, value):
     data = case(reason="missing_capital_basis")
     data["company_financials"]["earnings_price"][field] = value
-    assert project_unchanged(data).screening_lane == "no_current_hypothesis"
+    assert project_unchanged(data)["screening_lane"] == "no_current_hypothesis"
 
 
 def test_future_profit_source_is_not_known_earning_power():
@@ -299,7 +278,7 @@ def test_future_profit_source_is_not_known_earning_power():
     data["company_financials"]["earnings_price"]["profit_components"][0]["disclosed_at"] = (
         "2026-11-15"
     )
-    assert project_unchanged(data).screening_lane == "no_current_hypothesis"
+    assert project_unchanged(data)["screening_lane"] == "no_current_hypothesis"
 
 
 @pytest.mark.parametrize("problem", ["missing_rate", "comparison_basis", "missing_sales"])
@@ -311,7 +290,7 @@ def test_sales_review_does_not_invent_rate_or_rescue_incomparable_operands(probl
         change(data, "sales").update(difference=None, rate=None, reason="comparison_basis_mismatch")
     else:
         current(data, "annual_ttm")["metrics"]["sales"].update(value=None, reason="not_observed")
-    assert project_unchanged(data).screening_lane == "no_current_hypothesis"
+    assert project_unchanged(data)["screening_lane"] == "no_current_hypothesis"
 
 
 @pytest.mark.parametrize("newer_loss", [False, True])

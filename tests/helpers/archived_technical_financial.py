@@ -1,13 +1,10 @@
 """合成の旧公表は順序を与えて組む。現在の市場から過去の注意順を再計算しない。"""
 
-from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
+    TechnicalFinancialRow,
     TechnicalFinancialSelection,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    project_technical_financial_row,
 )
 
 # 旧発行形式を読むための二つの固定例。入力の金額・評価値から順番は作らない。
@@ -26,18 +23,33 @@ def stored_result(rows, *, order, policy=None):
     )
 
 
-def archived_from_models(fixed, *, order, page_size=2):
-    metadata = GenerationMetadata.model_validate(fixed.model_dump(exclude={"models"}))
-    tickers = tuple(sorted(t for t, plan in metadata.subject_plan.items() if plan.scope == "stock"))
-    rows = tuple(
-        project_technical_financial_row(
-            t, models=tuple(m for m in fixed.models if m.subject == t), metadata=metadata
-        )
-        for t in tickers
+def stored_row(
+    ticker, *, lane, technical=None, gate=None, paths=None, name=None, sector=None, related=None
+):
+    """合成の保存行。欠けた根拠をモデルや政策から復元しない。"""
+    return TechnicalFinancialRow(
+        ticker=ticker,
+        name=name,
+        sector=sector,
+        technical={"state": "unavailable", "matched_routes": [], "routes": {}, **(technical or {})},
+        financial_gate={
+            "state": "input_unresolved",
+            "matched_routes": [],
+            "routes": {},
+            "checks": {},
+            **(gate or {}),
+        },
+        financial_paths={"matched_routes": [], "paths": [], **(paths or {})},
+        screening_lane=lane,
+        related_subject_context=related,
     )
+
+
+def stored_publication(generation_id, rows, *, order, page_size=2, price_inputs=None):
+    """当時受け取ったという明示的な入力。株別モデル評価は行わない。"""
     return ScreeningSelection(
-        metadata.generation_id,
-        tickers,
+        generation_id,
+        tuple(r.ticker for r in rows),
         stored_result(rows, order=order, policy=TechnicalFinancialPolicy(page_size=page_size)),
-        {},
+        {} if price_inputs is None else price_inputs,
     )

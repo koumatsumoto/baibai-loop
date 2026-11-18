@@ -29,9 +29,7 @@ from baibai_engine.machine_analysis.screening.selection_store import ScreeningSe
 
 
 @pytest.mark.parametrize("version", ["v1", "v2"])
-def test_saved_policy_order_and_workspace_bytes_survive_runless_resume(
-    tmp_path, monkeypatch, version
-):
+def test_saved_policy_order_and_workspace_bytes_survive_runless_resume(tmp_path, version):
     runs = tmp_path / "runs"
     fixed, current, _ = seed(runs)
     # A deliberately distinct stored order catches even deterministic silent recomputation.
@@ -48,13 +46,6 @@ def test_saved_policy_order_and_workspace_bytes_survive_runless_resume(
     now = read_publication(path=runs, selection_id=identity).published_at + timedelta(seconds=1)
     source_bytes = runs.read_bytes()
 
-    def forbidden(*_args, **_kwargs):
-        pytest.fail("saved policy was recomputed")
-
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.technical_financial_selection.project_technical_financial_row",
-        forbidden,
-    )
     request = ResearchRequest(text="保存世代の入力確認", scope="discover_new")
     context = load_generated_selection_context(
         request=request,

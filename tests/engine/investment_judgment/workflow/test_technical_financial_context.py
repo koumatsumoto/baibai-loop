@@ -4,7 +4,11 @@ from datetime import timedelta
 
 import pytest
 from tests.engine.machine_analysis.screening.test_technical_financial import row
-from tests.helpers.archived_technical_financial import SIX_STOCK_ORDER, archived_from_models
+from tests.helpers.archived_technical_financial import (
+    SIX_STOCK_ORDER,
+    stored_publication,
+    stored_row,
+)
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.technical_financial import _seed
@@ -52,7 +56,38 @@ def seed(path):
                                 metric, {"value": None, "reason": "not_observed", "documents": []}
                             )
     publish_generation(fixed, path=path)
-    selected = archived_from_models(fixed, order=SIX_STOCK_ORDER)
+    # Synthetic *published* facts, independent of the models returned on an explicit detail read.
+    common = {
+        "observation_failures": {},
+        "market_relative_benchmark": "1321",
+        "price_context": {"ready": True},
+        "expected_price_date": "2026-11-13",
+    }
+    matched = {**common, "state": "matched", "matched_routes": ["trend_continuation"]}
+    growth = {"state": "research_candidate"}
+    excluded = {
+        "state": "not_selected",
+        "checks": {"positive_net_assets": {"value": -10.0, "state": "not_met"}},
+    }
+    rows = (
+        stored_row("1234", lane="growth_research", technical=matched, gate=growth),
+        stored_row("2345", lane="no_current_hypothesis", technical=matched, gate=excluded),
+        stored_row(
+            "3456",
+            lane="input_review",
+            technical=matched,
+            gate={"missing_models": ["company_growth"]},
+        ),
+        stored_row("4567", lane="growth_research", technical=common, gate=growth),
+        stored_row("5678", lane="growth_research", technical=common, gate=growth),
+        stored_row(
+            "6789",
+            lane="input_review",
+            technical=matched,
+            gate={"missing_models": ["company_financials", "company_growth"]},
+        ),
+    )
+    selected = stored_publication(fixed.generation_id, rows, order=SIX_STOCK_ORDER)
     ScreeningSelectionStore(path).publish("technical-policy", selected)
     publication = read_publication(path=path, selection_id="technical-policy")
     now = publication.published_at + timedelta(seconds=1)
@@ -126,19 +161,10 @@ def test_context_reads_one_fixed_publication_without_duplicate_full_result(
     assert not (path.parent / "absent-app").exists()
 
 
-def test_nonselected_and_capacity_outside_detail_reads_original_policy_and_full_models(
-    tmp_path, monkeypatch
-):
+def test_nonselected_and_capacity_outside_detail_reads_original_policy_and_full_models(tmp_path):
     path = tmp_path / "runs"
     fixed, _, now = seed(path)
 
-    def forbidden(*_args, **_kwargs):
-        pytest.fail("reading saved selection recomputed policy")
-
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.technical_financial_selection.project_technical_financial_row",
-        forbidden,
-    )
     context = load_generated_selection_context(
         **args(path, now), comparison_tickers=("2345", "6789")
     )
@@ -158,7 +184,7 @@ def test_nonselected_and_capacity_outside_detail_reads_original_policy_and_full_
     ("target", "state"), [("3456", "input_unresolved"), ("5678", "research_candidate")]
 )
 def test_new_selection_prepares_and_resumes_from_saved_inputs_without_run_store(
-    tmp_path, monkeypatch, target, state
+    tmp_path, target, state
 ):
     path = tmp_path / "runs"
     fixed, _, now = seed(path)

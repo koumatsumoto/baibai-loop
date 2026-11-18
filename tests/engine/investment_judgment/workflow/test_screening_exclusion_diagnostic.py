@@ -125,13 +125,6 @@ def test_context_diagnostic_uses_saved_policy_and_does_not_load_excluded_models(
 
     monkeypatch.setattr(generation, "read_model_inputs", read)
 
-    def forbidden(*a, **kw):
-        pytest.fail("diagnostic must not recompute policies")
-
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.technical_financial_selection.project_technical_financial_row",
-        forbidden,
-    )
     diagnostic = load_generated_selection_context(**args(path, now), screening_excluded=True)
     assert diagnostic["candidate_tickers"] == []
     assert diagnostic["screening"]["cards"] == []

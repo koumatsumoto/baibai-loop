@@ -1,6 +1,5 @@
 """資本異動後の自己株未確認は事業否定ではなく、既存の入力確認へ残す。"""
 
-from copy import deepcopy
 from datetime import UTC, date, datetime
 
 import pytest
@@ -13,7 +12,6 @@ from tests.engine.machine_analysis.screening.test_full_fy_fallback import AS_OF,
 from tests.engine.machine_analysis.screening.test_unresolved_financial_input_review import (
     unresolved_case,
 )
-from tests.helpers.archived_technical_financial import stored_result
 from tests.helpers.model_generation import materialize_generation
 
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
@@ -24,8 +22,9 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    project_technical_financial_row,
+from baibai_engine.machine_analysis.screening.policies.discovery import (
+    project_discovery_row,
+    read_discovery_observations,
 )
 
 REASON = "indeterminate_treasury_after_capital_action"
@@ -45,15 +44,16 @@ def test_capital_action_gap_keeps_existing_hypothesis_without_clearing_failures(
     expected = project_unchanged(data)
     data["company_financials"]["earnings_price"]["unavailable_reason"] = REASON
     actual = project_unchanged(data)
-    assert actual.financial_gate == expected.financial_gate
-    assert actual.technical == expected.technical
-    assert actual.financial_paths["paths"] == expected.financial_paths["paths"]
-    assert actual.financial_paths["matched_routes"] == []
-    assert actual.screening_lane == "input_review"
-    reasons = deepcopy(expected.financial_paths["input_review_reasons"])
-    for reason in reasons:
-        reason["reason"] = REASON
-    assert actual.financial_paths["input_review_reasons"] == reasons
+    assert "financial:missing_capital_basis" in expected["missing"]
+    assert actual == {
+        **expected,
+        "missing": sorted(
+            f"financial:{REASON}" if v == "financial:missing_capital_basis" else v
+            for v in expected["missing"]
+        ),
+    }
+    assert actual["matched_paths"]["financial"] == actual["coordinates"] == []
+    assert actual["screening_lane"] == "input_review"
     assert data["company_financials"]["earnings_price"]["shares_ex_treasury"] is None
     assert data["company_financials"]["earnings_price"]["market_cap_yen"] is None
 
@@ -78,8 +78,8 @@ def test_action_word_or_missing_coordinate_is_not_blanket_input_review(problem):
     else:
         earnings["price_date"] = "2026-11-12"
     row = project_unchanged(data)
-    assert row.screening_lane == "no_current_hypothesis"
-    assert "input_review_reasons" not in row.financial_paths
+    assert row["screening_lane"] == "no_current_hypothesis"
+    assert not any(k.startswith("financial:") for k in row["missing"])
 
 
 @pytest.mark.parametrize("expansion", [False, True])
@@ -88,14 +88,14 @@ def test_complete_share_basis_does_not_stay_in_input_review(expansion):
     valid = case(expansion=expansion, technical=False)
     before = project_unchanged(missing)
     after = project_unchanged(valid)
-    assert before.financial_gate == after.financial_gate
-    assert before.technical == after.technical
-    assert before.screening_lane == "input_review"
-    assert after.screening_lane == "alternative_financial_research"
-    assert after.financial_paths["matched_routes"] == [
+    assert before["financial_state"] == after["financial_state"]
+    assert before["technical_state"] == after["technical_state"]
+    assert before["screening_lane"] == "input_review"
+    assert after["screening_lane"] == "alternative_financial_research"
+    assert after["matched_paths"]["financial"] == [
         "business_expansion" if expansion else "earning_power"
     ]
-    assert "input_review_reasons" not in after.financial_paths
+    assert not any(k.startswith("financial:") for k in after["missing"])
 
 
 def native_generation(*, completed_action):
@@ -149,20 +149,19 @@ def test_normal_generation_retains_action_unknown_in_review_not_pricing():
     control = native_generation(completed_action=False)
     fixed = native_generation(completed_action=True)
     before = fixed.model_dump_json()
-    row = project_technical_financial_row("1001", models=fixed.models, metadata=fixed)
-    original = project_technical_financial_row("1001", models=control.models, metadata=control)
-    assert row.financial_gate == original.financial_gate
-    assert row.financial_gate["state"] == "input_unresolved"
-    assert row.technical["state"] == "unavailable"
-    assert row.screening_lane == "input_review"
-    assert row.financial_paths["matched_routes"] == []
-    assert {r["path_id"] for r in row.financial_paths["input_review_reasons"]} == {
-        "earning_power",
-        "business_expansion",
+    row = project_discovery_row("1001", models=fixed.models, metadata=fixed)
+    original = project_discovery_row("1001", models=control.models, metadata=control)
+    assert row["financial_state"] == original["financial_state"] == "input_unresolved"
+    assert row["technical_state"] == "unavailable"
+    assert row["screening_lane"] == "input_review"
+    assert row["matched_paths"]["financial"] == row["coordinates"] == []
+    assert f"financial:{REASON}" in row["missing"]
+    assert row["capital_action"]["observations"] == 1
+    _, _, _, reviews = read_discovery_observations("1001", models=fixed.models, metadata=fixed)
+    assert {(record["path_id"], record["reason"]) for record in reviews} == {
+        ("earning_power", REASON),
+        ("business_expansion", REASON),
     }
-    assert {r["reason"] for r in row.financial_paths["input_review_reasons"]} == {REASON}
-    selected = stored_result((row,), order=("1001",))
-    assert selected.lane_tickers("input_review") == ("1001",)
     cf = next(model.payload for model in fixed.models if model.model_id == "company_financials")
     assert cf["earnings_price"]["unavailable_reason"] == REASON
     for key in ("shares_ex_treasury", "market_cap_yen", "earnings_yield"):
