@@ -543,9 +543,12 @@ def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
     )
     published = []
     articles = []
-    monkeypatch.setattr(
-        source_inputs, "_publish_one", lambda *args, **kwargs: published.append(kwargs["group"])
-    )
+
+    def publish(_store, *, group, identity, **_kwargs):
+        published.append(group)
+        return f"{group}-{identity}"
+
+    monkeypatch.setattr(source_inputs, "publish_input", publish)
     monkeypatch.setattr(
         sources, "publish_planning_input", lambda _, group, generations: articles.append(group)
     )

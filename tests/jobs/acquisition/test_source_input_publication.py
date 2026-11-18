@@ -1,5 +1,8 @@
+import json
 from contextlib import closing
+from datetime import timedelta
 
+import pytest
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.tradingview import DAY, seed_snapshot
 from tests.helpers.tradingview import store as market_store
@@ -88,6 +91,7 @@ def test_failed_market_group_retains_prior_input_and_still_updates_economic_grou
     monkeypatch.setattr(
         "baibai_jobs.acquisition.source_inputs.export_market_source_input", fail_market_input
     )
+    generations = {**generations, "economic_etag": "next-etag"}
     report = publish_inputs(
         remote,
         market=market,
@@ -107,10 +111,6 @@ def test_failed_market_group_retains_prior_input_and_still_updates_economic_grou
 
 
 def test_read_scoped_input_from_same_group_previous_stage(tmp_path, monkeypatch):
-    import json
-
-    import pytest
-
     from baibai_engine.storage.objects.r2 import LakePublishError
 
     remote = MemoryR2Store()
@@ -151,8 +151,6 @@ def test_read_scoped_input_from_same_group_previous_stage(tmp_path, monkeypatch)
 
 
 def test_unchanged_input_reuses_receipt_and_refreshes_generation(tmp_path, monkeypatch):
-    import json
-
     remote = MemoryR2Store()
     monkeypatch.setattr(
         "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
@@ -223,10 +221,6 @@ def test_missing_previous_blob_is_recreated_under_new_stage(tmp_path, monkeypatc
 
 
 def test_reused_input_refuses_a_receipt_from_another_group(tmp_path, monkeypatch):
-    import json
-
-    import pytest
-
     from baibai_engine.storage.objects.r2 import LakePublishError
 
     remote = MemoryR2Store()
@@ -269,3 +263,51 @@ def test_invalid_previous_blob_is_not_reused(tmp_path, monkeypatch):
     load_input(remote, "economic-fred_csv", tmp_path / "db", tmp_path / "retrieved")
     assert (tmp_path / "db").read_bytes() == b"same"
     assert any("fred_csv-second/" in key for key in remote.values if key.endswith(".sqlite"))
+
+
+@pytest.mark.parametrize("change", ["retry", "day", "generation", "body", "wrong_size_type"])
+def test_economic_stage_reuse_needs_the_same_binding_and_exact_current_manifest(
+    tmp_path, monkeypatch, change
+):
+    from baibai_engine.storage.objects.r2 import LakePublishError
+    from baibai_jobs.acquisition.source_inputs import publish_input
+
+    group = "economic-fred_csv"
+    remote = MemoryR2Store()
+    source = tmp_path / "receipt"
+    source.write_bytes(b"current scope")
+    monkeypatch.setattr(
+        "baibai_jobs.acquisition.source_inputs.export_economic_receipts",
+        lambda path, target, **_: target.write_bytes(path.read_bytes()),
+    )
+    args = dict(
+        group=group,
+        market=tmp_path / "unused",
+        economic=source,
+        asof=DAY,
+        generations={"economic_etag": "one"},
+    )
+    first = publish_input(remote, **args, identity="first")
+    if change == "day":
+        args["asof"] += timedelta(days=1)
+    elif change == "generation":
+        args["generations"] = {"economic_etag": "two"}
+    elif change == "body":
+        source.write_bytes(b"changed scope")
+    elif change == "wrong_size_type":
+        key = f"coordination/source-inputs/{first}/handoff.json"
+        manifest = json.loads(remote.values[key].body)
+        manifest["receipt_bytes"] = float(manifest["receipt_bytes"])
+        remote.store_object(key, json.dumps(manifest).encode())
+    remote.put_keys.clear()
+    chosen = publish_input(remote, **args, identity="second")
+    assert chosen == (first if change == "retry" else group + "-second")
+    assert len(remote.put_keys) == (0 if change == "retry" else 3 if change == "body" else 2)
+    if chosen != first:
+        with pytest.raises(LakePublishError, match="stage changed"):
+            load_input(remote, group, None, tmp_path / "stale", expected_stage=first)
+    dest = tmp_path / "input.sqlite"
+    meta = load_input(remote, group, dest, tmp_path / "read", expected_stage=chosen)
+    assert dest.read_bytes() == source.read_bytes()
+    assert meta["canonical_generations"] == args["generations"]
+    assert meta["asof"] == args["asof"].isoformat()
