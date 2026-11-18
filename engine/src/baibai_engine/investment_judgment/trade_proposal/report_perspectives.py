@@ -347,13 +347,13 @@ def _market(m: Row, limit: date) -> Reading | None:
     if len(vs) != 1:
         return None
     pairs = [
-        (v, f"市場代理{m['benchmark_ticker']}・{n}立会 {v:+.1%}")
+        (v, f"市場代理{m['benchmark_ticker']}の終値・{n}本前比 {v:+.1%}")
         for n in (20, 60)
         if (v := _num(vs[0].get(f"benchmark_return_{n}d"))) is not None
     ]
     return _signals(
         pairs,
-        "市場全体の方向で、個社が同じように動くとは限りません。",
+        "この代理の価格変化です。他の指数や個社が同じ方向・幅で動くとは限りません。",
         "市場環境：market.points / benchmark_return_20d・60d",
         day,
     )
@@ -557,10 +557,16 @@ def _industry(sec: Row, limit: date) -> Reading | None:
         or start >= end
     ):
         return None
+    gap = _num(peer.get("relative_return_20d"))
+    comparison = (
+        f"同期間の差（自社の騰落−同業中央値）は{gap * 100:+.1f}ポイント。"
+        if gap is not None
+        else ""
+    )
     return Reading(
         "context_only",
-        f"市場で見る{sector}：自社を除く{n}社の20立会騰落中央値 {val:+.1%}（{start}〜{end}）。"
-        "業種の価格動向であり、事業の需要・採算を実測したものではありません。",
+        f"市場で見る{sector}（{start}〜{end}）：自社を除く{n}社の価格騰落の中央値 {val:+.1%}。"
+        f"{comparison}業種の価格動向で、事業の需要・採算を実測したものではありません。",
         "業種の補助観測：個社market_context.relative.sector（業界実体調査とは別）",
         end,
     )
