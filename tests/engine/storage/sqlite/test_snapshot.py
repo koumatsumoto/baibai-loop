@@ -388,3 +388,119 @@ def test_compaction_validates_checkpointed_copy_after_vacuum(tmp_path, monkeypat
     assert len(free_page_counts) == 2
     assert free_page_counts[0] > 0
     assert free_page_counts[1] == 0
+
+
+def test_medium_model_blobs_use_smaller_pages_only_once(tmp_path, monkeypatch):
+    source, first, second = (tmp_path / name for name in ("runs.sqlite", "first", "second"))
+    with closing(sqlite3.connect(source)) as db:
+        db.execute("PRAGMA application_id=41")
+        db.execute("PRAGMA user_version=8")
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("CREATE TABLE models(k TEXT PRIMARY KEY, b BLOB) WITHOUT ROWID")
+        db.executemany(
+            "INSERT INTO models VALUES (?,zeroblob(1600))", [(str(n),) for n in range(80)]
+        )
+        db.commit()
+        source_bytes = source.read_bytes(), Path(str(source) + "-wal").read_bytes()
+        old_size = db.execute("PRAGMA page_count").fetchone()[0] * 4096
+        create_snapshot(source, first, compact=True)
+        assert (source.read_bytes(), Path(str(source) + "-wal").read_bytes()) == source_bytes
+    assert first.stat().st_size < old_size
+    with closing(sqlite3.connect(first)) as db:
+        assert db.execute("PRAGMA page_size").fetchone() == (1024,)
+        assert db.execute("PRAGMA journal_mode").fetchone() == ("wal",)
+        assert db.execute("PRAGMA application_id").fetchone() == (41,)
+        assert db.execute("PRAGMA user_version").fetchone() == (8,)
+        assert db.execute("SELECT count(*), sum(length(b)) FROM models").fetchone() == (80, 128000)
+    connect = sqlite3.connect
+    sql = []
+
+    def traced(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        connection.set_trace_callback(sql.append)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", traced)
+    create_snapshot(first, second, compact=True)
+    assert not any(command.startswith("VACUUM") for command in sql)
+    assert second.stat().st_size == first.stat().st_size
+
+
+def test_repack_never_sends_a_larger_sqlite(tmp_path):
+    source, output = tmp_path / "runs.sqlite", tmp_path / "out.sqlite"
+    with closing(sqlite3.connect(source)) as db, db:
+        db.execute("CREATE TABLE model(b BLOB)")
+        db.execute("INSERT INTO model VALUES(zeroblob(4194304))")
+    create_snapshot(source, output, compact=True)
+    assert output.stat().st_size == source.stat().st_size
+    with closing(sqlite3.connect(output)) as db:
+        assert db.execute("PRAGMA page_size").fetchone() == (4096,)
+        assert db.execute("SELECT length(b) FROM model").fetchone() == (4194304,)
+
+
+def test_changed_wal_discards_candidate_before_recapturing(tmp_path, monkeypatch):
+    source, output = tmp_path / "runs.sqlite", tmp_path / "out.sqlite"
+    connect = sqlite3.connect
+    with closing(connect(source)) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("CREATE TABLE kept(k INTEGER PRIMARY KEY, v TEXT)")
+        writer.execute("INSERT INTO kept VALUES(1,'before')")
+        writer.commit()
+
+        class CommitAfterCopy(sqlite3.Connection):
+            def execute(self, sql, *args, **kwargs):
+                result = super().execute(sql, *args, **kwargs)
+                if sql.startswith("VACUUM INTO"):
+                    writer.execute("INSERT INTO kept VALUES(2,'after')")
+                    writer.commit()
+                return result
+
+        def racing_connect(*args, **kwargs):
+            return connect(*args, **kwargs, factory=CommitAfterCopy)
+
+        monkeypatch.setattr(sqlite3, "connect", racing_connect)
+        create_snapshot(source, output, compact=True)
+    with closing(connect(output)) as accepted:
+        assert accepted.execute("PRAGMA page_size").fetchone() == (4096,)
+        assert accepted.execute("SELECT v FROM kept ORDER BY k").fetchall() == [
+            ("before",),
+            ("after",),
+        ]
+
+
+@pytest.mark.parametrize("failure", ["filled-during-copy", "other"])
+def test_optional_space_shortage_keeps_checked_sqlite_but_other_errors_stop(
+    tmp_path, monkeypatch, failure
+):
+    source, output = tmp_path / "runs.sqlite", tmp_path / "out.sqlite"
+    with closing(sqlite3.connect(source)) as db, db:
+        db.execute("CREATE TABLE kept(value TEXT)")
+        db.execute("INSERT INTO kept VALUES('original')")
+    output.write_bytes(b"previous")
+    connect = sqlite3.connect
+
+    class FailDuringPack(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql.startswith("VACUUM INTO"):
+                Path(args[0][0]).write_bytes(b"partial")
+                error = sqlite3.OperationalError("injected")
+                error.sqlite_errorcode = (
+                    sqlite3.SQLITE_FULL if failure == "filled-during-copy" else sqlite3.SQLITE_IOERR
+                )
+                raise error
+            return super().execute(sql, *args, **kwargs)
+
+    def failing_connect(*args, **kwargs):
+        return connect(*args, **kwargs, factory=FailDuringPack)
+
+    monkeypatch.setattr(sqlite3, "connect", failing_connect)
+    if failure == "other":
+        with pytest.raises(sqlite3.DatabaseError, match="injected"):
+            create_snapshot(source, output, compact=True)
+        assert output.read_bytes() == b"previous"
+    else:
+        create_snapshot(source, output, compact=True)
+        with closing(connect(output)) as db:
+            assert db.execute("PRAGMA page_size").fetchone() == (4096,)
+            assert db.execute("SELECT value FROM kept").fetchone() == ("original",)
+    assert set(tmp_path.iterdir()) == {source, output}

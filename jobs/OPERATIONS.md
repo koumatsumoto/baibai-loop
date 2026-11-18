@@ -148,6 +148,8 @@ with_publication_lease jobs/scripts/r2_transfer.sh push-indicators
 
 model-integrationは生成に使ったreleaseも公開するため、後からpublish-lakeを挟まない。単独のL2修正は上表のpublish-lakeを使う。machineはmarket/runsへ非原子的にPUTし、全成功後にmachine-manifest.jsonを作る。前世代backupはkey.bakの一世代で次回置換される。
 
+runsの転送では、旧方式のサイズが確定する場合だけ、小さいページの通常SQLiteを1本作る。履歴は消さない。元が検査中に変わった場合や実際に小さくならない場合は、従来のSQLite backupでその時点を取り直す。どちらもそのままSQLiteで開ける。
+
 実送信の証拠が必要な切替では、`push-machine --evidence-dir <新しいprivate dir>` を使う。既存dir/再利用を拒否し、market脱水後・runs compact後の実PUT bodyと実manifest、pull由来If-Match、各PUTの応答ETagをcreate-onlyで保持する（dir0700/file0600）。未指定時の動作は変わらない。開始/backup/PUT/停止を記録し、保持失敗やack不明では後続PUTを止め、再送・自動復旧しない。停止recordや不完全な記録を成功へ読み替えず、先行ackと未確認keyを区別する。
 
 このlocal完了は3件のPUT ackまでで、pair/readback受入ではない。実body SHAと別の正規読戻しを結び、新Generation/旧保持・manifest/pointerを別に確認する。保持dirはtemp cleanup対象外だが、hard kill/runner消失後の回復や別環境への配布は保証しない。原body/ETagを公開logへ出さず、切替担当がprivateな保持先の寿命を確保する。

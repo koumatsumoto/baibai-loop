@@ -231,7 +231,7 @@ check_sqlite() {
 
 snapshot_sqlite() {
   local -a options=()
-  # Runs pruning leaves free pages; reclaim only the transfer copy, never the store.
+  # Repack only the runs transfer copy, not the working store or its history.
   if [[ "$3" == "runs.sqlite" ]]; then options+=(--compact); fi
   (
     cd "${repo_root}" || exit 1
