@@ -1,4 +1,4 @@
-"""Fixed-calendar evidence, missingness and inclusive research-note boundaries."""
+"""Fixed-calendar returns, observed peaks, missingness, and independent benchmarks."""
 
 from datetime import date, timedelta
 
@@ -41,25 +41,8 @@ def test_saved_six_field_state_is_not_a_reason_for_no_executions(values, expecte
     assert classify_price_day(values) == expected
 
 
-@pytest.mark.parametrize(
-    ("ref", "differences", "end"), [("R1", 1, 92), ("R20", 20, 80), ("G60", 60, 80)]
-)
-def test_threshold_boundary_uses_price_pairs_without_rounding_the_observation(
-    ref, differences, end
-):
-    prices = dict.fromkeys(DATES[-253:], 99.0)
-    prices[DATES[-differences - 1]] = 100.0
-    prices[ASOF] = end
-    at_boundary = observe(prices).payload["annotation"]
-    assert ref in at_boundary["matched_refs"]
-    prices[ASOF] = end + 1e-10
-    just_above = observe(prices).payload["annotation"]
-    assert ref not in just_above["matched_refs"]
-    assert ref in just_above["evaluated_refs"]
-
-
 @pytest.mark.parametrize("state", ["no_trade", "absent", "mixed", "invalid"])
-def test_return_needs_endpoints_but_peak_nonmatch_needs_explained_days(state):
+def test_both_observed_endpoints_and_peak_keep_their_value_across_an_interior_hole(state):
     prices = dict.fromkeys(DATES[-253:], 100.0)
     prices[ASOF] = 90.0
     prices[DATES[-2]] = 90.0
@@ -71,27 +54,20 @@ def test_return_needs_endpoints_but_peak_nonmatch_needs_explained_days(state):
     result = observe(prices, states=states).payload
     r20 = result["observations"]["R20"]
     assert r20["value"] == pytest.approx(-0.1)
-    assert "R20" in result["annotation"]["evaluated_refs"]
     g60 = result["observations"]["G60"]
     assert g60["value"] == pytest.approx(-0.1)
     assert g60["coverage"]["row_counts"][state] == 1
-    if state == "no_trade":
-        assert result["annotation"]["status"] == "not_matched"
-        assert g60["coverage"]["complete"]
-    else:
-        assert result["annotation"]["status"] == "unassessable"
-        assert result["annotation"]["unavailable_refs"] == ["G60"]
-    prices[ASOF] = 80.0
-    assert "G60" in observe(prices, states=states).payload["annotation"]["matched_refs"]
+    assert g60["coverage"]["complete"] is (state == "no_trade")
+    assert g60["coverage"]["unpriced_dates"][state] == [hole.isoformat()]
 
 
 def test_short_history_witness_and_first_observation_unknown():
     prices = {DATES[-8]: 100.0, ASOF: 75.0}
     result = observe(prices).payload
-    assert result["annotation"]["matched_refs"] == ["G60"]
+    assert result["observations"]["G60"]["value"] == -0.25
+    assert result["observations"]["G60"]["observed_peak_date"] == DATES[-8].isoformat()
     assert result["observations"]["G60"]["coverage"]["row_counts"]["absent"] == 59
     first_day = observe({ASOF: 100.0}).payload
-    assert first_day["annotation"]["status"] == "unassessable"
     assert first_day["observations"]["G60"]["value"] is None
     assert first_day["observations"]["G60"]["unavailable_reason"] == "no_past_price"
 
@@ -106,7 +82,6 @@ def test_expected_current_no_trade_never_carries_old_close_forward():
     assert result["current_row_state"] == "no_trade"
     assert result["current_price"] is None
     assert result["freshness"] == "missing_expected_close"
-    assert result["annotation"]["status"] == "unassessable"
     assert all(item["value"] is None for item in result["observations"].values())
 
 
@@ -120,7 +95,6 @@ def test_calendar_window_does_not_extend_to_old_2023_prices_and_tie_anchor_is_la
     assert long["value"] == -0.25
     assert long["window_return"] is None
     assert long["window_return_unavailable_reason"] == "missing_window_start_price"
-    assert "G252" not in result["annotation"]["thresholds"]
 
 
 def test_current_high_with_a_past_price_is_a_valid_zero_and_window_return_is_distinct():
@@ -144,19 +118,16 @@ def test_calendar_holes_are_scoped_to_required_windows_and_no_company_price_fill
     del calendar[ASOF]
     missing = observe(prices, calendar=calendar).payload
     assert missing["freshness"] == "unknown_calendar"
-    assert missing["annotation"]["status"] == "unassessable"
+    assert missing["current_price"] is None
 
 
 @pytest.mark.parametrize("benchmark_start", [None, 0.0, -1.0, float("nan"), float("inf")])
-def test_tri_valued_or_keeps_positive_and_unavailable_refs_and_benchmark_independent(
-    benchmark_start,
-):
+def test_missing_benchmark_or_start_does_not_erase_an_observed_fall(benchmark_start):
     result = observe({DATES[-2]: 100, ASOF: 75})
-    annotation = result.payload["annotation"]
-    assert annotation["status"] == "matched"
-    assert annotation["matched_refs"] == ["R1", "G60"]
-    assert annotation["unavailable_refs"] == ["R20"]
-    assert set(annotation["evaluated_refs"]).isdisjoint(annotation["unavailable_refs"])
+    observations = result.payload["observations"]
+    assert observations["R1"]["value"] == observations["G60"]["value"] == -0.25
+    assert observations["R20"]["value"] is None
+    assert observations["R20"]["unavailable_reason"] == "missing_start_price"
     benchmark_prices = {ASOF: 200}
     if benchmark_start is not None:
         benchmark_prices[DATES[-2]] = benchmark_start
@@ -167,7 +138,6 @@ def test_tri_valued_or_keeps_positive_and_unavailable_refs_and_benchmark_indepen
         benchmark_ticker="1321",
     )
     assert relative["comparisons"]["R1"]["status"] == "missing_benchmark_endpoint"
-    assert annotation["status"] == "matched"
 
 
 def test_split_adjusted_stock_and_benchmark_use_same_endpoints_and_keep_null_day_factor():

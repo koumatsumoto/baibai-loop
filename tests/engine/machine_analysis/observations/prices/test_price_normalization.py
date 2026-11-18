@@ -77,7 +77,7 @@ def test_explicit_nulls_partial_prices_and_zero_volume_keep_their_meaning(values
     ("values", "complete"),
     [({}, False), (dict.fromkeys(FIELDS, "invalid"), False), (dict.fromkeys(FIELDS), True)],
 )
-def test_only_explicit_no_trade_can_complete_peak_nonmatch_coverage(values, complete):
+def test_only_explicit_no_trade_can_complete_the_observed_peak_window(values, complete):
     as_of = date(2026, 11, 2)
     calendar = {
         as_of - timedelta(days=i): (as_of - timedelta(days=i)).weekday() < 5 for i in range(100)
@@ -100,8 +100,6 @@ def test_only_explicit_no_trade_can_complete_peak_nonmatch_coverage(values, comp
     ).payload
     assert result["observations"]["G60"]["value"] == 0.0
     assert result["observations"]["G60"]["coverage"]["complete"] is complete
-    assert ("G60" in result["annotation"]["evaluated_refs"]) is complete
-    assert ("G60" in result["annotation"]["unavailable_refs"]) is not complete
 
 
 @pytest.mark.parametrize("field", ["Vo", "Va"])

@@ -1,4 +1,4 @@
-"""Common-calendar price observations and a finite research annotation, without I/O."""
+"""Common-calendar price observations and their coverage, without I/O."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
 from math import isfinite
 
 from baibai_engine.machine_analysis.models.technical_analysis.path_statistics import (
@@ -19,9 +18,7 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
     PriceDayState,
 )
 
-PRICE_PATH_REVISION = "common-calendar-observed-close-path-v4-short-recovery"
-ANNOTATION_POLICY_REVISION = "research-price-note-b-v1"
-_THRESHOLDS = {"R1": -0.08, "R20": -0.20, "G60": -0.20}
+PRICE_PATH_REVISION = "common-calendar-observed-close-path-v5"
 _STATES = ("priced", "no_trade", "absent", "mixed", "invalid")
 
 
@@ -39,9 +36,8 @@ def observe_price_path(
 ) -> PricePath:
     """Use observed prices inside fixed calendar windows, never an old current price.
 
-    Internal holes do not remove an exact endpoint return. For a peak observation,
-    a real pair can prove a threshold match even with unknown days; a non-match
-    requires every date to be accounted for and at least one past price.
+    Internal holes do not remove an observed endpoint return or peak. Coverage
+    records which dates remain unknown; an observed peak is not a missing day's price.
     """
     statistics_days = {day for n in (20, 60) for day in (calendar.windows.get(n) or ())}
     observed_rows: dict[date, PriceBar] = {}
@@ -63,7 +59,6 @@ def observe_price_path(
     latest = max(retained, default=None)
     observations: dict[str, object] = {}
     pairs: list[PriceComparisonPair] = []
-    decisions: dict[str, bool | None] = {}
     for differences, window in calendar.windows.items():
         ref = f"R{differences}" if differences in (1, 20) else f"G{differences}"
         coverage = _coverage(window, day_states=day_states, prices=prices)
@@ -122,19 +117,6 @@ def observe_price_path(
             assert start_price is not None
             assert current is not None
             pairs.append(PriceComparisonPair(ref, start_date, expected, start_price, current))
-        if ref in _THRESHOLDS:
-            decision: bool | None = None
-            if value is not None:
-                assert start_price is not None
-                assert current is not None
-                matched = _at_or_below(start_price, current, _THRESHOLDS[ref])
-                if matched:
-                    decision = True
-                elif ref.startswith("R") or coverage["complete"]:
-                    decision = False
-            decisions[ref] = decision
-    matched_refs = [ref for ref, decision in decisions.items() if decision is True]
-    unavailable_refs = [ref for ref, decision in decisions.items() if decision is None]
     return PricePath(
         payload={
             "calculation_revision": PRICE_PATH_REVISION,
@@ -154,33 +136,9 @@ def observe_price_path(
             if current is not None
             else "missing_expected_close",
             "observations": observations,
-            "annotation": {
-                "policy_revision": ANNOTATION_POLICY_REVISION,
-                "purpose": "research_price_context",
-                "threshold_basis": "provisional_not_optimized",
-                "thresholds": dict(_THRESHOLDS),
-                "comparison": "inclusive_decimal_cross_product_on_adjusted_float_strings",
-                "status": "matched"
-                if matched_refs
-                else "unassessable"
-                if unavailable_refs
-                else "not_matched",
-                "matched_refs": matched_refs,
-                "evaluated_refs": [
-                    ref for ref, decision in decisions.items() if decision is not None
-                ],
-                "unavailable_refs": unavailable_refs,
-            },
         },
         comparison_pairs=tuple(pairs),
     )
-
-
-def _at_or_below(start: float, end: float, threshold: float) -> bool:
-    # Avoid binary division at exact boundaries (100 -> 80 is a -20% match).
-    # These are the existing adjusted floats; this does not round observations or
-    # claim to recover precision already lost in the upstream factor calculation.
-    return Decimal(str(end)) <= Decimal(str(start)) * (Decimal(1) + Decimal(str(threshold)))
 
 
 def _return(start: float | None, end: float | None) -> float | None:
