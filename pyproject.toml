@@ -295,6 +295,9 @@ ignore_imports = [
   # Saved policy results and pure contracts; not the writer.
   "baibai_engine.investment_judgment.workflow.selection -> baibai_engine.machine_analysis.screening.contracts",
   "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.selection_query",
+  # The normal opportunity handoff reads the sealed index; its presentation consumes only its shape.
+  "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.discovery_index",
+  "baibai_engine.investment_judgment.workflow.discovery -> baibai_engine.machine_analysis.screening.discovery_contract",
   "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.policies.economic_paths",
   "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.policies.technical_financial",
   "baibai_engine.investment_judgment.workflow.screening_brief -> baibai_engine.machine_analysis.screening.policies.technical_financial",

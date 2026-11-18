@@ -14,8 +14,10 @@ from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 
 if TYPE_CHECKING:
-    from baibai_engine.machine_analysis.screening.discovery_contract import DiscoveryRow
-    from baibai_engine.machine_analysis.screening.discovery_index import DiscoveryIndexRead
+    from baibai_engine.machine_analysis.screening.discovery_contract import (
+        DiscoveryIndexRead,
+        DiscoveryRow,
+    )
 
 
 @dataclass(frozen=True, slots=True)

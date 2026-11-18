@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Annotated, Final, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictInt, TypeAdapter, with_config
@@ -71,6 +72,18 @@ class DiscoveryRow(TypedDict):
     price_ready: bool
     book_equity: BookEquity | None
     capital_action: CapitalActionCounts | None
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryIndexRead:
+    status: Literal["no_publication", "unindexed_legacy", "indexed"]
+    selection_id: str | None = None
+    generation_id: str | None = None
+    as_of: date | None = None
+    evaluation_time: datetime | None = None
+    published_at: datetime | None = None
+    rows: tuple[DiscoveryRow, ...] = ()
+    universe_tickers: tuple[str, ...] = ()
 
 
 _ROWS = TypeAdapter(tuple[DiscoveryRow, ...])

@@ -7,14 +7,13 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Literal
 
 from pydantic import TypeAdapter
 
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DISCOVERY_SUFFIX,
-    DiscoveryRow,
+    DiscoveryIndexRead,
     DiscoverySelection,
     validate_discovery_publication,
 )
@@ -29,18 +28,6 @@ class _IndexedPublication(ScreeningSelection):
 
 # The publication identity already selects this format; do not validate old full-card unions.
 _CODEC = TypeAdapter(_IndexedPublication)
-
-
-@dataclass(frozen=True, slots=True)
-class DiscoveryIndexRead:
-    status: Literal["no_publication", "unindexed_legacy", "indexed"]
-    selection_id: str | None = None
-    generation_id: str | None = None
-    as_of: date | None = None
-    evaluation_time: datetime | None = None
-    published_at: datetime | None = None
-    rows: tuple[DiscoveryRow, ...] = ()
-    universe_tickers: tuple[str, ...] = ()
 
 
 def read_discovery_index(
