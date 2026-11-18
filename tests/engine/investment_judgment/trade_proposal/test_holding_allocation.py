@@ -231,6 +231,56 @@ def test_next_session_ex_rights_keeps_accrued_income_but_cannot_reuse_cum_close(
     assert b["sector_pct_of_cash_and_stocks"] is None
 
 
+def test_unknown_share_basis_cannot_invent_zero_remaining_stocks_or_exposure(draft):
+    raw = draft.payload()
+    raw["inputs"]["positions"][0]["quantity_basis_confirmed"] = False
+    raw["inputs"]["total_capital_yen"] = None
+    obj = TradeProposalDraft.model_validate(raw)
+    all_sold = {"all": {"1234": 200, "5678": 100, "7777": 200}}
+    r = compare_holding_allocations(obj, plans(alternatives=all_sold))["alternatives"]["all"]
+    assert r["remaining_stocks_yen"] is None
+    assert r["remaining_sector_yen"] is None
+    assumed = compare_holding_allocations(
+        obj, plans(alternatives=all_sold, assume_unchanged_share_basis=True)
+    )
+    assert assumed["alternatives"]["all"]["remaining_sector_yen"] == 0
+    assert assumed["recorded_total_capital_yen"] is None
+
+
+def test_known_ex_date_of_unreviewed_holding_affects_denominator_not_reduction_scope(draft):
+    raw = draft.payload()
+    for section in ("targets", "outcomes"):
+        raw["research_scope"][section] = raw["research_scope"][section][:-1]
+    raw["items"] = raw["items"][:-1]
+    obj = TradeProposalDraft.model_validate(raw)
+    plans_raw = plans().model_dump(mode="json")
+    windows = plans_raw["dividend_windows"]
+    windows["7777"] = {**windows["1234"], "yen_per_share_by_ex_date": {"2026-10-15": 1}}
+    result = compare_holding_allocations(obj, AllocationAlternatives.model_validate(plans_raw))
+    assert result["known_ex_rights_since_quote_tickers"] == ["7777"]
+    assert result["alternatives"]["a"]["gross_recovery_yen"] == 200
+    assert result["alternatives"]["a"]["cash_pct_of_cash_and_stocks"] is None
+    plans_raw["alternatives"]["outside"] = {"7777": 100}
+    with pytest.raises(ProposalError, match="fixed holdings review"):
+        compare_holding_allocations(obj, AllocationAlternatives.model_validate(plans_raw))
+
+
+def test_empty_rights_window_cannot_lose_a_future_right(draft):
+    r = compare_holding_allocations(
+        draft, plans(dividend_rights_through="2026-10-15", dividend_windows={})
+    )
+    assert r["alternatives"]["a"]["foregone_forecast_dividend_yen"] == 0
+
+
+def test_normalized_duplicate_dates_and_names_are_not_silently_overwritten():
+    raw = plans().model_dump(mode="json")
+    raw["dividend_windows"]["1234"]["yen_per_share_by_ex_date"]["20270331"] = 15
+    with pytest.raises(ValidationError, match="duplicate ex-rights date"):
+        AllocationAlternatives.model_validate(raw)
+    with pytest.raises(ValidationError, match="duplicate comparison name"):
+        plans(alternatives={"plan A": {"1234": 100}, " plan A  ": {"5678": 100}})
+
+
 def test_future_source_is_not_admitted(draft):
     raw = plans().model_dump(mode="json")
     raw["dividend_windows"]["1234"]["known_at"] = "2026-10-14T16:10:00.000001+09:00"

@@ -38,8 +38,10 @@ class DividendWindow(_Assumption):
     @field_validator("yen_per_share_by_ex_date", mode="before")
     @classmethod
     def _unique_dates(cls, value: object) -> object:
-        if isinstance(value, dict) and len({str(key) for key in value}) != len(value):
-            raise ValueError("duplicate ex-rights date")
+        if isinstance(value, dict):
+            dates = {date.fromisoformat(key) if isinstance(key, str) else key for key in value}
+            if len(dates) != len(value):
+                raise ValueError("duplicate ex-rights date")
         return value
 
     def forgone_per_share(self, on: date, through: date) -> Decimal | None:
@@ -64,6 +66,15 @@ class AllocationAlternatives(_Assumption):
     # Use exact saved ticker keys. Do not silently combine ticker aliases or choose a basket.
     alternatives: dict[NonEmptyStr, dict[str, PositiveInt]] = Field(min_length=1)
     dividend_windows: dict[str, DividendWindow] = Field(default_factory=dict)
+
+    @field_validator("alternatives", mode="before")
+    @classmethod
+    def _unique_names(cls, value: object) -> object:
+        if isinstance(value, dict):
+            names = {key.strip() if isinstance(key, str) else key for key in value}
+            if len(names) != len(value):
+                raise ValueError("duplicate comparison name")
+        return value
 
 
 def _pct(numerator: Decimal | None, denominator: Decimal | None) -> Decimal | None:
@@ -102,8 +113,10 @@ def compare_holding_allocations(
     if not group:
         raise ProposalError("sector must match a sector recorded in the fixed holdings")
     for ticker, window in assumptions.dividend_windows.items():
-        if ticker not in scope or window.known_at > facts.checked_at:
-            raise ProposalError("dividend source is outside the fixed scope or information cutoff")
+        if ticker not in positions or window.known_at > facts.checked_at:
+            raise ProposalError(
+                "dividend source is outside the fixed holdings or information cutoff"
+            )
         if any(ex_date > window.covered_through for ex_date in window.yen_per_share_by_ex_date):
             raise ProposalError("dividend event is outside its source coverage")
     held = {ticker: pos.quantity for ticker, pos in positions.items()}
@@ -125,7 +138,15 @@ def compare_holding_allocations(
     reserved = sum((r.reserved_yen for r in facts.active_reservations), _ZERO)
     recorded_cash = facts.available_cash_yen + reserved
 
-    def value(quantities: dict[str, int]) -> Decimal | None:
+    def value(quantities: dict[str, int], *, remaining: bool = False) -> Decimal | None:
+        # Selling the entire *recorded* number does not establish a zero remainder if
+        # units are unresolved and the author did not assume they were unchanged.
+        if (
+            remaining
+            and not assumptions.assume_unchanged_share_basis
+            and unconfirmed & quantities.keys()
+        ):
+            return None
         if any(qty and ticker not in usable for ticker, qty in quantities.items()):
             return None
         return sum((quotes[t].price_yen * n for t, n in quantities.items() if n), _ZERO)
@@ -142,13 +163,15 @@ def compare_holding_allocations(
         recovered = value(sold)
         left = {t: qty - sold.get(t, 0) for t, qty in held.items()}
         cash = None if recovered is None else recorded_cash + recovered
-        stocks = value(left)
-        sector = value({t: left[t] for t in group})
+        stocks = value(left, remaining=True)
+        sector = value({t: left[t] for t in group}, remaining=True)
         rights_unknown: list[str] = []
         forgone = _ZERO
         for ticker, qty in sold.items():
             window = assumptions.dividend_windows.get(ticker)
             dps = None if window is None else window.forgone_per_share(sale_on, through)
+            if sale_on == through:
+                dps = _ZERO  # No future ex-rights date lies inside an empty window.
             if dps is None or (
                 dps != 0 and ticker in unconfirmed and not assumptions.assume_unchanged_share_basis
             ):
