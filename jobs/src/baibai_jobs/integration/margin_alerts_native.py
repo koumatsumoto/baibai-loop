@@ -44,6 +44,7 @@ from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
 from baibai_engine.storage.snapshots.models import DatasetManifest
 from baibai_engine.storage.sqlite.source_cache.coverage import (
+    merge_date_ranges,
     record_range_source_coverage,
     uncovered_days,
 )
@@ -318,7 +319,7 @@ def model_input(
     scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
     cached = _verified_cached_scopes(store, previous, market=market, mirror_root=mirror_root)
     reusable = {
-        day
+        day: scopes[day.isoformat()]["confirmed_at"]
         for day in days
         if scopes[day.isoformat()].get("adopted")
         and scopes[day.isoformat()].get("adopted") == cached.get(day.isoformat(), {}).get("adopted")
@@ -341,19 +342,19 @@ def model_input(
             "DELETE FROM jquants_margin_alerts WHERE publication_date < ? OR publication_date > ?",
             (first.isoformat(), last.isoformat()),
         )
-        for day in sorted(reusable):
-            scope = scopes[day.isoformat()]
+        # Coalescing retains the last day's clock, not the most recent receipt.
+        for start, end in merge_date_ranges((day, day) for day in reusable):
             record_range_source_coverage(
                 connection,
                 source=MARGIN_ALERT_SOURCE,
                 operation=MARGIN_ALERT_OPERATION,
                 table="jquants_margin_alerts",
                 date_column="publication_date",
-                requested_start=day,
-                requested_end=day,
+                requested_start=start,
+                requested_end=end,
                 status="ok",
                 error=None,
-                fetched_at_utc=scope["confirmed_at"],
+                fetched_at_utc=reusable[end],
             )
         _project_days(
             store,

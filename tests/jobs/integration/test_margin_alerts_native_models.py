@@ -196,6 +196,44 @@ def test_changed_month_reuses_older_object_and_reads_only_changed_raw(tmp_path):
     assert rows(cold) == rows(market)
 
 
+def test_warm_ranges_split_at_changed_input_and_keep_the_last_days_clock(tmp_path, monkeypatch):
+    from baibai_jobs.integration import margin_alerts_native as projection
+
+    start, changed = DAY - timedelta(days=6), DAY - timedelta(days=2)
+    store, owner, market, mirror = fixture(tmp_path, earlier=start)
+    _, previous = build(store, owner, market, mirror)
+    owner.commit(
+        [
+            attempt("reconfirmed", day=start, at=AT + timedelta(hours=2)),
+            attempt("changed", day=changed, at=AT + timedelta(hours=1), rows=records(changed)),
+            attempt(
+                "failed", day=DAY - timedelta(days=1), at=AT + timedelta(hours=1), partial=True
+            ),
+        ]
+    )
+    calls = []
+    record = projection.record_range_source_coverage
+
+    def record_range(connection, **kwargs):
+        if kwargs["status"] == "ok":
+            calls.append(
+                (kwargs["requested_start"], kwargs["requested_end"], kwargs["fetched_at_utc"])
+            )
+        return record(connection, **kwargs)
+
+    monkeypatch.setattr(projection, "record_range_source_coverage", record_range)
+    saved, _ = build(
+        store, owner, market, mirror, previous=previous.manifest, at=AT + timedelta(hours=3)
+    )
+    assert calls == [
+        (start, changed - timedelta(days=1), AT.isoformat()),
+        (changed + timedelta(days=1), DAY, AT.isoformat()),
+    ]
+    assert saved.descriptor["summary"]["partial_days"] == 1
+    assert read_margin_alerts(market, changed, changed)
+    assert read_margin_alerts(market, changed + timedelta(days=1), DAY) is None
+
+
 def test_failed_refresh_is_partial_but_keeps_adopted_rows(tmp_path):
     store, owner, market, mirror = fixture(tmp_path)
     _, first = build(store, owner, market, mirror)
