@@ -31,7 +31,9 @@ class TenderFilingLookup(BaseModel):
     scope: Literal["selected_list_references_not_offer_outcome_or_shareholder_rights"] = (
         "selected_list_references_not_offer_outcome_or_shareholder_rights"
     )
-    status: Literal["observed_lists", "no_eligible_list", "unreadable_list"]
+    status: Literal[
+        "observed_lists", "no_eligible_list", "unreadable_list", "as_of_history_unavailable"
+    ]
     checked_at: datetime
     window_start: date
     window_end: date
@@ -62,11 +64,21 @@ def read_tender_filing_references(
     if connection is None:
         return missing
     cutoff = known_at.astimezone(UTC).isoformat(timespec="microseconds")
+    bounds = (start.isoformat(), through.isoformat())
+    # One current projection per day retains neither superseded selections nor
+    # intervening failures. Dropping that day could resurrect a withdrawn filing.
+    later = connection.execute(
+        "SELECT 1 FROM edinet_document_lists WHERE doc_date BETWEEN ? AND ? "
+        "AND latest_received_at_utc > ? LIMIT 1",
+        (*bounds, cutoff),
+    ).fetchone()
+    if later is not None:
+        return missing.model_copy(update={"status": "as_of_history_unavailable"})
     rows = connection.execute(
         "SELECT doc_date, selected_receipt_id, selected_received_at_utc, latest_received_at_utc, "
         "result_count, response_json FROM edinet_document_lists WHERE doc_date BETWEEN ? AND ? "
-        "AND (selected_received_at_utc <= ? OR latest_received_at_utc <= ?) ORDER BY doc_date",
-        (start.isoformat(), through.isoformat(), cutoff, cutoff),
+        "ORDER BY doc_date",
+        bounds,
     )
     documents: list[dict[str, Any]] = []
     receipts: dict[date, SelectedListReceipt] = {}
@@ -87,9 +99,8 @@ def read_tender_filing_references(
             )
             if selected.utcoffset() != timedelta(0) or latest.utcoffset() != timedelta(0):
                 raise ValueError("invalid list clock")
-            if selected > known_at or latest < selected or selected < latest <= known_at:
-                # A known later failure can hide an edit/withdrawal. A later failure
-                # outside the cutoff does not erase earlier, identifiable evidence.
+            if selected != latest or latest > known_at:
+                # A later failed refresh may hide an edit or withdrawal.
                 raise ValueError("unusable selected list clock")
             _, records, _ = decode_list_response(source, doc_date=day)
             if len(records) != count:

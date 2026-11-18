@@ -67,7 +67,6 @@ def test_scope_is_jst_calendar_90_days_not_a_complete_list_or_full_replay(tmp_pa
     with closing(open_connection(tmp_path / "market.sqlite")) as conn:
         _seed(conn, today - timedelta(days=90), cutoff - timedelta(days=90), source="broken")
         _seed(conn, today - timedelta(days=89), cutoff - timedelta(days=89))
-        _seed(conn, today - timedelta(days=2), cutoff + timedelta(microseconds=1), source="broken")
         _seed(conn, today, cutoff)
         check = _read(conn, cutoff)
         assert check.status == "observed_lists"
@@ -75,6 +74,8 @@ def test_scope_is_jst_calendar_90_days_not_a_complete_list_or_full_replay(tmp_pa
         assert (check.window_start, check.window_end) == (today - timedelta(days=89), today)
         assert check.latest_list_received_at == cutoff
         assert check.references_by_ticker == {"1234": ()}
+        _seed(conn, today - timedelta(days=2), cutoff + timedelta(microseconds=1), source="broken")
+        assert _read(conn, cutoff).status == "as_of_history_unavailable"
         assert _read(conn, cutoff + timedelta(microseconds=1)).status == "unreadable_list"
 
 
@@ -104,7 +105,7 @@ def test_known_failed_refresh_does_not_return_stale_references(tmp_path):
     with closing(open_connection(tmp_path / "market.sqlite")) as conn:
         later = PREPARED + timedelta(seconds=1)
         _seed(conn, PREPARED.date(), PREPARED, latest=later)
-        assert _read(conn, PREPARED).status == "observed_lists"
+        assert _read(conn, PREPARED).status == "as_of_history_unavailable"
         assert _read(conn, later).status == "unreadable_list"
 
 
@@ -117,3 +118,93 @@ def test_observed_list_with_invalid_submission_clock_stays_unreadable(tmp_path):
             items=[{"docID": "SMALFORM", "seqNumber": 1, "submitDateTime": 123}],
         )
         assert _read(conn).status == "unreadable_list"
+
+
+@pytest.mark.parametrize("failure", [True, False], ids=["intervening_failure", "withdrawn_parent"])
+def test_later_receipt_must_not_resurrect_a_filing_at_the_same_old_cutoff(tmp_path, failure):
+    from baibai_engine.data_collection.providers.edinet.list_projection import project_document_list
+    from baibai_engine.data_collection.providers.edinet.receipts import EdinetListReceipt
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+        store_edinet_document_projection,
+    )
+
+    market = tmp_path / "market.sqlite"
+    first = PREPARED - timedelta(days=1)
+    day = first.date()
+    fields = {
+        "legalStatus": "1",
+        "disclosureStatus": "0",
+        "withdrawalStatus": "0",
+        "docInfoEditStatus": "0",
+        "submitDateTime": f"{day} 09:00",
+    }
+
+    def receipt(day, stamp, docs):
+        source = (
+            b"broken"
+            if docs is None
+            else json.dumps(
+                {
+                    "metadata": {"resultset": {"count": len(docs)}},
+                    "results": docs,
+                }
+            ).encode()
+        )
+        return EdinetListReceipt(str(uuid4()), day, stamp.astimezone(UTC), source)
+
+    def persist(receipts):
+        store_edinet_document_projection(
+            market, project_document_list(receipts), rechecked_asof=None
+        )
+
+    def read():
+        with closing(open_connection(market)) as conn:
+            return _read(conn, PREPARED)
+
+    original = receipt(
+        day,
+        first,
+        [
+            dict(
+                fields,
+                seqNumber=1,
+                docID="SFICTANC",
+                docTypeCode="120",
+                edinetCode="E90001",
+                secCode="12340",
+            ),
+            dict(
+                fields,
+                seqNumber=2,
+                docID="SFICTREG",
+                docTypeCode="240",
+                edinetCode="E90002",
+                subjectEdinetCode="E90001",
+            ),
+        ],
+    )
+    persist([original])
+    assert [r.doc_id for r in read().references_by_ticker["1234"]] == ["SFICTREG"]
+    if failure:
+        history = [original, receipt(day, PREPARED, None)]
+        persist(history)
+        assert read().status == "unreadable_list"
+        persist([*history, receipt(day, PREPARED + timedelta(hours=1), None)])
+    else:
+        new_day = PREPARED.date()
+        operation = [
+            {
+                "seqNumber": 1,
+                "docID": "SFICTWDR",
+                "parentDocID": "SFICTREG",
+                "withdrawalStatus": "1",
+                "opeDateTime": f"{new_day} 09:00",
+            }
+        ]
+        withdrawals = [receipt(new_day, PREPARED, operation)]
+        persist(withdrawals)
+        assert read().references_by_ticker == {"1234": ()}
+        persist([*withdrawals, receipt(new_day, PREPARED + timedelta(hours=1), operation)])
+    later = read()
+    assert later.status == "as_of_history_unavailable"
+    assert later.references_by_ticker is None

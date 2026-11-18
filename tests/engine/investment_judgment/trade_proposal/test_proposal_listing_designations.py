@@ -180,7 +180,8 @@ def test_tender_lookup_follows_flagged_target_and_never_turns_metadata_into_term
     ids = ("SFICT001", "SFICT002", "SFICT003")
     original = (case.app.read_bytes(), case.market.read_bytes())
     before = _context(case, PREPARED - timedelta(microseconds=1)).tender_filing_references
-    assert tuple(r.doc_id for r in before.references_by_ticker["1234"]) == ids[:2]
+    assert before.status == "as_of_history_unavailable"
+    assert before.references_by_ticker is None
     context = _context(case)
     lookup = context.tender_filing_references
     refs = lookup.references_by_ticker["1234"]

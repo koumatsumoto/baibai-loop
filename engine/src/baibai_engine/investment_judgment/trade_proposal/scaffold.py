@@ -89,6 +89,13 @@ def scaffold_proposal(
                         "その後の訂正・撤回も確認する。結果報告書の存在は成立や新規取得者への入金の証明ではない。"
                     ),
                 )
+            elif lookup is not None and lookup.status == "as_of_history_unavailable":
+                listing_review += (
+                    (
+                        "後日に日別一覧が更新され、この保存コピーから判断時点のEDINET書類は復元できない。"
+                        "当時の取下げ・訂正を否定せず、当時の受領版と発行体の開示を確認する。"
+                    ),
+                )
             else:
                 listing_review += (
                     (
