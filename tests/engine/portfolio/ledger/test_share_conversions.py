@@ -486,3 +486,32 @@ def test_closed_position_keeps_received_contradiction_after_confirmed_conversion
         )
     with pytest.raises(UnresolvedHoldingQuantityError, match="1234"):
         current_portfolio(service.load(), sqlite_path=market, now=NOW)
+
+
+def test_share_conversion_never_rewrites_the_original_proposal(tmp_path):
+    from tests.helpers.proposal import (
+        PUBLISHED,
+        backend_case,
+        read_saved_proposal,
+        reviewed_proposal,
+    )
+
+    from baibai_engine.investment_judgment.trade_proposal.contracts import proposal_draft_sha256
+    from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+
+    case = backend_case(tmp_path, holding=True)
+    saved = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(reviewed_proposal(case, action="hold"))
+    original = saved.model_dump(mode="json")
+    original_sha = proposal_draft_sha256(saved)
+    # A subsequent human-confirmed unit change must not restate the terms in a saved decision.
+    updated = _apply(
+        LedgerStoreService(case.app),
+        basis_date=date(2026, 10, 16),
+        confirmed_at=datetime.fromisoformat("2026-10-16T18:00:00+09:00"),
+    )
+    assert updated.schema_version == 4
+    recovered = read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app)
+    assert recovered.model_dump(mode="json") == original
+    assert proposal_draft_sha256(recovered) == original_sha

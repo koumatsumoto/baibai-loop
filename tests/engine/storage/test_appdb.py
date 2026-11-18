@@ -9,7 +9,6 @@ import pytest
 
 from baibai_engine.storage.sqlite.application.schema import (
     APPLICATION_SCHEMA_VERSION,
-    SUPPORTED_APPLICATION_SCHEMA_VERSIONS,
 )
 from baibai_engine.storage.sqlite.application.write import (
     backup_database,
@@ -44,9 +43,7 @@ def test_obsolete_database_requires_an_explicit_cutover(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("CREATE TABLE old_state (value TEXT)")
-        connection.execute(
-            f"PRAGMA user_version = {min(SUPPORTED_APPLICATION_SCHEMA_VERSIONS) - 1}"
-        )
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
 
     with pytest.raises(RuntimeError, match="explicit semantic cutover"):
         initialize_database(path)

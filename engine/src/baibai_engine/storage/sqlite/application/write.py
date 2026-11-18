@@ -13,7 +13,6 @@ from baibai_engine.storage.sqlite.application.paths import database_path as _dat
 from baibai_engine.storage.sqlite.application.schema import (
     APPLICATION_SCHEMA_VERSION,
     SCHEMA_SQL,
-    SUPPORTED_APPLICATION_SCHEMA_VERSIONS,
 )
 
 
@@ -28,17 +27,17 @@ def connect_rw(path: Path | None = None) -> sqlite3.Connection:
 
 
 def connect_existing(path: Path | None = None) -> sqlite3.Connection:
-    """Append to a supported application store without creating or migrating it."""
+    """Append to the current application store without creating or migrating it."""
     resolved = _database_path(path).resolve()
     connection = sqlite3.connect(resolved.as_uri() + "?mode=rw", uri=True, isolation_level=None)
     try:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         current = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if current not in SUPPORTED_APPLICATION_SCHEMA_VERSIONS:
+        if current != APPLICATION_SCHEMA_VERSION:
             raise RuntimeError(
-                "application append requires a supported existing schema "
-                f"(found user_version={current}, supported={SUPPORTED_APPLICATION_SCHEMA_VERSIONS})"
+                "application append requires the current existing schema "
+                f"(found user_version={current}, current={APPLICATION_SCHEMA_VERSION})"
             )
         return connection
     except BaseException:
@@ -59,10 +58,10 @@ _BACKUP_GLOB = "baibai-*.sqlite"
 def initialize_database(
     path: Path | None = None,
 ) -> int:
-    """Create the current schema or open a supported store without migrating it."""
+    """Create or open the current schema without migrating it."""
     with closing(connect_rw(path)) as connection:
         current = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if current in SUPPORTED_APPLICATION_SCHEMA_VERSIONS:
+        if current == APPLICATION_SCHEMA_VERSION:
             return current
         tables = connection.execute(
             "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
@@ -70,7 +69,7 @@ def initialize_database(
         if current != 0 or tables is not None:
             raise RuntimeError(
                 "application database requires an explicit semantic cutover "
-                f"(found user_version={current}, supported={SUPPORTED_APPLICATION_SCHEMA_VERSIONS})"
+                f"(found user_version={current}, current={APPLICATION_SCHEMA_VERSION})"
             )
         try:
             # executescript commits a pending transaction before executing its SQL.

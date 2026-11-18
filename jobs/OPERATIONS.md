@@ -248,22 +248,7 @@ publish.shは引数なし。台帳preflight→取得世代への条件付きback
 
 本人が追加backupを不要と明示し、更新後Appが旧提案・評価・台帳等の全旧行を保持することを旧新の正規copyで照合した追加専用反映では、`R2_APP_BACKUP_CREATE=skip` で新しいbackup生成だけを省略できる。既定はretain。取得ETag照合と最終If-Matchは省略されず、未知世代・競合は停止する。旧backupの保持・削除は独立した `R2_APP_BACKUP_PRUNE` で扱い、削除しない反映では両方にskipを指定する。既存情報を書き換える一般更新へこの省略判断を流用しない。
 
-保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。PUT後の記録失敗で旧DBを再送しない。dispatchだけ失敗/不明ならActionsを確認し、run未作成時だけcloud-materializeを再dispatchする。publish.sh全体は繰り返さない。通常はcurrent schemaだけを開く。schema29は下記の切替期間だけ扱う。
-
-<a id="share-conversion-cutover"></a>
-### 確認済み株数変更の一回切替
-
-切替期間だけschema29/30を読み書きする。29では旧event・metadata v3に限り、通常記帳・判断保存・表示を継続できる。旧コードは29しか扱えないため、30の公開前に全利用writer/readerを新コードへ更新する。
-
-取得ETagと組の29作業copyから、未存在の別ファイルへ移行する。元DB・過去公開・未公開差分を保持し、全保存row/ID/hashを照合する。開かれたローカルDBを置換せず、通常dailyでも移行しない。
-
-```bash
-uv run python -m tools.enable_share_conversions --source <SCHEMA29_COPY> --destination <NEW_SCHEMA30_COPY>
-```
-
-[通常のapplication反映](#application-db-を反映する)でbackup保全とprune条件も確認し、取得ETagへの条件付きPUTを使う。並行writerが先なら作業copyを保持して新正本から再準備し、移行が先なら旧ETagのwriterを拒否する。応答不明は公開状態を照合し、盲再送しない。
-
-同じ公開ETagのfresh pullで30・保存結果を読戻し、通常記帳・daily/materializeの成功、全writer更新、残る29作業copy/旧pending runの扱いを確認した後、29のread/write許容・ledger書込guard・一回tool・専用test/説明を別PRでまとめて撤去する。fixture成功や経過時間で代用しない。旧29は当時のcodeと組で退避保持し、30に新記録が入った後は29へ戻さず前向き修正する。
+保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。PUT後の記録失敗で旧DBを再送しない。dispatchだけ失敗/不明ならActionsを確認し、run未作成時だけcloud-materializeを再dispatchする。publish.sh全体は繰り返さない。通常はcurrent schemaだけを開き、自動移行しない。旧schema29を調査する場合は、[切替時の版](https://github.com/koumatsumoto/baibai-loop/tree/26561b8fc99099ed1d221f4b664b2026511d4b7c)で隔離したコピーを読む。30へ変換が必要な場合もその版の `tools.enable_share_conversions` で未存在の別ファイルへ出し、保存row・ID・hashを照合する。後続の記録を持つ正本へ旧DBを戻さず、旧版の未公開差分だけを現世代へ正規手順で引き継ぐ。
 
 ### application DB を復元する
 

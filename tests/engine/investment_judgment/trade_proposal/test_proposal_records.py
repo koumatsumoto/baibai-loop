@@ -24,7 +24,6 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-from baibai_engine.storage.sqlite.application.schema import SUPPORTED_APPLICATION_SCHEMA_VERSIONS
 from baibai_web.sources.proposal import DbProposalSource
 
 B = "investment-proposal-00000000-0000-4000-8000-000000000004"
@@ -80,13 +79,8 @@ def records_case(tmp_path):
     return case, original, wrong, service, correction
 
 
-@pytest.mark.parametrize("schema_version", SUPPORTED_APPLICATION_SCHEMA_VERSIONS)
-def test_correction_report_serving_and_preview_preserve_originals_and_ledger(
-    records_case, schema_version
-):
+def test_correction_report_serving_and_preview_preserve_originals_and_ledger(records_case):
     case, a, b, service, draft = records_case
-    with closing(sqlite3.connect(case.app)) as connection:
-        connection.execute(f"PRAGMA user_version={schema_version}")
     before = snapshot(case.app)
     corrected = service.correct(draft, expected_latest_ref=ref(b))
     assert service.correct(draft, expected_latest_ref=ref(b)) == corrected

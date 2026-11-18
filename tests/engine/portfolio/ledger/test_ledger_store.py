@@ -180,8 +180,7 @@ def test_ledger_queries_open_only_read_connections(tmp_path, monkeypatch):
         pytest.fail("ledger query opened a writer or initialized the store")
 
     monkeypatch.setattr(store, "connect_read_only", query_only)
-    monkeypatch.setattr(store, "connect_rw", no_writer)
-    monkeypatch.setattr(store, "initialize_database", no_writer)
+    monkeypatch.setattr(store, "connect_existing", no_writer)
     service = LedgerStoreService(path)
     assert service.load() == source
     assert service.load_with_head() == (source, len(source.events))
@@ -395,3 +394,51 @@ def test_related_events_follow_retained_payload_with_an_empty_reference_index(
             == ()
         )
     assert path.read_bytes() == before
+
+
+def test_apply_without_an_existing_store_does_not_bootstrap_a_new_ledger(tmp_path):
+    path = tmp_path / "absent" / "app.sqlite"
+    source = _store_fixture()
+    with pytest.raises(sqlite3.OperationalError, match="unable to open"):
+        LedgerStoreService(path).apply_document(
+            expected_head=0,
+            expected_document=source,
+            replacement=source,
+        )
+    assert not path.parent.exists()
+
+
+def test_concurrent_confirmed_drafts_append_only_one_event(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from baibai_engine.portfolio.ledger.drafts import apply_draft, build_event_draft
+
+    path = tmp_path / "app.sqlite"
+    document = _store_fixture()
+    seed_ledger(path, document)
+    barrier = Barrier(2)
+
+    def writer(identity):
+        service = LedgerStoreService(path)
+        draft = build_event_draft(
+            service,
+            ContributionEvent(
+                type="contribution",
+                event_id=identity,
+                occurred_at=document.as_of,
+                amount_yen=1000,
+            ),
+        )
+        barrier.wait(timeout=10)
+        try:
+            apply_draft(service, draft, human_confirmed=True)
+        except LedgerConflictError as error:
+            return str(error)
+        return "saved"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(writer, ("first", "second"))) == ["saved", "stale ledger draft"]
+    saved, head = LedgerStoreService(path).load_with_head()
+    assert head == len(document.events) + 1
+    assert saved.events[:-1] == document.events

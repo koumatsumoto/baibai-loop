@@ -17,7 +17,6 @@ from baibai_engine.portfolio.ledger.decision_references import (
 from baibai_engine.portfolio.ledger.events import (
     LedgerEvent,
     PortfolioLedgerDocument,
-    ShareConversionEvent,
 )
 from baibai_engine.portfolio.ledger.read import (
     LedgerConflictError,
@@ -27,7 +26,7 @@ from baibai_engine.portfolio.ledger.read import (
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import connect_existing
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,20 +66,9 @@ class LedgerStoreService:
         Existing events are immutable. A past-time event is physically appended and
         receives the last ordinal at that instant; only the replay view is reordered.
         """
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                # Keep every schema-29 write readable by pre-conversion clients,
-                # including a metadata-only v4 update without a conversion event.
-                if connection.execute("PRAGMA user_version").fetchone()[0] == 29 and (
-                    replacement.schema_version != 3
-                    or any(isinstance(event, ShareConversionEvent) for event in replacement.events)
-                ):
-                    raise LedgerConflictError(
-                        "schema 29 permits only metadata v3 and legacy events; "
-                        "share conversions require the explicit schema 30 cutover"
-                    )
                 current, current_head = load_ledger_in_transaction(connection)
                 if current_head != expected_head or current != expected_document:
                     raise LedgerConflictError("stale ledger draft")

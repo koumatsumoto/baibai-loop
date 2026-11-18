@@ -5,7 +5,7 @@ from contextlib import closing
 
 import pytest
 
-from baibai_engine.storage.sqlite.application.schema import SUPPORTED_APPLICATION_SCHEMA_VERSIONS
+from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.sqlite.application.write import connect_existing, initialize_database
 
 
@@ -29,14 +29,9 @@ def test_missing_store_is_opened_with_noncreating_sqlite_mode(tmp_path, monkeypa
     assert set(tmp_path.rglob("*")) == before
 
 
-@pytest.mark.parametrize("schema_version", SUPPORTED_APPLICATION_SCHEMA_VERSIONS)
-def test_supported_existing_store_keeps_transaction_and_integrity_settings(
-    tmp_path, monkeypatch, schema_version
-):
+def test_current_store_keeps_transaction_and_integrity_settings(tmp_path, monkeypatch):
     path = tmp_path / "app #1?.sqlite"
     initialize_database(path)
-    with closing(sqlite3.connect(path)) as connection:
-        connection.execute(f"PRAGMA user_version={schema_version}")
     before = path.read_bytes()
     monkeypatch.setenv("BAIBAI_DB", str(path))
     with closing(connect_existing()) as connection:
@@ -47,7 +42,7 @@ def test_supported_existing_store_keeps_transaction_and_integrity_settings(
         connection.execute("BEGIN IMMEDIATE")
         connection.execute("CREATE TABLE rolled_back(value TEXT)")
         connection.rollback()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == schema_version
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == APPLICATION_SCHEMA_VERSION
     assert path.read_bytes() == before
 
 
