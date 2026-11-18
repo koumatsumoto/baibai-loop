@@ -136,12 +136,7 @@ def load_generated_selection_context(
                     maximum=reported_pbr_max,
                     path=runs_path,
                     listings={
-                        r["ticker"]: (
-                            r["sector"],
-                            r["price_date"]
-                            if r["price_ready"] and r["price_date"] == r["expected_price_date"]
-                            else None,
-                        )
+                        r["ticker"]: (r["sector"], r["price_date"], r["expected_price_date"])
                         for r in index.rows
                     },
                 )

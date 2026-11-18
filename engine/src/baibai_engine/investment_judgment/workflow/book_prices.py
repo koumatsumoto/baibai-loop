@@ -160,20 +160,24 @@ def read_book_prices(
     maximum: float,
     generation_id: str,
     as_of: date,
-    listings: dict[str, tuple[str | None, str | None]],
+    listings: dict[str, tuple[str | None, str | None, str | None]],
     path: Path,
 ) -> BookPriceComparison:
-    sectors = {t: s for t, (s, _) in listings.items()}
-    stocks = tuple(t for t, (_, day) in listings.items() if day is not None)
+    sectors = {t: item[0] for t, item in listings.items()}
     prices = {}
     with stream_generation_subjects(
-        generation_id, subjects=stocks, model_ids=("company_financials",), path=path
+        generation_id, subjects=tuple(listings), model_ids=("company_financials",), path=path
     ) as saved:
         if saved is None or saved[0].as_of != as_of:
             raise ValueError("the fixed generation for the reported book comparison is unavailable")
         for ticker, (model,) in saved[1]:
-            price_date = listings[ticker][1]
-            assert price_date is not None
+            # 財務自身が正準の期待日を持つ。別のモデルの未生成は不一致ではない。
+            price_date = model.payload.get("expected_price_date")
+            _, market_day, expected_market_day = listings[ticker]
+            if not isinstance(price_date, str) or any(
+                day is not None and day != price_date for day in (market_day, expected_market_day)
+            ):
+                continue
             observed = _observed(model.payload, price_date, as_of)
             if observed is not None:
                 prices[ticker] = observed

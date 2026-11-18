@@ -117,9 +117,9 @@ def test_assets_cli_uses_all_unfiltered_peers_and_same_book_period(tmp_path, cap
         observation(
             t,
             sector=sec,
-            price_date="2026-10-22" if t == "1005" else _DAY,
-            expected_price_date=_DAY,
-            price_ready=t != "1005",
+            price_date="2026-10-22" if t == "1005" else None if t == "1001" else _DAY,
+            expected_price_date=None if t == "1001" else _DAY,
+            price_ready=t not in {"1001", "1005"},
             book_equity={
                 "amount_yen": 240 if fin is None else fin["financial"]["book_equity"]["amount_yen"]
             },
@@ -167,7 +167,7 @@ def test_assets_cli_uses_all_unfiltered_peers_and_same_book_period(tmp_path, cap
     assert calls[0][0] == gen.generation_id
     assert calls[0][1]["model_ids"] == ("company_financials",)
     assert calls[0][1]["path"] == runs
-    assert "1005" not in calls[0][1]["subjects"]
+    assert set(calls[0][1]["subjects"]) == set(stocks)
     meta = result["reported_book_comparison"]
     assert [meta[k] for k in ("within_question", "at_or_below", "above", "unavailable")] == [
         6,
