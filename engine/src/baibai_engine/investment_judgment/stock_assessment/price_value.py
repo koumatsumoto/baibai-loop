@@ -159,6 +159,20 @@ def referenced_price_fact(document: StockAssessmentDocument) -> ObservedFact | N
     return next((f for f in document.input_snapshot.facts if f.fact_id == price_id), None)
 
 
+def recorded_price_observation(quote: ObservedFact | None) -> dict[str, JsonValue] | None:
+    """作者が選んだ当時の一株価格。新しい終値や別の価格で欠測を埋めない。"""
+    if quote is None:
+        return None
+    return {
+        "fact_id": quote.fact_id,
+        "price_yen": quote.value,
+        "as_of": quote.as_of.isoformat(),
+        "observed_at": None if quote.observed_at is None else quote.observed_at.isoformat(),
+        "price_basis": quote.price_basis,
+        "source_ids": list(quote.source_ids),
+    }
+
+
 def reviewed_price_value_case(pair: ReviewedAssessment) -> dict[str, JsonValue] | None:
     """原文を検証済みの一組からだけ投影。古いstance・Pmax・現行quoteで格付けしない。"""
     document = pair.document
@@ -170,16 +184,7 @@ def reviewed_price_value_case(pair: ReviewedAssessment) -> dict[str, JsonValue] 
     return {
         "status": case.status,
         "assessment_as_of": snapshot.as_of.isoformat(),
-        "observed_quote": None
-        if quote is None
-        else {
-            "fact_id": quote.fact_id,
-            "price_yen": quote.value,
-            "as_of": quote.as_of.isoformat(),
-            "observed_at": None if quote.observed_at is None else quote.observed_at.isoformat(),
-            "price_basis": quote.price_basis,
-            "source_ids": list(quote.source_ids),
-        },
+        "observed_quote": recorded_price_observation(quote),
         "price_compatible_conditions": case.price_compatible_conditions,
         "common_share_reason": document.investment_case.explanation,
         "acquisition_limit": None

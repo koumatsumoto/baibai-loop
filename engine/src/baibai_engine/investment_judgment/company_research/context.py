@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue
 
 from baibai_engine.investment_judgment.company_research.contracts import (
     HypothesisCheck,
@@ -16,6 +16,10 @@ from baibai_engine.investment_judgment.company_research.contracts import (
 from baibai_engine.investment_judgment.company_research.document import ResearchRecord
 from baibai_engine.investment_judgment.contracts import NonEmptyStr
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
+from baibai_engine.investment_judgment.stock_assessment.price_value import (
+    PriceValueCase,
+    recorded_price_observation,
+)
 
 
 class _Context(BaseModel):
@@ -41,6 +45,28 @@ class AvailableResearch(_Context):
 class AssessmentValuationContext(_Context):
     status: Literal["resolved", "unresolved"]
     unresolved_reason: str | None
+
+
+class HistoricalPriceCase(_Context):
+    # The containing assessment already retains the observed facts, including alternate quotes.
+    market_price_fact_id: NonEmptyStr | None
+    case: PriceValueCase
+
+    def brief(self, facts: tuple[ObservedFact, ...]) -> dict[str, JsonValue]:
+        quote = next((fact for fact in facts if fact.fact_id == self.market_price_fact_id), None)
+        result = self.case.model_dump(mode="json")
+        result.setdefault("acquisition_limit", None)
+        result["observed_quote"] = recorded_price_observation(quote)
+        # Keep the authored price reversal together with its qualifications; the general
+        # business argument/evidence list is only a pointer to the same exact pair.
+        conditions = self.case.price_compatible_conditions
+        if conditions is not None and len(conditions) > 400:
+            result["price_compatible_conditions"] = conditions[:399] + "…"
+            result["price_compatible_conditions_truncated"] = True
+        if len(self.case.value_fact_ids) > 3:
+            result["value_fact_ids"] = list(self.case.value_fact_ids[:3])
+            result["value_fact_ids_omitted"] = len(self.case.value_fact_ids) - 3
+        return result
 
 
 class AssessmentReviewContext(_Context):
@@ -71,6 +97,10 @@ class AvailableAssessment(_Context):
     )
 
     valuation_context: AssessmentValuationContext | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    historical_price_case: HistoricalPriceCase | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
 
@@ -162,6 +192,11 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
             **(
                 {"valuation_context": _valuation_brief(assessment.valuation_context)}
                 if assessment.valuation_context is not None
+                else {}
+            ),
+            **(
+                {"price_value_case": assessment.historical_price_case.brief(assessment.facts)}
+                if assessment.historical_price_case is not None
                 else {}
             ),
             "business_understanding": assessment.findings.business_understanding[:400],
