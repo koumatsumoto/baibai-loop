@@ -329,7 +329,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert financial["debt"] == 40
     assert financial["net_cash"] == 60
     assert financial["investment_securities"] == 10
-    assert financial["asset_backed_ratio"] == pytest.approx(70 / 800)
+    assert "asset_backed_ratio" not in financial
     assert financial["edinet_reported_flows"]["amounts"]["free_cash_flow"] == 12
     assert financial["edinet_reported_flows"]["amounts"]["capex"] == 8
     assert financial["edinet_reported_flows"]["amounts"]["depreciation_and_amortization"] == 5
@@ -350,7 +350,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert "er_annual" not in financial
     assert "holder_capital_evidence" not in present[0].payload
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-cf-details-v2-book-source-v1-balance-context-v1-cfo-source-v1-capital-actions-v3-repeated-completion-issuer-capital-sources-v2"
+        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-cf-details-v2-book-source-v1-balance-context-v2-cfo-source-v1-capital-actions-v3-repeated-completion-issuer-capital-sources-v2"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
@@ -547,7 +547,6 @@ def test_missing_or_invalid_price_keeps_financial_observations_and_only_nulls_pr
         "dividend_yield",
         "fcf_yield",
         "net_cash_to_market_cap",
-        "asset_backed_ratio",
     ):
         assert financial[field] is None, field
     assert result["earnings_price"]["earnings_yield"] is None

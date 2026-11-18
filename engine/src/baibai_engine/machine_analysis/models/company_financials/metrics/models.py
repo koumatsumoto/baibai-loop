@@ -114,7 +114,6 @@ class FinancialSnapshot:
     net_cash: float | None = None
     net_cash_to_market_cap: float | None = None
     investment_securities: float | None = None
-    asset_backed_ratio: float | None = None
     fcf_yield: float | None = None
     debt: float | None = None
     cash: float | None = None
@@ -182,7 +181,6 @@ class FinancialSnapshot:
         "net_cash",
         "net_cash_to_market_cap",
         "investment_securities",
-        "asset_backed_ratio",
         "fcf_yield",
         "debt",
         "cash",

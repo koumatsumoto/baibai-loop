@@ -391,14 +391,6 @@ def build_financial_snapshot(
         net_cash=net_cash,
         net_cash_to_market_cap=_safe_ratio(net_cash, latest_market_cap),
         investment_securities=investment_securities,
-        asset_backed_ratio=_safe_ratio(
-            (
-                net_cash + investment_securities
-                if net_cash is not None and investment_securities is not None
-                else None
-            ),
-            latest_market_cap,
-        ),
         fcf_yield=_safe_ratio(fcf_ttm, latest_market_cap),
         debt=debt,
         cash=cash,
