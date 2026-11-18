@@ -11,6 +11,7 @@ import pytest
 from tests.helpers.screening_sqlite import add_source_coverage
 
 import baibai_engine.portfolio.holdings.market_observations as market_store
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -88,6 +89,22 @@ def test_portfolio_market_inputs_keep_one_snapshot_across_a_writer_commit(tmp_pa
             "SELECT close FROM jquants_daily_bars WHERE ticker = '1301' AND traded_at = ?",
             (END.isoformat(),),
         ).fetchone() == (999.0,)
+
+
+def test_portfolio_only_decodes_requested_traded_closes(tmp_path):
+    database = tmp_path / "market.sqlite"
+    _market_store(database)
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES (?,?,?)",
+            [("2345", END.isoformat(), None), ("3456", END.isoformat(), "broken")],
+        )
+
+    _, bars = market_store.read_portfolio_market_inputs(database, ("1301", "2345"), START, END)
+    assert bars is not None
+    assert [(bar.ticker, bar.close) for bar in bars] == [("1301", 100.0), ("1301", 101.0)]
+    with pytest.raises(JQuantsProviderError, match=r"corrupt SQLite row.*3456"):
+        market_store.read_portfolio_market_inputs(database, ("3456",), START, END)
 
 
 def test_portfolio_market_inputs_need_no_price_history_for_cash_only(tmp_path):

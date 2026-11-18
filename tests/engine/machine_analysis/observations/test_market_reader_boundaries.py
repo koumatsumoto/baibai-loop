@@ -23,10 +23,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics impor
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.prices import calendar_reader
-from baibai_engine.machine_analysis.observations.prices.price_reader import (
-    read_daily_bars,
-    read_daily_bars_for_tickers,
-)
+from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
 from baibai_engine.machine_analysis.observations.stocks import reader as stock_reader
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     record_range_source_coverage,
@@ -74,9 +71,8 @@ def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) ->
         read_next_earnings_dates(path, end)
 
 
-@pytest.mark.parametrize("scoped", [False, True])
 @pytest.mark.parametrize("corrupt", [False, True])
-def test_bar_readers_share_decoding_and_corrupt_row_behavior(tmp_path, scoped, corrupt):
+def test_daily_bars_keep_volume_and_reject_corrupt_closes(tmp_path, corrupt):
     path = tmp_path / "market.sqlite"
     day = date(2026, 1, 30)
     with closing(open_connection(path)) as conn, conn:
@@ -100,21 +96,16 @@ def test_bar_readers_share_decoding_and_corrupt_row_behavior(tmp_path, scoped, c
             error=None,
         )
 
-    def read():
-        if scoped:
-            return read_daily_bars_for_tickers(path, ("1301",), day, day)
-        return read_daily_bars(path, day, day)
-
     if corrupt:
         with pytest.raises(JQuantsProviderError, match="corrupt SQLite row"):
-            read()
+            read_daily_bars(path, day, day)
     else:
-        rows = read()
+        rows = read_daily_bars(path, day, day)
         assert rows is not None
-        expected = [("1301", 101.0, 10.0)]
-        if not scoped:
-            expected.append(("1302", 202.0, 20.0))
-        assert [(row.ticker, row.close, row.volume) for row in rows] == expected
+        assert [(row.ticker, row.close, row.volume) for row in rows] == [
+            ("1301", 101.0, 10.0),
+            ("1302", 202.0, 20.0),
+        ]
 
 
 @pytest.mark.parametrize("missing_coverage", [False, True])
@@ -166,7 +157,7 @@ def test_master_query_failure_propagates_and_closes_connection(tmp_path, monkeyp
         conn.execute("SELECT 1")
 
 
-@pytest.mark.parametrize("reader_kind", ["all", "scoped", "actions"])
+@pytest.mark.parametrize("reader_kind", ["all", "actions"])
 def test_price_coverage_and_rows_share_a_read_snapshot(tmp_path, monkeypatch, reader_kind):
     path = tmp_path / "market.sqlite"
     day = date(2026, 1, 30)
@@ -208,8 +199,6 @@ def test_price_coverage_and_rows_share_a_read_snapshot(tmp_path, monkeypatch, re
     def read():
         if reader_kind == "actions":
             return price_reader.read_adjustment_factor_bars(path, day, day)
-        if reader_kind == "scoped":
-            return read_daily_bars_for_tickers(path, ("1301",), day, day)
         return read_daily_bars(path, day, day)
 
     rows = read()
