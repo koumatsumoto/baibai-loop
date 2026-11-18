@@ -1,8 +1,8 @@
-"""保存TAから現行の探索理由を返す。投資採否は行わない。"""
+"""保存済みの株価・市場モデルから探索用の分類を読む。売買の判断ではない。"""
 
 from __future__ import annotations
 
-from copy import deepcopy
+from dataclasses import dataclass
 from datetime import date
 from math import isfinite
 from typing import Literal
@@ -12,41 +12,21 @@ from pydantic import JsonValue
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
 from baibai_engine.primitives.stocks import normalize_ticker
 
-STRATEGY_POLICY_ID = "technical-discovery-v1"
-MODEL_IDS = ("technical_analysis", "market_context")
-_WINDOW_FIELDS = (
-    "window_start_date",
-    "window_end_date",
-    "window_bars",
-    "calendar_differences",
-    "comparison_start_date",
-    "comparison_end_date",
-    "start_date",
-    "end_date",
-    "reference_date",
-    "current_date",
-    "prior_start_date",
-    "prior_end_date",
-    "prior_valid_days",
-    "window_basis",
-)
+
+@dataclass(frozen=True, slots=True)
+class TechnicalDiscovery:
+    state: Literal["matched", "not_matched", "unavailable"]
+    expected_price_date: str | None
+    price_ready: bool
 
 
-def _lookup(payload: JsonValue, path: tuple[str, ...]) -> tuple[str, JsonValue]:
+def _section(payload: dict[str, JsonValue], *path: str) -> dict[str, JsonValue]:
     for key in path:
-        if payload is None:
-            return "recorded_null", None
-        if not isinstance(payload, dict):
-            return "invalid_structure", None
-        if key not in payload:
-            return "not_recorded", None
-        payload = payload[key]
-    return ("recorded_null" if payload is None else "recorded"), payload
-
-
-def _object(payload: JsonValue, *path: str) -> dict[str, JsonValue]:
-    _, value = _lookup(payload, path)
-    return value if isinstance(value, dict) else {}
+        value = payload.get(key)
+        if not isinstance(value, dict):
+            return {}
+        payload = value
+    return payload
 
 
 def _number(value: JsonValue) -> float | None:
@@ -64,396 +44,177 @@ def _date(value: JsonValue) -> date | None:
         return None
 
 
-def _observation(
-    model: GeneratedModel | None,
-    path: tuple[str, ...],
+def _window(section: dict[str, JsonValue], expected: str, start_field: str, end_field: str) -> bool:
+    if section.get(end_field) != expected:
+        return False
+    start, end = _date(section.get(start_field)), _date(expected)
+    return start is not None and end is not None and start <= end
+
+
+def _value(
+    section: dict[str, JsonValue],
     field: str,
+    expected: str,
     *,
-    expected_date: str | None,
-    endpoint_field: str,
-    status_required: bool = True,
-    unavailable_field: str | None = None,
-    window_path: tuple[str, ...] | None = None,
-) -> dict[str, JsonValue]:
-    section_state, raw = (
-        ("model_not_generated", None) if model is None else _lookup(model.payload, path)
+    start: str = "window_start_date",
+    end: str = "window_end_date",
+    reason_field: str | None = None,
+) -> float | None:
+    # 価格経路は理由欄の明示null、それ以外は各モデルのavailableが観測済みの印。
+    available = (
+        section.get("status") == "available"
+        if reason_field is None
+        else reason_field in section and section[reason_field] is None
     )
-    section = raw if isinstance(raw, dict) else {}
-    if section_state == "recorded" and not isinstance(raw, dict):
-        section_state = "invalid_structure"
-    state, raw_value = (
-        _lookup(section, (field,)) if section_state == "recorded" else (section_state, None)
-    )
-    value = _number(raw_value)
-    start_field = {
-        "window_end_date": "window_start_date",
-        "reference_date": "start_date",
-        "comparison_end_date": "comparison_start_date",
-        "current_date": "prior_start_date",
-    }[endpoint_field]
-    window = (
-        section
-        if window_path is None
-        else _object({} if model is None else model.payload, *window_path)
-    )
-    start, end = _date(window.get(start_field)), _date(window.get(endpoint_field))
-    reason = None
-    if state != "recorded":
-        reason = state
-    elif value is None:
-        reason = "nonfinite_or_non_numeric"
-    elif status_required and section.get("status") != "available":
-        reason = "source_not_available"
-    elif unavailable_field is not None and unavailable_field not in section:
-        reason = "source_state_not_recorded"
-    elif unavailable_field is not None and section[unavailable_field] is not None:
-        reason = "source_not_available"
-    elif expected_date is None or window.get(endpoint_field) != expected_date:
-        reason = "price_date_mismatch_or_unknown"
-    elif start is None or end is None or start > end:
-        reason = "window_missing_or_invalid"
-    return {
-        "source_field": ".".join((*path, field)),
-        "source_state": state,
-        "value": value,
-        "unavailable_reason": reason,
-        "source_status": section.get("status") if isinstance(section.get("status"), str) else None,
-        "source_unavailable_reason": section.get(unavailable_field or "unavailable_reason")
-        if isinstance(section.get(unavailable_field or "unavailable_reason"), str)
-        else None,
-        "window": {key: window[key] for key in _WINDOW_FIELDS if key in window},
-    }
-
-
-def _condition(
-    observation: dict[str, JsonValue], *, below: bool = False, boundary: float = 0
-) -> bool | None:
-    value = _number(observation["value"])
-    if observation["unavailable_reason"] is not None or value is None:
+    if not available or not _window(section, expected, start, end):
         return None
-    return value < boundary if below else value > boundary
+    return _number(section.get(field))
 
 
-def _route(conditions: dict[str, bool | None], *, price_ready: bool) -> dict[str, JsonValue]:
-    failed: list[JsonValue] = [name for name, value in conditions.items() if value is False]
-    missing: list[JsonValue] = [name for name, value in conditions.items() if value is None]
-    # A stale/no-trade row must not become a match, even if its retained indicators look strong.
-    state: Literal["matched", "not_matched", "unavailable"] = (
-        "unavailable"
-        if not price_ready
-        else "not_matched"
-        if failed
-        else "unavailable"
-        if missing
-        else "matched"
-    )
-    return {
-        "state": state,
-        "conditions": dict(conditions),
-        "failed_conditions": failed,
-        "missing_conditions": missing,
-    }
+def _above(value: float | None, boundary: float = 0) -> bool | None:
+    return None if value is None else value > boundary
 
 
-def _base_context(
-    ticker: str,
-    *,
-    models: tuple[GeneratedModel, ...],
-    metadata: GenerationMetadata,
-) -> dict[str, JsonValue]:
-    """Same-generation inputs only; neither financial eligibility nor a candidate quota is used."""
-    ticker = normalize_ticker(ticker)
-    if any(model.subject != ticker for model in models):
-        raise ValueError("technical discovery requires models for one subject")
-    if len({model.model_id for model in models}) != len(models):
-        raise ValueError("technical discovery requires unique model IDs")
-    by_id = {model.model_id: model for model in models if model.model_id in MODEL_IDS}
-    ta, market = by_id.get("technical_analysis"), by_id.get("market_context")
-    ta_payload, market_payload = (
-        ({} if ta is None else ta.payload),
-        ({} if market is None else market.payload),
-    )
-    price_path = _object(ta_payload, "price_path")
-    master = _object(market_payload, "master")
-    raw_expected = price_path.get("expected_price_date")
-    expected = raw_expected if isinstance(raw_expected, str) else None
-    expected_date = _date(expected)
-    calendar_valid = expected_date is not None and expected_date <= metadata.as_of
-    price_conditions = {
-        "common_stock": master.get("is_common_stock") is True,
-        "expected_date_known": calendar_valid,
-        "expected_date_priced": price_path.get("current_row_state") == "priced",
-        "current_freshness": price_path.get("freshness") == "current",
-        "current_price_positive": (_number(price_path.get("current_price")) or 0) > 0,
-        "adjusted_close_basis": price_path.get("price_basis") == "price_adjusted_close"
-        and ta_payload.get("price_basis") == "price_adjusted_close",
-        "latest_date_matches_expected": expected is not None
-        and price_path.get("latest_observed_price_date") == expected,
-    }
-    price_ready = all(price_conditions.values())
-    observations = {}
-    for name in ("R1", "R20"):
-        observations[name] = _observation(
-            ta,
-            ("price_path", "observations", name),
-            "value",
-            expected_date=expected,
-            endpoint_field="window_end_date",
-            status_required=False,
-            unavailable_field="unavailable_reason",
-        )
-    observations["window_return_60d"] = _observation(
-        ta,
-        ("price_path", "observations", "G60"),
-        "window_return",
-        expected_date=expected,
-        endpoint_field="window_end_date",
-        status_required=False,
-        unavailable_field="window_return_unavailable_reason",
-    )
-    observations["momentum_12_1"] = _observation(
-        ta,
-        ("price_momentum",),
-        "value",
-        expected_date=expected,
-        endpoint_field="reference_date",
-    )
-    for window in (20, 50, 200):
-        observations[f"sma_{window}bar_gap"] = _observation(
-            ta,
-            ("moving_averages", f"sma_{window}bar"),
-            "gap_ratio",
-            expected_date=expected,
-            endpoint_field="window_end_date",
-        )
-    relative_path = ("price_path_relative", "comparisons", "R20")
-    observations["market_relative_20d"] = _observation(
-        market,
-        relative_path,
-        "relative_return",
-        expected_date=expected,
-        endpoint_field="comparison_end_date",
-    )
-    r20 = _object(ta_payload, "price_path", "observations", "R20")
-    relative = _object(market_payload, *relative_path)
-    if observations["market_relative_20d"]["unavailable_reason"] is None and (
-        not isinstance(r20.get("window_start_date"), str)
-        or relative.get("comparison_start_date") != r20.get("window_start_date")
-        or relative.get("comparison_end_date") != r20.get("window_end_date")
+def _negative(value: float | None) -> bool | None:
+    return None if value is None else value < 0
+
+
+def _all(*conditions: bool | None) -> bool | None:
+    return False if False in conditions else None if None in conditions else True
+
+
+def _market_outperformance(
+    relative: dict[str, JsonValue], own_r20: dict[str, JsonValue], expected: str
+) -> bool | None:
+    comparison = _section(relative, "comparisons", "R20")
+    if (
+        relative.get("price_basis") != "price_adjusted_close"
+        or comparison.get("comparison_start_date") != own_r20.get("window_start_date")
+        or comparison.get("comparison_end_date") != own_r20.get("window_end_date")
     ):
-        observations["market_relative_20d"]["unavailable_reason"] = "comparison_window_mismatch"
-    if observations["market_relative_20d"]["unavailable_reason"] is None and (
-        _object(market_payload, "price_path_relative").get("price_basis") != "price_adjusted_close"
-    ):
-        observations["market_relative_20d"]["unavailable_reason"] = (
-            "price_basis_mismatch_or_unknown"
+        return None
+    return _above(
+        _value(
+            comparison,
+            "relative_return",
+            expected,
+            start="comparison_start_date",
+            end="comparison_end_date",
         )
-    observations["turnover_activity_20d"] = _observation(
-        market,
-        ("price", "turnover_activity_20d"),
-        "current_to_prior_mean_ratio",
-        expected_date=expected,
-        endpoint_field="current_date",
     )
-    activity = _object(market_payload, "price", "turnover_activity_20d")
-    if observations["turnover_activity_20d"]["unavailable_reason"] is None and (
-        activity.get("basis") != "traded_value_yen_not_share_volume"
-        or activity.get("window_basis") != "prior_20_common_trading_sessions_excluding_current"
+
+
+def _turnover_expansion(market: dict[str, JsonValue], expected: str) -> bool | None:
+    row = _section(market, "price", "turnover_activity_20d")
+    if (
+        row.get("basis") != "traded_value_yen_not_share_volume"
+        or row.get("window_basis") != "prior_20_common_trading_sessions_excluding_current"
     ):
-        observations["turnover_activity_20d"]["unavailable_reason"] = (
-            "turnover_basis_mismatch_or_unknown"
-        )
-    conditions = {
-        "market_outperformance": {
-            "market_relative_20d_positive": _condition(observations["market_relative_20d"])
-        },
-        "trend_continuation": {
-            name + "_positive": _condition(observations[name])
-            for name in (
-                "momentum_12_1",
-                "R20",
-                "window_return_60d",
-                "sma_50bar_gap",
-                "sma_200bar_gap",
-            )
-        },
-        "trend_pullback": {
-            "momentum_12_1_positive": _condition(observations["momentum_12_1"]),
-            "sma_200bar_gap_positive": _condition(observations["sma_200bar_gap"]),
-            "sma_20bar_gap_negative": _condition(observations["sma_20bar_gap"], below=True),
-        },
-        "rebound_start": {
-            "R20_negative": _condition(observations["R20"], below=True),
-            "R1_positive": _condition(observations["R1"]),
-        },
-        "turnover_expansion": {
-            "above_own_prior_mean": _condition(observations["turnover_activity_20d"], boundary=1)
-        },
-    }
-    routes = {name: _route(checks, price_ready=price_ready) for name, checks in conditions.items()}
-    return {
-        "kind": "technical_discovery_strategy",
-        "policy_id": STRATEGY_POLICY_ID,
-        "generation_id": metadata.generation_id,
-        "as_of": metadata.as_of.isoformat(),
-        "evaluation_time": metadata.evaluation_time.isoformat(),
-        "ticker": ticker,
-        "expected_price_date": expected,
-        "price_context": {
-            "ready": price_ready,
-            "conditions": dict(price_conditions.items()),
-            "current_row_state": price_path.get("current_row_state"),
-            "latest_observed_price_date": price_path.get("latest_observed_price_date"),
-            "freshness": price_path.get("freshness"),
-            "price_basis": price_path.get("price_basis"),
-        },
-        "market_relative_benchmark": _object(market_payload, "price_path_relative").get(
-            "benchmark_ticker"
+        return None
+    return _above(
+        _value(
+            row,
+            "current_to_prior_mean_ratio",
+            expected,
+            start="prior_start_date",
+            end="current_date",
         ),
-        "matched_routes": [name for name, route in routes.items() if route["state"] == "matched"],
-        "routes": dict(routes.items()),
-        "observations": dict(observations.items()),
-        "model_revisions": {name: model.calculation_revision for name, model in by_id.items()},
-        "missing_models": [name for name in MODEL_IDS if name not in by_id],
-        "detail_sections": ["technical_analysis.price_path", "market_context.relative"],
-    }
-
-
-def _market_down_observation(
-    market: GeneratedModel | None,
-    *,
-    benchmark: JsonValue,
-    field: str,
-    expected_date: str | None,
-) -> dict[str, JsonValue]:
-    root = ("relative", "market_conditioned_60d")
-    known_benchmark = isinstance(benchmark, str) and bool(benchmark.strip())
-    benchmark_key = benchmark if isinstance(benchmark, str) else ""
-    observation = _observation(
-        market,
-        (*root, "benchmarks", benchmark_key, "down"),
-        field,
-        expected_date=expected_date,
-        endpoint_field="window_end_date",
-        status_required=False,
-        window_path=root,
+        1,
     )
-    payload = {} if market is None else market.payload
-    window = _object(payload, *root)
-    section = _object(window, "benchmarks", benchmark_key)
-    days = _number(_object(section, "down").get("days"))
-    reason = observation["unavailable_reason"]
-    if not known_benchmark:
-        reason = "market_relative_benchmark_unavailable"
-        observation["source_field"] = ".".join((*root, "benchmarks"))
-    elif reason is None:
-        if "unavailable_reason" not in section:
-            reason = "source_state_not_recorded"
-        elif section.get("status") != "available" or section.get("unavailable_reason") is not None:
-            reason = "source_not_available"
-        elif window.get("price_basis") != "price_adjusted_close_not_total_return":
-            reason = "price_basis_mismatch_or_unknown"
-        elif (
-            window.get("window_basis") != "common_trading_calendar"
-            or window.get("calendar_differences") != 60
-        ):
-            reason = "condition_window_mismatch_or_unknown"
-        elif days is None or days != int(days) or not 0 < days <= 60:
-            reason = "no_valid_condition_days"
-    observation["unavailable_reason"] = reason
-    observation["source_status"] = section.get("status")
-    observation["source_unavailable_reason"] = section.get("unavailable_reason")
-    observation["benchmark_ticker"] = benchmark if known_benchmark else None
-    observation["condition_days"] = days
-    # 平均の強さと上昇/超過した日の頻度は別の問い。比率や勝率へ昇格しない。
-    down = _object(section, "down")
-    counts: dict[str, JsonValue] = {
-        name: deepcopy(down[name]) for name in ("own_up_days", "outperform_days") if name in down
-    }
-    if counts:
-        observation["condition_counts"] = counts
-    return observation
 
 
-def _saved_section(model: GeneratedModel | None, *path: str) -> dict[str, JsonValue]:
-    state, value = ("model_not_generated", None) if model is None else _lookup(model.payload, path)
-    return {
-        "source_field": ".".join(path),
-        "source_state": state,
-        "value": deepcopy(value),
-    }
+def _market_down_resilience(
+    market: dict[str, JsonValue], benchmark: JsonValue, expected: str
+) -> bool | None:
+    if not isinstance(benchmark, str) or not benchmark.strip():
+        return None
+    window = _section(market, "relative", "market_conditioned_60d")
+    source = _section(window, "benchmarks", benchmark)
+    down = _section(source, "down")
+    days = _number(down.get("days"))
+    if (
+        source.get("status") != "available"
+        or "unavailable_reason" not in source
+        or source["unavailable_reason"] is not None
+        or not _window(window, expected, "window_start_date", "window_end_date")
+        or window.get("price_basis") != "price_adjusted_close_not_total_return"
+        or window.get("window_basis") != "common_trading_calendar"
+        or window.get("calendar_differences") != 60
+        or days is None
+        or not days.is_integer()
+        or not 0 < days <= 60
+    ):
+        return None
+    return _all(
+        _above(_number(down.get("own_mean_return"))),
+        _above(_number(down.get("mean_excess_return"))),
+    )
 
 
 def evaluate_technical_strategy(
-    ticker: str,
-    *,
-    models: tuple[GeneratedModel, ...],
-    metadata: GenerationMetadata,
-) -> dict[str, JsonValue]:
-    """広域の探索理由を返す。MAクロス日・買付採否・主体別資金流入は推定しない。"""
-    row = _base_context(ticker, models=models, metadata=metadata)
-    by_id = {model.model_id: model for model in models if model.model_id in MODEL_IDS}
-    ta, market = by_id.get("technical_analysis"), by_id.get("market_context")
-    expected = row["expected_price_date"]
-    assert isinstance(expected, str) or expected is None
-    observations = _object(row, "observations")
-    observations["sma_75bar_gap"] = _observation(
-        ta,
-        ("moving_averages", "sma_75bar"),
-        "gap_ratio",
-        expected_date=expected,
-        endpoint_field="window_end_date",
-    )
-    for name, field in (
-        ("market_down_own_return_60d", "own_mean_return"),
-        ("market_down_excess_return_60d", "mean_excess_return"),
+    ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
+) -> TechnicalDiscovery:
+    ticker = normalize_ticker(ticker)
+    if any(model.subject != ticker for model in models):
+        raise ValueError("technical discovery requires models for one subject")
+    by_id = {model.model_id: model.payload for model in models}
+    if len(by_id) != len(models):
+        raise ValueError("technical discovery requires unique model IDs")
+
+    ta, market = by_id.get("technical_analysis", {}), by_id.get("market_context", {})
+    path = _section(ta, "price_path")
+    raw_expected = path.get("expected_price_date")
+    expected = raw_expected if isinstance(raw_expected, str) else None
+    day = _date(expected)
+    if (
+        expected is None
+        or day is None
+        or day > metadata.as_of
+        or _section(market, "master").get("is_common_stock") is not True
+        or path.get("current_row_state") != "priced"
+        or path.get("freshness") != "current"
+        or (_number(path.get("current_price")) or 0) <= 0
+        or path.get("price_basis") != "price_adjusted_close"
+        or ta.get("price_basis") != "price_adjusted_close"
+        or path.get("latest_observed_price_date") != expected
     ):
-        observations[name] = _market_down_observation(
-            market,
-            benchmark=row["market_relative_benchmark"],
-            field=field,
-            expected_date=expected,
+        return TechnicalDiscovery("unavailable", expected, False)
+
+    observations = _section(path, "observations")
+    own_r20 = _section(observations, "R20")
+    r20 = _value(own_r20, "value", expected, reason_field="unavailable_reason")
+    r1 = _value(_section(observations, "R1"), "value", expected, reason_field="unavailable_reason")
+    g60 = _value(
+        _section(observations, "G60"),
+        "window_return",
+        expected,
+        reason_field="window_return_unavailable_reason",
+    )
+    momentum = _above(
+        _value(
+            _section(ta, "price_momentum"),
+            "value",
+            expected,
+            start="start_date",
+            end="reference_date",
         )
-    price_ready = _object(row, "price_context").get("ready") is True
-    routes = _object(row, "routes")
-    routes["market_down_resilience"] = _route(
-        {
-            name + "_positive": _condition(_object(observations, name))
-            for name in ("market_down_own_return_60d", "market_down_excess_return_60d")
-        },
-        price_ready=price_ready,
     )
-    routes["price_strength_with_activity"] = _route(
-        {
-            **{
-                name + "_positive": _condition(_object(observations, name))
-                for name in ("R1", "sma_75bar_gap", "sma_200bar_gap")
-            },
-            "turnover_above_own_prior_mean": _condition(
-                _object(observations, "turnover_activity_20d"), boundary=1
-            ),
-        },
-        price_ready=price_ready,
+    moving = _section(ta, "moving_averages")
+    sma20, sma50, sma200 = (
+        _value(_section(moving, f"sma_{bars}bar"), "gap_ratio", expected) for bars in (20, 50, 200)
     )
-    matched: list[JsonValue] = [
-        name for name, route in routes.items() if _object(route).get("state") == "matched"
-    ]
-    state = (
-        "matched"
-        if matched
-        else "unavailable"
-        if any(_object(route).get("state") == "unavailable" for route in routes.values())
-        else "not_matched"
+    above200 = _above(sma200)
+    relative = _section(market, "price_path_relative")
+    routes = (
+        _market_outperformance(relative, own_r20, expected),
+        _all(momentum, _above(r20), _above(g60), _above(sma50), above200),
+        _all(momentum, above200, _negative(sma20)),
+        _all(_negative(r20), _above(r1)),
+        _turnover_expansion(market, expected),
+        _market_down_resilience(market, relative.get("benchmark_ticker"), expected),
     )
-    return {
-        **row,
-        "state": state,
-        "matched_routes": matched,
-        "routes": routes,
-        "observations": observations,
-        # These are complementary questions, not extra votes or conditions inferred from averages.
-        "supporting_context": {
-            "market_conditioned_60d": _saved_section(market, "relative", "market_conditioned_60d"),
-            "price_path_60d": _saved_section(ta, "price_path", "observations", "G60"),
-        },
-    }
+    return TechnicalDiscovery(
+        "matched" if True in routes else "unavailable" if None in routes else "not_matched",
+        expected,
+        True,
+    )

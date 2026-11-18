@@ -24,6 +24,7 @@ from baibai_engine.machine_analysis.screening.policies.financial_growth import (
     _financial_growth_with_path_inputs,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
+    TechnicalDiscovery,
     evaluate_technical_strategy,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
@@ -43,7 +44,7 @@ def _text(value: JsonValue | None) -> str | None:
 def read_discovery_observations(
     ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
 ) -> tuple[
-    dict[str, JsonValue], dict[str, JsonValue], CompanyCoordinates, tuple[dict[str, JsonValue], ...]
+    TechnicalDiscovery, dict[str, JsonValue], CompanyCoordinates, tuple[dict[str, JsonValue], ...]
 ]:
     technical = evaluate_technical_strategy(ticker, models=models, metadata=metadata)
     # 財務による独立発見をTAの合否・欠測で止めない。
@@ -80,7 +81,7 @@ def project_discovery_row(
     adjustments = earnings.get("share_basis_adjustments")
     f_paths = [path for path in coordinates.paths if path.eligible]
     f_routes: list[str] = sorted({path.path_id for path in f_paths})
-    g_state, t_state = str(gate["state"]), str(technical["state"])
+    g_state, t_state = str(gate["state"]), technical.state
     needs_review = (
         g_state in {"input_unresolved", "not_selected"} and not f_routes and bool(reviews)
     )
@@ -96,7 +97,7 @@ def project_discovery_row(
                 values = issues.get(kind)
                 if isinstance(values, list):
                     missing.update("growth:" + item for item in values if isinstance(item, str))
-    expected = _text(technical.get("expected_price_date"))
+    expected = technical.expected_price_date
     day = _text(price.get("resolved_date"))
     return DiscoveryRow(
         ticker=ticker,
@@ -133,7 +134,7 @@ def project_discovery_row(
             and amount > 0
             and day is not None
             and day == expected
-            and _object(technical.get("price_context")).get("ready") is True
+            and technical.price_ready
         ),
         book_equity=(
             cast(
