@@ -99,6 +99,7 @@ def fixed_input(
     as_of: date,
     evaluated_at: datetime,
     days: Sequence[date] | None = None,
+    immediate_full_replay: bool = False,
 ) -> InputSnapshot:
     """Retain all selected day evidence; neither as-of nor calendar year trims history."""
     head = fixed.value()
@@ -134,6 +135,7 @@ def fixed_input(
                 **_summary(scopes),
             },
         },
+        immediate_full_replay=immediate_full_replay,
     )
     digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
     return InputSnapshot(
@@ -262,7 +264,9 @@ def model_input(
     evaluated_at: datetime,
     market: Path,
 ) -> InputSnapshot:
-    saved = fixed_input(store, fixed, as_of=as_of, evaluated_at=evaluated_at)
+    saved = fixed_input(
+        store, fixed, as_of=as_of, evaluated_at=evaluated_at, immediate_full_replay=True
+    )
     materialize_saved_input(store, saved, market=market)
     return saved
 

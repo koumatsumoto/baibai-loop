@@ -18,7 +18,12 @@ from pydantic import BaseModel, ConfigDict, JsonValue, model_validator
 
 from baibai_engine.machine_analysis.generation.contracts import Digest
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.objects.r2 import LakePublishError, ObjectMetadataReader, ObjectStore
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
+    ObjectMetadataReader,
+    ObjectStore,
+    VerifiedObjectReader,
+)
 
 
 @dataclass(slots=True)
@@ -27,6 +32,18 @@ class _VerifiedReads:
     retained: set[str] = field(default_factory=set)
     bodies: dict[str, bytes] = field(default_factory=dict)
     size: int = 0
+
+    def can_hold(self, key: str, size: int) -> bool:
+        return (
+            key not in self.bodies
+            and len(self.bodies) < _MAX_KEYS
+            and self.size + size <= _MAX_BYTES
+        )
+
+    def remember(self, key: str, body: bytes) -> None:
+        if self.can_hold(key, len(body)):
+            self.bodies[key] = body
+            self.size += len(body)
 
 
 _ACTIVE: ContextVar[_VerifiedReads | None] = ContextVar("fixed_full_day_reads", default=None)
@@ -106,14 +123,8 @@ def _read(store: ObjectStore, key: str, digest: str, *, after_put: bool = False)
             payload = store.get_bytes(key)
         if hashlib.sha256(payload).hexdigest() != digest:
             raise LakePublishError("fixed full-day input object failed integrity")
-        if (
-            cache is not None
-            and key not in cache.bodies
-            and len(cache.bodies) < _MAX_KEYS
-            and cache.size + len(payload) <= _MAX_BYTES
-        ):
-            cache.bodies[key] = payload
-            cache.size += len(payload)
+        if cache is not None:
+            cache.remember(key, payload)
     value = json.loads(payload)
     if not isinstance(value, dict):
         raise ValueError("fixed full-day input object must be an object")
@@ -126,6 +137,8 @@ def _retain(
     value: dict[str, Any],
     directory: Path,
     contract: FullDayInputContract,
+    *,
+    immediate_full_replay: bool,
 ) -> str:
     payload = canonical_json(value).encode()
     digest = hashlib.sha256(payload).hexdigest()
@@ -133,11 +146,27 @@ def _retain(
     cache = _active(store)
     if cache is not None and key in cache.retained:
         return digest
-    existing = store.head(key)
-    if existing is not None:
-        if existing.size != len(payload) or existing.metadata.get("sha256") != digest:
-            raise LakePublishError("fixed full-day input object identity conflicts")
+    # Only the two callers which will read every selected block immediately opt in.
+    # Without room to carry its checked body the GET would be paid for twice.
+    if (
+        immediate_full_replay
+        and cache is not None
+        and cache.can_hold(key, len(payload))
+        and isinstance(store, VerifiedObjectReader)
+    ):
+        # This verifies the expected SHA in both the headers and the bounded body.
+        body = store.get_verified_bytes(key, sha256=digest, max_bytes=len(payload))
+        if body is not None:
+            cache.remember(key, body)
+        present = body is not None
     else:
+        meta = store.head(key)
+        if meta is not None and (
+            meta.size != len(payload) or meta.metadata.get("sha256") != digest
+        ):
+            raise LakePublishError("fixed full-day input object identity conflicts")
+        present = meta is not None
+    if not present:
         _write(store, key, digest, payload, directory)
     if cache is not None and len(cache.retained) < _MAX_KEYS:
         cache.retained.add(key)
@@ -167,7 +196,11 @@ def _write(store: ObjectStore, key: str, digest: str, payload: bytes, directory:
 
 
 def retain_full_day_input(
-    store: ObjectStore, selected: dict[str, Any], *, contract: FullDayInputContract
+    store: ObjectStore,
+    selected: dict[str, Any],
+    *,
+    contract: FullDayInputContract,
+    immediate_full_replay: bool = False,
 ) -> dict[str, JsonValue]:
     """月別metadataを共有し、日々の全履歴複写を避ける。
 
@@ -193,13 +226,27 @@ def retain_full_day_input(
     with tempfile.TemporaryDirectory(prefix=".full-day-input-") as temporary:
         directory = Path(temporary)
         identities = {
-            month: _retain(store, "months", block, directory, contract)
+            month: _retain(
+                store,
+                "months",
+                block,
+                directory,
+                contract,
+                immediate_full_replay=immediate_full_replay,
+            )
             for month, block in months.items()
         }
         root = _Selection(
             format=contract.selection_format, start=days[0], end=days[-1], months=identities
         )
-        digest = _retain(store, "selections", root.model_dump(mode="json"), directory, contract)
+        digest = _retain(
+            store,
+            "selections",
+            root.model_dump(mode="json"),
+            directory,
+            contract,
+            immediate_full_replay=immediate_full_replay,
+        )
     return {
         "format": contract.input_format,
         "head_sha256": selected["head_sha256"],

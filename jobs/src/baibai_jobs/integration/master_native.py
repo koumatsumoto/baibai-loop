@@ -197,6 +197,7 @@ def fixed_input(
     evaluated_at: datetime,
     days: Sequence[date] | None = None,
     closed_bases: Mapping[date, date] | None = None,
+    immediate_full_replay: bool = False,
 ) -> InputSnapshot:
     """Retain acquisition membership and state without decoding any source pack."""
     head = fixed.value()
@@ -266,6 +267,7 @@ def fixed_input(
             "receipts": {identity: head["receipts"][identity] for identity in identities},
             "summary": summary,
         },
+        immediate_full_replay=immediate_full_replay,
     )
     digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
     return InputSnapshot(
@@ -294,7 +296,12 @@ def model_input(
             coverage=covered_intervals(connection, "jquants_market_calendar"),
         )
     saved = fixed_input(
-        store, fixed, as_of=as_of, evaluated_at=evaluated_at, closed_bases=closed_bases
+        store,
+        fixed,
+        as_of=as_of,
+        evaluated_at=evaluated_at,
+        closed_bases=closed_bases,
+        immediate_full_replay=True,
     )
     days = tuple(date.fromisoformat(day) for day in sorted(fixed.value()["scopes"]))
     result = materialize_saved_input(store, saved, market=market, days=days, replace_all=True)
