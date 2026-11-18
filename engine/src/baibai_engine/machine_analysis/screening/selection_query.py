@@ -15,6 +15,7 @@ from baibai_engine.machine_analysis.generation.contracts import GenerationMetada
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
 )
+from baibai_engine.primitives.json import encode_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 _CODEC = TypeAdapter(ScreeningSelection)
@@ -50,6 +51,54 @@ def read_publication(
     known_at: datetime | None = None,
 ) -> ScreeningPublication | None:
     """基準日の新しさを優先し、同日は実際の発行時刻で選ぶ。再発行は不変。"""
+    row = _publication_data(
+        path=path,
+        selection_id=selection_id,
+        before_as_of=before_as_of,
+        as_of=as_of,
+        known_at=known_at,
+    )
+    if row is None:
+        return None
+    identity, published_at, generation, compressed = row
+    return ScreeningPublication(identity, published_at, generation, _decode_selection(compressed))
+
+
+def matches_validated_publication(
+    *,
+    path: Path,
+    selection_id: str,
+    known_at: datetime,
+    published_at: datetime | None,
+    selection: ScreeningSelection,
+) -> bool:
+    """型検証済みのOperation入力を同時点の発行原本と照合する。"""
+    row = _publication_data(path=path, selection_id=selection_id, known_at=known_at)
+    if row is None:
+        return False
+    _, actual_time, _, compressed = row
+    incoming = _canonical_bytes(selection)
+    # 通常writerの正規JSONとの完全一致は、検証済み入力と値・型が同じ証拠。
+    # 表記や省略が異なる旧保存のみ、従来の型読取・再出力を経て比較する。
+    same = (
+        gzip.decompress(compressed) == incoming
+        or _canonical_bytes(_decode_selection(compressed)) == incoming
+    )
+    return same and actual_time == published_at
+
+
+def _canonical_bytes(selection: ScreeningSelection) -> bytes:
+    return encode_json(_CODEC.dump_python(selection, mode="json")).encode()
+
+
+def _publication_data(
+    *,
+    path: Path,
+    selection_id: str | None = None,
+    before_as_of: date | None = None,
+    as_of: date | None = None,
+    known_at: datetime | None = None,
+) -> tuple[str, datetime, GenerationMetadata, bytes] | None:
     if not path.is_file():
         return None
     with closing(connect_read_only(path)) as connection:
@@ -75,9 +124,9 @@ def read_publication(
         ).fetchone()
         if row is None:
             return None
-        return ScreeningPublication(
-            selection_id=row[0],
-            published_at=datetime.fromisoformat(row[1]),
-            generation=GenerationMetadata.model_validate_json(row[2]),
-            selection=_decode_selection(row[3]),
+        return (
+            row[0],
+            datetime.fromisoformat(row[1]),
+            GenerationMetadata.model_validate_json(row[2]),
+            row[3],
         )

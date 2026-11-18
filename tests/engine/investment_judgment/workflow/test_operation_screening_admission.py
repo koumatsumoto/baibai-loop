@@ -1,18 +1,19 @@
 """保存政策カードのJSON型を、同IDの実Operation開始で差し替えない。"""
 
+import gzip
 import json
-import weakref
+import sqlite3
 from datetime import datetime
 
 import pytest
 from tests.helpers.generated_selection import seed_generated_selection
 
 from baibai_engine.cli.operation import main
-from baibai_engine.investment_judgment.workflow.operation import service as operation_owner
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.machine_analysis.screening import selection_query
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CandidateCard,
     EconomicPathPolicy,
@@ -20,7 +21,6 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     PathNormalization,
     RankedPath,
 )
-from baibai_engine.machine_analysis.screening.selection_query import ScreeningPublication
 from baibai_engine.primitives.json import canonical_json
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
@@ -155,44 +155,36 @@ def test_start_preserves_published_screening_json_types(tmp_path, capsys, method
     assert runs.read_bytes() == source_before
 
 
-def test_start_releases_publication_before_serializing_incoming_selection(tmp_path, monkeypatch):
+@pytest.mark.parametrize("legacy_format", [False, True])
+def test_start_reads_typed_publication_only_for_noncanonical_saved_bytes(
+    tmp_path, monkeypatch, legacy_format
+):
     runs, app = tmp_path / "runs", tmp_path / "app"
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
     payload = OperationPayload(checkpoint="start", artifacts=(selected.model_dump(mode="json"),))
+    if legacy_format:
+        with sqlite3.connect(runs) as connection:
+            (blob,) = connection.execute("SELECT payload_gzip FROM screening_selection").fetchone()
+            raw = json.loads(gzip.decompress(blob))
+            connection.execute(
+                "UPDATE screening_selection SET payload_gzip=?",
+                (gzip.compress(json.dumps(raw, indent=2).encode(), mtime=0),),
+            )
     source_before = runs.read_bytes()
-    read_publication = operation_owner.read_publication
-    codec = operation_owner._SCREENING_CODEC
-    publication_ref = None
-    dumps = 0
+    decode = selection_query._decode_selection
+    reads = []
 
-    class ObservedPublication(ScreeningPublication):
-        pass
+    def observed(raw):
+        reads.append(len(raw))
+        return decode(raw)
 
-    def read(*args, **kwargs):
-        nonlocal publication_ref
-        saved = read_publication(*args, **kwargs)
-        publication = ObservedPublication(
-            saved.selection_id, saved.published_at, saved.generation, saved.selection
-        )
-        publication_ref = weakref.ref(publication)
-        return publication
-
-    class ObservedCodec:
-        def dump_python(self, value, **kwargs):
-            nonlocal dumps
-            assert publication_ref is not None
-            assert (publication_ref() is None) == (dumps == 1)
-            dumps += 1
-            return codec.dump_python(value, **kwargs)
-
-    monkeypatch.setattr(operation_owner, "read_publication", read)
-    monkeypatch.setattr(operation_owner, "_SCREENING_CODEC", ObservedCodec())
+    monkeypatch.setattr(selection_query, "_decode_selection", observed)
     operation = OperationService(app, runs_path=runs).start(
         session_kind="capital-allocation",
         as_of=selected.research_as_of,
         started_at=NOW,
         payload=payload,
     )
-    assert dumps == 2
+    assert len(reads) == int(legacy_format)
     assert operation.payload == payload
     assert runs.read_bytes() == source_before

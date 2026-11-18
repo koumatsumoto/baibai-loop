@@ -196,48 +196,29 @@ def _active_payload(checkpoint: str = "source review", *, selected=None) -> Oper
     )
 
 
-@pytest.mark.parametrize("with_screening", [False, True])
 def test_start_releases_validated_source_copies_before_saving_payload(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_screening: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runs, app = tmp_path / "runs.sqlite", tmp_path / "app.sqlite"
     selected = seed_generated_selection(
         runs=runs, now=NOW, scope="specified_stocks", tickers=("1234",)
     )
-    if not with_screening:
-        selected = selected.model_copy(
-            update={
-                "inputs": selected.inputs.model_copy(
-                    update={
-                        "screening_selection_id": None,
-                        "screening_selection": None,
-                        "screening_published_at": None,
-                    }
-                )
-            }
-        )
     payload = _active_payload(selected=selected)
     source_before = runs.read_bytes()
     observed = {}
-    for name in ("selection_binding", "read_research_model_inputs", "read_publication"):
+    for name in ("selection_binding", "read_research_model_inputs"):
         original = getattr(operation_service, name)
 
         def read(*args, _original=original, _name=name, **kwargs):
             value = _original(*args, **kwargs)
-            # The slotted publication owns this freshly decoded header.
-            observed[_name] = weakref.ref(
-                value.generation if _name == "read_publication" else value
-            )
+            observed[_name] = weakref.ref(value)
             return value
 
         monkeypatch.setattr(operation_service, name, read)
     insert = operation_service._insert
 
     def save(connection, operation):
-        expected = {"selection_binding", "read_research_model_inputs"}
-        if with_screening:
-            expected.add("read_publication")
-        assert observed.keys() == expected
+        assert observed.keys() == {"selection_binding", "read_research_model_inputs"}
         assert all(reference() is None for reference in observed.values())
         assert operation.payload == payload
         insert(connection, operation)
