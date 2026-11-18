@@ -61,6 +61,26 @@ def growth_payload(kind):
     return payload
 
 
+@pytest.mark.parametrize(
+    "recorded",
+    [
+        {},
+        {"per": {"status": "not_provided", "reason": "old-share-basis"}},
+        {"peer": {"reason": "recorded-without-status"}},
+        {
+            "per": {"reason": "older-price-basis"},
+            "peer": {"status": "not_provided", "reason": "no-fixed-peers"},
+        },
+    ],
+)
+def test_growth_displays_only_valuation_notes_actually_saved(recorded):
+    payload = growth_payload("unavailable")
+    assert {"per", "peer"}.isdisjoint(payload)
+    payload.update(recorded)
+    displayed = generated_inputs.project_company_growth(payload, ticker=payload["ticker"])
+    assert {key: displayed[key] for key in ("per", "peer") if key in displayed} == recorded
+
+
 def containers(value):
     if isinstance(value, dict):
         yield value

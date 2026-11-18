@@ -425,7 +425,6 @@ def test_query_retains_pre_window_operands_and_later_corrections_at_both_edges(t
     assert narrow.input_release.receipt_cutoff is None
     assert narrow.coverage.status == "unverified"
     assert narrow.coverage.observed_start == date(2022, 6, 30)
-    assert narrow.per.status == narrow.peer.status == "not_provided"
     assert path.read_bytes() == before
 
 
@@ -714,8 +713,7 @@ def test_optional_source_rows_leave_core_states_documents_and_changes_unchanged(
     assert amount(other.periods[0], "reported", "sales").value == 999
     assert after.periods == before.periods
     assert after.changes == before.changes
-    assert after.per.status == "not_provided"
-    assert after.peer.status == "not_provided"
+    assert {"per", "peer"}.isdisjoint(after.model_dump(mode="json"))
 
 
 def test_metric_availability_cannot_change_the_shared_ttm_measurement_interval():

@@ -149,8 +149,6 @@ def project_company_growth(
         "read_semantics",
         "comparison_basis",
         "input_release",
-        "per",
-        "peer",
     )
     payload = result.model_dump(
         mode="json", include={*header_fields, "requested_start", "requested_end"}
@@ -159,6 +157,11 @@ def project_company_growth(
         dict[str, JsonValue],
         {
             **{key: payload[key] for key in header_fields},
+            **{
+                key: note.model_dump(mode="json", exclude_unset=True)
+                for key, note in (("per", result.per), ("peer", result.peer))
+                if note is not None
+            },
             "full_result_ref": f"/inputs/securities_context/{ticker}/company_growth",
             "saved_scope": {
                 "requested_start": payload["requested_start"],

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, FiniteFloat
 
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
@@ -127,9 +127,16 @@ class ReportedComparison(Contract):
     )
 
 
-class OptionalContext(Contract):
+class ArchivedContext(Contract):
     status: Literal["not_provided"] = "not_provided"
     reason: str
+
+
+# A supplied historical note must still be an object; a missing field has no assertion.
+type RecordedContext = Annotated[
+    ArchivedContext | None,
+    BeforeValidator(ArchivedContext.model_validate),
+]
 
 
 class Coverage(Contract):
@@ -187,9 +194,5 @@ class CompanyGrowth(Contract):
         default=None, exclude_if=lambda value: value is None
     )
     pdf_input_reason: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    per: OptionalContext = OptionalContext(
-        reason="price_share_unit_and_parent_profit_alignment_not_verified"
-    )
-    peer: OptionalContext = OptionalContext(
-        reason="fixed_peer_group_and_comparable_pair_inputs_not_selected"
-    )
+    per: RecordedContext = Field(default=None, exclude_if=lambda value: value is None)
+    peer: RecordedContext = Field(default=None, exclude_if=lambda value: value is None)
