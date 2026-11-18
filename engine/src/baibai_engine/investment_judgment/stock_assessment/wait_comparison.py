@@ -25,7 +25,8 @@ class WaitingTerms(BaseModel):
     deadline: date
     lot_size: Annotated[int, Field(gt=0)]
     partial_fill_quantity: Annotated[int, Field(gt=0)] | None = None
-    one_way_fee_bps: Annotated[Decimal, Field(ge=0, lt=10000)]
+    entry_fee_bps: Annotated[Decimal, Field(ge=0, lt=10000)]
+    terminal_sale_fee_bps: Annotated[Decimal, Field(ge=0, lt=10000)]
     base_missed_distribution_per_share_yen: Annotated[Decimal, Field(ge=0)]
     downside_missed_distribution_per_share_yen: Annotated[Decimal, Field(ge=0)]
 
@@ -36,7 +37,8 @@ class WaitingTerms(BaseModel):
 
     @field_validator(
         "initial_cash_yen",
-        "one_way_fee_bps",
+        "entry_fee_bps",
+        "terminal_sale_fee_bps",
         "base_missed_distribution_per_share_yen",
         "downside_missed_distribution_per_share_yen",
         mode="before",
@@ -72,10 +74,13 @@ def waiting_paths(
     with localcontext() as context:
         context.prec = 50
         cash = terms.initial_cash_yen
-        fee = terms.one_way_fee_bps / 10000
-        now_outlay = quantity * reference_price * (1 + fee)
-        if now_outlay > cash:
-            raise ValueError("initial cash cannot cover the immediate purchase and its fee")
+        entry_factor = 1 + terms.entry_fee_bps / 10000
+        exit_factor = 1 - terms.terminal_sale_fee_bps / 10000
+        now_outlay = quantity * reference_price * entry_factor
+        limit_outlay = quantity * limit * entry_factor
+        if limit_outlay > cash:
+            raise ValueError("initial cash cannot cover the intended limit and its fee")
+        now_cash = cash - now_outlay if now_outlay <= cash else None
         fills = [0, quantity] if partial is None else [0, partial, quantity]
         cases = {}
         for name, projection, missed in (
@@ -85,22 +90,27 @@ def waiting_paths(
             dist = projection.cash_distribution_per_share_yen
             if missed > dist:
                 raise ValueError(f"{name} foregone distribution exceeds its total projection")
-            net_sale = projection.terminal_value_per_share_yen * (1 - fee)
-            now_wealth = cash - now_outlay + quantity * (net_sale + dist)
+            net_sale = projection.terminal_value_per_share_yen * exit_factor
+            now_wealth = None if now_cash is None else now_cash + quantity * (net_sale + dist)
             paths = []
             for count in fills:
-                unspent = cash - count * limit * (1 + fee)
+                unspent = cash - count * limit * entry_factor
                 wealth = unspent + count * (net_sale + dist - missed)
                 paths.append(
                     {
                         "filled_quantity": count,
                         "cash_after_deadline_yen": str(unspent),
                         "terminal_wealth_yen": str(wealth),
-                        "difference_vs_buy_now_yen": str(wealth - now_wealth),
+                        "difference_vs_buy_now_yen": None
+                        if now_wealth is None
+                        else str(wealth - now_wealth),
                         "difference_vs_cash_yen": str(wealth - cash),
                     }
                 )
-            cases[name] = {"buy_now_terminal_wealth_yen": str(now_wealth), "wait_paths": paths}
+            cases[name] = {
+                "buy_now_terminal_wealth_yen": None if now_wealth is None else str(now_wealth),
+                "wait_paths": paths,
+            }
         return {
             "scope": "hypothetical_cash_only_no_orders_or_fill_probabilities",
             "wealth_basis": "conditional_terminal_sale_plus_eligible_distributions",
@@ -122,7 +132,8 @@ def waiting_paths(
                     required_annual_return_pct=required_annual_return_pct,
                 )
             ),
-            "buy_now_unspent_cash_yen": str(cash - now_outlay),
-            "cash_outside_full_limit_set_aside_yen": str(cash - quantity * limit * (1 + fee)),
+            "buy_now_cash_status": "sufficient" if now_cash is not None else "insufficient",
+            "buy_now_unspent_cash_yen": None if now_cash is None else str(now_cash),
+            "cash_outside_full_limit_set_aside_yen": str(cash - limit_outlay),
             "cases": cases,
         }

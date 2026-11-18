@@ -100,7 +100,8 @@ def _waiting_input():
             "deadline": "2026-10-09",
             "lot_size": 100,
             "partial_fill_quantity": 100,
-            "one_way_fee_bps": 10,
+            "entry_fee_bps": 10,
+            "terminal_sale_fee_bps": 10,
             "base_missed_distribution_per_share_yen": 1,
             "downside_missed_distribution_per_share_yen": 2,
         },
@@ -154,7 +155,10 @@ def test_one_lot_has_only_none_and_full_and_best_alternative_can_be_cash():
     terms = raw["price_comparison"]["waiting_terms"]
     del terms["partial_fill_quantity"]
     terms.update(
-        initial_cash_yen=10000, one_way_fee_bps=0, downside_missed_distribution_per_share_yen=0
+        initial_cash_yen=10000,
+        entry_fee_bps=0,
+        terminal_sale_fee_bps=0,
+        downside_missed_distribution_per_share_yen=0,
     )
     wait = calculate(CalculationInput.model_validate(raw))["waiting_paths"]
     downside = wait["cases"]["downside"]
@@ -165,17 +169,43 @@ def test_one_lot_has_only_none_and_full_and_best_alternative_can_be_cash():
     assert Decimal(downside["wait_paths"][0]["cash_after_deadline_yen"]) == 10000
 
 
+def test_entry_cost_is_not_charged_again_on_terminal_proceeds_or_distribution():
+    raw = _waiting_input()
+    terms = raw["price_comparison"]["waiting_terms"]
+    terms.update(entry_fee_bps=20, terminal_sale_fee_bps=0)
+    wait = calculate(CalculationInput.model_validate(raw))["waiting_paths"]
+    # 200 shares: today's 100 plus a 0.2% entry cost, terminal 108+2 no exit cost.
+    assert Decimal(wait["cases"]["base"]["buy_now_terminal_wealth_yen"]) == 22060
+    # A 100-share fill misses one of the two distribution yen per share.
+    partial = wait["cases"]["base"]["wait_paths"][1]
+    assert Decimal(partial["terminal_wealth_yen"]) == 21481
+
+
+def test_lower_limit_can_fit_when_immediate_fee_makes_now_unaffordable():
+    raw = _waiting_input()
+    raw["price_comparison"]["waiting_terms"]["initial_cash_yen"] = 20000
+    wait = calculate(CalculationInput.model_validate(raw))["waiting_paths"]
+    assert wait["buy_now_cash_status"] == "insufficient"
+    assert wait["buy_now_unspent_cash_yen"] is None
+    case = wait["cases"]["downside"]
+    assert case["buy_now_terminal_wealth_yen"] is None
+    assert all(p["difference_vs_buy_now_yen"] is None for p in case["wait_paths"])
+    assert Decimal(case["wait_paths"][0]["terminal_wealth_yen"]) == 20000
+    assert Decimal(case["wait_paths"][-1]["difference_vs_cash_yen"]) == Decimal("-3434.60")
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("initial_cash_yen", 20000, "cannot cover"),  # include entry costs
+        ("initial_cash_yen", 19000, "cannot cover"),  # full limit, including its fee
         ("partial_fill_quantity", 50, "whole-lot"),
         ("partial_fill_quantity", 200, "smaller"),
         ("deadline", "2026-09-07", "deadline"),
         ("deadline", "2027-09-08", "deadline"),
         ("downside_missed_distribution_per_share_yen", 3, "exceeds"),
         ("base_missed_distribution_per_share_yen", -1, "greater than or equal"),
-        ("one_way_fee_bps", True, "finite"),
+        ("entry_fee_bps", True, "finite"),
+        ("terminal_sale_fee_bps", 10000, "less than"),
     ],
 )
 def test_unusable_waiting_assumptions_are_rejected(field, value, message):
