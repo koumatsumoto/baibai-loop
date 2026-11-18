@@ -251,9 +251,14 @@ for argument in "$@"; do
     baibai_jobs.observability.repository_layout) script=layout ;;
     baibai_jobs.publication.snapshot_publication) script=publish ;;
     baibai_jobs.publication.lease) script=lease ;;
+    baibai_jobs.maintenance.application_backup) script=app_backup ;;
   esac
 done
 case "${script}" in
+  app_backup)
+    printf 'app-backup %s\\n' "$*" >> "$AWS_LOG"
+    exit "${APP_BACKUP_FAKE_EXIT:-0}"
+    ;;
   lease)
     printf 'verify %s\\n' "$R2_STORES_BUCKET" >> "$AWS_FAKE_STATE/lease-checks"
     handle=""
