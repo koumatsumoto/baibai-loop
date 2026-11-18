@@ -3,12 +3,11 @@
 from copy import deepcopy
 
 import pytest
-from tests.helpers.technical_discovery import _metadata, _models
+from tests.engine.machine_analysis.screening.test_technical_strategy import _strategy_models
+from tests.helpers.technical_discovery import _metadata
+from tests.helpers.technical_financial import _no_match
 
 from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
-from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
-    evaluate_technical_strategy,
-)
 
 FIELD = "turnover_activity_20d"
 ACTIVITY = {
@@ -39,39 +38,43 @@ INCOMPLETE_ACTIVITY = {
 }
 
 
+def no_other_match():
+    stock = _strategy_models()
+    _no_match(stock)
+    market = stock[1].payload
+    market["relative"]["market_conditioned_60d"]["benchmarks"]["1321"]["down"][
+        "own_mean_return"
+    ] = -0.1
+    market["price"].update(
+        close=110.0, resolved_date="2026-11-13", price_basis="price_adjusted_close"
+    )
+    return stock
+
+
 def test_same_relative_expansion_at_different_yen_scale_does_not_rank_the_company():
-    stock, meta = _models(), _metadata()
+    stock, meta = no_other_match(), _metadata()
     price = stock[1].payload["price"]
     price[FIELD] = deepcopy(ACTIVITY)
     small = project_discovery_row("1234", models=stock, metadata=meta)
     for key in ("current_yen", "prior_mean_yen", "prior_median_yen", "prior_min_yen"):
         price[FIELD][key] *= 100
     large = project_discovery_row("1234", models=stock, metadata=meta)
-    assert small == large
-    assert price[FIELD]["current_yen"] == 40000000
-    technical = evaluate_technical_strategy("1234", models=stock, metadata=meta)
-    assert technical["observations"][FIELD]["value"] == 4.0
-    assert technical["routes"]["turnover_expansion"]["state"] == "matched"
+    assert large == small
+    assert large["technical_state"] == "matched"
+    assert large["price_ready"]
 
 
 @pytest.mark.parametrize(
-    ("change", "value", "reason"),
+    ("change", "state"),
     [
-        ({"current_yen": 0, "current_to_prior_mean_ratio": 0.0}, 0.0, None),
-        (INCOMPLETE_ACTIVITY, None, "recorded_null"),
-        ({"current_date": "2026-11-12"}, 4.0, "price_date_mismatch_or_unknown"),
+        ({"current_yen": 0, "current_to_prior_mean_ratio": 0.0}, "not_matched"),
+        (INCOMPLETE_ACTIVITY, "unavailable"),
+        ({"current_date": "2026-11-12"}, "unavailable"),
     ],
 )
-def test_ratio_keeps_clock_and_coverage_before_it_can_be_used(change, value, reason):
-    stock = _models()
-    activity = {**ACTIVITY, **change}
-    stock[1].payload["price"][FIELD] = activity
-    answer = evaluate_technical_strategy("1234", models=stock, metadata=_metadata())
-    obs = answer["observations"][FIELD]
-    assert (obs["value"], obs["unavailable_reason"]) == (value, reason)
-    assert obs["source_unavailable_reason"] == activity["unavailable_reason"]
-    assert obs["window"]["current_date"] == activity["current_date"]
-    assert obs["window"]["prior_valid_days"] == activity["prior_valid_days"]
-    assert answer["routes"]["turnover_expansion"]["state"] == (
-        "unavailable" if reason else "not_matched"
-    )
+def test_missing_or_outdated_turnover_is_distinct_from_observed_zero(change, state):
+    stock = no_other_match()
+    stock[1].payload["price"][FIELD] = {**ACTIVITY, **change}
+    row = project_discovery_row("1234", models=stock, metadata=_metadata())
+    assert row["technical_state"] == state
+    assert row["price_ready"]

@@ -1,12 +1,13 @@
-"""戦略入口の意味・時点・不足を検証する。利益効果のtestではない。"""
+"""保存モデルの6つの独立な探索条件と、不要な条件の吸収を確認する。"""
 
 from copy import deepcopy
+from itertools import product
 
 import pytest
-from tests.helpers.technical_discovery import _metadata, _models
+from tests.helpers.technical_discovery import _DAY, _metadata, _models
+from tests.helpers.technical_financial import _no_match
 
 from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
-    STRATEGY_POLICY_ID,
     evaluate_technical_strategy,
 )
 
@@ -62,195 +63,119 @@ def _strategy_models():
     return models
 
 
-def _evaluate(models=None):
-    return evaluate_technical_strategy(
-        "1234", models=_strategy_models() if models is None else models, metadata=_metadata()
-    )
-
-
-def _conditioned(models):
+def _down_window(models):
     return models[1].payload["relative"]["market_conditioned_60d"]
 
 
-def test_new_strategy_keeps_independent_routes_clocks_and_immutable_inputs():
+def _example(route=None):
+    """Start with six observed nonmatches; change only the source relevant to a contrast."""
     models = _strategy_models()
-    original = deepcopy(models)
-    result = _evaluate(models)
-    assert result["policy_id"] == STRATEGY_POLICY_ID
-    assert result["kind"] == "technical_discovery_strategy"
-    assert result["state"] == "matched"
-    assert len(result["routes"]) == 7
-    assert {"market_down_resilience", "price_strength_with_activity"} <= set(
-        result["matched_routes"]
-    )
-    assert result["as_of"] == "2026-11-14"
-    assert result["expected_price_date"] == "2026-11-13"
-    down = result["observations"]["market_down_own_return_60d"]
-    assert down["benchmark_ticker"] == "1321"
-    assert down["condition_days"] == 25
-    assert down["window"]["window_start_date"] == "2026-08-14"
-    assert down["window"]["window_end_date"] == "2026-11-13"
-    assert "cross_date" not in result["observations"]["sma_75bar_gap"]
-    assert not {"rank", "score", "buy", "sell", "target_price"} & result.keys()
-    assert models == original
+    _no_match(models)
+    ta, market = (model.payload for model in models)
+    down = _down_window(models)["benchmarks"]["1321"]["down"]
+    down["own_mean_return"] = 0.0
+    observations = ta["price_path"]["observations"]
+    if route == "outperformance":
+        market["price_path_relative"]["comparisons"]["R20"]["relative_return"] = 0.01
+    elif route == "continuation":
+        ta["price_momentum"]["value"] = observations["R20"]["value"] = 0.01
+    elif route == "pullback":
+        ta["price_momentum"]["value"] = 0.01
+        ta["moving_averages"]["sma_20bar"]["gap_ratio"] = -0.01
+    elif route == "rebound":
+        observations["R1"]["value"] = 0.01
+    elif route == "turnover":
+        market["price"]["turnover_activity_20d"]["current_to_prior_mean_ratio"] = 1.01
+    elif route == "resilience":
+        down["own_mean_return"] = 0.01
+    elif route is not None:
+        raise ValueError(route)
+    return models
 
 
-def test_context_keeps_shape_and_turnover_without_synthesizing_joint_event():
-    models = _strategy_models()
-    result = _evaluate(models)
-    support = result["supporting_context"]
-    assert support["market_conditioned_60d"]["value"] == _conditioned(models)
-    assert (
-        support["price_path_60d"]["value"] == models[0].payload["price_path"]["observations"]["G60"]
-    )
-    support["market_conditioned_60d"]["value"]["benchmarks"]["1321"]["turnover"]["down"][
-        "mean_yen"
-    ] = 0.0
-    assert _conditioned(models)["benchmarks"]["1321"]["turnover"]["down"]["mean_yen"] == 1_000_000.0
-    assert not any(
-        "turnover" in key for key in result["routes"]["market_down_resilience"]["conditions"]
-    )
-
-
-def test_down_mean_keeps_frequency_without_making_it_a_gate():
-    models = _strategy_models()
-    down = _conditioned(models)["benchmarks"]["1321"]["down"]
-    down.update(own_up_days=1, outperform_days=25)
-    before = deepcopy(models)
-    result = _evaluate(models)
-    for name in ("market_down_own_return_60d", "market_down_excess_return_60d"):
-        observation = result["observations"][name]
-        assert observation["condition_days"] == 25
-        assert observation["condition_counts"] == {"own_up_days": 1, "outperform_days": 25}
-    assert result["routes"]["market_down_resilience"]["state"] == "matched"
-    assert models == before
-    result["observations"]["market_down_own_return_60d"]["condition_counts"]["own_up_days"] = 99
-    assert down["own_up_days"] == 1
-
-
-def test_unrecorded_condition_frequency_is_not_backfilled():
-    result = _evaluate()
-    assert "condition_counts" not in result["observations"]["market_down_own_return_60d"]
-    models = _strategy_models()
-    _conditioned(models)["benchmarks"]["1321"]["down"]["own_up_days"] = 0
-    result = _evaluate(models)
-    assert result["observations"]["market_down_own_return_60d"]["condition_counts"] == {
-        "own_up_days": 0
-    }
-
-
-def test_old_fields_stay_unrecorded_not_filled_by_sma50_or_plain_activity():
-    result = _evaluate(_models())
-    assert result["observations"]["sma_75bar_gap"]["source_state"] == "not_recorded"
-    assert result["routes"]["price_strength_with_activity"]["state"] == "unavailable"
-    assert result["routes"]["market_down_resilience"]["state"] == "unavailable"
-    assert result["supporting_context"]["market_conditioned_60d"]["source_state"] == "not_recorded"
-    assert result["state"] == "matched"
-
-
-@pytest.mark.parametrize(("own", "excess"), [(0.0, 0.01), (-0.001, 0.01), (0.001, 0.0)])
-def test_outperformance_is_not_absolute_upward_resilience(own, excess):
-    models = _strategy_models()
-    _conditioned(models)["benchmarks"]["1321"]["down"].update(
-        own_mean_return=own, mean_excess_return=excess
-    )
-    assert _evaluate(models)["routes"]["market_down_resilience"]["state"] == "not_matched"
-
-
-def test_configured_benchmark_not_replaced_by_more_favorable_index():
-    models = _strategy_models()
-    models[1].payload["price_path_relative"]["benchmark_ticker"] = "1306"
-    result = _evaluate(models)
-    assert result["observations"]["market_down_own_return_60d"]["benchmark_ticker"] == "1306"
-    assert result["routes"]["market_down_resilience"]["state"] == "not_matched"
-    assert result["routes"]["price_strength_with_activity"]["state"] == "matched"
-
-
-@pytest.mark.parametrize("benchmark", [None, "", "  ", 1321, "unknown-index"])
-def test_missing_or_unsupported_index_does_not_borrow_data(benchmark):
-    models = _strategy_models()
-    models[1].payload["price_path_relative"]["benchmark_ticker"] = benchmark
-    result = _evaluate(models)
-    assert result["routes"]["market_down_resilience"]["state"] == "unavailable"
-    assert result["routes"]["price_strength_with_activity"]["state"] == "matched"
+def _evaluate(models):
+    return evaluate_technical_strategy("1234", models=models, metadata=_metadata())
 
 
 @pytest.mark.parametrize(
-    ("field", "value", "reason"),
+    "route", ["outperformance", "continuation", "pullback", "rebound", "turnover", "resilience"]
+)
+def test_each_source_can_alone_change_a_known_nonmatch_to_a_match(route):
+    assert _evaluate(_example()).state == "not_matched"
+    models = _example(route)
+    original = deepcopy(models)
+    result = _evaluate(models)
+    assert result.state == "matched"
+    assert result.price_ready
+    assert result.expected_price_date == _DAY
+    assert models == original
+
+
+def test_absorbed_activity_confirmation_cannot_change_any_of_162_states():
+    # Turnover alone is sufficient. Vary the three former confirmation inputs independently
+    # without letting R1 create a rebound or SMA200 create a momentum match.
+    metadata = _metadata()
+    models = _example()
+    ta, market = (m.payload for m in models)
+    path, moving = ta["price_path"], ta["moving_averages"]
+    path["observations"]["R20"]["value"] = 0
+    activity = market["price"]["turnover_activity_20d"]
+    for priced, (ratio, r1, sma75, sma200) in product(
+        (False, True), product((None, 0, 2), repeat=4)
+    ):
+        path["freshness"] = "current" if priced else "stale"
+        activity["current_to_prior_mean_ratio"] = ratio
+        path["observations"]["R1"]["value"] = r1
+        moving["sma_75bar"]["gap_ratio"] = sma75
+        moving["sma_200bar"]["gap_ratio"] = sma200
+        result = evaluate_technical_strategy("1234", models=models, metadata=metadata)
+        assert result.state == (
+            {None: "unavailable", 0: "not_matched", 2: "matched"}[ratio]
+            if priced
+            else "unavailable"
+        )
+        assert result.price_ready == priced
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value", "state"),
     [
-        ("window_end_date", "2026-11-12", "price_date_mismatch_or_unknown"),
-        ("window_start_date", None, "window_missing_or_invalid"),
-        ("calendar_differences", 20, "condition_window_mismatch_or_unknown"),
-        ("window_basis", "observed_rows", "condition_window_mismatch_or_unknown"),
-        ("price_basis", "raw_close", "price_basis_mismatch_or_unknown"),
+        ("down", "own_mean_return", 0, "not_matched"),
+        ("down", "own_mean_return", -0.02, "not_matched"),
+        ("down", "mean_excess_return", 0, "not_matched"),
+        ("down", "mean_excess_return", None, "unavailable"),
+        ("down", "days", 0, "unavailable"),
+        ("down", "days", 61, "unavailable"),
+        ("down", "days", 1.5, "unavailable"),
+        ("source", "status", "unavailable", "unavailable"),
+        ("window", "window_end_date", "2026-11-14", "unavailable"),
+        ("window", "calendar_differences", 59, "unavailable"),
+        ("window", "price_basis", "total_return", "unavailable"),
+        ("window", "window_basis", "observed_sessions", "unavailable"),
     ],
 )
-def test_conditioned_observation_requires_saved_period_and_basis(field, value, reason):
-    models = _strategy_models()
-    _conditioned(models)[field] = value
-    result = _evaluate(models)
-    assert result["routes"]["market_down_resilience"]["state"] == "unavailable"
-    assert result["observations"]["market_down_own_return_60d"]["unavailable_reason"] == reason
+def test_resilience_requires_absolute_and_relative_gain_on_the_stated_down_market_window(
+    section, field, value, state
+):
+    models = _example("resilience")
+    window = _down_window(models)
+    source = window["benchmarks"]["1321"]
+    {"down": source["down"], "source": source, "window": window}[section][field] = value
+    assert _evaluate(models).state == state
 
 
-@pytest.mark.parametrize("case", ["status", "reason_unrecorded", "days_zero", "days_missing"])
-def test_parent_status_and_condition_days_not_ignored(case):
-    models = _strategy_models()
-    benchmark = _conditioned(models)["benchmarks"]["1321"]
-    if case == "status":
-        benchmark.update(status="unavailable", unavailable_reason="incomplete_price_window")
-    elif case == "reason_unrecorded":
-        del benchmark["unavailable_reason"]
-    else:
-        benchmark["down"]["days"] = 0 if case == "days_zero" else None
-    assert _evaluate(models)["routes"]["market_down_resilience"]["state"] == "unavailable"
+@pytest.mark.parametrize(
+    ("benchmark", "state"), [("1306", "not_matched"), ("unknown", "unavailable")]
+)
+def test_evaluates_only_the_requested_benchmark_not_the_best_index(benchmark, state):
+    models = _example("resilience")
+    models[1].payload["price_path_relative"]["benchmark_ticker"] = benchmark
+    assert _evaluate(models).state == state
 
 
-@pytest.mark.parametrize("name", ["R1", "sma_75bar", "sma_200bar", "activity"])
-def test_confirmation_requires_price_above_both_ma_current_rise_and_activity(name):
-    models = _strategy_models()
-    if name == "R1":
-        models[0].payload["price_path"]["observations"]["R1"]["value"] = 0.0
-    elif name == "activity":
-        models[1].payload["price"]["turnover_activity_20d"]["current_to_prior_mean_ratio"] = 1.0
-    else:
-        models[0].payload["moving_averages"][name]["gap_ratio"] = 0.0
-    assert _evaluate(models)["routes"]["price_strength_with_activity"]["state"] == "not_matched"
-
-
-def test_stale_price_never_matches_positive_new_observations():
-    models = _strategy_models()
-    models[0].payload["price_path"]["freshness"] = "stale"
-    result = _evaluate(models)
-    assert result["state"] == "unavailable"
-    assert result["matched_routes"] == []
-    assert all(route["state"] == "unavailable" for route in result["routes"].values())
-
-
-def test_total_state_separates_known_nonmatch_from_unavailable():
-    models = _strategy_models()
-    models[0].payload["price_momentum"]["value"] = -0.1
-    models[0].payload["price_path"]["observations"]["R1"]["value"] = -0.01
-    models[1].payload["price_path_relative"]["comparisons"]["R20"]["relative_return"] = -0.1
-    models[1].payload["price"]["turnover_activity_20d"]["current_to_prior_mean_ratio"] = 0.5
-    _conditioned(models)["benchmarks"]["1321"]["down"].update(
-        own_mean_return=-0.02, mean_excess_return=-0.01
-    )
-    assert _evaluate(models)["state"] == "not_matched"
-    del models[1].payload["relative"]["market_conditioned_60d"]
-    assert _evaluate(models)["state"] == "unavailable"
-
-
-def test_turnover_missing_does_not_erase_valid_conditioned_price():
-    models = _strategy_models()
-    down = _conditioned(models)["benchmarks"]["1321"]["turnover"]["down"]
-    down.update(
-        status="unavailable", unavailable_reason="missing_or_invalid_turnover", mean_yen=None
-    )
-    result = _evaluate(models)
-    assert result["routes"]["market_down_resilience"]["state"] == "matched"
-    saved = result["supporting_context"]["market_conditioned_60d"]["value"]
-    assert (
-        saved["benchmarks"]["1321"]["turnover"]["down"]["unavailable_reason"]
-        == "missing_or_invalid_turnover"
-    )
+def test_down_day_turnover_and_frequency_do_not_override_observed_returns():
+    models = _example("resilience")
+    source = _down_window(models)["benchmarks"]["1321"]
+    source.pop("turnover")
+    source["down"].update(own_up_days=1, outperform_days=25)
+    assert _evaluate(models).state == "matched"

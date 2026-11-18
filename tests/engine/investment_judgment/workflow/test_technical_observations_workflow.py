@@ -3,16 +3,22 @@
 from datetime import timedelta
 
 import pytest
-from tests.engine.machine_analysis.screening.test_activity_context import FIELD, INCOMPLETE_ACTIVITY
+from tests.engine.machine_analysis.screening.test_activity_context import (
+    ACTIVITY,
+    FIELD,
+    INCOMPLETE_ACTIVITY,
+)
 from tests.engine.machine_analysis.screening.test_technical_strategy import _strategy_models
 from tests.helpers.archived_technical_financial import stored_publication, stored_row
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.technical_discovery import _metadata
 
+from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.workflow.screening_brief import saved_discovery_context
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,
@@ -35,11 +41,23 @@ from baibai_engine.machine_analysis.screening.policies.discovery import (
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
 
-@pytest.mark.parametrize("archive", [False, True], ids=["current_index", "stored_historical_row"])
-def test_detached_market_evidence_keeps_same_source_without_backfilling_old_row(tmp_path, archive):
+@pytest.mark.parametrize("source_kind", ["index", "archive_with_route", "archive_without_route"])
+def test_detached_market_evidence_keeps_same_source_without_backfilling_old_row(
+    tmp_path, source_kind
+):
     runs, app = tmp_path / "runs", tmp_path / "app"
+    archive = source_kind != "index"
+    route = "price_strength_with_activity"
     models = _strategy_models()
-    models[1].payload["price"][FIELD] = dict(INCOMPLETE_ACTIVITY)
+    activity = ACTIVITY if archive else INCOMPLETE_ACTIVITY
+    models[1].payload["price"].update(
+        {
+            "close": 110.0,
+            "resolved_date": "2026-11-13",
+            "price_basis": "price_adjusted_close",
+            FIELD: dict(activity),
+        }
+    )
     meta = _metadata().model_copy(
         update={
             "subject_plan": {
@@ -53,7 +71,18 @@ def test_detached_market_evidence_keeps_same_source_without_backfilling_old_row(
     if archive:
         # 実際に保存した項目だけ。市場モデルに数値があっても、当時の行へ補わない。
         identity = "archived-market"
-        recorded = stored_row("1234", lane="input_review", technical={"state": "not_matched"})
+        routes = ["turnover_expansion"]
+        if source_kind == "archive_with_route":
+            routes.append(route)
+        recorded = stored_row(
+            "1234",
+            lane="input_review",
+            technical={
+                "state": "matched",
+                "matched_routes": routes,
+                "routes": {name: {"state": "matched"} for name in routes},
+            },
+        )
         source = stored_publication(meta.generation_id, (recorded,), order=("1234",))
     else:
         identity = discovery_publication_id(meta.generation_id)
@@ -78,6 +107,9 @@ def test_detached_market_evidence_keeps_same_source_without_backfilling_old_row(
         assert "market_conditioned_60d" not in recorded.technical
     else:
         assert evidence["discovery"]["rows"] == [observed]
+        assert observed["technical_state"] == "matched"
+        assert observed["price_ready"] is True
+        assert observed["expected_price_date"] == observed["price_date"] == "2026-11-13"
     expected = {m.model_id: m.payload for m in models}
     actual = evidence["model_inputs"]["securities"]["1234"]["models"]
     assert actual == expected
@@ -122,15 +154,40 @@ def test_detached_market_evidence_keeps_same_source_without_backfilling_old_row(
     assert selection_sha256(frozen) == original
     projection = project_research_inputs(frozen)
     assert projection["securities"]["1234"]["models"] == expected
-    turnover = projection["securities"]["1234"]["models"]["market_context"]["price"][FIELD]
-    assert (turnover["current_yen"], turnover["prior_valid_days"], turnover["prior_mean_yen"]) == (
-        0,
-        9,
-        None,
+    # 提案の薄いTAからは同じCaseの元モデルを辿る。旧診断から75日線や売買代金を逆算しない。
+    gen = frozen.inputs.generation
+    proposal = project_generated_inputs(gen, proposal_view=True)["securities"]["1234"]["models"]
+    ta = gen.result("technical_analysis", "1234")
+    assert proposal["technical_analysis"]["full_result_ref"] == (
+        f"/inputs/generation/models/{gen.models.index(ta)}/payload"
+    )
+    average = ta.payload["moving_averages"]["sma_75bar"]
+    assert (
+        average["value"],
+        average["window_bars"],
+        average["window_start_date"],
+        average["window_end_date"],
+    ) == (105.0, 75, "2026-07-28", "2026-11-13")
+    turnover = proposal["market_context"]["price"][FIELD]
+    assert turnover == activity
+    amounts = (400_000, 20, 100_000) if archive else (0, 9, None)
+    assert (
+        turnover["current_yen"],
+        turnover["prior_valid_days"],
+        turnover["prior_mean_yen"],
+    ) == amounts
+    assert turnover["basis"] == "traded_value_yen_not_share_volume"
+    assert (turnover["current_date"], turnover["prior_end_date"]) == (
+        average["window_end_date"],
+        "2026-11-12",
     )
     result = projection["screening_selection"]["result"]
+    at_selection = saved_discovery_context(frozen, selection_hash=original)
+    assert at_selection["role"] == "selection_time_discovery_evidence_not_final_judgment"
     if archive:
-        assert result["comparison_rows"][0]["technical"] == recorded.technical
+        historical = result["comparison_rows"][0]["technical"]
+        assert historical == at_selection["rows"][0]["technical"] == recorded.technical
+        assert (route in historical["matched_routes"]) == (source_kind == "archive_with_route")
     else:
-        assert result["rows"] == [observed]
+        assert result["rows"] == at_selection["rows"] == [observed]
     assert not runs.exists()
