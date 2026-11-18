@@ -8,10 +8,11 @@ import json
 import os
 import sqlite3
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterator, Sequence
 from contextlib import closing
 from datetime import date, datetime, timedelta
+from itertools import batched, groupby
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import JsonValue
 
+from baibai_engine.data_collection.providers.jquants.full_day_native import full_day_request_packs
 from baibai_engine.data_collection.providers.jquants.price_native import (
     FixedPriceL1,
     PriceL1,
@@ -54,6 +56,42 @@ def _months(days: Sequence[date]) -> Iterator[tuple[date, ...]]:
     for day in sorted(days):
         months[day.strftime("%Y-%m")].append(day)
     yield from (tuple(group) for group in months.values())
+
+
+def _native_batches(
+    days: Sequence[date], *, scopes: dict[str, Any], receipts: dict[str, Any]
+) -> list[tuple[date, ...]]:
+    """Avoid extra reads of any pack or extra batches; keep the existing 31-day bound."""
+    monthly = list(_months(days))
+    by_day = {
+        day: frozenset(
+            pack for _, pack in full_day_request_packs(scopes.get(day.isoformat(), {}), receipts)
+        )
+        for day in days
+    }
+    candidate: list[tuple[date, ...]] = []
+    pending: tuple[date, ...] = ()
+    for _, run in groupby(days, key=by_day.__getitem__):
+        for part in batched(run, 31, strict=False):
+            if len(pending) + len(part) > 31:
+                candidate.append(pending)
+                pending = ()
+            pending += part
+    if pending:
+        candidate.append(pending)
+
+    def reads(batches: Sequence[tuple[date, ...]]) -> Counter[str]:
+        return Counter(
+            pack for batch in batches for pack in set().union(*(by_day[d] for d in batch))
+        )
+
+    # A split correction pack can weigh much more than several other packs.
+    # Accept only a strict per-pack improvement, not just a lower total count.
+    return (
+        candidate
+        if len(candidate) <= len(monthly) and reads(candidate) < reads(monthly)
+        else monthly
+    )
 
 
 def price_day_unresolved(item: PriceDay, scope: dict[str, Any]) -> bool:
@@ -125,10 +163,12 @@ def model_input(
     required_unresolved = False
     with lake_session() as session:
         projection = session.connection
-        for index, month in enumerate(_months(days)):
+        for index, batch in enumerate(
+            _native_batches(days, scopes=head["scopes"], receipts=head["receipts"])
+        ):
             requests = tuple(
                 read_price_requests(
-                    store, scopes=head["scopes"], receipts=head["receipts"], days=month
+                    store, scopes=head["scopes"], receipts=head["receipts"], days=batch
                 )
             )
             if any(
@@ -136,7 +176,7 @@ def model_input(
                 for item in requests
             ):
                 raise ValueError("price input contains receipts later than the evaluation clock")
-            results = rebuild_price_days(requests, days=month)
+            results = rebuild_price_days(requests, days=batch)
             materialize_price_days(
                 projection, results.values(), l1_coverage_status="partial", append=index > 0
             )
@@ -329,12 +369,14 @@ def rebuild(
     complete = True
     with lake_session() as session:
         connection = session.connection
-        for index, month in enumerate(_months(days)):
+        for index, batch in enumerate(
+            _native_batches(days, scopes=head["scopes"], receipts=head["receipts"])
+        ):
             results = rebuild_price_days(
                 read_price_requests(
-                    store, scopes=head["scopes"], receipts=head["receipts"], days=month
+                    store, scopes=head["scopes"], receipts=head["receipts"], days=batch
                 ),
-                days=month,
+                days=batch,
             )
             materialize_price_days(
                 connection, results.values(), l1_coverage_status="partial", append=index > 0
