@@ -13,14 +13,13 @@ from pydantic import TypeAdapter
 
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import (
-    DiscoveryPolicy,
+    DISCOVERY_SUFFIX,
     DiscoveryRow,
     DiscoverySelection,
+    validate_discovery_publication,
 )
 from baibai_engine.machine_analysis.screening.selection_query import find_publication_header
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
-
-SUFFIX = "-" + DiscoveryPolicy().method
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,16 +67,18 @@ def read_discovery_index(
             datetime.fromisoformat(evaluation),
             datetime.fromisoformat(published),
         )
-        if not identity.endswith(SUFFIX):
+        if not identity.endswith(DISCOVERY_SUFFIX):
             return DiscoveryIndexRead("unindexed_legacy", *clocks)
         (wire,) = connection.execute(
             "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (identity,)
         ).fetchone()
         saved = _CODEC.validate_json(gzip.decompress(wire))
-        if (
-            saved.generation_id != generation
-            or saved.result.tickers != saved.universe_tickers
-            or len(set(saved.universe_tickers)) != len(saved.universe_tickers)
-        ):
-            raise ValueError("indexed discovery content differs from its publication")
+        if saved.generation_id != generation:
+            raise ValueError("indexed discovery content differs from its generation")
+        validate_discovery_publication(
+            selection_id=identity,
+            generation_id=generation,
+            result=saved.result,
+            universe_tickers=saved.universe_tickers,
+        )
         return DiscoveryIndexRead("indexed", *clocks, saved.result.rows, saved.universe_tickers)

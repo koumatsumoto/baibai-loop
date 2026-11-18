@@ -8,12 +8,16 @@ from tests.engine.investment_judgment.workflow.test_technical_financial_context 
 
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.workflow.discovery import PriceCoordinateMinimum, _explore
+from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
+from baibai_engine.investment_judgment.workflow.selection_query import (
+    load_generated_selection_context,
+)
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoveryPolicy,
     DiscoverySelection,
+    discovery_publication_id,
 )
-from baibai_engine.machine_analysis.screening.discovery_index import SUFFIX
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
 
@@ -114,7 +118,7 @@ def test_cli_question_to_one_fixed_company_and_finite_comparison(tmp_path, monke
         observation(ticker, book_equity={"amount_yen": 0} if ticker == "2345" else None)
         for ticker in source.universe_tickers
     )
-    identity = f"selection-{gen.generation_id}{SUFFIX}"
+    identity = discovery_publication_id(gen.generation_id)
     current = ScreeningSelection(
         gen.generation_id, source.universe_tickers, DiscoverySelection(DiscoveryPolicy(), rows, {})
     )
@@ -197,6 +201,31 @@ def test_cli_question_to_one_fixed_company_and_finite_comparison(tmp_path, monke
     assert not absent["model_inputs"]["securities"]["9999"]["models"]
     assert not cli([*fixed, "--screening-lane", "growth_research"])["discovery"]["rows"]
     assert cli([*fixed, "--screening-excluded"])["discovery"]["total"] == 0
+    specified = cli([*fixed, "--scope", "specified_stocks", "--ticker", "4567"])
+    assert list(specified["model_inputs"]["securities"]) == ["4567"]
+    assert "held_tickers" not in specified
+    holdings = cli([*fixed, "--scope", "review_positions"])
+    assert holdings["holding_scope"] == "no_ledger_record"
+    assert holdings["held_tickers"] is None
+    monkeypatch.setattr(
+        "baibai_engine.investment_judgment.workflow.selection_query._ledger_positions",
+        lambda *_args: ("2345",),
+    )
+    held = cli([*fixed, "--scope", "review_positions"])
+    assert held["held_tickers"] == ["2345"]
+    assert list(held["model_inputs"]["securities"]) == ["2345"]
+    with pytest.raises(ValueError, match="explicit company detail"):
+        load_generated_selection_context(
+            request=ResearchRequest(scope="discover_new", text="矛盾する画面"),
+            generation_id=None,
+            screening_selection_id=identity,
+            research_as_of=None,
+            known_at=now,
+            runs_path=runs,
+            db_path=tmp_path / "not_an_app",
+            screening_lane="growth_research",
+            comparison_tickers=("2345",),
+        )
     # 旧世代で元本文を勝手に開かず、索引なしを候補0件としない。
     legacy = cli([*base, "--screening-selection-id", "technical-policy"], expected=3)
     assert legacy["missing_inputs"] == [{"code": "unindexed_legacy_publication"}]

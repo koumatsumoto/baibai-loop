@@ -78,15 +78,15 @@ def project_discovery_row(
     actions = financial.get("capital_action_evidence")
     adjustments = earnings.get("share_basis_adjustments")
     f_paths = [path for path in coordinates.paths if path.eligible]
-    f_routes = sorted({path.path_id for path in f_paths})
+    f_routes: list[str] = sorted({path.path_id for path in f_paths})
     g_state, t_state = str(gate["state"]), str(technical["state"])
     needs_review = (
         g_state in {"input_unresolved", "not_selected"} and not f_routes and bool(reviews)
     )
     missing = {
-        "financial:" + item["reason"]
+        "financial:" + reason
         for item in reviews
-        if needs_review and isinstance(item.get("reason"), str)
+        if needs_review and isinstance(reason := item.get("reason"), str)
     }
     if g_state == "input_unresolved":
         for route in _object(gate.get("routes")).values():

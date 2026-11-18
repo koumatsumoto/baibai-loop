@@ -45,8 +45,9 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     InputRelease as ModelInputRelease,
 )
 from baibai_engine.machine_analysis.screening.discovery_contract import (
-    DiscoveryPolicy,
     DiscoveryRow,
+    DiscoverySelection,
+    discovery_publication_id,
 )
 from baibai_engine.machine_analysis.screening.policies.discovery import (
     evaluate_discovery_rows,
@@ -225,7 +226,8 @@ def integrate_models(
         subjects = generation.subjects
         phase_started = _phase_progress("screening")
         selection = evaluate_discovery_rows(generation.metadata, tickers=subjects, rows=rows)
-        selection_id = f"selection-{generation.metadata.generation_id}-{DiscoveryPolicy().method}"
+        assert isinstance(selection.result, DiscoverySelection)
+        selection_id = discovery_publication_id(generation.metadata.generation_id)
         ScreeningSelectionStore(runs).publish(selection_id, selection)
         _phase_progress("screening", phase_started)
         phase_started = _phase_progress("lake_publish")

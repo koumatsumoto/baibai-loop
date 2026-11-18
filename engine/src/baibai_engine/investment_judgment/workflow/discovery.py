@@ -200,10 +200,14 @@ def _members(row: DiscoveryRow) -> set[str]:
     if financial & {"business_expansion", "capital_productivity"}:
         result.add("reinvestment")
     book = row["book_equity"]
-    if book is not None and book.get("amount_yen") is not None:
+    amount = book.get("amount_yen") if book is not None else None
+    if isinstance(amount, (int, float)) and not isinstance(amount, bool) and isfinite(amount):
         result.add("reported_assets")
     activity = row["capital_action"]
-    if activity is not None and any(n is not None and n > 0 for n in activity.values()):
+    if activity is not None and any(
+        n is not None and n > 0
+        for n in (activity["observations"], activity["share_basis_adjustments"])
+    ):
         result.add("capital_change")
     if (
         row["missing"]

@@ -111,6 +111,8 @@ def load_generated_selection_context(
                 sorted(set(requested) | {normalize_ticker(t) for t in comparison_tickers})
             )
             detail = bool(comparison_tickers) or request.scope != "discover_new"
+            if detail and (screening_lane is not None or screening_excluded or screening_page):
+                raise ValueError("choose explicit company detail or one indexed membership page")
             indexed = discovery_context(
                 index,
                 request=request,
@@ -135,16 +137,7 @@ def load_generated_selection_context(
                 raise ValueError("chosen model generation is unavailable")
             _validate_model_cutoff(models, as_of, known_at)
             indexed["model_inputs"] = _model_context(models, set(comparisons), compact=True)
-            indexed["saved_company_context"] = {
-                ticker: company_context_brief(item)
-                for ticker, item in read_company_contexts(
-                    app, tickers=comparisons, as_of=as_of, known_at=known_at
-                ).items()
-            }
-            context = latest_assessment(app, as_of=as_of, known_at=known_at)
-            indexed["saved_market_context_assessment"] = (
-                None if context is None else assessment_projection(context, as_of=as_of)
-            )
+            indexed.update(_judgments(app, comparisons, as_of, known_at))
             indexed["requested_tickers"] = requested
             if request.scope == "review_positions":
                 indexed["held_tickers"] = held
@@ -238,7 +231,6 @@ def load_generated_selection_context(
         raise ValueError("chosen model generation is unavailable")
     _validate_model_cutoff(models, as_of, known_at)
     model_inputs = _model_context(models, detail_targets, compact=compact_screening)
-    context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
     return {
         "schema_version": 3,
         "status": "ready",
@@ -275,19 +267,25 @@ def load_generated_selection_context(
         ),
         "requested_tickers": requested,
         "held_tickers": held,
+        "model_inputs": model_inputs,
+        **_judgments(app_path, tuple(sorted(set(candidates) | detail_targets)), as_of, known_at),
+    }
+
+
+def _judgments(
+    app: Path, tickers: tuple[str, ...], as_of: date, known_at: datetime
+) -> dict[str, Any]:
+    market = latest_assessment(app, as_of=as_of, known_at=known_at)
+    return {
         "saved_company_context": {
             ticker: company_context_brief(item)
             for ticker, item in read_company_contexts(
-                app_path,
-                tickers=tuple(sorted(set(candidates) | detail_targets)),
-                as_of=as_of,
-                known_at=known_at,
+                app, tickers=tickers, as_of=as_of, known_at=known_at
             ).items()
         },
-        "model_inputs": model_inputs,
         "saved_market_context_assessment": None
-        if context is None
-        else assessment_projection(context, as_of=as_of),
+        if market is None
+        else assessment_projection(market, as_of=as_of),
     }
 
 
