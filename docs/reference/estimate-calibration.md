@@ -20,4 +20,4 @@
 
 固定v43は粗い順位の研究材料に留める。退出・配当・PIT・実行価格の制約から数値較正/買い閾値へ[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-23-v43-evidence-decision/report.md)で、formal evidence不足/負の結果を効果・採用・利益の認定にしない。
 
-現行方式は別の[比較前診断](screening-runtime.md#decision-cohort-diagnostic)を使い、旧較正を更新しない。
+現行の比較は[判断時点の選定・進捗と正式提案](screening-runtime.md#case-evidence)を読み、旧較正を更新しない。

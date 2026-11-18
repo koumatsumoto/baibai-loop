@@ -86,25 +86,19 @@ ModelGenerationとScreeningSelectionは別identity。通常生成で政策を適
 
 新政策の本番受入では既存runの終端・writer/lease・実行commitを確認し、その実行で全既存Generation/Selectionを明示保持する。これは通常cache整理後の長期保管保証ではない。切戻しも新結果と固定Researchのreader・現lease ownerを維持し、旧bundle盲復元・新結果削除・同じidentityへの旧政策上書きで行わない。
 
-## 読取専用の研究診断
-
-次のcallerは私有copyから新しい私有JSONへ出す診断で、通常政策の再適用・Research開始・保存・売買はしない。非zero終了の出力を採用せず、私有JSONを公開log/artifactへ出さない。
-
-### Case固定後の探索証拠
+<a id="case-evidence"></a>
+## 判断時点の証拠を読む
 
 新規Researchは当時の発行物から、深掘りする対象とdraftの任意の `comparison_tickers` の行・同世代モデルだけを固定する。明示対照の保存は対象とは別に同じCaseの研究capacityまで（通常3社）。市場検索の範囲や売買適格の基準ではない。明示対照は別の使い道・見送りを後日比較するための証拠で、深掘り・提案・売買対象にはしない。母集団・所属・欠測の識別は残すが、調べなかった全社の明細は再開時に現在headから補わない。L2本文の指紋と、Proposalが参照するCaseの指紋は別である。旧V2–4の保存・署名・訂正を新書式に移さない。
 
-<a id="decision-cohort-diagnostic"></a>
-### 既存の全カードを固定した旧判断の比較前診断
-
-[完了Operationの比較caller](../../tools/experiments/inspect_decision_cohort.py)は旧V3/V4の保存入力・評価pair・Proposalを照合する。新しい有限Caseに、保存していない全社カードを補うための契約ではない。
+私有Appのコピーで、まず開始履歴を読む。完了だけを選ばず、対象0件、未選定、調査未完、査読後の見送りを区別する。個別の判断はOperation IDで開き、当時の選定・進捗・提案参照をたどる。
 
 ```bash
-uv run python -m tools.experiments.inspect_decision_cohort \
-  --db <PRIVATE_APPLICATION_COPY> --operation-id <COMPLETED_OPERATION_ID> \
-  --out <NEW_PRIVATE_JSON>
+uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> --format json show
+uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> --format json show <OPERATION_ID>
+uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> --format json selection-evidence <OPERATION_ID> --selection-sha256 <PUBLISHED_SELECTION_SHA256> --proposal-id <PROPOSAL_ID>
 ```
 
-候補と調査対象のunionを残し、0対象でも候補を消さない。全レーンの保存閲覧集合と順序を使い、予備や候補外の明示調査を経済的適格へ格上げしない。運用用SelectionとProposalの原公開Selectionは役割/hashが異なり、正当な移行は既存receiptで照合する。未選定・未完・経済的見送りを分け、全開始Operationを分母とする比較や第二の判断正本、[旧較正](estimate-calibration.md)の再生成には使わない。
+最後の照会は正式提案が参照する選定原本を読む。運用用と公開時のSHAが異なるときは移行受領が結ぶ当時の本文を返す。提案がなければ捏造せず、`show`の保存内容を読む。[正式提案の読取](../../engine/src/baibai_engine/investment_judgment/trade_proposal/query.py)では提案IDを指定し、公開時刻・全項目・参照した評価を確かめる。後日の訂正・振返り・本人の採否や約定は元の投資判断と分ける。私有の本文や出力は公開しない。
 
-この診断も完全PIT・事前登録・利益/指値の因果効果を証明しない。正式比較の対象/窓/metricは結果を見る前に決め、保存完了時刻を約定可能時刻とせず、選定/提案の公開以後と取引可能時刻を別に確かめる。後日の訂正・本人報告・取引・Retrospectiveを当時本文に混ぜない。有限の政策比較と残る受入は[#1680](https://github.com/koumatsumoto/baibai-loop/issues/1680)・[#2184](https://github.com/koumatsumoto/baibai-loop/issues/2184)で追跡し、機能受入を投資効果へ換算しない。
+前向き比較は結果を見る前に対象・期間・測定方法を決め、未完でも別の判断に差し替えない。完了時刻は約定可能時刻ではなく、未選定は経済的な棄却でもない。[旧V3/V4専用の二次帳票](https://github.com/koumatsumoto/baibai-loop/blob/b86ba61346000060c701f6d85cb6c0a99103fae7/tools/experiments/inspect_decision_cohort.py)の出力自体を再現する場合だけ、その版と私有コピーを使う。独自の帳票SHAは選定や提案のSHAとは別である。
