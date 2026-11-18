@@ -58,13 +58,31 @@ def project_company_with_input_reviews(
 ) -> tuple[CompanyCoordinates, tuple[dict[str, JsonValue], ...]]:
     """価格座標は埋めず、選択済み事業仮説の価格入力確認を別に返す。"""
     index = {model.model_id: model for model in models}
+    return _project_economic_paths(
+        ticker,
+        index=index,
+        metadata=metadata,
+        growth_read=read_policy_growth(index.get("company_growth")),
+    )
+
+
+def read_policy_growth(model: GeneratedModel | None) -> CompanyGrowthReader:
+    return CompanyGrowthReader(_growth_policy_inputs(model.payload if model is not None else None))
+
+
+def _project_economic_paths(
+    ticker: str,
+    *,
+    index: dict[str, GeneratedModel],
+    metadata: GenerationMetadata,
+    growth_read: CompanyGrowthReader,
+) -> tuple[CompanyCoordinates, tuple[dict[str, JsonValue], ...]]:
     payloads = {key: model.payload for key, model in index.items()}
     valuation = payloads.get("company_financials", {})
     financial = _object(valuation.get("financial"))
     earnings = _object(valuation.get("earnings_price"))
     earnings_read = read_earnings_price(earnings) if earnings else None
     growth = payloads.get("company_growth", {})
-    growth_read = CompanyGrowthReader(_growth_policy_inputs(payloads.get("company_growth")))
     market = payloads.get("market_context", {})
     master = _object(market.get("master"))
     sector = _text(master.get("sector_33"))
@@ -116,14 +134,14 @@ def project_company_with_input_reviews(
     quarter = growth_read.observation(anchor, "quarter")
     reported = growth_read.observation(anchor, "reported")
     full_fy = growth_read.latest_full_fy
-    use_full_fy = can_use_full_fy(anchor, annual, full_fy)
+    use_full_fy = _can_use_full_fy(anchor, annual, full_fy)
     annual_variant = "full_fy" if use_full_fy else "annual_ttm"
     annual_observations: dict[str, Observation | None] = {"annual_ttm": annual}
     if full_fy is not None:
         annual_observations["full_fy"] = full_fy
     changes: dict[str, dict[str, dict[str, JsonValue]]] = {
         variant: {
-            metric: saved_growth_change(
+            metric: _change(
                 growth_read,
                 observation,
                 metric,
@@ -587,7 +605,7 @@ def _growth_policy_inputs(payload: dict[str, JsonValue] | None) -> dict[str, Jso
     }
 
 
-def can_use_full_fy(
+def _can_use_full_fy(
     anchor: PeriodState | None, annual: Observation | None, full_fy: Observation | None
 ) -> bool:
     if (
@@ -715,7 +733,7 @@ def _observation(observation: dict[str, JsonValue], name: str) -> dict[str, Json
     return result
 
 
-def saved_growth_change(
+def _change(
     growth: CompanyGrowthReader,
     observation: Observation | None,
     metric: Metric,

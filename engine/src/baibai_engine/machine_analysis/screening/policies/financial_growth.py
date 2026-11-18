@@ -19,8 +19,9 @@ from baibai_engine.machine_analysis.models.company_growth.reading import (
 )
 from baibai_engine.machine_analysis.screening.policies.economic_path_context import _growth_coverage
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-    can_use_full_fy,
-    saved_growth_change,
+    _can_use_full_fy,
+    _change,
+    read_policy_growth,
 )
 
 POLICY_ID = "financial-growth-research-trial-v1"
@@ -75,6 +76,13 @@ def evaluate_financial_growth_gate(
     ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
 ) -> dict[str, JsonValue]:
     """Read one financial policy; the caller supplies one fixed subject/generation."""
+    gate, _ = _financial_growth_with_path_inputs(ticker, models=models, metadata=metadata)
+    return gate
+
+
+def _financial_growth_with_path_inputs(
+    ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
+) -> tuple[dict[str, JsonValue], CompanyGrowthReader]:
     if any(model.subject != ticker for model in models):
         raise ValueError("financial-growth diagnostic requires one matching subject")
     relevant = [model for model in models if model.model_id in _MODELS]
@@ -87,17 +95,20 @@ def evaluate_financial_growth_gate(
     if reader.model is not None and reader.model.ticker != ticker:
         raise ValueError("growth payload belongs to a different subject")
 
-    # These facts come from the validated growth model, not the price or path selection.
+    # Keep the original saved period keys used by economic paths: decoding dates alone
+    # must not promote an unmatched comparison. Prepare this bounded read just once.
+    path_growth = read_policy_growth(growth_model)
+    path_quarter = path_growth.observation(path_growth.latest_period, "quarter")
     anchor = reader.latest_period
     latest_ttm = reader.observation(anchor, "annual_ttm")
     full_fy = reader.latest_full_fy
-    uses_fy = can_use_full_fy(anchor, latest_ttm, full_fy)
+    uses_fy = _can_use_full_fy(anchor, latest_ttm, full_fy)
     annual = full_fy if uses_fy else latest_ttm
     quarter = reader.observation(anchor, "quarter")
     reported = reader.observation(anchor, "reported")
     balance = reader.observation(anchor, "balance")
     changes: dict[str, JsonValue | None] = {
-        metric: saved_growth_change(reader, quarter, metric) for metric in _QUARTER_METRICS
+        metric: _change(path_growth, path_quarter, metric) for metric in _QUARTER_METRICS
     }
     checks = {
         "positive_net_assets": _metric_check(balance, "net_assets"),
@@ -172,7 +183,7 @@ def evaluate_financial_growth_gate(
     financial = _object(
         financial_model.payload.get("financial") if financial_model is not None else None
     )
-    return deepcopy(
+    gate: dict[str, JsonValue] = deepcopy(
         {
             "policy_id": POLICY_ID,
             "read_semantics": "saved_generation_not_point_in_time_reconstruction",
@@ -283,6 +294,7 @@ def evaluate_financial_growth_gate(
             ],
         }
     )
+    return gate, path_growth
 
 
 def _comparison_priors(
