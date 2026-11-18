@@ -174,3 +174,52 @@ def test_writer_rejects_incomplete_evidence_instead_of_publishing_empty_meaning(
     with pytest.raises(ValueError, match="Field required"):
         ScreeningSelectionStore(path).publish(identity, altered)
     assert discovery_index.read_discovery_index(path=path).status == "no_publication"
+
+
+@pytest.mark.parametrize("bad", [True, False, "0.50", "NaN", float("nan"), float("inf")])
+def test_non_numbers_and_nonfinite_amounts_never_become_observed_value(tmp_path, bad):
+    from pydantic import TypeAdapter, ValidationError
+
+    from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+
+    path = tmp_path / "runs"
+    _, _, source, identity = fixed(path)
+    coord = {
+        "path_id": "earning_power",
+        "variant": "annual_ttm",
+        "price_group": "synthetic_price",
+        "business_group": "synthetic_business",
+        "price_value": 0.5,
+        "business_value": 4,
+    }
+    first = {**source.result.rows[0], "coordinates": [coord]}
+    source = replace(source, result=replace(source.result, rows=(first, *source.result.rows[1:])))
+    store = ScreeningSelectionStore(path)
+    assert store.publish(identity, source)
+    with sqlite3.connect(path) as c:
+        original = json.loads(
+            gzip.decompress(c.execute("select payload_gzip from screening_selection").fetchone()[0])
+        )
+        selected = next(i for i, row in enumerate(original["result"]["rows"]) if row["coordinates"])
+        coord = original["result"]["rows"][selected]["coordinates"][0]
+        coord["price_value"] = bad
+        # Deliberately malformed stored JSON, including non-standard constants from a corrupt source.
+        wire = json.dumps(original, allow_nan=True).encode()
+        c.execute("update screening_selection set payload_gzip=?", (gzip.compress(wire),))
+    with pytest.raises(ValidationError):
+        discovery_index.read_discovery_index(path=path)
+    with pytest.raises(ValidationError):
+        TypeAdapter(ScreeningSelection).validate_python(original)
+    row = source.result.rows[selected]
+    altered = {**row, "coordinates": [{**row["coordinates"][0], "price_value": bad}]}
+    require = replace(
+        source,
+        result=replace(
+            source.result,
+            rows=tuple(
+                altered if i == selected else old for i, old in enumerate(source.result.rows)
+            ),
+        ),
+    )
+    with pytest.raises(ValidationError):
+        store.publish(identity, require)
