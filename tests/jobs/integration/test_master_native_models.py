@@ -165,6 +165,73 @@ def test_corrections_withdraw_codes_and_change_classification_without_old_l2(tmp
     assert len(stored_rows(market)) == 5006
 
 
+def test_replay_changes_only_different_fixed_rows_and_removes_only_selected_dates(tmp_path):
+    store, owner, market = setup_native(tmp_path, [attempt("first"), attempt("next", day=NEXT)])
+    saved = model_input(store, owner.fixed(), as_of=NEXT, evaluated_at=AT, market=market)
+    expected = stored_rows(market)
+    with sqlite3.connect(market) as connection:
+        # Include malformed old TEXT and an unselected day: neither is native evidence.
+        connection.execute(
+            "UPDATE jquants_master_snapshots SET record_json=CAST(x'ff' AS TEXT) "
+            "WHERE snapshot_date=? AND security_code='13011'",
+            (DAY.isoformat(),),
+        )
+        connection.execute(
+            "DELETE FROM jquants_master_snapshots WHERE snapshot_date=? AND security_code='80010'",
+            (DAY.isoformat(),),
+        )
+        connection.executemany(
+            "INSERT INTO jquants_master_snapshots VALUES (?, '99999', 'obsolete')",
+            [(DAY.isoformat(),), ("1900-01-01",)],
+        )
+        connection.executescript(
+            "CREATE TABLE writes(op,code); "
+            "CREATE TRIGGER note_insert AFTER INSERT ON jquants_master_snapshots "
+            "BEGIN INSERT INTO writes VALUES('insert',new.security_code); END;"
+            "CREATE TRIGGER note_delete AFTER DELETE ON jquants_master_snapshots "
+            "BEGIN INSERT INTO writes VALUES('delete',old.security_code); END;"
+            "CREATE TRIGGER note_update AFTER UPDATE ON jquants_master_snapshots "
+            "BEGIN INSERT INTO writes VALUES('update',new.security_code); END;"
+        )
+    materialize_saved_input(store, saved, market=market, days=[DAY])
+    with sqlite3.connect(market) as connection:
+        assert connection.execute("SELECT * FROM writes ORDER BY op").fetchall() == [
+            ("delete", "99999"),
+            ("insert", "80010"),
+            ("update", "13011"),
+        ]
+        connection.execute("DELETE FROM writes")
+    assert stored_rows(market) == [("1900-01-01", "99999", "obsolete"), *expected]
+    assert model_input(store, owner.fixed(), as_of=NEXT, evaluated_at=AT, market=market) == saved
+    with sqlite3.connect(market) as connection:
+        assert connection.execute("SELECT * FROM writes").fetchall() == [("delete", "99999")]
+    assert stored_rows(market) == expected
+
+
+def test_invalid_later_required_snapshot_rolls_back_an_earlier_valid_change(tmp_path):
+    store, owner, market = setup_native(tmp_path, [attempt("first"), attempt("next", day=NEXT)])
+    model_input(store, owner.fixed(), as_of=NEXT, evaluated_at=AT, market=market)
+    original = stored_rows(market)
+    with sqlite3.connect(market) as connection:
+        coverage = connection.execute("SELECT * FROM source_coverage ORDER BY 1,2").fetchall()
+    revised = records(DAY)
+    revised[0]["CoName"] = "更新された会社名"
+    later = AT + timedelta(hours=1)
+    owner.commit(
+        [
+            attempt("changed", rows=revised, at=later),
+            attempt("invalid", day=NEXT, rows=[], at=later),
+        ]
+    )
+    with pytest.raises(JQuantsProviderError, match="empty"):
+        model_input(store, owner.fixed(), as_of=NEXT, evaluated_at=later, market=market)
+    assert stored_rows(market) == original
+    with sqlite3.connect(market) as connection:
+        assert (
+            connection.execute("SELECT * FROM source_coverage ORDER BY 1,2").fetchall() == coverage
+        )
+
+
 @pytest.mark.parametrize(
     "invalid", ["empty", "truncated", "wrong-date", "duplicate", "missing-field"]
 )
