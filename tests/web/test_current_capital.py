@@ -87,6 +87,9 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
             connection,
             [("2026-09-04", "2331", "保有企業", "プライム", "サービス業", "011")],
         )
+        connection.execute(
+            "INSERT INTO jquants_master_snapshots VALUES ('2026-09-04','99990','{broken')"
+        )
         connection.execute("UPDATE jquants_daily_bars SET close=NULL WHERE traded_at='2026-07-01'")
         if missing:
             connection.execute(

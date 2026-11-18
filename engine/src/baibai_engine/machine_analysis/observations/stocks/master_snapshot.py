@@ -65,23 +65,32 @@ def normalize_master_record(record: Mapping[str, Any]) -> SecurityMaster | None:
     )
 
 
+def master_from_payload(payload: str, *, expected_code: str | None = None) -> SecurityMaster | None:
+    """Decode a native row; an indexed point lookup must match its stored key."""
+    try:
+        record = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise JQuantsProviderError("stored master record is not valid JSON") from exc
+    if not isinstance(record, dict) or not _nonempty(record.get("ProdCat")):
+        raise JQuantsProviderError("master record has no native product category")
+    if expected_code is not None and str(record.get("Code")).strip().upper() != expected_code:
+        raise JQuantsProviderError("stored master record code differs from its key")
+    try:
+        return normalize_master_record(record)
+    except ValidationError as exc:
+        raise JQuantsProviderError("stored master record has invalid security fields") from exc
+
+
 def masters_from_payloads(payloads: Sequence[str]) -> list[SecurityMaster]:
     """Decode stored native records without guessing product type from old derived flags."""
-    result = []
-    for payload in payloads:
-        try:
-            record = json.loads(payload)
-        except json.JSONDecodeError as exc:
-            raise JQuantsProviderError("stored master record is not valid JSON") from exc
-        if not isinstance(record, dict) or not _nonempty(record.get("ProdCat")):
-            raise JQuantsProviderError("master record has no native product category")
-        try:
-            security = normalize_master_record(record)
-        except ValidationError as exc:
-            raise JQuantsProviderError("stored master record has invalid security fields") from exc
-        if security is not None:
-            result.append(security)
-    return sorted(result, key=lambda security: security.ticker)
+    return sorted(
+        (
+            security
+            for payload in payloads
+            if (security := master_from_payload(payload)) is not None
+        ),
+        key=lambda security: security.ticker,
+    )
 
 
 def validate_master_snapshot(

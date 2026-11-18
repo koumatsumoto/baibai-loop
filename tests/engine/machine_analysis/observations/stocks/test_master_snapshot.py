@@ -349,3 +349,45 @@ def test_invalid_stored_master_projection_is_a_source_error(field, missing):
     with pytest.raises(JQuantsProviderError, match="invalid security fields") as caught:
         masters_from_payloads([json.dumps(record)])
     assert isinstance(caught.value.__cause__, ValidationError)
+
+
+def test_finite_master_read_uses_latest_market_date_and_only_requested_primary_issues(tmp_path):
+    from tests.helpers.master import insert_master_rows
+
+    db = tmp_path / "market.sqlite"
+    first, latest = date(2026, 5, 29), date(2026, 6, 30)
+    with closing(open_connection(db)) as connection, connection:
+        insert_master_rows(
+            connection,
+            [
+                (first.isoformat(), "5678", "旧市場のみ", "Prime", "サービス業", "011"),
+                (latest.isoformat(), "12A4", "対象ETF", "ETF", "その他", "014"),
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO jquants_master_snapshots VALUES (?, ?, ?)",
+            [(latest.isoformat(), "56781", "{broken"), (latest.isoformat(), "99990", "{broken")],
+        )
+    selected = read_master_snapshot(db, as_of=latest, tickers=("12a4", "12A4", "5678"))
+    assert selected is not None
+    assert selected.as_of == latest
+    assert list(selected.securities) == ["12A4"]
+    assert selected.securities["12A4"].name == "対象ETF"
+    assert not selected.securities["12A4"].is_common_stock
+    assert read_master_snapshot(db, as_of=latest, tickers=("5678",)).securities == {}
+    assert (
+        read_master_snapshot(db, as_of=first, tickers=("5678",)).securities["5678"].name
+        == "旧市場のみ"
+    )
+    with pytest.raises(JQuantsProviderError, match="valid JSON"):
+        read_master_snapshot(db, as_of=latest, tickers=("9999",))
+    with pytest.raises(JQuantsProviderError, match="valid JSON"):
+        read_master_snapshot(db, as_of=latest)
+
+    with closing(open_connection(db)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json, '$.Code','99990') "
+            "WHERE security_code='12A40'"
+        )
+    with pytest.raises(JQuantsProviderError, match="differs from its key"):
+        read_master_snapshot(db, as_of=latest, tickers=("12A4",))

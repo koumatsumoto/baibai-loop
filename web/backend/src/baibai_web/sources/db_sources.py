@@ -71,8 +71,8 @@ class DbMarketSource:
     def __init__(self, market_db_path: Path) -> None:
         self._path = market_db_path
 
-    def security_names(self, *, as_of: date) -> Mapping[str, str]:
-        snapshot = read_master_snapshot(self._path, as_of=as_of)
+    def security_names(self, *, as_of: date, tickers: tuple[str, ...]) -> Mapping[str, str]:
+        snapshot = read_master_snapshot(self._path, as_of=as_of, tickers=tickers)
         if snapshot is None:
             return {}
         return {ticker: security.name for ticker, security in snapshot.securities.items()}

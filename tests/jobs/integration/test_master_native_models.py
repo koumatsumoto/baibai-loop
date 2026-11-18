@@ -443,6 +443,7 @@ def test_historical_invalid_is_unavailable_boundary_but_newer_valid_recovers(
     assert summary["snapshot_date"] == NEXT.isoformat()
     assert read_master_snapshot(market, as_of=DAY - timedelta(days=1)).as_of == prior
     assert read_master_snapshot(market, as_of=prior - timedelta(days=1)) is None
+    assert read_master_snapshot(market, as_of=DAY, tickers=("1234",)) is None
     for day in (DAY, DAY + timedelta(days=1), NEXT - timedelta(days=1)):
         assert read_master_snapshot(market, as_of=day) is None
     assert read_master_snapshot(market, as_of=NEXT).as_of == NEXT

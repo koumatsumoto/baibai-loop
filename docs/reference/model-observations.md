@@ -16,7 +16,7 @@
 <a id="financial-periods"></a>
 ## 開示と会計比較
 
-普通株は[J-Quants原本](../../jobs/OPERATIONS.md#jquants-native-operations)の完全code/商品区分で識別し、末尾0/業種名から推定しない。calendar元区分もbooleanから復元しない。JPXは選択完了bundleを使い、旧行を混ぜず、消失を取消/不存在、受領完了を同時公表としない。過去の決算予定は会社IRで再確認する。
+普通株は[J-Quants原本](../../jobs/OPERATIONS.md#jquants-native-operations)の完全code/商品区分で識別し、末尾0/業種名から推定しない。提案分類・保有名は市場全体で定めた同じ適格日の対象銘柄だけを読む。当日不在を旧日で補わず、無関係な他銘柄の行破損とsnapshot全体の無効記録を区別する。calendar元区分もbooleanから復元しない。JPXは選択完了bundleを使い、旧行を混ぜず、消失を取消/不存在、受領完了を同時公表としない。過去の決算予定は会社IRで再確認する。
 
 [開示選択](../../engine/src/baibai_engine/machine_analysis/observations/financials/financial_documents.py)は期/連結区分/基準を先に定め、訂正/競合をfield単位で扱う。番号・投入順・未知時刻で順序を作らず、空欄を撤回、過年度訂正を現在区分変更としない。時刻不明だけで不変観測を捨てず、flag/空一覧/修正再表示「無」だけで比較可否を決めない。未確定basisを旧FYで迂回しない。
 

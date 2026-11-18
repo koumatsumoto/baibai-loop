@@ -395,6 +395,9 @@ def test_classification_uses_native_product_not_sector(tmp_path, product_categor
             "WHERE security_code = '12340'",
             (product_category,),
         )
+        connection.execute(
+            "INSERT INTO jquants_master_snapshots VALUES ('2026-10-14','99990','{broken')"
+        )
     classification = next(
         row for row in _collect(case).security_classification if row.ticker == "1234"
     )
