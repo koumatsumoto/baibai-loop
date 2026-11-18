@@ -231,7 +231,7 @@ fresh正本＋固定handoffの受入→一世代backup→条件付きPUT/全byte
 
 - 公開/readback失敗: 後段を止め、実bytesを照合する。未確認ではsealせず空DB/旧値へfallbackしない。
 - PUT後/seal前: fresh runnerで未sealの同じ不変stageを再適用する。同sourceの後続watermarkを先に進めない。
-- seal後/input途中: 次cycleのfresh copy・新attemptで全groupを再発行する。旧local出力を上書きしない。
+- seal後/input途中: 次cycleのfresh copy・新attemptで全groupを照合し、未完・差分だけを発行する。旧local出力を上書きしない。
 - A→同値A→Bの一括公開後の中断: 本文省略の中間stageがneeds_explicit_recoveryになり得る。元stage/hash・中断runのreadback・現正本/次inputを照合し、元時計/markerを変更しない。最新B/inputから前進できるが、新取得成功を旧stage採用の証明にしない。
 
 FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他sourceへ同じ確認方式を広げない。
