@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -20,16 +21,18 @@ _REAL_DB_DEFAULTS = (
 
 
 @pytest.fixture(autouse=True)
-def _isolate_databases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point env-resolved DB paths at a per-test tmp location.
-
-    A test that omits an explicit path resolves the default operational DB. Forcing
-    ``BAIBAI_DB`` / ``BAIBAI_RUNS_DB`` to tmp guarantees such a test opens an isolated
-    file instead. Explicit path arguments still take precedence, so fixtures that pass
-    tmp paths are unaffected.
-    """
-    db_root = tmp_path / "isolated-db"
-    db_root.mkdir()
+def _isolate_databases(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The owners create this private directory on the first write. Pure tests
+    # need neither a pytest tmp_path nor an empty directory for the two defaults.
+    if request.config.getini("tmp_path_retention_policy") == "all":
+        db_root = tmp_path_factory.getbasetemp() / f"db-input-{uuid4().hex}"
+    else:
+        # Let pytest own per-case cleanup for an explicitly shorter retention policy.
+        db_root = request.getfixturevalue("tmp_path") / "isolated-db"
     monkeypatch.setenv("BAIBAI_DB", str(db_root / "app.sqlite"))
     monkeypatch.setenv("BAIBAI_RUNS_DB", str(db_root / "runs.sqlite"))
 
