@@ -8,6 +8,7 @@ from typing import cast
 
 from pydantic import JsonValue
 
+from baibai_engine.investment_judgment.cash_flow_use import cash_flow_limit, label_reported_cash
 from baibai_engine.investment_judgment.workflow.company_growth_projection import (
     project_company_growth,
 )
@@ -32,6 +33,7 @@ from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import 
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialSelection,
 )
+from baibai_engine.primitives.time import JST
 
 
 def project_research_inputs(
@@ -108,6 +110,32 @@ def project_research_inputs(
             context["company_growth"] = project_company_growth(
                 context["company_growth"], ticker=ticker, periods=company_growth_periods
             )
+        cash = None if analysis is None else cash_flow_from_analysis(analysis)
+        limit = cash_flow_limit(
+            context.get("market_context"),
+            ticker=ticker,
+            as_of=min(selection.research_as_of, selection.input_known_at.astimezone(JST).date()),
+        )
+        if cash is not None and limit is not None:
+            for source, fields in (
+                (
+                    "edinet",
+                    {
+                        "fcf_yield": "reported_cfo_less_capex_to_market_cap",
+                        "ttm_quality": "reported_fcf_period_quality",
+                    },
+                ),
+                (
+                    "jquants",
+                    {
+                        "ocf_yield": "reported_cfo_to_market_cap",
+                        "ttm_quality": "reported_ocf_period_quality",
+                    },
+                ),
+            ):
+                section = cash.get(source)
+                if isinstance(section, dict):
+                    label_reported_cash(section, limit, fields)
         securities[ticker] = {
             **context,
             "valuation_metrics": None
@@ -129,7 +157,7 @@ def project_research_inputs(
             "forecast_sources": None
             if analysis is None
             else forecast_sources_from_analysis(analysis),
-            "cash_flow": None if analysis is None else cash_flow_from_analysis(analysis),
+            "cash_flow": cash,
             "balance_sheet": None if analysis is None else balance_sheet_from_analysis(analysis),
             **(
                 {"machine_analysis_unavailable_reason": snapshot.unavailable[ticker]}

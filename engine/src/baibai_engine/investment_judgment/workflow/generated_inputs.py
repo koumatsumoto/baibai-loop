@@ -8,11 +8,17 @@ from typing import cast
 
 from pydantic import JsonValue
 
+from baibai_engine.investment_judgment.cash_flow_use import (
+    GENERATED_YIELDS,
+    cash_flow_limit,
+    label_reported_cash,
+)
 from baibai_engine.investment_judgment.workflow.company_growth_projection import (
     project_company_growth,
 )
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.time import JST
 
 _LEGACY_COMPANY_MODELS = (
     "company_financials",
@@ -135,10 +141,13 @@ def project_generated_inputs(
         scope = "stock" if definition is None else definition.scope
         models: dict[str, JsonValue] = {}
         revisions: dict[str, str] = {}
+        financial_index = None
         available = {model.model_id for model in saved.models if model.subject == ticker}
         for index, model in enumerate(saved.models):
             if model.subject != ticker:
                 continue
+            if model.model_id == "company_financials":
+                financial_index = index
             if proposal_view and model.model_id not in _PROPOSAL_MODELS:
                 continue
             payload: dict[str, JsonValue]
@@ -179,6 +188,24 @@ def project_generated_inputs(
             "calculation_revisions": revisions,
             "not_generated": [name for name in expected if name not in available],
         }
+        if scope == "stock" and "company_financials" in available:
+            limit = cash_flow_limit(
+                models.get("market_context"),
+                ticker=ticker,
+                as_of=min(saved.as_of, saved.evaluation_time.astimezone(JST).date()),
+            )
+            if limit is not None:
+                financial = models.get("company_financials")
+                values = financial.get("financial") if isinstance(financial, dict) else None
+                if isinstance(financial, dict) and isinstance(values, dict):
+                    label_reported_cash(values, limit, GENERATED_YIELDS)
+                    if "reported_cash_flow_basis" in values and financial_index is not None:
+                        financial["full_result_ref"] = (
+                            f"/inputs/generation/models/{financial_index}/payload"
+                        )
+                elif proposal_view and limit.sector is not None:
+                    # 提案は査読された個社評価を使う。この表示だけで財務を再推定しない。
+                    row["reported_cash_flow_basis"] = limit.explanation()
         if proposal_view:
             row["omitted_from_view"] = sorted(available - _PROPOSAL_MODELS)
             market = models.get("market_context")

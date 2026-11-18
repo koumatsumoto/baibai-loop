@@ -8,6 +8,7 @@ from datetime import date, datetime, time
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+from baibai_engine.investment_judgment.cash_flow_use import CashFlowLimit, cash_flow_limit
 from baibai_engine.primitives.time import JST
 
 Row = dict[str, Any]
@@ -55,14 +56,17 @@ def _num(x: object) -> float | None:
         return None
 
 
-def _stamp(x: object) -> datetime | None:
+def _stamp(x: object, *, native_jst: bool = False) -> datetime | None:
     if not isinstance(x, str):
         return None
     try:
         dt = datetime.fromisoformat(x)
     except ValueError:
         return None
-    return dt if dt.utcoffset() is not None else None
+    if dt.utcoffset() is not None:
+        return dt
+    # EDINETの提出日時は現地の時分。日付だけをその日0時の開示とは扱わない。
+    return dt.replace(tzinfo=JST) if native_jst and len(x) >= 16 and x[10] in (" ", "T") else None
 
 
 def _day(x: object, limit: date) -> date | None:
@@ -146,7 +150,27 @@ def _components_known(components: object, limit: date, cutoff: datetime) -> bool
     return True
 
 
-def _finance(f: Row, legacy: Row, limit: date, cutoff: datetime) -> Reading | None:
+def _edinet_cash_known(fin: Row, limit: date, received_by: datetime) -> bool:
+    snapshot_day = fin.get("edinet_snapshot_asof")
+    if snapshot_day is not None and not _day(snapshot_day, limit):
+        return False
+    submitted = fin.get("edinet_source_submit_datetime")
+    received = fin.get("edinet_snapshot_recorded_at_utc")
+    filed_at, received_at = _stamp(submitted, native_jst=True), _stamp(received)
+    if submitted is not None and (filed_at is None or filed_at > received_by):
+        return False
+    if received is not None and (received_at is None or received_at > received_by):
+        return False
+    return filed_at is None or received_at is None or filed_at <= received_at
+
+
+def _finance(
+    f: Row,
+    legacy: Row,
+    limit: date,
+    cutoff: datetime,
+    cash_limit: CashFlowLimit | None,
+) -> Reading | None:
     ep, fin = _obj(f.get("earnings_price")), _obj(f.get("financial")) or legacy
     when = _day(ep.get("price_date"), limit)
     profit, yld = _num(ep.get("profit_ttm_yen")), _num(ep.get("earnings_yield"))
@@ -184,11 +208,23 @@ def _finance(f: Row, legacy: Row, limit: date, cutoff: datetime) -> Reading | No
             and ep.get("accounting_standard")
             and basis.get("accounting_standard") == ep.get("accounting_standard")
         ):
-            values.append((cf, f"同じ期末の12か月営業CF {cf / 1e8:+,.2f}億円（{end}まで）"))
+            reported = f"同じ期末の12か月営業CF {cf / 1e8:+,.2f}億円（{end}まで）"
             source += " / ocf_ttm"
+            if cash_limit is not None:
+                # 開示額は残すが、金融業の資金の増減を利益に賛否を示す票にはしない。
+                return _signals(
+                    values,
+                    f"実績利益の符号で、将来の手取りではありません。{reported}は参考。"
+                    f"{cash_limit.reading}",
+                    source,
+                    when,
+                )
+            values.append((cf, reported))
         return _signals(
             values,
-            "実績の符号であり、将来利益や設備投資・分配後の手残りではありません。",
+            f"実績利益の符号で、将来の手取りではありません。{cash_limit.reading}"
+            if cash_limit is not None and cash_limit.sector is not None
+            else "実績の符号であり、将来利益や設備投資・分配後の手残りではありません。",
             source,
             when,
         )
@@ -215,7 +251,15 @@ def _finance(f: Row, legacy: Row, limit: date, cutoff: datetime) -> Reading | No
     # An old EDINET cash-flow series has its own fiscal end; do not date it as the latest results.
     day = _day(fin.get("edinet_source_period_end"), limit)
     cf = _num(fin.get("edinet_ocf_ttm"))
-    if day and cf is not None:
+    if day and cf is not None and _edinet_cash_known(fin, limit, cutoff):
+        if cash_limit is not None:
+            return Reading(
+                "context_only",
+                f"報告営業キャッシュフロー {cf / 1e8:+,.2f}億円（元開示の期末{day}）。"
+                f"{cash_limit.reading}",
+                "企業財務：edinet_ocf_ttm / edinet_source_period_end",
+                day,
+            )
         return _signals(
             [(cf, f"営業キャッシュフロー（直近12か月）{cf / 1e8:+,.2f}億円")],
             "実績の資金流出入。設備投資や株主分配後の手残りではありません。",
@@ -598,10 +642,14 @@ def estimate_missing(
     generation_id = g.get("generation_id")
     legacy = {}
     sec = target.market(ticker)
+    financial_clock = _stamp(g.get("evaluation_time"))
+    financial_day = target.model_as_of
     if version == 2:
         analysis = _obj(i.get("analysis"))
-        run_at = _stamp(analysis.get("run_at"))
-        if _day(analysis.get("analysis_as_of"), limit) and run_at and run_at <= cutoff:
+        financial_clock = _stamp(analysis.get("run_at"))
+        analysis_day = _day(analysis.get("analysis_as_of"), limit)
+        if analysis_day and financial_clock and financial_clock <= cutoff:
+            financial_day = min(analysis_day, financial_clock.astimezone(JST).date())
             analysis_row = _own(_at(analysis, "analyses", ticker), ticker)
             legacy = _own(analysis_row.get("metrics"), ticker)
         own = _own(_at(i, "securities_context", ticker), ticker)
@@ -643,7 +691,13 @@ def estimate_missing(
         is not None
     ]
     readings = (
-        _finance(f, legacy, limit, cutoff),
+        _finance(
+            f,
+            legacy,
+            financial_day,
+            min(financial_clock, cutoff) if financial_clock else cutoff,
+            cash_flow_limit(sec, ticker=ticker, as_of=target.model_as_of),
+        ),
         _growth(growth, legacy, limit),
         _market(_obj(global_market.get("market")), limit),
         _external(ext, ticker, limit, cutoff),

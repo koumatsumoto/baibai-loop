@@ -142,7 +142,10 @@ def test_legacy_observation_is_not_a_recomputed_common_share_fact(tmp_path, reco
     )
     saved = selection_binding(OperationService(app).get(prepared.operation_id).payload)
     projection = project_research_inputs(saved)
-    assert projection["securities"][ticker]["models"]["company_financials"] == raw
+    fixed_view = projection["securities"][ticker]["models"]["company_financials"]
+    assert {k: v for k, v in fixed_view.items() if k != "full_result_ref"} == {
+        k: v for k, v in raw.items() if k != "generation_model_ref"
+    }
     assert projection["screening_selection"]["result"]["comparison_rows"] == [archive]
     assert source_path.read_bytes() == original
     source_path.rename(tmp_path / "unavailable-source")

@@ -122,7 +122,19 @@ def test_action_gap_survives_first_card_detail_prepare_and_runless_resume(tmp_pa
     )
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
     projection = project_research_inputs(saved)
-    assert projection["securities"]["1001"]["models"]["company_financials"] == cf
+    projected = projection["securities"]["1001"]["models"]["company_financials"]
+    # Before selection there is no operation document; after selection its own frozen copy is enough.
+    model = saved.inputs.generation.result("company_financials", "1001")
+    index = saved.inputs.generation.models.index(model)
+    assert projected["full_result_ref"] == f"/inputs/generation/models/{index}/payload"
+    assert cf["generation_model_ref"] == {
+        "generation_id": fixed.generation_id,
+        "subject": model.subject,
+        "model_id": model.model_id,
+    }
+    assert {k: v for k, v in projected.items() if k != "full_result_ref"} == {
+        k: v for k, v in cf.items() if k != "generation_model_ref"
+    }
     digest = selection_sha256(saved)
     assert path.read_bytes() == original
     path.rename(tmp_path / "unavailable-runs")

@@ -359,6 +359,10 @@ def economic_screening_brief(result: dict[str, Any]) -> dict[str, Any]:
         "missing": "missing_or_no_comparable_change_is_not_evidence_of_safety_or_stability",
         "growth": "selected_fallbacks_only_when_different_from_latest_quarter",
         "models": "selected_known_model_fields_only_other_generated_models_are_detail_only",
+        "cash_flow": (
+            "報告CFとexactは元の資金移動・期間品質。銀行等の顧客資金や貸出を含むCFは"
+            "普通株の分配余力でない。当時の個社詳細で業態・必要資本・株主帰属を確認。"
+        ),
     }
     if result["policy"].get("method") == "best-economic-path-v4":
         presentation["ranking"] = "priority_is_max_within_path_h_midrank_percentile"

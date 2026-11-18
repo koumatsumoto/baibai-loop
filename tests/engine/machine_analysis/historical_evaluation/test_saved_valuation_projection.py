@@ -102,11 +102,25 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
     assert security["valuation_metrics"]["ratios"]["per_forward"] == 10
     assert security["valuation_metrics"]["normalized_per_3fy"] == 12
     assert inputs["securities"]["9999"]["valuation_metrics"] is None
-    assert security["cash_flow"] == {
+    cf = copy.deepcopy(security["cash_flow"])
+    for source, amount, quality, value_field, quality_field in (
+        ("jquants", jq_ocf, "exact", "reported_cfo_to_market_cap", "reported_ocf_period_quality"),
+        (
+            "edinet",
+            fcf,
+            "approximated",
+            "reported_cfo_less_capex_to_market_cap",
+            "reported_fcf_period_quality",
+        ),
+    ):
+        basis = cf[source].pop("reported_cash_flow_basis")
+        assert basis["reason"] == "business_model_unverified"
+        assert basis["sector_33"] is None
+        assert basis[value_field] == (None if amount is None else amount / 1000)
+        assert basis[quality_field] == quality
+    assert cf == {
         "jquants": {
             "ocf_ttm": jq_ocf,
-            "ocf_yield": None if jq_ocf is None else jq_ocf / 1000,
-            "ttm_quality": "exact",
             "fin_latest_disclosed_date": "2026-09-18",
         },
         "edinet": {
@@ -115,8 +129,6 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
             "edinet_ocf_ttm": edinet_ocf,
             "capex_ttm": capex,
             "fcf_ttm": fcf,
-            "fcf_yield": None if fcf is None else fcf / 1000,
-            "ttm_quality": "approximated",
             "edinet_capex_source": "purchase_of_fixed_assets",
             "document_metadata": {
                 "edinet_source_doc_id": "S100SYNTHETIC",

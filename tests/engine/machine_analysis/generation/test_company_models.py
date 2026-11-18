@@ -383,6 +383,23 @@ def test_selected_book_survives_generation_serialization_and_l3_projection():
     assert projected["securities"]["1001"]["company_financials"]["financial"]["book_equity"] == book
 
 
+def assert_unclassified_financial_facts(projected, raw):
+    # These minimal generations have no dated industry master; verify every original figure.
+    raw_fields = dict(raw)
+    displayed = dict(projected)
+    basis = displayed.pop("reported_cash_flow_basis")
+    assert basis["reason"] == "business_model_unverified"
+    assert basis["sector_33"] is None
+    for source_field, reported_field in (
+        ("fcf_yield", "reported_cfo_less_capex_to_market_cap"),
+        ("ttm_quality_fcf_yield", "reported_fcf_period_quality"),
+        ("ocf_yield", "reported_cfo_to_market_cap"),
+        ("ttm_quality_ocf_yield", "reported_ocf_period_quality"),
+    ):
+        assert basis[reported_field] == raw_fields.pop(source_field)
+    assert displayed == raw_fields
+
+
 def test_actual_dividend_source_survives_generation_and_l3_without_claiming_forecast_zero():
     models = generate(
         documents=(replace(document(), dps_actual_annual=0.0),),
@@ -405,7 +422,7 @@ def test_actual_dividend_source_survives_generation_and_l3_without_claiming_fore
     financial = project_generated_inputs(selected)["securities"]["1001"]["company_financials"][
         "financial"
     ]
-    assert financial == models[0].payload["financial"]
+    assert_unclassified_financial_facts(financial, models[0].payload["financial"])
     assert financial["dps_actual_annual"] == 0.0
     assert financial["dps_forecast_annual"] is None
     assert financial["dividend_basis"] == "actual_reported"
@@ -906,7 +923,7 @@ def test_reported_cfo_source_survives_generation_and_l3_without_relabeling_edine
     financial = project_generated_inputs(selected)["securities"]["1001"]["company_financials"][
         "financial"
     ]
-    assert financial == models[0].payload["financial"]
+    assert_unclassified_financial_facts(financial, models[0].payload["financial"])
     assert financial["cfo"] == annual.cfo
     assert financial["latest_financial_disclosure_date"] == "2026-08-06"
     assert financial["cfo_source"]["period_end"] == "2026-03-31"
@@ -1078,7 +1095,7 @@ def test_cash_equivalent_source_survives_l3_without_becoming_edinet_cash():
     financial = project_generated_inputs(selected)["securities"]["1001"]["company_financials"][
         "financial"
     ]
-    assert financial == models[0].payload["financial"]
+    assert_unclassified_financial_facts(financial, models[0].payload["financial"])
     assert financial["cash_eq"] == 100.0
     assert financial["cash_eq_source"]["period_end"] == "2026-03-31"
     assert financial["cash_eq_source"]["disclosure_number"] == "synthetic-annual"

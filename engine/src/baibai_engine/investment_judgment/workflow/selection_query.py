@@ -397,7 +397,7 @@ def _model_context(
             detail = security if models.subject_plan is None else security["models"]
             detail["company_growth"] = deepcopy(model.payload)
             continue
-        if model.model_id not in {"company_growth", "market_context"}:
+        if model.model_id not in {"company_financials", "company_growth", "market_context"}:
             continue
         if models.subject_plan is None:
             payload = (
