@@ -6,11 +6,11 @@ from datetime import timedelta
 import pytest
 from pydantic import TypeAdapter
 from tests.engine.investment_judgment.workflow.test_technical_financial_context import args, seed
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
 from tests.engine.machine_analysis.screening.test_technical_strategy import (
     _conditioned,
     _strategy_models,
 )
+from tests.helpers.archived_technical_financial import SIX_STOCK_ORDER, archived_from_models
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
@@ -53,7 +53,7 @@ def test_initial_card_to_detached_research_preserves_recorded_or_old_absent_obse
                 _strategy_models()
             )
     publish_generation(fixed, path=path)
-    selected = evaluate_fixed(fixed)
+    selected = archived_from_models(fixed, order=SIX_STOCK_ORDER)
     models = tuple(model for model in fixed.models if model.subject == "1234")
     strategy = evaluate_technical_strategy("1234", models=models, metadata=fixed)
     expected = strategy["observations"]

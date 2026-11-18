@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from collections import deque
-from collections.abc import Sequence
 from dataclasses import dataclass
-from hashlib import sha256
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -125,63 +122,3 @@ def financial_screening_lane(
     if growth_state == "not_selected" and financial_input_review:
         return "input_review"
     return "no_current_hypothesis"
-
-
-def discovery_display_order(rows: Sequence[TechnicalFinancialRow]) -> tuple[str, ...]:
-    """lane位置を保ち、コード番号の大小を調査価値の代理にしない。"""
-    order = _route_display_order(rows)
-    for lane in RESEARCH_LANES:
-        lane_rows = tuple(row for row in rows if row.screening_lane == lane)
-        lane_tickers = {row.ticker for row in lane_rows}
-        lane_order = iter(_route_display_order(lane_rows, company_hash=True))
-        order = tuple(next(lane_order) if ticker in lane_tickers else ticker for ticker in order)
-    return order
-
-
-def _company_attention_key(row: TechnicalFinancialRow) -> tuple[bytes, str]:
-    # 経路ごとの独立したくじにせず、正準tickerに一つの再読可能な注意順を与える。
-    digest = sha256(f"baibai-loop/attention-control/v1\0{row.ticker}".encode()).digest()
-    return digest, row.ticker
-
-
-def _route_display_order(
-    rows: Sequence[TechnicalFinancialRow], *, company_hash: bool = False
-) -> tuple[str, ...]:
-    queues: dict[str, deque[str]] = {}
-    ordered = sorted(
-        rows,
-        key=_company_attention_key if company_hash else lambda row: (b"", row.ticker),
-    )
-    for row in ordered:
-        if row.screening_lane == "no_current_hypothesis":
-            continue
-        technical_match = row.technical["state"] == "matched"
-        sources = (
-            ("growth", row.financial_gate.get("matched_routes", [])),
-            ("financial", row.financial_paths["matched_routes"]),
-            ("technical", row.technical["matched_routes"] if technical_match else []),
-        )
-        for prefix, routes in sources:
-            assert isinstance(routes, list)
-            for route in routes:
-                assert isinstance(route, str)
-                queues.setdefault(f"{prefix}:{route}", deque()).append(row.ticker)
-        reviews = row.financial_paths.get("input_review_reasons", [])
-        assert isinstance(reviews, list)
-        for review in reviews:
-            assert isinstance(review, dict)
-            route = review["path_id"]
-            assert isinstance(route, str)
-            queues.setdefault(f"financial_input_review:{route}", deque()).append(row.ticker)
-    order: list[str] = []
-    selected: set[str] = set()
-    while any(queues.values()):
-        for route in sorted(queues):
-            queue = queues[route]
-            while queue and queue[0] in selected:
-                queue.popleft()
-            if queue:
-                ticker = queue.popleft()
-                order.append(ticker)
-                selected.add(ticker)
-    return tuple(order)

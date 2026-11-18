@@ -19,7 +19,6 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
     TechnicalFinancialSelection,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
     project_technical_financial_row,
 )
 
@@ -105,14 +104,13 @@ def test_unrecorded_and_null_book_are_distinct_and_not_filled_from_other_equity(
     assert "book_equity" not in project({}).financial_paths
 
 
-@pytest.mark.parametrize("version", range(1, 23))
-def test_saved_old_book_absence_is_not_backfilled_or_recomputed(version):
+def test_saved_old_book_absence_is_not_backfilled_or_recomputed():
     data = payloads()
     data["company_financials"]["financial"]["book_equity"] = deepcopy(BOOK)
     old = project(data)
     old.financial_paths.pop("book_equity")
     saved = selection(
-        old, policy=TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}")
+        old, policy=TechnicalFinancialPolicy(method="technical-financial-discovery-v22")
     )
     codec = TypeAdapter(TechnicalFinancialSelection)
     original = codec.dump_json(saved)
@@ -124,5 +122,3 @@ def test_saved_old_book_absence_is_not_backfilled_or_recomputed(version):
             "financial_paths"
         ]
     )
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

@@ -8,7 +8,7 @@ import pytest
 from pydantic import TypeAdapter
 from tests.engine.investment_judgment.workflow.test_financial_input_review_context import seed
 from tests.engine.machine_analysis.screening.test_forecast_context import FORECAST
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
+from tests.helpers.archived_technical_financial import FOUR_STOCK_ORDER, archived_from_models
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
@@ -48,7 +48,7 @@ def test_first_comparison_and_runless_research_keep_forecast_eps_without_old_bac
         if model.subject == "1234" and model.model_id == "company_financials":
             model.payload.setdefault("financial", {}).update(deepcopy(context))
     publish_generation(fixed, path=path)
-    selected = evaluate_fixed(fixed)
+    selected = archived_from_models(fixed, order=FOUR_STOCK_ORDER)
     assert selected.result.policy.method == "technical-financial-discovery-v26"
     if legacy:
         selected = replace(

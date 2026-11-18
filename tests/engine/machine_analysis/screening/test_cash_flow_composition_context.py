@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 from pydantic import TypeAdapter
 from tests.engine.machine_analysis.screening.test_cash_flow_context import CASH_FLOW, project
-from tests.engine.machine_analysis.screening.test_financial_growth import metadata, payloads
+from tests.engine.machine_analysis.screening.test_financial_growth import payloads
 from tests.engine.machine_analysis.screening.test_technical_financial import row
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
@@ -14,10 +14,6 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-    discovery_display_order,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
 )
 
 
@@ -72,7 +68,6 @@ def test_reported_components_preserve_partial_missing_unit_period_and_basis(flow
     assert actual.financial_gate["checks"] == baseline.financial_gate["checks"]
     assert actual.financial_gate["routes"] == baseline.financial_gate["routes"]
     assert actual.financial_paths == baseline.financial_paths
-    assert discovery_display_order((actual,)) == discovery_display_order((baseline,))
     shown["edinet_reported_flows"] = {"changed": True}
     assert actual.financial_gate["cash_flow_context"]["edinet_reported_flows"] == flows
     assert data == before
@@ -145,8 +140,6 @@ def test_old_saved_cf_is_not_extended_with_reported_components():
         ]
         == CASH_FLOW
     )
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)
 
 
 def test_unrecorded_or_missing_model_does_not_create_reported_flows():

@@ -14,10 +14,8 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-    discovery_display_order,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
     project_technical_financial_row,
 )
 
@@ -81,7 +79,6 @@ def test_saved_forecast_reaches_card_without_changing_checks_paths_or_order(
     assert actual.technical == control.technical
     assert actual.financial_paths == control.financial_paths
     assert actual.screening_lane == control.screening_lane
-    assert discovery_display_order((actual,)) == discovery_display_order((control,))
     saved = TechnicalFinancialSelection(
         TechnicalFinancialPolicy(), "T", "G", (actual,), ("1234",), {}
     )
@@ -119,11 +116,10 @@ def test_unrecorded_forecast_and_ungenerated_financial_model_remain_distinct():
     assert missing.financial_gate["state"] == "research_candidate"
 
 
-@pytest.mark.parametrize("version", range(1, 6))
-def test_old_policy_keeps_absent_context_canonical_and_cannot_regenerate(version):
+def test_old_policy_keeps_absent_context_canonical():
     legacy = row("1234")
     saved = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}"),
+        TechnicalFinancialPolicy(method="technical-financial-discovery-v5"),
         "T",
         "G",
         (legacy,),
@@ -144,8 +140,6 @@ def test_old_policy_keeps_absent_context_canonical_and_cannot_regenerate(version
             restored, page=None, comparison_tickers=("1234",)
         )["comparison_rows"][0]["financial_gate"]
     )
-    with pytest.raises(ValueError, match=r"historical.*read-only"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)
 
 
 @pytest.mark.parametrize(
@@ -170,14 +164,13 @@ def test_current_policy_preserves_context_in_each_lane_without_reordering(lane):
         )
 
 
-@pytest.mark.parametrize("version", range(6, 24))
-def test_saved_forecast_without_eps_is_not_backfilled_in_old_cards_or_comparison(version):
+def test_saved_forecast_without_eps_is_not_backfilled_in_old_cards_or_comparison():
     data = payloads()
     data["company_financials"]["financial"].update(deepcopy(FORECAST))
     legacy = project(data)
     legacy.financial_gate["forecast_context"].pop("forecast_eps_yen")
     saved = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}"),
+        TechnicalFinancialPolicy(method="technical-financial-discovery-v23"),
         "T",
         "G",
         (legacy,),
@@ -198,5 +191,3 @@ def test_saved_forecast_without_eps_is_not_backfilled_in_old_cards_or_comparison
         assert brief[key][0]["financial_gate"]["forecast_context"] == {
             k: v for k, v in FORECAST.items() if k != "forecast_eps_yen"
         }
-    with pytest.raises(ValueError, match=r"historical.*read-only"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

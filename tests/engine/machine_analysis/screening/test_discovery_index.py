@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import timedelta
 
 import pytest
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
+from tests.helpers.archived_technical_financial import SIX_STOCK_ORDER, archived_from_models
 from tests.helpers.technical_financial import _seed
 
 from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
@@ -23,7 +23,7 @@ from baibai_engine.primitives.json import encode_json
 def fixed(path):
     full = _seed(path)
     meta = GenerationMetadata.model_validate(full.model_dump(exclude={"models"}))
-    legacy = evaluate_fixed(full)
+    legacy = archived_from_models(full, order=SIX_STOCK_ORDER)
     subjects = legacy.universe_tickers
     rows = {
         t: project_discovery_row(

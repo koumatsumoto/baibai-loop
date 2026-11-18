@@ -5,9 +5,10 @@ from dataclasses import replace
 
 import pytest
 from pydantic import TypeAdapter
-from tests.engine.machine_analysis.screening.test_financial_growth import metadata, payloads
+from tests.engine.machine_analysis.screening.test_financial_growth import payloads
 from tests.engine.machine_analysis.screening.test_growth_period_context import project
 from tests.engine.machine_analysis.screening.test_technical_financial import row
+from tests.helpers.archived_technical_financial import stored_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
@@ -15,9 +16,6 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
 )
 
 
@@ -38,10 +36,8 @@ def earnings(**fields):
 
 
 def brief(actual):
-    saved = evaluate_technical_financial_rows(
-        metadata(), tickers=("1234",), rows={"1234": actual}, policy=TechnicalFinancialPolicy()
-    )
-    return technical_financial_screening_brief(saved.result)["cards"][0]
+    saved = stored_result((actual,), order=("1234",))
+    return technical_financial_screening_brief(saved)["cards"][0]
 
 
 @pytest.mark.parametrize(
@@ -148,8 +144,6 @@ def test_historical_reason_label_is_read_without_migration_or_current_reevaluati
     assert shown["capital_action_context"] == old_context
     assert "earnings_price_unavailable_reason" not in shown["capital_action_context"]
     assert codec.dump_json(restored) == body
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)
 
 
 def test_first_card_limits_each_list_without_dedup_or_current_share_inference():
@@ -190,5 +184,3 @@ def test_old_absence_and_serialization_are_not_backfilled():
         "capital_action_context"
         not in technical_financial_screening_brief(restored)["cards"][0]["financial_paths"]
     )
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

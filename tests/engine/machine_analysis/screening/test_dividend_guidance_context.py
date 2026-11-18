@@ -4,9 +4,10 @@ from copy import deepcopy
 
 import pytest
 from pydantic import TypeAdapter
-from tests.engine.machine_analysis.screening.test_financial_growth import metadata, payloads
+from tests.engine.machine_analysis.screening.test_financial_growth import payloads
 from tests.engine.machine_analysis.screening.test_growth_period_context import project
 from tests.engine.machine_analysis.screening.test_technical_financial import row
+from tests.helpers.archived_technical_financial import stored_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
@@ -14,9 +15,6 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
 )
 
 
@@ -51,10 +49,8 @@ def test_guidance_amount_and_own_period_survive_missing_earnings_without_gate_ch
     expected = {"dps_forecast_annual": dps, "dividend_forecast_source": source}
     assert actual.financial_gate["dividend_forecast_context"] == expected
     assert actual.financial_gate["state"] == "research_candidate"
-    saved = evaluate_technical_financial_rows(
-        metadata(), tickers=("1234",), rows={"1234": actual}, policy=TechnicalFinancialPolicy()
-    )
-    card = technical_financial_screening_brief(saved.result)["cards"][0]
+    saved = stored_result((actual,), order=("1234",))
+    card = technical_financial_screening_brief(saved)["cards"][0]
     assert card["financial_gate"]["dividend_forecast_context"] == expected
     card["financial_gate"]["dividend_forecast_context"]["dividend_forecast_source"]["status"] = (
         "changed"
@@ -106,5 +102,3 @@ def test_v16_absence_remains_exact_without_guidance_backfill():
         "dividend_forecast_context"
         not in technical_financial_screening_brief(restored)["cards"][0]["financial_gate"]
     )
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

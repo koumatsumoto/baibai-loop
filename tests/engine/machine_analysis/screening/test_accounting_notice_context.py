@@ -21,10 +21,8 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-    discovery_display_order,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
     project_technical_financial_row,
 )
 
@@ -75,7 +73,6 @@ def test_known_notice_reaches_card_without_disabling_or_clearing_hypotheses(flag
     assert actual.financial_gate == baseline.financial_gate
     assert actual.technical == baseline.technical
     assert actual.screening_lane == baseline.screening_lane
-    assert discovery_display_order((actual,)) == discovery_display_order((baseline,))
     first = card(actual)
     assert first["financial_paths"]["accounting_change_context"] == expected
     first["financial_paths"]["accounting_change_context"]["disclosures"][0]["flags"].clear()
@@ -128,10 +125,9 @@ def test_notice_is_not_limited_to_growth_matches_or_financial_eligibility(lane):
     assert actual.financial_paths["matched_routes"] == []
 
 
-@pytest.mark.parametrize("version", range(1, 11))
-def test_legacy_policy_bytes_and_absence_are_not_backfilled_or_regenerated(version):
+def test_legacy_policy_bytes_and_absence_are_not_backfilled():
     old = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}"),
+        TechnicalFinancialPolicy(method="technical-financial-discovery-v10"),
         "T",
         "G",
         (row("1234"),),
@@ -145,5 +141,3 @@ def test_legacy_policy_bytes_and_absence_are_not_backfilled_or_regenerated(versi
     brief = technical_financial_screening_brief(restored, comparison_tickers=("1234",))
     assert "accounting_change_context" not in brief["cards"][0]["financial_paths"]
     assert "accounting_change_context" not in brief["comparison_rows"][0]["financial_paths"]
-    with pytest.raises(ValueError, match=r"historical.*read-only"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

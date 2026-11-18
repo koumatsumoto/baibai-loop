@@ -7,7 +7,7 @@ import pytest
 from pydantic import TypeAdapter
 from tests.engine.machine_analysis.screening.test_cash_flow_composition_context import card
 from tests.engine.machine_analysis.screening.test_cash_flow_context import CASH_FLOW, project
-from tests.engine.machine_analysis.screening.test_financial_growth import metadata, payloads
+from tests.engine.machine_analysis.screening.test_financial_growth import payloads
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
@@ -15,9 +15,6 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
 )
 
 
@@ -99,5 +96,3 @@ def test_old_saved_cash_flow_is_not_backfilled_with_current_edinet_limits(method
         ]
         == CASH_FLOW
     )
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)

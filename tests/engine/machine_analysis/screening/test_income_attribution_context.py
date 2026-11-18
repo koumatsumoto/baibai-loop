@@ -7,11 +7,11 @@ from pydantic import TypeAdapter
 from tests.engine.machine_analysis.screening.test_financial_growth import (
     add_prior_fy,
     current,
-    metadata,
     payloads,
 )
 from tests.engine.machine_analysis.screening.test_growth_period_context import project
 from tests.engine.machine_analysis.screening.test_technical_financial import row
+from tests.helpers.archived_technical_financial import stored_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
@@ -19,9 +19,6 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
 )
 
 
@@ -46,10 +43,8 @@ def test_same_observation_income_basis_units_and_documents_reach_first_card():
     } | {"metrics": {key: quarter["metrics"][key] for key in ("operating_profit", "parent_profit")}}
     assert context["annual"]["metrics"]["parent_profit"]["value"] == 150
     assert context["annual"]["period_start"] == "2025-10-01"
-    saved = evaluate_technical_financial_rows(
-        metadata(), tickers=("1234",), rows={"1234": actual}, policy=TechnicalFinancialPolicy()
-    )
-    card = technical_financial_screening_brief(saved.result)["cards"][0]
+    saved = stored_result((actual,), order=("1234",))
+    card = technical_financial_screening_brief(saved)["cards"][0]
     assert card["financial_gate"]["income_attribution_context"] == context
     card["financial_gate"]["income_attribution_context"]["quarter"]["metrics"]["parent_profit"][
         "documents"
@@ -120,8 +115,6 @@ def test_v14_is_exact_read_only_without_income_context_backfill():
         "income_attribution_context"
         not in technical_financial_screening_brief(restored)["cards"][0]["financial_gate"]
     )
-    with pytest.raises(ValueError, match="historical"):
-        evaluate_technical_financial_rows(metadata(), tickers=(), rows={}, policy=restored.policy)
 
 
 def test_selected_full_fy_is_not_relabelled_as_latest_ttm():

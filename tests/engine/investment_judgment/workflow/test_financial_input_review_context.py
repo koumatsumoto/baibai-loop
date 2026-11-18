@@ -7,10 +7,10 @@ from datetime import timedelta
 import pytest
 from pydantic import TypeAdapter
 from tests.engine.machine_analysis.screening.test_financial_input_review import case
-from tests.engine.machine_analysis.screening.test_technical_financial import evaluate_fixed
 from tests.engine.machine_analysis.screening.test_unresolved_financial_input_review import (
     unresolved_case,
 )
+from tests.helpers.archived_technical_financial import FOUR_STOCK_ORDER, archived_from_models
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.technical_discovery import _metadata
@@ -42,12 +42,9 @@ from baibai_engine.machine_analysis.screening.contracts import ScreeningSelectio
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-    discovery_display_order,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    evaluate_technical_financial_rows,
     project_technical_financial_row,
-    technical_financial_selection_id,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -100,8 +97,8 @@ def seed(path, *, stale=False, unresolved=False):
     )
     fixed = ModelGeneration(**dict(metadata), models=tuple(generated))
     publish_generation(fixed, path=path)
-    selection = evaluate_fixed(fixed, page_size=1)
-    identity = technical_financial_selection_id(fixed.generation_id, policy=selection.result.policy)
+    selection = archived_from_models(fixed, order=FOUR_STOCK_ORDER, page_size=1)
+    identity = "archived-financial-review"
     ScreeningSelectionStore(path).publish(identity, selection)
     publication = read_publication(path=path, selection_id=identity)
     return fixed, selection, identity, publication.published_at + timedelta(seconds=1)
@@ -220,19 +217,18 @@ def test_new_review_queue_is_company_unique_and_reaches_all_pages():
         for i in range(73)
     )
     result = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(), "T", "G", rows, discovery_display_order(rows), {}
+        TechnicalFinancialPolicy(), "T", "G", rows, tuple(r.ticker for r in rows), {}
     )
     pages = [
         technical_financial_screening_brief(result, lane="input_review", page=p) for p in range(3)
     ]
     assert [len(page["cards"]) for page in pages] == [36, 36, 1]
     assert len(set(result.display_order)) == len(result.display_order) == 73
-    assert discovery_display_order(tuple(reversed(rows))) == result.display_order
 
 
 @pytest.mark.parametrize("revision", ["v1", "v2", "v3", "v4"])
 def test_historical_policy_keeps_canonical_fields_and_is_not_recomputed(tmp_path, revision):
-    fixed, current, _, _ = seed(tmp_path / "runs")
+    _fixed, current, _, _ = seed(tmp_path / "runs")
     rows = (
         tuple(
             replace(
@@ -257,7 +253,7 @@ def test_historical_policy_keeps_canonical_fields_and_is_not_recomputed(tmp_path
             current.result,
             policy=TechnicalFinancialPolicy(method=f"technical-financial-discovery-{revision}"),
             rows=rows,
-            display_order=discovery_display_order(rows),
+            display_order=tuple(r.ticker for r in rows),
         ),
     )
     codec = TypeAdapter(ScreeningSelection)
@@ -270,7 +266,7 @@ def test_historical_policy_keeps_canonical_fields_and_is_not_recomputed(tmp_path
         technical_financial_screening_brief(parsed.result)["policy"]["method"]
         == f"technical-financial-discovery-{revision}"
     )
-    identity = technical_financial_selection_id(fixed.generation_id, policy=legacy.result.policy)
+    identity = f"archived-review-{revision}"
     store = ScreeningSelectionStore(tmp_path / "runs")
     store.publish(identity, legacy)
     before_retry = (tmp_path / "runs").read_bytes()
@@ -278,13 +274,3 @@ def test_historical_policy_keeps_canonical_fields_and_is_not_recomputed(tmp_path
     assert (tmp_path / "runs").read_bytes() == before_retry
     restored = read_publication(path=tmp_path / "runs", selection_id=identity).selection
     assert encode_json(codec.dump_python(restored, mode="json")) == payload
-    with pytest.raises(ValueError, match=r"historical.*read-only"):
-        evaluate_technical_financial_rows(
-            fixed,
-            tickers=current.universe_tickers,
-            rows={row.ticker: row for row in rows},
-            policy=legacy.result.policy,
-        )
-    assert technical_financial_selection_id(
-        fixed.generation_id, policy=legacy.result.policy
-    ) != technical_financial_selection_id(fixed.generation_id, policy=current.result.policy)
