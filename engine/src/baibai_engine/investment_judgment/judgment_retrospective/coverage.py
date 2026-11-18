@@ -109,6 +109,14 @@ def proposal_review_coverage(
                     "original_action": item.action,
                     "original_rationale": item.rationale,
                     "original_review_conditions": list(item.review_conditions),
+                    **(
+                        {
+                            "original_blockers": [b.model_dump(mode="json") for b in item.blockers],
+                            "original_resume_conditions": list(item.resume_conditions),
+                        }
+                        if item.action == "defer"
+                        else {}
+                    ),
                     "coverage": status,
                     "retrospectives": notes,
                 }

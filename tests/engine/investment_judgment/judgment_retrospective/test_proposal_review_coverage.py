@@ -85,6 +85,14 @@ def test_all_items_and_recorded_conclusions_are_not_new_evidence_or_execution(tm
         proposal.items[1].review_conditions
     )
 
+    deferred = proposal.items[1]
+    assert deferred.review_conditions != deferred.resume_conditions
+    assert then["items"][1]["original_resume_conditions"] == list(deferred.resume_conditions)
+    assert then["items"][1]["original_blockers"] == [
+        b.model_dump(mode="json") for b in deferred.blockers
+    ]
+    assert "original_resume_conditions" not in then["items"][0]
+
     def cli_at(stamp):
         assert (
             investment_judgment.main(

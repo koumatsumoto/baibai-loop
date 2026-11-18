@@ -131,7 +131,7 @@ contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id�
 
 ## 判断の振り返り
 
-正式提案の振り返りは、先にその全項目を開く。発行時の理由・再調査条件に並べて、後から何を比較し、次回に何を変えようと記録したかを読む。
+正式提案の振り返りは、先にその全項目を開く。発行時の理由・再調査条件（保留なら当初の障害と再開条件も）に並べて、後から何を比較し、次回に何を変えようと記録したかを読む。
 
 ```bash
 uv run baibai-engine investment-judgment judgment-retrospective coverage \
