@@ -120,6 +120,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="inspect a finite page of the fixed universe for one economic question",
     )
     context_parser.add_argument(
+        "--reported-pbr-max",
+        type=float,
+        metavar="MULTIPLE",
+        help="apply an explicit PBR ceiling to reported_assets using fixed company financials",
+    )
+    context_parser.add_argument(
         "--price-coordinate-min",
         nargs=4,
         metavar=("PATH", "VARIANT", "PRICE_GROUP", "VALUE"),
@@ -311,6 +317,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     screening_lane=args.screening_lane,
                     discovery_question=args.discovery_question,
                     price_coordinate_min=minimum,
+                    reported_pbr_max=args.reported_pbr_max,
                     screening_excluded=args.screening_excluded is not None,
                     screening_excluded_scope=args.screening_excluded or "technical_matched",
                 )

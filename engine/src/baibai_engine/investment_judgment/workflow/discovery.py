@@ -10,6 +10,7 @@ from math import isfinite
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from baibai_engine.investment_judgment.workflow.book_prices import BookPriceComparison
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 
@@ -111,6 +112,7 @@ def discovery_context(
     lane: str | None,
     excluded: str | None,
     minimum: PriceCoordinateMinimum | None,
+    book_prices: BookPriceComparison | None = None,
 ) -> dict[str, Any]:
     if question is not None and question not in DISCOVERY_QUESTIONS:
         raise ValueError("unknown discovery question")
@@ -186,7 +188,12 @@ def discovery_context(
         "status": "ready",
         "capacity": CURRENT_RESEARCH_CAPACITY.model_dump(mode="json"),
         "discovery": _explore(
-            data.rows, data.universe_tickers, question=question, page=page, minimum=minimum
+            data.rows,
+            data.universe_tickers,
+            question=question,
+            page=page,
+            minimum=minimum,
+            book_prices=book_prices,
         ),
     }
 
@@ -232,6 +239,7 @@ def _explore(
     question: str | None,
     page: int,
     minimum: PriceCoordinateMinimum | None = None,
+    book_prices: BookPriceComparison | None = None,
 ) -> dict[str, Any]:
     # 会社が複数の問いに関わる。重なる根拠を票・優先度や予算へ変換しない。
     counts: Counter[str] = Counter()
@@ -261,6 +269,11 @@ def _explore(
                     "countercase": content.countercase,
                     "company_count": counts[key],
                     "append_args": ["--discovery-question", key],
+                    **(
+                        {"optional_comparison": "--reported-pbr-max <倍率>"}
+                        if key == "reported_assets"
+                        else {}
+                    ),
                 }
                 for key, content in DISCOVERY_QUESTIONS.items()
             ],
@@ -286,6 +299,31 @@ def _explore(
             "meaning": "同じ価格座標だけを比べる資料照会。要求利回り・投資適格性ではない。",
         }
         eligible = matched
+    if book_prices is not None:
+        observed = [r for r in eligible if r["ticker"] in book_prices.prices]
+        selected = [
+            r for r in observed if book_prices.prices[r["ticker"]].value <= book_prices.maximum
+        ]
+        args.extend(["--reported-pbr-max", str(book_prices.maximum)])
+        comparison["reported_book_comparison"] = {
+            "maximum": book_prices.maximum,
+            "within_question": len(eligible),
+            "outside_question": len(universe) - len(eligible),
+            "at_or_below": len(selected),
+            "above": len(observed) - len(selected),
+            "unavailable": len(eligible) - len(observed),
+            "meaning": (
+                "保存した会社財務のPBR。比較先は上限で絞る前の全普通株または同一33業種から自己を除く。"
+                "中央値は各社等重みで指数の加重PBRではない。同一株価日のうち、same_book_basisは"
+                "簿価の期末・算出法・連単・会計基準まで一致する他社だけ。赤字を除かず、"
+                "銘柄の事業や資産の回収率・原価・株主への配分、売買時期が等しいことは意味しない。"
+            ),
+        }
+        eligible = selected
+    result_page = _page(eligible, args, page)
+    if book_prices is not None:
+        for item in result_page["rows"]:
+            item["book_price_comparison"] = book_prices.detail(item["ticker"])
     return {
         "view": "companies_for_question",
         "coverage": coverage,
@@ -294,7 +332,7 @@ def _explore(
         "countercase": content.countercase,
         "order": "銘柄コード順の閲覧用。先頭・所属経路の数・相対騰落を魅力度にしない。",
         **comparison,
-        **_page(eligible, args, page),
+        **result_page,
     }
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import closing
 from copy import deepcopy
 from datetime import date, datetime
+from math import isfinite
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,6 +15,7 @@ from baibai_engine.investment_judgment.company_research.context import company_c
 from baibai_engine.investment_judgment.company_research.query import read_company_contexts
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
+from baibai_engine.investment_judgment.workflow.book_prices import read_book_prices
 from baibai_engine.investment_judgment.workflow.discovery import PriceCoordinateMinimum
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     SCREENING_EXCLUSION_SCOPES,
@@ -53,6 +55,7 @@ def load_generated_selection_context(
     screening_lane: ResearchLane | None = None,
     discovery_question: str | None = None,
     price_coordinate_min: PriceCoordinateMinimum | None = None,
+    reported_pbr_max: float | None = None,
     screening_excluded: bool = False,
     screening_excluded_scope: ScreeningExclusionScope = "technical_matched",
 ) -> dict[str, Any]:
@@ -79,6 +82,16 @@ def load_generated_selection_context(
     if as_of > known_at.astimezone(JST).date():
         raise ValueError("Research date/cutoff is invalid")
     overview = request.scope == "discover_new" and screening_lane is None and not screening_excluded
+    if reported_pbr_max is not None and (
+        discovery_question != "reported_assets"
+        or price_coordinate_min is not None
+        or isinstance(reported_pbr_max, bool)
+        or not isfinite(reported_pbr_max)
+        or reported_pbr_max <= 0
+    ):
+        raise ValueError(
+            "reported PBR needs a positive finite maximum and only the reported_assets question"
+        )
     if price_coordinate_min is not None and discovery_question is None:
         raise ValueError("a price-coordinate comparison needs an explicit discovery question")
     if discovery_question is not None and (not overview or comparison_tickers):
@@ -113,6 +126,20 @@ def load_generated_selection_context(
             detail = bool(comparison_tickers) or request.scope != "discover_new"
             if detail and (screening_lane is not None or screening_excluded or screening_page):
                 raise ValueError("choose explicit company detail or one indexed membership page")
+            book_prices = None
+            if index.status == "indexed" and reported_pbr_max is not None:
+                assert index.generation_id is not None
+                assert index.as_of is not None
+                book_prices = read_book_prices(
+                    generation_id=index.generation_id,
+                    as_of=index.as_of,
+                    maximum=reported_pbr_max,
+                    path=runs_path,
+                    listings={
+                        r["ticker"]: (r["sector"], r["price_date"], r["expected_price_date"])
+                        for r in index.rows
+                    },
+                )
             indexed = discovery_context(
                 index,
                 request=request,
@@ -121,6 +148,7 @@ def load_generated_selection_context(
                 path=runs_path,
                 db_path=db_path,
                 minimum=price_coordinate_min,
+                book_prices=book_prices,
                 question=discovery_question,
                 page=screening_page,
                 comparisons=comparisons if detail else None,
