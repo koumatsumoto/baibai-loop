@@ -47,7 +47,7 @@ from baibai_jobs.acquisition.receipts import (
     download_fixed,
     seal_integrated,
 )
-from baibai_jobs.acquisition.source_inputs import GuardedInputStore, load_input, publish_inputs
+from baibai_jobs.acquisition.source_inputs import GuardedInputStore, load_input, publish_input
 from baibai_jobs.integration.economic_handoff import validate_handoff
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_jobs.publication.lease import _load_handle, verify_held
@@ -120,9 +120,10 @@ def integrate(
     write_json_atomic(work / "plan.json", {"handoffs": entries})
     base = work / "base.sqlite"
     original = _read(store, base)
-    base_digest = sha256_file(base)
-    canonical = work / "canonical.sqlite"
-    shutil.copyfile(base, canonical)
+    canonical = base
+    if entries:
+        canonical = work / "canonical.sqlite"
+        shutil.copyfile(base, canonical)
     outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(entries):
         packet = work / f"receipt-{index:05d}"
@@ -210,7 +211,6 @@ def integrate(
     if any(outcome["applied"] for outcome in outcomes):
         candidate = work / "candidate.sqlite"
         create_snapshot(canonical, candidate)
-    digest = sha256_file(candidate)
 
     def before_canonical_put() -> None:
         verify_held(store, handle)
@@ -221,7 +221,7 @@ def integrate(
     before_canonical_put()
     # The unchanged base was already read and validated under this same ETag.
     published, readback = original, base
-    if digest != base_digest:
+    if candidate != base and sha256_file(candidate) != sha256_file(base):
         readback = work / "readback.sqlite"
         backup = store.head(KEY + ".bak")
         _put_readback(
@@ -269,28 +269,26 @@ def integrate(
             )
     report["l1_sealed"] = True
     write_json_atomic(directory / "applied.json", report)
-    updated = []
-    # Always reissue, even with no pending handoffs after an interrupted prior cycle.
+    updated: list[str] = []
+    reused: list[str] = []
+    # Complete every group even if the preceding run stopped part-way through.
     for group in acquisition_groups():
         name = "economic-" + group
-        result = publish_inputs(
+        stage = publish_input(
             guarded,
             market=work / "unused-market",
             economic=readback,
             identity=identity,
             asof=asof,
             generations=generations,
-            only_group=name,
+            group=name,
         )
-        if result["failed"]:
-            raise ValueError(f"economic scoped input failed: {name}")
-        output = work / ("input-" + group)
-        metadata = load_input(store, name, output.with_suffix(".sqlite"), output)
+        metadata = load_input(store, name, None, work / ("input-" + group), expected_stage=stage)
         if metadata["canonical_generations"] != generations:
             raise LakePublishError("economic scoped input generation changed during readback")
-        updated.append(name)
+        (updated if stage == f"{name}-{identity}" else reused).append(name)
     before_put()
-    report["inputs_updated"] = updated
+    report.update(inputs_updated=updated, inputs_reused=reused)
     write_json_atomic(directory / "applied.json", report)
     return report
 

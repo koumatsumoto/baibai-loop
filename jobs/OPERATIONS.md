@@ -227,11 +227,11 @@ uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_W
 
 ### 経済単独公開と失敗再開
 
-fresh正本＋固定handoffの受入→一世代backup→条件付きPUT/全bytes読戻し→seal→経済の全group inputの順。byte不変時は同ETag/leaseを確認し、初回検証済みの正本copyを再利用する。seal/input直前にも同ETag/leaseを確認し、読戻し経済入力からモデルを作る。L2失敗でL1を再PUT/rollbackしない。
+fresh正本＋固定handoffの受入→一世代backup→条件付きPUT/全bytes読戻し→seal→経済の全group inputの順。byte不変時は同ETag/leaseを確認し、初回検証済みの正本copyを再利用する。seal/input直前にも同ETag/leaseを確認し、読戻し経済入力からモデルを作る。同一日・同じ正本世代で取得グループの計画本文/形式が変わらなければ、既発行のstageをそのまま読み戻す。途中で止まった組や異なる日・世代は通常どおり発行する。L2失敗でL1を再PUT/rollbackしない。
 
 - 公開/readback失敗: 後段を止め、実bytesを照合する。未確認ではsealせず空DB/旧値へfallbackしない。
 - PUT後/seal前: fresh runnerで未sealの同じ不変stageを再適用する。同sourceの後続watermarkを先に進めない。
-- seal後/input途中: 次cycleのfresh copy・新attemptで全groupを再発行する。旧local出力を上書きしない。
+- seal後/input途中: 次cycleのfresh copy・新attemptで全groupを照合し、未完・差分だけを発行する。旧local出力を上書きしない。
 - A→同値A→Bの一括公開後の中断: 本文省略の中間stageがneeds_explicit_recoveryになり得る。元stage/hash・中断runのreadback・現正本/次inputを照合し、元時計/markerを変更しない。最新B/inputから前進できるが、新取得成功を旧stage採用の証明にしない。
 
 FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他sourceへ同じ確認方式を広げない。

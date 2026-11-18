@@ -53,6 +53,7 @@ def save_handoff(
     namespace: str | None = None,
     reusable_receipt: dict[str, object] | None = None,
     input_group: str | None = None,
+    current_input_stage: str | None = None,
 ) -> str:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     path = directory / "receipts.sqlite"
@@ -116,6 +117,14 @@ def save_handoff(
     if market:
         value["dependencies"] = save_dependencies(store, prefix, directory)
     manifest = json.dumps(value, sort_keys=True).encode()
+    if (
+        current_input_stage is not None
+        and reusable_receipt is not None
+        and json.dumps({**reusable_receipt, "result": value["result"]}, sort_keys=True).encode()
+        == manifest
+    ):
+        # The same complete manifest would be written with only a new issue time.
+        return current_input_stage
     manifest_key = prefix + "/handoff.json"
     prior = read_write_once_private(store, manifest_key)
     if prior is None:

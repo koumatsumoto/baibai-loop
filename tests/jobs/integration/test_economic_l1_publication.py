@@ -15,7 +15,7 @@ from baibai_engine.data_collection.receipts.native_sources.store import initiali
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs
-from baibai_jobs.acquisition.source_inputs import load_input
+from baibai_jobs.acquisition.source_inputs import input_key, load_input
 from baibai_jobs.integration.economic_sources import integrate
 from baibai_jobs.publication.lease import _save_handle, acquire, release
 
@@ -139,7 +139,14 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
     monkeypatch.setattr(store, "download_file", real_get)
     result = run(tmp_path, setup, "retry")
     assert result["l1_sealed"]
-    assert len(result["inputs_updated"]) == 15
+    assert sorted(result["inputs_updated"] + result["inputs_reused"]) == sorted(
+        "economic-" + group for group in acquisition_groups()
+    )
+    if point == "inputs":
+        groups = list(acquisition_groups())
+        assert result["inputs_reused"] == [
+            "economic-" + group for group in groups[: groups.index("fred_csv")]
+        ]
     with closing(sqlite3.connect(tmp_path / "retry.sqlite")) as conn:
         assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 1
 
@@ -205,13 +212,43 @@ def test_backup_is_exact_fresh_base_and_no_stage_does_not_republish(tmp_path, se
     before = len([key for key in store.put_keys if key == "indicators.sqlite"])
     downloads = store.get_keys.count("indicators.sqlite")
     original = store.head("indicators.sqlite")
+    old_writes = list(store.put_keys)
     result = run(tmp_path, setup, "no-new-stage")
+    assert store.put_keys == old_writes
+    assert not list((tmp_path / "no-new-stage").glob("*/canonical.sqlite"))
     assert len([key for key in store.put_keys if key == "indicators.sqlite"]) == before
     assert store.get_keys.count("indicators.sqlite") - downloads == 1
     assert store.head("indicators.sqlite") == original
     assert result["canonical_generations"] == {"economic_etag": original.etag}
-    assert result["inputs_updated"] == ["economic-" + group for group in acquisition_groups()]
+    assert result["inputs_updated"] == []
+    assert result["inputs_reused"] == ["economic-" + group for group in acquisition_groups()]
     assert store.get_bytes("indicators.sqlite.bak") == old
+
+
+def test_changed_planning_pointer_after_checked_get_stops_before_any_new_put(
+    tmp_path, setup, monkeypatch
+):
+    store, lease, _ = setup
+    run(tmp_path, setup)
+    first = input_key("economic-" + acquisition_groups()[0])
+    before = list(store.put_keys)
+
+    def checked(key, *, max_bytes):
+        result = store.get_bytes_with_metadata(key)
+        if key == first:
+            store.store_object(key, b'{"stage_id":"replaced"}')
+        return result
+
+    monkeypatch.setattr(store, "get_checked_object", checked, raising=False)
+    with pytest.raises(LakePublishError, match="private JSON object changed"):
+        integrate(
+            store,
+            tmp_path / "next",
+            database=tmp_path / "next.sqlite",
+            asof=DAY + timedelta(days=1),
+            lease_handle=lease,
+        )
+    assert store.put_keys == before
 
 
 @pytest.mark.parametrize("guard", [3, 4], ids=["before-publication", "before-source-state"])

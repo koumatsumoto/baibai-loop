@@ -107,7 +107,7 @@ def publish_inputs(
     failed: list[dict[str, str]] = []
     for group in groups:
         try:
-            _publish_one(
+            stage = publish_input(
                 store,
                 market=market,
                 economic=economic,
@@ -119,11 +119,12 @@ def publish_inputs(
         except (ValueError, observations_owner.FetchError) as error:
             failed.append({"group": group, "reason": type(error).__name__})
         else:
-            updated.append(group)
+            if stage == f"{group}-{identity}":
+                updated.append(group)
     return {"updated": updated, "failed": failed}
 
 
-def _publish_one(
+def publish_input(
     store: ObjectStore,
     *,
     market: Path,
@@ -132,7 +133,7 @@ def _publish_one(
     asof: date,
     generations: dict[str, str],
     group: str,
-) -> None:
+) -> str:
     with tempfile.TemporaryDirectory(prefix="baibai-source-input-") as temporary:
         directory = Path(temporary)
         path = directory / "receipts.sqlite"
@@ -177,33 +178,49 @@ def _publish_one(
         else:
             report = export_market_source_input(market, path, group=group, asof=asof)
         report["canonical_generations"] = generations
-        report["created_at"] = datetime.now(UTC).isoformat()
+        issued = datetime.now(UTC)
+        report["created_at"] = issued.isoformat()
         stage_id = f"{group}-{identity}"
         write_json_atomic(directory / "result.json", report)
         key = input_key(group)
-        prior = read_private(store, key)
+        # The lease guards PUTs; reads can use metadata from the underlying GET.
+        reader = store.store if isinstance(store, GuardedInputStore) else store
+        prior = read_private(reader, key)
         reusable = None
+        current_stage = None
         if prior is not None:
             try:
                 old_pointer = json.loads(prior.payload)
                 old_stage = old_pointer.get("stage_id") if isinstance(old_pointer, dict) else None
                 if isinstance(old_stage, str) and old_stage.startswith(group + "-"):
                     old_prefix = stage_prefix(old_stage, namespace="source-inputs")
-                    old_handoff = read_private(store, old_prefix + "/handoff.json")
+                    old_handoff = read_private(reader, old_prefix + "/handoff.json")
                     if old_handoff is not None:
                         candidate = json.loads(old_handoff.payload)
                         result = candidate.get("result") if isinstance(candidate, dict) else None
                         if isinstance(result, dict) and result.get("group") == group:
                             reusable = candidate
+                            if (
+                                group.startswith("economic-")
+                                and set(generations) == {"economic_etag"}
+                                and generations["economic_etag"]
+                                and old_pointer
+                                == {"stage_id": old_stage, "canonical_generations": generations}
+                                and isinstance(result.get("created_at"), str)
+                                and result == {**report, "created_at": result["created_at"]}
+                                and datetime.fromisoformat(result["created_at"]) <= issued
+                            ):
+                                current_stage = old_stage
             except (ValueError, TypeError):
                 # Unusable old metadata must not prevent publishing a fresh input.
-                reusable = None
-        save_handoff(
+                pass
+        stage_id = save_handoff(
             store,
             stage_id,
             directory,
             namespace="source-inputs",
             reusable_receipt=reusable,
+            current_input_stage=current_stage,
             input_group=group,
         )
         pointer = json.dumps(
@@ -211,10 +228,16 @@ def _publish_one(
         ).encode()
         if prior is None or prior.payload != pointer:
             put_private(store, key, pointer, previous_etag=prior.etag if prior else None)
+        return stage_id
 
 
 def load_input(
-    store: ObjectStore, group: str, database: Path, directory: Path
+    store: ObjectStore,
+    group: str,
+    database: Path | None,
+    directory: Path,
+    *,
+    expected_stage: str | None = None,
 ) -> dict[str, object]:
     """Download only this group's immutable input; never fall back to the full DB."""
     saved = read_private(store, input_key(group))
@@ -223,6 +246,8 @@ def load_input(
             "scoped source input is missing; initialize through common integration"
         )
     pointer = json.loads(saved.payload)
+    if expected_stage is not None and pointer["stage_id"] != expected_stage:
+        raise LakePublishError("economic scoped input stage changed during readback")
     load_handoff(
         store, pointer["stage_id"], directory, namespace="source-inputs", input_group=group
     )
@@ -232,8 +257,9 @@ def load_input(
         or report["canonical_generations"] != pointer["canonical_generations"]
     ):
         raise LakePublishError("scoped source input differs from its generation binding")
-    database.parent.mkdir(parents=True, exist_ok=True)
-    if database.exists():
-        raise FileExistsError(database)
-    shutil.copyfile(directory / "receipts.sqlite", database)
+    if database is not None:
+        database.parent.mkdir(parents=True, exist_ok=True)
+        if database.exists():
+            raise FileExistsError(database)
+        shutil.copyfile(directory / "receipts.sqlite", database)
     return cast("dict[str, object]", report)
