@@ -225,6 +225,15 @@ def _read_fixed_pack(store: ObjectStore, key: str) -> bytes | None:
     return None if saved is None else saved[0]
 
 
+def full_day_request_packs(
+    scope: Mapping[str, Any], receipts: Mapping[str, Any]
+) -> Iterator[tuple[str, str]]:
+    """Content-addressed packs actually read for one day; held evidence has no body."""
+    for field in ("adopted", "failure"):
+        if identity := scope.get(field):
+            yield identity, receipts[identity]["pack"]
+
+
 def read_full_day_requests(
     store: ObjectStore,
     *,
@@ -235,16 +244,10 @@ def read_full_day_requests(
     attempt_type: type[FullDayAttempt],
 ) -> Iterator[RetainedRequest]:
     """Read digest-verified packs using an explicitly fixed head or saved input selection."""
-    wanted: dict[str, dict[str, Any]] = {}
-    for day in days:
-        scope = scopes.get(day.isoformat(), {})
-        for field in ("adopted", "failure"):
-            identity = scope.get(field)
-            if identity:
-                wanted[identity] = receipts[identity]
     by_pack: dict[str, set[str]] = {}
-    for identity, receipt in wanted.items():
-        by_pack.setdefault(receipt["pack"], set()).add(identity)
+    for day in days:
+        for identity, digest in full_day_request_packs(scopes.get(day.isoformat(), {}), receipts):
+            by_pack.setdefault(digest, set()).add(identity)
     for digest, identities in by_pack.items():
         payload = _read_fixed_pack(store, contract.prefix + "packs/" + digest + ".json.gz")
         if payload is None or _digest(payload) != digest:
@@ -255,7 +258,7 @@ def read_full_day_requests(
             identity = raw["request_id"]
             if identity not in identities:
                 continue
-            if _digest(_json(raw)) != wanted[identity]["fingerprint"]:
+            if _digest(_json(raw)) != receipts[identity]["fingerprint"]:
                 raise LakePublishError("full-day receipt differs from its fixed head")
             found.add(identity)
             item = attempt_type.from_value(raw)

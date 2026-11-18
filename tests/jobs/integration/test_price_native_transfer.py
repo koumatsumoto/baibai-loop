@@ -255,6 +255,18 @@ def test_native_price_paths_use_small_runner_session(tmp_path, monkeypatch, fixe
         assert not Path(settings["temp_directory"]).exists()
 
 
+def test_packing_cannot_trade_an_extra_read_of_one_original_for_two_other_reads():
+    # The mixed correction pack A would be split twice by packing runs even though
+    # the total drops from 7 GETs to 6. Its size is unknown, so keep monthly reads.
+    packs = "D" * 18 + "A" * 9 + "C" * 8 + "A" * 10 + "E" * 19 + "B"
+    days = tuple(date(2026, 10, 16) + timedelta(days=i) for i in range(len(packs)))
+    scopes = {day.isoformat(): {"adopted": str(i)} for i, day in enumerate(days)}
+    receipts = {str(i): {"pack": pack} for i, pack in enumerate(packs)}
+    assert price_native._native_batches(days, scopes=scopes, receipts=receipts) == list(
+        price_native._months(days)
+    )
+
+
 @pytest.mark.parametrize("entrypoint", ["model", "rebuild"])
 def test_fixed_head_is_decoded_once_and_stays_local(
     tmp_path, monkeypatch, fixed_prices, entrypoint
@@ -301,7 +313,7 @@ def test_fixed_head_is_decoded_once_and_stays_local(
         assert result["rows"] == 4
         assert result["coverage_status"] == "partial"
     assert len(decoded) == 1
-    assert len(observed) == 2
+    assert len(observed) == 1  # The same native pack spans October and November.
     assert all(
         scopes is decoded[0]["scopes"] and receipts is decoded[0]["receipts"]
         for scopes, receipts in observed
