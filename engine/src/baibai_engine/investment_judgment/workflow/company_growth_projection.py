@@ -38,7 +38,8 @@ def project_company_growth(
     def project_row(
         period: PeriodState, observation: Observation, names: tuple[Metric, ...]
     ) -> dict[str, object]:
-        metrics = {name: observation.metrics[name] for name in names}
+        metrics = {name: observation.metrics[name] for name in names if name in observation.metrics}
+        unrecorded = [name for name in names if name not in metrics]
         sources = tuple(dict.fromkeys(d for value in metrics.values() for d in value.documents))
         row: dict[str, object] = {
             "period_start": observation.period_start.isoformat(),
@@ -48,13 +49,16 @@ def project_company_growth(
             if period.fiscal_year_end is None
             else period.fiscal_year_end.isoformat(),
             "statement_basis": observation.statement_basis,
-            "values": [value.value for value in metrics.values()],
+            "values": [metrics[name].value if name in metrics else None for name in names],
             "sources": references(sources),
         }
         if observation.accounting_standard is not None:
             row["accounting_standard"] = observation.accounting_standard
         if observation.period_status is not None:
             row["period_status"] = observation.period_status
+        # A missing saved column says nothing about what the issuer disclosed.
+        if unrecorded:
+            row["unrecorded_metrics"] = unrecorded
         missing = {name: value.reason for name, value in metrics.items() if value.reason}
         if missing:
             row["missing"] = missing
@@ -63,9 +67,12 @@ def project_company_growth(
         }
         if precision:
             row["metric_precision"] = precision
-        if any(value.documents != sources for value in metrics.values()):
+        if (unrecorded and sources) or any(
+            value.documents != sources for value in metrics.values()
+        ):
             row["metric_sources"] = {
-                name: references(value.documents) for name, value in metrics.items()
+                name: references(metrics[name].documents) if name in metrics else []
+                for name in names
             }
         return row
 
@@ -86,7 +93,7 @@ def project_company_growth(
             names = tuple(observation.metrics)
             latest_observations[observation.measurement] = {
                 "columns": list(names),
-                "units": {name: result.metric_units[name] for name in names},
+                "units": {name: result.metric_units.get(name) for name in names},
                 "share_basis": observation.share_basis,
                 "row": project_row(latest, observation, names),
                 "yoy": [
@@ -175,7 +182,7 @@ def project_company_growth(
                 "measurement": "reported_FY_or_year_to_date_not_single_quarter",
                 "share_basis": "source_reported_unverified",
                 "columns": list(_METRICS),
-                "units": {name: result.metric_units[name] for name in _METRICS},
+                "units": {name: result.metric_units.get(name) for name in _METRICS},
                 "rows": rows,
             },
             "reported_yoy": {
@@ -200,7 +207,7 @@ def project_company_growth(
             "reported_cash_flow": {
                 "measurement": "reported_FY_or_year_to_date_not_single_quarter",
                 "columns": ["operating_cash_flow"],
-                "units": {"operating_cash_flow": result.metric_units["operating_cash_flow"]},
+                "units": {"operating_cash_flow": result.metric_units.get("operating_cash_flow")},
                 "rows": cash_flow_rows,
             },
             "documents": {ref: source.model_dump(mode="json") for source, ref in documents.items()},

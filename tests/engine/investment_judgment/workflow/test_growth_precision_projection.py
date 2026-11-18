@@ -116,3 +116,46 @@ def test_unrecorded_legacy_precision_keeps_old_table_shape():
     assert projected["reported_yoy"]["columns"] == _OLD_CHANGE_COLUMNS
     assert all(len(row) == len(_OLD_CHANGE_COLUMNS) for row in projected["reported_yoy"]["rows"])
     assert growth.payload == original
+
+
+def test_absent_saved_metric_is_not_a_disclosure_reason_or_another_columns_source():
+    _, growth, _ = models(pdfs=[])
+    raw = deepcopy(growth.payload)
+    latest = next(o for o in raw["periods"][-1]["observations"] if o["measurement"] == "reported")
+    docs = latest["metrics"]["sales"]["documents"]
+    assert docs
+    latest["metrics"] = {
+        "sales": {"value": 0, "documents": docs},
+        "operating_profit": {"value": -12, "documents": docs},
+        "parent_profit": {"value": None, "reason": "operand_unavailable", "documents": docs},
+        "operating_margin": {"value": None, "documents": docs},
+    }
+    del raw["metric_units"]["reported_basic_eps"]
+    original = deepcopy(raw)
+    view = project_company_growth(raw, ticker=growth.subject, periods=1)
+    table = view["reported"]
+    (row,) = table["rows"]
+    assert list(zip(table["columns"], row["values"], strict=True)) == [
+        ("sales", 0),
+        ("operating_profit", -12),
+        ("parent_profit", None),
+        ("operating_margin", None),
+        ("reported_basic_eps", None),
+    ]
+    assert row["unrecorded_metrics"] == ["reported_basic_eps"]
+    assert row["missing"] == {"parent_profit": "operand_unavailable"}
+    assert row["metric_sources"]["reported_basic_eps"] == []
+    for name in latest["metrics"]:
+        assert [view["documents"][ref] for ref in row["metric_sources"][name]] == docs
+    assert table["units"]["reported_basic_eps"] is None
+    assert table["units"]["operating_profit"] == original["metric_units"]["operating_profit"]
+    (cash,) = view["reported_cash_flow"]["rows"]
+    assert cash["unrecorded_metrics"] == ["operating_cash_flow"]
+    assert cash["values"] == [None]
+    assert cash["sources"] == []
+    assert "missing" not in cash
+    assert (row["period_start"], row["period_end"]) == (
+        latest["period_start"],
+        latest["period_end"],
+    )
+    assert raw == original
