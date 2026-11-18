@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Sequence
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
@@ -193,30 +193,36 @@ def _import_confirmed_originals(
             retained[1].update(digests)
             # Responses and their decompressed bodies die with this bundle iteration.
             del responses
-        for entry in stage.result.entries:
-            attempt_info = attempts.get(entry.attempt_id) if entry.attempt_id else None
-            if entry.state in {"success", "normal_null"}:
-                if attempt_info is None or attempt_info[:2] != (entry.source, entry.ticker):
-                    raise ValueError(
-                        "selected external assessment attempt has no matching original"
+        # Open after this cohort's bundle commits; close before the next cohort writes.
+        with ExitStack() as reads:
+            reader: sqlite3.Connection | None = None
+            for entry in stage.result.entries:
+                attempt_info = attempts.get(entry.attempt_id) if entry.attempt_id else None
+                if entry.state in {"success", "normal_null"}:
+                    if attempt_info is None or attempt_info[:2] != (entry.source, entry.ticker):
+                        raise ValueError(
+                            "selected external assessment attempt has no matching original"
+                        )
+                    if reader is None:
+                        uri = sqlite_path.resolve().as_uri() + "?mode=ro"
+                        reader = reads.enter_context(closing(sqlite3.connect(uri, uri=True)))
+                    attempt = equity_web_read_responses(reader, attempt_info[2])
+                    if entry.observation is None:
+                        raise ValueError("selected external assessment observation is missing")
+                    parsed = external_assessment_decode_attempt(
+                        attempt, expected_parser_version=entry.observation.parser_version
                     )
-                uri = sqlite_path.resolve().as_uri() + "?mode=ro"
-                with closing(sqlite3.connect(uri, uri=True)) as conn:
-                    attempt = equity_web_read_responses(conn, attempt_info[2])
-                if entry.observation is None:
-                    raise ValueError("selected external assessment observation is missing")
-                parsed = external_assessment_decode_attempt(
-                    attempt, expected_parser_version=entry.observation.parser_version
-                )
-                if parsed != entry.observation:
-                    raise ValueError("external assessment staged observation differs from original")
-                typed.append(parsed)
-            elif (
-                entry.state == "failure"
-                and entry.http_status == 200
-                and (attempt_info is None or attempt_info[:2] != (entry.source, entry.ticker))
-            ):
-                raise ValueError("failed HTTP 200 attempt has no retained original")
+                    if parsed != entry.observation:
+                        raise ValueError(
+                            "external assessment staged observation differs from original"
+                        )
+                    typed.append(parsed)
+                elif (
+                    entry.state == "failure"
+                    and entry.http_status == 200
+                    and (attempt_info is None or attempt_info[:2] != (entry.source, entry.ticker))
+                ):
+                    raise ValueError("failed HTTP 200 attempt has no retained original")
     return source_inserted, selected_digests, tuple(typed)
 
 
