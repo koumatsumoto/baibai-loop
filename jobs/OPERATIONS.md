@@ -570,6 +570,8 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 <a id="price-native-l1"></a>
 **日足。** 正常空L1と価格0行の公開拒否は別。native暦で休場を証明できる未試行日だけを公開coverageから除き、raw不足は残す。旧v1へ遡及しない。統合は毎回固定L1から各日を正規化し、13列すべてが一致する取引日だけ作業用SQLiteの書換えを省く。構築中はこの実行専用のSQLiteに書込み予約を取るため、同じ作業ファイルを別のwriterと共有しない（読取は可能）。
 
+日次の空の転送DBが同じ固定releaseを指す場合、次にnative L1から再生成する旧日足だけは最初にhydrateしない。原本の欠損・訂正を旧株価では埋めない。旧releaseの日足そのものを再現・検査するには通常の `hydrate-market` を使う。
+
 <a id="financial-native-l1"></a>
 **財務。** [固定reader](src/baibai_jobs/integration/financial_native.py)は旧inline/共有固定入力も読む。旧SQL/Parquetの明示reader・cold再構築は保持する。旧mode/旧財務handoffを含む通常planは作り直し、旧Selectionを再署名しない。Operation再開とcold計算を混同しない。
 
@@ -739,7 +741,7 @@ TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な�
 
 [Web契約](../web/backend/src/baibai_web/materialize.py)を使い、core保存後にapplicationと同local marketから生成する。表示失敗でsource/model sealを止めたり戻したりしない。
 
-mainのcloud-materializeは検証済applicationと固定releaseを使う。単独表示更新は同じmarket originの価格・calendar・masterだけをhydrateし、無関係な原本cacheを取得・消去しない。別releaseへの部分更新はせず、originが合わなければmarketを未検証として扱う。通常dailyの全体hydrateとは別である。market失敗は赤いrunに残し、未検証値を読ませず時価等を未評価にしてledger fact/保存成績/提案を配信する。market復旧と表示公開を別確認する。
+mainのcloud-materializeは検証済applicationと固定releaseを使う。単独表示更新は同じmarket originの価格・calendar・masterだけをhydrateし、無関係な原本cacheを取得・消去しない。別releaseへの部分更新はせず、originが合わなければmarketを未検証として扱う。通常dailyの実行用復元とは別である。market失敗は赤いrunに残し、未検証値を読ませず時価等を未評価にしてledger fact/保存成績/提案を配信する。market復旧と表示公開を別確認する。
 
 日次の使い捨てrunnerだけ、受領済みの公開Web原本（`equity_web.source_responses`）を同じローカルmirrorで公開まで一時再利用する。追加取得せず、大きな原本の保持は最大3 GiBかつ開始時空き容量の1/16以内。手動hydrate・portfolio・他の巨大原本の既定の退避は変えない。すでに手元にある未改版の日別形式L1バイナリ原本は手動exportでも同じ全値検証後に再利用できる。前回とSHA/全列（gzip本文含む）/順序が一致した日は再圧縮せず、公開前の全件照合とR2の閉鎖・pointer確認は通常どおり。古い月刊が手元になければSQLiteから同じ月形状を再生する。実採用数とbyteはjobの `lake snapshot: verified reuse` で確認する。値は一時再生成を省いたバイトで、請求や通信の削減量ではない。
 

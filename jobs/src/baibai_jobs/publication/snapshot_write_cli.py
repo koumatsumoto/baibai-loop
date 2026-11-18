@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
+import sqlite3
 import sys
 from collections.abc import Callable
 from contextlib import closing
@@ -29,12 +29,18 @@ from baibai_engine.storage.snapshots.prefetch import prefetching_hydration_cache
 from baibai_engine.storage.snapshots.reader import (
     FixedRelease,
     LakeReadError,
+    accepted_dataset,
     resolve_current_release,
     resolve_release,
     resolve_release_ref,
 )
 from baibai_engine.storage.snapshots.retention import LakeRetentionError, apply_gc, plan_gc
 from baibai_engine.storage.snapshots.transfer import make_market_transfer
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    LakeStoreOriginError,
+    read_lake_store_origin_from_connection,
+)
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -44,6 +50,7 @@ WRITE_COMMANDS = frozenset(
         "dehydrate",
         "gc",
         "hydrate",
+        "hydrate-for-daily",
         "hydrate-portfolio",
     }
 )
@@ -61,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
 def add_write_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     for command, help_text in (
         ("hydrate", "fill a market SQLite store's lake tables from one fixed release"),
+        ("hydrate-for-daily", "prepare a machine store for immediate native model integration"),
         ("hydrate-portfolio", "fill only portfolio display inputs inside the store's release"),
     ):
         hydrate = commands.add_parser(command, help=help_text)
@@ -90,7 +98,7 @@ def add_write_commands(commands: argparse._SubParsersAction[argparse.ArgumentPar
 
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
-    if args.command in {"hydrate", "hydrate-portfolio"}:
+    if args.command in {"hydrate", "hydrate-for-daily", "hydrate-portfolio"}:
         return _hydrate(args)
     if args.command == "dehydrate":
         return _dehydrate(args)
@@ -184,12 +192,36 @@ def _publication_web_inputs(release: FixedRelease, *, disk_free: int) -> frozens
     return frozenset(keys)
 
 
+def _daily_rebuilds_prices(release: FixedRelease, store: Path) -> bool:
+    """Only the normal empty transfer already bound to this release can defer its prices."""
+    name = "jquants.daily_bars"
+    manifest = release.dataset_manifests.get(name)
+    if manifest is None or len(release.dataset_manifests) == 1:
+        return False
+    if accepted_dataset(release, LAKE_DATASETS[name]) != LAKE_DATASETS[name]:
+        return False
+    if not all(
+        len(part.sources) == 1
+        and part.sources[0].kind == "native_l1"
+        and part.sources[0].namespace == "jquants-price"
+        for part in manifest.partitions
+    ):
+        return False
+    with closing(connect_read_only(store)) as connection:
+        return (
+            read_lake_store_origin_from_connection(connection)
+            == LakeStoreOrigin(release.release_id, release.manifest_sha256)
+            and connection.execute("SELECT 1 FROM jquants_daily_bars LIMIT 1").fetchone() is None
+        )
+
+
 def _hydrate(args: argparse.Namespace) -> int:
     """Resolve one release, then fill the market store's lake-owned tables from it."""
 
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
             release, still_current = _resolve_release_target(args, cache.source)
+            deferred = None
             if args.command == "hydrate-portfolio":
                 # Saved proposals/outcomes live in App. Only valuation and names need
                 # market rows; unrelated native receipt caches are not ours to clear.
@@ -201,6 +233,11 @@ def _hydrate(args: argparse.Namespace) -> int:
             else:
                 _clear_independent_list_cache(args, release)
                 dataset_names = release.dataset_names()
+                if args.command == "hydrate-for-daily" and _daily_rebuilds_prices(
+                    release, args.store
+                ):
+                    deferred = "jquants.daily_bars"
+                    dataset_names = tuple(name for name in dataset_names if name != deferred)
             with prefetching_hydration_cache(
                 cache,
                 release=release,
@@ -208,8 +245,7 @@ def _hydrate(args: argparse.Namespace) -> int:
                 bucket=args.bucket,
             ) as hydration_cache:
                 if (
-                    args.command == "hydrate"
-                    and os.environ.get("BAIBAI_REUSE_DAILY_WEB_INPUTS") == "1"
+                    args.command == "hydrate-for-daily"
                     and hydration_cache.evict_large_after_read
                     and hydration_cache.root.is_dir()
                 ):
@@ -224,10 +260,13 @@ def _hydrate(args: argparse.Namespace) -> int:
                     dataset_names=dataset_names,
                     still_current=still_current,
                     catalog=LAKE_DATASETS,
+                    require_empty_dataset=deferred,
                 )
     except (
+        sqlite3.Error,
         LakeCredentialError,
         LakeHydrateError,
+        LakeStoreOriginError,
         LakeObjectError,
         LakePublishError,
         LakeReadError,

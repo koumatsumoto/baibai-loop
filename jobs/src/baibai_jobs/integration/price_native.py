@@ -180,24 +180,26 @@ def model_input(
     }
     ranges: list[dict[str, str]] = []
     required_unresolved = False
-    coverage: list[tuple[date, str, int, bool]] = []
     uri = market.resolve().as_uri() + "?mode=rw"
     with closing(sqlite3.connect(uri, uri=True)) as connection, connection:
         connection.text_factory = _retained_sql_text
-        # Reserve only this runner's disposable SQLite copy. Nothing in its main
-        # tables changes until all L1 pages and the fixed selection are verified.
-        connection.execute("PRAGMA temp_store=FILE")
-        page_size = connection.execute("PRAGMA temp.page_size").fetchone()[0]
-        # Keep the prior 4 GB runner spill ceiling for a completely cold reconstruction.
-        connection.execute(f"PRAGMA temp.max_page_count={4_000_000_000 // page_size}")
+        # The disposable execution store is the staging area. Readers see the old
+        # projection until every native page and the fixed selection have succeeded.
         connection.execute("BEGIN IMMEDIATE")
-        matching_days: list[tuple[str]] = []
-        connection.execute(
-            "CREATE TEMP TABLE rebuilt_price_rows AS SELECT * FROM jquants_daily_bars WHERE 0"
-        )
-        connection.execute(
-            "CREATE UNIQUE INDEX rebuilt_price_keys ON rebuilt_price_rows(ticker,traded_at)"
-        )
+        prefilled = connection.execute("SELECT 1 FROM jquants_daily_bars LIMIT 1").fetchone()
+        if prefilled:
+            # Remove obsolete dates inside SQLite, even ill-formed TEXT in an old store.
+            connection.execute("CREATE TEMP TABLE native_price_days(day TEXT PRIMARY KEY)")
+            connection.executemany(
+                "INSERT INTO native_price_days VALUES(?)", ((day.isoformat(),) for day in days)
+            )
+            connection.execute(
+                "DELETE FROM jquants_daily_bars WHERE traded_at IN ("
+                "SELECT traded_at FROM jquants_daily_bars GROUP BY traded_at "
+                "EXCEPT SELECT day FROM native_price_days)"
+            )
+        connection.execute("DELETE FROM jquants_source_pages WHERE source='daily_bars'")
+        connection.execute("DELETE FROM source_coverage WHERE source='jquants_daily_bars'")
         for batch in _native_batches(days, scopes=head["scopes"], receipts=head["receipts"]):
             requests = tuple(
                 read_price_requests(
@@ -212,15 +214,31 @@ def model_input(
             results = rebuild_price_days(requests, days=batch)
             for day, item in results.items():
                 key = day.isoformat()
-                if item.rows and _same_price_day(connection, key, item.rows):
-                    matching_days.append((key,))
-                elif item.rows:
+                if not prefilled or not _same_price_day(connection, key, item.rows):
+                    if prefilled:
+                        connection.execute(
+                            "DELETE FROM jquants_daily_bars WHERE traded_at=?", (key,)
+                        )
                     connection.executemany(
-                        "INSERT INTO rebuilt_price_rows VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "INSERT INTO jquants_daily_bars VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         item.rows,
                     )
-                coverage.append((day, item.status, len(item.rows), bool(item.incomplete_requests)))
-                unresolved = price_day_unresolved(item, scopes[day.isoformat()])
+                scope = scopes[key]
+                failed = bool(scope.get("failure") or scope.get("held") or item.incomplete_requests)
+                record_source_coverage(
+                    connection,
+                    source="jquants_daily_bars",
+                    coverage_key="native:" + key,
+                    coverage_start=key,
+                    coverage_end=key,
+                    record_count=len(item.rows),
+                    status="partial" if failed and item.status == "ok" else item.status,
+                    fetched_at_utc=scope.get("confirmed_at")
+                    or scope.get("last_attempt_at")
+                    or evaluated_at.isoformat(),
+                    error="native acquisition unresolved" if failed else None,
+                )
+                unresolved = price_day_unresolved(item, scope)
                 required_unresolved = required_unresolved or (unresolved and day not in closed)
                 summary["normal_empty_days"] += int(
                     not unresolved
@@ -249,9 +267,6 @@ def model_input(
         summary["raw_coverage_status"] = "partial" if ranges else "complete"
         summary["coverage_status"] = "partial" if required_unresolved else "complete"
         selected["summary"] = summary
-        if matching_days:
-            connection.execute("CREATE TEMP TABLE matching_price_days(day TEXT PRIMARY KEY)")
-            connection.executemany("INSERT INTO matching_price_days VALUES(?)", matching_days)
         descriptor = retain_price_input(store, selected)
         digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
         identity = InputSnapshot(
@@ -260,35 +275,6 @@ def model_input(
             sha256=digest,
             descriptor=descriptor,
         )
-        if matching_days:
-            # Keep obsolete dates inside SQLite: even an invalid UTF-8 date in the
-            # old projection must be removed. Use the existing date index for deletion.
-            connection.execute(
-                "DELETE FROM jquants_daily_bars WHERE traded_at IN ("
-                "SELECT traded_at FROM jquants_daily_bars GROUP BY traded_at "
-                "EXCEPT SELECT day FROM matching_price_days)"
-            )
-        else:
-            connection.execute("DELETE FROM jquants_daily_bars")
-        connection.execute("INSERT INTO jquants_daily_bars SELECT * FROM rebuilt_price_rows")
-        connection.execute("DELETE FROM jquants_source_pages WHERE source='daily_bars'")
-        connection.execute("DELETE FROM source_coverage WHERE source='jquants_daily_bars'")
-        for day, status, count, incomplete in coverage:
-            scope = scopes[day.isoformat()]
-            failed = bool(scope.get("failure") or scope.get("held") or incomplete)
-            record_source_coverage(
-                connection,
-                source="jquants_daily_bars",
-                coverage_key="native:" + day.isoformat(),
-                coverage_start=day.isoformat(),
-                coverage_end=day.isoformat(),
-                record_count=count,
-                status="partial" if failed and status == "ok" else status,
-                fetched_at_utc=scope.get("confirmed_at")
-                or scope.get("last_attempt_at")
-                or evaluated_at.isoformat(),
-                error="native acquisition unresolved" if failed else None,
-            )
     return identity
 
 

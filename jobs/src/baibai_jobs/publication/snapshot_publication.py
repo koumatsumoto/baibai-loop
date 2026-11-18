@@ -131,16 +131,12 @@ class MarketLakePublishReport:
     release_manifest_sha256: str
     data_as_of: str
     previous_release_id: str | None
-    changed_partitions: Mapping[str, int]
-    """Per dataset, how many partitions landed on a content-addressed key the mirror
-    did not hold — the partitions whose bytes moved since the previous publication."""
     uploaded_objects: int
     uploaded_bytes: int
     transfers: TransferReport
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "changed_partitions": dict(sorted(self.changed_partitions.items())),
             "data_as_of": self.data_as_of,
             "previous_release_id": self.previous_release_id,
             "release_id": self.release_id,
@@ -546,9 +542,6 @@ def publish_prepared_market_lake(
         release_manifest_sha256=prepared.release_sha256,
         data_as_of=prepared.release.data_as_of.isoformat(),
         previous_release_id=None if previous is None else previous.release_id,
-        changed_partitions={
-            name: item.new_objects for name, item in sorted(prepared.export.datasets.items())
-        },
         uploaded_objects=int(transfers.get("uploaded_objects", 0)),
         uploaded_bytes=int(transfers.get("uploaded_bytes", 0)),
         transfers=published.transfers,

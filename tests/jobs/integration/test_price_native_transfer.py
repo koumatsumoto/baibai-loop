@@ -207,8 +207,7 @@ def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
             market=market,
         )
     assert rows_at(market) == before
-    if failure != "coverage":
-        assert not store.put_keys
+    assert not store.put_keys
 
 
 def test_native_price_paths_use_small_runner_session(tmp_path, monkeypatch, fixed_prices):
