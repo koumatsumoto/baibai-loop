@@ -28,7 +28,7 @@ from baibai_engine.machine_analysis.generation.financial_inputs import (
 )
 from baibai_engine.machine_analysis.generation.inputs import FinancialModelInput
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
-    normalize_financial_summary,
+    read_canonical_financial_summary,
 )
 from baibai_engine.machine_analysis.observations.financials.from_l1 import (
     materialize_financial_days,
@@ -129,7 +129,7 @@ def model_input(
     documents = []
     for item in results.values():
         for row in item.rows:
-            document = normalize_financial_summary(json.loads(row[3]))
+            document = read_canonical_financial_summary(row[3])
             if document is None:
                 raise ValueError("native financial projection contains an ineligible document")
             documents.append(document)

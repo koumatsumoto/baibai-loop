@@ -76,6 +76,17 @@ def accounting_period_identity(
 
 def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSummary | None:
     """Decode native provider fields; select forecast period and basis only in L2 projection."""
+    return _decode_summary(record, None)
+
+
+def read_canonical_financial_summary(payload: str) -> JQuantsFinancialSummary | None:
+    """Reuse the complete record text just produced by the native day normalizer."""
+    return _decode_summary(json.loads(payload), payload)
+
+
+def _decode_summary(
+    record: Mapping[str, Any], canonical_payload: str | None
+) -> JQuantsFinancialSummary | None:
     ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
@@ -109,7 +120,9 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         disclosure_number=required_disclosure_number(record),
         disclosed_time=_disclosed_time(record.get("DiscTime")),
         document_type=_text(record.get("DocType")),
-        document_payload=provider_record_payload(record),
+        document_payload=(
+            provider_record_payload(record) if canonical_payload is None else canonical_payload
+        ),
     )
 
 
