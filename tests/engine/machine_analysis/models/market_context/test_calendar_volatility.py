@@ -31,7 +31,7 @@ def context(bars=BARS, calendar=CALENDAR, as_of=ASOF):
         master=None,
         benchmark_ticker="1321",
         benchmark_prices={},
-        peer_prices=(),
+        peer_returns=(),
     )
 
 

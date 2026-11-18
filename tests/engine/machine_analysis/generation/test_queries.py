@@ -25,10 +25,15 @@ from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
     prepare_market_context_from_bars,
 )
+from baibai_engine.machine_analysis.generation.runners.security_context import (
+    build_security_market_contexts,
+)
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
+from baibai_engine.machine_analysis.models.market_context.snapshot import _Series
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import bollinger_20bar
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
@@ -94,6 +99,54 @@ def test_past_master_and_peers_ignore_future_classification_and_prices(tmp_path)
         == "2026-05-28"
     )
     assert security(path, as_of=date(2026, 6, 1))["master"]["sector_33"] == "小売業"
+
+
+def test_exact_peer_window_is_shared_but_never_reused_for_a_different_end(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    tickers = tuple(f"1{i:03}" for i in range(7))
+    master(path, ASOF.isoformat(), dict.fromkeys(tickers, "機械"))
+    for ticker, end_price in zip(tickers, (75, 100, 100, 125, 150, 125, 200), strict=True):
+        end = ASOF - timedelta(days=ticker == tickers[5])
+        insert_daily_bars_from_closes(path, ticker, [100] * 21 + [end_price], end_date=end)
+    prices = read_price_bars(path, start=date.min, end=ASOF)
+    args = dict(sqlite_path=path, asof_date=ASOF)
+    prepared = prepare_market_context_from_bars(
+        **args,
+        master=read_master_snapshot(path, as_of=ASOF),
+        bars_by_ticker=prices,
+        subjects=tickers,
+    )
+    calls = 0
+    lookup = _Series.price_on
+
+    def tracked(self, day):
+        nonlocal calls
+        calls += 1
+        return lookup(self, day)
+
+    monkeypatch.setattr(_Series, "price_on", tracked)
+    contexts = build_security_market_contexts(
+        **args,
+        tickers=tickers,
+        price_bars_by_ticker=prices,
+        prepared=prepared,
+        calendar=price_calendar({}, as_of=ASOF),
+    )
+    peers = [contexts[t]["relative"]["sector"] for t in tickers]
+    # Exclude only this company, not other members with equal returns. For the
+    # earlier endpoint all six peers still had flat prices. No price is carried forward.
+    assert [(p["peer_count"], p["peer_median_return_20d"]) for p in peers] == [
+        (5, 0.25),
+        (5, 0.25),
+        (5, 0.25),
+        (5, 0),
+        (5, 0),
+        (6, 0),
+        (5, 0),
+    ]
+    assert peers[5]["comparison_end_date"] == (ASOF - timedelta(days=1)).isoformat()
+    assert peers[6]["comparison_end_date"] == ASOF.isoformat()
+    assert calls <= 3 * 2 * len(tickers)  # regular → earlier → regular; no per-company read
 
 
 def test_latest_eligible_snapshot_does_not_restore_removed_members(tmp_path):

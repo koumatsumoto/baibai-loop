@@ -83,7 +83,11 @@ def _endpoint_return(
     """Compare exact target dates; missing endpoints must not be filled."""
     if endpoints is None:
         return None
-    start, end = (prices.get(endpoint) for endpoint in endpoints)
+    return price_return(prices.get(endpoints[0]), prices.get(endpoints[1]))
+
+
+def price_return(start: float | None, end: float | None) -> float | None:
+    """Return on the two supplied endpoints; do not seek another day."""
     if (
         start is None
         or end is None
@@ -149,7 +153,7 @@ def calculate_security_market_context(
     master: MasterSnapshot | None,
     benchmark_ticker: str,
     benchmark_prices: Mapping[date, float],
-    peer_prices: Sequence[Mapping[date, float]],
+    peer_returns: Sequence[float],
 ) -> dict[str, object]:
     """固定した個社・市場・同業価格から比較を計算する。追加読取を行わない。"""
     security = None if master is None else master.securities.get(ticker)
@@ -170,7 +174,7 @@ def calculate_security_market_context(
             master=master,
             benchmark_ticker=benchmark_ticker,
             benchmark_prices=benchmark_prices,
-            peer_prices=peer_prices,
+            peer_returns=peer_returns,
         ),
     }
 
@@ -182,7 +186,7 @@ def _relative_block(
     master: MasterSnapshot | None,
     benchmark_ticker: str,
     benchmark_prices: Mapping[date, float],
-    peer_prices: Sequence[Mapping[date, float]],
+    peer_returns: Sequence[float],
 ) -> dict[str, object] | None:
     if not bars:
         return None
@@ -205,7 +209,7 @@ def _relative_block(
         **versus_benchmark,
         "window_basis": "observed_security_bar_differences",
         "comparison_windows": comparison_windows,
-        "sector": _sector_block(bars=bars, sector=sector, master=master, peer_prices=peer_prices)
+        "sector": _sector_block(bars=bars, sector=sector, master=master, peer_returns=peer_returns)
         if sector
         else None,
     }
@@ -216,23 +220,16 @@ def _sector_block(
     bars: Sequence[PriceBar],
     sector: str,
     master: MasterSnapshot | None,
-    peer_prices: Sequence[Mapping[date, float]],
+    peer_returns: Sequence[float],
 ) -> dict[str, object] | None:
     endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)
-    if endpoints is None:
+    if endpoints is None or not peer_returns:
         return None
-    returns = []
-    for prices in peer_prices:
-        peer_return = _endpoint_return(prices, endpoints)
-        if peer_return is not None:
-            returns.append(peer_return)
-    if not returns:
-        return None
+    peer_median = statistics.median(peer_returns)
     own_return = _endpoint_return({bar.traded_at: bar.price for bar in bars}, endpoints)
-    peer_median = statistics.median(returns)
     return {
         "sector_33": sector,
-        "peer_count": len(returns),
+        "peer_count": len(peer_returns),
         "peer_median_return_20d": peer_median,
         "relative_return_20d": None if own_return is None else own_return - peer_median,
         "comparison_start_date": endpoints[0].isoformat(),
