@@ -236,6 +236,10 @@ if [[ "$1 $2 $3" == "run python -c" ]]; then
 fi
 if [[ "$*" == *"baibai-jobs snapshots dehydrate"* ]]; then
   printf 'dehydrate %s\\n' "$*" >> "$AWS_LOG"
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--store" ]]; then printf x > "$2"; fi
+    shift
+  done
   exit 0
 fi
 if [[ "$*" == *"baibai-jobs snapshots hydrate"* ]]; then

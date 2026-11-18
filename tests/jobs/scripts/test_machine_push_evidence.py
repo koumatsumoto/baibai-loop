@@ -43,13 +43,11 @@ def _setup(tmp_path):
         '"$(cat "$handle")" == synthetic-released',
     )
     uv_text = uv_text.replace(
-        '  printf \'dehydrate %s\\n\' "$*" >> "$AWS_LOG"\n  exit 0',
-        '  printf \'dehydrate %s\\n\' "$*" >> "$AWS_LOG"\n'
-        "  while [[ $# -gt 0 ]]; do\n"
-        '    if [[ $1 == --store ]]; then printf dehydrated >> "$2"; fi\n'
-        "    shift\n"
-        "  done\n"
-        "  printf private-dehydrate-report\n  exit 0",
+        'then printf x > "$2"; fi',
+        'then printf xdehydrated > "$2"; fi',
+    ).replace(
+        "  printf 'dehydrate %s",
+        "  printf private-dehydrate-report\n  printf 'dehydrate %s",
     )
     uv_text = uv_text.replace("  snapshot)\n", '  snapshot)\n    original_args="$*"\n').replace(
         "        printf 'x' > \"$output\"",

@@ -300,13 +300,13 @@ dehydrate_market_snapshot() {
   # Runs on the upload copy, never on the working store. Origin and row counts must
   # match the release; values are not compared. Publish local changes first and do not
   # edit lake-owned rows between publication and snapshotting.
-  local path="$1"
+  local source="$1" path="$2"
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
       uv run baibai-jobs snapshots dehydrate \
         --mirror "${lake_mirror}" \
-        --store "${path}" \
+        --source "${source}" --store "${path}" \
         --bucket "${stores_bucket}"
   )
 }
@@ -627,7 +627,6 @@ _push_keys() {
     source="$(store_path "${key}")"
     body="${transfer_staging}/${key}"
     started="${SECONDS}"
-    snapshot_sqlite "${source}" "${body}" "${key}"
     # The copy that leaves here carries only what the lake does not hold — but only
     # once the lake holds anything. A lake release pointer is where that authority is
     # declared, so it is read rather than assumed: before the first publication (an
@@ -636,10 +635,12 @@ _push_keys() {
     if [[ "${key}" == "market.sqlite" ]] \
       && remote_object_exists "lake/pointers/market/current.json"; then
       if [[ -n "${evidence_dir}" ]]; then
-        dehydrate_market_snapshot "${body}" >/dev/null
+        dehydrate_market_snapshot "${source}" "${body}" >/dev/null
       else
-        dehydrate_market_snapshot "${body}"
+        dehydrate_market_snapshot "${source}" "${body}"
       fi
+    else
+      snapshot_sqlite "${source}" "${body}" "${key}"
     fi
     transfer_evidence snapshot_ready "${key}" "${expected_version}"
     snapshot_seconds+=("$((SECONDS - started))")
