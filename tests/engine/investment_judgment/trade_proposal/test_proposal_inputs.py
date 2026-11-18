@@ -22,6 +22,11 @@ from baibai_engine.investment_judgment.trade_proposal.inputs import (
     build_proposal_context,
     collect_proposal_inputs,
 )
+from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
+    HumanProposalReportDraft,
+    ProposalReference,
+)
+from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -205,6 +210,7 @@ def test_scaffold_keeps_signal_integration_as_authoring_not_a_price_gate(tmp_pat
     assert "モデル観測・一次資料" in item["rationale"]
     assert any("全シグナルのコメントは要求しない" in text for text in item["review_conditions"])
     assert any("絶対騰落" in text and "自己除外同業" in text for text in item["review_conditions"])
+    assert not any("前回の指値・対象日" in text for text in item["review_conditions"])
     if holding:
         assert "当初の仮説" in item["rationale"]
         assert "残存見返り" in item["rationale"]
@@ -217,6 +223,44 @@ def test_scaffold_keeps_signal_integration_as_authoring_not_a_price_gate(tmp_pat
         assert "現金維持" in raw["comparison"]
         assert "回収" not in raw["comparison"]
     assert raw["review"]["draft_sha256"] == "0" * 64
+
+
+@pytest.mark.parametrize("with_report", [False, True])
+def test_repeated_new_target_gets_one_authoring_prompt_not_its_old_terms(tmp_path, with_report):
+    case = backend_case(tmp_path)
+    saved = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(reviewed_proposal(case))
+    reported = PUBLISHED + timedelta(seconds=1)
+    if with_report:
+        ProposalRecordService(case.app, clock=lambda: reported).report(
+            HumanProposalReportDraft(
+                report_id="synthetic-prior-report",
+                proposal_ref=ProposalReference(
+                    proposal_id=saved.proposal_id, draft_sha256=saved.review.draft_sha256
+                ),
+                outcome="not_purchased",
+                statement="合成の本人による前回のみの説明。",
+                reported_at=reported,
+            )
+        )
+    draft = scaffold_proposal(
+        operation_id=case.operation.operation_id,
+        proposal_id="investment-proposal-00000000-0000-4000-8000-000000000004",
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=1),
+    )
+    item = draft["items"][0]
+    reminders = [text for text in item["review_conditions"] if "前回の指値・対象日" in text]
+    assert len(reminders) == 1
+    assert "元提案全体への本人報告があっても" in reminders[0]
+    assert "観測価格" in reminders[0]
+    assert "変化なし" in reminders[0]
+    assert "合成の本人による前回のみの説明。" not in str(draft)
+    assert item["action"] == "defer"
+    assert "terms" not in item
+    assert [reason["code"] for reason in item["blockers"]] == ["proposal_content_requires_review"]
 
 
 def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_path):

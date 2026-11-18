@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Literal
 
 from baibai_engine.investment_judgment.stock_assessment.store import (
     ReviewedAssessment,
@@ -152,25 +154,194 @@ def _rank(proposal: TradeProposal) -> tuple[date, datetime, str]:
     return proposal.as_of, proposal.published_at, proposal.proposal_id
 
 
+def _stored_instant(value: str) -> datetime:
+    instant = datetime.fromisoformat(value)
+    if instant.utcoffset() is None:
+        raise ProposalConflictError("stored proposal record time must include a timezone")
+    return instant
+
+
+def _verified_correction(connection: sqlite3.Connection, row: Sequence[str]) -> ProposalCorrection:
+    record = ProposalCorrection.model_validate_json(row[4])
+    if (
+        record.correction_id != row[0]
+        or record.erroneous_ref.proposal_id != row[1]
+        or record.replacement_ref.proposal_id != row[2]
+        or record.recorded_at != _stored_instant(row[3])
+    ):
+        raise ProposalConflictError("stored proposal correction header differs")
+    erroneous = _require_ref(connection, record.erroneous_ref)
+    replacement = _require_ref(connection, record.replacement_ref)
+    if _rank(replacement) >= _rank(erroneous) or record.recorded_at < erroneous.published_at:
+        raise ProposalConflictError("correction must reference an earlier saved proposal")
+    return record
+
+
 def _read_corrections(connection: sqlite3.Connection) -> Iterator[ProposalCorrection]:
     rows = connection.execute(
         "SELECT correction_id,erroneous_proposal_id,replacement_proposal_id,recorded_at,payload "
         "FROM proposal_correction ORDER BY correction_id"
     )
     for row in rows:
-        record = ProposalCorrection.model_validate_json(row[4])
-        if (
-            record.correction_id != row[0]
-            or record.erroneous_ref.proposal_id != row[1]
-            or record.replacement_ref.proposal_id != row[2]
-            or record.recorded_at != datetime.fromisoformat(row[3])
-        ):
-            raise ProposalConflictError("stored proposal correction header differs")
-        erroneous = _require_ref(connection, record.erroneous_ref)
-        replacement = _require_ref(connection, record.replacement_ref)
-        if _rank(replacement) >= _rank(erroneous) or record.recorded_at < erroneous.published_at:
-            raise ProposalConflictError("correction must reference an earlier saved proposal")
-        yield record
+        yield _verified_correction(connection, row)
+
+
+def _verified_report(proposal: TradeProposal, row: Sequence[str]) -> HumanProposalReport:
+    report = HumanProposalReport.model_validate_json(row[2])
+    if (
+        report.report_id != row[0]
+        or report.proposal_ref.proposal_id != proposal.proposal_id
+        or report.proposal_ref.draft_sha256 != proposal.review.draft_sha256
+        or report.recorded_at != _stored_instant(row[1])
+        or not proposal.published_at <= report.reported_at <= report.recorded_at
+    ):
+        raise ProposalConflictError("stored human report identity or time differs")
+    return report
+
+
+def _known_reports(
+    connection: sqlite3.Connection, proposal: TradeProposal, known_at: datetime
+) -> tuple[HumanProposalReport, ...]:
+    reports = []
+    for report_id, recorded_at in connection.execute(
+        "SELECT report_id,recorded_at FROM proposal_human_report WHERE proposal_id=?",
+        (proposal.proposal_id,),
+    ):
+        if _stored_instant(recorded_at) > known_at:
+            continue
+        (raw,) = connection.execute(
+            "SELECT payload FROM proposal_human_report WHERE report_id=?", (report_id,)
+        ).fetchone()
+        report = _verified_report(proposal, (report_id, recorded_at, raw))
+        if report.subject_at is None or report.subject_at <= known_at:
+            reports.append(report)
+    return tuple(sorted(reports, key=lambda report: (report.recorded_at, report.report_id)))
+
+
+def _known_erroneous(connection: sqlite3.Connection, proposal_id: str, known_at: datetime) -> bool:
+    row = connection.execute(
+        "SELECT correction_id,replacement_proposal_id,recorded_at FROM proposal_correction "
+        "WHERE erroneous_proposal_id=?",
+        (proposal_id,),
+    ).fetchone()
+    if row is None:
+        return False
+    correction_id, replacement_id, stamp = row
+    receipt = _stored_instant(stamp)
+    if receipt > known_at:
+        return False
+    # Only an already published exact replacement can justify ignoring a prior decision.
+    published = connection.execute(
+        "SELECT published_at FROM investment_proposal WHERE proposal_id=?", (replacement_id,)
+    ).fetchone()
+    if published is None or _stored_instant(published[0]) > receipt:
+        raise ProposalConflictError("correction replacement was not published by its receipt")
+    if any(
+        _stored_instant(related[0]) <= known_at
+        for related in connection.execute(
+            "SELECT recorded_at FROM proposal_correction "
+            "WHERE erroneous_proposal_id=? OR replacement_proposal_id=?",
+            (replacement_id, proposal_id),
+        )
+    ):
+        raise ProposalConflictError("duplicate or chained proposal correction")
+    (raw,) = connection.execute(
+        "SELECT payload FROM proposal_correction WHERE correction_id=?", (correction_id,)
+    ).fetchone()
+    _verified_correction(connection, (correction_id, proposal_id, replacement_id, stamp, raw))
+    return True
+
+
+@dataclass(frozen=True, slots=True)
+class PriorBuyProposal:
+    status: Literal["available", "not_found", "unavailable"]
+    proposal: TradeProposal | None = None
+    item_index: int | None = None
+    reports: tuple[HumanProposalReport, ...] = ()
+    reason: str | None = None
+
+
+def previous_buy_proposals(
+    connection: sqlite3.Connection,
+    *,
+    tickers: tuple[str, ...],
+    known_at: datetime,
+    exclude_proposal_id: str | None = None,
+) -> dict[str, PriorBuyProposal]:
+    """Latest publication for each exact buy ticker; never revalidate orders or infer executions."""
+    if known_at.utcoffset() is None:
+        raise ValueError("prior buy decision cutoff requires a timezone")
+    if not tickers:
+        return {}
+    if not connection.in_transaction:
+        raise ValueError("prior buy lookup requires an existing read transaction")
+    rows: dict[str, list[tuple[str, str | None, bool]]] = {ticker: [] for ticker in tickers}
+    # An indexed action can disagree with the immutable buy binding. Neither may hide a newer buy.
+    for ticker, proposal_id, stamp, expects_buy in connection.execute(
+        "WITH targets(ticker) AS (SELECT value FROM json_each(?)), evidence AS ("
+        " SELECT ticker,proposal_id,(action='buy') AS expects_buy FROM investment_proposal_item "
+        " WHERE ticker IN targets UNION ALL "
+        " SELECT ticker,proposal_id,1 FROM position_decision_reference "
+        " WHERE proposal_id IS NOT NULL AND origin='proposal' AND side='buy' AND ticker IN targets"
+        ") SELECT e.ticker,e.proposal_id,p.published_at,max(e.expects_buy) FROM evidence e "
+        "LEFT JOIN investment_proposal p ON p.proposal_id=e.proposal_id "
+        "GROUP BY e.ticker,e.proposal_id",
+        (json.dumps(tuple(rows)),),
+    ):
+        if proposal_id != exclude_proposal_id:
+            rows[ticker].append((proposal_id, stamp, bool(expects_buy)))
+    outcomes = {}
+    for ticker, candidates in rows.items():
+        try:
+            headers = []
+            for proposal_id, published_at, expects_buy in candidates:
+                if published_at is None:
+                    raise ProposalConflictError("prior buy publication header is missing")
+                instant = _stored_instant(published_at)
+                if instant <= known_at:
+                    headers.append((instant, proposal_id, expects_buy))
+            # SQL text order would rank offsets incorrectly; julianday loses microseconds.
+            result = PriorBuyProposal("not_found")
+            for _, proposal_id, expects_buy in sorted(headers, reverse=True):
+                if not expects_buy:
+                    # Incomplete buy proposals have no binding. Verify the actual action before
+                    # skipping a newer indexed non-buy; read only that known publication's items.
+                    actions = connection.execute(
+                        "SELECT json_extract(j.value,'$.action') FROM investment_proposal p, "
+                        "json_each(p.payload,'$.items') j WHERE p.proposal_id=? "
+                        "AND CASE WHEN j.type='object' THEN json_extract(j.value,'$.ticker') END=?",
+                        (proposal_id, ticker),
+                    ).fetchall()
+                    if len(actions) != 1 or actions[0][0] not in (
+                        "hold",
+                        "sell",
+                        "no_action",
+                        "defer",
+                    ):
+                        raise ProposalConflictError("stored proposal history action differs")
+                    continue
+                if _known_erroneous(connection, proposal_id, known_at):
+                    continue
+                proposal = load_investment_proposal(connection, proposal_id)
+                index = next(
+                    (
+                        i
+                        for i, item in enumerate(proposal.items)
+                        if item.ticker == ticker and item.action == "buy"
+                    ),
+                    None,
+                )
+                if index is None:
+                    raise ProposalConflictError("stored proposal history buy differs")
+                result = PriorBuyProposal(
+                    "available", proposal, index, _known_reports(connection, proposal, known_at)
+                )
+                break
+        except (ValueError, FileNotFoundError):
+            # An unreadable decision must not promote an older one.
+            result = PriorBuyProposal("unavailable", reason="prior_buy_record_unreadable")
+        outcomes[ticker] = result
+    return outcomes
 
 
 class ProposalRecordReader:
@@ -223,16 +394,7 @@ class ProposalRecordReader:
             "SELECT report_id,recorded_at,payload FROM proposal_human_report WHERE proposal_id=?",
             (proposal_id,),
         ):
-            report = HumanProposalReport.model_validate_json(row[2])
-            if (
-                report.report_id != row[0]
-                or report.proposal_ref.proposal_id != proposal_id
-                or report.proposal_ref.draft_sha256 != proposal.review.draft_sha256
-                or report.recorded_at != datetime.fromisoformat(row[1])
-                or not proposal.published_at <= report.reported_at <= report.recorded_at
-            ):
-                raise ProposalConflictError("stored human report identity or time differs")
-            reports.append(report)
+            reports.append(_verified_report(proposal, row))
         reports.sort(key=lambda report: (report.recorded_at, report.report_id))
         correction = self.by_erroneous_id.get(proposal_id)
         return (
