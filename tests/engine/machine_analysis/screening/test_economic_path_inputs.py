@@ -1,3 +1,5 @@
+"""4経済経路の値・時点・比較可能性を検証する。古い説明カードを再生成しない。"""
+
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -5,8 +7,9 @@ from hashlib import sha256
 
 import pytest
 from pydantic import TypeAdapter
+from tests.helpers.external_assessment_observations import valuation
 from tests.helpers.model_generation import materialize_generation, publish_generation
-from tests.helpers.retained_economic_selection import ranked_path_fixture, retained_economic_result
+from tests.helpers.retained_economic_selection import retained_economic_result
 
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
@@ -30,26 +33,14 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     PeriodState,
     Value,
 )
-from baibai_engine.machine_analysis.models.market_context.security import (
-    calculate_security_market_context,
-)
-from baibai_engine.machine_analysis.models.technical_analysis.generation import (
-    generate_technical_analysis,
-)
-from baibai_engine.machine_analysis.models.technical_analysis.price_path import observe_price_path
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies import economic_path_inputs
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-    project_company,
-)
-from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    EconomicPathSelection,
-)
+from baibai_engine.machine_analysis.screening.policies.discovery import read_discovery_observations
+from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
 
@@ -167,7 +158,7 @@ def models(data):
 
 
 def project(data):
-    return project_company("1234", models=models(data), metadata=metadata())
+    return read_discovery_observations("1234", models=models(data), metadata=metadata())[2]
 
 
 def active(row, name):
@@ -176,18 +167,18 @@ def active(row, name):
 
 def test_valid_paths_use_fixed_observations_and_periods():
     result = project(payloads())
-    assert {path.path_id for path in result.paths if path.eligible} == {
-        "earning_power",
-        "business_expansion",
-        "operating_recovery",
-        "capital_productivity",
+    expected = {
+        "earning_power": (0.1, 0.1),
+        "business_expansion": (0.1, 0.2),
+        "operating_recovery": (0.001, 0.02),
+        "capital_productivity": (2.0, 0.05),
     }
-    assert active(result, "earning_power").business_value == 0.1
+    observed = {p.path_id: (p.price_value, p.business_value) for p in result.paths if p.eligible}
+    assert observed == expected
     assert active(result, "business_expansion").variant == "quarter"
-    assert active(result, "operating_recovery").business_value == 0.02
 
 
-def test_growth_policy_read_bounds_history_without_changing_evidence_or_saved_payload(monkeypatch):
+def test_growth_policy_bounds_history_without_changing_coordinates_or_saved_payload(monkeypatch):
     data = payloads()
     growth = data["company_growth"]
     latest = growth["periods"][-1]
@@ -219,69 +210,19 @@ def test_growth_policy_read_bounds_history_without_changing_evidence_or_saved_pa
         bounded[key] is value for key, value in growth.items() if key not in {"periods", "changes"}
     )
     result = project(data)
-    assert (
-        result.context["latest_growth_changes"]["operating_profit"]["latest_quarter"]["reason"]
-        == "ambiguous_growth_comparison"
+    assert not any(
+        p.eligible
+        for p in result.paths
+        if (p.path_id, p.variant) == ("operating_recovery", "quarter")
     )
     monkeypatch.setattr(economic_path_inputs, "_growth_policy_inputs", lambda payload: payload)
     assert project(data) == result
     assert canonical_json(data) == before
 
 
-def test_projected_observation_standard_survives_explicit_saved_card_and_brief():
-    projected = project(payloads())
-    selected = retained_economic_result(context=projected.context)
-    selected = replace(
-        selected,
-        cards=(
-            replace(
-                selected.cards[0],
-                paths=tuple(ranked_path_fixture(path) for path in projected.paths if path.eligible),
-            ),
-        ),
-    )
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    brief = economic_screening_brief(saved)
-    assert any(
-        observation.get("accounting_standard") == "JP"
-        for path in brief["cards"][0]["paths"]
-        for observation in path["evidence"].get("period_basis", [])
-    )
-
-
-def test_turnover_window_reaches_selection_and_brief_without_changing_candidate_paths():
-    data = payloads()
-    baseline = project(data)
-    window = {
-        "start_date": "2025-11-20",
-        "end_date": "2026-01-05",
-        "price_bar_count": 20,
-        "valid_turnover_count": 17,
-        "median_yen": 100000.0,
-    }
-    data["market_context"]["price"] = {"turnover_window": window}
-    original = deepcopy(data)
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    selected = retained_economic_result(context=projected.context)
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    assert saved["cards"][0]["context"]["turnover_window"] == window
-    assert economic_screening_brief(saved)["cards"][0]["context"]["turnover_window"] == window
-    assert data == original
-
-
-def test_old_model_and_retained_fixture_keep_context_and_saved_hash():
+def test_retained_v4_selection_has_its_original_canonical_hash_and_absences():
     selected = retained_economic_result()
-    current = project(payloads()).context
     retained = selected.cards[0].context
-    assert {k: v for k, v in current.items() if k != "capital_action_context"} == {
-        k: v for k, v in retained.items() if k != "capital_action_context"
-    }
-    assert current["capital_action_context"] == {
-        "observations": [],
-        "share_basis_adjustments": [],
-        "earnings_price_unavailable_reason": None,
-    }
     assert retained["capital_action_context"] == {
         "observations": [],
         "share_basis_adjustments": [],
@@ -301,254 +242,6 @@ def test_old_model_and_retained_fixture_keep_context_and_saved_hash():
     assert "turnover_activity_20d" not in brief
     assert "market_conditioned_60d" not in brief["market_relative"]
     assert brief["capital_action_context"] == retained["capital_action_context"]
-
-
-@pytest.mark.parametrize("include_conditioned_turnover", [True, False])
-def test_activity_reaches_brief_without_changing_paths_or_mutating_saved_inputs(
-    include_conditioned_turnover,
-):
-    from baibai_engine.machine_analysis.models.market_context.activity import (
-        market_conditioned_returns,
-        turnover_activity,
-    )
-
-    days = tuple(date(2026, 1, 5) - timedelta(days=n) for n in range(60, -1, -1))
-    calendar = price_calendar(dict.fromkeys(days, True), as_of=days[-1])
-    prices = dict.fromkeys(days, 100.0)
-    conditional = market_conditioned_returns(
-        prices=prices, turnover=prices, benchmark_prices={"1321": prices}, calendar=calendar
-    )
-    if not include_conditioned_turnover:
-        for benchmark in conditional["benchmarks"].values():
-            del benchmark["turnover"]
-    activity = turnover_activity(turnover=prices, calendar=calendar)
-    data = payloads()
-    baseline = project(data)
-    data["market_context"]["price"] = {"turnover_activity_20d": activity}
-    data["market_context"]["relative"] = {"market_conditioned_60d": conditional}
-    original = deepcopy(data)
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    selected = retained_economic_result(context=projected.context)
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    shown = economic_screening_brief(saved)["cards"][0]["context"]
-    assert shown["market_relative"]["market_conditioned_60d"] == conditional
-    assert (
-        "turnover" in shown["market_relative"]["market_conditioned_60d"]["benchmarks"]["1321"]
-    ) is include_conditioned_turnover
-    assert shown["turnover_activity_20d"] == activity
-    shown["turnover_activity_20d"]["status"] = "display-only"
-    assert saved["cards"][0]["context"]["turnover_activity_20d"]["status"] == "available"
-    assert data == original
-
-
-@pytest.mark.parametrize(
-    "state",
-    [
-        "complete",
-        "missing_interval",
-        "old_model",
-        "old_moving_averages",
-        "old_path_statistics",
-        "old_selection",
-    ],
-)
-def test_technical_path_reaches_candidate_and_brief_without_reranking_or_saved_backfill(
-    tmp_path, state
-):
-    data = payloads()
-    baseline = project(data)
-    end = metadata().as_of
-    calendar = {
-        end - timedelta(days=i): (end - timedelta(days=i)).weekday() < 5 for i in range(150)
-    }
-    dates = sorted(day for day, business in calendar.items() if business)
-    bars = [PriceBar(day, 100 + i % 3, 1000.0) for i, day in enumerate(dates)]
-    states = dict.fromkeys(dates, "priced")
-    if state == "missing_interval":
-        del states[dates[-10]]
-    path = observe_price_path(
-        bars, calendar=price_calendar(calendar, as_of=end), day_states=states
-    ).payload
-    technical = generate_technical_analysis(
-        bars, ticker="1234", as_of=end, trading_dates=dates, price_path=path
-    )
-    if state == "old_model":
-        del path["observations"]["G60"]["path_statistics"]
-        path["calculation_revision"] = "common-calendar-observed-close-path-v1"
-    elif state == "old_path_statistics":
-        del path["observations"]["G60"]["path_statistics"]["drawdown_episodes"]
-        path["calculation_revision"] = "common-calendar-observed-close-path-v2"
-    elif state == "old_moving_averages":
-        del technical["moving_averages"]["sma_75bar"]
-        technical["calculation_revision"] = "sma20-50-200-bb20-wilder-rsi14-price-path-v4"
-    data["technical_analysis"] = technical
-    original = deepcopy(data)
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    assert projected.context["moving_averages"] == technical["moving_averages"]
-    assert projected.context["price_path"] == path
-    second = replace(project(payloads(price=200)), ticker="5678")
-    selected = retained_economic_result(context=projected.context)
-    selected = replace(
-        selected,
-        eligible_count=2,
-        cards=(
-            selected.cards[0],
-            replace(selected.cards[0], ticker="5678", rank=2, context=second.context),
-        ),
-    )
-    if state == "old_selection":
-        del selected.cards[0].context["moving_averages"]
-        del selected.cards[0].context["price_path"]
-    header = metadata()
-    runs = tmp_path / "runs.sqlite"
-    publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
-    store = ScreeningSelectionStore(runs)
-    document = ScreeningSelection(header.generation_id, ("1234", "5678"), selected)
-    assert store.publish("technical-context", document)
-    stored_bytes = runs.read_bytes()
-    restored = store.read("technical-context")
-    assert restored == document
-    assert [card.ticker for card in restored.result.cards] == ["1234", "5678"]
-    saved = TypeAdapter(EconomicPathSelection).dump_python(restored.result, mode="json")
-    canonical_before = canonical_json(saved)
-    brief = economic_screening_brief(saved)["cards"][0]["context"]
-    if state == "old_selection":
-        assert "moving_averages" not in brief
-        assert "price_path" not in brief
-    else:
-        assert brief["moving_averages"] == technical["moving_averages"]
-        assert brief["moving_averages"]["sma_200bar"]["status"] == "insufficient_history"
-        assert brief["moving_averages"]["sma_50bar"]["status"] == "available"
-        if state == "old_moving_averages":
-            assert "sma_75bar" not in brief["moving_averages"]
-        else:
-            assert brief["moving_averages"]["sma_75bar"]["status"] == "available"
-        shown = brief["price_path"]
-        assert shown["read_semantics"] == path["read_semantics"]
-        assert set(shown["observations"]) == {"R20", "G60"}
-        g60 = shown["observations"]["G60"]
-        assert "unpriced_dates" not in g60["coverage"]
-        assert g60["window_start_date"] == path["observations"]["G60"]["window_start_date"]
-        if state == "old_model":
-            assert "path_statistics" not in g60
-        else:
-            assert g60["path_statistics"] == path["observations"]["G60"]["path_statistics"]
-            assert g60["path_statistics"]["status"] == (
-                "incomplete_price_window" if state == "missing_interval" else "available"
-            )
-            if state == "missing_interval":
-                assert g60["coverage"]["row_counts"]["absent"] == 1
-                assert g60["path_statistics"]["drawdown_episodes"] is None
-            elif state == "old_path_statistics":
-                assert "drawdown_episodes" not in g60["path_statistics"]
-            else:
-                episodes = g60["path_statistics"]["drawdown_episodes"]
-                assert episodes["current"] is not None
-                assert episodes["latest_recovered"] is not None
-                episodes["current"]["peak_price"] = -1
-            g60["path_statistics"]["status"] = "display-only-mutation"
-        brief["moving_averages"]["sma_20bar"]["value"] = -1
-    assert canonical_json(saved) == canonical_before
-    assert data == original
-    assert runs.read_bytes() == stored_bytes
-
-
-@pytest.mark.parametrize("legacy", [False, True])
-def test_relative_window_reaches_l3_without_inventing_legacy_dates(legacy):
-    data = payloads()
-    baseline = project(data)
-    end = metadata().as_of
-    start = end - timedelta(days=180)
-    bars = [PriceBar(start, 100.0, None)] + [
-        PriceBar(end - timedelta(days=19 - index), 120.0, None) for index in range(20)
-    ]
-    market = calculate_security_market_context(
-        ticker="1234",
-        bars=bars,
-        calendar=price_calendar({}, as_of=end),
-        master=None,
-        benchmark_ticker="1321",
-        benchmark_prices={start: 100.0, end: 110.0},
-        peer_prices=(),
-        self_range_window_bars=750,
-    )
-    relative = market["relative"]
-    if legacy:
-        relative.pop("window_basis", None)
-        relative.pop("comparison_windows", None)
-    data["market_context"]["relative"] = relative
-    original = deepcopy(data)
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    selected = retained_economic_result(context=projected.context)
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    before = canonical_json(saved)
-    assert saved["cards"][0]["context"]["market_relative"] == relative
-    brief = economic_screening_brief(saved)["cards"][0]["context"]["market_relative"]
-    assert brief["relative_20d"] == pytest.approx(0.1)
-    if legacy:
-        assert "window_basis" not in brief
-        assert "comparison_windows" not in brief
-    else:
-        assert brief["window_basis"] == "observed_security_bar_differences"
-        assert brief["comparison_windows"]["relative_20d"] == {
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-        }
-        brief["comparison_windows"]["relative_20d"]["start_date"] = "display-only-change"
-    assert canonical_json(saved) == before
-    assert data == original
-
-
-@pytest.mark.parametrize("basis", ["actual_reported", "forecast_annual", None])
-def test_dividend_basis_survives_projection_and_brief_without_changing_paths(basis):
-    data = payloads()
-    financial = data["company_financials"]["financial"]
-    details = {
-        "dividend_yield": 0.0,
-        "dividend_basis": basis,
-        "dps_actual_annual": 0.0,
-        "dps_forecast_annual": 0.0 if basis == "forecast_annual" else None,
-        "dividend_forecast_source": {
-            "status": "confirmed" if basis == "forecast_annual" else "missing",
-            "period_start": "2026-04-01",
-            "period_end": "2027-03-31",
-        },
-        "dividend_split_factor": None,
-    }
-    baseline = project(data)
-    financial.update(details)
-    source = deepcopy(data)
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    assert data == source
-    selected = retained_economic_result(context=projected.context)
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
-    assert {key: brief[key] for key in details} == details
-    assert {key: projected.context["financial"][key] for key in details} == details
-
-
-@pytest.mark.parametrize("forecast_eps", [26.7, 0.0, None])
-def test_issuer_forecast_eps_survives_without_parent_profit_recalculation(forecast_eps):
-    data = payloads()
-    baseline = project(data)
-    financial = data["company_financials"]["financial"]
-    # Parent profit/current ordinary shares can differ from issuer EPS because
-    # preferred claims and the forecast share denominator are separate inputs.
-    financial.update({"forecast_profit_yen": 12000.0, "forecast_eps_yen": forecast_eps})
-    before = deepcopy(data)
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    selected = retained_economic_result(context=projected.context)
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
-    assert brief["forecast_eps_yen"] == forecast_eps
-    assert projected.context["financial"]["forecast_eps_yen"] == forecast_eps
-    assert brief["forecast_profit_yen"] == 12000.0
-    assert data == before
 
 
 def test_price_change_moves_price_axes_not_business_axes():
@@ -576,7 +269,7 @@ def test_stale_price_disables_price_coordinates_but_preserves_business_data():
     result = project(data)
     assert not any(path.eligible for path in result.paths)
     assert any(path.business_value is not None for path in result.paths)
-    assert result.context["financial"]["fcf_ttm"] == -200.0
+    assert all(path.price_value is None for path in result.paths)
 
 
 @pytest.mark.parametrize(("difference", "rate"), [(-1.0, -0.1), (0.0, 0.0)])
@@ -607,7 +300,6 @@ def test_zero_quarter_sales_comparison_does_not_use_positive_annual():
             change.update(difference=0.0, rate=None, reason="nonpositive_base")
     result = project(data)
     assert active(result, "business_expansion") is None
-    assert result.context["latest_growth_changes"]["sales"]["selected_variant"] == "quarter"
     assert active(result, "operating_recovery") is not None
 
 
@@ -624,7 +316,6 @@ def test_missing_quarter_uses_same_anchor_annual_not_old_good_quarter():
     assert active(result, "business_expansion").variant == "annual_ttm"
     assert active(result, "business_expansion").business_value == 0.2
     assert active(result, "operating_recovery").variant == "annual_ttm"
-    assert result.context["latest_growth_changes"]["sales"]["selected_variant"] == "annual_ttm"
 
 
 def test_loss_narrowing_difference_remains_valid_with_nonpositive_base():
@@ -688,7 +379,6 @@ def test_price_gate_requires_all_positive_price_inputs_on_expected_date(field, v
     data = payloads()
     data["company_financials"]["earnings_price"][field] = value
     result = project(data)
-    assert not result.context["pricing_valid"]
     assert not any(path.eligible for path in result.paths)
     assert all(path.price_value is None for path in result.paths)
     assert (
@@ -716,23 +406,27 @@ def test_income_uses_actual_composite_ttm_interval_not_earliest_component_start(
         period_end="2025-09-30",
     )
     income = active(project(data), "earning_power")
-    assert income is not None
-    assert income.evidence["earnings_period_start"] == "2024-10-01"
-    assert income.evidence["earnings_period_end"] == "2025-09-30"
+    assert (income.price_value, income.business_value) == (0.1, 0.1)
     annual["period_start"] = "2024-04-01"
     result = project(data)
     assert active(result, "earning_power") is None
     assert next(path for path in result.paths if path.path_id == "earning_power").price_value == 0.1
 
 
-@pytest.mark.parametrize("basis", [None, "unknown", "nonconsolidated"])
-def test_income_requires_observed_matching_statement_basis(basis):
+@pytest.mark.parametrize(
+    ("field", "profit_basis", "growth_basis"),
+    [
+        ("statement_basis", None, "unknown"),
+        ("statement_basis", "unknown", "unknown"),
+        ("statement_basis", "nonconsolidated", "consolidated"),
+        ("accounting_standard", "IFRS", "JP"),
+        ("accounting_standard", None, None),
+    ],
+)
+def test_income_requires_known_matching_financial_bases(field, profit_basis, growth_basis):
     data = payloads()
-    data["company_financials"]["earnings_price"]["statement_basis"] = basis
-    if basis != "nonconsolidated":
-        data["company_growth"]["periods"][0]["observations"][0]["statement_basis"] = (
-            basis or "unknown"
-        )
+    data["company_financials"]["earnings_price"][field] = profit_basis
+    data["company_growth"]["periods"][0]["observations"][0][field] = growth_basis
     result = project(data)
     assert active(result, "earning_power") is None
     assert active(result, "business_expansion") is not None
@@ -765,7 +459,6 @@ def test_newest_anchor_does_not_search_older_complete_observations():
         ).model_dump(mode="json")
     )
     result = project(data)
-    assert result.context["latest_growth_period"] == "2026-03-31"
     assert active(result, "earning_power") is None
     assert active(result, "business_expansion") is None
     assert active(result, "operating_recovery") is None
@@ -791,7 +484,6 @@ def test_negative_reported_profit_is_retained_in_capital_proxy_not_called_roe():
     assert active(result, "capital_productivity") is None
     capital = next(path for path in result.paths if path.path_id == "capital_productivity")
     assert capital.business_value == pytest.approx(-0.05)
-    assert "not_verified_common_or_average_equity_roe" in capital.evidence["interpretation"]
     assert active(result, "business_expansion") is not None
 
 
@@ -817,7 +509,7 @@ def test_overflowing_derived_coordinates_are_missing_not_nonfinite():
     )
 
 
-def test_added_models_are_referenced_without_automatic_extra_coordinates_or_votes():
+def test_new_or_unbuilt_models_do_not_cast_votes_or_create_coordinates():
     data = payloads()
     before = project(data)
     data["new_company_model"] = {"discovery": "detail_only", "score": 100.0}
@@ -832,387 +524,46 @@ def test_added_models_are_referenced_without_automatic_extra_coordinates_or_vote
             },
         }
     )
-    after = project_company("1234", models=models(data), metadata=planned)
+    after = read_discovery_observations("1234", models=models(data), metadata=planned)[2]
     assert after.paths == before.paths
-    assert after.model_revisions["new_company_model"] == "v1"
-    assert after.not_generated == ("not_generated_model",)
 
 
-def test_latest_growth_changes_remain_context_when_improvements_are_not_positive():
+@pytest.mark.parametrize("missing_shares", [False, True])
+def test_foreign_provider_or_later_forecast_does_not_change_yen_coordinates(missing_shares):
     data = payloads()
-    data["company_financials"]["financial"]["tradable_share_change_yoy"] = 0.15
-    for change in data["company_growth"]["changes"]:
-        if change["measurement"] == "quarter":
-            change["difference"] = -1.0
-            change["rate"] = -0.1 if change["metric"] == "sales" else None
-    result = project(data)
-    assert active(result, "business_expansion") is None
-    assert active(result, "operating_recovery") is None
-    latest = result.context["latest_growth_changes"]
-    assert latest["sales"]["latest_quarter"]["rate"] == -0.1
-    for metric in ("sales", "operating_profit", "operating_margin"):
-        assert latest[metric]["selected_variant"] == "quarter"
-        assert latest[metric]["latest_quarter"]["difference"] == -1.0
-    assert result.context["financial"]["tradable_share_change_yoy"] == 0.15
-
-
-def test_external_context_preserves_actual_group_comparisons_without_original_snapshots():
-    data = payloads()
+    if missing_shares:
+        data["company_financials"]["earnings_price"].update(
+            shares_ex_treasury=None, market_cap_yen=None
+        )
     before = project(data)
+    later = metadata().evaluation_time + timedelta(microseconds=1)
+    foreign = valuation(later, currency="USD", consensus_target=999999.0)
     data["external_assessment"] = {
         "model_valuations": [
             {
-                "inputs": {
-                    "latest": {
-                        "distributor": "valuation_distributor",
-                        "per_consensus_origin": "valuation_origin",
-                        "per_consensus_period": "FY2026",
-                        "currency": "JPY",
-                        "snapshot_only_payload": "not_a_summary",
-                    },
-                    "previous": {
-                        "per_consensus_origin": "valuation_origin",
-                        "per_consensus_period": "FY2026",
-                    },
-                },
-                "comparisons": [
-                    {
-                        "metric": "per_consensus",
-                        "state": "decreased",
-                        "comparable": True,
-                        "latest_value": 9.0,
-                        "previous_value": 10.0,
-                        "delta": -1.0,
-                    }
-                ],
-            }
-        ],
-        "analyst_ratings": [
-            {
-                "distributor": "rating_distributor",
-                "inputs": {
-                    "latest": {
-                        "origin": "rating_origin",
-                        "rating_scale_min": 1.0,
-                        "rating_scale_max": 5.0,
-                        "rating_scale_direction": "lower_is_positive",
-                    }
-                },
-                "comparison": {
-                    "metric": "rating",
-                    "state": "count_changed",
-                    "comparable": False,
-                    "reason": "count_changed",
-                    "latest_count": 2,
-                    "previous_count": 1,
-                    "delta": None,
-                },
-            }
-        ],
-        "quants_scores": [
-            {
-                "inputs": {
-                    "latest": {
-                        "distributor": "kabumap",
-                        "origin": "Quants Research",
-                        "score_as_of_date": "2026-01-05",
-                        "score_scale_max": 10,
-                    }
-                },
-                "comparisons": [
-                    {
-                        "metric": "growth_score",
-                        "state": "increased",
-                        "comparable": True,
-                        "latest_value": 8.0,
-                        "previous_value": 7.0,
-                        "delta": 1.0,
-                    }
-                ],
-            }
-        ],
-        "tradingview": {
-            "availability": "forecast_fields_present",
-            "inputs": {
-                "latest": {"target_period_label": "FY2026", "target_period_end": "2026-12-31"}
-            },
-            "comparisons": [
-                {
-                    "metric": "eps_forecast_next_fy",
-                    "state": "not_comparable",
-                    "comparable": False,
-                    "reason": "metric_period_mapping_unconfirmed",
-                    "latest_value": 12.0,
-                    "previous_value": 10.0,
-                    "delta": None,
-                }
-            ],
-        },
-    }
-    result = project(data)
-    assert result.paths == before.paths
-    external = result.context["external_assessment"]
-    summaries = {item["kind"]: item for item in external["comparisons"]}
-    assert set(summaries) == {"model_valuations", "analyst_ratings", "quants_scores", "tradingview"}
-    valuation = summaries["model_valuations"]
-    assert valuation["origin"] == "valuation_origin"
-    assert valuation["target_period"] == valuation["previous_target_period"] == "FY2026"
-    assert valuation["delta"] == -1.0
-    assert summaries["analyst_ratings"]["state"] == "count_changed"
-    assert summaries["analyst_ratings"]["delta"] is None
-    assert summaries["analyst_ratings"]["basis"]["rating_scale_direction"] == "lower_is_positive"
-    assert summaries["quants_scores"]["delta"] == 1.0
-    assert summaries["tradingview"]["state"] == "not_comparable"
-    assert summaries["tradingview"]["delta"] is None
-    assert summaries["tradingview"]["target_period"] is None
-    assert summaries["tradingview"]["source_target_period_label"] == "FY2026"
-    assert "snapshot_only_payload" not in str(external)
-
-
-@pytest.mark.parametrize(
-    "kind", ["model_valuations", "analyst_ratings", "quants_scores", "tradingview"]
-)
-@pytest.mark.parametrize("legacy_saved_summary", [False, True])
-def test_external_previous_clocks_survive_selection_and_brief(tmp_path, kind, legacy_saved_summary):
-    data = payloads()
-    baseline = project(data)
-    latest = {"fetched_at_utc": "2026-01-04T15:30:00Z"}
-    previous = {"fetched_at_utc": "2026-01-01T15:30:00Z"}
-    comparison = {
-        "metric": "growth_score" if kind == "quants_scores" else "rating",
-        "state": "increased" if kind == "quants_scores" else "not_comparable",
-        "comparable": kind == "quants_scores",
-        "latest_value": 8.0,
-        "previous_value": 7.0,
-        "delta": 1.0 if kind == "quants_scores" else None,
-    }
-    if kind == "quants_scores":
-        latest["score_as_of_date"] = "2025-12-30"
-        previous["score_as_of_date"] = "2025-12-29"
-    assessment = {"inputs": {"latest": latest, "previous": previous}}
-    if kind == "analyst_ratings":
-        assessment["comparison"] = comparison
-    else:
-        assessment["comparisons"] = [comparison]
-    data["external_assessment"] = {kind: assessment if kind == "tradingview" else [assessment]}
-    original = deepcopy(data)
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    assert data == original
-    summary = projected.context["external_assessment"]["comparisons"][0]
-    assert summary["previous_fetched_at_utc"] == previous["fetched_at_utc"]
-    assert summary["previous_score_as_of_date"] == previous.get("score_as_of_date")
-    assert summary["comparable"] is comparison["comparable"]
-    assert summary["delta"] == comparison["delta"]
-    if legacy_saved_summary:
-        del summary["previous_fetched_at_utc"]
-        del summary["previous_score_as_of_date"]
-    header = metadata()
-    runs = tmp_path / "runs.sqlite"
-    publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
-    result = retained_economic_result(context=projected.context)
-    selected = ScreeningSelection(header.generation_id, ("1234",), result)
-    store = ScreeningSelectionStore(runs)
-    assert store.publish("external-clocks", selected)
-    stored_bytes = runs.read_bytes()
-    restored = store.read("external-clocks")
-    assert restored == selected
-    saved = TypeAdapter(EconomicPathSelection).dump_python(restored.result, mode="json")
-    before = canonical_json(saved)
-    brief = economic_screening_brief(saved)["cards"][0]["context"]["external_assessment"]
-    group = brief["sources"][0]
-    assert group["fetched_at_utc"] == latest["fetched_at_utc"]
-    if legacy_saved_summary:
-        assert "previous_fetched_at_utc" not in group
-        assert "previous_score_as_of_date" not in group
-    else:
-        assert group["previous_fetched_at_utc"] == previous["fetched_at_utc"]
-        assert group.get("previous_score_as_of_date") == previous.get("score_as_of_date")
-    if kind == "quants_scores":
-        change = brief["comparable_changes"][0]
-        assert change["score_as_of_date"] == latest["score_as_of_date"]
-        if legacy_saved_summary:
-            assert "previous_fetched_at_utc" not in change
-            assert "previous_score_as_of_date" not in change
-        else:
-            assert change["previous_fetched_at_utc"] == previous["fetched_at_utc"]
-            assert change["previous_score_as_of_date"] == previous["score_as_of_date"]
-    else:
-        assert brief["comparable_changes"] == []
-    assert canonical_json(saved) == before
-    assert runs.read_bytes() == stored_bytes
-
-
-@pytest.mark.parametrize("legacy_saved_summary", [False, True])
-@pytest.mark.parametrize(
-    "rating_counts",
-    [
-        (9, 6, 0, 1, 0),
-        (0, 1, 0, 0, 0),
-        (None, None, None, None, None),
-    ],
-)
-def test_minkabu_receipt_and_rating_counts_survive_selection_and_brief_without_rewriting_history(
-    tmp_path, legacy_saved_summary, rating_counts
-):
-    data = payloads()
-    counts = dict(
-        zip(
-            ("strong_buy_count", "buy_count", "neutral_count", "sell_count", "strong_sell_count"),
-            rating_counts,
-            strict=True,
-        )
-    )
-    latest = {"availability": "available", "display_as_of_date": "2025-12-30"}
-    data["external_assessment"] = {"minkabu": {"latest": latest}}
-    baseline = project(data)
-    received = "2026-01-04T15:30:00Z"
-    latest["fetched_at_utc"] = received
-    latest.update(counts)
-    source = deepcopy(data)
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    assert data == source
-    summary = projected.context["external_assessment"]["minkabu_latest"]
-    assert summary["fetched_at_utc"] == received
-    assert summary["display_as_of_date"] == "2025-12-30"
-    assert {key: summary[key] for key in counts} == counts
-    if legacy_saved_summary:
-        # Existing saved cards lack these fields; reading must not backfill them.
-        del summary["fetched_at_utc"]
-        for key in counts:
-            del summary[key]
-    header = metadata()
-    runs = tmp_path / "runs.sqlite"
-    publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
-    result = retained_economic_result(context=projected.context)
-    selected = ScreeningSelection(header.generation_id, ("1234",), result)
-    store = ScreeningSelectionStore(runs)
-    assert store.publish("minkabu-clock", selected)
-    stored_bytes = runs.read_bytes()
-    restored = store.read("minkabu-clock")
-    assert restored == selected
-    saved = TypeAdapter(EconomicPathSelection).dump_python(restored.result, mode="json")
-    before = canonical_json(saved)
-    brief = economic_screening_brief(saved)["cards"][0]["context"]["external_assessment"]["minkabu"]
-    if legacy_saved_summary:
-        assert "fetched_at_utc" not in brief
-    else:
-        assert brief["fetched_at_utc"] == received
-    assert {key: brief[key] for key in counts if key in brief} == (
-        {}
-        if legacy_saved_summary
-        else {key: value for key, value in counts.items() if value is not None}
-    )
-    assert brief["display_as_of_date"] == "2025-12-30"
-    assert canonical_json(saved) == before
-    assert runs.read_bytes() == stored_bytes
-
-
-@pytest.mark.parametrize("legacy_saved_summary", [False, True])
-def test_quants_not_computed_availability_survives_selection_and_brief(
-    tmp_path, legacy_saved_summary
-):
-    data = payloads()
-    baseline = project(data)
-    data["external_assessment"] = {
-        "method_version": "same-series-v4",
-        "quants_scores": [
-            {
-                "inputs": {
-                    "latest": {
-                        "distributor": "kabumap",
-                        "origin": "Quants Research",
-                        "availability": "not_computed",
-                        "score_as_of_date": None,
-                        "fetched_at_utc": "2026-01-04T15:30:00Z",
-                        "source_url": "https://example.invalid/quants/1234",
-                    },
-                    "previous": {"availability": "available", "origin": "Quants Research"},
-                },
-                "comparisons": [
-                    {
-                        "metric": metric,
-                        "state": "missing",
-                        "reason": "latest_missing",
-                        "comparable": False,
-                        "latest_value": None,
-                        "previous_value": previous,
-                        "delta": None,
-                    }
-                    for metric, previous in (("growth_score", 8.0), ("composite_score", 65.0))
-                ],
-            }
-        ],
-    }
-    source = deepcopy(data)
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    assert data == source
-    summaries = projected.context["external_assessment"]["comparisons"]
-    assert all(item["availability"] == "not_computed" for item in summaries)
-    assert all(item["previous_availability"] == "available" for item in summaries)
-    assert all(item["latest_value"] is None for item in summaries)
-    assert all(item["score_as_of_date"] is None for item in summaries)
-    if legacy_saved_summary:
-        for item in summaries:
-            del item["availability"]
-            del item["previous_availability"]
-    header = metadata()
-    runs = tmp_path / "runs.sqlite"
-    publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
-    result = retained_economic_result(context=projected.context)
-    selected = ScreeningSelection(header.generation_id, ("1234",), result)
-    store = ScreeningSelectionStore(runs)
-    assert store.publish("quants-missing", selected)
-    stored_bytes = runs.read_bytes()
-    restored = store.read("quants-missing")
-    assert restored == selected
-    saved = TypeAdapter(EconomicPathSelection).dump_python(restored.result, mode="json")
-    before = canonical_json(saved)
-    brief = economic_screening_brief(saved)["cards"][0]["context"]["external_assessment"]
-    assert brief["comparable_changes"] == []
-    group = brief["sources"][0]
-    if legacy_saved_summary:
-        assert "availability" not in group
-        assert "previous_availability" not in group
-    else:
-        assert group["availability"] == "not_computed"
-        assert group["previous_availability"] == "available"
-    assert group["fetched_at_utc"] == "2026-01-04T15:30:00Z"
-    assert "score_as_of_date" not in group
-    state = group["states"][0]
-    assert state["state"] == "missing"
-    assert state["metrics"] == {"growth_score": None, "composite_score": None}
-    assert state["previous_values"] == {"growth_score": 8.0, "composite_score": 65.0}
-    assert canonical_json(saved) == before
-    assert runs.read_bytes() == stored_bytes
-
-
-@pytest.mark.parametrize(
-    "state", ["first_observation", "recovered", "count_changed", "not_comparable"]
-)
-def test_external_noncomparison_states_are_not_promoted_to_revisions(state):
-    data = payloads()
-    data["external_assessment"] = {
-        "analyst_ratings": [
-            {
-                "distributor": "received_rating",
-                "comparison": {
-                    "metric": "rating",
-                    "state": state,
-                    "comparable": False,
-                    "latest_value": 4.0,
-                    "delta": None,
-                },
+                "inputs": {"latest": foreign.model_dump(mode="json"), "previous": None},
+                "comparisons": [{"metric": "consensus_target", "state": "first_observation"}],
             }
         ]
     }
-    summary = project(data).context["external_assessment"]["comparisons"][0]
-    assert summary["state"] == state
-    assert summary["comparable"] is False
-    assert summary["delta"] is None
-    assert "revision" not in summary
+    data["company_financials"].update(
+        provider_capital_observation={
+            "currency": "USD",
+            "price_date": "2026-05-08",
+            "close_yen": 1e8,
+            "market_cap_million_yen": 1e8,
+        },
+        holder_capital_evidence={"observations": [{"total_stocks": 2500000}]},
+    )
+    data["company_financials"]["financial"].update(
+        forecast_eps_yen=999999.0, forecast_profit_yen=1e12
+    )
+    source = canonical_json(data)
+    after = project(data)
+    assert after.paths == before.paths
+    assert canonical_json(data) == source
+    if missing_shares:
+        assert not any(p.eligible or p.price_value is not None for p in after.paths)
 
 
 def test_capital_proxy_uses_pbr_not_unselected_equity_or_edinet_scope():
@@ -1222,98 +573,8 @@ def test_capital_proxy_uses_pbr_not_unselected_equity_or_edinet_scope():
     )
     capital = active(project(data), "capital_productivity")
     assert capital.business_value == pytest.approx(0.05)
-    assert capital.evidence["book_amount_implied_by_pbr"] == 20000.0
-    assert "not_exposed" in capital.evidence["book_provenance"]
     data["company_financials"]["financial"]["market_cap"] = 999.0
     assert active(project(data), "capital_productivity") is None
-
-
-def test_selected_book_reaches_l3_context_without_changing_economic_coordinates():
-    data = payloads()
-    baseline = project(data)
-    assert "book_equity" not in baseline.context["financial"]
-    book = {
-        "amount_yen": 20000.0,
-        "method": "assets_times_equity_ratio",
-        "measurement_date": "2025-06-30",
-        "statement_basis": "consolidated",
-        "disclosure_number": "book-source",
-        "disclosed_at": "2025-08-12",
-        "operands": {"total_assets_yen": 40000.0, "equity_to_asset_ratio": 0.5},
-    }
-    data["company_financials"]["financial"]["book_equity"] = book
-    changed = project(data)
-    for before, after in zip(baseline.paths, changed.paths, strict=True):
-        assert (before.price_value, before.business_value, before.eligible) == (
-            after.price_value,
-            after.business_value,
-            after.eligible,
-        )
-    assert changed.context["financial"]["book_equity"] == book
-    assert active(changed, "capital_productivity").evidence["book_provenance"] == (
-        "selected_model_book_in_context_financial_book_equity"
-    )
-
-
-def test_explicit_missing_book_stays_distinct_from_unrecorded_book():
-    data = payloads()
-    data["company_financials"]["financial"]["book_equity"] = None
-    result = project(data)
-    assert "book_equity" in result.context["financial"]
-    assert result.context["financial"]["book_equity"] is None
-    assert active(result, "capital_productivity").evidence["book_provenance"] == (
-        "individual_book_source_scope_and_measurement_date_not_exposed"
-    )
-
-
-def test_unrecorded_balance_context_does_not_rewrite_old_selection():
-    data = payloads()
-    baseline = project(data)
-    data["company_financials"]["financial"].update(
-        net_cash=100.0,
-        investment_securities=50.0,
-        edinet_source_submit_datetime="2025-08-12 09:00",
-    )
-    assert project(data) == baseline
-    assert "edinet_reported_balances" not in baseline.context["financial"]
-
-
-@pytest.mark.parametrize("available", [True, False])
-def test_reported_balances_reach_l3_brief_without_changing_paths_or_filling_claims(available):
-    inputs = payloads()
-    baseline = project(inputs)
-    balances = (
-        {
-            "amount_unit": "JPY",
-            "amounts": {
-                "cash": 100.0,
-                "debt": 40.0,
-                "net_cash": 60.0,
-                "investment_securities": 0.0,
-            },
-            "source_doc_id": "S100BALANCE",
-            "source_submit_datetime": "2025-08-12 09:00",
-            "consolidation_basis": "consolidated",
-            "measurement_date": {"date": None, "reason": "fact_date_not_retained"},
-            "filing_fiscal_period": {"start": "2025-04-01", "end": "2026-03-31"},
-            "interpretation": "reported_financial_balances_not_common_equity_surplus",
-        }
-        if available
-        else None
-    )
-    inputs["company_financials"]["financial"]["edinet_reported_balances"] = balances
-    original = deepcopy(inputs)
-    projected = project(inputs)
-    assert projected.paths == baseline.paths
-    assert projected.context["financial"]["edinet_reported_balances"] == balances
-    selected = retained_economic_result(context=projected.context)
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
-    assert "edinet_reported_balances" in brief
-    assert brief["edinet_reported_balances"] == balances
-    if available:
-        brief["edinet_reported_balances"]["amounts"]["cash"] = 1.0
-    assert inputs == original
 
 
 def test_economic_result_roundtrip_and_history_identity(tmp_path):
@@ -1343,36 +604,14 @@ def test_conflicting_growth_date_matches_only_make_that_metric_unavailable():
     duplicate["difference"] = 999.0
     data["company_growth"]["changes"].append(duplicate)
     result = project(data)
-    latest = result.context["latest_growth_changes"]
-    assert latest["operating_profit"]["latest_quarter"]["reason"] == ("ambiguous_growth_comparison")
-    assert latest["operating_margin"]["latest_quarter"]["difference"] == 0.02
+    assert active(result, "operating_recovery").variant == "annual_ttm"
+    quarter = next(
+        p for p in result.paths if (p.path_id, p.variant) == ("operating_recovery", "quarter")
+    )
+    assert not quarter.eligible
+    assert quarter.price_value is None
     assert active(result, "business_expansion") is not None
     assert active(result, "earning_power") is not None
-
-
-def test_saved_growth_evidence_keeps_missing_fields_and_original_number_representation():
-    data = payloads()
-    growth = data["company_growth"]
-    annual = growth["periods"][0]["observations"][0]
-    annual.pop("share_basis")
-    annual["metrics"]["sales"] = {"value": 1000}
-    sales_change = growth["changes"][0]
-    sales_change.pop("margin_points")
-    sales_change["difference"] = 100
-    before = canonical_json(data)
-    result = project(data)
-    expansion = active(result, "business_expansion")
-    assert (
-        canonical_json(expansion.evidence["sales_observation"]["observation"]) == '{"value":1000}'
-    )
-    assert canonical_json(expansion.evidence["sales_change"]) == canonical_json(sales_change)
-    assert result.context["annual_observation"]["latest_ttm_metrics"] == annual["metrics"]
-    assert result.context["annual_observation"]["latest_ttm_period_status"] is None
-    assert result.context["annual_observation"]["latest_ttm_basis"] == {
-        key: annual.get(key)
-        for key in ("period_start", "period_end", "statement_basis", "accounting_standard")
-    }
-    assert canonical_json(data) == before
 
 
 def test_different_saved_comparison_shapes_remain_ambiguous_even_when_typed_values_match():
@@ -1381,9 +620,7 @@ def test_different_saved_comparison_shapes_remain_ambiguous_even_when_typed_valu
     duplicate.pop("margin_points")
     data["company_growth"]["changes"].append(duplicate)
     result = project(data)
-    change = result.context["latest_growth_changes"]["operating_profit"]["latest_quarter"]
-    assert change["reason"] == "ambiguous_growth_comparison"
-    assert change["matching_comparison_count"] == 2
+    assert active(result, "operating_recovery").variant == "annual_ttm"
     assert active(result, "business_expansion") is not None
 
 
@@ -1397,7 +634,8 @@ def test_missing_comparison_field_does_not_create_a_match_from_the_owner_default
     assert after == before
     data["company_growth"]["changes"][1].pop("comparison")
     result = project(data)
-    assert result.context["latest_growth_changes"]["operating_profit"]["latest_quarter"] == {}
+    assert active(result, "operating_recovery").variant == "annual_ttm"
+    assert active(result, "business_expansion").variant == "quarter"
 
 
 @pytest.mark.parametrize("metric", ["operating_profit", "operating_margin"])
@@ -1409,40 +647,16 @@ def test_bad_quarter_with_missing_companion_cannot_escape_to_annual(metric, bad_
             change["difference"] = bad_value if change["metric"] == metric else None
     result = project(data)
     assert active(result, "operating_recovery") is None
-    latest = result.context["latest_growth_changes"][metric]
-    assert latest["selected_variant"] == "quarter"
-    assert latest["latest_quarter"]["difference"] == bad_value
 
 
-def test_positive_quarter_with_missing_companion_retains_counterevidence_on_annual_fallback():
+def test_positive_quarter_with_missing_companion_uses_only_available_annual_comparison():
     data = payloads()
     for change in data["company_growth"]["changes"]:
         if change["measurement"] == "quarter" and change["metric"] == "operating_margin":
             change["difference"] = None
     result = project(data)
     assert active(result, "operating_recovery").variant == "annual_ttm"
-    latest = result.context["latest_growth_changes"]
-    assert latest["operating_profit"]["latest_quarter"]["difference"] == 10.0
-    assert latest["operating_margin"]["latest_quarter"]["difference"] is None
-    assert latest["operating_margin"]["selected_variant"] == "annual_ttm"
-    assert latest["operating_margin"]["selected_comparison"]["difference"] == 0.02
-
-
-def test_generated_unavailable_growth_reason_is_not_not_generated():
-    data = payloads()
-    data["company_growth"] = CompanyGrowth(
-        ticker="1234",
-        status="unavailable",
-        reason="accounting_period_not_observed",
-        requested_start=None,
-        requested_end=date(2026, 1, 5),
-    ).model_dump(mode="json")
-    result = project(data)
-    assert result.context["growth_status"] == "unavailable"
-    assert result.context["growth_reason"] == "accounting_period_not_observed"
-    assert "company_growth" in result.model_revisions
-    assert "company_growth" not in result.not_generated
-    assert "status" not in result.context["external_assessment"]
+    assert active(result, "operating_recovery").business_value == 0.02
 
 
 def owner_generation(
@@ -1557,16 +771,12 @@ def owner_generation(
 
 def test_owner_fy_and_cumulative_quarter_reach_economic_coordinates():
     generation = owner_generation()
-    card = project_company("1001", models=generation.models, metadata=generation)
-    paths = {item.path_id: item for item in card.paths if item.eligible}
+    row = read_discovery_observations("1001", models=generation.models, metadata=generation)[2]
+    paths = {item.path_id: item for item in row.paths if item.eligible}
     assert set(paths) >= {"earning_power", "business_expansion", "operating_recovery"}
     income = paths["earning_power"]
     assert income.price_value == pytest.approx(110.0 / 800.0)
     assert income.business_value == pytest.approx(120.0 / 1350.0)
-    assert income.evidence["same_period_and_statement_basis"] is True
-    assert income.evidence["earnings_period_start"] == "2025-07-01"
-    assert income.evidence["earnings_period_end"] == "2026-06-30"
-    assert income.evidence["business_observation"]["statement_basis"] == "consolidated"
     expansion = paths["business_expansion"]
     assert expansion.variant == "quarter"
     assert expansion.price_value == pytest.approx(1350.0 / 800.0)
@@ -1574,23 +784,25 @@ def test_owner_fy_and_cumulative_quarter_reach_economic_coordinates():
     recovery = paths["operating_recovery"]
     assert recovery.price_value == pytest.approx(20.0 / 800.0)
     assert recovery.business_value == pytest.approx(30.0 / 400.0 - 10.0 / 250.0)
-    assert card.context["growth_status"] == "available"
 
 
 def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity():
     generation = owner_generation(alternate_quarter_profit=50.0)
     growth = generation.result("company_growth", "1001").payload
     assert growth["periods"][-1]["fiscal_year_end"] == "2027-06-30"
-    row = project_company("1001", models=generation.models, metadata=generation)
+    row = read_discovery_observations("1001", models=generation.models, metadata=generation)[2]
     quarter = next(
         item
         for item in row.paths
         if item.path_id == "operating_recovery" and item.variant == "quarter"
     )
-    assert quarter.evidence["operating_observation"]["observation"]["value"] == 50.0
-    latest = row.context["latest_growth_changes"]
-    assert latest["operating_profit"]["latest_quarter"]["reason"] == ("ambiguous_growth_comparison")
-    assert latest["sales"]["latest_quarter"]["rate"] == pytest.approx(0.6)
+    assert not quarter.eligible
+    assert quarter.price_value is None
+    assert active(row, "business_expansion").business_value == pytest.approx(0.6)
+    fixed_quarter = next(
+        x for x in growth["periods"][-1]["observations"] if x["measurement"] == "quarter"
+    )
+    assert fixed_quarter["metrics"]["operating_profit"]["value"] == 50.0
 
 
 @pytest.mark.parametrize("alternate_prior_profit", [10.0, 50.0])
@@ -1620,168 +832,17 @@ def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
         item["metrics"]["operating_profit"]["documents"][0]["disclosure_number"]
         for item in quarters
     ] == ["owner-2025-1Q", "owner-prior-fy-end-change"]
-    row = project_company("1001", models=generation.models, metadata=generation)
-    reversed_row = project_company(
+    row = read_discovery_observations("1001", models=generation.models, metadata=generation)[2]
+    reversed_row = read_discovery_observations(
         "1001", models=reversed_generation.models, metadata=reversed_generation
-    )
+    )[2]
     assert row == reversed_row
-    latest = row.context["latest_growth_changes"]
-    sales = latest["sales"]["latest_quarter"]
-    assert (sales["from_value"], sales["to_value"], sales["difference"]) == (250.0, 400.0, 150.0)
-    assert sales["rate"] == pytest.approx(0.6)
-    assert active(row, "business_expansion") is not None
-    for metric, expected in (
-        ("operating_profit", 20.0),
-        ("operating_margin", 30.0 / 400.0 - 10.0 / 250.0),
-    ):
-        comparison = latest[metric]["latest_quarter"]
-        assert comparison["from_start"] == "2025-04-01"
-        assert comparison["from_end"] == "2025-06-30"
-        if alternate_prior_profit == 50.0:
-            assert comparison["reason"] == "ambiguous_growth_comparison"
-            assert all(
-                comparison[field] is None
-                for field in ("from_value", "difference", "rate", "margin_points", "sign_change")
-            )
-        else:
-            assert comparison["reason"] is None
-            assert comparison["difference"] == pytest.approx(expected)
-    assert (active(row, "operating_recovery") is None) == (alternate_prior_profit == 50.0)
+    # The same reported-period ends but different FYs do not create another vote.
+    assert active(row, "business_expansion").business_value == pytest.approx(0.6)
+    recovery = active(row, "operating_recovery")
+    if alternate_prior_profit == 50.0:
+        assert recovery is None
+    else:
+        assert recovery.price_value == pytest.approx(20.0 / 800.0)
+        assert recovery.business_value == pytest.approx(30.0 / 400.0 - 10.0 / 250.0)
     assert canonical_json(growth) == before
-
-
-def test_cash_investment_components_and_source_survive_the_same_fcf():
-    first = payloads()
-    first["company_financials"]["financial"].update(
-        edinet_ocf_ttm=100.0,
-        capex_ttm=300.0,
-        edinet_capex_source="purchase_of_fixed_assets",
-        consolidation_basis="consolidated",
-        edinet_failure_reasons="cash_flow_detail_partial",
-        edinet_source_period_start="2024-04-01",
-        edinet_source_period_end="2025-03-31",
-    )
-    second = deepcopy(first)
-    second["company_financials"]["financial"].update(edinet_ocf_ttm=-100.0, capex_ttm=100.0)
-    a, b = project(first).context["financial"], project(second).context["financial"]
-    assert a["fcf_ttm"] == b["fcf_ttm"] == -200.0
-    assert a["edinet_ocf_ttm"] == 100.0
-    assert b["edinet_ocf_ttm"] == -100.0
-    assert a["capex_ttm"] == 300.0
-    assert b["capex_ttm"] == 100.0
-    for field in (
-        "edinet_capex_source",
-        "consolidation_basis",
-        "edinet_failure_reasons",
-        "edinet_source_period_start",
-        "edinet_source_period_end",
-    ):
-        assert a[field] == b[field] == first["company_financials"]["financial"][field]
-
-
-def test_reported_flow_and_ttm_period_context_is_not_relabelled_as_one_interval():
-    inputs = payloads()
-    reported = {
-        "period_kind": "interim",
-        "amounts": {"operating_cash_flow": 812_758_000.0, "free_cash_flow": 461_335_000.0},
-        "measurement_period": {"start": None, "end": None, "reason": "fact_dates_not_retained"},
-        "filing_fiscal_period": {"start": "2026-01-01", "end": "2026-12-31"},
-        "annual_quality": {"free_cash_flow": "approximated"},
-    }
-    period = {"start": "2025-07-01", "end": "2026-06-30"}
-    inputs["company_financials"]["financial"].update(
-        edinet_reported_flows=reported, ocf_ttm_period=period, ocf_ttm=-1_422_368_000.0
-    )
-    financial = project(inputs).context["financial"]
-    assert financial["edinet_reported_flows"] == reported
-    assert financial["ocf_ttm_period"] == period
-    assert financial["ocf_ttm"] == -1_422_368_000.0
-
-
-@pytest.mark.parametrize("period_kind", ["annual", "interim"])
-def test_reported_cf_details_reach_l3_brief_without_changing_candidate_paths(period_kind):
-    inputs = payloads()
-    baseline = project(inputs)
-    reported = {
-        "period_kind": "annual",
-        "amount_unit": "JPY",
-        "amounts": {
-            "operating_cash_flow": 100.0,
-            "capex": 30.0,
-            "free_cash_flow": 70.0,
-            "ocf_receivables_cash_effect": -10.0,
-            "ocf_inventories_cash_effect": 0.0,
-            "ocf_payables_cash_effect": 5.0,
-            "ocf_contract_liabilities_cash_effect": 6.0,
-            "ocf_advances_received_cash_effect": 7.0,
-            "ocf_other_payables_cash_effect": None,
-            "capex_ppe_reported": 20.0,
-            "capex_intangible_reported": None,
-        },
-        "source_doc_id": "S100DETAIL",
-        "consolidation_basis": "consolidated",
-        "measurement_period": {"start": None, "end": None, "reason": "fact_dates_not_retained"},
-        "filing_fiscal_period": {"start": "2025-01-01", "end": "2025-12-31"},
-        "annual_quality": {"free_cash_flow": "exact"},
-    }
-    if period_kind == "interim":
-        reported["period_kind"] = "interim"
-        reported["amounts"]["capex"] = None
-        reported["amounts"]["free_cash_flow"] = None
-        for key in reported["amounts"]:
-            if key.startswith("ocf_"):
-                reported["amounts"][key] = None
-        reported["annual_quality"] = {"free_cash_flow": "unavailable"}
-    inputs["company_financials"]["financial"]["edinet_reported_flows"] = reported
-    original = deepcopy(inputs)
-    projected = project(inputs)
-    assert projected.paths == baseline.paths
-    assert projected.context["financial"]["edinet_reported_flows"] == reported
-    selected = retained_economic_result(context=projected.context)
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
-    assert brief["edinet_reported_flows"] == reported
-    assert inputs == original
-
-
-@pytest.mark.parametrize("flag", ["true", "false", "", None])
-def test_accounting_change_notice_reaches_brief_without_disabling_paths(flag):
-    data = payloads()
-    baseline = project(data)
-    disclosure = {
-        "disclosure_number": "synthetic-current",
-        "disclosed_at": "2026-01-05",
-        "flags": {"ChgNoASRev": flag, "RetroRst": "false"},
-    }
-    data["company_financials"]["earnings_price"]["accounting_disclosures"] = [disclosure]
-    projected = project(data)
-    assert projected.paths == baseline.paths
-    selected = retained_economic_result(context=projected.context)
-    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
-    context = economic_screening_brief(saved)["cards"][0]["context"]["accounting_change_context"]
-    assert context["read_semantics"] == "positive_native_flags_not_comparability_clearance"
-    assert context["disclosures"] == ([disclosure] if flag == "true" else [])
-
-
-def test_holder_report_remains_evidence_and_does_not_rewrite_path_scores():
-    data = payloads()
-    baseline = project(data)
-    data["company_financials"]["holder_capital_evidence"] = {
-        "coverage": "partial",
-        "scope": "retained_metadata_and_originals_only",
-        "receipt_precision": "day_not_intraday",
-        "observations": [
-            {
-                "ticker": "1234",
-                "document_id": "S100TEST",
-                "total_stocks": 2500000,
-                "source_kind": "third_party_holder_report_not_issuer_attestation",
-            }
-        ],
-    }
-    with_evidence = project(data)
-    assert with_evidence.paths == baseline.paths
-    assert (
-        with_evidence.context["holder_capital_evidence"]["observations"][0]["total_stocks"]
-        == 2500000
-    )

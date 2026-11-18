@@ -35,7 +35,6 @@ class PathCoordinates:
     price_group: str
     business_group: str
     eligible: bool
-    evidence: dict[str, JsonValue]
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,9 +43,6 @@ class CompanyCoordinates:
     name: str | None
     sector: str | None
     paths: tuple[PathCoordinates, ...]
-    context: dict[str, JsonValue]
-    model_revisions: dict[str, str]
-    not_generated: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)

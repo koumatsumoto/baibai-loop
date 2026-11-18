@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     SourceDocument,
     Value,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
+from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
 from baibai_engine.machine_analysis.screening.policies.financial_growth import (
     POLICY_ID,
     _financial_growth_with_path_inputs,
@@ -163,10 +163,9 @@ def test_financial_routes_preserve_clocks_and_leave_adoption_to_the_caller():
 def test_price_sector_technical_and_old_eligibility_do_not_decide_financial_gate():
     data = payloads()
     baseline = evaluate(data)
-    assert not any(
-        path.eligible
-        for path in project_company("1234", models=models(data), metadata=metadata()).paths
-    )
+    assert not project_discovery_row("1234", models=models(data), metadata=metadata())[
+        "coordinates"
+    ]
     data["company_financials"].update(
         expected_price_date=None, earnings_price={"invalid": "unused pricing"}
     )

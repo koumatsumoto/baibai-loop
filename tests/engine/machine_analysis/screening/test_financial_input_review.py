@@ -227,16 +227,8 @@ def test_known_technical_nonmatch_does_not_hide_share_review():
 
 
 def test_review_references_selected_path_and_same_model_without_changing_coordinates():
-    from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-        project_company,
-        project_company_with_input_reviews,
-    )
-
     data = case(reason="missing_capital_basis")
-    coordinates, reasons = project_company_with_input_reviews(
-        "1234", models=models(data), metadata=_metadata()
-    )
-    assert coordinates == project_company("1234", models=models(data), metadata=_metadata())
+    _, _, coordinates, reasons = observations(data)
     row = project_unchanged(data)
     assert row["missing"] == ["financial:missing_capital_basis"]
     assert row["coordinates"] == []
@@ -258,7 +250,6 @@ def test_review_references_selected_path_and_same_model_without_changing_coordin
         for path in coordinates.paths
         if (path.path_id, path.variant) == (reasons[0]["path_id"], reasons[0]["variant"])
     )
-    assert matching.evidence["selected_variant"] == reasons[0]["variant"]
     assert not matching.eligible
     assert matching.price_value is None
 
@@ -297,10 +288,6 @@ def test_sales_review_does_not_invent_rate_or_rescue_incomparable_operands(probl
 def test_full_fy_review_uses_selected_observation_and_does_not_hide_newer_loss(newer_loss):
     from tests.engine.machine_analysis.screening.test_full_fy_fallback import documents, generation
 
-    from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-        project_company_with_input_reviews,
-    )
-
     docs = documents()
     if newer_loss:
         docs[-1] = replace(docs[-1], operating_profit=-1.0)
@@ -314,7 +301,7 @@ def test_full_fy_review_uses_selected_observation_and_does_not_hide_newer_loss(n
         earnings_yield=None,
         unavailable_reason="missing_capital_basis",
     )
-    _, reasons = project_company_with_input_reviews("1001", models=rows, metadata=fixed)
+    _, _, _, reasons = read_discovery_observations("1001", models=rows, metadata=fixed)
     earning = [item for item in reasons if item["path_id"] == "earning_power"]
     assert bool(earning) is not newer_loss
     if earning:
@@ -325,10 +312,6 @@ def test_full_fy_review_uses_selected_observation_and_does_not_hide_newer_loss(n
 def test_available_ttm_does_not_select_more_attractive_fy_for_review():
     from tests.engine.machine_analysis.screening.test_full_fy_fallback import documents, generation
 
-    from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-        project_company_with_input_reviews,
-    )
-
     fixed = generation(documents(prior_quarter=True))
     cf = next(model.payload for model in fixed.models if model.model_id == "company_financials")
     cf["earnings_price"].update(
@@ -337,7 +320,7 @@ def test_available_ttm_does_not_select_more_attractive_fy_for_review():
         earnings_yield=None,
         unavailable_reason="missing_capital_basis",
     )
-    _, reasons = project_company_with_input_reviews("1001", models=fixed.models, metadata=fixed)
+    _, _, _, reasons = read_discovery_observations("1001", models=fixed.models, metadata=fixed)
     assert [item["variant"] for item in reasons if item["path_id"] == "earning_power"] == [
         "annual_ttm"
     ]
@@ -345,10 +328,6 @@ def test_available_ttm_does_not_select_more_attractive_fy_for_review():
 
 def test_negative_selected_ttm_does_not_borrow_positive_fy_for_earning_review():
     from tests.engine.machine_analysis.screening.test_full_fy_fallback import documents, generation
-
-    from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-        project_company_with_input_reviews,
-    )
 
     fixed = generation(documents(prior_quarter=True))
     cf = next(model.payload for model in fixed.models if model.model_id == "company_financials")
@@ -359,5 +338,5 @@ def test_negative_selected_ttm_does_not_borrow_positive_fy_for_earning_review():
         profit_ttm_yen=-1.0,
         unavailable_reason="missing_capital_basis",
     )
-    _, reasons = project_company_with_input_reviews("1001", models=fixed.models, metadata=fixed)
+    _, _, _, reasons = read_discovery_observations("1001", models=fixed.models, metadata=fixed)
     assert not any(item["path_id"] == "earning_power" for item in reasons)

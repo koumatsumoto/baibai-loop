@@ -1,12 +1,11 @@
 """候補外の明示調査を固定し、保存財務Selectionの意味を差し替えない。"""
 
-from dataclasses import replace
 from datetime import UTC, datetime
 
 import yaml
 from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.research_selection import selected_target
-from tests.helpers.retained_economic_selection import ranked_path_fixture, retained_economic_result
+from tests.helpers.retained_economic_selection import retained_economic_result
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
@@ -21,9 +20,6 @@ from baibai_engine.investment_judgment.workflow.workspace.selected_prepare impor
     resume_selected_workspace,
 )
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
-from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    PathCoordinates,
-)
 
 NOW = datetime(2026, 11, 14, 11, tzinfo=UTC)
 
@@ -31,27 +27,6 @@ NOW = datetime(2026, 11, 14, 11, tzinfo=UTC)
 def test_nonfinancial_candidate_prepares_and_resumes_without_relabeling_saved_policy(tmp_path):
     runs, app, workspace = tmp_path / "runs", tmp_path / "app", tmp_path / "research"
     financial_selection = retained_economic_result(context={})
-    financial_selection = replace(
-        financial_selection,
-        cards=(
-            replace(
-                financial_selection.cards[0],
-                ticker="1234",
-                name="保存財務候補",
-                sector="機械",
-                strongest_path="earning_power",
-                model_revisions={},
-                not_generated=(),
-                paths=(
-                    ranked_path_fixture(
-                        PathCoordinates(
-                            "earning_power", "annual_ttm", 0.1, 0.2, "market", "sector", True, {}
-                        )
-                    ),
-                ),
-            ),
-        ),
-    )
     source = seed_generated_selection(
         runs=runs,
         now=NOW,

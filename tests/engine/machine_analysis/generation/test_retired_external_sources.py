@@ -4,7 +4,6 @@ from datetime import timedelta
 
 from tests.helpers.external_assessment_observations import RECEIVED, rating, valuation
 
-from baibai_engine.investment_judgment.workflow.screening_brief import _external
 from baibai_engine.machine_analysis.generation.runners.external_assessment import (
     generate_external_assessment,
 )
@@ -19,9 +18,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystForecastObservation,
     QuantsScoreObservation,
-)
-from baibai_engine.machine_analysis.screening.policies.economic_path_context import (
-    _external_context,
 )
 
 
@@ -78,16 +74,22 @@ def test_new_generation_drops_retired_values_without_altering_inputs_or_survivor
         for ref in group.references
         if group.origin == "IFIS"
     } == {("monex", "consensus_target")}
-    context = _external_context(fresh.model_dump(mode="json"))
-    brief = _external(context)
-    assert context["minkabu_latest"] is None
-    assert brief["minkabu"] == {}
-    assert all(row.get("distributor") not in {"rakuten", "minkabu"} for row in brief["sources"])
     assert history.model_dump_json() == before
 
     # A saved v6 result is decoded, never regenerated with today's source policy.
-    old_payload = fresh.model_dump(mode="json")
-    old_payload.update(
+    old_payload = dict(
+        ticker="1234",
+        cutoff=cutoff,
+        evaluated_at=cutoff,
+        model_valuations=[],
+        quants_scores=[],
+        origin_groups=[],
+        tradingview={
+            "inputs": {},
+            "availability": "not_observed",
+            "forecast_fields": [],
+            "comparisons": [],
+        },
         method_version="same-series-v6",
         analyst_ratings=[
             {
@@ -106,13 +108,12 @@ def test_new_generation_drops_retired_values_without_altering_inputs_or_survivor
     saved = ExternalAssessment.model_validate(old_payload)
     original = saved.model_dump_json()
     assert ExternalAssessment.model_validate_json(original).model_dump_json() == original
-    old_context = _external_context(saved.model_dump(mode="json"))
-    old_brief = _external(old_context)
-    assert old_brief["minkabu"]["strong_buy_count"] == 0
-    assert old_brief["minkabu"]["buy_count"] == 2
-    assert old_brief["minkabu"]["origin"] is None
-    assert old_brief["minkabu"]["share_basis"] is None
-    assert any(row.get("distributor") == "rakuten" for row in old_brief["sources"])
+    assert saved.minkabu.latest.strong_buy_count == 0
+    assert saved.minkabu.latest.buy_count == 2
+    assert saved.minkabu.latest.origin is None
+    assert saved.minkabu.latest.share_basis is None
+    assert saved.analyst_ratings[0].distributor == "rakuten"
+    assert saved.analyst_ratings[0].comparison.latest_count == 0
     # Older payloads omitted the revision/forecast slot. Their old defaults stay old.
     old_payload.pop("method_version")
     old_payload.pop("minkabu")
