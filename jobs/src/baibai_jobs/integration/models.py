@@ -64,7 +64,6 @@ from baibai_jobs.integration.financial_native import model_input as native_finan
 from baibai_jobs.maintenance.model_cache import prune_model_cache
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _load_handle, verify_held
-from baibai_jobs.publication.model_checkpoint import ModelPublicationCheckpoint
 from baibai_jobs.publication.snapshot_publication import (
     prepare_market_lake,
     publish_prepared_market_lake,
@@ -118,13 +117,8 @@ def integrate_models(
     policy: TechnicalFinancialPolicy,
     edinet_input: InputSnapshot | None = None,
     preserve_generation_ids: tuple[str, ...] = (),
-    publication_checkpoint: ModelPublicationCheckpoint | None = None,
 ) -> dict[str, object]:
     """leaseで順序を守り、モデル生成後に別releaseを作らない。"""
-    if publication_checkpoint is not None and set(preserve_generation_ids) != set(
-        publication_checkpoint.prior_generation_ids
-    ):
-        raise ValueError("checkpoint and generation preservation conditions differ")
     handle = _load_handle(lease_handle)
     verify_held(store, handle)
     mirror.mkdir(parents=True, exist_ok=True)
@@ -237,21 +231,8 @@ def integrate_models(
         _phase_progress("screening", phase_started)
         phase_started = _phase_progress("lake_publish")
 
-        if publication_checkpoint is not None:
-            publication_checkpoint.protect(
-                store=store,
-                handle=handle,
-                prepared=prepared,
-                runs=runs,
-                generation_id=generation.metadata.generation_id,
-                selection_id=selection_id,
-            )
-
         def before_pointer_switch() -> None:
-            if publication_checkpoint is not None:
-                publication_checkpoint.guard(store, handle)
-            else:
-                verify_held(store, handle)
+            verify_held(store, handle)
 
         publication = publish_prepared_market_lake(
             prepared, store=store, before_pointer_switch=before_pointer_switch

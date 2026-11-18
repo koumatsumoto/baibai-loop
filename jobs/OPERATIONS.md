@@ -513,23 +513,9 @@ uv run python -m baibai_jobs.acquisition.external_assessments.raw --preserve-run
 
 lease外でacquire→inspect→ready --cumulative、共通統合で固定集合を公開/readbackしてackする。後着小集合で後退させない。確定分で明示終了するときだけworkflowの-f operation=stage_confirmed_partialを使う。401/403/429/未完を自動closeしない。pointer後terminal失敗は現状態を読み、未sealならfresh hydrateから再適用する。hard kill前の未保存試行・期限切れ原本の復元は保証しない。history_digestsは保存後baselineで、更新前の全履歴保全を証明しない。
 
-#### EDINET 財務cash内訳への一回切替
+#### EDINET 財務cash内訳
 
-schema 52とEDINET lake v3はcode/store一組で切り替え、通常open/dailyへ移行を代行させない。現writerの終端後、freshな閉じたschema 51 machine pair、manifest、lake pointerをhash/ETagで固定する。[local copy tool](../tools/migrations/market_schema_52.py)は新outputだけを作り、全既存table値・無関係schema・原本bytesを照合する。旧行の新列はNULLで、原本再抽出はしない。
-
-```bash
-uv run python -m tools.migrations.market_schema_52 --source <fixed-51.sqlite> --output <new-52.sqlite> --expected-sha256 <source-sha256>
-```
-
-通常の`push-market`は51/52のmergeを拒否し、`push-machine`はrunsも再公開するため、この切替に使わない。独立reviewとexact CI後、自分で取得した現行daily publication lease内でcode/store切替から初回の明示受入付き生成・pair読戻しまでを完了する。準備は事前に済ませ、途中でrelease/reacquireを挟まない。一回publisherは220分handleと切替前の残り180分を要求するが、完了時間を保証せず、失効時は停止する。通常TTLやlease ownerは変更しない。[一回publisher](../tools/migrations/publish_market_schema_52.py)のplanには元/新market SHA、元market/runs/manifest/pointer ETag、元manifest/pointer SHA、再開時も変えないUTC receipt時計を固定する。元market・manifest・pointerを専用content-addressed keyへcreate-onlyで保存し、読戻し後にmarketだけを元ETagへCAS PUTする。そのack ETagと元runs ETagでmanifestを元ETagへCAS更新する。runs/pointerは書かず、lease・runs ETag・pointerを各境界で照合する。追加の取得/削除や権限変更は含めない。
-
-```bash
-uv run python -m tools.migrations.publish_market_schema_52 publish --plan <fixed-plan.json> --source <fixed-51.sqlite> --target <new-52.sqlite> --lease-handle <daily-handle.json> --attempt <new-attempt-dir>
-```
-
-403/429、CAS競合、PUT ack不明はそのpassを停止し、自動再送しない。attemptを上書きせず、最終成功も通常readback前の切替receiptとして扱う。market成功/manifest未完は、現leaseと固定新market・元runs/pointer・backupを確認してから、別attemptの`finish-manifest`だけで前向きに完成する。同じ引数のmodeを`publish`から`finish-manifest`へ変え、`--attempt`を新directoryにする。明示復旧のfinishだけは自分のoperator handleも使えるが、それを初回生成までの同一daily handleの代用にしない。旧manifestからのCASか、同一完成manifestの読取確認だけを許し、marketの再PUT・旧51復元・manifest削除はしない。新しい受領や異なる状態は自動修復せず、現正本から別判断する。
-
-新codeは旧lake v2を元契約で読み、新列だけNULLとしてhydrateする。切替後は下記EDINETの固定再抽出/明示受入を経てv3を公開し、全旧partition・runs履歴・保存判断を保つ。実受入後は一回tool/testとこの移行節を撤去し、旧固定release readerと受入証拠を残す。
+schema 52・EDINET lake v3への切替は完了し、一回移行・有限回復toolは撤去したため、旧schema 51 copyで現行の正本を上書きしない。旧固定release readerは保持し、切替・受入の履歴は[#2262](https://github.com/koumatsumoto/baibai-loop/issues/2262)に残す。
 
 #### 株マップの旧入力と未計算原本
 
@@ -780,52 +766,3 @@ gh run watch <WEB_RUN_ID> --exit-status --interval 60
 
 <a id="web-authentication"></a>
 VIEW_PASSWORDをBearerとして使う。閲覧画面は空白なしの半角英数字・記号（印字可能ASCII）だけを受け付け、入力の前後空白を除くため、secretもこの範囲で用意する。実Workerのsecret更新は別途認可された操作として行い、秘密を本文・shell引数・logへ残さず、R2 credentialと混ぜない。
-
-### 有限復旧の pointer 前 runs 保全
-
-ephemeral runner で有限復旧を行う caller は `ModelPublicationCheckpoint` を `integrate_models` に渡し、review 済み contract の SHA と保存旧世代 ID を結び付ける。通常 CLI の既定動作は変えず、任意 command hook は受け付けない。
-
-新世代・Selection の commit 後、pointer 公開前に runs を SQLite backup で固定し、内容 SHA key への create-only 保存、全 GET・前後 HEAD・SQLite/世代照合、contract から確定する private prepared receipt の保存・再読を完了させる。保全・再読が失敗/不明なら公開へ進めず、既存 receipt を上書き・自動再実行しない。receipt は準備証跡であり、pointer や pair の成功を意味しない。復旧時は current と receipt の release/manifest/pointer SHA、回収 runs の全 bytes を照合してから別途判断する。
-
-backup は VACUUM しない。元 runs を維持したまま upload 後に transfer copy を消し、その同じ場所へ全 GET するため、追加の runs 実体は同時に 1 個。ただし呼出時の market seal・graph・working DB は存続するため、それらと download 一時領域を含め容量 gate を設ける。保全前後と pointer CAS 直前に lease と残時間を検証し、既定 20 分の pair 受入余白を割る場合は pointer を書かない。残時間 gate も転送完了の上限保証ではなく、pair 中断時の ACK 証拠保全・再読は caller の責務とする。
-
-### schema52 中断後の有限 Actions 回復
-
-`cloud-finance-recovery` は通常 daily の代用でも自動再試行でもない。旧 cloud writer の
-終了不明を死亡扱いせず、旧 origin の pointer ETag に一度だけ CAS する範囲を独立に
-確認した例外回復用。旧側が先に公開した場合・状態不明の場合は pair を公開しない。
-既存ルール・lease record を消す、TTL を延長する、lifecycle 管理 API の拒否を別資格情報で
-迂回する経路はない。
-
-開始前に completed-source sealed SQLite、固定経済入力、旧13世代 runs、17 handoff の
-plan/applied/receipt 閉包、厳密受入条件と全列 fingerprint を内容 hash 固定の private contract
-へまとめる。入力コピーの staging は create-only と全 GET/前後 HEAD で確認し、元 cloud の
-原本は残す。R2 lifecycle が不明な staging を唯一の保全先にはしない。contract は最終 code
-commit を含めず、承認 digest を `finance_recovery_contract.APPROVED_CONTRACTS` に入れた
-launch commit の review/CI と main の run SHA で code を別に拘束する。空 allowlist は意図的な
-起動禁止。最終 digest 登録前の fixture 成功は実入力受入でも公開許可でもない。
-
-標準 runner label の公称容量や過去成功を容量保証にしない。locked setup と固定入力展開後、
-同一 device の実空き容量を確認する。model 前は32 GiB、push 前24 GiB、readback 前12 GiBを
-必要な残空きとし、別に入力展開と最大 wire copy を予算化する。full market snapshot と
-DELETE journal/VACUUM、最大4 GB/session spill、prepared runs の全読戻し、送信証拠と
-remote pair/lake 読戻しを重ねるためである。余裕不足なら lease 取得前または次の公開前で停止。
-資格情報注入前に下記の固定 allowlist による使い捨て image 整理だけを行う。paid larger
-runner の自動有効化や任意の追加整理は行わない。
-
-モデル生成後、pointer を公開する前に committed matching runs と generation/release/契約を
-結合した `prepared.json` を private create-only 保存し、全 GET と SHA で確認する。
-直前の lease 残20分 gate は pair 完了保証ではない。pair は各送信 snapshot、PUT開始、ACKを
-同期的に private 保全してから次の書込みへ進む。SQLite body・handle・private log を公開
-GitHub artifact/log へ出さない。job の360分 timeout は入力準備を含む上限で、220分 daily
-lease の延長ではない。
-
-中断時は exact run ID/attempt/job/commit と private phase receipts を確認し、rerun しない。
-`prepared.json` があるなら保持された runs の SHA/全列、固定 input contract と lake release を
-読戻し、pointer がその release かを確認する。pointer先行・pair途中なら、各keyの保存 body/
-ACKと現remote bytesを照合し、同じ公開を完成させる別の有限回復を review する。異なる
-successorを採用し直したり、通常dailyで辻褄を合わせたりしない。receiptの保存失敗や403/429
-後は追加cleanup通信もleaseの無条件releaseもせず、server側終端と公開状態の突合せを待つ。
-容量準備が必要な専用 workflow は、checkout 後・credential 注入前に `python3 jobs/scripts/prepare_finance_recovery_runner.py` を実行できる。この入口は main の GitHub-hosted Ubuntu 24.04・初回 attempt だけを受け付け、[公式 Android installer](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/install-android-sdk.sh)、[.NET installer](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/install-dotnetcore-sdk.sh)、[Swift installer](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/install-swift.sh)、[Haskell installer](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/install-haskell.sh) の固定 SDK root だけを削除する。runtime・checkout・tool cache・秘密・production data は対象にしない。各 root/ancestor の symlink を拒否し、内部 symlink は辿らず除去する。
-
-この処理は容量確保を保証しない。削除前後の空き bytes/device を記録し、driver が setup/download 後の実測・同時ピーク gate を満たせなければ lease acquire 前に停止する。任意 path/ref、追加 SDK、paid larger runner、権限・security 設定変更を自動的に許可しない。
