@@ -155,6 +155,7 @@ def acquire_source(
     discovery_replays = 0
     discovery_edges: dict[str, list[dict[str, Any]]] = {}
     pending_urls = list(cursor.get("pending_urls", []))
+    carried_urls = set(pending_urls)
     saved_evidence = cursor.get("pending_evidence", {})
     if not isinstance(saved_evidence, dict):
         saved_evidence = {}
@@ -559,6 +560,7 @@ def acquire_source(
                     failed.append("index_page_cycle")
                     partial = True
                     break
+            index_complete = bool(pages) and not partial and not page_url and not entry_urls
             discovered = list(discovered_by_identity.values())
             fresh = [url for url in discovered if url not in planning]
             # Two recent known URLs are revalidated even without sitemap lastmod.
@@ -641,7 +643,19 @@ def acquire_source(
                 if frontier is not None:
                     frontier.complete(url, success=body is not None and bound)
                 if body is None:
-                    pending_urls.append(url)
+                    # A vanished feed item is not an endless crawl obligation.
+                    # Keep its failed receipt; a future relisting can rediscover it.
+                    stale_missing = (
+                        source == "toushiru"
+                        and url in carried_urls
+                        and index_complete
+                        and url not in discovered
+                        and receipt.http_status == 404
+                    )
+                    if stale_missing:
+                        planning.pop(url, None)
+                    else:
+                        pending_urls.append(url)
                 elif discovery is not None:
                     identity = discovery.register(
                         receipt, {"stage_id": stage_id}, link if bound else None
