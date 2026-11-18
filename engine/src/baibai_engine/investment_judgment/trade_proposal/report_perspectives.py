@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -116,11 +116,47 @@ def _signals(pairs: list[tuple[float, str]], note: str, source: str, day: date) 
     return Reading(judgment, "、".join(text for _, text in pairs) + "。" + note, source, day)
 
 
-def _finance(f: Row, legacy: Row, limit: date) -> Reading | None:
+def _components_known(components: object, limit: date, cutoff: datetime) -> bool:
+    if components is None:
+        return True  # Unrecorded vintage in an older exact snapshot; do not invent a clock.
+    if not isinstance(components, list):
+        return False
+    for component in components:
+        if not isinstance(component, dict):
+            return False
+        if component.get("period_end") is not None and not _day(component["period_end"], limit):
+            return False
+        disclosed, clock = component.get("disclosed_at"), component.get("disclosed_time")
+        if disclosed is None:
+            if clock is not None:
+                return False
+            continue
+        day = _day(disclosed, limit)
+        if not day:
+            return False
+        if clock is not None:
+            if not isinstance(clock, str):
+                return False
+            try:
+                at = time.fromisoformat(clock)
+            except ValueError:
+                return False
+            if at.tzinfo is not None or datetime.combine(day, at, JST) > cutoff:
+                return False
+    return True
+
+
+def _finance(f: Row, legacy: Row, limit: date, cutoff: datetime) -> Reading | None:
     ep, fin = _obj(f.get("earnings_price")), _obj(f.get("financial")) or legacy
     when = _day(ep.get("price_date"), limit)
     profit, yld = _num(ep.get("profit_ttm_yen")), _num(ep.get("earnings_yield"))
-    if when and ep.get("unavailable_reason") is None and profit is not None and yld is not None:
+    if (
+        when
+        and ep.get("unavailable_reason") is None
+        and profit is not None
+        and yld is not None
+        and _components_known(ep.get("profit_components"), limit, cutoff)
+    ):
         components = _rows(ep.get("profit_components"))
         ends = [_day(v.get("period_end"), limit) for v in components]
         last = max((v for v in ends if v), default=None) if all(ends) else None
@@ -142,6 +178,7 @@ def _finance(f: Row, legacy: Row, limit: date) -> Reading | None:
             cf is not None
             and end
             and end == last
+            and _components_known(basis.get("components"), limit, cutoff)
             and ep.get("statement_basis") in ("consolidated", "nonconsolidated")
             and basis.get("statement_basis") == ep.get("statement_basis")
             and ep.get("accounting_standard")
@@ -563,7 +600,7 @@ def estimate_missing(
         is not None
     ]
     readings = (
-        _finance(f, legacy, limit),
+        _finance(f, legacy, limit, cutoff),
         _growth(growth, legacy, limit),
         _market(_obj(global_market.get("market")), limit),
         _external(ext, ticker, limit, cutoff),

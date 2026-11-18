@@ -366,3 +366,37 @@ def test_only_external_pbr_model_is_a_per_share_estimate_not_a_multiple():
     assert "株数基準未確認" in r["summary"]
     obs["unit"] = "multiple"
     assert _estimate(s)["external_assessment"]["assessment"] == "insufficient"
+
+
+@pytest.mark.parametrize(
+    ("end", "disclosed", "clock", "accepted"),
+    [
+        ("2026-10-21", "2026-11-01", None, False),
+        ("2026-09-30", "2026-11-01", None, False),
+        ("2026-09-30", DAY, "15:00:01", False),
+        ("2026-09-30", DAY, "15:00:00", True),
+        ("2026-09-30", "2026-10-19", None, True),
+    ],
+)
+def test_future_account_is_not_a_missing_vintage_or_a_known_profit(end, disclosed, clock, accepted):
+    s = _sel()
+    f = {
+        "earnings_price": {
+            "price_date": "2026-10-19",
+            "earnings_yield": 0.05,
+            "profit_ttm_yen": 900e6,
+            "profit_components": [
+                {"period_end": end, "disclosed_at": disclosed, "disclosed_time": clock}
+            ],
+        }
+    }
+    _put(s, "company_financials", f)
+    assert _estimate(s)["company_financials"]["assessment"] == (
+        "supportive" if accepted else "insufficient"
+    )
+    if not accepted:
+        f["financial"] = {"latest_financial_disclosure_date": "2026-09-01", "equity_ratio": 0.45}
+        row = _estimate(s)["company_financials"]
+        assert row["assessment"] == "context_only"
+        assert "45.0%" in row["summary"]
+        assert "9.00億円" not in row["summary"]
