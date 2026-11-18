@@ -15,9 +15,7 @@ import tarfile
 import tempfile
 import uuid
 import zlib
-from collections.abc import Iterable
-from datetime import UTC, date, datetime, timedelta
-from itertools import chain
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -37,13 +35,6 @@ from baibai_jobs.acquisition.external_assessments.identity import (
     RETAINED_RAW_PREFIX,
 )
 from baibai_jobs.acquisition.external_assessments.staging import prefix, read_plan, read_stages
-
-RETENTION_DAYS = 3
-
-
-def _date_prefix(day: date) -> str:
-    return f"{RAW_PREFIX}utc-date/{day.isoformat()}"
-
 
 _RECEIPT_FIELDS = {
     "receipt_id",
@@ -393,54 +384,13 @@ def _decode_raw_bundle(
     return manifest, tuple(responses)
 
 
-def retention_inventory(objects: Iterable[tuple[str, int]], *, as_of: date) -> dict[str, Any]:
-    """Report age groups only; age does not prove a bundle is unreferenced or safe to delete."""
-    keep_from = as_of - timedelta(days=RETENTION_DAYS - 1)
-    groups: dict[str, dict[str, Any]] = {}
-    unclassified = {"objects": 0, "bytes": 0}
-    retained = {"objects": 0, "bytes": 0}
-    for key, size in objects:
-        if key.startswith(RETAINED_RAW_PREFIX):
-            retained["objects"] += 1
-            retained["bytes"] += size
-            continue
-        matched = re.fullmatch(
-            rf"{re.escape(RAW_PREFIX)}utc-date/(\d{{4}}-\d{{2}}-\d{{2}})/(html/sha256|receipts|bundles)/.+",
-            key,
-        )
-        if matched is None:
-            unclassified["objects"] += 1
-            unclassified["bytes"] += size
-            continue
-        day = date.fromisoformat(matched[1])
-        group = groups.setdefault(
-            day.isoformat(),
-            {
-                "status": "delete_candidate" if day < keep_from else "keep",
-                "objects": 0,
-                "bytes": 0,
-                "prefix": _date_prefix(day) + "/",
-            },
-        )
-        group["objects"] += 1
-        group["bytes"] += size
-    return {
-        "mode": "read_only_inventory",
-        "as_of_utc_date": as_of.isoformat(),
-        "keep_from_utc_date": keep_from.isoformat(),
-        "retention_utc_dates": RETENTION_DAYS,
-        "dates": dict(sorted(groups.items())),
-        "unclassified": unclassified,
-        "retained": retained,
-    }
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Inventory or explicitly preserve exact external assessment originals"
+        description="Preserve the originals from one explicit external assessment plan"
     )
-    parser.add_argument("--preserve-run-id", help="Copy one exact plan originals; never delete")
-    parser.add_argument("--as-of", type=date.fromisoformat, default=datetime.now(UTC).date())
+    parser.add_argument(
+        "--preserve-run-id", required=True, help="Copy originals for one exact plan; never delete"
+    )
     return parser
 
 
@@ -448,43 +398,37 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-        if args.preserve_run_id:
-            plan = read_plan(store, args.preserve_run_id)
-            if plan is None:
-                raise ValueError("exact external plan is missing")
-            preserved = []
-            for index, (stage, _) in sorted(read_stages(store, plan).items()):
-                for key in stage.raw_bundle_keys:
-                    manifest, _ = read_raw_bundle(store, key)
-                    if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
-                        raise ValueError("external preservation plan binding changed")
-                    target = preserve_raw_bundle(store, key)
-                    remote = store.head(target)
-                    assert remote is not None
-                    preserved.append(
-                        {
-                            "original_key": key,
-                            "retained_key": target,
-                            "bytes": remote.size,
-                            "sha256": remote.metadata["sha256"],
-                        }
-                    )
-            report = {
-                "mode": "preserve_exact_plan",
-                "run_id": plan.run_id,
-                "plan_sha256": plan.plan_sha256,
-                "preserved": preserved,
-            }
-        else:
-            report = retention_inventory(
-                chain(store.iter_objects(RAW_PREFIX), store.iter_objects(RETAINED_RAW_PREFIX)),
-                as_of=args.as_of,
-            )
+        plan = read_plan(store, args.preserve_run_id)
+        if plan is None:
+            raise ValueError("exact external plan is missing")
+        preserved = []
+        for index, (stage, _) in sorted(read_stages(store, plan).items()):
+            for key in stage.raw_bundle_keys:
+                manifest, _ = read_raw_bundle(store, key)
+                if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
+                    raise ValueError("external preservation plan binding changed")
+                target = preserve_raw_bundle(store, key)
+                remote = store.head(target)
+                assert remote is not None
+                preserved.append(
+                    {
+                        "original_key": key,
+                        "retained_key": target,
+                        "bytes": remote.size,
+                        "sha256": remote.metadata["sha256"],
+                    }
+                )
+        report = {
+            "mode": "preserve_exact_plan",
+            "run_id": plan.run_id,
+            "plan_sha256": plan.plan_sha256,
+            "preserved": preserved,
+        }
         print(json.dumps(report, sort_keys=True))
         return 0
     except Exception as error:
         print(
-            f"External Assessment raw inventory failed; type={type(error).__name__}",
+            f"External Assessment raw preservation failed; type={type(error).__name__}",
             file=sys.stderr,
         )
         return 1

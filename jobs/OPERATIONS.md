@@ -498,7 +498,7 @@ gh workflow run cloud-external-assessment.yml --ref main -f source=monex -f batc
 
 [外部評価summary](src/baibai_jobs/acquisition/external_assessments/cohorts.py)のstate_counts/reason_countsは対象pairの保存状態の集計で、access_denied等の件数を今回のHTTP回数としない。[取得report](src/baibai_jobs/acquisition/external_assessments/daily.py)のprovider_requestsは今回の呼出し、http_requests/response_content_bytesは再開前を含むcohortの記録であり、本文の新規保存数とは分けて読む。
 
-新原本はretained。旧rawは3日削除の短期handoffで、厳密72時間/長期L1ではない。残存する同bytes/元IDを保全するときだけ次を使う。
+新原本はretained。旧rawは切替当時3日保持の短期handoffで、現在の保持設定や削除可否を名前の日付だけで判断しない。元のplanを指定し、残存する同bytes/元IDを保全するときだけ次を使う。
 
 ```bash
 uv run python -m baibai_jobs.acquisition.external_assessments.raw --preserve-run-id <EXACT_RUN_ID>
