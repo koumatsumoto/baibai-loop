@@ -11,6 +11,7 @@ from pydantic import JsonValue
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import (
+    BookEquity,
     DiscoveryPolicy,
     DiscoveryRow,
     DiscoverySelection,
@@ -135,17 +136,20 @@ def project_discovery_row(
             and _object(technical.get("price_context")).get("ready") is True
         ),
         book_equity=(
-            {
-                k: book[k]
-                for k in (
-                    "amount_yen",
-                    "method",
-                    "measurement_date",
-                    "statement_basis",
-                    "disclosed_at",
-                )
-                if k in book
-            }
+            cast(
+                BookEquity,
+                {
+                    k: book[k]
+                    for k in (
+                        "amount_yen",
+                        "method",
+                        "measurement_date",
+                        "statement_basis",
+                        "disclosed_at",
+                    )
+                    if k in book
+                },
+            )
             if isinstance(book, dict)
             else None
         ),

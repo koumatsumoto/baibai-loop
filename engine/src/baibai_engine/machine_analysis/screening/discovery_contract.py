@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final, Literal, TypedDict
+from typing import Annotated, Final, Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictInt, TypeAdapter, with_config
 
 DISCOVERY_METHOD: Final = "opportunity-discovery-v1"
 DISCOVERY_SUFFIX: Final = "-" + DISCOVERY_METHOD
@@ -16,25 +16,43 @@ class DiscoveryPolicy(BaseModel):
     method: Literal["opportunity-discovery-v1"] = DISCOVERY_METHOD
 
 
+_OBSERVATION = ConfigDict(strict=True, allow_inf_nan=False)
+type ObservedNumber = StrictInt | Annotated[float, Field(strict=True, allow_inf_nan=False)]
+type EventCount = Annotated[int, Field(strict=True, ge=0)]
+
+
+@with_config(_OBSERVATION)
 class MatchedPaths(TypedDict):
     financial: list[str]
     growth: list[str]
 
 
+@with_config(_OBSERVATION)
 class EconomicCoordinate(TypedDict):
     path_id: str
     variant: str
     price_group: str
     business_group: str
-    price_value: float | int | None
-    business_value: float | int | None
+    price_value: ObservedNumber | None
+    business_value: ObservedNumber | None
 
 
+@with_config(_OBSERVATION)
 class CapitalActionCounts(TypedDict):
-    observations: int | None
-    share_basis_adjustments: int | None
+    observations: EventCount | None
+    share_basis_adjustments: EventCount | None
 
 
+@with_config(_OBSERVATION)
+class BookEquity(TypedDict, total=False):
+    amount_yen: ObservedNumber | None
+    method: str | None
+    measurement_date: str | None
+    statement_basis: str | None
+    disclosed_at: str | None
+
+
+@with_config(_OBSERVATION)
 class DiscoveryRow(TypedDict):
     ticker: str
     models_recorded: bool
@@ -46,12 +64,12 @@ class DiscoveryRow(TypedDict):
     matched_paths: MatchedPaths
     missing: list[str]
     coordinates: list[EconomicCoordinate]
-    price: float | int | None
+    price: ObservedNumber | None
     price_date: str | None
     expected_price_date: str | None
     basis: str | None
     price_ready: bool
-    book_equity: dict[str, JsonValue] | None
+    book_equity: BookEquity | None
     capital_action: CapitalActionCounts | None
 
 
