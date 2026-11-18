@@ -25,7 +25,9 @@ def test_integration_freezes_available_receipts_without_waiting_for_later_source
     # An unrelated slow source finishes only after integration's input boundary.
     stage(store, tmp_path / "b", "fred_csv-2026-10-24-b", "fred_csv")
     assert [entry["source"] for entry in frozen] == ["economic-boj"]
+    store.get_keys.clear()
     download_fixed(store, frozen[0], tmp_path / "readback")
+    assert sum(key.endswith("/handoff.json") for key in store.get_keys) == 1
     seal_integrated(
         store, frozen[0], generations={"economic_etag": "canonical-etag"}, recovery=False
     )
@@ -139,14 +141,14 @@ def test_handoff_plan_uses_error_type_not_message_for_failure_scope(tmp_path, mo
     store = MemoryR2Store()
     stage(store, tmp_path / "a", "boj-fault")
     stage(store, tmp_path / "b", "fred_csv-good", "fred_csv")
-    read = receipts.read_private
+    read = receipts.read_write_once_private
 
     def fail_one(selected_store, key):
         if key == "coordination/economic-sources/boj-fault/handoff.json":
             raise error
         return read(selected_store, key)
 
-    monkeypatch.setattr(receipts, "read_private", fail_one)
+    monkeypatch.setattr(receipts, "read_write_once_private", fail_one)
     if type(error) is not LakePublishError:
         with pytest.raises(type(error)):
             available_handoffs(store)
@@ -169,14 +171,14 @@ def test_receipt_reads_are_parallel_and_remain_deterministic(tmp_path, monkeypat
     stage(store, tmp_path / "first", "boj-2026-10-24-first")
     stage(store, tmp_path / "second", "fred_csv-2026-10-24-second", "fred_csv")
     barrier = Barrier(2, timeout=3)
-    original = receipts.read_private
+    original = receipts.read_write_once_private
 
     def synchronized_read(target, key):
         if key.endswith("/handoff.json"):
             barrier.wait()
         return original(target, key)
 
-    monkeypatch.setattr(receipts, "read_private", synchronized_read)
+    monkeypatch.setattr(receipts, "read_write_once_private", synchronized_read)
     items = available_handoffs(store)
     assert [item["source"] for item in items] == ["economic-boj", "economic-fred_csv"]
     assert all(not item.get("invalid") for item in items)
