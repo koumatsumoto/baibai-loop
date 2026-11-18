@@ -209,9 +209,9 @@ def _hydrate(args: argparse.Namespace) -> int:
             ) as hydration_cache:
                 if (
                     args.command == "hydrate"
+                    and os.environ.get("BAIBAI_REUSE_DAILY_WEB_INPUTS") == "1"
                     and hydration_cache.evict_large_after_read
                     and hydration_cache.root.is_dir()
-                    and os.environ.get("BAIBAI_REUSE_DAILY_WEB_INPUTS") == "1"
                 ):
                     hydration_cache.keep_for_export = _publication_web_inputs(
                         release, disk_free=shutil.disk_usage(hydration_cache.root).free

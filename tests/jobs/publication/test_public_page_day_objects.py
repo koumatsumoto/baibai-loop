@@ -5,7 +5,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -338,21 +338,35 @@ def test_bounded_hydration_and_export_reuse_only_same_sealed_receipts(tmp_path, 
     assert retained == {o.key for o in objects}
     market, mirror = tmp_path / "target.sqlite", tmp_path / "working"
     open_connection(market).close()
+    mirror.mkdir()
     cache = LakeObjectCache(
-        root=mirror,
-        source=LocalMirrorSource(published),
-        evict_large_after_read=True,
-        keep_for_export=retained,
+        root=mirror, source=LocalMirrorSource(published), evict_large_after_read=True
     )
-    with lake_session() as session:
-        hydrate_market_store(
-            session,
-            catalog={DATASET.name: DATASET},
-            release=original,
-            cache=cache,
-            store=market,
-            dataset_names=(DATASET.name,),
+
+    @contextmanager
+    def local_r2_input(**_kwargs):
+        with lake_session() as session:
+            yield session, cache
+
+    monkeypatch.setattr(write_cli, "open_lake", local_r2_input)
+    monkeypatch.setenv("BAIBAI_REUSE_DAILY_WEB_INPUTS", "1")
+    assert (
+        write_cli.main(
+            [
+                "hydrate",
+                "--mirror",
+                str(mirror),
+                "--store",
+                str(market),
+                "--release",
+                original.release_id,
+                "--manifest-sha256",
+                original.manifest_sha256,
+            ]
         )
+        == 0
+    )
+    assert cache.keep_for_export == retained
     assert all((mirror / o.key).is_file() for o in objects)
     expected_origin = LakeStoreOrigin(original.release_id, original.manifest_sha256)
     written = []
