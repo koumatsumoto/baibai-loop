@@ -21,7 +21,8 @@ from baibai_engine.machine_analysis.screening.policies.economic_path_inputs impo
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import CompanyCoordinates
 from baibai_engine.machine_analysis.screening.policies.financial_growth import (
-    _financial_growth_with_path_inputs,
+    GrowthDiscovery,
+    read_growth_discovery,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
     TechnicalDiscovery,
@@ -44,11 +45,11 @@ def _text(value: JsonValue | None) -> str | None:
 def read_discovery_observations(
     ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
 ) -> tuple[
-    TechnicalDiscovery, dict[str, JsonValue], CompanyCoordinates, tuple[dict[str, JsonValue], ...]
+    TechnicalDiscovery, GrowthDiscovery, CompanyCoordinates, tuple[dict[str, JsonValue], ...]
 ]:
     technical = evaluate_technical_strategy(ticker, models=models, metadata=metadata)
     # 財務による独立発見をTAの合否・欠測で止めない。
-    gate, path_growth = _financial_growth_with_path_inputs(
+    gate, path_growth = read_growth_discovery(
         ticker,
         models=tuple(
             model for model in models if model.model_id in {"company_financials", "company_growth"}
@@ -81,7 +82,7 @@ def project_discovery_row(
     adjustments = earnings.get("share_basis_adjustments")
     f_paths = [path for path in coordinates.paths if path.eligible]
     f_routes: list[str] = sorted({path.path_id for path in f_paths})
-    g_state, t_state = str(gate["state"]), technical.state
+    g_state, t_state = gate.state, technical.state
     needs_review = (
         g_state in {"input_unresolved", "not_selected"} and not f_routes and bool(reviews)
     )
@@ -90,13 +91,7 @@ def project_discovery_row(
         for item in reviews
         if needs_review and isinstance(reason := item.get("reason"), str)
     }
-    if g_state == "input_unresolved":
-        for route in _object(gate.get("routes")).values():
-            issues = _object(_object(route).get("missing_by_kind"))
-            for kind in ("unresolved_comparability", "other_unavailable"):
-                values = issues.get(kind)
-                if isinstance(values, list):
-                    missing.update("growth:" + item for item in values if isinstance(item, str))
+    missing.update("growth:" + item for item in gate.missing)
     expected = technical.expected_price_date
     day = _text(price.get("resolved_date"))
     return DiscoveryRow(
@@ -112,7 +107,7 @@ def project_discovery_row(
         ),
         financial_state=g_state,
         technical_state=t_state,
-        matched_paths={"financial": f_routes, "growth": cast(list[str], gate["matched_routes"])},
+        matched_paths={"financial": f_routes, "growth": list(gate.matched_paths)},
         missing=sorted(missing),
         coordinates=[
             {

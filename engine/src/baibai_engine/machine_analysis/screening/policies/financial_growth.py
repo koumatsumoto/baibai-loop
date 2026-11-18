@@ -1,13 +1,10 @@
-"""保存モデルから財務・成長の調査経路と不足を読む純粋な候補診断。
-
-正の純資産と利益成長、または営業回復を区別する。適用不能・未確定と既知の
-非充足を保ち、健全性・有機成長・買付採否は認定しない。採用と容量はcallerが持つ。
-"""
+"""保存した成長の観測から、通常探索で使う二つの調査経路を区別する。"""
 
 from __future__ import annotations
 
-from copy import deepcopy
-from typing import Literal, cast
+from dataclasses import dataclass
+from datetime import date
+from typing import Literal
 
 from pydantic import JsonValue
 
@@ -23,78 +20,17 @@ from baibai_engine.machine_analysis.screening.policies.economic_path_inputs impo
     read_policy_growth,
 )
 
-POLICY_ID = "financial-growth-research-trial-v1"
-_MODELS = ("company_financials", "company_growth")
-_COMPARABILITY_REASONS = {
-    "accounting_periods_incomparable",
-    "accounting_standard_incomparable",
-    "statement_basis_incomparable",
-    "basis_or_period_unaligned",
-    "comparison_intervals_unaligned",
-    "ambiguous_growth_comparison",
-}
-_QUARTER_METRICS: tuple[Metric, ...] = ("sales", "operating_profit", "operating_margin")
-type CheckState = Literal["met", "not_met", "unavailable"]
+
+@dataclass(frozen=True, slots=True)
+class GrowthDiscovery:
+    state: Literal["research_candidate", "input_unresolved", "not_selected"]
+    matched_paths: tuple[str, ...]
+    missing: tuple[str, ...]
 
 
-def _financial_growth_with_path_inputs(
-    ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
-) -> tuple[dict[str, JsonValue], CompanyGrowthReader]:
-    if any(model.subject != ticker for model in models):
-        raise ValueError("financial-growth diagnostic requires one matching subject")
-    relevant = [model for model in models if model.model_id in _MODELS]
-    if len({model.model_id for model in relevant}) != len(relevant):
-        raise ValueError("financial-growth diagnostic requires unique saved models")
-    index = {model.model_id: model for model in relevant}
-    growth_model = index.get("company_growth")
-    growth = growth_model.payload if growth_model is not None else {}
-    reader = CompanyGrowthReader(growth if growth_model is not None else None)
-    if reader.model is not None and reader.model.ticker != ticker:
-        raise ValueError("growth payload belongs to a different subject")
-
-    # Keep the original saved period keys used by economic paths: decoding dates alone
-    # must not promote an unmatched comparison. Prepare this bounded read just once.
-    path_growth = read_policy_growth(growth_model)
-    path_quarter = path_growth.observation(path_growth.latest_period, "quarter")
-    anchor = reader.latest_period
-    latest_ttm = reader.observation(anchor, "annual_ttm")
-    full_fy = reader.latest_full_fy
-    uses_fy = _can_use_full_fy(anchor, latest_ttm, full_fy)
-    annual = full_fy if uses_fy else latest_ttm
-    quarter = reader.observation(anchor, "quarter")
-    reported = reader.observation(anchor, "reported")
-    balance = reader.observation(anchor, "balance")
-    changes: dict[str, JsonValue | None] = {
-        metric: _change(path_growth, path_quarter, metric) for metric in _QUARTER_METRICS
-    }
-    checks = {
-        "positive_net_assets": _metric_check(balance, "net_assets"),
-        "positive_annual_operating_profit": _metric_check(
-            annual, "operating_profit", metadata=metadata if uses_fy else None
-        ),
-        "positive_quarter_operating_profit": _metric_check(quarter, "operating_profit"),
-        "quarter_sales_increase": _change_check(changes["sales"]),
-        "quarter_operating_profit_increase": _change_check(changes["operating_profit"]),
-        "quarter_operating_margin_increase": _change_check(changes["operating_margin"]),
-        "quarter_operating_profit_observed": _metric_check(
-            quarter, "operating_profit", positive=False
-        ),
-        "quarter_operating_margin_observed": _metric_check(
-            quarter, "operating_margin", positive=False
-        ),
-        "balance_quarter_basis": _basis_check(balance, quarter, same_end=True),
-        "annual_quarter_basis": _basis_check(annual, quarter, same_end=not uses_fy),
-        "growth_comparison_interval": _interval_check(
-            changes["sales"], changes["operating_profit"]
-        ),
-        "recovery_comparison_interval": _interval_check(
-            changes["operating_profit"], changes["operating_margin"]
-        ),
-        "full_fy_without_newer_income_reversal": _fy_reversal_check(
-            uses_fy, quarter, reported, metadata
-        ),
-    }
-    ordinary = (
+type _Check = Literal["met", "not_met", "missing", "not_applicable"]
+_ROUTES = {
+    "profit_growth": (
         "positive_net_assets",
         "positive_annual_operating_profit",
         "positive_quarter_operating_profit",
@@ -104,8 +40,8 @@ def _financial_growth_with_path_inputs(
         "annual_quarter_basis",
         "growth_comparison_interval",
         "full_fy_without_newer_income_reversal",
-    )
-    recovery = (
+    ),
+    "operating_recovery": (
         "positive_net_assets",
         "quarter_operating_profit_observed",
         "quarter_operating_margin_observed",
@@ -113,60 +49,77 @@ def _financial_growth_with_path_inputs(
         "quarter_operating_margin_increase",
         "balance_quarter_basis",
         "recovery_comparison_interval",
+    ),
+}
+
+
+def read_growth_discovery(
+    ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
+) -> tuple[GrowthDiscovery, CompanyGrowthReader]:
+    if any(model.subject != ticker for model in models):
+        raise ValueError("growth discovery requires one matching subject")
+    relevant = [
+        model for model in models if model.model_id in {"company_financials", "company_growth"}
+    ]
+    if len({model.model_id for model in relevant}) != len(relevant):
+        raise ValueError("growth discovery requires unique saved models")
+    growth = next((model for model in relevant if model.model_id == "company_growth"), None)
+    # F/G share the source's exact saved keys. An unrelated old operand is not a
+    # normal discovery input; explicit full-company reads retain their own contract.
+    reader = read_policy_growth(growth)
+    if reader.model is not None and reader.model.ticker != ticker:
+        raise ValueError("growth payload belongs to a different subject")
+    anchor = reader.latest_period
+    latest_ttm = reader.observation(anchor, "annual_ttm")
+    full_fy = reader.latest_full_fy
+    uses_fy = _can_use_full_fy(anchor, latest_ttm, full_fy)
+    annual = full_fy if uses_fy else latest_ttm
+    quarter = reader.observation(anchor, "quarter")
+    reported = reader.observation(anchor, "reported")
+    balance = reader.observation(anchor, "balance")
+    sales = _change(reader, quarter, "sales")
+    profit = _change(reader, quarter, "operating_profit")
+    margin = _change(reader, quarter, "operating_margin")
+    adverse = uses_fy and any(
+        value is not None and value <= 0
+        for observation in (quarter, reported)
+        for metric in _INCOME_METRICS
+        for value in (metric_value(observation, metric, disclosed_by=metadata.as_of),)
     )
-    routes = {
-        "profit_growth": _route(ordinary, checks),
-        "operating_recovery": _route(recovery, checks),
+    checks: dict[str, _Check] = {
+        "positive_net_assets": _metric_check(balance, "net_assets"),
+        "positive_annual_operating_profit": _metric_check(
+            annual, "operating_profit", disclosed_by=metadata.as_of if uses_fy else None
+        ),
+        "positive_quarter_operating_profit": _metric_check(quarter, "operating_profit"),
+        "quarter_sales_increase": _change_check(sales),
+        "quarter_operating_profit_increase": _change_check(profit),
+        "quarter_operating_margin_increase": _change_check(margin),
+        "quarter_operating_profit_observed": _metric_check(
+            quarter, "operating_profit", positive=False
+        ),
+        "quarter_operating_margin_observed": _metric_check(
+            quarter, "operating_margin", positive=False
+        ),
+        "balance_quarter_basis": _basis_check(balance, quarter, same_end=True),
+        "annual_quarter_basis": _basis_check(annual, quarter, same_end=not uses_fy),
+        "growth_comparison_interval": _interval_check(sales, profit),
+        "recovery_comparison_interval": _interval_check(profit, margin),
+        "full_fy_without_newer_income_reversal": "not_met" if adverse else "met",
     }
-    routes["operating_recovery"]["profitability"] = (
-        {
-            "current_quarter": _profit_sign(checks["quarter_operating_profit_observed"]["value"]),
-            "comparison_prior_quarter": _profit_sign(
-                _object(changes["operating_profit"]).get("from_value")
-            ),
-        }
-        if routes["operating_recovery"]["state"] == "matched"
-        else None
-    )
-    matched = [name for name, route in routes.items() if route["state"] == "matched"]
-    state = (
-        "research_candidate"
-        if matched
-        else "input_unresolved"
-        if any(route["state"] == "unresolved" for route in routes.values())
-        else "not_selected"
-    )
-    gate: dict[str, JsonValue] = deepcopy(
-        {
-            "policy_id": POLICY_ID,
-            "read_semantics": "saved_generation_not_point_in_time_reconstruction",
-            "ticker": ticker,
-            "generation_id": metadata.generation_id,
-            "as_of": metadata.as_of.isoformat(),
-            "evaluation_time": metadata.evaluation_time.isoformat(),
-            "state": state,
-            "matched_routes": list(matched),
-            "routes": dict(routes),
-            "checks": dict(checks),
-            "missing_models": [name for name in _MODELS if name not in index],
-            "model_revisions": {name: model.calculation_revision for name, model in index.items()},
-            "limits": [
-                "not_financial_safety_or_organic_growth_clearance",
-                "financing_cash_conversion_and_dilution_require_l3_judgment",
-                "not_selected_is_not_proposal_no_action",
-                "unresolved_is_not_proposal_defer",
-            ],
-        }
-    )
-    return gate, path_growth
+    states = {route: {checks[name] for name in names} for route, names in _ROUTES.items()}
+    matched = tuple(route for route, values in states.items() if values == {"met"})
+    if matched:
+        return GrowthDiscovery("research_candidate", matched, ()), reader
+    if all("not_met" in values for values in states.values()):
+        return GrowthDiscovery("not_selected", (), ()), reader
+    # In an unresolved company, an input can be missing even on the other,
+    # already-failed route. A sector N/A is not a failed data acquisition.
+    missing = tuple(sorted(name for name, state in checks.items() if state == "missing"))
+    return GrowthDiscovery("input_unresolved", (), missing), reader
 
 
-def _object(value: JsonValue | None) -> dict[str, JsonValue]:
-    return value if isinstance(value, dict) else {}
-
-
-def _check(state: CheckState, value: JsonValue, reason: str | None) -> dict[str, JsonValue]:
-    return {"state": state, "value": value, "reason": reason}
+_INCOME_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin", "parent_profit")
 
 
 def _metric_check(
@@ -174,119 +127,54 @@ def _metric_check(
     metric: Metric,
     *,
     positive: bool = True,
-    metadata: GenerationMetadata | None = None,
-) -> dict[str, JsonValue]:
-    item = observation.metrics.get(metric) if observation is not None else None
-    if observation is not None and observation.period_status in {
+    disclosed_by: date | None = None,
+) -> _Check:
+    if observation is None or observation.period_status in {
         "matching_period_not_observed",
         "accounting_periods_incomparable",
     }:
-        return _check("unavailable", None, observation.period_status)
-    value = metric_value(
-        observation, metric, disclosed_by=metadata.as_of if metadata is not None else None
-    )
+        return "missing"
+    value = metric_value(observation, metric, disclosed_by=disclosed_by)
     if value is None:
-        reason = item.reason if item is not None else "metric_not_observed"
-        if item is not None and item.value is not None and metadata is not None:
-            reason = "metric_sources_not_observed_by_as_of"
-        return _check("unavailable", None, reason or "metric_not_observed")
-    return _check(
-        "met" if not positive or value > 0 else "not_met", value, item.reason if item else None
-    )
-
-
-def _change_check(change: JsonValue | None) -> dict[str, JsonValue]:
-    saved = _object(change)
-    value = saved.get("difference")
-    if not isinstance(value, (float, int)) or isinstance(value, bool):
-        return _check(
-            "unavailable", None, cast(str | None, saved.get("reason")) or "comparison_not_observed"
+        item = observation.metrics.get(metric)
+        return (
+            "not_applicable"
+            if item is not None
+            and item.value is None
+            and item.reason == "not_applicable_to_financial_sector"
+            else "missing"
         )
-    # A nonpositive denominator invalidates a percentage, not its observed difference.
-    return _check("met" if value > 0 else "not_met", value, cast(str | None, saved.get("reason")))
+    return "met" if not positive or value > 0 else "not_met"
 
 
-def _basis_check(
-    left: Observation | None, right: Observation | None, *, same_end: bool
-) -> dict[str, JsonValue]:
-    if left is None or right is None:
-        return _check("unavailable", None, "observation_not_observed")
+def _change_check(change: dict[str, JsonValue]) -> _Check:
+    value = change.get("difference")
+    if not isinstance(value, (float, int)) or isinstance(value, bool):
+        return (
+            "not_applicable"
+            if change.get("reason") == "not_applicable_to_financial_sector"
+            else "missing"
+        )
+    # A nonpositive denominator can invalidate the rate, not the observed difference.
+    return "met" if value > 0 else "not_met"
+
+
+def _basis_check(left: Observation | None, right: Observation | None, *, same_end: bool) -> _Check:
     aligned = (
-        left.statement_basis in {"consolidated", "nonconsolidated"}
+        left is not None
+        and right is not None
+        and left.statement_basis in {"consolidated", "nonconsolidated"}
         and left.statement_basis == right.statement_basis
         and left.accounting_standard is not None
         and left.accounting_standard == right.accounting_standard
         and (not same_end or left.period_end == right.period_end)
     )
-    return _check(
-        "met" if aligned else "unavailable",
-        aligned,
-        None if aligned else "basis_or_period_unaligned",
-    )
+    return "met" if aligned else "missing"
 
 
-def _interval_check(left: JsonValue | None, right: JsonValue | None) -> dict[str, JsonValue]:
-    first, second = _object(left), _object(right)
+def _interval_check(a: dict[str, JsonValue], b: dict[str, JsonValue]) -> _Check:
     aligned = all(
-        first.get(key) is not None and first.get(key) == second.get(key)
-        for key in ("from_start", "from_end", "to_start", "to_end")
+        a.get(k) is not None and a.get(k) == b.get(k)
+        for k in ("from_start", "from_end", "to_start", "to_end")
     )
-    return _check(
-        "met" if aligned else "unavailable",
-        aligned,
-        None if aligned else "comparison_intervals_unaligned",
-    )
-
-
-def _fy_reversal_check(
-    uses_fy: bool,
-    quarter: Observation | None,
-    reported: Observation | None,
-    metadata: GenerationMetadata,
-) -> dict[str, JsonValue]:
-    adverse = uses_fy and any(
-        value is not None and value <= 0
-        for observation in (quarter, reported)
-        for metric in cast(
-            tuple[Metric, ...], ("operating_profit", "operating_margin", "parent_profit")
-        )
-        for value in (metric_value(observation, metric, disclosed_by=metadata.as_of),)
-    )
-    return _check(
-        "not_met" if adverse else "met", adverse, "newer_income_nonpositive" if adverse else None
-    )
-
-
-def _route(names: tuple[str, ...], checks: dict[str, dict[str, JsonValue]]) -> dict[str, JsonValue]:
-    failures = [name for name in names if checks[name]["state"] == "not_met"]
-    missing = [name for name in names if checks[name]["state"] == "unavailable"]
-    # Saved N/A describes the model's scope, not a failed acquisition. Keep it
-    # route-local; it neither vetoes a matched route nor clears a known failure.
-    missing_by_kind: dict[str, list[JsonValue]] = {
-        "not_applicable": [],
-        "unresolved_comparability": [],
-        "other_unavailable": [],
-    }
-    for name in missing:
-        reason = checks[name]["reason"]
-        kind = (
-            "not_applicable"
-            if reason == "not_applicable_to_financial_sector"
-            else "unresolved_comparability"
-            if isinstance(reason, str) and reason in _COMPARABILITY_REASONS
-            else "other_unavailable"
-        )
-        missing_by_kind[kind].append(name)
-    return {
-        "state": "not_matched" if failures else "unresolved" if missing else "matched",
-        "checks": list(names),
-        "failures": list(failures),
-        "missing": list(missing),
-        "missing_by_kind": dict(missing_by_kind),
-    }
-
-
-def _profit_sign(value: JsonValue | None) -> JsonValue:
-    if not isinstance(value, (float, int)) or isinstance(value, bool):
-        return None
-    return "positive" if value > 0 else "negative" if value < 0 else "zero"
+    return "met" if aligned else "missing"
