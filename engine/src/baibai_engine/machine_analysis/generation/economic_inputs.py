@@ -7,7 +7,7 @@ import importlib.metadata
 import sqlite3
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import dataclass
@@ -30,6 +30,11 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
     validate_current_schema,
 )
 from baibai_engine.machine_analysis.generation.contracts import Digest, InputSnapshot
+from baibai_engine.machine_analysis.generation.economic_membership import (
+    Member,
+    decode_membership,
+    encode_membership,
+)
 from baibai_engine.machine_analysis.generation.runners.market_reading import (
     reading_observation_ranges,
     reading_snapshot,
@@ -223,8 +228,14 @@ class _RetainedObjects:
         self._bytes = 0
         self._lock = Lock()
 
+    def find(self, digest: str) -> bytes | None:
+        return _find(self._store, digest)
+
     def retain(self, value: Any) -> str:
         digest, payload = _retain_verified(self._store, value)
+        return self.remember(digest, payload)
+
+    def remember(self, digest: str, payload: bytes) -> str:
         with self._lock:
             if (
                 digest not in self._payloads
@@ -282,12 +293,14 @@ def retain_economic_input(
     Regular and cold calculation share the same reconstruction of these receipts.
     The canonical native originals remain the owner.
     """
+    objects = _RetainedObjects(store, max_bytes=0)
     return _retain_economic_input(
-        lambda value: _retain(store, value),
+        objects.retain,
         source,
         as_of=as_of,
         evaluation_time=evaluation_time,
         rules_path=rules_path,
+        objects=objects,
     )
 
 
@@ -298,6 +311,7 @@ def _retain_economic_input(
     as_of: date,
     evaluation_time: datetime,
     rules_path: Path,
+    objects: _RetainedObjects | None = None,
 ) -> InputSnapshot:
     if evaluation_time.utcoffset() is None:
         raise ValueError("economic input requires a timezone-aware evaluation time")
@@ -400,29 +414,59 @@ def _retain_economic_input(
         ):
             remember("documents", _row(connection, "documents", tuple(key)))
 
-    def retain_block(item: tuple[str, dict[str, list[_Receipt]]]) -> tuple[str, str]:
-        name, rows = item
-        return name, retain(_Block(**rows).model_dump(mode="json"))
+    def selection(months: dict[str, str]) -> dict[str, Any]:
+        return _Selection(
+            as_of=as_of,
+            evaluation_time=evaluation_time,
+            recipe_sha256=recipe,
+            sources=sources,
+            record_ranges=record_ranges,
+            months=months,
+            confirmations=confirmations,
+            runs=runs,
+        ).model_dump(mode="json")
 
-    # Independent immutable objects otherwise serialize thousands of
-    # network round trips. Keep their order and all per-object integrity checks.
-    with ThreadPoolExecutor(max_workers=8) as workers:
-        retained = dict(workers.map(retain_block, sorted(blocks.items()), buffersize=8))
+    def values(consume: Callable[[Any], str]) -> dict[str, str]:
+        def handle(item: tuple[str, dict[str, list[_Receipt]]]) -> tuple[str, str]:
+            name, rows = item
+            return name, consume(_Block(**rows).model_dump(mode="json"))
 
-    selection = _Selection(
-        as_of=as_of,
-        evaluation_time=evaluation_time,
-        recipe_sha256=recipe,
-        sources=sources,
-        record_ranges=record_ranges,
-        months=retained,
-        confirmations=confirmations,
-        runs=runs,
-    )
-    descriptor = {
-        "format": "economic-input-v2",
-        "selection_sha256": retain(selection.model_dump(mode="json")),
-    }
+        # The old wire format and its complete child verification remain available.
+        with ThreadPoolExecutor(max_workers=8) as workers:
+            return dict(workers.map(handle, sorted(blocks.items()), buffersize=8))
+
+    if objects is not None and len(blocks) >= 32:
+        legacy_months: dict[str, str] = {}
+        for name, rows in blocks.items():
+            payload = canonical_json(_Block(**rows).model_dump(mode="json")).encode()
+            if len(payload) > MAX_PRIVATE_OBJECT_BYTES:
+                break  # Do not borrow a write budget from an unpublishable old selection.
+            legacy_months[name] = hashlib.sha256(payload).hexdigest()
+        else:
+            legacy = selection(legacy_months)
+            legacy_bytes = canonical_json(legacy).encode()
+            compact = encode_membership(legacy, blocks)
+            if (
+                compact is not None
+                and len(canonical_json(compact).encode())
+                <= len(legacy_bytes)
+                <= MAX_PRIVATE_OBJECT_BYTES
+            ):
+                legacy_sha = hashlib.sha256(legacy_bytes).hexdigest()
+                old = objects.find(legacy_sha)
+                if old is None:
+                    # One otherwise-required root pays for the entire new selection;
+                    # never upload both layouts or convert a previously retained input.
+                    return _identity("economic-input-v3", retain(compact))
+                if old != legacy_bytes:
+                    raise LakePublishError("economic selection object failed integrity")
+                values(retain)
+                return _identity("economic-input-v2", objects.remember(legacy_sha, old))
+    return _identity("economic-input-v2", retain(selection(values(retain))))
+
+
+def _identity(format_name: str, root: str) -> InputSnapshot:
+    descriptor = {"format": format_name, "selection_sha256": root}
     digest = _digest(descriptor)
     return InputSnapshot(
         kind="native_l1", reference="economic-" + digest, sha256=digest, descriptor=descriptor
@@ -458,13 +502,19 @@ def _rebuild_economic_input(
     if (
         saved.kind != "native_l1"
         or descriptor is None
-        or descriptor.get("format") != "economic-input-v2"
+        or descriptor.get("format") not in {"economic-input-v2", "economic-input-v3"}
     ):
         raise ValueError("saved economic fixed selection is required")
     digest = descriptor.get("selection_sha256")
     if not isinstance(digest, str):
         raise ValueError("saved economic selection digest is required")
-    selection = _Selection.model_validate_json(read(digest))
+    payload = read(digest)
+    packed = decode_membership(payload) if descriptor["format"] == "economic-input-v3" else None
+    selection = (
+        _Selection.model_validate(packed.selection)
+        if packed is not None
+        else _Selection.model_validate_json(payload)
+    )
     if selection.recipe_sha256 != _recipe(rules_path):
         raise ValueError("economic calculation recipe differs from the saved input")
     with (
@@ -480,9 +530,12 @@ def _rebuild_economic_input(
             ThreadPoolExecutor(max_workers=8) as workers,
         ):
 
-            def copy(kind: str, reference: _Receipt) -> tuple[Any, ...]:
-                row = _row(original, kind, reference.key)
-                if _row_digest(row) != reference.sha256:
+            def copy(
+                kind: str, key: tuple[str, ...], expected: str | None
+            ) -> tuple[tuple[Any, ...], str]:
+                row = _row(original, kind, key)
+                actual = _row_digest(row)
+                if expected is not None and actual != expected:
                     raise ValueError("fixed economic original failed integrity")
                 placeholders = ",".join("?" for _ in row)
                 projection.execute(
@@ -490,45 +543,46 @@ def _rebuild_economic_input(
                     f"VALUES ({placeholders})",
                     row,
                 )
-                return row
+                return row, actual
 
-            def read_block(block_digest: str) -> _Block:
-                return _Block.model_validate_json(read(block_digest))
+            def legacy_members() -> Iterator[Member]:
+                def read_block(block_digest: str) -> _Block:
+                    return _Block.model_validate_json(read(block_digest))
 
-            # Only metadata transport runs concurrently. SQLite reads/writes
-            # and fixed receipt checks stay on this transaction's owning thread.
-            for block in workers.map(read_block, selection.months.values(), buffersize=8):
-                for reference in block.records:
-                    row = copy("records", reference)
-                    checked_at = reference.checked_at
-                    if reference.confirmed:
-                        if checked_at is not None:
-                            raise ValueError(
-                                "fixed period has both scoped and complete confirmation"
-                            )
-                        state = selection.confirmations.get(reference.key[0])
-                        if state is None:
-                            raise ValueError("fixed period has no complete confirmation")
-                        checked_at = state[0]
+                for block in workers.map(read_block, selection.months.values(), buffersize=8):
+                    for kind, rows in (("records", block.records), ("documents", block.documents)):
+                        for row in rows:
+                            yield kind, row.key, row.confirmed, row.checked_at, row.sha256
+
+            proof = hashlib.sha256()
+            for kind, key, confirmed, checked_at, expected in (
+                packed.members() if packed is not None else legacy_members()
+            ):
+                row, actual = copy(kind, key, expected)
+                if packed is not None:
+                    proof.update(bytes.fromhex(actual))
+                if kind != "records":
+                    continue
+                if confirmed:
                     if checked_at is not None:
-                        if checked_at < reference.key[2]:
-                            raise ValueError("fixed confirmation predates its source receipt")
-                        projection.execute(
-                            "INSERT INTO economic_source_record_confirmations VALUES (?,?,?,?,?)",
-                            (
-                                *reference.key[:2],
-                                checked_at,
-                                reference.key[2],
-                                hashlib.sha256(row[4]).hexdigest(),
-                            ),
-                        )
-                for reference in block.documents:
-                    copy("documents", reference)
-            # Whole-source confirmation is saved provenance, not a claim that
-            # this selected-period calculation projection is a complete source.
+                        raise ValueError("fixed period has both scoped and complete confirmation")
+                    state = selection.confirmations.get(key[0])
+                    if state is None:
+                        raise ValueError("fixed period has no complete confirmation")
+                    checked_at = state[0]
+                if checked_at is not None:
+                    if checked_at < key[2]:
+                        raise ValueError("fixed confirmation predates its source receipt")
+                    projection.execute(
+                        "INSERT INTO economic_source_record_confirmations VALUES (?,?,?,?,?)",
+                        (*key[:2], checked_at, key[2], hashlib.sha256(row[4]).hexdigest()),
+                    )
+            if packed is not None and proof.hexdigest() != packed.receipt_sha256:
+                raise ValueError("fixed economic original failed integrity")
+            # Whole-source confirmation is provenance, not a claim about this projection.
             for run_reference in selection.runs.values():
                 if run_reference is not None:
-                    copy("runs", run_reference)
+                    copy("runs", run_reference.key, run_reference.sha256)
         return EconomicModelInput(
             identity=saved,
             as_of=selection.as_of,
@@ -580,6 +634,7 @@ class EconomicInputSession:
                 as_of=as_of,
                 evaluation_time=evaluation_time,
                 rules_path=rules_path,
+                objects=self._objects,
             )
             # InputSnapshot freezes fields, but its descriptor still contains dicts.
             self._saved_json = canonical_json(saved.model_dump(mode="json"))
