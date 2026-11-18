@@ -58,6 +58,7 @@ def compute_status(
     selection = validate_workspace_selection(manifest, operation=operation)
     progress = progress_binding(operation.payload)
     completed_at = operation.completed_at
+    operation_status = operation.status
     del operation  # Older Operations carry the whole market; release it before projecting inputs.
     _validate_editable_drafts(workspace, manifest, gate=selection)
     targets = selection_targets(selection)
@@ -84,7 +85,7 @@ def compute_status(
                     selection.research_as_of,
                     outcome=recorded.get(target.ticker),
                     now=instant,
-                    recorded_by=min(instant, completed_at) if completed_at else instant,
+                    completed_at=completed_at,
                 )
             )
     next_action = next((row["next_action"] for row in cases if row["next_action"]), None)
@@ -98,6 +99,7 @@ def compute_status(
         ),
         "cases": cases,
         "next_action": next_action,
+        "operation_status": operation_status,
         "request_scope": selection.request.scope,
         "selection_summary": selection.selection_summary,
     }
@@ -111,7 +113,7 @@ def _case_status(
     *,
     outcome: ResearchOutcome | None,
     now: datetime,
-    recorded_by: datetime,
+    completed_at: datetime | None,
 ) -> dict[str, object]:
     case = _read_case(workspace, ticker, asof)
     # Local edits still need their own review. Only a clean workspace reads the bound result
@@ -119,6 +121,7 @@ def _case_status(
     if not case.has_authored_files and outcome is not None:
         result: dict[str, object] = {
             "ticker": ticker,
+            "status_basis": "recorded_outcome",
             "recorded_outcome": outcome.model_dump(mode="json"),
             "assessment_id": None,
             "assessment_validation_errors": [],
@@ -129,6 +132,7 @@ def _case_status(
             return {**result, "status": "recorded_unfinished"}
         try:
             pair = require_assessment_ref(connection, outcome.assessment_ref)
+            recorded_by = min(now, completed_at) if completed_at else now
             if pair.document.input_snapshot.ticker != ticker or pair.published_at > recorded_by:
                 raise ValueError("recorded Assessment differs from the target or postdates status")
         except ValueError as error:
@@ -162,15 +166,36 @@ def _case_status(
         if review_errors
         else "ready_for_promotion"
     )
+    next_action = None
     if assessment_id is not None:
         status = "published"
+        assert case.review is not None
+        if (
+            outcome is None
+            or outcome.status != "reviewed"
+            or outcome.assessment_ref.assessment_id != assessment_id
+            or outcome.assessment_ref.review_id != case.review.review_id
+            or outcome.assessment_ref.core_sha256 != case.review.reviewed_assessment_sha256
+        ):
+            status = "published_not_bound"
+            if completed_at is None:
+                next_action = (
+                    f"{ticker}: compare the published pair with this Operation's question and "
+                    "recorded outcome; if adopting it, bind with operation record-assessment, "
+                    "do not republish"
+                )
+    elif completed_at is None:
+        next_action = _next_action(status, ticker)
     return {
         "ticker": ticker,
         "status": status,
+        "status_basis": "workspace_files",
+        # A local publication can exist without being the Operation's chosen pair.
+        "recorded_outcome": outcome.model_dump(mode="json") if outcome is not None else None,
         "assessment_id": assessment_id,
         "assessment_validation_errors": assessment_errors,
         "review_validation_errors": review_errors,
-        "next_action": None if status == "published" else _next_action(status, ticker),
+        "next_action": next_action,
     }
 
 

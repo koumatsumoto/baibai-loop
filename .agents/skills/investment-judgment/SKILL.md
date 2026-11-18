@@ -115,7 +115,7 @@ as_ofは情報境界で全内容の再検証日でない。元source/fact時刻�
 
 ## Trade Proposal
 
-`investment-judgment status --workspace <WORKSPACE> --db <APP_DB>`とOperationを読む。評価保存とOperation束縛は別transactionで、再利用/束縛失敗だけなら`operation --db <APP_DB> --format json record-assessment <OPERATION_ID> --assessment-id <ID>`で回復する。別の作業場で再開して草案がなくても、`status`はこのOperationに結ばれた査読済み原本、または記録した未完理由を示す。原本が読めなければ参照を確認し、最新の同銘柄に差し替えない。既に執筆中の草案があれば、その草案の審査状態を優先して表示する。
+`investment-judgment status --workspace <WORKSPACE> --db <APP_DB>`とOperationを読む。評価保存とOperation束縛は別transactionで、再利用/束縛失敗だけなら`operation --db <APP_DB> --format json record-assessment <OPERATION_ID> --assessment-id <ID>`で回復する。別の作業場で再開して草案がなくても、`status`はこのOperationに結ばれた査読済み原本、または記録した未完理由を示す。原本が読めなければ参照を確認し、最新の同銘柄に差し替えない。執筆ファイルがあればその審査状態とOperationに実際に結んだ結果を区別する。ローカルのpairが別途発行済みでも、参照を明示して結ぶまではこの案件の結果にならない。完了案件の原本は書き換えない。
 
 未完対象だけを記録し、自動補充しない。
 

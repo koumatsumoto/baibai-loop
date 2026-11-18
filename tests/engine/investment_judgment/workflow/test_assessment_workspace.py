@@ -309,6 +309,21 @@ def test_clean_resume_reads_only_the_bound_exact_pair_not_the_same_company_head(
     assert not (resume / "1234").exists()
     assert db.read_bytes() == after
 
+    # The other published pair has now also been opened here. It did not change the decision.
+    directory = case[1] / "1234"
+    directory.mkdir(exist_ok=True)
+    (directory / "assessment-draft.yaml").write_text(yaml.safe_dump(other))
+    (directory / "assessment-review.yaml").write_text(yaml.safe_dump(other_review))
+    local = compute_status(case[1], db_path=db, now=NOW + timedelta(hours=1))
+    (local_row,) = local["cases"]
+    assert local["workspace_status"] == "incomplete"
+    assert local_row["status"] == "published_not_bound"
+    assert local_row["status_basis"] == "workspace_files"
+    assert local_row["assessment_id"] == assessment_id(2)
+    assert local_row["recorded_outcome"]["assessment_ref"]["assessment_id"] == bound.assessment_id
+    assert "record-assessment" in local["next_action"]
+    assert db.read_bytes() == after
+
     with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute("DROP TRIGGER stock_assessment_immutable")  # Corrupted fixture copy.
         conn.execute(
@@ -354,6 +369,21 @@ def test_clean_resume_distinguishes_unfinished_from_unresearched_without_hiding_
     assert row["assessment_validation_errors"]
     assert row["next_action"]
     assert db.read_bytes() == before
+
+    # Even both files of a valid publication do not replace the explicit unfinished result.
+    doc, review = author((db, resume, operation_id))
+    AssessmentStoreService(db, clock=lambda: NOW).publish_reviewed_assessment(
+        assessment_id(), doc, review
+    )
+    saved = db.read_bytes()
+    active = compute_status(resume, db_path=db, now=NOW)
+    (published,) = active["cases"]
+    assert active["workspace_status"] == "incomplete"
+    assert published["status"] == "published_not_bound"
+    assert published["recorded_outcome"]["status"] == "unfinished"
+    assert published["assessment_id"] == assessment_id()
+    assert "record-assessment" in active["next_action"]
+    assert db.read_bytes() == saved
 
 
 def test_legacy_price_clock_pair_remains_readable_and_retryable_but_not_newly_publishable(case):
@@ -405,7 +435,10 @@ def test_legacy_price_clock_pair_remains_readable_and_retryable_but_not_newly_pu
         )
         == saved
     )
-    assert compute_status(workspace, db_path=db, now=NOW)["cases"][0]["status"] == "published"
+    assert (
+        compute_status(workspace, db_path=db, now=NOW)["cases"][0]["status"]
+        == "published_not_bound"
+    )
     promoted = promote(workspace=workspace, ticker="1234", db_path=db, now=NOW)
     assert promote(workspace=workspace, ticker="1234", db_path=db, now=NOW) == promoted
     assert promoted.assessment_sha256 == core_hash
