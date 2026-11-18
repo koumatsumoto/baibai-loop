@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 from baibai_engine.cli.environment import load_project_env
-from baibai_engine.cli.historical_evaluation.query import candidates_show_command, run_show_command
+from baibai_engine.cli.historical_evaluation.query import run_show_command
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
         show.add_argument("--runs-db", help="screening run store path")
         show.add_argument("--output-path", help="also write the same output to this path")
         show.add_argument("--force", action="store_true", help="overwrite an existing output file")
-        show.add_argument("--format", choices=("yaml", "json"), default="yaml")
+        show.add_argument("--format", choices=("json",), help="output is always JSON")
 
     return parser
 
@@ -34,14 +34,10 @@ def main(argv: list[str] | None = None) -> int:
 
     load_project_env()
 
-    if args.command in {"run-show", "candidates"}:
-        command = candidates_show_command if args.command == "candidates" else run_show_command
-        return command(
-            run_revision_id=args.run_revision_id,
-            runs_db_path=Path(args.runs_db) if args.runs_db else None,
-            output_path=Path(args.output_path) if args.output_path else None,
-            force=args.force,
-            output_format=args.format,
-        )
-
-    raise AssertionError(f"unreachable command: {args.command!r}")
+    return run_show_command(
+        run_revision_id=args.run_revision_id,
+        runs_db_path=Path(args.runs_db) if args.runs_db else None,
+        output_path=Path(args.output_path) if args.output_path else None,
+        force=args.force,
+        candidates_only=args.command == "candidates",
+    )

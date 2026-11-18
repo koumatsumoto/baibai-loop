@@ -7,61 +7,45 @@ import subprocess
 import sys
 
 import pytest
-import yaml
 from tests.helpers.legacy_candidates import _publish, _run
 
 from baibai_engine.cli.historical_evaluation.app import main as screening_main
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
-    published_run_payload,
-)
 
 
-@pytest.mark.parametrize("command", ["run-show", "candidates"])
-@pytest.mark.parametrize("output_format", ["yaml", "json"])
-def test_public_read_cli_exports_same_revision_without_write(
-    tmp_path, capsys, monkeypatch, command, output_format
-) -> None:
-    from baibai_engine.cli.historical_evaluation import query
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening import (
-        screening_run_serializer,
-    )
-
-    payload_calls = []
-
-    def payload_once(run):
-        payload_calls.append(run.run_revision_id)
-        return published_run_payload(run)
-
-    monkeypatch.setattr(query, "published_run_payload", payload_once)
-    monkeypatch.setattr(screening_run_serializer, "published_run_payload", payload_once)
+@pytest.mark.parametrize("command", [["run-show"], ["candidates", "show"]])
+def test_public_read_cli_exports_saved_revision_as_json(tmp_path, capsys, command) -> None:
     path = tmp_path / "runs.sqlite"
-    _publish(path, revision="run-fixed")
+    raw = _run()
+    raw["stock_analyses"][0]["metrics"].update(
+        {"label": "0001", "basis": "null", "missing": None, "gain": -0.125, "units": 0}
+    )
+    _publish(path, raw, revision="run-fixed")
     before = path.read_bytes()
-    output = tmp_path / "export.txt"
-    argv = [command]
-    if command == "candidates":
-        argv.append("show")
-    argv += [
+    output = tmp_path / "export.json"
+    argv = [
+        *command,
         "--run-revision-id",
         "run-fixed",
         "--runs-db",
         str(path),
-        "--format",
-        output_format,
         "--output-path",
         str(output),
     ]
     assert screening_main(argv) == 0
-    assert payload_calls == (["run-fixed"] if command == "run-show" else [])
     emitted = capsys.readouterr().out
     assert emitted == output.read_text()
-    payload = json.loads(emitted) if output_format == "json" else yaml.safe_load(emitted)
+    payload = json.loads(emitted)
     saved = ScreeningRunReader(path).get_run("run-fixed")
-    if command == "run-show":
-        assert payload == published_run_payload(saved)
+    assert saved is not None
+    if command == ["run-show"]:
+        assert payload == {
+            **saved.payload,
+            "run_revision_id": "run-fixed",
+            "stock_analyses": list(saved.stock_analyses),
+        }
     else:
         assert payload["count"] == 1
         assert payload["candidates"] == list(saved.stock_analyses)
@@ -71,8 +55,28 @@ def test_public_read_cli_exports_same_revision_without_write(
     assert "review_set_id" not in payload
     assert path.read_bytes() == before
     assert screening_main(argv) == 1
-    assert screening_main([*argv, "--force"]) == 0
+    assert screening_main([*argv, "--force", "--format", "json"]) == 0
     assert capsys.readouterr().out == emitted
+
+
+def test_retired_yaml_option_does_not_overwrite_output(tmp_path) -> None:
+    output = tmp_path / "saved.txt"
+    output.write_text("keep")
+    with pytest.raises(SystemExit) as error:
+        screening_main(
+            [
+                "run-show",
+                "--run-revision-id",
+                "old",
+                "--format",
+                "yaml",
+                "--output-path",
+                str(output),
+                "--force",
+            ]
+        )
+    assert error.value.code == 2
+    assert output.read_text() == "keep"
 
 
 def test_public_cli_subprocess_reads_zero_candidates_and_unknown_revision(tmp_path) -> None:
