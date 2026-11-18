@@ -213,7 +213,7 @@ def test_cli_question_to_one_fixed_company_and_finite_comparison(tmp_path, monke
     assert holdings["held_tickers"] is None
     monkeypatch.setattr(
         "baibai_engine.investment_judgment.workflow.selection_query._ledger_positions",
-        lambda *_args: ("2345",),
+        lambda *_args: (("2345",), None),
     )
     held = cli([*fixed, "--scope", "review_positions"])
     assert held["held_tickers"] == ["2345"]

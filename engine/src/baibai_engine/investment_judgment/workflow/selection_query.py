@@ -13,6 +13,7 @@ from pydantic import TypeAdapter
 
 from baibai_engine.investment_judgment.company_research.context import company_context_brief
 from baibai_engine.investment_judgment.company_research.query import read_company_contexts
+from baibai_engine.investment_judgment.judgment_retrospective.holdings import holding_review_history
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.book_prices import read_book_prices
@@ -118,7 +119,11 @@ def load_generated_selection_context(
             raise ValueError("screening selection differs from the chosen generation")
         if index.status == "indexed" or (overview and not comparison_tickers):
             app = database_path(db_path)
-            held = _ledger_positions(app, known_at) if request.scope == "review_positions" else None
+            held, history = (
+                _ledger_positions(app, known_at, as_of, request.requested_tickers)
+                if request.scope == "review_positions"
+                else (None, None)
+            )
             requested = request.requested_tickers or held or ()
             comparisons = tuple(
                 sorted(set(requested) | {normalize_ticker(t) for t in comparison_tickers})
@@ -171,6 +176,7 @@ def load_generated_selection_context(
                 indexed["capacity"] = research_capacity(request.scope, len(held or ())).model_dump(
                     mode="json"
                 )
+                indexed["holding_review_history"] = history
                 indexed["held_tickers"] = held
                 indexed["holding_scope"] = (
                     "no_ledger_record" if held is None else "current_ledger_replayed_to_fact_cutoff"
@@ -213,7 +219,13 @@ def load_generated_selection_context(
     if generation_id is None:
         raise ValueError("an explicit generation is required")
     app_path = database_path(db_path)
-    held = _ledger_positions(app_path, known_at) or ()
+    ledger_positions, history = _ledger_positions(
+        app_path,
+        known_at,
+        as_of if request.scope == "review_positions" else None,
+        request.requested_tickers,
+    )
+    held = ledger_positions or ()
     requested = request.requested_tickers or (held if request.scope == "review_positions" else ())
     candidates = () if screening is None else screening.result.tickers
     technical_screening = screening is not None and isinstance(
@@ -298,6 +310,18 @@ def load_generated_selection_context(
         ),
         "requested_tickers": requested,
         "held_tickers": held,
+        **(
+            {
+                "holding_review_history": history,
+                "holding_scope": (
+                    "no_ledger_record"
+                    if ledger_positions is None
+                    else "current_ledger_replayed_to_fact_cutoff"
+                ),
+            }
+            if request.scope == "review_positions"
+            else {}
+        ),
         "model_inputs": model_inputs,
         **_judgments(app_path, tuple(sorted(set(candidates) | detail_targets)), as_of, known_at),
     }
@@ -320,17 +344,25 @@ def _judgments(
     }
 
 
-def _ledger_positions(app_path: Path, known_at: datetime) -> tuple[str, ...] | None:
+def _ledger_positions(
+    app_path: Path, known_at: datetime, review_as_of: date | None, requested: tuple[str, ...]
+) -> tuple[tuple[str, ...] | None, dict[str, object] | None]:
     if not app_path.exists():
-        return None
+        return None, None
     with closing(connect_read_only(app_path)) as connection:
         connection.execute("BEGIN")
         ledger = load_ledger_document(connection)
         if ledger is None:
-            return None
+            return None, None
         state = replay_events_through(ledger.events, known_at)
-        return tuple(
+        held = tuple(
             sorted(t for t, lots in state.lots.items() if any(lot.quantity > 0 for lot in lots))
+        )
+        if review_as_of is None:
+            return held, None
+        selected = set(held).intersection(requested) if requested else set(held)
+        return held, holding_review_history(
+            connection, ledger, selected, as_of=review_as_of, known_at=known_at
         )
 
 

@@ -23,6 +23,10 @@ uv run baibai-engine investment-judgment selection-context \
 
 銘柄指定は`--scope specified_stocks --ticker <TICKER>`（候補外可）、保有は`--scope review_positions`。new/holdingを混ぜず評価を変える問いで選ぶ。候補外比較は同commandへ返された`--screening-selection-id <ID> --compare-ticker <TICKER>`を渡し、依頼scopeを保って採用対象をdraftへ記す。
 
+保有を定期点検するときは、同じ選定画面の `holding_review_history` から、前の正式項目の理由・観測条件と、その後に書いた振り返りを読む。これは最新版台帳を事実日まで再生した対象で、現在口座の確認ではない。全売却後の買い直し、元の保有期間を照合できない場合は、旧条件を今回の保有へ引き継がない。根拠を詳しく読むには元項目の `origin.proposal_id` と同じ締切を下記の `judgment-retrospective coverage` へ渡す。受領したことや後日メモがないことを条件達成・未達にしない。
+
+前回の条件（配当の原資・普通株主に残る権利、採算、価格と代替など）から、今回確認する原典と問いを選び、採用対象の `research_question` に残す。元条件の誤りを訂正することと、企業が実際に変わったことを分ける。新しい根拠があれば、その時点の評価・独立Review・正式提案へ戻る。材料が増えていなければ同じ案の自動再発行や、原価からの損益だけでの変更はしない。
+
 比較不足による候補外を探す時は、同じSelection/cutoffで`--screening-excluded financial_unresolved --screening-page <N>`を有限に読む。通常レーンへ復帰させず、元の非充足・不足理由から答えが得られ判断を変える対象だけを前述の個別比較へ渡す。診断の意味と従来のT合致除外との違いは[Screening](../../../docs/reference/screening-runtime.md)へ。
 
 再訪は`company-research catalog/get`と[振り返り](#判断の振り返り)を有限に読む。catalogの続きはknown_atを固定しnext_after_tickerを使い、未review Research/review済みpair、空/unreadableを分ける。
