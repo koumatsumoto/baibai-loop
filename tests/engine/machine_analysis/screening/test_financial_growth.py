@@ -301,6 +301,15 @@ def test_different_comparison_intervals_do_not_form_a_growth_or_recovery_pair():
     assert result["checks"]["recovery_comparison_interval"]["state"] == "unavailable"
 
 
+def test_saved_quarter_key_must_match_before_date_decoding():
+    data = payloads()
+    # Both representations decode to July 1, but only one is the saved period key.
+    change(data, "sales")["to_start"] = int(datetime(2026, 7, 1, tzinfo=UTC).timestamp())
+    result = evaluate(data)
+    assert result["checks"]["quarter_sales_increase"]["reason"] == "comparison_not_observed"
+    assert result["checks"]["quarter_operating_profit_increase"]["state"] == "met"
+
+
 def test_conflicting_comparisons_are_localized_instead_of_choosing_good_one():
     data = payloads()
     duplicate = deepcopy(change(data, "operating_profit"))

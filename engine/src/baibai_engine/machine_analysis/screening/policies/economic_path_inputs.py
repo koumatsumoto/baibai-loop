@@ -58,13 +58,31 @@ def project_company_with_input_reviews(
 ) -> tuple[CompanyCoordinates, tuple[dict[str, JsonValue], ...]]:
     """価格座標は埋めず、選択済み事業仮説の価格入力確認を別に返す。"""
     index = {model.model_id: model for model in models}
+    return _project_economic_paths(
+        ticker,
+        index=index,
+        metadata=metadata,
+        growth_read=read_policy_growth(index.get("company_growth")),
+    )
+
+
+def read_policy_growth(model: GeneratedModel | None) -> CompanyGrowthReader:
+    return CompanyGrowthReader(_growth_policy_inputs(model.payload if model is not None else None))
+
+
+def _project_economic_paths(
+    ticker: str,
+    *,
+    index: dict[str, GeneratedModel],
+    metadata: GenerationMetadata,
+    growth_read: CompanyGrowthReader,
+) -> tuple[CompanyCoordinates, tuple[dict[str, JsonValue], ...]]:
     payloads = {key: model.payload for key, model in index.items()}
     valuation = payloads.get("company_financials", {})
     financial = _object(valuation.get("financial"))
     earnings = _object(valuation.get("earnings_price"))
     earnings_read = read_earnings_price(earnings) if earnings else None
     growth = payloads.get("company_growth", {})
-    growth_read = CompanyGrowthReader(_growth_policy_inputs(payloads.get("company_growth")))
     market = payloads.get("market_context", {})
     master = _object(market.get("master"))
     sector = _text(master.get("sector_33"))

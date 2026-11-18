@@ -12,14 +12,14 @@ from pydantic import JsonValue, TypeAdapter
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-    project_company_with_input_reviews,
+    _project_economic_paths,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import PathCoordinates
 from baibai_engine.machine_analysis.screening.policies.financial_growth import (
     POLICY_ID as FINANCIAL_POLICY_ID,
 )
 from baibai_engine.machine_analysis.screening.policies.financial_growth import (
-    evaluate_financial_growth_gate,
+    _financial_growth_with_path_inputs,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
     STRATEGY_POLICY_ID,
@@ -34,6 +34,8 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 
+_PATH_CODEC = TypeAdapter(tuple[PathCoordinates, ...])
+
 
 def technical_financial_selection_id(
     generation_id: str, *, policy: TechnicalFinancialPolicy
@@ -46,17 +48,20 @@ def project_technical_financial_row(
 ) -> TechnicalFinancialRow:
     technical = evaluate_technical_strategy(ticker, models=models, metadata=metadata)
     # 財務による独立発見をTAの合否・欠測で止めない。
-    gate = evaluate_financial_growth_gate(
+    gate, path_growth = _financial_growth_with_path_inputs(
         ticker,
         models=tuple(
             model for model in models if model.model_id in {"company_financials", "company_growth"}
         ),
         metadata=metadata,
     )
-    coordinates, input_reviews = project_company_with_input_reviews(
-        ticker, models=models, metadata=metadata
+    coordinates, input_reviews = _project_economic_paths(
+        ticker,
+        index={model.model_id: model for model in models},
+        metadata=metadata,
+        growth_read=path_growth,
     )
-    paths = TypeAdapter(tuple[PathCoordinates, ...]).dump_python(coordinates.paths, mode="json")
+    paths = _PATH_CODEC.dump_python(coordinates.paths, mode="json")
     financial_paths: dict[str, JsonValue] = {
         "source": "saved_model_economic_path_coordinates_not_ranking",
         "matched_routes": cast(
