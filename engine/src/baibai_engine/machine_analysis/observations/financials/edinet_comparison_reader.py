@@ -25,6 +25,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparison_mo
     FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    CONFIRMED_NON_IFRS,
     extract_comparisons,
     reusable_comparison_seed,
 )
@@ -107,7 +108,7 @@ def read_comparison_population(
         )
     seeds: dict[str, FilingComparisons] = {}
     duplicates: set[str] = set()
-    seed_candidates = seed_reused = parsed = archive_count = archive_bytes = 0
+    seed_candidates = parsed = archive_count = archive_bytes = 0
     archive_seconds = parse_seconds = 0.0
     seed_started = time.perf_counter()
     for value in prior_observations if ready else ():
@@ -129,11 +130,30 @@ def read_comparison_population(
             duplicates.add(seed.source_doc_id)
         else:
             seeds[seed.source_doc_id] = seed
-    seed_seconds = time.perf_counter() - seed_started
     received: set[str] = set()
-    contents = _archive_contents(
-        connection, doc_ids=observations.keys(), tickers=tickers, archives=archives
+    if seeds and archives is not None:
+        # An unchanged, previously excluded filing supplies no operands. Its fixed
+        # receipt proves membership, not that its physical ZIP is still readable.
+        for doc_id, source_type in archives.archive_keys:
+            seed = seeds.get(doc_id)
+            if source_type != 1 or seed is None or seed.reason != CONFIRMED_NON_IFRS:
+                continue
+            entry = archives.metadata(doc_id, 1)
+            assert entry is not None
+            if (
+                seed.source_sha256 == entry.sha256
+                and seed.parent_doc_id == observations[doc_id].parent_doc_id
+            ):
+                received.add(doc_id)
+                observations[doc_id] = seed
+    non_ifrs_receipts = seed_reused = len(received)
+    seed_seconds = time.perf_counter() - seed_started
+    body_ids = (
+        tuple(key for key in observations if key not in received)
+        if received
+        else observations.keys()
     )
+    contents = _archive_contents(connection, doc_ids=body_ids, tickers=tickers, archives=archives)
     while True:
         read_started = time.perf_counter()
         try:
@@ -152,8 +172,6 @@ def read_comparison_population(
             )
             continue
         cached = seeds.pop(doc_id, None)
-        # The current fixed body's integrity is always checked before reuse. A
-        # warm result must not conceal a lost/tampered original or fresh blocking state.
         if cached is not None and cached.source_sha256 == hashlib.sha256(content).hexdigest():
             extracted = cached
             seed_reused += 1
@@ -200,6 +218,7 @@ def read_comparison_population(
             "model inputs: edinet_comparisons "
             f"selected={len(observations)} ready={len(ready)} "
             f"seed_candidates={seed_candidates} seed_reused={seed_reused} parsed={parsed} "
+            f"non_ifrs_receipts={non_ifrs_receipts} "
             f"archive_read_count={archive_count} archive_read_bytes={archive_bytes} "
             f"archive_read_validate_seconds={archive_seconds:.3f} "
             f"seed_read_validate_seconds={seed_seconds:.3f} "
@@ -247,7 +266,6 @@ def _native_archive_contents(
             if failure is not None:
                 return None
         try:
-            # Blocked vintages and warm seeds still require the real fixed bytes.
             return doc_id, archives.read_xbrl_zip(doc_id)
         except Exception as error:
             with admission:

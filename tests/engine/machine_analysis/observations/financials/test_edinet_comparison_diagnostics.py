@@ -27,7 +27,10 @@ def test_diagnostics_preserve_canonical_get_order_and_report_only_aggregates(
     monkeypatch, route, warm
 ):
     documents = [metadata(), metadata("S100YV6Y")]
-    bodies = [(row["docID"], archive(row["docID"])) for row in documents]
+    bodies = [
+        ("S100YRSR", archive()),
+        ("S100YV6Y", archive("S100YV6Y", replace={b">IFRS<": b">Japan GAAP<"})),
+    ]
     store, fixed = fixed_archives({(doc, 1): body for doc, body in bodies})
     monkeypatch.setattr(edinet_document_store, "read_observed_documents", lambda *a, **k: documents)
 
@@ -69,14 +72,16 @@ def test_diagnostics_preserve_canonical_get_order_and_report_only_aggregates(
     output = StringIO()
     result, actual_gets = read(seeds=delayed_seeds(), diagnostics=output)
     assert serialized(result) == serialized(cold)
-    assert actual_gets == expected_gets
+    carried = warm and route == "native"
+    assert actual_gets == (expected_gets[:1] if carried else expected_gets)
     assert output.getvalue().splitlines() == [
         (
             "model inputs: edinet_comparisons selected=2 ready=2 "
             f"seed_candidates={2 if warm else 0} seed_reused={2 if warm else 0} "
-            f"parsed={0 if warm else 2} archive_read_count=2 "
-            f"archive_read_bytes={sum(len(body) for _, body in bodies)} "
-            f"archive_read_validate_seconds={'0.500' if route == 'native' else '0.000'} "
+            f"parsed={0 if warm else 2} non_ifrs_receipts={int(carried)} "
+            f"archive_read_count={1 if carried else 2} "
+            f"archive_read_bytes={sum(len(body) for _, body in (bodies[:1] if carried else bodies))} "
+            f"archive_read_validate_seconds={0.25 * len(actual_gets):.3f} "
             "seed_read_validate_seconds=0.125 "
             f"parse_seconds={'0.000' if warm else '1.000'}"
         )
@@ -147,7 +152,7 @@ def test_blocked_original_is_counted_and_validated_without_consuming_seed(monkey
     assert len(store.get_keys) == 1
     assert output.getvalue() == (
         "model inputs: edinet_comparisons selected=1 ready=0 "
-        "seed_candidates=0 seed_reused=0 parsed=0 archive_read_count=1 "
+        "seed_candidates=0 seed_reused=0 parsed=0 non_ifrs_receipts=0 archive_read_count=1 "
         f"archive_read_bytes={len(body)} archive_read_validate_seconds=0.000 "
         "seed_read_validate_seconds=0.000 parse_seconds=0.000\n"
     )
