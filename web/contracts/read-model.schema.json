@@ -9,6 +9,35 @@
     "views/proposal-history.json": "#/$defs/ProposalHistoryView"
   },
   "$defs": {
+    "AcquisitionLimit": {
+      "additionalProperties": false,
+      "description": "仮説に不可欠な一時の請求権だけ。残余事業や通常配当の一律期限ではない。",
+      "properties": {
+        "value_fact_id": {
+          "minLength": 1,
+          "title": "Value Fact Id",
+          "type": "string"
+        },
+        "last_eligible_trade_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Eligible Trade Date"
+        }
+      },
+      "required": [
+        "value_fact_id",
+        "last_eligible_trade_date"
+      ],
+      "title": "AcquisitionLimit",
+      "type": "object"
+    },
     "DashboardView": {
       "properties": {
         "generated_at": {
@@ -545,6 +574,35 @@
       "title": "PortfolioOutcomeView",
       "type": "object"
     },
+    "PriceOnlyCondition": {
+      "additionalProperties": false,
+      "description": "事業・権利を変えない価格による反転。明示上限のない説明を指値に解釈しない。",
+      "properties": {
+        "explanation": {
+          "minLength": 1,
+          "title": "Explanation",
+          "type": "string"
+        },
+        "ceiling_yen": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ceiling Yen"
+        }
+      },
+      "required": [
+        "explanation",
+        "ceiling_yen"
+      ],
+      "title": "PriceOnlyCondition",
+      "type": "object"
+    },
     "ProposalCorrection": {
       "additionalProperties": false,
       "properties": {
@@ -1022,6 +1080,17 @@
           "title": "Stance",
           "type": "string"
         },
+        "price_value_case": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedPriceValueView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "investment_case_explanation": {
           "title": "Investment Case Explanation",
           "type": "string"
@@ -1212,6 +1281,7 @@
         "review_id",
         "as_of",
         "stance",
+        "price_value_case",
         "investment_case_explanation",
         "investment_case_status",
         "investment_case_status_reason",
@@ -2475,6 +2545,94 @@
       "title": "SavedNoActionItemView",
       "type": "object"
     },
+    "SavedOpportunityFactView": {
+      "properties": {
+        "fact_id": {
+          "title": "Fact Id",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fact_id",
+        "value",
+        "unit",
+        "as_of",
+        "source_ids"
+      ],
+      "title": "SavedOpportunityFactView",
+      "type": "object"
+    },
+    "SavedOpportunityQuoteView": {
+      "properties": {
+        "fact_id": {
+          "title": "Fact Id",
+          "type": "string"
+        },
+        "price_yen": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Price Yen",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed At"
+        },
+        "price_basis": {
+          "title": "Price Basis",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fact_id",
+        "price_yen",
+        "as_of",
+        "observed_at",
+        "price_basis",
+        "source_ids"
+      ],
+      "title": "SavedOpportunityQuoteView",
+      "type": "object"
+    },
     "SavedPermanentLossRiskView": {
       "properties": {
         "axis": {
@@ -2592,6 +2750,85 @@
         "common_factor_unclassified_tickers"
       ],
       "title": "SavedPortfolioExposureView",
+      "type": "object"
+    },
+    "SavedPriceValueView": {
+      "properties": {
+        "status": {
+          "enum": [
+            "supported_at_quote",
+            "not_supported_at_quote",
+            "undetermined"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "observed_quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedOpportunityQuoteView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "price_compatible_conditions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Price Compatible Conditions"
+        },
+        "price_only_condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PriceOnlyCondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "acquisition_limit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AcquisitionLimit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value_facts": {
+          "items": {
+            "$ref": "#/$defs/SavedOpportunityFactView"
+          },
+          "title": "Value Facts",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SavedAssessmentSourceView"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "observed_quote",
+        "price_compatible_conditions",
+        "price_only_condition",
+        "acquisition_limit",
+        "value_facts",
+        "sources"
+      ],
+      "title": "SavedPriceValueView",
       "type": "object"
     },
     "SavedProposalItemView": {

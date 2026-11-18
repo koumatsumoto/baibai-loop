@@ -118,7 +118,8 @@ def test_explicitly_bound_new_pair_uses_its_value_not_the_old_value(tmp_path):
         context.calculations["1234"]["current_quote_projection"]["base"]["total_value_yen"] == 2200
     )
     assert before.calculations["1234"]["maximum_common_grid_price_yen"] == "1000"
-    assert context.calculations["1234"]["maximum_common_grid_price_yen"] == "2000"
+    # 新Baseからの算術上限は2000でも、一株の支持が査読された参照価格は1100。
+    assert context.calculations["1234"]["maximum_common_grid_price_yen"] == "1100"
     assert context.calculations != before.calculations
 
 

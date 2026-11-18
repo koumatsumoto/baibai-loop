@@ -91,7 +91,7 @@ from baibai_engine.storage.sqlite.source_cache.read import (
 
 DEFAULT_BUDGET_MIN_YEN = 200_000
 DEFAULT_BUDGET_MAX_YEN = 300_000
-PROPOSAL_TERMS_POLICY_REVISION = "author-selected-terms-v1"
+PROPOSAL_TERMS_POLICY_REVISION = "reviewed-price-case-and-author-terms-v2"
 
 type _ReportedBuy = tuple[str, TradeProposal]
 
@@ -569,26 +569,27 @@ def _context_calculations(
             continue
         pair = assessments[outcome.assessment_ref.assessment_id]
         quote = next((quote for quote in inputs.quotes if quote.ticker == outcome.ticker), None)
-        basis = assessment_quote_basis(
-            pair.document,
-            quote,
-            sqlite_path=sqlite_path,
-            now=now,
-            market_connection=market_connection,
-        )
         row: dict[str, object] = {
-            "current_quote_projection": current_price_projection(
+            "current_quote_projection": None,
+            "case_reassessment_required": outcome.purpose == "holding",
+        }
+        if outcome.purpose == "holding":
+            basis = assessment_quote_basis(
+                pair.document,
+                quote,
+                sqlite_path=sqlite_path,
+                now=now,
+                market_connection=market_connection,
+            )
+            row["current_quote_projection"] = current_price_projection(
                 pair.document,
                 price_yen=None if quote is None else quote.price_yen,
                 price_as_of=None if quote is None else quote.price_as_of,
                 as_of=now.astimezone(JST).date(),
-                # 固定pairは資料として残し、旧版を現在適用の算術へ昇格させない。
                 basis_confirmed=basis and latest[outcome.ticker] == pair.assessment_id,
                 max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
-            ),
-            "case_reassessment_required": outcome.purpose == "holding",
-        }
-        if outcome.purpose == "new" and quote is not None:
+            )
+        elif quote is not None:
             at_quote = buy_evaluation(
                 pair,
                 inputs=inputs,
@@ -598,6 +599,8 @@ def _context_calculations(
                 now=now,
                 market_connection=market_connection,
             )
+            # 次の立会で新たに取得できない給付を終価に入れない。元評価の値はそのまま。
+            row["current_quote_projection"] = at_quote.current_price_projection
             row["buy_at_actual_quote"] = buy_evaluation_payload(at_quote)
             maximum = at_quote.maximum_price_yen
             if maximum is not None and maximum > 0:

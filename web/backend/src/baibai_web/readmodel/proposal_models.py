@@ -1,10 +1,15 @@
 """保存提案とexact評価pairの小さい表示契約。現在の注文資格は判定しない。"""
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, JsonValue
 
+from baibai_engine.investment_judgment.stock_assessment.price_value import (
+    AcquisitionLimit,
+    PriceOnlyCondition,
+)
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
     ProposalCorrection,
@@ -136,12 +141,40 @@ class SavedAssessmentRefreshView(BaseModel):
     corporate_action_reason: str
 
 
+class SavedOpportunityQuoteView(BaseModel):
+    fact_id: str
+    price_yen: Decimal
+    as_of: date
+    observed_at: datetime | None
+    price_basis: str
+    source_ids: list[str]
+
+
+class SavedOpportunityFactView(BaseModel):
+    fact_id: str
+    value: str
+    unit: str
+    as_of: date
+    source_ids: list[str]
+
+
+class SavedPriceValueView(BaseModel):
+    status: Literal["supported_at_quote", "not_supported_at_quote", "undetermined"]
+    observed_quote: SavedOpportunityQuoteView | None
+    price_compatible_conditions: str | None
+    price_only_condition: PriceOnlyCondition | None
+    acquisition_limit: AcquisitionLimit | None
+    value_facts: list[SavedOpportunityFactView]
+    sources: list[SavedAssessmentSourceView]
+
+
 class SavedAssessmentView(BaseModel):
     assessment_id: str
     core_sha256: str
     review_id: str
     as_of: date
     stance: Literal["supported", "uncertain", "unsupported"]
+    price_value_case: SavedPriceValueView | None = None
     investment_case_explanation: str
     investment_case_status: Literal["intact", "broken", "uncertain"]
     investment_case_status_reason: str

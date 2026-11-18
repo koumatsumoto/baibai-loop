@@ -2,6 +2,14 @@
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
 
+/**
+ * 仮説に不可欠な一時の請求権だけ。残余事業や通常配当の一律期限ではない。
+ */
+export interface AcquisitionLimit {
+  value_fact_id: string
+  last_eligible_trade_date: string | null
+}
+
 export interface DashboardView {
   generated_at: string
   ledger_exists: boolean
@@ -82,6 +90,14 @@ export interface PortfolioOutcomeView {
    */
   portfolio_twr_pct: number | null
   benchmark_cumulative_return_pct: number | null
+}
+
+/**
+ * 事業・権利を変えない価格による反転。明示上限のない説明を指値に解釈しない。
+ */
+export interface PriceOnlyCondition {
+  explanation: string
+  ceiling_yen: string | null
 }
 
 export interface ProposalCorrection {
@@ -170,6 +186,7 @@ export interface SavedAssessmentView {
   review_id: string
   as_of: string
   stance: 'supported' | 'uncertain' | 'unsupported'
+  price_value_case: SavedPriceValueView | null
   investment_case_explanation: string
   investment_case_status: 'intact' | 'broken' | 'uncertain'
   investment_case_status_reason: string
@@ -377,6 +394,23 @@ export interface SavedNoActionItemView {
   action: 'no_action'
 }
 
+export interface SavedOpportunityFactView {
+  fact_id: string
+  value: string
+  unit: string
+  as_of: string
+  source_ids: string[]
+}
+
+export interface SavedOpportunityQuoteView {
+  fact_id: string
+  price_yen: string
+  as_of: string
+  observed_at: string | null
+  price_basis: string
+  source_ids: string[]
+}
+
 export interface SavedPermanentLossRiskView {
   axis: 'funding_liquidity' | 'debt_repayment' | 'cash_flow' | 'dilution' | 'customer_concentration' | 'structural_decline' | 'governance_accounting'
   assessment: 'acceptable' | 'adverse' | 'unknown'
@@ -392,6 +426,16 @@ export interface SavedPortfolioExposureView {
   sector: SavedExposureRowView | null
   common_factors: SavedExposureRowView[]
   common_factor_unclassified_tickers: string[]
+}
+
+export interface SavedPriceValueView {
+  status: 'supported_at_quote' | 'not_supported_at_quote' | 'undetermined'
+  observed_quote: SavedOpportunityQuoteView | null
+  price_compatible_conditions: string | null
+  price_only_condition: PriceOnlyCondition | null
+  acquisition_limit: AcquisitionLimit | null
+  value_facts: SavedOpportunityFactView[]
+  sources: SavedAssessmentSourceView[]
 }
 
 export type SavedProposalItemView = SavedBuyItemView | SavedHoldItemView | SavedSellItemView | SavedNoActionItemView | SavedDeferItemView

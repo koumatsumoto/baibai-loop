@@ -695,7 +695,7 @@ def _promote_and_propose(case):
                     notional_yen=str(limit * 300),
                     target_session="2026-10-15",
                     valuation_as_of="2026-10-14",
-                    maximum_entry_price_yen="1000",
+                    maximum_entry_price_yen="900" if case.scenario == "current" else "1000",
                     price_grid_rule_id="tse-common-conservative-20261014",
                     conditions=["仮説・株式単位・cash・注文状態の重要変化がないこと。"],
                     warnings=[],
@@ -764,7 +764,9 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     assert proposal.items[0].assessment_ref.core_sha256 == pair.core_sha256
     assert proposal.items[0].assessment_ref.review_id == pair.review.review_id
     if expected == "buy":
-        assert proposal.items[0].terms.maximum_entry_price_yen == Decimal(1000)
+        assert proposal.items[0].terms.maximum_entry_price_yen == Decimal(
+            900 if scenario == "current" else 1000
+        )
         assert proposal.items[0].terms.quantity == 300
         assert proposal.items[0].terms.limit_price_yen == Decimal(
             900 if scenario == "current" else 1000

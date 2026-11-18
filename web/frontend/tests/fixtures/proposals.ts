@@ -18,6 +18,7 @@ export function assessmentFixture(label: string): SavedAssessmentView {
     review_id: `assessment-review-${label}`,
     as_of: '2026-10-26',
     stance: 'supported',
+    price_value_case: null,
     investment_case_explanation: `${label}の投資理由。利益改善と現金還元を確認する。\n需要減退の場合は前提を見直す。`,
     investment_case_status: 'intact',
     investment_case_status_reason: `${label}の状態理由。主要顧客の継続を保存資料で確認。`,

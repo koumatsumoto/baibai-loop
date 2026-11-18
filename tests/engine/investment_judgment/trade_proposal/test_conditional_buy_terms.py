@@ -420,3 +420,33 @@ def test_downside_total_loss_does_not_destroy_uninvested_cash():
         "profit_loss_yen": "-100000",
         "capital_total_value_yen": "200000",
     }
+
+
+def test_price_increase_cannot_extend_support_at_a_lower_reviewed_quote():
+    payload, _ = pair_payload(quote_as_of="2026-10-13")
+    next(fact for fact in payload["input_snapshot"]["facts"] if fact["fact_id"] == "close")[
+        "value"
+    ] = 100
+    payload["valuation"]["base"]["terminal_value_per_share_yen"] = "165"
+    document = StockAssessmentDocument.model_validate(payload)
+    # Ordinary share unit unchanged: today's 120 is not the observed price the review supported.
+    result = evaluate(document, quote=quote("120"), proposed_limit_yen=Decimal(120))
+    assert result.maximum_price_yen == 100
+    assert result.quantity == 0
+    assert result.maximum_quantity is None
+    assert "limit_above_reviewed_price_condition" in codes(result)
+    lower = evaluate(document, quote=quote("120"), proposed_limit_yen=Decimal(100))
+    assert lower.hard_blockers == ()
+    assert lower.quantity > 0
+    assert lower.current_price_projection["price_yen"] == 120
+
+
+def test_original_unrecorded_assessment_is_not_a_new_buy_signal():
+    payload, _ = pair_payload(price_case=None)
+    document = StockAssessmentDocument.model_validate(payload)
+    result = evaluate(document)
+    assert "price_value_case_unrecorded" in codes(result)
+    assert result.maximum_price_yen is None
+    assert result.quantity == 0
+    assert result.maximum_quantity is None
+    assert result.capital_comparison is None

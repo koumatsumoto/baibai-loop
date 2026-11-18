@@ -34,6 +34,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     SellItem,
     order_readiness,
 )
+from baibai_engine.investment_judgment.trade_proposal.entry_policy import acquisition_blocker
 from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
 from baibai_engine.investment_judgment.trade_proposal.holding_policy import (
     evaluate_holding_proposal,
@@ -404,22 +405,38 @@ def preview_current_terms(
                     quote = next(
                         (quote for quote in inputs.quotes if quote.ticker == item.ticker), None
                     )
-                    row["current_quote_calculation"] = current_price_projection(
-                        pair.document,
-                        price_yen=None if quote is None else quote.price_yen,
-                        price_as_of=None if quote is None else quote.price_as_of,
-                        as_of=now.astimezone(JST).date(),
-                        basis_confirmed=assessment_quote_basis(
+                    case = pair.document.price_value_case
+                    acquisition_issue = (
+                        acquisition_blocker(
                             pair.document,
-                            quote,
-                            sqlite_path=sqlite_path,
-                            now=now,
-                            market_connection=market_connection,
-                        ),
-                        max_quote_age_days=PORTFOLIO_POLICY["valuation"][
-                            "market_price_max_age_days"
-                        ],
+                            next_order_session(
+                                sqlite_path=sqlite_path, now=now, connection=market_connection
+                            ),
+                        )
+                        if case is not None and case.acquisition_limit is not None
+                        else None
                     )
+                    if acquisition_issue is not None:
+                        row["current_quote_unavailable_reason"] = acquisition_issue.model_dump(
+                            mode="json"
+                        )
+                    else:
+                        row["current_quote_calculation"] = current_price_projection(
+                            pair.document,
+                            price_yen=None if quote is None else quote.price_yen,
+                            price_as_of=None if quote is None else quote.price_as_of,
+                            as_of=now.astimezone(JST).date(),
+                            basis_confirmed=assessment_quote_basis(
+                                pair.document,
+                                quote,
+                                sqlite_path=sqlite_path,
+                                now=now,
+                                market_connection=market_connection,
+                            ),
+                            max_quote_age_days=PORTFOLIO_POLICY["valuation"][
+                                "market_price_max_age_days"
+                            ],
+                        )
             if item.action in {"buy", "sell"}:
                 blockers.extend(order_blockers)
                 revalidation = row["saved_limit_revalidation"]
