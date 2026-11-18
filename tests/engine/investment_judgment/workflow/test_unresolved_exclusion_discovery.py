@@ -151,7 +151,7 @@ def test_normal_saved_context_preserves_cutoff_order_and_only_explicit_detail_lo
     now = publication.published_at + timedelta(seconds=1)
     arguments = args(path, now) | {"screening_selection_id": "unresolved-policy"}
     before = path.read_bytes()
-    normal = load_generated_selection_context(**arguments)
+    normal = load_generated_selection_context(**arguments, screening_lane="growth_research")
     legacy = load_generated_selection_context(**arguments, screening_excluded=True)
     calls = []
     original_read = generation.read_model_inputs
@@ -184,7 +184,7 @@ def test_normal_saved_context_preserves_cutoff_order_and_only_explicit_detail_lo
     assert diagnostic_rows[0]["screening_lane"] == "no_current_hypothesis"
     assert all("3456" not in subjects for subjects in calls)
     assert diagnostic["model_inputs"]["securities"] == {}
-    assert normal == load_generated_selection_context(**arguments)
+    assert normal == load_generated_selection_context(**arguments, screening_lane="growth_research")
     assert legacy == load_generated_selection_context(**arguments, screening_excluded=True)
     detail = load_generated_selection_context(**arguments, comparison_tickers=("3456",))
     assert detail["screening"]["comparison_rows"] == diagnostic_rows

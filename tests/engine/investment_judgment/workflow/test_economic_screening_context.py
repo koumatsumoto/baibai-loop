@@ -294,6 +294,7 @@ def context(path, *, request=None, comparison_tickers=(), db_path=None):
         request=request or ResearchRequest(text="調査する", scope="discover_new"),
         generation_id=None,
         screening_selection_id="economic-policy",
+        screening_lane="growth_research",  # 明示した旧公表のカードを検証。
         research_as_of=AS_OF,
         known_at=NOW,
         runs_path=path,
@@ -472,11 +473,11 @@ def test_generation_only_context_cli_keeps_complete_growth_and_all_detail_models
     assert runs.read_bytes() == before
 
 
-def test_held_details_remain_available_without_promoting_them_to_requested(tmp_path, monkeypatch):
+def test_old_explicit_lane_does_not_load_unrequested_held_details(tmp_path, monkeypatch):
     import baibai_engine.investment_judgment.workflow.selection_query as query
 
     runs = tmp_path / "runs"
-    generation, _ = seed_economic_generation(runs)
+    seed_economic_generation(runs)
     # Exercise the held-target boundary independently of ledger replay arithmetic.
     db = tmp_path / "app"
     db.touch()
@@ -496,12 +497,8 @@ def test_held_details_remain_available_without_promoting_them_to_requested(tmp_p
     assert result["held_tickers"] == ("9999",)
     assert result["requested_tickers"] == ()
     assert result["request"]["requested_tickers"] == []
-    assert set(result["model_inputs"]["securities"]) == {"9999"}
-    assert result["model_inputs"]["securities"]["9999"]["models"]["company_growth"] == (
-        generation.result("company_growth", "9999").payload
-    )
-    assert "sector:food" in result["model_inputs"]["shared_subjects"]
-    assert "sector:other" in result["model_inputs"]["shared_subjects"]
+    assert result["model_inputs"]["securities"] == {}
+    assert "sector:other" not in result["model_inputs"]["shared_subjects"]
 
 
 def test_prepare_saves_full_economic_policy_and_chosen_models_then_resumes_without_runs(tmp_path):

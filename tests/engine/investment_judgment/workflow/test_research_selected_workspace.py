@@ -79,6 +79,7 @@ def test_discover_new_preserves_selected_noncandidate_from_fixed_generation(tmp_
     runs = tmp_path / "runs"
     value = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
     context = load_generated_selection_context(
+        screening_lane="growth_research",  # 旧保存の候補外からの選定。
         request=value.request,
         research_as_of=NOW.date(),
         generation_id=value.inputs.generation.generation_id,

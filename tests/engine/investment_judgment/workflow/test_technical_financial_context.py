@@ -75,10 +75,14 @@ def test_pages_cover_all_without_renaming_unresolved_or_loading_candidate_models
     path = tmp_path / "runs"
     _, selected, now = seed(path)
     before = path.read_bytes()
-    first = load_generated_selection_context(**args(path, now))
-    second = load_generated_selection_context(**args(path, now), screening_page=1)
+    first = load_generated_selection_context(**args(path, now), screening_lane="growth_research")
+    second = load_generated_selection_context(
+        **args(path, now), screening_lane="growth_research", screening_page=1
+    )
     third = load_generated_selection_context(**args(path, now), screening_lane="input_review")
-    empty = load_generated_selection_context(**args(path, now), screening_page=2)
+    empty = load_generated_selection_context(
+        **args(path, now), screening_lane="growth_research", screening_page=2
+    )
     visible = first["candidate_tickers"] + second["candidate_tickers"] + third["candidate_tickers"]
     assert set(visible) == set(selected.result.display_order)
     assert first["screening"]["page"]["next"] == 1
@@ -113,7 +117,7 @@ def test_context_reads_one_fixed_publication_without_duplicate_full_result(
     arguments = args(path, now)
     if not explicit_id:
         arguments["screening_selection_id"] = None
-    context = load_generated_selection_context(**arguments)
+    context = load_generated_selection_context(**arguments, screening_lane="growth_research")
     assert len(calls) == 1
     assert calls[0]["known_at"] == now
     assert context["screening_selection_id"] == "technical-policy"

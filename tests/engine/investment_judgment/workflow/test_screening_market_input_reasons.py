@@ -115,7 +115,7 @@ def test_recorded_empty_failure_map_is_not_replaced_with_missing_and_exact_detai
     assert result.tickers == ("1234",)
 
 
-def test_normal_selection_context_keeps_the_saved_fields_without_loading_company_models(tmp_path):
+def test_explicit_saved_lane_keeps_the_saved_fields_without_loading_company_models(tmp_path):
     from tests.engine.investment_judgment.workflow.test_technical_financial_context import (
         args,
         seed,
@@ -128,7 +128,7 @@ def test_normal_selection_context_keeps_the_saved_fields_without_loading_company
     path = tmp_path / "runs"
     _, selected, now = seed(path)
     before = path.read_bytes()
-    context = load_generated_selection_context(**args(path, now))
+    context = load_generated_selection_context(**args(path, now), screening_lane="growth_research")
     source = {row.ticker: row for row in selected.result.rows}
     assert context["screening"]["cards"]
     for card in context["screening"]["cards"]:

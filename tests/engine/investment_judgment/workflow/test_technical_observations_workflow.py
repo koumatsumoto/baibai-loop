@@ -89,7 +89,9 @@ def test_initial_card_to_detached_research_preserves_recorded_or_old_absent_obse
         selected.result.lane_tickers("growth_research").index("1234")
         // selected.result.policy.page_size
     )
-    first = load_generated_selection_context(**arguments, screening_page=target_page)
+    first = load_generated_selection_context(
+        **arguments, screening_lane="growth_research", screening_page=target_page
+    )
     assert first["model_inputs"]["securities"] == {}
     card = next(card for card in first["screening"]["cards"] if card["ticker"] == "1234")
     assert ("observations" in card["technical"]) is not legacy

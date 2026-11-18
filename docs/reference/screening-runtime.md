@@ -16,22 +16,29 @@
 
 | 読みたいもの | 同じ`selection-context`へ追加する引数 |
 | --- | --- |
-| レーンの続き | `--screening-lane <LANE> --screening-page <next>`。ページ番号は0始まりで、返されたnextを使う。 |
+| 通常の新規探索 | オプションなしで全社の分母と問い・反対説明・観測範囲を確認し、`--discovery-question <KEY>` でその問いに対応する銘柄ページへ進む。出力の `repeat_command_args` に `append_args`・`next_args`・`detail_args` のいずれかを付ける。別々の問いは重複し、件数は割安認定でない。 |
+| 過去の保存レーンの続き | `--screening-lane <LANE> --screening-page <next>`。ページ番号は0始まりで、返されたnextを使う。 |
 | 候補外を含む個社の完全モデル | `--compare-ticker <TICKER>`。候補へ追加したりResearchを開始したりしない。 |
 | T合致でも現在の調査仮説がない行 | `--screening-excluded`。保存T合致かつ`no_current_hypothesis`を読む。 |
 | T合致を前提にせず比較不足を探す | `--screening-excluded financial_unresolved`。保存G未確定かつ`no_current_hypothesis`を読む。 |
 
-`candidate_tickers`は表示中のページ、`summary`は全stock planの分母。除外診断は通常レーンへ復帰させず、元の非充足・不足理由を保つ。条件ごとの件数は同じ会社が重なるため加算できず、失った投資機会や棄却の正しさの測定ではない。0件も入力の完全性を意味しない。
+旧レーンの `candidate_tickers` は表示中のページ、`summary`は全stock planの分母。除外診断は通常レーンへ復帰させず、元の非充足・不足理由を保つ。条件ごとの件数は同じ会社が重なるため加算できず、失った投資機会や棄却の正しさの測定ではない。0件も入力の完全性を意味しない。
+
+問いが広過ぎるときは先頭の会社を指名しない。例えば「資本異動で持続利益の取り分が変わったか」なら、同じ公表物で対抗候補の座標（経路・variant・価格側の比較基準・数値）を読み、`--discovery-question capital_change --price-coordinate-min <PATH> <VARIANT> <PRICE_GROUP> <対抗候補の観測値>` で同じ測定だけを照合できる。「以上／未満／同基準の値なし」を分け、比較不能な会社を経済的に棄却しない。絞った後も、確認すべきなのは資本異動が新取得者の取り分を変えたかという原典である。座標値そのものを期待利回りとせず、理由がなければ数値条件は使わない。
+
+通常の調査対象は口座から決めない。保有状況を調べていないことと、未保有確認済みを区別する。利益・回復・再投資の会社側座標は報告値で、普通株の将来手取りではない。簿価や資本異動の存在も、新たに買った一株の回収可能額・受給資格の証明でない。元の対象外や索引行のない会社を「割安でない」としない。全市場のTOB・権利者一覧はこの索引にはない。
+
+軽量索引のない旧公表物は `unindexed_legacy_publication`。0社や現行世代に読み替えず、必要なときだけ明示した旧レーンや個社照合へ進む。旧の単一圧縮原本では、明示した有限の出力であっても全社本文の展開が必要になる。
 
 Research・市場判断は保存/公開時刻をcutoffと照合する。一方、保有は現在台帳を事実時刻でreplayするため、過去の注文/約定の後追記で同じcutoffの対象が変わり得る。この読取を、[保存Operationの固定入力からの再開](../../.agents/skills/investment-judgment/SKILL.md#完了と再開)や当時既知の情報集合と同一視しない。
 
-## 発見根拠と三つのレーン
+## 保存済みの発見根拠と三つのレーン
 
 同じstock plan全社の[技術・市場の発見根拠（T）](../../engine/src/baibai_engine/machine_analysis/screening/policies/technical_discovery.py)、[財務・成長仮説（G）](../../engine/src/baibai_engine/machine_analysis/screening/policies/financial_growth.py)、[財務経路（F）](#rule-purpose)を併読する。T非合致や価格不足でも財務仮説を落とさず、Gを全企業の普遍的な合否にしない。旧財務上位候補や経済順位で再足切りしない。
 
 | レーン | 調べる理由 |
 | --- | --- |
-| `growth_research` | Gの利益成長/営業回復仮説。通常表示だが、正式Research採択ではない。 |
+| `growth_research` | 当時のGの利益成長/営業回復仮説。新規の既定入口や正式Research採択ではない。 |
 | `input_review` | G未確定にT/Fの根拠がある予備調査、または独立した事業仮説に基づく価格/株数入力の確認。 |
 | `alternative_financial_research` | G非合致でも別のF仮説がある。Gの既知悪化・不足を消さない。 |
 

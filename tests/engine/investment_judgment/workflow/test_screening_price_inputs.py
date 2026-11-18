@@ -85,6 +85,7 @@ def test_zero_candidate_price_inputs_reach_initial_and_fixed_research(tmp_path, 
     known = datetime(2026, 1, 8, tzinfo=UTC)
     request = ResearchRequest(text="合成の候補調査", scope="discover_new")
     context = load_generated_selection_context(
+        screening_lane="growth_research",  # 保存済み旧政策の価格契約。
         request=request,
         generation_id=None,
         screening_selection_id=None,
@@ -160,6 +161,7 @@ def test_legacy_selection_keeps_hash_payload_and_resume_without_price_summary(tm
     with closing(sqlite3.connect(runs)) as connection:
         assert connection.execute("SELECT * FROM screening_selection").fetchall() == before
     context = load_generated_selection_context(
+        screening_lane="growth_research",  # 保存済み旧政策の価格契約。
         request=original.request,
         generation_id=None,
         screening_selection_id=None,
