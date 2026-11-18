@@ -375,7 +375,8 @@ def test_only_external_pbr_model_is_a_per_share_estimate_not_a_multiple():
         ("2026-10-21", "2026-11-01", None, False),
         ("2026-09-30", "2026-11-01", None, False),
         ("2026-09-30", DAY, "15:00:01", False),
-        ("2026-09-30", DAY, "15:00:00", True),
+        ("2026-09-30", DAY, "14:00:01", False),
+        ("2026-09-30", DAY, "14:00:00", True),
         ("2026-09-30", "2026-10-19", None, True),
     ],
 )
@@ -546,3 +547,33 @@ def test_explicit_edinet_clocks_must_fit_the_financial_receipt(
         equity = _estimate(s)["company_financials"]
         assert equity["assessment"] == "context_only"
         assert "21.0%" in equity["summary"]
+
+
+@pytest.mark.parametrize("sector", ["銀行業", "機械"])
+def test_later_cash_component_cannot_qualify_earlier_reported_profit(sector):
+    s = _sel()
+    component = {"period_end": "2026-09-30", "disclosed_at": DAY, "disclosed_time": "14:00:00"}
+    cash_component = {**component, "disclosed_time": "14:00:01"}  # generation < release < research
+    basis = {"accounting_standard": "JP", "statement_basis": "consolidated"}
+    _put(s, "market_context", {"master": {"sector_33": sector, "snapshot_date": DAY}})
+    _put(
+        s,
+        "company_financials",
+        {
+            "earnings_price": {
+                "price_date": DAY,
+                "profit_ttm_yen": 100e6,
+                "earnings_yield": 0.03,
+                "profit_components": [component],
+                **basis,
+            },
+            "financial": {
+                "ocf_ttm": -100e6,
+                "ocf_ttm_period": {"end": "2026-09-30", "components": [cash_component], **basis},
+            },
+        },
+    )
+    row = _estimate(s)["company_financials"]
+    assert row["assessment"] == "supportive"
+    assert "-1.00億円" not in row["summary"]
+    assert "ocf_ttm" not in row["evidence"]

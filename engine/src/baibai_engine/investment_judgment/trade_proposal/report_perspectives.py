@@ -170,7 +170,6 @@ def _finance(
     limit: date,
     cutoff: datetime,
     cash_limit: CashFlowLimit | None,
-    received_by: datetime,
 ) -> Reading | None:
     ep, fin = _obj(f.get("earnings_price")), _obj(f.get("financial")) or legacy
     when = _day(ep.get("price_date"), limit)
@@ -252,7 +251,7 @@ def _finance(
     # An old EDINET cash-flow series has its own fiscal end; do not date it as the latest results.
     day = _day(fin.get("edinet_source_period_end"), limit)
     cf = _num(fin.get("edinet_ocf_ttm"))
-    if day and cf is not None and _edinet_cash_known(fin, limit, received_by):
+    if day and cf is not None and _edinet_cash_known(fin, limit, cutoff):
         if cash_limit is not None:
             return Reading(
                 "context_only",
@@ -644,14 +643,13 @@ def estimate_missing(
     legacy = {}
     sec = target.market(ticker)
     financial_clock = _stamp(g.get("evaluation_time"))
+    financial_day = target.model_as_of
     if version == 2:
         analysis = _obj(i.get("analysis"))
         financial_clock = _stamp(analysis.get("run_at"))
-        if (
-            _day(analysis.get("analysis_as_of"), limit)
-            and financial_clock
-            and financial_clock <= cutoff
-        ):
+        analysis_day = _day(analysis.get("analysis_as_of"), limit)
+        if analysis_day and financial_clock and financial_clock <= cutoff:
+            financial_day = min(analysis_day, financial_clock.astimezone(JST).date())
             analysis_row = _own(_at(analysis, "analyses", ticker), ticker)
             legacy = _own(analysis_row.get("metrics"), ticker)
         own = _own(_at(i, "securities_context", ticker), ticker)
@@ -696,10 +694,9 @@ def estimate_missing(
         _finance(
             f,
             legacy,
-            limit,
-            cutoff,
+            financial_day,
+            min(financial_clock, cutoff) if financial_clock else cutoff,
             cash_flow_limit(sec, ticker=ticker, as_of=target.model_as_of),
-            financial_clock or cutoff,
         ),
         _growth(growth, legacy, limit),
         _market(_obj(global_market.get("market")), limit),
