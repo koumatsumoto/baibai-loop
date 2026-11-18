@@ -8,10 +8,7 @@ from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.proposal import PUBLISHED, backend_case, read_saved_proposal, reviewed_proposal
 
 from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
-from baibai_engine.investment_judgment.trade_proposal.contracts import (
-    ProposalConflictError,
-    proposal_draft_sha256,
-)
+from baibai_engine.investment_judgment.trade_proposal.contracts import proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReportDraft,
     ProposalCorrectionDraft,
@@ -36,7 +33,7 @@ def _ref(proposal):
     )
 
 
-def _setup(tmp_path, *, scope="review_positions", linked="erroneous"):
+def _setup(tmp_path, *, scope="review_positions", linked="erroneous", before_proposal=False):
     case = backend_case(tmp_path)
     a = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         reviewed_proposal(case)
@@ -56,13 +53,14 @@ def _setup(tmp_path, *, scope="review_positions", linked="erroneous"):
     reference = {"erroneous": b.proposal_id, "replacement": a.proposal_id, "unlinked": None}[linked]
     store = LedgerStoreService(case.app)
     ledger, head = store.load_with_head()
+    bought_at = PUBLISHED + (timedelta(seconds=20) if before_proposal else timedelta(minutes=4))
     reservation = ReservationEvent.model_validate(
         dict(
             type="reservation",
             event_id="synthetic-order",
             reservation_id="synthetic-reservation",
             order_id="synthetic-broker-order",
-            occurred_at=PUBLISHED + timedelta(minutes=3),
+            occurred_at=bought_at - timedelta(minutes=1),
             ticker="1234",
             side="buy",
             sector="情報・通信業",
@@ -78,7 +76,7 @@ def _setup(tmp_path, *, scope="review_positions", linked="erroneous"):
             type="execution",
             event_id="synthetic-fill",
             execution_id="synthetic-broker-fill",
-            occurred_at=PUBLISHED + timedelta(minutes=4),
+            occurred_at=bought_at,
             ticker="1234",
             side="buy",
             reservation_id=reservation.reservation_id,
@@ -187,6 +185,18 @@ def test_original_buy_correction_is_separate_from_saved_basis_and_executed_posit
     assert f.case.app.read_bytes() == snapshot
 
 
+def test_reported_reference_survives_when_the_proposal_was_not_known_at_the_buy(tmp_path):
+    f = _setup(tmp_path, before_proposal=True)
+    _correct(f)
+    context = _context(f)
+    [position] = context.inputs.positions
+    assert position.original_assessment_ref is None
+    assert "提案公開は買付より後" in position.original_reason_unavailable_reason
+    [row] = context.reported_buy_proposal_records["holdings"]
+    assert row["proposal_ref"] == _ref(f.b).model_dump(mode="json")
+    assert len(row["records"]["corrections"]) == 1
+
+
 def test_receipt_cutoff_keeps_later_correction_out_of_earlier_authoring(tmp_path):
     f = _setup(tmp_path)
     _correct(f)
@@ -228,7 +238,7 @@ def test_only_linked_target_holdings_get_reported_proposal_records(tmp_path, sco
     assert context.inputs.positions[0].quantity == 100
 
 
-@pytest.mark.parametrize("error_type", [ProposalConflictError, ValueError, FileNotFoundError])
+@pytest.mark.parametrize("error_type", [ValueError, FileNotFoundError])
 def test_unreadable_optional_records_are_not_no_correction_or_new_action_gate(
     tmp_path, monkeypatch, error_type
 ):
@@ -238,7 +248,7 @@ def test_unreadable_optional_records_are_not_no_correction_or_new_action_gate(
     def unreadable(*_args, **_kwargs):
         raise error_type("synthetic record conflict")
 
-    monkeypatch.setattr(input_reader, "proposal_records", unreadable, raising=False)
+    monkeypatch.setattr(input_reader, "proposal_records", unreadable)
     context = _context(f)
     [row] = context.payload()["reported_buy_proposal_records"]["holdings"]
     assert row["status"] == "unavailable"

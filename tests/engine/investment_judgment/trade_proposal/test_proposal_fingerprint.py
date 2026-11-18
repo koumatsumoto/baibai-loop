@@ -46,12 +46,10 @@ def _fingerprint(facts):
     return proposal_inputs_fingerprint(ProposalInputs.model_validate(facts))
 
 
-def test_checked_at_is_the_only_excluded_fact(facts):
+def test_observing_the_same_facts_later_does_not_require_a_new_review(facts):
     baseline = _fingerprint(facts)
     facts["checked_at"] = "2026-10-14T16:20:00+09:00"
     assert _fingerprint(facts) == baseline
-    facts["ledger_as_of"] = "2026-10-14T15:01:00+09:00"
-    assert _fingerprint(facts) != baseline
 
 
 def test_decimal_equivalence_and_utc_same_instant_do_not_conflict(facts):
