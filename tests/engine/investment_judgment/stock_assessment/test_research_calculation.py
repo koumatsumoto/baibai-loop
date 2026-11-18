@@ -121,6 +121,7 @@ def test_waiting_paths_compare_same_cash_after_release_fees_and_eligible_distrib
     result = json.loads(capsys.readouterr().out)
     wait = result["waiting_paths"]
     assert wait["terminal_date"] == "2027-09-07"
+    assert wait["terminal_date_basis"] == "assessment_month_approximation_months_over_12"
     assert Decimal(wait["whole_cash_required_terminal_wealth_yen"]) == 22110
     assert Decimal(wait["cash_outside_full_limit_set_aside_yen"]) == 1081
     assert Decimal(wait["buy_now_unspent_cash_yen"]) == 80
@@ -147,6 +148,66 @@ def test_waiting_paths_compare_same_cash_after_release_fees_and_eligible_distrib
     assert {k: v for k, v in result.items() if k != "waiting_paths"} == calculate(
         CalculationInput.model_validate(raw)
     )
+
+
+@pytest.mark.parametrize(("end", "days"), [("2027-08-31", 358), ("2027-09-30", 388)])
+def test_fixed_comparison_end_uses_actual_days_without_redating_assessment(end, days):
+    raw = _waiting_input()
+    legacy = calculate(CalculationInput.model_validate(raw))
+    terms = raw["price_comparison"]["waiting_terms"]
+    terms.update(fixed_terminal_date=end, deadline=end)
+    result = calculate(CalculationInput.model_validate(raw))
+    wait = result["waiting_paths"]
+    assert wait["terminal_date_basis"] == "author_fixed_assumption_act_365"
+    assert wait["terminal_date"] == end
+    assert wait["elapsed_calendar_days"] == days
+    target = Decimal(20100) * Decimal("1.10") ** (Decimal(days) / 365)
+    assert abs(Decimal(wait["whole_cash_required_terminal_wealth_yen"]) - target) < Decimal("1e-22")
+    # Holding proceeds/distributions is an unchanged author assumption, not a dated cash receipt.
+    assert wait["cases"] == legacy["waiting_paths"]["cases"]
+    assert {k: v for k, v in result.items() if k != "waiting_paths"} == {
+        k: v for k, v in legacy.items() if k != "waiting_paths"
+    }
+
+
+@pytest.mark.parametrize(
+    ("end", "deadline", "message"),
+    [
+        ("2027-08-31", "2027-09-03", "deadline"),  # within the nominal month, after fixed cash
+        ("2027-08-07", "2027-08-07", "adjacent"),  # exactly 11 months, not a rounded 12
+        ("2027-10-07", "2027-09-07", "adjacent"),  # exactly 13 months, not a rounded 12
+        ("2026-09-07", "2027-09-07", "fixed terminal"),
+    ],
+)
+def test_waiting_does_not_use_cash_beyond_the_fixed_end_or_extrapolate(end, deadline, message):
+    raw = _waiting_input()
+    raw["price_comparison"]["waiting_terms"].update(fixed_terminal_date=end, deadline=deadline)
+    with pytest.raises(ValueError, match=message):
+        calculate(CalculationInput.model_validate(raw))
+
+
+def test_month_end_rounding_uses_leap_calendar_and_act_365_only_when_fixed():
+    raw = _waiting_input()
+    raw["input_snapshot"]["as_of"] = "2027-02-28"
+    terms = raw["price_comparison"]["waiting_terms"]
+    terms["deadline"] = "2028-02-29"
+    monthly = calculate(CalculationInput.model_validate(raw))["waiting_paths"]
+    terms["fixed_terminal_date"] = "2028-02-29"
+    fixed = calculate(CalculationInput.model_validate(raw))["waiting_paths"]
+    assert monthly["terminal_date"] == fixed["terminal_date"] == "2028-02-29"
+    assert fixed["elapsed_calendar_days"] == 366
+    assert (
+        Decimal(fixed["whole_cash_required_terminal_wealth_yen"])
+        > Decimal(monthly["whole_cash_required_terminal_wealth_yen"])
+        == 22110
+    )
+    terms["fixed_terminal_date"] = "2028-03-30"
+    assert calculate(CalculationInput.model_validate(raw))["waiting_paths"]["terminal_date"] == (
+        "2028-03-30"
+    )
+    terms["fixed_terminal_date"] = "2028-03-31"
+    with pytest.raises(ValueError, match="adjacent"):
+        calculate(CalculationInput.model_validate(raw))
 
 
 def test_one_lot_has_only_none_and_full_and_best_alternative_can_be_cash():

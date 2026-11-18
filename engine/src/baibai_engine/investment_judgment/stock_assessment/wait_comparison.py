@@ -12,6 +12,7 @@ from baibai_engine.investment_judgment.contracts import _date
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
     Projection,
     required_total_value,
+    required_value_over_years,
 )
 from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.primitives.numbers import finite_decimal
@@ -23,6 +24,7 @@ class WaitingTerms(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
     initial_cash_yen: Annotated[Decimal, Field(gt=0)]
     deadline: date
+    fixed_terminal_date: date | None = None
     lot_size: Annotated[int, Field(gt=0)]
     partial_fill_quantity: Annotated[int, Field(gt=0)] | None = None
     entry_fee_bps: Annotated[Decimal, Field(ge=0, lt=10000)]
@@ -34,6 +36,11 @@ class WaitingTerms(BaseModel):
     @classmethod
     def _deadline(cls, value: object) -> date:
         return _date(value)
+
+    @field_validator("fixed_terminal_date", mode="before")
+    @classmethod
+    def _fixed_terminal_date(cls, value: object) -> date | None:
+        return None if value is None else _date(value)
 
     @field_validator(
         "initial_cash_yen",
@@ -64,8 +71,21 @@ def waiting_paths(
     if reference_price_as_of > as_of:
         raise ValueError("waiting reference price follows the valuation date")
     end_date = add_months_clamped(as_of, horizon_months)
+    fixed = terms.fixed_terminal_date
+    if fixed is not None:
+        # 切上げ・切下げのいずれも許すが、別の整数月に達した終価は流用しない。
+        if (
+            fixed <= as_of
+            or (fixed < end_date and fixed <= add_months_clamped(as_of, horizon_months - 1))
+            or (fixed > end_date and fixed >= add_months_clamped(as_of, horizon_months + 1))
+        ):
+            raise ValueError("fixed terminal date must be within adjacent assessment month bounds")
+        end_date = fixed
     if not as_of < terms.deadline <= end_date:
-        raise ValueError("wait deadline must follow the valuation date and be within the horizon")
+        boundary = "fixed terminal date" if fixed is not None else "assessment month horizon"
+        raise ValueError(
+            f"wait deadline must follow the valuation date and not exceed the {boundary} {end_date}"
+        )
     if limit >= reference_price:
         raise ValueError("waiting comparison requires a price below the reference")
     if quantity is None or quantity <= 0 or quantity % terms.lot_size:
@@ -76,6 +96,19 @@ def waiting_paths(
     with localcontext() as context:
         context.prec = 50
         cash = terms.initial_cash_yen
+        days = (end_date - as_of).days
+        if fixed is None:
+            target_wealth = required_total_value(
+                price_yen=cash,
+                horizon_months=horizon_months,
+                required_annual_return_pct=required_annual_return_pct,
+            )
+        else:
+            target_wealth = required_value_over_years(
+                price_yen=cash,
+                years=Decimal(days) / 365,
+                required_annual_return_pct=required_annual_return_pct,
+            )
         entry_factor = 1 + terms.entry_fee_bps / 10000
         exit_factor = 1 - terms.terminal_sale_fee_bps / 10000
         now_outlay = quantity * reference_price * entry_factor
@@ -121,19 +154,19 @@ def waiting_paths(
             "assumptions": terms.model_dump(mode="json"),
             "valuation_as_of": as_of.isoformat(),
             "terminal_date": end_date.isoformat(),
+            "terminal_date_basis": (
+                "assessment_month_approximation_months_over_12"
+                if fixed is None
+                else "author_fixed_assumption_act_365"
+            ),
+            "elapsed_calendar_days": days,
             "reference_price_yen": str(reference_price),
             "reference_price_as_of": reference_price_as_of.isoformat(),
             "comparison_limit_yen": str(limit),
             "intended_quantity": quantity,
             "cash_only_terminal_wealth_yen": str(cash),
             "required_annual_return_pct": str(required_annual_return_pct),
-            "whole_cash_required_terminal_wealth_yen": str(
-                required_total_value(
-                    price_yen=cash,
-                    horizon_months=horizon_months,
-                    required_annual_return_pct=required_annual_return_pct,
-                )
-            ),
+            "whole_cash_required_terminal_wealth_yen": str(target_wealth),
             "buy_now_cash_status": "sufficient" if now_cash is not None else "insufficient",
             "buy_now_unspent_cash_yen": None if now_cash is None else str(now_cash),
             "cash_outside_full_limit_set_aside_yen": str(cash - limit_outlay),

@@ -201,6 +201,8 @@ def test_discount_limit_cannot_bypass_any_hard_gate(overrides, blocker):
         "available_cash_below_board_lot",
         "positive_limit_required",
     }
+    if blocker in {"already_held", "active_reservation_exists", "proposal_already_executed"}:
+        assert result.maximum_quantity is None
     assert (result.maximum_price_yen is not None) is current_valuation
     assert (result.current_price_above_maximum is not None) is current_valuation
 

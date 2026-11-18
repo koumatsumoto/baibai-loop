@@ -44,7 +44,7 @@ class BuyTermsEvaluation:
     hard_blockers: tuple[GateReason, ...]
     maximum_price_yen: Decimal | None
     quantity: int
-    maximum_quantity: int
+    maximum_quantity: int | None
     current_price_above_maximum: bool | None
     current_price_projection: dict[str, object] | None
     limit_price_projection: dict[str, object] | None
@@ -209,7 +209,8 @@ def evaluate_buy_terms(
         tuple(blockers),
         maximum,
         0 if blockers else quantity,
-        maximum_quantity,
+        # 現金から買える単元数を、保有・残注文・執行済みの提案で使える数量にしない。
+        None if held_quantity > 0 or active_reservation or proposal_executed else maximum_quantity,
         None if maximum is None or price is None else price > maximum,
         current_projection,
         limit_projection,

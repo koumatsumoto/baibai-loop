@@ -156,6 +156,9 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
     assert row["saved_action"] == row["current_quote_calculation"]["action"] == "sell"
     assert row["saved_order_readiness"] == "ready"
     assert row["saved_terms"] == published.items[0].terms.model_dump(mode="json")
+    assert row["saved_limit_revalidation"]["quantity"] == (
+        None if blocked else published.items[0].terms.quantity
+    )
     expected = ["active_reservation_exists"] if blocked else []
     assert [reason["code"] for reason in row["blockers"]] == expected
     assert [

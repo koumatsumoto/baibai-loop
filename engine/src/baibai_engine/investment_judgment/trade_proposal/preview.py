@@ -107,6 +107,7 @@ def _preview_buy(
     inputs: ProposalInputs,
     *,
     latest: bool,
+    order_blockers: tuple[GateReason, ...],
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
@@ -152,13 +153,13 @@ def _preview_buy(
             market_connection=market_connection,
         )
         trial = {
-            **buy_evaluation_payload(current),
+            **buy_evaluation_payload(current, order_blockers=order_blockers),
             "calculation_price_yen": str(quote.price_yen if grid is None else grid),
             "price_grid_available": grid is not None,
         }
     return {
         "current_quote_calculation": trial,
-        "saved_limit_revalidation": buy_evaluation_payload(result),
+        "saved_limit_revalidation": buy_evaluation_payload(result, order_blockers=order_blockers),
     }, blockers
 
 
@@ -344,6 +345,22 @@ def preview_current_terms(
                 else None,
                 "current_terms_warnings": [],
             }
+            order_blockers: tuple[GateReason, ...] = ()
+            if item.action in {"buy", "sell"}:
+                order_blockers = terms_unavailable_reasons(
+                    item,
+                    inputs,
+                    sqlite_path=sqlite_path,
+                    now=now,
+                    market_connection=market_connection,
+                )
+                if item.terms is None:
+                    order_blockers += (
+                        GateReason(
+                            code="order_terms_unconfirmed",
+                            message="保存条件は未確定です。条件を確定した新しい提案とReviewが必要です。",
+                        ),
+                    )
             if item.assessment_ref is not None:
                 pair = require_assessment_ref(connection, item.assessment_ref)
                 assessments[pair.assessment_id] = pair.document
@@ -366,6 +383,7 @@ def preview_current_terms(
                         pair,
                         inputs,
                         latest=latest,
+                        order_blockers=order_blockers,
                         sqlite_path=sqlite_path,
                         now=now,
                         market_connection=market_connection,
@@ -403,33 +421,11 @@ def preview_current_terms(
                         ],
                     )
             if item.action in {"buy", "sell"}:
-                blockers.extend(
-                    terms_unavailable_reasons(
-                        item,
-                        inputs,
-                        sqlite_path=sqlite_path,
-                        now=now,
-                        market_connection=market_connection,
-                    )
-                )
-                if item.terms is None:
-                    blockers.append(
-                        GateReason(
-                            code="order_terms_unconfirmed",
-                            message="保存条件は未確定です。条件を確定した新しい提案とReviewが必要です。",
-                        )
-                    )
-                elif item.terms.target_session != next_order_session(
-                    sqlite_path=sqlite_path, now=now, connection=market_connection
-                ):
-                    blockers.append(
-                        GateReason(
-                            code="target_session_not_next_available",
-                            message="保存条件の対象日が次の注文可能sessionと異なります。",
-                        )
-                    )
+                blockers.extend(order_blockers)
                 revalidation = row["saved_limit_revalidation"]
                 if isinstance(revalidation, dict):
+                    if item.action == "sell" and blockers:
+                        revalidation["quantity"] = None
                     revalidation["hard_blockers"] = [
                         reason.model_dump(mode="json") for reason in blockers
                     ]
