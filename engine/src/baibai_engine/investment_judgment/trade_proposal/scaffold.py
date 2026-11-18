@@ -74,6 +74,28 @@ def scaffold_proposal(
                     "確かめる。指定だけから買付けの成立、廃止日または支払日を決めない。"
                 ),
             )
+            lookup = context.tender_filing_references
+            refs = (
+                ()
+                if lookup is None
+                else (lookup.references_by_ticker or {}).get(outcome.ticker, ())
+            )
+            if refs:
+                # Full filing roles, registration links, dates and list receipts are in context.
+                names = "、".join(f"{ref.document_label}（{ref.doc_id}）" for ref in refs)
+                listing_review += (
+                    (
+                        f"EDINETの保存一覧に{names}。同じ買付けの提出者と対象会社を区別して本文を読み、"
+                        "その後の訂正・撤回も確認する。結果報告書の存在は成立や新規取得者への入金の証明ではない。"
+                    ),
+                )
+            else:
+                listing_review += (
+                    (
+                        "今回のEDINET保存一覧ではこの対象の関連書類を特定できない。"
+                        "公開買付けがないとはせず、現在の提出書類・発行体開示を確認する。"
+                    ),
+                )
         items.append(
             DeferItem(
                 ticker=outcome.ticker,

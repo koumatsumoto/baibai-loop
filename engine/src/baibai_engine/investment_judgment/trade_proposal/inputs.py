@@ -56,6 +56,10 @@ from baibai_engine.machine_analysis.observations.disclosures.listing_designation
     ListingDesignationCheck,
     read_listing_designations,
 )
+from baibai_engine.machine_analysis.observations.disclosures.tender_filing_lookup import (
+    TenderFilingLookup,
+    read_tender_filing_references,
+)
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
@@ -449,6 +453,7 @@ class ProposalAuthoringContext:
     saved_profit_context: dict[str, JsonValue] | None
     reported_buy_proposal_records: dict[str, JsonValue]
     listing_designations: ListingDesignationCheck
+    tender_filing_references: TenderFilingLookup | None
 
     def payload(self) -> dict[str, object]:
         return {
@@ -476,6 +481,9 @@ class ProposalAuthoringContext:
             "saved_profit_context": deepcopy(self.saved_profit_context),
             "reported_buy_proposal_records": deepcopy(self.reported_buy_proposal_records),
             "listing_designations": self.listing_designations.model_dump(mode="json"),
+            "tender_filing_references": self.tender_filing_references.model_dump(mode="json")
+            if self.tender_filing_references is not None
+            else None,
             "next_order_session": None
             if self.next_order_session is None
             else self.next_order_session.isoformat(),
@@ -625,6 +633,12 @@ def build_proposal_context(
         if context_id is not None and not isinstance(context_id, str):
             raise ProposalError("saved Market Context Assessment identity must be text")
         session = next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
+        listing = read_listing_designations(
+            market_connection,
+            tickers=tuple(target.ticker for target in scope.targets),
+            known_at=now,
+        )
+        flagged = tuple(t for t, flags in (listing.designations_by_ticker or {}).items() if flags)
         return ProposalAuthoringContext(
             operation_id,
             proposal_id,
@@ -662,9 +676,6 @@ def build_proposal_context(
             saved_discovery_context(selection, selection_hash=scope.selection_sha256),
             saved_profit_context(selection, selection_hash=scope.selection_sha256),
             _reported_buy_proposal_records(connection, scope, inputs, now=now),
-            read_listing_designations(
-                market_connection,
-                tickers=tuple(target.ticker for target in scope.targets),
-                known_at=now,
-            ),
+            listing,
+            read_tender_filing_references(market_connection, tickers=flagged, known_at=now),
         )
