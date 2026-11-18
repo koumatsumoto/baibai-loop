@@ -80,7 +80,10 @@ def page_envelope(page: JQuantsPage) -> dict[str, Any]:
     """Decode and validate native rows while preserving pagination metadata."""
     try:
         payload = json.loads(page.body, parse_float=_finite_float, parse_constant=_finite_float)
-        _require_unicode_scalars(payload)
+        # UTF-8 surrogates require either a JSON escape or a raw 0xED lead byte
+        # (json.loads accepts surrogatepass). UTF-16/32 JSON syntax contains NUL.
+        if b"\\u" in page.body or b"\xed" in page.body or b"\0" in page.body:
+            _require_unicode_scalars(payload)
     except (UnicodeDecodeError, ValueError):
         raise JQuantsAcquisitionError("J-Quants response is not JSON") from None
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):

@@ -181,6 +181,19 @@ def test_body_is_yielded_before_invalid_json_or_envelope_raises(body, message):
     assert len(session.calls) == 1
 
 
+@pytest.mark.parametrize("encoding", ["utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"])
+def test_non_utf8_pages_keep_decoded_unicode_rules(encoding):
+    template = '{"data":[{"label":"%s"}]}'
+    valid = (template % "株📈").encode(encoding)
+    good = list(receiver(Session((200, valid))).pages("master", {}))
+    assert page_records(good[0]) == [{"label": "株📈"}]
+    failed = (template % r"\ud800").encode(encoding)
+    pages = receiver(Session((200, failed))).pages("master", {})
+    assert next(pages).body == failed
+    with pytest.raises(JQuantsAcquisitionError, match="not JSON"):
+        next(pages)
+
+
 def test_finite_numbers_nulls_and_numeric_strings_keep_their_native_types():
     body = (
         b'{"data":[{"large":1.7976931348623157e308,"small":1e-309,"zero":0,'
