@@ -27,7 +27,6 @@ def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
         ev_ebitda=None,
         p_s=-1.0,
         pcfr=None,
-        eps=0.0,
         sales_ttm=0.0,
         ocf_ttm=None,
     )
@@ -37,7 +36,6 @@ def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
     assert payload["per_trailing"] is None
     assert payload["pbr"] == 0.0
     assert payload["p_s"] == -1.0
-    assert payload["eps"] == 0.0
     assert payload["sales_ttm"] == 0.0
     assert payload["ocf_ttm"] is None
     assert payload["earnings_forecast_source"] is None

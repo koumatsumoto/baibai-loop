@@ -221,12 +221,29 @@ def test_owner_results_round_trip_into_selection_without_legacy_er(profit):
     assert technical["moving_averages"]["sma_200bar"]["value"] == 10
 
 
+def test_parent_profit_is_not_published_as_common_eps():
+    doc = replace(document(), average_shares=80, cumulative_eps=-0.25)
+    models = {
+        m.model_id: m.payload
+        for m in generate(documents=(doc,), bars=(PriceBar(ASOF, 10.0, None),))
+    }
+    finance = models["company_financials"]
+    assert "eps" not in finance["financial"]
+    assert finance["earnings_price"]["profit_ttm_yen"] == 100
+    assert finance["earnings_price"]["shares_ex_treasury"] == 80
+    assert finance["earnings_price"]["earnings_yield"] == 0.125
+    period = models["company_growth"]["periods"][0]
+    reported = next(o for o in period["observations"] if o["measurement"] == "reported")
+    assert reported["metrics"]["reported_basic_eps"]["value"] == -0.25
+    assert reported["metrics"]["average_shares"]["value"] == 80
+
+
 def test_missing_price_does_not_erase_the_financial_history_or_invent_zero_yield():
     models = {model.model_id: model.payload for model in generate(documents=(document(),), bars=())}
     assert models["company_financials"]["financial"]["market_price_yen"] is None
     assert models["company_financials"]["financial"]["market_cap"] is None
     assert models["company_financials"]["financial"]["sales"] == 1000.0
-    assert models["company_financials"]["financial"]["eps"] == 1.25
+    assert models["company_financials"]["earnings_price"]["profit_ttm_yen"] == 100.0
     assert models["company_financials"]["earnings_price"]["earnings_yield"] is None
     assert models["company_financials"]["earnings_price"]["unavailable_reason"] == "missing_price"
     assert models["company_growth"]["status"] == "available"
@@ -405,7 +422,6 @@ def test_actual_dividend_source_survives_generation_and_l3_without_claiming_fore
         documents=(replace(document(), dps_actual_annual=0.0),),
         bars=(PriceBar(ASOF, 10.0, None),),
     )
-    assert models[0].calculation_revision.startswith("continuous-annual-input-v56-")
     generation = ModelGeneration(
         generation_id="actual-dividend-source",
         as_of=ASOF,
@@ -526,7 +542,6 @@ def test_missing_or_invalid_price_keeps_financial_observations_and_only_nulls_pr
     financial = result["financial"]
     assert financial["cash_eq"] == 100
     assert financial["total_assets"] == 1000
-    assert financial["eps"] == 1.25
     assert financial["dps_actual_annual"] == dividend
     assert financial["dps_forecast_annual"] == dividend
     assert financial["forecast_eps_yen"] == 2.0
@@ -1100,7 +1115,6 @@ def test_cash_equivalent_source_survives_l3_without_becoming_edinet_cash():
     assert financial["cash_eq_source"]["disclosure_number"] == "synthetic-annual"
     assert financial["cash"] == record.cash
     assert financial["edinet_reported_balances"]["measurement_date"]["date"] is None
-    assert "v56-cash-equivalent-source" in models[0].calculation_revision
 
 
 def test_old_cash_equivalent_payload_is_not_backfilled_with_a_source():

@@ -108,7 +108,6 @@ def test_missing_correction_does_not_revive_old_pdf_or_legacy_ttm():
     financial = result[0].payload
     assert financial["financial"]["pdf_selection"]["blocks_legacy_ttm"]
     assert financial["earnings_price"]["profit_ttm_yen"] is None
-    assert financial["financial"]["eps"] is None
     reader = CompanyGrowthReader(result[1].payload)
     assert (
         metric_value(reader.observation(reader.latest_period, "annual_ttm"), "parent_profit")
@@ -296,8 +295,7 @@ def test_models_share_selected_ttm_and_restated_quarter_comparison(bounded_read)
     assert result["earnings_price"]["earnings_yield"] == pytest.approx(
         3_027_000_000 / 99_000_000_000
     )
-    assert result["financial"]["eps"] == pytest.approx(3_027_000_000 / 99_000_000)
-    assert result["financial"]["per_trailing"] == pytest.approx(1000 / result["financial"]["eps"])
+    assert result["financial"]["per_trailing"] == pytest.approx(99_000_000_000 / 3_027_000_000)
     assert result["financial"]["ttm_quality_per_trailing"] == "approximated"
     assert result["financial"]["sales_ttm"] == 353_037_000_000
     assert result["financial"]["operating_profit_ttm"] == 11_386_000_000

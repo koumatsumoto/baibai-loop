@@ -9,6 +9,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from baibai_engine.investment_judgment.cash_flow_use import CashFlowLimit, cash_flow_limit
+from baibai_engine.machine_analysis.models.company_financials import REPORTED_PROFIT_BASIS
 from baibai_engine.primitives.time import JST
 
 Row = dict[str, Any]
@@ -185,12 +186,23 @@ def _finance(
         ends = [_day(v.get("period_end"), limit) for v in components]
         last = max((v for v in ends if v), default=None) if all(ends) else None
         term = f"{last}までの12か月" if last else "直近12か月・実績期末未記録"
+        statement = ep.get("statement_basis")
+        profit_name = (
+            "親会社帰属利益"
+            if statement == "consolidated"
+            else "単体純利益"
+            if statement == "nonconsolidated"
+            else "報告純利益"
+        )
+        allocation = (
+            "、普通株への配分前" if f.get("earnings_basis") == REPORTED_PROFIT_BASIS else ""
+        )
         values = [
             (
                 profit,
                 (
-                    f"実績純利益（{term}）{profit / 1e8:+,.2f}億円、"
-                    f"{when}の価格基準の利益利回り{yld:.1%}"
+                    f"{profit_name}（{term}{allocation}）{profit / 1e8:+,.2f}億円、"
+                    f"{when}の時価総額比{yld:.1%}"
                 ),
             )
         ]
