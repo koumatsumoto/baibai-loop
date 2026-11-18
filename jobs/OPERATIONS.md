@@ -242,7 +242,7 @@ jobs/scripts/r2_transfer.sh pull-app
 jobs/scripts/publish.sh
 ```
 
-publish.shは引数なし。台帳preflight→取得世代への条件付きbackup/PUT→次回ETag記録→Web生成dispatchの順。時価/quote不足と取引保存障害を分け、DBだけの世代交換・未知世代の現HEAD補完はしない。backupは実行JST日の日別keyを同日置換する。R2_APP_BACKUP_PRUNE=skipでも同日置換は止まらないため、保全/置換の依頼範囲を確認する。
+publish.shは引数なし。台帳preflight→取得世代への条件付きbackup/PUT→次回ETag記録→Web生成dispatchの順。時価/quote不足と取引保存障害を分け、DBだけの世代交換・未知世代の現HEAD補完はしない。App backupは元世代を読戻して実行JST日＋内容SHAのkeyへcreate-onlyで保存し、読戻し照合後に本体PUTへ進む。同日でも既存backupを置換しない。同内容の既存keyは本文一致時だけ再利用し、当日の日別keyも元ETag/sizeと本文が一致するなら重複保存しない。競合・拒否・応答不明は本体PUT前に停止する。従来の日別keyも残す。通常pruneは直近14個のbackup日付に属する全世代を保持し、永久削除をしない反映ではR2_APP_BACKUP_PRUNE=skipを指定する。保存量は日数だけでなく反映回数に増え、元Appとbackupの読戻し通信・一時容量も必要になる。正規の単一PUT由来ETagを持たない旧Appはこの経路で更新せず別途確認する。
 
 保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。PUT後の記録失敗で旧DBを再送しない。dispatchだけ失敗/不明ならActionsを確認し、run未作成時だけcloud-materializeを再dispatchする。publish.sh全体は繰り返さない。通常はcurrent schemaだけを開く。schema29は下記の切替期間だけ扱う。
 
@@ -257,7 +257,7 @@ publish.shは引数なし。台帳preflight→取得世代への条件付きback
 uv run python -m tools.enable_share_conversions --source <SCHEMA29_COPY> --destination <NEW_SCHEMA30_COPY>
 ```
 
-[通常のapplication反映](#application-db-を反映する)で同日backupの置換条件も確認し、取得ETagへの条件付きPUTを使う。並行writerが先なら作業copyを保持して新正本から再準備し、移行が先なら旧ETagのwriterを拒否する。応答不明は公開状態を照合し、盲再送しない。
+[通常のapplication反映](#application-db-を反映する)でbackup保全とprune条件も確認し、取得ETagへの条件付きPUTを使う。並行writerが先なら作業copyを保持して新正本から再準備し、移行が先なら旧ETagのwriterを拒否する。応答不明は公開状態を照合し、盲再送しない。
 
 同じ公開ETagのfresh pullで30・保存結果を読戻し、通常記帳・daily/materializeの成功、全writer更新、残る29作業copy/旧pending runの扱いを確認した後、29のread/write許容・ledger書込guard・一回tool・専用test/説明を別PRでまとめて撤去する。fixture成功や経過時間で代用しない。旧29は当時のcodeと組で退避保持し、30に新記録が入った後は29へ戻さず前向き修正する。
 

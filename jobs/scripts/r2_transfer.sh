@@ -11,7 +11,7 @@ generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
 copy_read_timeout=300
 # The machine receipt prevents a partial sequential push from looking like a coherent pair.
-# The non-regenerable application store keeps 14 daily backups; same-day pushes replace one.
+# The non-regenerable application store keeps all generations from 14 backup dates.
 app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
 machine_bundle_keys=(market.sqlite runs.sqlite)
@@ -532,13 +532,10 @@ pull_keys() {
 }
 
 backup_key_for() {
-  # Dated for the application store and one fixed backup for each machine store.
+  # One fixed backup for each machine store; App generations have their own owner.
   # Machine data is derived/acquired, but expired upstream history may not be
   # recoverable; this backup is recovery protection, not proof of rebuildability.
-  case "$1" in
-    baibai.sqlite) printf '%s.bak-%s\n' "$1" "$(TZ=Asia/Tokyo date +%Y%m%d)" ;;
-    *) printf '%s.bak\n' "$1" ;;
-  esac
+  printf '%s.bak\n' "$1"
 }
 
 prune_app_backups() {
@@ -557,17 +554,21 @@ prune_app_backups() {
     if [[ "${key}" == "None" ]]; then
       continue
     fi
-    if [[ ! "${key}" =~ ^baibai\.sqlite\.bak-[0-9]{8}$ ]]; then
+    if [[ ! "${key}" =~ ^baibai\.sqlite\.bak-[0-9]{8}(-[0-9a-f]{64})?$ ]]; then
       printf 'leaving an unrecognised key under the application backup prefix: %s\n' \
         "${key}" >&2
       continue
     fi
     generations+=("${key}")
   done
-  local index=0
+  local index=0 previous_day="" day
   while read -r key; do
     [[ -n "${key}" ]] || continue
-    index=$((index + 1))
+    day="${key:18:8}"
+    if [[ "${day}" != "${previous_day}" ]]; then
+      index=$((index + 1))
+      previous_day="${day}"
+    fi
     if [[ ${index} -le ${app_backup_generations} ]]; then
       continue
     fi
@@ -584,6 +585,11 @@ backup_remote_key() {
   # Retain the prior generation: some source history cannot be fetched again.
   # R2 needs direct CopyObject rather than `aws s3 cp`; large copies need a longer timeout.
   local key="$1" expected_version="${2:-}"
+  if [[ "${key}" == "baibai.sqlite" ]]; then
+    (cd "${repo_root}" && uv run python -m baibai_jobs.maintenance.application_backup \
+      --bucket "${stores_bucket}" --expected-etag "${expected_version}")
+    return
+  fi
   if remote_object_exists "${key}"; then
     local backup_key
     backup_key="$(backup_key_for "${key}")"

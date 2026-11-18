@@ -5,7 +5,6 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
 from tests.helpers.r2_transfer import (
@@ -647,14 +646,12 @@ def test_application_store_push_keeps_a_dated_generation(tmp_path: Path) -> None
     single `.bak` is a single undo: a damaged store pushed twice has already spent it."""
 
     completed, commands = _push_app(tmp_path)
-    today = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y%m%d")
 
     assert completed.returncode == 0, completed.stderr
-    backups = [command for command in commands if command.startswith("s3api copy-object ")]
+    backups = [command for command in commands if command.startswith("app-backup ")]
     assert len(backups) == 1
-    assert f"--key baibai.sqlite.bak-{today}" in backups[0]
-    # Same-day pushes land on the same key, so the kept set is one generation per day.
-    assert "--copy-source baibai-stores/baibai.sqlite" in backups[0]
+    assert '--expected-etag "etag-stable"' in backups[0]
+    assert "--bucket baibai-stores" in backups[0]
 
 
 @pytest.mark.parametrize("failure", ["unknown", "empty", "changed", "put-race"])
@@ -701,7 +698,7 @@ def test_application_push_records_its_own_put_generation(tmp_path: Path) -> None
     assert len(puts) == 1
     assert "--key baibai.sqlite " in puts[0]
     assert '--if-match "etag-stable"' in puts[0]
-    assert any('--copy-source-if-match "etag-stable"' in command for command in commands)
+    assert any('--expected-etag "etag-stable"' in command for command in commands)
     assert (tmp_path / "r2-generations/baibai.sqlite.etag").read_text() == '"etag-put-1"\n'
 
 
@@ -785,7 +782,7 @@ def test_application_store_push_can_skip_backup_pruning(tmp_path: Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "application backup pruning skipped" in completed.stdout
-    assert any(command.startswith("s3api copy-object ") for command in commands)
+    assert any(command.startswith("app-backup ") for command in commands)
     assert any(command.startswith("s3api put-object ") for command in commands)
     assert not any("list-objects-v2" in command for command in commands)
     assert not any("delete-object" in command for command in commands)
@@ -1305,7 +1302,6 @@ def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:
     [
         ("pull-machine", "machine-manifest.json"),
         ("push-machine", "lake/pointers/market/current.json"),
-        ("push-app", "baibai.sqlite"),
         ("seed-all", "market.sqlite"),
     ],
 )
@@ -1980,3 +1976,39 @@ def test_transfer_compacts_only_runs_and_never_uploads_failed_snapshots(tmp_path
     assert '--if-match "etag-put-1"' in writes[1]
     assert (state / "generation-market.sqlite").read_bytes() == b"xx"
     assert {name: (state / name).read_bytes() for name in before} == before
+
+
+def test_application_backup_failure_stops_before_live_put_and_prune(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["APP_BACKUP_FAKE_EXIT"] = "1"
+    env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
+    (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text('"etag-stable"\n')
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "push-app"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    commands = _transfer_commands(log)
+    assert any(command.startswith("app-backup ") for command in commands)
+    assert not any(
+        "put-object" in command or "delete-object" in command or "list-objects" in command
+        for command in commands
+    )
+
+
+def test_application_retention_counts_dates_and_keeps_all_versions_of_retained_day(tmp_path):
+    dates = [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)]
+    extra = [f"baibai.sqlite.bak-202608{day:02d}-{'a' * 64}" for day in (1, 3, 16)]
+    result, commands = _push_app(tmp_path, listed="\t".join(dates + extra))
+    assert result.returncode == 0, result.stderr
+    deleted = [
+        command.split("--key ")[1].split(" ")[0]
+        for command in commands
+        if command.startswith("s3api delete-object ")
+    ]
+    assert set(deleted) == {dates[0], dates[1], extra[0]}
