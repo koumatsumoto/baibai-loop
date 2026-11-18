@@ -11,7 +11,7 @@ from pathlib import Path
 from baibai_engine.data_collection.receipts.native_sources.planning_inputs import (
     validate_planning_input,
 )
-from baibai_engine.storage.objects.json import put_private, read_private
+from baibai_engine.storage.objects.json import put_private, read_write_once_private
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
@@ -117,7 +117,7 @@ def save_handoff(
         value["dependencies"] = save_dependencies(store, prefix, directory)
     manifest = json.dumps(value, sort_keys=True).encode()
     manifest_key = prefix + "/handoff.json"
-    prior = read_private(store, manifest_key)
+    prior = read_write_once_private(store, manifest_key)
     if prior is None:
         put_private(store, manifest_key, manifest, previous_etag=None)
     elif prior.payload != manifest:
@@ -133,9 +133,14 @@ def load_handoff(
     market: bool = False,
     namespace: str | None = None,
     input_group: str | None = None,
+    expected_manifest_sha256: str | None = None,
 ) -> None:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
-    saved = read_private(store, prefix + "/handoff.json")
+    saved = read_write_once_private(store, prefix + "/handoff.json")
+    if expected_manifest_sha256 is not None and (
+        saved is None or hashlib.sha256(saved.payload).hexdigest() != expected_manifest_sha256
+    ):
+        raise LakePublishError("fixed source handoff manifest changed")
     if saved is None:
         raise LakePublishError("source private handoff is not complete")
     manifest = json.loads(saved.payload)

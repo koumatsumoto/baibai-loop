@@ -12,7 +12,7 @@ from typing import Protocol
 
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES as ARTICLE_SOURCES
 from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
-from baibai_engine.storage.objects.json import put_private, read_private
+from baibai_engine.storage.objects.json import put_private, read_write_once_private
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
@@ -51,7 +51,7 @@ def available_handoffs(
         source_name = source or f"{namespace}-unreadable"
         digest = ""
         try:
-            saved = read_private(store, key)
+            saved = read_write_once_private(store, key)
             if saved is None:
                 raise ValueError("listed handoff is missing")
             digest = hashlib.sha256(saved.payload).hexdigest()
@@ -66,7 +66,7 @@ def available_handoffs(
             if started.tzinfo is None:
                 raise ValueError("handoff clock has no timezone")
             date.fromisoformat(report["asof"])
-            terminal = read_private(
+            terminal = read_write_once_private(
                 store,
                 stage_prefix(stage_id, market=market, namespace=namespace) + "/integrated.json",
             )
@@ -162,8 +162,7 @@ def available_handoffs(
             for key, _ in store.iter_objects(f"coordination/{selected_namespace}/{selection}")
             if key.endswith("/handoff.json")
         )
-    # Private reads verify each object before and after downloading; independent
-    # receipts do not require serial network round trips. Merge results in listing order.
+    # Only create-once manifests and terminal markers are read here. Merge in listing order.
     with ThreadPoolExecutor(max_workers=8) as workers:
         for entry, mark, blocked in workers.map(inspect, keys):
             if entry is not None:
@@ -207,12 +206,14 @@ def available_handoffs(
 def download_fixed(store: ObjectStore, entry: dict[str, object], directory: Path) -> None:
     stage_id, market = str(entry["stage_id"]), bool(entry["market"])
     namespace = str(entry["namespace"]) if entry.get("namespace") else None
-    saved = read_private(
-        store, stage_prefix(stage_id, market=market, namespace=namespace) + "/handoff.json"
+    load_handoff(
+        store,
+        stage_id,
+        directory,
+        market=market,
+        namespace=namespace,
+        expected_manifest_sha256=str(entry["manifest_sha256"]),
     )
-    if saved is None or hashlib.sha256(saved.payload).hexdigest() != entry["manifest_sha256"]:
-        raise LakePublishError("fixed source handoff manifest changed")
-    load_handoff(store, stage_id, directory, market=market, namespace=namespace)
 
 
 def seal_integrated(
@@ -242,7 +243,7 @@ def seal_integrated(
         },
         sort_keys=True,
     ).encode()
-    prior = read_private(store, key)
+    prior = read_write_once_private(store, key)
     if prior is None:
         put_private(store, key, value, previous_etag=None)
     elif json.loads(prior.payload)["manifest_sha256"] != entry["manifest_sha256"]:
