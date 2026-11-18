@@ -45,7 +45,7 @@ _CONCEPTS: dict[ComparativeMetric, tuple[str, ...]] = {
     "operating_profit": ("OperatingProfitLossIFRS",),
     "parent_profit": ("ProfitLossAttributableToOwnersOfParentIFRS",),
 }
-_NON_IFRS = "comparison_accounting_standard_non_ifrs"
+CONFIRMED_NON_IFRS = "comparison_accounting_standard_non_ifrs"
 
 
 def _finite_amount(value: str) -> bool:
@@ -70,7 +70,10 @@ def _prior_period_matches(
 
 def reusable_comparison_seed(value: dict[str, JsonValue]) -> FilingComparisons | None:
     """成功または既知の非IFRSだけ。旧/不完全形式や未確定の失敗を補わない。"""
-    if value.get("extractor_revision") != REVISION or value.get("reason") not in (None, _NON_IFRS):
+    if value.get("extractor_revision") != REVISION or value.get("reason") not in (
+        None,
+        CONFIRMED_NON_IFRS,
+    ):
         return None
     try:
         seed = FilingComparisons.model_validate(value)
@@ -78,7 +81,7 @@ def reusable_comparison_seed(value: dict[str, JsonValue]) -> FilingComparisons |
         return None
     if seed.model_dump(mode="json") != value or seed.source_sha256 is None:
         return None
-    if seed.reason == _NON_IFRS:
+    if seed.reason == CONFIRMED_NON_IFRS:
         return (
             seed
             if seed.accounting_standard is None
@@ -268,7 +271,7 @@ def extract_comparisons(
             raise SourceFormatError("comparison_security_mismatch")
         standard = _dei(instance, "AccountingStandardsDEI")
         if standard in {"Japan GAAP", "US GAAP"}:
-            raise SourceFormatError(_NON_IFRS)
+            raise SourceFormatError(CONFIRMED_NON_IFRS)
         if standard != "IFRS":
             raise SourceFormatError("comparison_accounting_standard_unsupported")
         scope = _dei(instance, "WhetherConsolidatedFinancialStatementsArePreparedDEI")

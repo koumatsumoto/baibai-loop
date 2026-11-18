@@ -1,4 +1,4 @@
-"""任意seedはXML解析だけを省き、今回の原本・文書選択を置き換えない。"""
+"""金額の根拠と確定非対象を分け、当日の文書状態・原本の選択を保つ。"""
 
 import copy
 import hashlib
@@ -71,7 +71,7 @@ def read(monkeypatch):
 @pytest.mark.parametrize("route", ["native", "sql"])
 @pytest.mark.parametrize("day_change", [0, 1])
 @pytest.mark.parametrize("standard", ["IFRS", "Japan GAAP", "US GAAP"])
-def test_eligible_seed_skips_xml_but_keeps_original_get_and_exact_native_evidence(
+def test_eligible_seed_preserves_evidence_and_reads_only_the_required_bodies(
     read, route, day_change, standard
 ):
     replacement = {b">IFRS<": f">{standard}<".encode()}
@@ -93,7 +93,7 @@ def test_eligible_seed_skips_xml_but_keeps_original_get_and_exact_native_evidenc
         known_at=datetime(2026, 10, 31, tzinfo=UTC),
     )
     assert counts == {"extract": 0, "xml": 0}
-    assert len(gets) == (2 if route == "native" else 0)
+    assert len(gets) == (2 if route == "native" and standard == "IFRS" else 0)
     assert serialized(warm) == serialized(cold)
     if standard == "IFRS":
         assert warm["436A"][0].pairs[0].current.amount == "3525761000"
@@ -263,8 +263,9 @@ def test_current_document_reason_overrides_old_seed_without_skipping_get(read, b
     assert result["436A"][0].source_sha256 == hashlib.sha256(body).hexdigest()
 
 
-def test_parent_and_family_membership_are_recomputed_from_current_documents(read):
-    bodies = [("S100FIX", archive())]
+@pytest.mark.parametrize("standard", ["IFRS", "Japan GAAP"])
+def test_parent_and_family_membership_are_recomputed_from_current_documents(read, standard):
+    bodies = [("S100FIX", archive(replace={b">IFRS<": f">{standard}<".encode()}))]
     cold, _, _ = read([metadata(), correction()], bodies)
     seeds = [value.model_dump(mode="json") for value in cold["436A"]]
     documents = [
@@ -283,7 +284,7 @@ def test_parent_and_family_membership_are_recomputed_from_current_documents(read
 @pytest.mark.parametrize("damage", ["missing", "changed"])
 @pytest.mark.parametrize("blocked", [False, True])
 @pytest.mark.parametrize("standard", ["IFRS", "Japan GAAP"])
-def test_warm_seed_cannot_hide_missing_or_changed_retained_native_body(
+def test_only_unchanged_non_ifrs_result_is_independent_of_the_physical_copy(
     read, damage, blocked, standard
 ):
     body = archive(replace={b">IFRS<": f">{standard}<".encode()})
@@ -296,13 +297,17 @@ def test_warm_seed_cannot_hide_missing_or_changed_retained_native_body(
     else:
         store.store_object(key, b"changed original")
     document = {**metadata(), "xbrlFlag": "0"} if blocked else metadata()
+    seeds = [cold["436A"][0].model_dump(mode="json")]
+    if standard != "IFRS" and not blocked:
+        result, counts, gets = read([document], bodies, seeds=seeds, fixed=(store, fixed))
+        assert serialized(result) == serialized(cold)
+        assert counts == {"extract": 0, "xml": 0}
+        assert not gets
+        with pytest.raises(LakePublishError, match="missing or changed"):
+            fixed.read_xbrl_zip("S100YRSR")
+        seeds = []  # cold rebuild also opens the physical copy.
     with pytest.raises(LakePublishError, match="missing or changed"):
-        read(
-            [document],
-            bodies,
-            seeds=[cold["436A"][0].model_dump(mode="json")],
-            fixed=(store, fixed),
-        )
+        read([document], bodies, seeds=seeds, fixed=(store, fixed))
     assert store.get_keys == [key]
 
 
@@ -395,7 +400,7 @@ def test_new_correction_and_changed_fixed_body_are_reparsed_without_mutating_old
     expected, _, _ = read(documents, bodies)
     result, counts, gets = read(documents, bodies, seeds=seeds)
     assert counts == {"extract": 1, "xml": 1}
-    assert len(gets) == 2
+    assert len(gets) == 1
     assert serialized(result) == serialized(expected)
     assert result["436A"][0] == cold["436A"][0]
     assert result["436A"][1].reason is None
@@ -410,8 +415,27 @@ def test_new_correction_and_changed_fixed_body_are_reparsed_without_mutating_old
     assert seeds == saved
 
 
-def test_non_ifrs_seed_does_not_suppress_transport_failure_and_next_retry(read, monkeypatch):
-    body = archive(replace={b">IFRS<": b">Japan GAAP<"})
+def test_non_ifrs_membership_preserves_only_its_actual_fixed_document_family(read):
+    body = archive(replace={b">IFRS<": b">US GAAP<"})
+    cold, _, _ = read([metadata()], [("S100YRSR", body)])
+    seed = cold["436A"][0].model_dump(mode="json")
+    family = [metadata(), correction()]
+    expected, _, _ = read(family, [("S100YRSR", body)])
+    result, _, gets = read(family, [("S100YRSR", body)], seeds=[seed])
+    assert not gets
+    assert serialized(result) == serialized(expected)
+    assert result["436A"][1].reason == "comparison_archive_not_received"
+    # Same id and even the same bytes on the unrelated CSV route are not a type=1 receipt.
+    result, counts, gets = read(
+        family, [], seeds=[seed], fixed=fixed_archives({("S100YRSR", 5): body})
+    )
+    assert result == {}
+    assert counts == {"extract": 0, "xml": 0}
+    assert not gets
+
+
+def test_numeric_seed_does_not_suppress_transport_failure_and_next_retry(read, monkeypatch):
+    body = archive()
     bodies = [("S100YRSR", body)]
     cold, _, _ = read([metadata()], bodies)
     seeds = [cold["436A"][0].model_dump(mode="json")]
