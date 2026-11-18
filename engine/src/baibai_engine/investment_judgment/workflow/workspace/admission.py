@@ -24,10 +24,16 @@ from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 
+def read_workspace_operation(
+    manifest: Mapping[str, object], *, db_path: Path | None
+) -> OperationSession:
+    return OperationService(db_path).get(_manifest_operation_id(manifest))
+
+
 def workspace_selection(
     manifest: Mapping[str, object], *, db_path: Path | None, active: bool = False
 ) -> ResearchSelection:
-    operation = OperationService(db_path).get(_manifest_operation_id(manifest))
+    operation = read_workspace_operation(manifest, db_path=db_path)
     return validate_workspace_selection(manifest, operation=operation, active=active)
 
 

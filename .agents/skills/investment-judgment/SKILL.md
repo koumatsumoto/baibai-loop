@@ -101,6 +101,8 @@ lookupは元lineageや旧release全体の再読でない。Research source.ref�
 
 通常の候補でも公開買付け・株式併合・監理指定があれば、継続保有時の価値をそのまま使わず、会社・取引所の原典で買い手に残る権利と入金時期を確認する。提案執筆の保存原本・現在上限の読み分けは[監理・整理と買値の根拠](../../../docs/reference/trade-proposal.md#listing-and-price-basis)を参照。
 
+同じ会社の同日評価が既にあるときは、先に元の評価と独立Reviewを確認する。今回の問い・権利・価格をなお支え、新しい重要材料がなければ、草案を作り直さず同じpairを下記の`record-assessment`でこのOperationへ明示的に結ぶ。保有と新規で資金配分の結論が同じとは限らない。事業や価格条件・取得権が変われば同日でも再評価し、別の日の古い判断を当日評価に読み替えない。
+
 scaffoldの`--from-research-id`は元日付/ID/hash付き素材コピー、`--from-assessment-id`はAssessmentの差分refresh。併用せず、コピーを評価済みとしない。
 
 ### 途中成果の保存と再訪
@@ -113,7 +115,7 @@ as_ofは情報境界で全内容の再検証日でない。元source/fact時刻�
 
 ## Trade Proposal
 
-`investment-judgment status --workspace <WORKSPACE> --db <APP_DB>`とOperationを読む。評価保存とOperation束縛は別transactionで、再利用/束縛失敗だけなら`operation --db <APP_DB> --format json record-assessment <OPERATION_ID> --assessment-id <ID>`で回復する。
+`investment-judgment status --workspace <WORKSPACE> --db <APP_DB>`とOperationを読む。評価保存とOperation束縛は別transactionで、再利用/束縛失敗だけなら`operation --db <APP_DB> --format json record-assessment <OPERATION_ID> --assessment-id <ID>`で回復する。別の作業場で再開して草案がなくても、`status`はこのOperationに結ばれた査読済み原本、または記録した未完理由を示す。原本が読めなければ参照を確認し、最新の同銘柄に差し替えない。既に執筆中の草案があれば、その草案の審査状態を優先して表示する。
 
 未完対象だけを記録し、自動補充しない。
 

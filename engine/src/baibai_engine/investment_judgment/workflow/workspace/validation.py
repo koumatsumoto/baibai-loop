@@ -76,6 +76,7 @@ def _review_draft_path(workspace: Path, ticker: str) -> Path:
 class _CaseDraft:
     """One read of authored inputs, retaining raw payloads for the canonical writer."""
 
+    has_authored_files: bool
     assessment_payload: dict[str, object]
     review_payload: dict[str, object]
     assessment: StockAssessmentDocument | None
@@ -93,7 +94,9 @@ def _read_case(workspace: Path, ticker: str, asof: date) -> _CaseDraft:
     review_errors: list[str] = []
     assessment_path = directory / "assessment-draft.yaml"
     review_path = _review_draft_path(workspace, ticker)
-    if not assessment_path.exists():
+    has_assessment = assessment_path.exists(follow_symlinks=False)
+    has_review = review_path.exists(follow_symlinks=False)
+    if not has_assessment:
         assessment_errors.append("assessment draft missing")
     else:
         try:
@@ -101,7 +104,7 @@ def _read_case(workspace: Path, ticker: str, asof: date) -> _CaseDraft:
             assessment = StockAssessmentDocument.model_validate(assessment_payload)
         except (OSError, yaml.YAMLError, ValueError, ResearchWorkspaceDataError) as error:
             assessment_errors.append(str(error))
-    if not review_path.exists():
+    if not has_review:
         review_errors.append("review draft missing")
     else:
         try:
@@ -121,7 +124,13 @@ def _read_case(workspace: Path, ticker: str, asof: date) -> _CaseDraft:
         ):
             review_errors.append("review is stale for the current assessment core hash")
     return _CaseDraft(
-        assessment_payload, review_payload, assessment, review, assessment_errors, review_errors
+        has_assessment or has_review,
+        assessment_payload,
+        review_payload,
+        assessment,
+        review,
+        assessment_errors,
+        review_errors,
     )
 
 
