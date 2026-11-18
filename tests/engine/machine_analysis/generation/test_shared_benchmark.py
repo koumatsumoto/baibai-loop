@@ -434,7 +434,7 @@ def test_sma75_fixed_generation_survives_correction_without_legacy_backfill(tmp_
     path = source(tmp_path, 300)
     current = generate(path, tickers=("1001",))
     technical = current.result("technical_analysis", "1001")
-    revision = "sma20-50-75-200-bb20-wilder-rsi14-price-path-v5-short-recovery"
+    revision = "sma20-50-75-200-bb20-wilder-rsi14-price-path-v6"
     assert technical.calculation_revision == technical.payload["calculation_revision"] == revision
     assert technical.payload["moving_averages"]["sma_75bar"] == {
         "status": "available",

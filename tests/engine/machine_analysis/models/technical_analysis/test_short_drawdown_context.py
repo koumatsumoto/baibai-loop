@@ -65,7 +65,6 @@ def test_recent_recovery_then_failure_is_not_a_recovered_long_trend():
     assert long == close_path_statistics({bar.traded_at: bar for bar in bars}, window=WINDOW)
     assert long["drawdown_episodes"]["current"]["peak_price"] == 200
     assert long["drawdown_episodes"]["latest_recovered"] is None
-    assert result.payload["annotation"]["thresholds"] == {"R1": -0.08, "R20": -0.20, "G60": -0.20}
     assert set(result.payload["observations"]) == {"R1", "R20", "G60", "G252"}
     assert [pair.observation_ref for pair in result.comparison_pairs] == ["R1", "R20", "G60"]
 

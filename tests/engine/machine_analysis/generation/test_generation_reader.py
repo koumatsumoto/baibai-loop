@@ -172,7 +172,14 @@ def test_shared_price_path_matches_single_query_and_keeps_old_mc_and_adv(
     assert reader.call_count == 1
     technical = result.result("technical_analysis", "7800").payload
     assert technical == technical_analysis(path, ticker="7800", as_of=as_of)
-    assert technical["price_path"]["annotation"]["matched_refs"] == ["R1", "R20", "G60"]
+    price_path = technical["price_path"]
+    assert "annotation" not in price_path
+    assert {ref: item["value"] for ref, item in price_path["observations"].items()} == {
+        "R1": -0.25,
+        "R20": -0.25,
+        "G60": -0.25,
+        "G252": -0.25,
+    }
     market = result.result("market_context", "7800").payload
     assert market["price"]["avg_turnover_20d_oku"] == 1
     assert market["price"]["return_20d"] == -0.25
