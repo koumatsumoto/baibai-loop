@@ -31,6 +31,7 @@ from baibai_engine.investment_judgment.stock_assessment.wait_comparison import (
     waiting_paths,
 )
 from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
+from baibai_engine.primitives.time import JST
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 
@@ -255,6 +256,13 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
     if inputs.price_comparison is not None:
         result_payload["price_comparison_numbers"] = _price_comparison(inputs)
         if terms := inputs.price_comparison.waiting_terms:
+            if price_fact.observed_at is not None and (
+                price_fact.observed_at.astimezone(JST).date() != price_fact.as_of
+                or price_fact.postdates_cited_retrievals(
+                    {source.source_id: source for source in snapshot.sources}
+                )
+            ):
+                raise ValueError("waiting reference observation contradicts its date or retrieval")
             result_payload["waiting_paths"] = waiting_paths(
                 terms,
                 reference_price=price,

@@ -169,6 +169,34 @@ def test_one_lot_has_only_none_and_full_and_best_alternative_can_be_cash():
     assert Decimal(downside["wait_paths"][0]["cash_after_deadline_yen"]) == 10000
 
 
+@pytest.mark.parametrize(
+    ("date_label", "observed", "message"),
+    [
+        ("2027-10-30", None, "follows the valuation date"),
+        ("2026-09-04", "2026-09-08T09:01:00+09:00", "contradicts"),
+        ("2026-09-07", "2026-09-07T16:01:00+09:00", "contradicts"),
+    ],
+)
+def test_waiting_rejects_lookahead_only_for_the_opt_in(date_label, observed, message):
+    raw = _waiting_input()
+    raw["input_snapshot"]["facts"][0].update(as_of=date_label, observed_at=observed)
+    with pytest.raises(ValueError, match=message):
+        calculate(CalculationInput.model_validate(raw))
+    del raw["price_comparison"]["waiting_terms"]
+    assert "waiting_paths" not in calculate(CalculationInput.model_validate(raw))
+
+
+def test_waiting_price_date_is_the_japanese_session_date_not_the_utc_date():
+    raw = _waiting_input()
+    raw["input_snapshot"]["facts"][0].update(
+        as_of="2026-09-07", observed_at="2026-09-06T23:59:00Z", price_basis="realtime"
+    )
+    assert (
+        calculate(CalculationInput.model_validate(raw))["waiting_paths"]["reference_price_as_of"]
+        == "2026-09-07"
+    )
+
+
 def test_entry_cost_is_not_charged_again_on_terminal_proceeds_or_distribution():
     raw = _waiting_input()
     terms = raw["price_comparison"]["waiting_terms"]

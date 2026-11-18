@@ -61,6 +61,8 @@ def waiting_paths(
     base: Projection,
     downside: Projection,
 ) -> dict[str, object]:
+    if reference_price_as_of > as_of:
+        raise ValueError("waiting reference price follows the valuation date")
     end_date = add_months_clamped(as_of, horizon_months)
     if not as_of < terms.deadline <= end_date:
         raise ValueError("wait deadline must follow the valuation date and be within the horizon")
