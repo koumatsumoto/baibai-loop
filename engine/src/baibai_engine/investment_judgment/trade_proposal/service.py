@@ -98,7 +98,10 @@ def _validate_action(
         blockers.extend(result.hard_blockers)
         calculation = buy_evaluation_payload(result)
         if item.terms is not None and (
-            item.terms.maximum_entry_price_yen != result.maximum_price_yen
+            (
+                result.maximum_price_yen is not None
+                and item.terms.maximum_entry_price_yen != result.maximum_price_yen
+            )
             or item.terms.valuation_as_of != pair.document.input_snapshot.as_of
         ):
             blockers.append(

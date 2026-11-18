@@ -13,6 +13,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     assessment_core_hash,
     evaluate_assessment,
 )
+from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
 from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 
@@ -64,10 +65,16 @@ def test_public_shadow_retains_unreviewed_status_and_economic_blockers(ticker):
         assert "reviewed_assessment_required" in codes
         assert set(payload["expected_blockers"]).issubset(codes)
         assert terms.quantity == 0
+        assert terms.maximum_price_yen is None
         if ticker == "4783":
-            assert terms.maximum_price_yen is not None
-            assert Decimal(2518) < terms.maximum_price_yen < Decimal(2519)
+            # 元の経済仮定は消さず、未reviewの額を現在の購入条件にしない。
+            valuation = document.valuation
+            historical = maximum_entry_price(
+                valuation.base,
+                horizon_months=valuation.horizon_months,
+                required_annual_return_pct=valuation.required_annual_return_pct,
+            )
+            assert Decimal(2518) < historical < Decimal(2519)
         else:
-            assert terms.maximum_price_yen is None
             assert document.valuation.base is None
     assert assessment_core_hash(document) == original_hash

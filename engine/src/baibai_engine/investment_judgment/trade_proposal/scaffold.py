@@ -62,6 +62,18 @@ def scaffold_proposal(
             )
             message = "行動・具体条件・比較理由の執筆と独立検証が未了です。"
             code = "proposal_content_requires_review"
+        listing = context.listing_designations
+        flags = (listing.designations_by_ticker or {}).get(outcome.ticker, ())
+        listing_review: tuple[str, ...] = ()
+        if flags and listing.page_received_at is not None:
+            stamp = listing.page_received_at.astimezone(JST).strftime("%Y-%m-%d %H:%M JST")
+            listing_review = (
+                (
+                    f"JPXの保存原本（{stamp}取得）に「{'、'.join(flags)}」の記載。"
+                    "現在の取引所指定と会社開示を確認し、新しい買い手に何の権利が残り、いつ現金化できるかを"
+                    "確かめる。指定だけから買付けの成立、廃止日または支払日を決めない。"
+                ),
+            )
         items.append(
             DeferItem(
                 ticker=outcome.ticker,
@@ -70,6 +82,7 @@ def scaffold_proposal(
                 rationale=rationale,
                 review_conditions=(
                     terms_review,
+                    *listing_review,
                     (
                         "相対強弱が理由なら、自己の絶対騰落と同じ端点の指数代理・自己除外同業を照合する。"
                         "市場倍率と地合い、別期間の勢いを分け、相対強弱だけでPmaxや売却を決めない。"
