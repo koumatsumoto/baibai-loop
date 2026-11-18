@@ -118,11 +118,11 @@ def test_fixed_projection_reuses_selection_and_finalizes_coverage_once(
         "coverage_status": "partial" if expected_unresolved else "complete",
         "input_sha256": saved.sha256,
     }
-    for requests in (store.get_keys, store.head_keys):
-        metadata = Counter(key for key in requests if "/selections/" in key or "/months/" in key)
-        assert len(metadata) == 3  # One selection plus October and November metadata.
-        assert set(metadata.values()) == {1}
-        assert provider.HEAD_KEY not in requests
+    metadata = Counter(key for key in store.get_keys if "/selections/" in key or "/months/" in key)
+    assert len(metadata) == 3  # One selection plus October and November metadata.
+    assert set(metadata.values()) == {1}
+    assert not metadata.keys() & set(store.head_keys)
+    assert provider.HEAD_KEY not in store.get_keys + store.head_keys
 
 
 def test_projection_failure_rolls_back_existing_rows_and_coverage(tmp_path, source):

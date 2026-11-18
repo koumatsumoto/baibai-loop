@@ -6,8 +6,10 @@ import base64
 import hashlib
 import json
 import tempfile
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -16,7 +18,39 @@ from pydantic import BaseModel, ConfigDict, JsonValue, model_validator
 
 from baibai_engine.machine_analysis.generation.contracts import Digest
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
+from baibai_engine.storage.objects.r2 import LakePublishError, ObjectMetadataReader, ObjectStore
+
+
+@dataclass(slots=True)
+class _VerifiedReads:
+    store: ObjectStore
+    retained: set[str] = field(default_factory=set)
+    bodies: dict[str, bytes] = field(default_factory=dict)
+    size: int = 0
+
+
+_ACTIVE: ContextVar[_VerifiedReads | None] = ContextVar("fixed_full_day_reads", default=None)
+_MAX_KEYS = 2048
+_MAX_BYTES = 8 * 1024 * 1024
+
+
+@contextmanager
+def share_full_day_input_reads(store: ObjectStore) -> Iterator[None]:
+    """Reuse only this pass's immutable confirmations, never a source head or pointer.
+
+    A successful metadata check can satisfy another retain, but cannot substitute
+    for the first verified body read. Cold readers always start without either.
+    """
+    token = _ACTIVE.set(_VerifiedReads(store))
+    try:
+        yield
+    finally:
+        _ACTIVE.reset(token)
+
+
+def _active(store: ObjectStore) -> _VerifiedReads | None:
+    cache = _ACTIVE.get()
+    return cache if cache is not None and cache.store is store else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,12 +91,29 @@ def _key(kind: str, digest: str, contract: FullDayInputContract) -> str:
     return contract.prefix + kind + "/" + digest + ".json"
 
 
-def _read(store: ObjectStore, key: str, digest: str) -> dict[str, Any]:
-    if store.head(key) is None:
-        raise LakePublishError("fixed full-day input object is unavailable")
-    payload = store.get_bytes(key)
-    if hashlib.sha256(payload).hexdigest() != digest:
-        raise LakePublishError("fixed full-day input object failed integrity")
+def _read(store: ObjectStore, key: str, digest: str, *, after_put: bool = False) -> dict[str, Any]:
+    cache = _active(store)
+    payload = cache.bodies.get(key) if cache is not None and not after_put else None
+    if payload is None:
+        if isinstance(store, ObjectMetadataReader):
+            response = store.get_bytes_with_metadata(key)
+            if response is None:
+                raise LakePublishError("fixed full-day input object is unavailable")
+            payload = response[0]
+        else:
+            if store.head(key) is None:
+                raise LakePublishError("fixed full-day input object is unavailable")
+            payload = store.get_bytes(key)
+        if hashlib.sha256(payload).hexdigest() != digest:
+            raise LakePublishError("fixed full-day input object failed integrity")
+        if (
+            cache is not None
+            and key not in cache.bodies
+            and len(cache.bodies) < _MAX_KEYS
+            and cache.size + len(payload) <= _MAX_BYTES
+        ):
+            cache.bodies[key] = payload
+            cache.size += len(payload)
     value = json.loads(payload)
     if not isinstance(value, dict):
         raise ValueError("fixed full-day input object must be an object")
@@ -79,11 +130,21 @@ def _retain(
     payload = canonical_json(value).encode()
     digest = hashlib.sha256(payload).hexdigest()
     key = _key(kind, digest, contract)
+    cache = _active(store)
+    if cache is not None and key in cache.retained:
+        return digest
     existing = store.head(key)
     if existing is not None:
         if existing.size != len(payload) or existing.metadata.get("sha256") != digest:
             raise LakePublishError("fixed full-day input object identity conflicts")
-        return digest
+    else:
+        _write(store, key, digest, payload, directory)
+    if cache is not None and len(cache.retained) < _MAX_KEYS:
+        cache.retained.add(key)
+    return digest
+
+
+def _write(store: ObjectStore, key: str, digest: str, payload: bytes, directory: Path) -> None:
     path = directory / (digest + ".json")
     path.write_bytes(payload)
     try:
@@ -102,10 +163,7 @@ def _retain(
         # only after the exact immutable bytes are confirmed. Never mint a new ID.
         if store.head(key) is None:
             raise
-        _read(store, key, digest)
-    else:
-        _read(store, key, digest)
-    return digest
+    _read(store, key, digest, after_put=True)
 
 
 def retain_full_day_input(
@@ -129,8 +187,8 @@ def retain_full_day_input(
             {"format": contract.month_format, "month": month, "scopes": {}, "receipts": {}},
         )
         block["scopes"][day] = scope
-        for field in contract.receipt_fields:
-            if identity := scope.get(field):
+        for name in contract.receipt_fields:
+            if identity := scope.get(name):
                 block["receipts"][identity] = receipts[identity]
     with tempfile.TemporaryDirectory(prefix=".full-day-input-") as temporary:
         directory = Path(temporary)

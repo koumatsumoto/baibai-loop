@@ -10,7 +10,7 @@ import sqlite3
 import sys
 import time
 from collections.abc import Iterator
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -31,6 +31,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
 from baibai_engine.machine_analysis.generation.economic_inputs import (
     EconomicInputSession,
 )
+from baibai_engine.machine_analysis.generation.full_day_inputs import share_full_day_input_reads
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
 from baibai_engine.machine_analysis.generation.query import (
     read_generation_ids,
@@ -138,13 +139,19 @@ def integrate_models(
         connection.execute("DELETE FROM jquants_fin_summaries")
         connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
     _phase_progress("native_financial", phase_started)
-    with prepare_market_lake(
-        sqlite_path=market,
-        mirror_root=mirror,
-        store=store,
-        as_of=as_of,
-        edinet_input=edinet_input,
-    ) as prepared:
+    with ExitStack() as run:
+        # Only the native preparation stages share immutable reads; drop those bytes
+        # before models, publication and any subsequent independent read.
+        with share_full_day_input_reads(store):
+            prepared = run.enter_context(
+                prepare_market_lake(
+                    sqlite_path=market,
+                    mirror_root=mirror,
+                    store=store,
+                    as_of=as_of,
+                    edinet_input=edinet_input,
+                )
+            )
         evaluation_time = max(evaluated_at, prepared.source_snapshot.sealed_at)
         phase_started = _phase_progress("economic_input")
         economic_requests = (
