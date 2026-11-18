@@ -306,7 +306,8 @@ def test_clean_resume_reads_only_the_bound_exact_pair_not_the_same_company_head(
         "core_sha256": bound.core_sha256,
         "review_id": bound.review.review_id,
     }
-    assert not (resume / "1234").exists() and db.read_bytes() == after
+    assert not (resume / "1234").exists()
+    assert db.read_bytes() == after
 
     with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute("DROP TRIGGER stock_assessment_immutable")  # Corrupted fixture copy.
@@ -316,7 +317,8 @@ def test_clean_resume_reads_only_the_bound_exact_pair_not_the_same_company_head(
         )
     (row,) = compute_status(resume, db_path=db, now=NOW + timedelta(days=1))["cases"]
     assert row["status"] == "recorded_outcome_unreadable"
-    assert row["assessment_id"] is None and row["assessment_validation_errors"]
+    assert row["assessment_id"] is None
+    assert row["assessment_validation_errors"]
     assert "verify" in row["next_action"]  # Do not substitute the healthy newer pair.
 
 
@@ -337,7 +339,8 @@ def test_clean_resume_distinguishes_unfinished_from_unresearched_without_hiding_
     status = compute_status(resume, db_path=db, now=NOW)
     (row,) = status["cases"]
     assert status["workspace_status"] == "incomplete"  # Explicitly unfinished is not published.
-    assert row["status"] == "recorded_unfinished" and row["assessment_id"] is None
+    assert row["status"] == "recorded_unfinished"
+    assert row["assessment_id"] is None
     assert row["recorded_outcome"]["unfinished_reason"].startswith("決算延期")
     assert row["recorded_outcome"]["references"] == ["決算延期の公表資料"]
     assert row["next_action"] is status["next_action"] is None
@@ -347,8 +350,10 @@ def test_clean_resume_distinguishes_unfinished_from_unresearched_without_hiding_
     path.parent.mkdir()
     path.write_text("{}")
     (row,) = compute_status(resume, db_path=db, now=NOW)["cases"]
-    assert row["status"] == "incomplete" and row["assessment_validation_errors"]
-    assert row["next_action"] and db.read_bytes() == before
+    assert row["status"] == "incomplete"
+    assert row["assessment_validation_errors"]
+    assert row["next_action"]
+    assert db.read_bytes() == before
 
 
 def test_legacy_price_clock_pair_remains_readable_and_retryable_but_not_newly_publishable(case):
@@ -664,7 +669,8 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
     )
     restored = compute_status(clean, db_path=db, now=sold_at)
     assert restored == compute_status(clean / "holdings/2331", db_path=db, now=sold_at)
-    assert restored["workspace_status"] == "published" and restored["next_action"] is None
+    assert restored["workspace_status"] == "published"
+    assert restored["next_action"] is None
     assert restored["cases"][0]["assessment_id"] == published.assessment_id
     assert restored["cases"][0]["recorded_outcome"]["purpose"] == "holding"
     assert parent["workspace_status"] == "published"
