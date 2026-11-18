@@ -19,6 +19,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     decode_attempt,
 )
 from baibai_jobs.integration.external_assessment_ready import (
+    acknowledgement_key,
     available_ready,
     load_ready,
     read_acknowledgement,
@@ -73,7 +74,9 @@ def test_partial_ack_keeps_plan_open_and_later_superset_integrates(publication):
     for key in load_ready(store, first).stages[0][0].raw_bundle_keys:
         del store.values[key]
     add_cohort(store, plan, 1)
+    store.get_keys.clear()
     second = save_ready(store, prepare_plan(store, plan, cumulative=True))
+    assert store.get_keys.count(acknowledgement_key(plan, first)) == 1
     assert available_ready(store) == ([second], [])
     state = merge_ready(store, [second], database=database)
     assert state["failed"] == []
@@ -223,8 +226,6 @@ def test_cumulative_inspect_freezes_reported_stages_and_later_reads_progress(
 
 
 def test_invalid_ack_cannot_silently_remove_ready(publication):
-    from baibai_jobs.integration.external_assessment_ready import acknowledgement_key
-
     store, plan = make_partial(publication)
     reference = save_ready(store, prepare_plan(store, plan, cumulative=True))
     store.store_object(acknowledgement_key(plan, reference), b"[]")

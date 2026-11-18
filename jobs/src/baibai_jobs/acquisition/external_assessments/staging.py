@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import cast
 
-from baibai_engine.storage.objects.json import put_private, read_private
+from baibai_engine.storage.objects.json import put_private, read_private, read_write_once_private
 from baibai_engine.storage.objects.r2 import ObjectStore
 from baibai_jobs.acquisition.external_assessments.cohorts import (
     CohortResult,
@@ -45,7 +45,7 @@ def prefix(run_id: str) -> str:
 
 
 def read_plan(store: ObjectStore, run_id: str) -> RunPlan | None:
-    saved = read_private(store, prefix(run_id) + "/plan.json")
+    saved = read_write_once_private(store, prefix(run_id) + "/plan.json")
     if saved is None:
         return None
     plan = load_plan(saved.payload)
