@@ -93,37 +93,10 @@ def _adjustment_events_from_rows(
     return events
 
 
-def read_daily_bars_for_tickers(
-    sqlite_path: Path,
-    tickers: tuple[str, ...],
-    start: date,
-    end: date,
-) -> list[JQuantsDailyBar] | None:
-    """Read only the requested instruments over a covered range.
-
-    Portfolio outcome can span five years, but it must never load the full
-    exchange universe merely to value the repository's own holdings. Only
-    observed rows with a close are returned; absent ticker-days are not filled.
-    The outcome engine detects those gaps rather than inventing a close.
-    """
-
-    if not tickers:
-        return []
-    if not sqlite_path.exists():
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        conn.execute("BEGIN")
-        return _read_ticker_bars(conn, tickers, start, end)
-    finally:
-        conn.close()
-
-
 def _read_ticker_bars(
     conn: sqlite3.Connection, tickers: tuple[str, ...], start: date, end: date
 ) -> list[JQuantsDailyBar] | None:
+    """Read held tickers on the caller's calendar snapshot; do not fill missing closes."""
     if not tickers:
         return []
     if not range_covered(conn, "jquants_daily_bars", start, end):

@@ -12,7 +12,6 @@ from baibai_engine.machine_analysis.observations.prices.price_reader import (
     latest_daily_bar_date,
     read_adjustment_factor_bars,
     read_daily_bars,
-    read_daily_bars_for_tickers,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -63,7 +62,6 @@ def test_reversed_daily_bar_range_is_never_covered(tmp_path: Path) -> None:
     start, end = date(2024, 3, 31), date(2024, 1, 1)
     assert read_daily_bars(sqlite_path, start, end) is None
     assert read_adjustment_factor_bars(sqlite_path, start, end) is None
-    assert read_daily_bars_for_tickers(sqlite_path, ("1301",), start, end) is None
 
 
 def test_read_adjustment_factor_bars_returns_nonunit_price_events(tmp_path: Path) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import duckdb
@@ -14,6 +15,7 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_daily_bars
 from baibai_engine.machine_analysis.observations.prices.from_l1 import (
+    PriceDay,
     materialize_price_days,
     rebuild_price_days,
 )
@@ -77,11 +79,14 @@ def test_price_refuses_payload_outside_requested_day():
         rebuild_price_days([source], days=[day])
 
 
-def test_price_materialization_rolls_back_on_duplicate_ticker_day():
-    from baibai_engine.machine_analysis.observations.prices.from_l1 import PriceDay
+def priced_day(day: str, request_id: str, close: float) -> PriceDay:
+    row = ("1301", day, None, None, None, close, None, None, None, None, None, None, None)
+    return PriceDay(date.fromisoformat(day), request_id, (row,), "ok", 0, 0, 0)
 
-    row = ("1301", "2026-11-02", None, None, None, 100.0, None, None, None, None, None, None, None)
-    duplicate = PriceDay(date(2026, 11, 2), "id", (row, row), "ok", 0, 0, 0)
+
+def test_price_materialization_rolls_back_on_duplicate_ticker_day():
+    day = priced_day("2026-11-02", "id", 100.0)
+    duplicate = replace(day, rows=day.rows * 2)
     with duckdb.connect(":memory:") as conn:
         with pytest.raises(duckdb.ConstraintException):
             materialize_price_days(conn, [duplicate], l1_coverage_status="partial")
@@ -94,58 +99,8 @@ def test_price_materialization_rolls_back_on_duplicate_ticker_day():
 
 
 def test_materialize_price_days_appends_distinct_months_and_rolls_back_duplicates():
-    from baibai_engine.machine_analysis.observations.prices.from_l1 import PriceDay
-
-    first = PriceDay(
-        date(2026, 10, 30),
-        "first",
-        (
-            (
-                "1301",
-                "2026-10-30",
-                None,
-                None,
-                None,
-                100.0,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-        ),
-        "ok",
-        0,
-        0,
-        0,
-    )
-    second = PriceDay(
-        date(2026, 11, 2),
-        "second",
-        (
-            (
-                "1301",
-                "2026-11-02",
-                None,
-                None,
-                None,
-                110.0,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-        ),
-        "ok",
-        0,
-        0,
-        0,
-    )
+    first = priced_day("2026-10-30", "first", 100.0)
+    second = priced_day("2026-11-02", "second", 110.0)
     with duckdb.connect(":memory:") as conn:
         materialize_price_days(conn, [first], l1_coverage_status="complete")
         materialize_price_days(conn, [second], l1_coverage_status="complete", append=True)
