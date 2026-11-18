@@ -493,3 +493,56 @@ def test_cf_direction_is_not_a_financial_institution_owner_return(sector, cf):
     joined = _estimate(s)["company_financials"]
     assert joined["assessment"] == ("mixed" if sector == "機械" and cf > 0 else "adverse")
     assert "営業CF" in joined["summary"]
+
+
+@pytest.mark.parametrize("version", [2, 5])
+@pytest.mark.parametrize(
+    ("sector", "observed"), [("銀行業", "context_only"), ("機械", "supportive")]
+)
+@pytest.mark.parametrize(
+    ("clocks", "known"),
+    [
+        ({}, True),  # Earlier snapshots may not have carried either clock.
+        ({"edinet_source_submit_datetime": DAY + " 14:00"}, True),
+        ({"edinet_source_submit_datetime": DAY + " 14:01"}, False),
+        ({"edinet_source_submit_datetime": DAY + "T06:00:01Z"}, False),
+        ({"edinet_source_submit_datetime": DAY}, False),
+        ({"edinet_snapshot_recorded_at_utc": EARLIER}, True),
+        ({"edinet_snapshot_recorded_at_utc": DAY + "T05:00:01Z"}, False),
+        ({"edinet_snapshot_recorded_at_utc": DAY + " 04:00"}, False),
+        (
+            {
+                "edinet_source_submit_datetime": DAY + " 14:00",
+                "edinet_snapshot_recorded_at_utc": DAY + "T04:59:59Z",
+            },
+            False,
+        ),
+        ({"edinet_snapshot_asof": "2026-10-21"}, False),
+    ],
+)
+def test_explicit_edinet_clocks_must_fit_the_financial_receipt(
+    version, sector, observed, clocks, known
+):
+    s = _sel(version)
+    financial = {"edinet_source_period_end": "2026-03-31", "edinet_ocf_ttm": 1e8, **clocks}
+    market = {"master": {"sector_33": sector, "snapshot_date": DAY}}
+    if version == 2:
+        s["inputs"] = {
+            "analysis": {
+                "analysis_as_of": DAY,
+                "run_at": EARLIER,
+                "analyses": {"1234": {"metrics": financial}},
+            },
+            "securities_context": {"1234": {"market_context": market}},
+        }
+    else:
+        _put(s, "company_financials", {"financial": financial})
+        _put(s, "market_context", market)
+    row = _estimate(s)["company_financials"]
+    assert row["assessment"] == (observed if known else "insufficient")
+    assert ("1.00億円" in row["summary"]) is known
+    if not known:
+        financial.update({"fin_latest_disclosed_date": DAY, "equity_ratio": 0.21})
+        equity = _estimate(s)["company_financials"]
+        assert equity["assessment"] == "context_only"
+        assert "21.0%" in equity["summary"]

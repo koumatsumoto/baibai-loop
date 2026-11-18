@@ -56,14 +56,17 @@ def _num(x: object) -> float | None:
         return None
 
 
-def _stamp(x: object) -> datetime | None:
+def _stamp(x: object, *, native_jst: bool = False) -> datetime | None:
     if not isinstance(x, str):
         return None
     try:
         dt = datetime.fromisoformat(x)
     except ValueError:
         return None
-    return dt if dt.utcoffset() is not None else None
+    if dt.utcoffset() is not None:
+        return dt
+    # EDINETの提出日時は現地の時分。日付だけをその日0時の開示とは扱わない。
+    return dt.replace(tzinfo=JST) if native_jst and len(x) >= 16 and x[10] in (" ", "T") else None
 
 
 def _day(x: object, limit: date) -> date | None:
@@ -147,8 +150,27 @@ def _components_known(components: object, limit: date, cutoff: datetime) -> bool
     return True
 
 
+def _edinet_cash_known(fin: Row, limit: date, received_by: datetime) -> bool:
+    snapshot_day = fin.get("edinet_snapshot_asof")
+    if snapshot_day is not None and not _day(snapshot_day, limit):
+        return False
+    submitted = fin.get("edinet_source_submit_datetime")
+    received = fin.get("edinet_snapshot_recorded_at_utc")
+    filed_at, received_at = _stamp(submitted, native_jst=True), _stamp(received)
+    if submitted is not None and (filed_at is None or filed_at > received_by):
+        return False
+    if received is not None and (received_at is None or received_at > received_by):
+        return False
+    return filed_at is None or received_at is None or filed_at <= received_at
+
+
 def _finance(
-    f: Row, legacy: Row, limit: date, cutoff: datetime, cash_limit: CashFlowLimit | None
+    f: Row,
+    legacy: Row,
+    limit: date,
+    cutoff: datetime,
+    cash_limit: CashFlowLimit | None,
+    received_by: datetime,
 ) -> Reading | None:
     ep, fin = _obj(f.get("earnings_price")), _obj(f.get("financial")) or legacy
     when = _day(ep.get("price_date"), limit)
@@ -230,7 +252,7 @@ def _finance(
     # An old EDINET cash-flow series has its own fiscal end; do not date it as the latest results.
     day = _day(fin.get("edinet_source_period_end"), limit)
     cf = _num(fin.get("edinet_ocf_ttm"))
-    if day and cf is not None:
+    if day and cf is not None and _edinet_cash_known(fin, limit, received_by):
         if cash_limit is not None:
             return Reading(
                 "context_only",
@@ -621,10 +643,15 @@ def estimate_missing(
     generation_id = g.get("generation_id")
     legacy = {}
     sec = target.market(ticker)
+    financial_clock = _stamp(g.get("evaluation_time"))
     if version == 2:
         analysis = _obj(i.get("analysis"))
-        run_at = _stamp(analysis.get("run_at"))
-        if _day(analysis.get("analysis_as_of"), limit) and run_at and run_at <= cutoff:
+        financial_clock = _stamp(analysis.get("run_at"))
+        if (
+            _day(analysis.get("analysis_as_of"), limit)
+            and financial_clock
+            and financial_clock <= cutoff
+        ):
             analysis_row = _own(_at(analysis, "analyses", ticker), ticker)
             legacy = _own(analysis_row.get("metrics"), ticker)
         own = _own(_at(i, "securities_context", ticker), ticker)
@@ -667,7 +694,12 @@ def estimate_missing(
     ]
     readings = (
         _finance(
-            f, legacy, limit, cutoff, cash_flow_limit(sec, ticker=ticker, as_of=target.model_as_of)
+            f,
+            legacy,
+            limit,
+            cutoff,
+            cash_flow_limit(sec, ticker=ticker, as_of=target.model_as_of),
+            financial_clock or cutoff,
         ),
         _growth(growth, legacy, limit),
         _market(_obj(global_market.get("market")), limit),
