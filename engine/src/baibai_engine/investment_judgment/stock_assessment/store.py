@@ -195,6 +195,7 @@ def _verify_refresh_change_scope(
     sections = (
         ("findings", document.findings, prior.findings),
         ("valuation", document.valuation, prior.valuation),
+        ("price_value_case", document.price_value_case, prior.price_value_case),
         ("investment_case", document.investment_case, prior.investment_case),
         ("risks", document.permanent_loss_risks, prior.permanent_loss_risks),
         ("sources", document.input_snapshot.sources, prior.input_snapshot.sources),

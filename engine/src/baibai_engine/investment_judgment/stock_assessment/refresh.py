@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from baibai_engine.investment_judgment.contracts import (
     AssessmentError,
 )
+from baibai_engine.investment_judgment.stock_assessment.price_value import blank_price_value_case
 from baibai_engine.primitives.time import JST
 
 if TYPE_CHECKING:
@@ -25,6 +26,7 @@ def scaffold_assessment_refresh(
     if assessed_at < prior.document.conclusion.assessed_at:
         raise AssessmentError("refresh assessment time cannot precede the prior assessment")
     draft: dict[str, Any] = prior.document.model_dump(mode="json")
+    draft["price_value_case"] = blank_price_value_case()
     draft["input_snapshot"]["as_of"] = as_of.isoformat()
     draft["conclusion"]["assessed_at"] = assessed_at.isoformat()
     valuation = draft["valuation"]

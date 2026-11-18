@@ -9,7 +9,6 @@ import pytest
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
-    UnpublishedAssessment,
     assessment_core_hash,
     evaluate_assessment,
 )
@@ -29,7 +28,7 @@ def test_public_shadow_retains_unreviewed_status_and_economic_blockers(ticker):
     assert StockAssessmentDocument.model_validate_json(document.model_dump_json()) == document
     result = evaluate_assessment(
         document,
-        identity=UnpublishedAssessment.DRAFT,
+        identity=original_hash,
         now=datetime.fromisoformat("2026-10-20T13:00:00+00:00"),
     )
     assert result.errors == ("Reviewed Assessment requires an Assessment Review",)

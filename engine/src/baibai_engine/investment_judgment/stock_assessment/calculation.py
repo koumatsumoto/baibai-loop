@@ -190,8 +190,6 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
         raise ValueError("price comparison requires a resolved valuation")
     result_payload: dict[str, object] = {
         "derived": {"metrics": results},
-        "valuation": None if valuation is None else valuation.model_dump(mode="json"),
-        "recalculated_projections": [],
         "projection_numbers": None,
     }
     if valuation is None or valuation.status == "unresolved":
@@ -222,7 +220,6 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
         "required_annual_return_pct": decimal_to_number(valuation.required_annual_return_pct),
         "return_basis": "conditional_pretax_without_reinvestment",
     }
-    reviewed = []
     for name, projection in (("base", valuation.base), ("downside", valuation.downside)):
         assert projection is not None
         context[name] = _projection_numbers(
@@ -230,17 +227,6 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
             price=price,
             months=valuation.horizon_months,
             rate=valuation.required_annual_return_pct,
-        )
-        reviewed.append(
-            {
-                "name": name,
-                "terminal_value_per_share_yen": projection.model_dump(mode="json")[
-                    "terminal_value_per_share_yen"
-                ],
-                "cash_distribution_per_share_yen": projection.model_dump(mode="json")[
-                    "cash_distribution_per_share_yen"
-                ],
-            }
         )
     assert valuation.base is not None
     assert valuation.downside is not None
@@ -251,7 +237,6 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
         horizon_months=valuation.horizon_months,
         required_annual_return_pct=valuation.required_annual_return_pct,
     )
-    result_payload["recalculated_projections"] = reviewed
     result_payload["projection_numbers"] = context
     if inputs.price_comparison is not None:
         result_payload["price_comparison_numbers"] = _price_comparison(inputs)

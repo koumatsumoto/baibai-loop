@@ -412,6 +412,7 @@ def test_refresh_from_old_material_supersedes_latest_and_publishes_new_reviewed_
         raw["input_snapshot"]["facts"]
         == prior.document.model_dump(mode="json")["input_snapshot"]["facts"]
     )
+    raw["price_value_case"] = prior.document.price_value_case.model_dump(mode="json")
     raw["valuation"]["horizon_months"] = 12
     for name in ("base", "downside"):
         raw["valuation"][name]["cash_distribution_per_share_yen"] = "0"

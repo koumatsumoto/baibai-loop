@@ -57,7 +57,7 @@ def price_case(retrievals, observed_at=OBSERVED):
             "as_of": snapshot["as_of"],
             "investigated_scope": "合成価格の観測時刻",
             "sources": snapshot["sources"],
-            "facts": snapshot["facts"],
+            "facts": [fact for fact in snapshot["facts"] if fact["fact_kind"] == "market_price"],
         },
     )
     return draft, document, review

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
-from tests.helpers.db_seed import seed_historical_operation
+from tests.helpers.db_seed import seed_historical_assessment, seed_historical_operation
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.research_selection import historical_operation
 
@@ -423,6 +423,7 @@ def test_legacy_selection_shapes_and_assessment_v1_identity_are_unchanged(tmp_pa
     publication = legacy["assessment_publication"]
     path = tmp_path / "app"
     service = AssessmentStoreService(path, clock=lambda: NOW)
+    seed_historical_assessment(path, publication, NOW)
     pair = service.publish_reviewed_assessment(
         publication["assessment_id"], publication["document"], publication["review"]
     )

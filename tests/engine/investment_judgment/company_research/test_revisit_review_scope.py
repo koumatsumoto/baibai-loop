@@ -16,7 +16,7 @@ from baibai_engine.investment_judgment.stock_assessment.store import AssessmentS
 
 @pytest.mark.parametrize("check", ["verified", "partially_verified", "unverified"])
 def test_exact_review_keeps_its_check_clock_scope_and_countercase_separate(tmp_path, check):
-    doc, review = pair_payload()
+    doc, review = pair_payload(price_case="undetermined")
     doc["conclusion"]["stance"] = "uncertain"
     doc["investment_case"]["status"] = "uncertain"
     review.update(
@@ -62,7 +62,7 @@ def test_exact_review_keeps_its_check_clock_scope_and_countercase_separate(tmp_p
 
 
 def test_legacy_context_does_not_backfill_review_and_null_reason_is_not_invented(tmp_path):
-    doc, review = pair_payload()
+    doc, review = pair_payload(price_case="undetermined")
     review.pop("uncertainty_acceptance_reason", None)
     review["nonmaterial_unknown_reason"] = None
     path = tmp_path / "app"

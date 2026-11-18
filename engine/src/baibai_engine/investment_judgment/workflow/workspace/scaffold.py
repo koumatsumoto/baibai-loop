@@ -21,6 +21,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     assessment_core_hash,
 )
+from baibai_engine.investment_judgment.stock_assessment.price_value import blank_price_value_case
 from baibai_engine.investment_judgment.stock_assessment.refresh import scaffold_assessment_refresh
 from baibai_engine.investment_judgment.stock_assessment.store import (
     latest_assessment_id,
@@ -55,6 +56,7 @@ _ASSESSMENT_DRAFT_HEADER = (
     "conclusion.strongest_countercaseへつなぐ。\n"
     "# 解析モデルの問い・basis・欠測: "
     "docs/reference/stock-assessment.md#analysis-domain-integration\n"
+    "# price_value_case: 原観測と両立する条件を、普通株の受取を裏付ける非価格Factと照合する。\n"
     "# model・期間・要求率・Base/Downside: "
     "docs/reference/stock-assessment.md#scenario-arithmetic\n"
     "# 原典の期間・単位を確認し、旧保存入力へ追補しない。\n"
@@ -63,6 +65,7 @@ _ASSESSMENT_DRAFT_HEADER = (
 
 _REVIEW_DRAFT_HEADER = (
     "# 独立検算の値を入力する。作者の値をコピーしない。\n"
+    "# 観測価格以外の事実で、今回の取得者の普通株への取り分と取得権の期限を確かめる。\n"
     "# 未知を非重要へ言い換えず、引き受ける理由と見返りを記す。\n"
     "# 原典・仮定・反証と利用限界: "
     "docs/reference/stock-assessment.md#independent-second-pass\n"
@@ -204,6 +207,7 @@ def scaffold_assessment(
                 "facts": facts,
             },
             "derived": {"metrics": []},
+            "price_value_case": blank_price_value_case(),
             "valuation": {
                 "status": "unresolved",
                 "market_price_fact_id": "market_price_close" if quote else None,

@@ -13,6 +13,7 @@ from tests.helpers.assessment_v1 import (
     assessment_id,
     pair_payload,
     review_id,
+    undetermined_case,
     update_review_hash,
 )
 
@@ -86,7 +87,12 @@ def test_full_appendix_parses_and_has_exact_typed_canonical_identity():
     assert review.reviewed_assessment_sha256 == assessment_core_hash(document)
     assert document.valuation.base.terminal_value_per_share_yen == Decimal(1100)
     assert document.findings.hypotheses[0].origin == "research"
-    assert evaluation(publication["document"], publication["review"]).errors == ()
+    assert (
+        evaluate_assessment(
+            document, review=review, identity=assessment_core_hash(document), now=NOW
+        ).errors
+        == ()
+    )
     assert StockAssessmentDocument.model_validate_json(document.model_dump_json()) == document
 
 
@@ -191,6 +197,7 @@ def test_supported_assessment_has_no_cash_or_current_buy_input():
 def test_unresolved_value_is_a_reviewed_completed_assessment(stance):
     document, review = pair_payload()
     document["conclusion"]["stance"] = stance
+    document["price_value_case"] = undetermined_case()
     document["valuation"] = dict(
         status="unresolved",
         market_price_fact_id=None,
@@ -586,6 +593,7 @@ def test_atomic_pair_retry_and_latest_unresolved_has_no_supported_fallback(conne
     document, review = pair_payload(review_number=4)
     document["input_snapshot"]["facts"] = []
     document["conclusion"]["stance"] = "uncertain"
+    document["price_value_case"] = undetermined_case()
     document["valuation"] = dict(
         status="unresolved",
         market_price_fact_id=None,

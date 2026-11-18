@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation, localcontext
 
 import pytest
 import yaml
-from tests.helpers.assessment_v1 import pair_payload
+from tests.helpers.assessment_v1 import pair_payload, undetermined_case
 
 import baibai_engine.cli.stock_assessment as cli
 import baibai_engine.investment_judgment.stock_assessment.document as assessment_module
@@ -163,6 +163,7 @@ def test_invalid_content_has_no_diagnostic(tmp_path, capsys, fault, with_review)
 @pytest.mark.parametrize("stance", ["uncertain", "unsupported"])
 def test_unresolved_needs_no_invented_price_or_projections(tmp_path, capsys, stance):
     assessment, review = diagnostic_pair()
+    assessment["price_value_case"] = undetermined_case()
     assessment["input_snapshot"]["facts"] = []
     assessment["conclusion"]["stance"] = stance
     assessment["valuation"] = dict(

@@ -155,7 +155,13 @@ def backend_case(
             max_date=(PREPARED.date() + timedelta(days=15)).isoformat(),
             record_count=16,
         )
-    document, review = pair_payload(as_of=assessment_as_of, quote_as_of=assessment_quote_as_of)
+    document, review = pair_payload(
+        as_of=assessment_as_of,
+        quote_as_of=assessment_quote_as_of,
+        price_case="undetermined"
+        if valuation_unresolved
+        else ("not_supported_at_quote" if broken else "supported_at_quote"),
+    )
     if required_rate is not None:
         document["valuation"]["required_annual_return_pct"] = required_rate
         update_review_hash(document, review)
