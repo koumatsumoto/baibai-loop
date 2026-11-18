@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import gzip
 import sqlite3
 from datetime import date, datetime
+from typing import TypedDict
+
+from pydantic import TypeAdapter
 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
@@ -21,6 +25,19 @@ from baibai_engine.machine_analysis.observations.economic_indicators.validation 
     reading_observation,
 )
 
+
+class _OptionRow(TypedDict, total=False):
+    # Read only the six native fields the indicator uses; preserve their JSON types.
+    # Originals (including other fields) remain available to other readers.
+    EmMrgnTrgDiv: object
+    SQD: object
+    Strike: object
+    IV: object
+    UnderPx: object
+    PCDiv: object
+
+
+_OPTION_ROWS = TypeAdapter(list[_OptionRow])
 _READING_FIELDS = {
     "n225_iv_30d": "iv_30d",
     "n225_iv_skew": "iv_skew",
@@ -53,7 +70,8 @@ class OptionSeriesReader:
         for chain in read_snapshots(self._connection, start, end, source_id=series.source_id):
             cached = self._readings.get(chain.observed_at)
             if cached is None or cached[0] != chain.fetched_at:
-                readings = option_iv_readings(quotes_from_records(chain.records), chain.observed_at)
+                rows = _OPTION_ROWS.validate_json(gzip.decompress(chain.payload))
+                readings = option_iv_readings(quotes_from_records(rows), chain.observed_at)
                 self._readings[chain.observed_at] = (chain.fetched_at, readings)
             else:
                 readings = cached[1]
