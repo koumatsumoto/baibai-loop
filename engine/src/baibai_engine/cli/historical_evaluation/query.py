@@ -6,23 +6,15 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
-from typing import TextIO
-
-import yaml
 
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
 )
-from baibai_engine.primitives.yaml import NoAliasSafeDumper as _NoAliasDumper
 from baibai_engine.storage.filesystem import paths_refer_to_same_file, write_text_atomic
 from baibai_engine.storage.sqlite.machine_analysis import run_store_path
 
 from ...machine_analysis.historical_evaluation.legacy_screening.discovery.projection import (
     candidate_rows,
-)
-from ...machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
-    published_run_payload,
-    serialize_published_run_yaml,
 )
 
 
@@ -32,15 +24,12 @@ def run_show_command(
     runs_db_path: Path | None = None,
     output_path: Path | None = None,
     force: bool = False,
-    stdout: TextIO | None = None,
-    output_format: str = "yaml",
     candidates_only: bool = False,
 ) -> int:
     """Read one fixed revision; never publish or recalculate an analysis."""
     if output_path is not None and output_path.exists() and not force:
         print(f"output already exists: {output_path}", file=sys.stderr)
         return 1
-    out = stdout if stdout is not None else sys.stdout
     try:
         source = run_store_path(runs_db_path)
         if output_path is not None and paths_refer_to_same_file(output_path, source):
@@ -48,6 +37,7 @@ def run_show_command(
         run = ScreeningRunReader(source).get_run(run_revision_id)
         if run is None:
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
+        payload: dict[str, object]
         if candidates_only:
             rows = candidate_rows(run.stock_analyses)
             payload = {
@@ -57,48 +47,21 @@ def run_show_command(
                 "run_at": run.run_at,
                 "screening_rules_hash": run.payload.get("screening_rules_hash"),
                 "candidate_discovery_method": run.payload["candidate_discovery"]["method"],
-                "candidates": list(rows),
+                "candidates": rows,
                 "count": len(rows),
                 "input_basis": "saved_stock_analyses",
             }
-        rendered = (
-            json.dumps(
-                payload if candidates_only else published_run_payload(run),
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-            + "\n"
-            if output_format == "json"
-            else (
-                yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
-                if candidates_only
-                else serialize_published_run_yaml(run)
-            )
-        )
+        else:
+            payload = {
+                **run.payload,
+                "run_revision_id": run.run_revision_id,
+                "stock_analyses": run.stock_analyses,
+            }
+        rendered = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
         if output_path is not None:
             write_text_atomic(output_path, rendered)
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
         print(f"screening run read/export failed: {error}", file=sys.stderr)
         return 1
-    out.write(rendered)
+    sys.stdout.write(rendered)
     return 0
-
-
-def candidates_show_command(
-    *,
-    run_revision_id: str,
-    runs_db_path: Path | None = None,
-    output_path: Path | None = None,
-    force: bool = False,
-    stdout: TextIO | None = None,
-    output_format: str = "yaml",
-) -> int:
-    return run_show_command(
-        run_revision_id=run_revision_id,
-        runs_db_path=runs_db_path,
-        output_path=output_path,
-        force=force,
-        stdout=stdout,
-        output_format=output_format,
-        candidates_only=True,
-    )

@@ -6,7 +6,6 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
-import yaml
 from tests.helpers.legacy_candidates import _analysis, _publish, _run
 from tests.helpers.screening_run import saved_candidate
 
@@ -19,10 +18,6 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.disco
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
-    published_run_payload,
-    serialize_published_run_yaml,
 )
 from baibai_engine.storage.sqlite.machine_analysis import (
     RUN_STORE_SCHEMA_VERSION,
@@ -85,7 +80,7 @@ def test_zero_analyses_and_zero_candidates_are_valid_completed_runs(tmp_path: Pa
     }
 
 
-def test_read_export_preserves_saved_types_precision_and_candidates(tmp_path: Path) -> None:
+def test_read_preserves_saved_types_precision_and_candidates(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
     raw = _run()
     retired_rules = tmp_path / "retired-rules.yaml"
@@ -103,16 +98,14 @@ def test_read_export_preserves_saved_types_precision_and_candidates(tmp_path: Pa
     result = _publish(path, raw)
     before = path.read_bytes()
     run = ScreeningRunReader(path).get_run(result)
-    exported = published_run_payload(run)
-    assert run.rules_ref == exported["rules_ref"] == str(retired_rules)
-    assert yaml.safe_load(serialize_published_run_yaml(run)) == exported
-    assert exported["run_revision_id"] == result
-    assert exported["stock_analyses"][0]["metrics"] == metrics
-    assert {
-        key: type(value) for key, value in exported["stock_analyses"][0]["metrics"].items()
-    } == {key: type(value) for key, value in metrics.items()}
-    assert exported["stock_analyses"] == list(run.stock_analyses)
-    assert "security_analyses" not in exported
+    assert run is not None
+    assert run.rules_ref == str(retired_rules)
+    assert run.run_revision_id == result
+    found = run.stock_analyses[0]["metrics"]
+    assert found == metrics
+    assert {key: type(value) for key, value in found.items()} == {
+        key: type(value) for key, value in metrics.items()
+    }
     assert path.read_bytes() == before
 
 
@@ -315,7 +308,7 @@ def test_reader_rejects_inconsistent_candidate_union(tmp_path: Path, mutation: s
         ScreeningRunReader(path).get_run("run-a")
 
 
-def test_retired_annotations_remain_exact_in_saved_historical_export(tmp_path):
+def test_retired_annotations_remain_exact_in_saved_historical_run(tmp_path):
     path = tmp_path / "runs.sqlite"
     row = {
         **_analysis("1111"),
@@ -344,7 +337,4 @@ def test_retired_annotations_remain_exact_in_saved_historical_export(tmp_path):
     identity = _publish(path, _run(rows=[row]))
     saved = ScreeningRunReader(path).get_run(identity)
     assert saved is not None
-    exported = published_run_payload(saved)["stock_analyses"][0]
-    assert exported == row
-    assert "turnover_spike_5d" not in exported
-    assert yaml.safe_load(serialize_published_run_yaml(saved))["stock_analyses"][0] == exported
+    assert saved.stock_analyses[0] == row
