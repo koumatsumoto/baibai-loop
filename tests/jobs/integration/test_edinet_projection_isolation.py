@@ -121,7 +121,10 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     (work / "plan.json").write_text(
         json.dumps({"handoffs": available_handoffs(store), "edinet_input": saved_edinet})
     )
+    # J-Quants replay validates migrated originals without fixing unused full-history selections.
+    mark = len(store.head_keys)
     report = apply(store, work, market=market, asof=asof)
+    assert not any(key.startswith("fixed-inputs/jquants-") for key in store.head_keys[mark:])
     outcomes = {item["entry"]["source"]: item for item in report["handoffs"]}
     assert "edinet-list" not in outcomes
     assert report["extractions"]["native_lists"]["failed_days"] == [bad_day.isoformat()]

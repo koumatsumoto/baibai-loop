@@ -10,7 +10,6 @@ import requests
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.http_doubles import FakeSession, html_response, response
 from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook
-from tests.helpers.master_calendar_native import seed_calendar, seed_master
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jpx.http import JPXHTTP
@@ -161,8 +160,6 @@ def test_actual_acquisition_stage_and_daily_apply(source, failure, tmp_path, mon
     daily_market, work = tmp_path / "daily.sqlite", tmp_path / "daily"
     with closing(open_connection(daily_market)):
         pass
-    seed_calendar(store, daily_market, tmp_path / "calendar", as_of=STAMP.date())
-    seed_master(store, daily_market, tmp_path / "master", as_of=STAMP.date())
     edinet_input = empty_edinet_input(store, tmp_path)
     work.mkdir()
     (work / "plan.json").write_text(
