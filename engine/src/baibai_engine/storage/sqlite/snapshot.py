@@ -67,13 +67,55 @@ def database_schema_version(path: Path) -> int:
     return int(row[0])
 
 
+def _try_smaller_pages(source: Path, output: Path) -> bool:
+    """Use one regular SQLite file when the unchanged source proves it is smaller."""
+    with closing(
+        sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True, timeout=30)
+    ) as db:
+        version = db.execute("PRAGMA data_version").fetchone()
+        # With no free pages the existing backup has exactly this page count.
+        # Leave pruning and non-default layouts to the normal backup path.
+        if db.execute("PRAGMA page_size").fetchone() != (4096,) or db.execute(
+            "PRAGMA freelist_count"
+        ).fetchone() != (0,):
+            return False
+        baseline_size = db.execute("PRAGMA page_count").fetchone()[0] * 4096
+        wal = db.execute("PRAGMA journal_mode").fetchone() == ("wal",)
+        # VACUUM rebuilds indexes: reject an already broken input rather than
+        # allowing the rebuild to hide it. data_version fences the two reads.
+        if db.execute("PRAGMA quick_check").fetchone() != ("ok",):
+            raise sqlite3.DatabaseError(f"SQLite quick_check failed: {source}")
+        with tempfile.TemporaryDirectory(prefix=".snapshot-", dir=output.parent) as directory:
+            packed = Path(directory) / "snapshot.sqlite"
+            db.execute("PRAGMA page_size=1024")
+            try:
+                db.execute("VACUUM INTO ?", (str(packed),))
+            except sqlite3.OperationalError as error:
+                if getattr(error, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL:
+                    return False
+                raise
+            if db.execute("PRAGMA data_version").fetchone() != version or (
+                packed.stat().st_size >= baseline_size
+            ):
+                return False
+            if wal:
+                with closing(sqlite3.connect(packed)) as target:
+                    if target.execute("PRAGMA journal_mode=WAL").fetchone() != ("wal",):
+                        raise sqlite3.DatabaseError("could not retain snapshot journal mode")
+            validate_snapshot(packed)
+            packed.replace(output)
+            return True
+
+
 def create_snapshot(source: Path, output: Path, *, compact: bool = False) -> None:
-    """Copy ``source`` through SQLite's backup API, including uncheckpointed WAL rows."""
+    """Capture a standalone SQLite store, including committed WAL rows."""
     if source.resolve() == output.resolve() or (
         source.exists() and output.exists() and source.samefile(output)
     ):
         raise ValueError("SQLite source and output must not be the same file")
     output.parent.mkdir(parents=True, exist_ok=True)
+    if compact and source.is_file() and _try_smaller_pages(source, output):
+        return
     with tempfile.TemporaryDirectory(prefix=".snapshot-", dir=output.parent) as directory:
         temporary = Path(directory) / "snapshot.sqlite"
         backup_to_new_file(source, temporary)
@@ -94,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot = subparsers.add_parser("create")
     snapshot.add_argument("--source", type=Path, required=True)
     snapshot.add_argument("--output", type=Path, required=True)
-    snapshot.add_argument("--compact", action="store_true", help="reclaim free transfer-copy pages")
+    snapshot.add_argument("--compact", action="store_true", help="pack the SQLite transfer copy")
     check = subparsers.add_parser("check")
     check.add_argument("--path", type=Path, required=True)
     check.add_argument("--schema-version", type=int)
