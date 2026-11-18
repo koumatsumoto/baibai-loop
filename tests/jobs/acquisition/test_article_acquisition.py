@@ -1035,3 +1035,104 @@ def test_toushiru_redirect_cycle_is_finite_and_keeps_pending_work(tmp_path, monk
     replay = import_handoff("toushiru", tmp_path / "market", packet)
     assert replay.complete
     assert "document_redirect_cycle" in replay.report["acquisition_issues"]
+
+
+@pytest.mark.parametrize(
+    ("listed", "index_status", "body_status", "expected_pending"),
+    [
+        (False, 200, 404, 0),
+        (True, 200, 404, 1),
+        (False, 500, 404, 1),
+        (False, 200, 500, 1),
+        (False, 200, 403, 1),
+        (False, 200, 429, 1),
+    ],
+)
+def test_toushiru_only_unlisted_carried_404_leaves_pending(
+    tmp_path, monkeypatch, listed, index_status, body_status, expected_pending
+):
+    url = "https://media.rakuten-sec.net/articles/-/1"
+    feed = f"<urlset><url><loc>{url}</loc><title>Synthetic</title></url></urlset>".encode()
+    store = MemoryR2Store()
+    publish_planning_input(store, "toushiru", {})
+    first = articles.acquire_source(
+        store,
+        source="toushiru",
+        slot=SLOT,
+        identity="first",
+        directory=tmp_path / "first",
+        session=Session([Response(200, feed), Response(404, b"")]),
+    )
+    assert first["pending_url_count"] == 1  # A current feed's failure remains actionable.
+    second_dir = tmp_path / "second"
+    second = articles.acquire_source(
+        store,
+        source="toushiru",
+        slot=SLOT + timedelta(hours=4),
+        identity="second",
+        directory=second_dir,
+        session=Session(
+            [Response(index_status, feed if listed else b"<urlset/>"), Response(body_status, b"")]
+        ),
+    )
+    assert second["pending_url_count"] == expected_pending
+    assert second["status"] == "partial"
+    assert "http_error" in second["failures"]
+    with closing(connect_read_only(second_dir / "receipts.sqlite")) as conn:
+        receipts = [
+            json.loads(row[0])
+            for row in conn.execute("SELECT receipt_json FROM article_source_receipts")
+        ]
+    assert any(r["requested_url"] == url and r["http_status"] == body_status for r in receipts)
+    if expected_pending == 0:
+        # Relisting is a new normal discovery, not blocked by a tombstone.
+        session = Session([Response(200, feed), Response(200, b"<main>Available again</main>")])
+        third = articles.acquire_source(
+            store,
+            source="toushiru",
+            slot=SLOT + timedelta(hours=8),
+            identity="third",
+            directory=tmp_path / "third",
+            session=session,
+        )
+        assert url in session.urls
+        assert third["status"] == "completed"
+
+
+def test_toushiru_retired_404_drops_only_old_validator_and_relisting_fetches(tmp_path):
+    url = "https://media.rakuten-sec.net/articles/-/9"
+    feed = f"<urlset><url><loc>{url}</loc><title>Synthetic</title></url></urlset>".encode()
+    store = MemoryR2Store()
+    publish_planning_input(store, "toushiru", {})
+    for n, body in enumerate([Response(200, b"<main>Original</main>"), Response(404, b"")]):
+        articles.acquire_source(
+            store,
+            source="toushiru",
+            slot=SLOT + timedelta(hours=n * 4),
+            identity=f"prior-{n}",
+            directory=tmp_path / f"prior-{n}",
+            session=Session([Response(200, feed), body]),
+        )
+    articles.acquire_source(
+        store,
+        source="toushiru",
+        slot=SLOT + timedelta(hours=8),
+        identity="gone",
+        directory=tmp_path / "gone",
+        session=Session([Response(200, b"<urlset/>"), Response(404, b"")]),
+    )
+    session = Session([Response(200, feed), Response(200, b"<main>Returned</main>")])
+    report = articles.acquire_source(
+        store,
+        source="toushiru",
+        slot=SLOT + timedelta(days=3),
+        identity="returned",
+        directory=tmp_path / "returned",
+        session=session,
+    )
+    assert report["status"] == "completed"
+    assert session.urls[-1] == url
+    assert "If-None-Match" not in session.headers[-1]
+    assert "If-Modified-Since" not in session.headers[-1]
+    with closing(connect_read_only(tmp_path / "prior-0" / "receipts.sqlite")) as conn:
+        assert conn.execute("SELECT count(*) FROM article_source_receipts").fetchone()[0] == 2
