@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from datetime import date, datetime
-from typing import Any
+from typing import Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
@@ -49,26 +49,28 @@ def parse_doc_id(value: object) -> str:
     return raw.upper()
 
 
-def validate_document_statuses(document: Mapping[str, Any]) -> None:
-    allowed = {
-        "legal": {None, "0", "1", "2"},
-        "withdrawal": {None, "0", "1", "2"},
-        "edit": {None, "0", "1", "2"},
-        "disclosure": {None, "0", "1", "2", "3"},
-    }
-    values = {
-        "legal": text_or_none(coalesce_field(document, "legalStatus", "legal_status")),
-        "withdrawal": text_or_none(
-            coalesce_field(document, "withdrawalStatus", "withdrawal_status")
-        ),
-        "edit": text_or_none(coalesce_field(document, "docInfoEditStatus", "doc_info_edit_status")),
-        "disclosure": text_or_none(
-            coalesce_field(document, "disclosureStatus", "disclosure_status")
-        ),
-    }
-    for name, value in values.items():
-        if value not in allowed[name]:
-            raise ValueError(f"unknown EDINET {name} status: {value!r}")
+def _document_status(document: Mapping[str, Any], name: str, key: str, alias: str) -> str | None:
+    value = text_or_none(coalesce_field(document, key, alias))
+    if value not in (None, "0", "1", "2") and not (name == "disclosure" and value == "3"):
+        raise ValueError(f"unknown EDINET {name} status: {value!r}")
+    return value
+
+
+class DocumentOperation(NamedTuple):
+    edit: str | None
+    withdrawal: str | None
+    disclosure: str | None
+
+
+def validated_document_operation(document: Mapping[str, Any]) -> DocumentOperation | None:
+    """Reject unknown flags, whether the source row is an operation or a filing."""
+    _document_status(document, "legal", "legalStatus", "legal_status")
+    withdrawal = _document_status(document, "withdrawal", "withdrawalStatus", "withdrawal_status")
+    edit = _document_status(document, "edit", "docInfoEditStatus", "doc_info_edit_status")
+    disclosure = _document_status(document, "disclosure", "disclosureStatus", "disclosure_status")
+    if edit == "1" or withdrawal == "1" or disclosure in {"1", "3"}:
+        return DocumentOperation(edit, withdrawal, disclosure)
+    return None
 
 
 def is_usable_filing_status(legal: object, disclosure: object, withdrawal: object) -> bool:
