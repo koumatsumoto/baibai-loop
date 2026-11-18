@@ -543,6 +543,7 @@ def test_current_projection_same_day_guards_and_origin_context_are_separate():
         dict(as_of=date(2026, 10, 15)),
         dict(basis_confirmed=False),
         dict(price_as_of=date(2026, 10, 6)),
+        dict(price_as_of=date(2026, 10, 15)),
         dict(price_basis="last_close_adjusted"),
         dict(price_yen=None),
     ):
@@ -551,6 +552,33 @@ def test_current_projection_same_day_guards_and_origin_context_are_separate():
     assert context["price_context"] == "assessment_snapshot"
     assert context["price_yen"] == 1100
     assert assessment_core_hash(typed) == original
+
+
+@pytest.mark.parametrize(
+    ("terminal", "total_return", "delayed_annual"),
+    [("700", -30, -16.334), ("0", -100, -100)],
+)
+def test_current_projection_delay_preserves_total_loss_and_assessment_horizon(
+    terminal, total_return, delayed_annual
+):
+    raw, _ = pair_payload()
+    raw["valuation"]["downside"]["terminal_value_per_share_yen"] = terminal
+    document = StockAssessmentDocument.model_validate(raw)
+    original = assessment_core_hash(document)
+    result = current_price_projection(
+        document,
+        price_yen=Decimal(1000),
+        price_as_of=date(2026, 10, 14),
+        as_of=date(2026, 10, 14),
+        basis_confirmed=True,
+        max_quote_age_days=7,
+    )
+    assert result["downside"]["total_value_yen"] == int(terminal)
+    assert result["downside"]["total_return_pct"] == total_return
+    assert result["downside"]["annualized_return_pct"] == total_return
+    assert result["fixed_value_delay"]["downside_annualized_return_pct"] == delayed_annual
+    assert (result["horizon_months"], result["fixed_value_delay"]["horizon_months"]) == (12, 24)
+    assert assessment_core_hash(document) == original
 
 
 def test_atomic_pair_retry_and_latest_unresolved_has_no_supported_fallback(connection):
