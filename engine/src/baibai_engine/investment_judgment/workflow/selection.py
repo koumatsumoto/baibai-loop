@@ -364,7 +364,9 @@ def _validate_comparisons(
     capacity: ResearchCapacity,
 ) -> None:
     # A separate evidence budget: do not recreate the full market by naming every company.
-    if len(comparisons) > capacity.max_deep_research_targets:
+    if len(comparisons) > min(
+        capacity.max_deep_research_targets, CURRENT_RESEARCH_CAPACITY.max_deep_research_targets
+    ):
         raise ValueError("explicit comparison evidence exceeds this Case's research capacity")
     if (
         (comparisons and selection_id is None)

@@ -25,7 +25,7 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_screening_brief,
 )
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
-from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.machine_analysis.screening.contracts import ScreeningResult, ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
@@ -168,6 +168,9 @@ def load_generated_selection_context(
             indexed.update(_judgments(app, comparisons, as_of, known_at))
             indexed["requested_tickers"] = requested
             if request.scope == "review_positions":
+                indexed["capacity"] = research_capacity(request.scope, len(held or ())).model_dump(
+                    mode="json"
+                )
                 indexed["held_tickers"] = held
                 indexed["holding_scope"] = (
                     "no_ledger_record" if held is None else "current_ledger_replayed_to_fact_cutoff"
@@ -272,7 +275,7 @@ def load_generated_selection_context(
         "input_known_at": known_at.isoformat(),
         "generation_id": generation_id,
         "screening_selection_id": screening_selection_id,
-        "capacity": CURRENT_RESEARCH_CAPACITY.model_dump(mode="json"),
+        "capacity": research_capacity(request.scope, len(held)).model_dump(mode="json"),
         "screening": None
         if screening is None
         else _project_screening(

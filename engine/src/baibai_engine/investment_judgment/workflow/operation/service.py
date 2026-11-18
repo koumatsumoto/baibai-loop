@@ -53,7 +53,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
     SelectedTarget,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.primitives.json import encode_json
@@ -117,7 +117,7 @@ class OperationService:
             raise OperationConflictError(
                 "new Research requires Selection V5; legacy selections are resume-only"
             )
-        if selection.capacity != CURRENT_RESEARCH_CAPACITY:
+        if selection.capacity != research_capacity(selection.request.scope, len(selection.targets)):
             raise OperationConflictError("new Research requires the current capacity policy")
         if selection.input_known_at > started_at or selection.research_as_of != as_of:
             raise OperationConflictError("Research date/cutoff differs from Operation start")

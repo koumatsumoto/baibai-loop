@@ -564,3 +564,18 @@ def test_proposal_rejects_prior_schema_without_relabeling_review(payload):
     payload["schema_version"] = 2
     with pytest.raises(ValidationError):
         TradeProposal.model_validate(payload)
+
+
+def test_conditional_recovery_is_not_an_order_or_return_claim(payload):
+    raw = _holding_payload(payload, action="sell")
+    item = raw["items"][0]
+    item["reason_code"] = "consider_full_recovery"
+    assert order_readiness(TradeProposal.model_validate(raw).items[0]) == "not_applicable"
+    item["reason_code"] = "consider_partial_recovery"
+    with pytest.raises(ValidationError, match="partial recovery"):
+        TradeProposal.model_validate(raw)
+    raw["inputs"]["positions"][0]["quantity"] = item["position"]["quantity"] = 200
+    assert order_readiness(TradeProposal.model_validate(raw).items[0]) == "not_applicable"
+    item["remaining_reward"] = {"status": "insufficient", "reason": "separate claim"}
+    with pytest.raises(ValidationError, match="remaining return"):
+        TradeProposal.model_validate(raw)

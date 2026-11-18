@@ -402,7 +402,12 @@ class SavedSellLimitComparisonView(BaseModel):
 
 class SavedSellItemView(_SavedHoldingItemView):
     action: Literal["sell"]
-    reason_code: Literal["economic_invalidation", "insufficient_remaining_reward"]
+    reason_code: Literal[
+        "economic_invalidation",
+        "insufficient_remaining_reward",
+        "consider_full_recovery",
+        "consider_partial_recovery",
+    ]
     terms: SavedLimitTermsView | None
     terms_unavailable_reasons: list[SavedReasonView]
     saved_sell_limit_comparison: SavedSellLimitComparisonView | None = None

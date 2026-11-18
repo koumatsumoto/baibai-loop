@@ -3397,7 +3397,9 @@
         "reason_code": {
           "enum": [
             "economic_invalidation",
-            "insufficient_remaining_reward"
+            "insufficient_remaining_reward",
+            "consider_full_recovery",
+            "consider_partial_recovery"
           ],
           "title": "Reason Code",
           "type": "string"

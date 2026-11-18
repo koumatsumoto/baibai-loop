@@ -520,7 +520,7 @@ export interface SavedSellItemView {
   case_reassessment_reason: string
   remaining_reward: SavedRemainingRewardView | null
   action: 'sell'
-  reason_code: 'economic_invalidation' | 'insufficient_remaining_reward'
+  reason_code: 'economic_invalidation' | 'insufficient_remaining_reward' | 'consider_full_recovery' | 'consider_partial_recovery'
   terms: SavedLimitTermsView | null
   terms_unavailable_reasons: SavedReasonView[]
   saved_sell_limit_comparison: SavedSellLimitComparisonView | null
