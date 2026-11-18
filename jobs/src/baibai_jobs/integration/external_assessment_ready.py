@@ -238,39 +238,60 @@ def _select_cumulative(entries: list[_ReadyEntry]) -> _ReadyEntry:
     return selected
 
 
+def _ready_marker(
+    store: ObjectStore, plan: RunPlan, key: str
+) -> tuple[datetime, dict[str, str], dict[str, Any]]:
+    saved = read_write_once_private(store, key)
+    if saved is None:
+        raise ValueError("listed external ready selection is missing")
+    value = json.loads(saved.payload)
+    _bound_plan(plan, value)
+    clock = datetime.fromisoformat(value["created_at"])
+    if clock.tzinfo is None:
+        raise ValueError("external ready clock must have a timezone")
+    return clock, {"key": key, "sha256": hashlib.sha256(saved.payload).hexdigest()}, value
+
+
 def _pending_ready(
-    store: ReceiptStore, run_id: str, keys: list[str], acknowledgements: set[str]
+    store: ReceiptStore,
+    run_id: str,
+    keys: list[str],
+    acknowledgements: set[str],
+    *,
+    terminal_listed: bool,
 ) -> dict[str, str] | None:
     plan = read_plan(store, run_id)
     if plan is None:
         raise ValueError("ready selection has no exact plan")
-    if read_terminal(store, plan) is not None:
+    # 一覧後に新しい終了印が来ても、正規受領済みの同一集合は採用対象に戻らない。
+    defer_terminal = not terminal_listed and len(keys) == len(acknowledgements) == 1
+    if not defer_terminal and read_terminal(store, plan) is not None:
         return None
     entries: list[_ReadyEntry] = []
     confirmed_stages: dict[str, tuple[CohortStage, str]] = {}
     for key in keys:
-        saved = read_write_once_private(store, key)
-        if saved is None:
-            raise ValueError("listed external ready selection is missing")
-        value = json.loads(saved.payload)
-        _bound_plan(plan, value)
-        clock = datetime.fromisoformat(value["created_at"])
-        if clock.tzinfo is None:
-            raise ValueError("external ready clock must have a timezone")
-        reference = {"key": key, "sha256": hashlib.sha256(saved.payload).hexdigest()}
-        if (
-            len(keys) == 1
-            and value.get("mode") == "cumulative-v1"
-            and value["confirmed_partial"] is False
-        ):
-            ack_key = acknowledgement_key(plan, reference)
-            if ack_key in acknowledgements:
-                # 正本読戻し済みの同一集合。新旧集合の包含や保存stageの再監査は要らない。
-                ack = read_write_once_private(store, ack_key)
-                if ack is None:
-                    raise ValueError("listed external acknowledgement disappeared")
-                _validate_acknowledgement(plan, reference, json.loads(ack.payload))
+        try:
+            clock, reference, value = _ready_marker(store, plan, key)
+            if (
+                len(keys) == 1
+                and value.get("mode") == "cumulative-v1"
+                and value["confirmed_partial"] is False
+            ):
+                ack_key = acknowledgement_key(plan, reference)
+                if ack_key in acknowledgements:
+                    ack = read_write_once_private(store, ack_key)
+                    if ack is None:
+                        raise ValueError("listed external acknowledgement disappeared")
+                    _validate_acknowledgement(plan, reference, json.loads(ack.payload))
+                    return None
+        except (R2Error, LakeCASConflict):
+            raise
+        except (LakePublishError, ValueError, KeyError, TypeError):
+            if defer_terminal and read_terminal(store, plan) is not None:
                 return None
+            raise
+        if defer_terminal and read_terminal(store, plan) is not None:
+            return None
         entries.append((clock, reference, _prepare_ready(store, value, plan, confirmed_stages)))
 
     legacy_partial = [entry for entry in entries if entry[2].confirmed_partial]
@@ -290,18 +311,27 @@ def _pending_ready(
 
 def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     by_run: dict[str, list[str]] = {}
-    acknowledgements: set[str] = set()
+    acknowledgements: dict[str, set[str]] = {}
+    terminals: set[str] = set()
     for key, _ in store.iter_objects(COORDINATION_PREFIX):
         run_id, _, name = key.removeprefix(COORDINATION_PREFIX).partition("/")
         if name.endswith(".json"):
             if name.startswith("ready-"):
                 by_run.setdefault(run_id, []).append(key)
             elif name.startswith("ack-"):
-                acknowledgements.add(key)
+                acknowledgements.setdefault(run_id, set()).add(key)
+            elif name == "published.json":
+                terminals.add(run_id)
     ready, failed = [], []
     for run_id, keys in sorted(by_run.items()):
         try:
-            reference = _pending_ready(store, run_id, keys, acknowledgements)
+            reference = _pending_ready(
+                store,
+                run_id,
+                keys,
+                acknowledgements.get(run_id, set()),
+                terminal_listed=run_id in terminals,
+            )
             if reference is not None:
                 ready.append(reference)
         except (R2Error, LakeCASConflict):

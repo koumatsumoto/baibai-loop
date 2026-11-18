@@ -70,9 +70,27 @@ def test_partial_ack_keeps_plan_open_and_later_superset_integrates(publication, 
     ack = read_acknowledgement(store, load_ready(store, first), first)
     assert ack["state_counts"]["unattempted"] == 1
     store.get_keys.clear()
+    store.head_keys.clear()
     assert available_ready(store) == ([], [])
+    assert staging.prefix(plan.run_id) + "/published.json" not in store.head_keys
     assert acknowledgement_key(plan, first) in store.get_keys
     assert not any("/confirmed-stages/" in key for key in store.get_keys)
+
+    # A terminal arriving after LIST cannot make an acknowledged set pending. A broken
+    # terminal is reported on the next listing, not suppressed by the receipt.
+    closed = staging.prefix(plan.run_id) + "/published.json"
+    with monkeypatch.context() as patch:
+        scan = store.iter_objects
+
+        def late_terminal(prefix):
+            yield from scan(prefix)
+            store.store_object(closed, b"{}")
+
+        patch.setattr(store, "iter_objects", late_terminal)
+        assert available_ready(store) == ([], [])
+        patch.setattr(store, "iter_objects", scan)
+        assert available_ready(store) == ([], [{"run_id": plan.run_id, "reason": "ValueError"}])
+        del store.values[closed]
 
     # Same key with different ready bytes has no receipt. Explicit replay always needs the stage.
     marker = json.loads(store.values[first["key"]].body)

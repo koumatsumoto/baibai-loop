@@ -135,6 +135,35 @@ def terminal(plan):
     ).encode()
 
 
+@pytest.mark.parametrize("receipt", ["malformed", "unrelated"])
+def test_late_terminal_wins_when_single_listed_receipt_does_not_settle(
+    publication, monkeypatch, receipt
+):
+    store, plan = make_partial(publication)
+    ref = save_ready(store, prepare_plan(store, plan, cumulative=True))
+    ack = acknowledgement_key(plan, ref if receipt == "malformed" else {"sha256": "0" * 64})
+    store.store_object(ack, b"{}")
+    closed = prefix(plan.run_id) + "/published.json"
+
+    def listed(_):
+        yield ref["key"], 0
+        yield ack, 0
+        store.store_object(closed, terminal(plan))
+
+    monkeypatch.setattr(store, "iter_objects", listed)
+    store.get_keys.clear()
+    assert available_ready(store) == ([], [])
+    assert closed in store.get_keys
+    assert not any("/confirmed-stages/" in key for key in store.get_keys)
+
+    # When the terminal was already listed its validation comes first, even with an ack.
+    monkeypatch.setattr(store, "iter_objects", lambda _: [(ref["key"], 0), (ack, 0), (closed, 0)])
+    store.store_object(closed, b"{}")
+    store.get_keys.clear()
+    assert available_ready(store) == ([], [{"run_id": plan.run_id, "reason": "ValueError"}])
+    assert ref["key"] not in store.get_keys
+
+
 def test_many_ready_markers_read_terminal_only_at_scan_and_selection(publication, monkeypatch):
     store, plan, first, second = cumulative_pair(publication)
     monkeypatch.setattr(
