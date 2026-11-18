@@ -1,5 +1,6 @@
 """同じbundleのdigestは共有し、別の保存・読戻し境界の照合は保つ。"""
 
+import sqlite3
 from datetime import timedelta
 
 import pytest
@@ -102,6 +103,53 @@ def test_import_shares_each_bundle_digest_without_changing_receipts(
     assert sorted(calls) == sorted(digests)
 
 
+def test_selected_attempts_reuse_one_reader_only_until_the_next_cohort_write(
+    originals, monkeypatch
+):
+    store, plan, stages, _, observations, _, database = originals
+    original_read = integration.equity_web_read_responses
+    readers = []
+
+    def read(reader, identities):
+        if not readers or readers[-1] is not reader:
+            readers.append(reader)
+        return original_read(reader, identities)
+
+    def store_bundle(path, responses):
+        for reader in readers:
+            with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                reader.execute("SELECT 1")
+        return import_responses(path, responses)
+
+    monkeypatch.setattr(integration, "equity_web_read_responses", read)
+    monkeypatch.setattr(integration, "equity_web_import_responses", store_bundle)
+    _, _, actual = integration._import_confirmed_originals(
+        store, plan, stages, database, retained=(set(), {}), bundle_receipts={}
+    )
+    assert actual == observations
+    assert len(readers) == len(stages) == 2
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        readers[-1].execute("SELECT 1")
+
+
+def test_failed_attempt_read_closes_the_cohort_reader(originals, monkeypatch):
+    store, plan, stages, _, _, _, database = originals
+    readers = []
+
+    def stop(reader, _):
+        readers.append(reader)
+        raise ValueError("incomplete original")
+
+    monkeypatch.setattr(integration, "equity_web_read_responses", stop)
+    with pytest.raises(ValueError, match="incomplete original"):
+        integration._import_confirmed_originals(
+            store, plan, stages, database, retained=(set(), {}), bundle_receipts={}
+        )
+    assert len(readers) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        readers[0].execute("SELECT 1")
+
+
 def test_acknowledged_digest_mismatch_still_stops_before_import(originals):
     store, plan, stages, bundles, _, expected, database = originals
     for responses in bundles:
@@ -132,6 +180,11 @@ def test_empty_stage_needs_no_digest(originals, monkeypatch):
         pytest.fail("an unattempted stage has no original to digest")
 
     monkeypatch.setattr(integration, "equity_web_response_digest", unexpected)
+    monkeypatch.setattr(
+        integration.sqlite3,
+        "connect",
+        lambda *a, **kw: pytest.fail("empty stage opened a database"),
+    )
     retained, bundle_receipts = (set(), {}), {}
     assert integration._import_confirmed_originals(
         store,
