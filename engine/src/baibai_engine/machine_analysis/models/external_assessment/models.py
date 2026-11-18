@@ -57,7 +57,7 @@ class QuantsScoreAssessment(FrozenModel):
     comparisons: tuple[MetricComparison, ...]
 
 
-class TradingViewAssessment(FrozenModel):
+class _TradingViewInputs(FrozenModel):
     inputs: TradingViewHistory
     availability: Literal[
         "not_observed",
@@ -67,6 +67,13 @@ class TradingViewAssessment(FrozenModel):
         "excluded_by_source_terms",
     ]
     forecast_fields: tuple[str, ...]
+
+
+class TradingViewReceipts(_TradingViewInputs):
+    comparison_basis: Literal["metric_period_mapping_unconfirmed"]
+
+
+class SavedTradingViewComparisons(_TradingViewInputs):
     comparisons: tuple[MetricComparison, ...]
 
 
@@ -91,6 +98,6 @@ class ExternalAssessment(FrozenModel):
     model_valuations: tuple[ModelValuationAssessment, ...]
     analyst_ratings: tuple[AnalystRatingAssessment, ...]
     quants_scores: tuple[QuantsScoreAssessment, ...]
-    tradingview: TradingViewAssessment
+    tradingview: TradingViewReceipts | SavedTradingViewComparisons
     origin_groups: tuple[OriginGroup, ...]
     minkabu: AnalystForecastHistory = Field(default_factory=AnalystForecastHistory)

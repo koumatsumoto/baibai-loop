@@ -33,6 +33,7 @@ type HoldingGateCode = Literal[
     "valuation_inputs_require_refresh",
     "quote_missing_or_stale",
     "quantity_basis_unconfirmed",
+    "no_partial_board_lot",
     "corporate_action_unresolved",
 ]
 
@@ -90,10 +91,10 @@ def evaluate_holding_proposal(
         if conditional_recovery == "consider_partial_recovery" and not can_compare_partial_recovery(
             position, board_lot
         ):
-            block(
-                "quantity_basis_unconfirmed",
-                "一部回収の比較には、取得単位が確認でき、一単元を除いても残る台帳保有が必要です。",
-            )
+            if not position.quantity_basis_confirmed or board_lot is None or board_lot <= 0:
+                block("quantity_basis_unconfirmed", "現在の台帳保有と取引単元の基準が未確認です。")
+            else:
+                block("no_partial_board_lot", "一単元を除いて保有を残す一部回収はできません。")
         if assessment.input_snapshot.as_of != as_of:
             block(
                 "valuation_basis_requires_refresh", "配分の条件案には今回の時点での評価が必要です。"

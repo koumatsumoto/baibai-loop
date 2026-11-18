@@ -251,7 +251,9 @@ def test_conditional_recovery_uses_current_position_but_never_asserts_an_order(
         is None
     )
     assert [e.code for e in result.hard_blockers] == (
-        [] if expected == "sell" else ["quantity_basis_unconfirmed"]
+        []
+        if expected == "sell"
+        else ["no_partial_board_lot" if known else "quantity_basis_unconfirmed"]
     )
 
 

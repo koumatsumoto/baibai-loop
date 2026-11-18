@@ -10,7 +10,7 @@ import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { formatJstDateTime } from '../lib/format'
-import { proposalActionLabel, groupProposalReports, isCorrectedProposal, proposalReportHref, publicationPeriod } from '../lib/proposal-history'
+import { proposalActionLabel, groupProposalReports, isCorrectedProposal, proposalReportHref, publicationPeriod, reportListSummary } from '../lib/proposal-history'
 import { ProposalReport } from './ProposalPage'
 
 function BackToReports() {
@@ -50,13 +50,13 @@ export function ProposalHistory({ data, proposalId = null, ticker = null }: {
     {groups.map(group => <section className="grid min-w-0 gap-3" key={group.key} aria-labelledby={`reports-${group.key}`}>
       <h2 id={`reports-${group.key}`} className="flex items-baseline gap-3 text-lg font-semibold">{group.label}<span className="text-xs font-normal text-muted-foreground">{group.year}年 · JST</span></h2>
       <div className="grid min-w-0 gap-3 md:grid-cols-2">
-        {group.reports.map(({ proposal, item }) => <Link key={`${proposal.proposal_id}:${item.ticker}`} to={proposalReportHref(proposal.proposal_id, item.ticker)} className="group grid min-w-0 content-start gap-4 rounded-xl border bg-card p-5 transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:p-6">
+        {group.reports.map(({ proposal, item }) => <Link key={`${proposal.proposal_id}:${item.ticker}`} to={proposalReportHref(proposal.proposal_id, item.ticker)} className="group grid min-w-0 content-start gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0"><h3 className="break-words text-lg font-semibold">{item.company_name ?? '会社名未記録'}</h3><p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="font-mono">{item.ticker}</span><span>{item.sector ?? '業種未記録'}</span></p></div>
             <ArrowUpRight aria-hidden="true" className="mt-1 size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
           </div>
           <div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{proposalActionLabel(item)}</Badge>{isCorrectedProposal(proposal) && <Badge variant="outline">訂正済みの旧提案</Badge>}</div>
-          <p className="whitespace-pre-wrap break-words text-sm leading-7">{item.rationale}</p>
+          <p className="break-words text-sm leading-6">{reportListSummary({ proposal, item })}</p>
           <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5"><Clock3 aria-hidden="true" className="size-3.5" /><time dateTime={proposal.published_at}>{publicationPeriod(proposal.published_at).time} 発行</time></span><span>提案基準日 {proposal.as_of}</span></div>
         </Link>)}
       </div>
