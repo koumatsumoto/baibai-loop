@@ -12,6 +12,10 @@ from uuid import uuid4
 
 import yaml
 
+from baibai_engine.investment_judgment.contracts import _datetime
+from baibai_engine.investment_judgment.judgment_retrospective.coverage import (
+    proposal_review_coverage,
+)
 from baibai_engine.investment_judgment.judgment_retrospective.document import RetrospectiveDraft
 from baibai_engine.investment_judgment.judgment_retrospective.query import (
     get_retrospective,
@@ -52,7 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
     recent = commands.add_parser("list", help="read finite recent lessons, newest recorded first")
     recent.add_argument("--ticker")
     recent.add_argument("--limit", type=int, default=20, help="1 to 100 records (default: 20)")
-    for command in (scaffold, save, get, recent):
+    coverage = commands.add_parser(
+        "coverage", help="follow up every item of one exact published proposal"
+    )
+    coverage.add_argument("--proposal-id", required=True)
+    coverage.add_argument("--known-at", help="receipt cutoff with timezone (default: now)")
+    for command in (scaffold, save, get, recent, coverage):
         command.add_argument("--db", type=Path)
         command.add_argument("--out", type=Path, help="create a new output file; never overwrite")
     return parser
@@ -95,6 +104,13 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     retrospective_id=args.retrospective_id,
                     db_path=args.db,
                     sha256=args.sha256,
+                )
+            case "coverage":
+                cutoff = instant if args.known_at is None else _datetime(args.known_at)
+                if cutoff > instant:
+                    raise ValueError("coverage cutoff is in the future")
+                payload = proposal_review_coverage(
+                    proposal_id=args.proposal_id, known_at=cutoff, db_path=args.db
                 )
             case "list":
                 payload = list_retrospectives(db_path=args.db, ticker=args.ticker, limit=args.limit)
