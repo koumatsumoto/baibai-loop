@@ -44,7 +44,6 @@ from baibai_engine.primitives.time import JST
 from baibai_engine.primitives.yaml import safe_load
 from baibai_engine.storage.filesystem import paths_refer_to_same_file
 from baibai_engine.storage.paths import (
-    ER_LEVEL_CALIBRATION_CONTEXT_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
 )
@@ -131,16 +130,6 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument("--db", type=Path)
     context_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     context_parser.add_argument("--out", type=Path)
-    calibration_parser = subparsers.add_parser(
-        "calibration-context",
-        help="read validated E[r] history for a fixed Investment Judgment run",
-    )
-    calibration_parser.add_argument("--operation-id", required=True)
-    calibration_parser.add_argument("--db", type=Path)
-    calibration_parser.add_argument(
-        "--context-path", type=Path, default=ER_LEVEL_CALIBRATION_CONTEXT_PATH
-    )
-    calibration_parser.add_argument("--asof", type=date.fromisoformat)
     prepare_parser = subparsers.add_parser(
         "prepare", help="save selected Investment Judgment inputs or resume an Operation"
     )
@@ -312,32 +301,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     write_text_atomic(args.out, content)
                 out.write(content)
                 return 3 if payload["status"] == "inputs_required" else 0
-            case "calibration-context":
-                from baibai_engine.investment_judgment.workflow.calibration_context import (
-                    research_calibration_context,
-                )
-                from baibai_engine.investment_judgment.workflow.operation.progress import (
-                    selection_binding,
-                )
-                from baibai_engine.investment_judgment.workflow.operation.service import (
-                    OperationService,
-                )
-
-                operation = OperationService(args.db).get(args.operation_id)
-                selection = selection_binding(operation.payload)
-                if selection is None:
-                    raise ValueError("Operation has no fixed Research selection")
-                payload = research_calibration_context(
-                    selection,
-                    context_path=args.context_path,
-                    as_of=args.asof or resolved_now.astimezone(JST).date(),
-                )
-                out.write(
-                    json.dumps(
-                        {"operation_id": operation.operation_id, **payload}, ensure_ascii=False
-                    )
-                    + "\n"
-                )
             case "prepare":
                 if args.selection_file is not None:
                     prepared = prepare_selected_workspace(
