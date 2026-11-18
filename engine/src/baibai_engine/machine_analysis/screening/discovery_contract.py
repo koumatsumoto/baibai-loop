@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Final, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, JsonValue
+
+DISCOVERY_METHOD: Final = "opportunity-discovery-v1"
+DISCOVERY_SUFFIX: Final = "-" + DISCOVERY_METHOD
 
 
 class DiscoveryPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    method: Literal["opportunity-discovery-v1"] = "opportunity-discovery-v1"
+    method: Literal["opportunity-discovery-v1"] = DISCOVERY_METHOD
 
 
 class DiscoveryRow(TypedDict):
@@ -43,3 +46,21 @@ class DiscoverySelection:
     def tickers(self) -> tuple[str, ...]:
         """旧レーン外・未観測も探索母集団。順位・買い適格集合ではない。"""
         return tuple(row["ticker"] for row in self.rows)
+
+
+def discovery_publication_id(generation_id: str) -> str:
+    return f"selection-{generation_id}{DISCOVERY_SUFFIX}"
+
+
+def validate_discovery_publication(
+    *,
+    selection_id: str,
+    generation_id: str,
+    result: DiscoverySelection,
+    universe_tickers: tuple[str, ...],
+) -> None:
+    """全社母集団の1銘柄1行。モデル欠測は行の欠落ではない。"""
+    if selection_id != discovery_publication_id(generation_id):
+        raise ValueError("discovery publication identity differs from its generation")
+    if result.tickers != universe_tickers or len(set(universe_tickers)) != len(universe_tickers):
+        raise ValueError("discovery result differs from the exact stock universe")

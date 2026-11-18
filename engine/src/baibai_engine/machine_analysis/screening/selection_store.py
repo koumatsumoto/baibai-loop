@@ -15,8 +15,9 @@ from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
 )
 from baibai_engine.machine_analysis.screening.discovery_contract import (
-    DiscoveryPolicy,
+    DISCOVERY_SUFFIX,
     DiscoverySelection,
+    validate_discovery_publication,
 )
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_rw, initialize_run_store
@@ -34,17 +35,15 @@ class ScreeningSelectionStore:
         """本DBの運用結果として発行する。比較実験は別の作業DBへ保存する。"""
         if not selection_id:
             raise ValueError("selection_id must not be empty")
-        indexed = isinstance(selection.result, DiscoverySelection)
-        if indexed != selection_id.endswith("-" + DiscoveryPolicy().method) or (
-            indexed
-            and selection_id != f"selection-{selection.generation_id}-{DiscoveryPolicy().method}"
-        ):
+        if isinstance(selection.result, DiscoverySelection):
+            validate_discovery_publication(
+                selection_id=selection_id,
+                generation_id=selection.generation_id,
+                result=selection.result,
+                universe_tickers=selection.universe_tickers,
+            )
+        elif selection_id.endswith(DISCOVERY_SUFFIX):
             raise ValueError("discovery publication identity differs from its format")
-        if indexed and (
-            selection.result.tickers != selection.universe_tickers
-            or len(set(selection.universe_tickers)) != len(selection.universe_tickers)
-        ):
-            raise ValueError("discovery rows must cover the exact stock universe")
         # model_copyは制約を迂回する。全社snapshotを再構築せず政策設定だけ再検証する。
         policy = selection.result.policy
         type(policy).model_validate(policy.model_dump(mode="python"))

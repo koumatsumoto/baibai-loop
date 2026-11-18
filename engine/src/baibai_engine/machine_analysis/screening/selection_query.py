@@ -138,7 +138,7 @@ def find_publication_header(
     """一覧と明示詳細で同じ時計・同じ発行物を選ぶ。本文は読まない。"""
     if known_at is not None and known_at.utcoffset() is None:
         raise ValueError("publication cutoff requires a UTC offset")
-    return connection.execute(
+    row = connection.execute(
         "SELECT s.selection_id,s.published_at,g.generation_id,g.as_of,g.evaluation_time "
         "FROM screening_selection s JOIN model_generation g USING(generation_id) "
         "WHERE (:id IS NULL OR s.selection_id=:id) AND (:before IS NULL OR g.as_of<:before) "
@@ -153,3 +153,4 @@ def find_publication_header(
             "cutoff": known_at.isoformat() if known_at else None,
         },
     ).fetchone()
+    return None if row is None else (row[0], row[1], row[2], row[3], row[4])
