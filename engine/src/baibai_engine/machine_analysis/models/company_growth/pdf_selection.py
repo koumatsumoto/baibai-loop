@@ -365,10 +365,11 @@ def pdf_comparison_prior(
     ):
         return None
     # The saved change is sourced from this same statement's restated prior column.
+    source = (_source(current),)
     metrics: dict[Metric, Value] = {
         pair.metric: Value(
             value=pair.comparative * 1_000_000,
-            documents=(_source(current),),
+            documents=source,
             precision="published_display_amounts",
         )
         for pair in current.pairs
@@ -379,8 +380,10 @@ def pdf_comparison_prior(
             value=operating / sales
             if operating is not None and sales is not None and sales > 0
             else None,
-            documents=(_source(current),),
-            precision="published_display_amounts",
+            documents=source,
+            precision="derived_from_truncated_display_amounts"
+            if current.rounding == "truncate_below_unit"
+            else "derived_from_display_amounts_rounding_unspecified",
         )
     return observation.model_copy(
         update={
