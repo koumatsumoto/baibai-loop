@@ -11,7 +11,7 @@ from baibai_engine.machine_analysis.models.external_assessment.models import (
     OriginGroup,
     OriginReference,
     QuantsScoreAssessment,
-    TradingViewAssessment,
+    TradingViewReceipts,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ModelValuationHistory,
@@ -93,40 +93,6 @@ def _compare(
             "comparable": True,
             "delta": delta,
             "state": "same_value" if delta == 0 else "increased" if delta > 0 else "decreased",
-        }
-    )
-
-
-def _tradingview_comparison(metric: str, history: TradingViewHistory) -> MetricComparison:
-    # Row-level period metadata does not establish a period for each metric.
-    # Preserve received values and missingness, without any numerical delta path.
-    latest, previous = history.latest, history.previous
-    latest_value = getattr(latest, metric) if latest is not None else None
-    previous_value = getattr(previous, metric) if previous is not None else None
-    state = (
-        "not_observed"
-        if latest is None
-        else "missing"
-        if latest_value is None
-        else "first_observation"
-        if previous is None
-        else "recovered"
-        if previous_value is None
-        else "not_comparable"
-    )
-    return MetricComparison.model_validate(
-        {
-            "metric": metric,
-            "latest_value": latest_value,
-            "previous_value": previous_value,
-            "state": state,
-            "reason": {
-                "not_observed": "no_observation",
-                "missing": "latest_missing",
-                "first_observation": "no_previous_observation",
-                "recovered": "previous_missing",
-                "not_comparable": "metric_period_mapping_unconfirmed",
-            }[state],
         }
     )
 
@@ -244,15 +210,15 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
         ticker=history.ticker,
         cutoff=cutoff,
         evaluated_at=evaluated_at,
-        method_version="same-series-v7",
+        method_version="same-series-v8-tradingview-receipts",
         model_valuations=tuple(models),
         analyst_ratings=(),
         quants_scores=tuple(scores),
-        tradingview=TradingViewAssessment(
+        tradingview=TradingViewReceipts(
             inputs=tv,
             availability=availability,
             forecast_fields=forecast_fields,
-            comparisons=tuple(_tradingview_comparison(metric, tv) for metric in FORECAST_METRICS),
+            comparison_basis="metric_period_mapping_unconfirmed",
         ),
         origin_groups=tuple(
             OriginGroup(origin=origin, references=tuple(refs))
