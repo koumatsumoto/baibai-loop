@@ -75,3 +75,40 @@ def seed_historical_operation(path: Path, operation: OperationSession) -> None:
                 canonical_json(operation.payload.model_dump(mode="json")),
             ),
         )
+
+
+def seed_historical_assessment(path, publication, published_at):
+    """Restore an exact archived pair as data, not an invocation of the current authoring writer."""
+    from baibai_engine.investment_judgment.independent_review.contracts import AssessmentReview
+    from baibai_engine.investment_judgment.stock_assessment.document import (
+        StockAssessmentDocument,
+        assessment_core_hash,
+    )
+
+    initialize_database(path)
+    doc = StockAssessmentDocument.model_validate(publication["document"])
+    review = AssessmentReview.model_validate(publication["review"])
+    identity = publication["assessment_id"]
+    with closing(connect_rw(path)) as conn, conn:
+        conn.execute(
+            "INSERT INTO stock_assessment VALUES(?,?,?,?,?,?,?,?)",
+            (
+                identity,
+                doc.input_snapshot.ticker,
+                doc.input_snapshot.as_of.isoformat(),
+                doc.conclusion.stance,
+                published_at.isoformat(),
+                None,
+                canonical_json(doc.model_dump(mode="json")),
+                assessment_core_hash(doc),
+            ),
+        )
+        conn.execute(
+            "INSERT INTO stock_assessment_review VALUES(?,?,?,?)",
+            (
+                review.review_id,
+                identity,
+                review.reviewed_at.isoformat(),
+                canonical_json(review.model_dump(mode="json")),
+            ),
+        )

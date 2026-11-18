@@ -337,9 +337,7 @@ def test_cli_generates_ratio_compatible_with_existing_tolerance_without_writes(t
     assessment.update(
         input_snapshot=payload["input_snapshot"],
         derived=result["derived"],
-        valuation=result["valuation"],
     )
-    review["recalculated_projections"] = result["recalculated_projections"]
     assert evaluated_pair(assessment, review).assessment_readiness == "ready"
     assessment["derived"]["metrics"][0]["value"] = 0.3333
     assert any("value mismatch" in error for error in evaluated_pair(assessment, review).errors)
@@ -668,30 +666,19 @@ def test_missing_valuation_has_no_manufactured_projection(unresolved):
     )
     result = calculate(CalculationInput.model_validate(payload))
     assert result["projection_numbers"] is None
-    assert result["recalculated_projections"] == []
+    assert "recalculated_projections" not in result
     assert result["derived"]["metrics"][0]["value"] == 0.3333333333333333
 
 
-def test_calculation_keeps_saved_core_and_independent_review_semantics():
+def test_calculation_does_not_return_authored_inputs_as_independent_review():
     assessment, review = pair_payload(as_of="2026-09-07", quote_as_of="2026-09-04")
-    before = deepcopy((assessment, review))
-    original_hash = assessment_core_hash(StockAssessmentDocument.model_validate(assessment))
-    author_inputs = {key: deepcopy(assessment[key]) for key in ("input_snapshot", "valuation")}
-    author = calculate(CalculationInput.model_validate(author_inputs))
-    # Equivalent numeric serialization must retain the existing canonical core/hash.
-    assessment["valuation"] = author["valuation"]
-    review["recalculated_projections"] = author["recalculated_projections"]
-    assert assessment_core_hash(StockAssessmentDocument.model_validate(assessment)) == original_hash
-    assert evaluated_pair(assessment, review).assessment_readiness == "ready"
-    reviewer_inputs = deepcopy(author_inputs)
-    reviewer_inputs["valuation"]["base"]["terminal_value_per_share_yen"] = 1260
-    reviewer = calculate(CalculationInput.model_validate(reviewer_inputs))
-    review["recalculated_projections"] = reviewer["recalculated_projections"]
+    inputs = {key: deepcopy(assessment[key]) for key in ("input_snapshot", "valuation")}
+    result = calculate(CalculationInput.model_validate(inputs))
+    assert "valuation" not in result
+    assert "recalculated_projections" not in result
+    assert result["projection_numbers"]["base"]["total_value_yen"] > 0
+    review["recalculated_projections"][0]["terminal_value_per_share_yen"] = "1260"
     assert any("terminal" in error for error in evaluated_pair(assessment, review).errors)
-    assert author_inputs == {key: before[0][key] for key in ("input_snapshot", "valuation")}
-    # No prose parser: the same incorrect terminal from both passes still agrees.
-    assessment["valuation"] = reviewer["valuation"]
-    assert evaluated_pair(assessment, review).assessment_readiness == "ready"
 
 
 def test_assessment_ratio_reports_unit_and_value_errors_together():

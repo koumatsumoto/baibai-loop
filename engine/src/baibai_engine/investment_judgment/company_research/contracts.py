@@ -63,6 +63,7 @@ class ObservedFact(BaseModel):
         "net_income_attributable_to_owners",
         "fcfe",
         "shares_outstanding",
+        "last_eligible_trade_date",
         "other",
     ]
     value: (
@@ -101,6 +102,12 @@ class ObservedFact(BaseModel):
 
     @model_validator(mode="after")
     def _market_price_metadata(self) -> ObservedFact:
+        if self.fact_kind == "last_eligible_trade_date" and (
+            self.unit != "date"
+            or not isinstance(self.value, str)
+            or _date(self.value).isoformat() != self.value
+        ):
+            raise ValueError("last eligible trade date requires an ISO date and date unit")
         if self.fact_kind == "market_price":
             if self.price_basis is None:
                 raise ValueError("market_price requires price_basis")

@@ -40,6 +40,10 @@ from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
     ReviewedProjection,
 )
+from baibai_engine.investment_judgment.stock_assessment.price_value import (
+    PriceValueCase,
+    price_value_errors,
+)
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
     FIXED_VALUE_DELAY_MONTHS,
     project_return,
@@ -201,7 +205,13 @@ class AssessmentRefresh(BaseModel):
     material_information_check: NonEmptyStr
     changed_sections: tuple[
         Literal[
-            "findings", "valuation", "investment_case", "risks", "sources", "model_perspectives"
+            "findings",
+            "valuation",
+            "investment_case",
+            "risks",
+            "sources",
+            "model_perspectives",
+            "price_value_case",
         ],
         ...,
     ]
@@ -242,6 +252,7 @@ class StockAssessmentDocument(BaseModel):
     model_perspectives: tuple[ModelPerspective, ...] = Field(
         default=(), exclude_if=lambda value: not value
     )
+    price_value_case: PriceValueCase | None = Field(default=None, exclude_if=lambda v: v is None)
     refresh: AssessmentRefresh | None = None
 
     @field_validator("schema_version", mode="before")
@@ -358,6 +369,17 @@ class AssessmentEvaluation:
     assessment_sha256: str
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewedAssessment:
+    assessment_id: str
+    document: StockAssessmentDocument
+    review: AssessmentReview
+    core_sha256: str
+    evaluation: AssessmentEvaluation
+    # 利用側で保存行を再読せず、検証したpairと同じ公開時刻を使う。
+    published_at: datetime
 
 
 def assessment_core_hash(document: StockAssessmentDocument) -> str:
@@ -580,6 +602,18 @@ def evaluate_assessment(
         }:
             # Analytical prices can remain evidence, never the selected valuation price.
             errors.append("market_price requires unadjusted JPY_per_share basis")
+    if document.price_value_case is not None:
+        errors.extend(
+            price_value_errors(
+                document.price_value_case,
+                as_of=snapshot.as_of,
+                price=facts.get(valuation.market_price_fact_id or ""),
+                facts=facts,
+                sources=sources,
+            )
+        )
+    elif identity is UnpublishedAssessment.DRAFT:
+        errors.append("new assessment requires an explicit price_value_case")
     for projection in (valuation.base, valuation.downside):
         if projection is not None:
             required_sources.update(projection.source_ids)
@@ -627,6 +661,18 @@ def evaluate_assessment(
         )
         if review.primary_source_check == "verified" and not primary_checked:
             errors.append("verified review must check a primary source")
+        if (
+            document.price_value_case is not None
+            and document.price_value_case.status != "undetermined"
+            and (
+                review.primary_source_check == "unverified"
+                or (
+                    review.primary_source_check == "partially_verified"
+                    and not (review.uncertainty_acceptance_reason or "").strip()
+                )
+            )
+        ):
+            errors.append("a decided price_value_case requires a material primary-source check")
         if stance == "supported" and review.primary_source_check != "verified":
             errors.append("supported requires verified material primary evidence")
         if (

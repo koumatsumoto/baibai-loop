@@ -26,7 +26,11 @@ def _context(case):
 
 
 def _new_pair(case, *, ticker="1234", unresolved=False):
-    document, review = pair_payload(ticker=ticker, review_number=3)
+    document, review = pair_payload(
+        ticker=ticker,
+        review_number=3,
+        price_case="undetermined" if unresolved else "supported_at_quote",
+    )
     if unresolved:
         document["conclusion"]["stance"] = "uncertain"
         document["investment_case"]["status"] = "uncertain"

@@ -52,7 +52,12 @@ def _pair(
     countercase=None,
     realization=None,
 ):
-    raw, review_raw = pair_payload(review_number=number + 1)
+    raw, review_raw = pair_payload(
+        review_number=number + 1,
+        price_case="undetermined"
+        if valuation and valuation.get("status") == "unresolved"
+        else "supported_at_quote",
+    )
     raw["model_perspectives"] = list(perspectives)
     if risks is not None:
         raw["permanent_loss_risks"] = risks

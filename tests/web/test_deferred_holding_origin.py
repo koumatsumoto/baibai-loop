@@ -35,7 +35,7 @@ DEFER_ID = "investment-proposal-00000000-0000-4000-8000-000000000021"
 def _published_defer(tmp_path, *, unreviewed=False):
     fixture = _setup(tmp_path)
     case, original = fixture.case, fixture.case.pair
-    document, review = pair_payload(review_number=11)
+    document, review = pair_payload(review_number=11, price_case="undetermined")
     document["investment_case"]["explanation"] = "今回の素材。購入時の理由ではない。"
     document["valuation"] = {
         "status": "unresolved",

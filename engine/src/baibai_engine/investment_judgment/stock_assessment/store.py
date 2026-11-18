@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable, Mapping
 from contextlib import closing
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -18,13 +17,15 @@ from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
 from baibai_engine.investment_judgment.stock_assessment.document import (
-    AssessmentEvaluation,
     AssessmentRef,
     StockAssessmentDocument,
     UnpublishedAssessment,
     assessment_core_hash,
     evaluate_assessment,
     require_recorded_identity,
+)
+from baibai_engine.investment_judgment.stock_assessment.document import (
+    ReviewedAssessment as ReviewedAssessment,
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
@@ -37,17 +38,6 @@ class ResearchConflictError(ValueError):
 
 class ResearchValidationError(ValueError):
     """The supplied pair cannot be used as a Reviewed Assessment."""
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewedAssessment:
-    assessment_id: str
-    document: StockAssessmentDocument
-    review: AssessmentReview
-    core_sha256: str
-    evaluation: AssessmentEvaluation
-    # 利用側で保存行を再読せず、検証したpairと同じ公開時刻を使う。
-    published_at: datetime
 
 
 def latest_assessment_id(connection: sqlite3.Connection, ticker: str) -> str | None:
@@ -195,6 +185,7 @@ def _verify_refresh_change_scope(
     sections = (
         ("findings", document.findings, prior.findings),
         ("valuation", document.valuation, prior.valuation),
+        ("price_value_case", document.price_value_case, prior.price_value_case),
         ("investment_case", document.investment_case, prior.investment_case),
         ("risks", document.permanent_loss_risks, prior.permanent_loss_risks),
         ("sources", document.input_snapshot.sources, prior.input_snapshot.sources),

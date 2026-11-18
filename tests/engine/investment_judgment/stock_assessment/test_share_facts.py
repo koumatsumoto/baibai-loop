@@ -9,7 +9,7 @@ from tests.engine.investment_judgment.stock_assessment.test_stock_assessment imp
     evaluation,
     ratio_pair,
 )
-from tests.helpers.assessment_v1 import NOW, assessment_id, update_review_hash
+from tests.helpers.assessment_v1 import NOW, assessment_id, undetermined_case, update_review_hash
 
 from baibai_engine.investment_judgment.independent_review.contracts import AssessmentReview
 from baibai_engine.investment_judgment.stock_assessment.calculation import (
@@ -88,6 +88,7 @@ def test_unresolved_assessment_keeps_unused_unknown_or_original_unit(value, unit
     document, review = ratio_pair()
     document["input_snapshot"]["facts"][-1].update(value=value, unit=unit)
     document["derived"]["metrics"] = []
+    document["price_value_case"] = undetermined_case()
     document["valuation"].update(
         status="unresolved",
         market_price_fact_id=None,

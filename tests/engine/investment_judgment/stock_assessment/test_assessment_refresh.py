@@ -11,6 +11,7 @@ from tests.helpers.assessment_v1 import (
     assessment_id,
     pair_payload,
     review_id,
+    undetermined_case,
     update_review_hash,
 )
 
@@ -68,6 +69,7 @@ def authored_refresh(prior):
         as_of=date(2026, 10, 14),
         assessed_at=datetime.fromisoformat("2026-10-14T16:00:00+09:00"),
     )
+    draft["price_value_case"] = prior.document.price_value_case.model_dump(mode="json")
     draft["valuation"]["horizon_months"] = 9
     draft["valuation"]["base"]["cash_distribution_per_share_yen"] = "40"
     draft["valuation"]["downside"]["cash_distribution_per_share_yen"] = "0"
@@ -240,6 +242,8 @@ def test_new_period_and_distribution_require_independent_recalculation(prior):
 def test_unknown_future_distribution_stays_unresolved_without_zero_fill(prior, connection):
     draft, review = authored_refresh(prior)
     draft["conclusion"]["stance"] = "uncertain"
+    draft["price_value_case"] = undetermined_case()
+    draft["refresh"]["changed_sections"].append("price_value_case")
     draft["valuation"] = dict(
         status="unresolved",
         market_price_fact_id=None,
@@ -327,6 +331,7 @@ def test_refresh_review_scope_is_required_and_nonempty(prior):
 def test_refresh_can_use_exact_older_material_and_supersede_current_latest(prior, connection):
     document, review = pair_payload(as_of="2026-08-14", review_number=6)
     document["conclusion"]["stance"] = "uncertain"
+    document["price_value_case"] = undetermined_case()
     document["valuation"] = dict(
         status="unresolved",
         market_price_fact_id=None,

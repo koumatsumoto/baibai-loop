@@ -36,7 +36,7 @@ from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
 def _pair(*, unresolved=False):
-    raw, review = pair_payload()
+    raw, review = pair_payload(price_case="undetermined" if unresolved else "supported_at_quote")
     if unresolved:
         raw["valuation"] = {
             "status": "unresolved",

@@ -18,7 +18,12 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
-from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
+from tests.helpers.assessment_v1 import (
+    assessment_id,
+    pair_payload,
+    undetermined_case,
+    update_review_hash,
+)
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.lake_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
@@ -575,6 +580,7 @@ def _assessment_payload(case):
                 risk.update(assessment="adverse", summary="合成一次資料で恒常収益源の喪失を確認。")
         findings["value_gap_explanation"] = "価格上昇・古い外部目標は恒常収益源の喪失を覆さない。"
     if case.scenario == "unknown":
+        document["price_value_case"] = undetermined_case()
         document["valuation"] = dict(
             status="unresolved",
             market_price_fact_id=None,

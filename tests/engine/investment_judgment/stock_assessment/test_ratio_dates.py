@@ -34,10 +34,12 @@ from baibai_engine.storage.sqlite.application.schema import SCHEMA_SQL
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 
 
-def ratio_pair():
+def ratio_pair(*, price_case="supported_at_quote"):
     inputs = inputs_payload(numerator=120_000_000, denominator=1_000_000, denominator_unit="shares")
     result = calculate(CalculationInput.model_validate(inputs))
-    document, review = pair_payload(as_of="2026-09-07", quote_as_of="2026-09-04")
+    document, review = pair_payload(
+        as_of="2026-09-07", quote_as_of="2026-09-04", price_case=price_case
+    )
     document.update(input_snapshot=inputs["input_snapshot"], derived=result["derived"])
     update_review_hash(document, review)
     return document, review
@@ -88,7 +90,10 @@ def test_different_operand_dates_need_not_match_the_ratio_date(metric_date):
 
 
 def test_old_pair_hash_readback_and_retry_survive_new_date_check():
-    document, review = ratio_pair()
+    document, review = ratio_pair(price_case=None)
+    document["input_snapshot"]["facts"] = [
+        f for f in document["input_snapshot"]["facts"] if f["fact_id"] != "owner_receipt"
+    ]
     document["derived"]["metrics"][0]["as_of"] = "2025-09-04"
     update_review_hash(document, review)
     typed = StockAssessmentDocument.model_validate(document)
