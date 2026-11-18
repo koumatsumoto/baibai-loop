@@ -28,6 +28,7 @@ from baibai_engine.data_collection.receipts.native_sources.records import store_
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.economic_inputs import rebuild_economic_input
+from baibai_engine.machine_analysis.generation.economic_membership import year_members
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.objects.json import MAX_PRIVATE_OBJECT_BYTES
 
@@ -202,9 +203,11 @@ def test_dense_leap_year_keeps_every_receipt_below_existing_object_limit(tmp_pat
     store = MemoryR2Store()
     saved = freeze(store, path)
     assert set(root(store, saved)["months"]) == {"fred-payems/2024"}
-    digest = root(store, saved)["months"]["fred-payems/2024"]
-    assert len(store.values[PREFIX + digest + ".json"].body) < MAX_PRIVATE_OBJECT_BYTES
-    assert {receipt["key"][1] for receipt in block(store, digest)["records"]} == {
+    year = root(store, saved)["months"]["fred-payems/2024"]
+    assert saved.descriptor["format"] == "economic-input-v3"
+    assert len(store.values) == 1
+    assert len(next(iter(store.values.values())).body) < MAX_PRIVATE_OBJECT_BYTES
+    assert {key[1] for _, key, _, _, _ in year_members("fred-payems/2024", year)} == {
         day.isoformat() for day in days
     }
     with closing(sqlite3.connect(path)) as connection:

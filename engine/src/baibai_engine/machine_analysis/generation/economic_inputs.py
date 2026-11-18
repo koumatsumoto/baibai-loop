@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
+import json
 import sqlite3
 import sys
 import tempfile
@@ -32,8 +33,10 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
 from baibai_engine.machine_analysis.generation.contracts import Digest, InputSnapshot
 from baibai_engine.machine_analysis.generation.economic_membership import (
     Member,
-    decode_membership,
-    encode_membership,
+    hybrid_root,
+    inline_year,
+    unpack_root,
+    year_members,
 )
 from baibai_engine.machine_analysis.generation.runners.market_reading import (
     reading_observation_ranges,
@@ -426,43 +429,51 @@ def _retain_economic_input(
             runs=runs,
         ).model_dump(mode="json")
 
-    def values(consume: Callable[[Any], str]) -> dict[str, str]:
-        def handle(item: tuple[str, dict[str, list[_Receipt]]]) -> tuple[str, str]:
-            name, rows = item
-            return name, consume(_Block(**rows).model_dump(mode="json"))
+    def retain_blocks(names: list[str]) -> dict[str, str]:
+        def handle(name: str) -> tuple[str, str]:
+            return name, retain(_Block(**blocks[name]).model_dump(mode="json"))
 
-        # The old wire format and its complete child verification remain available.
         with ThreadPoolExecutor(max_workers=8) as workers:
-            return dict(workers.map(handle, sorted(blocks.items()), buffersize=8))
+            return dict(workers.map(handle, names, buffersize=8))
 
-    if objects is not None and len(blocks) >= 32:
-        legacy_months: dict[str, str] = {}
-        for name, rows in blocks.items():
-            payload = canonical_json(_Block(**rows).model_dump(mode="json")).encode()
-            if len(payload) > MAX_PRIVATE_OBJECT_BYTES:
-                break  # Do not borrow a write budget from an unpublishable old selection.
-            legacy_months[name] = hashlib.sha256(payload).hexdigest()
-        else:
-            legacy = selection(legacy_months)
-            legacy_bytes = canonical_json(legacy).encode()
-            compact = encode_membership(legacy, blocks)
-            if (
-                compact is not None
-                and len(canonical_json(compact).encode())
-                <= len(legacy_bytes)
-                <= MAX_PRIVATE_OBJECT_BYTES
-            ):
-                legacy_sha = hashlib.sha256(legacy_bytes).hexdigest()
-                old = objects.find(legacy_sha)
-                if old is None:
-                    # One otherwise-required root pays for the entire new selection;
-                    # never upload both layouts or convert a previously retained input.
-                    return _identity("economic-input-v3", retain(compact))
-                if old != legacy_bytes:
-                    raise LakePublishError("economic selection object failed integrity")
-                values(retain)
-                return _identity("economic-input-v2", objects.remember(legacy_sha, old))
-    return _identity("economic-input-v2", retain(selection(values(retain))))
+    names = sorted(blocks)
+    inline = {
+        name: text
+        for name in names
+        if objects is not None and (text := inline_year(name, blocks[name])) is not None
+    }
+    if not inline or objects is None:
+        return _identity("economic-input-v2", retain(selection(retain_blocks(names))))
+
+    legacy_months = {}
+    proof = hashlib.sha256()
+    for name in names:
+        payload = canonical_json(_Block(**blocks[name]).model_dump(mode="json")).encode()
+        if len(payload) > MAX_PRIVATE_OBJECT_BYTES:
+            raise ValueError("invalid private JSON payload size")
+        legacy_months[name] = hashlib.sha256(payload).hexdigest()
+        if name in inline:
+            for receipt in blocks[name]["records"]:
+                proof.update(bytes.fromhex(receipt.sha256))
+    legacy = selection(legacy_months)
+    legacy_bytes = canonical_json(legacy).encode()
+    if len(legacy_bytes) > MAX_PRIVATE_OBJECT_BYTES:
+        raise ValueError("invalid private JSON payload size")
+    legacy_sha = hashlib.sha256(legacy_bytes).hexdigest()
+    old = objects.find(legacy_sha)
+    if old is not None:
+        if old != legacy_bytes:
+            raise LakePublishError("economic selection object failed integrity")
+        retain_blocks(names)
+        return _identity("economic-input-v2", objects.remember(legacy_sha, old))
+
+    # Non-inline blocks have exactly their old keys. A later high-entropy block
+    # cannot make us write previously skipped children, even across billing months.
+    external = retain_blocks([name for name in names if name not in inline])
+    hybrid = hybrid_root(legacy, {**external, **inline}, proof.hexdigest())
+    if len(canonical_json(hybrid).encode()) > len(legacy_bytes):
+        raise AssertionError("economic root exceeds its replaced wire budget")
+    return _identity("economic-input-v3", retain(hybrid))
 
 
 def _identity(format_name: str, root: str) -> InputSnapshot:
@@ -509,12 +520,13 @@ def _rebuild_economic_input(
     if not isinstance(digest, str):
         raise ValueError("saved economic selection digest is required")
     payload = read(digest)
-    packed = decode_membership(payload) if descriptor["format"] == "economic-input-v3" else None
-    selection = (
-        _Selection.model_validate(packed.selection)
-        if packed is not None
-        else _Selection.model_validate_json(payload)
-    )
+    inline: dict[str, str] = {}
+    expected_proof = None
+    if descriptor["format"] == "economic-input-v3":
+        values, inline, expected_proof = unpack_root(json.loads(payload))
+        selection = _Selection.model_validate(values)
+    else:
+        selection = _Selection.model_validate_json(payload)
     if selection.recipe_sha256 != _recipe(rules_path):
         raise ValueError("economic calculation recipe differs from the saved input")
     with (
@@ -545,7 +557,7 @@ def _rebuild_economic_input(
                 )
                 return row, actual
 
-            def legacy_members() -> Iterator[Member]:
+            def members() -> Iterator[Member]:
                 def read_block(block_digest: str) -> _Block:
                     return _Block.model_validate_json(read(block_digest))
 
@@ -553,13 +565,13 @@ def _rebuild_economic_input(
                     for kind, rows in (("records", block.records), ("documents", block.documents)):
                         for row in rows:
                             yield kind, row.key, row.confirmed, row.checked_at, row.sha256
+                for name, text in sorted(inline.items()):
+                    yield from year_members(name, text)
 
             proof = hashlib.sha256()
-            for kind, key, confirmed, checked_at, expected in (
-                packed.members() if packed is not None else legacy_members()
-            ):
+            for kind, key, confirmed, checked_at, expected in members():
                 row, actual = copy(kind, key, expected)
-                if packed is not None:
+                if expected is None:
                     proof.update(bytes.fromhex(actual))
                 if kind != "records":
                     continue
@@ -577,7 +589,7 @@ def _rebuild_economic_input(
                         "INSERT INTO economic_source_record_confirmations VALUES (?,?,?,?,?)",
                         (*key[:2], checked_at, key[2], hashlib.sha256(row[4]).hexdigest()),
                     )
-            if packed is not None and proof.hexdigest() != packed.receipt_sha256:
+            if expected_proof is not None and proof.hexdigest() != expected_proof:
                 raise ValueError("fixed economic original failed integrity")
             # Whole-source confirmation is provenance, not a claim about this projection.
             for run_reference in selection.runs.values():
