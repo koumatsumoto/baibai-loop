@@ -60,12 +60,14 @@ def _project(
     proposal, pairs = load_proposal_with_assessments(connection, proposal_id)
     view = project_saved_proposal(proposal, pairs)
     view.corrections, view.human_reports = records.read(proposal)
-    market, charts = saved_proposal_report_context(connection, proposal, pairs)
-    view.saved_market_context = SavedMarketContextView.model_validate(market)
+    context = saved_proposal_report_context(connection, proposal, pairs)
+    view.saved_market_context = SavedMarketContextView.model_validate(context.market)
     for item in view.items:
+        if item.ticker in context.issuer_names:
+            item.company_name, item.sector = context.issuer_names[item.ticker]
         assessment = item.assessment
-        if assessment is not None and assessment.assessment_id in charts:
+        if assessment is not None and assessment.assessment_id in context.charts:
             assessment.estimated_model_chart = EstimatedModelChartView.model_validate(
-                charts[assessment.assessment_id]
+                context.charts[assessment.assessment_id]
             )
     return view

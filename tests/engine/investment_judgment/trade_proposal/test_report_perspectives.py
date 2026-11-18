@@ -400,3 +400,53 @@ def test_future_account_is_not_a_missing_vintage_or_a_known_profit(end, disclose
         assert row["assessment"] == "context_only"
         assert "45.0%" in row["summary"]
         assert "9.00億円" not in row["summary"]
+
+
+def test_unfinished_report_uses_only_its_fixed_issuer_and_dated_master():
+    from datetime import date, datetime
+
+    from baibai_engine.investment_judgment.trade_proposal.report_perspectives import (
+        saved_master_identity,
+    )
+
+    def identity(s, *, cut=CUT, ticker="1234"):
+        return saved_master_identity(
+            s,
+            ticker=ticker,
+            proposal_as_of=date.fromisoformat(DAY),
+            prepared_at=datetime.fromisoformat(cut),
+        )
+
+    past = {"snapshot_date": "2026-10-19", "name": "親会社", "sector_33": "情報・通信業"}
+    other = {**past, "name": "子会社"}
+    s = _sel()
+    _put(s, "market_context", {"master": other}, subject="4321")
+    _put(s, "market_context", {"master": past})
+    assert identity(s) == ("親会社", "情報・通信業")
+    assert identity(s, ticker="4321") is None  # Not a selected target.
+    assert identity(s, cut="2026-10-20T14:59:59.999999+09:00") is None
+    s["inputs"]["generation"]["as_of"] = "2026-10-18"
+    assert identity(s) is None
+    s["inputs"]["generation"]["as_of"] = DAY
+    s["inputs"]["generation"]["models"][-1]["payload"]["ticker"] = "4321"
+    assert identity(s) is None
+    del s["inputs"]["generation"]["models"][-1]["payload"]["ticker"]
+    _put(s, "market_context", {"master": other})  # Ambiguous same subject.
+    assert identity(s) is None
+
+    legacy = {
+        **s,
+        "schema_version": 2,
+        "inputs": {
+            "securities_context": {
+                "1234": {"market_context": {"master": {**past, "sector_33": None}}},
+                "4321": {"market_context": {"master": other}},
+            }
+        },
+    }
+    assert identity(legacy) == ("親会社", None)
+    legacy["inputs"]["securities_context"]["1234"]["market_context"]["master"] = {
+        **past,
+        "snapshot_date": "2026-10-21",
+    }
+    assert identity(legacy) is None

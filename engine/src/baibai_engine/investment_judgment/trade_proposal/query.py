@@ -25,7 +25,10 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     ProposalRecords,
     ProposalReference,
 )
-from baibai_engine.investment_judgment.trade_proposal.report_perspectives import estimate_missing
+from baibai_engine.investment_judgment.trade_proposal.report_perspectives import (
+    estimate_missing,
+    saved_master_identity,
+)
 from baibai_engine.investment_judgment.workflow.selection import (
     selection_from_artifacts,
     selection_payload_and_sha256,
@@ -494,16 +497,32 @@ def saved_proposal_market_context(
     )
 
 
+@dataclass(frozen=True)
+class SavedProposalReportContext:
+    market: dict[str, object]
+    charts: dict[str, dict[str, object]]
+    issuer_names: dict[str, tuple[str, str | None]]
+
+
 def saved_proposal_report_context(
     connection: sqlite3.Connection, proposal: TradeProposal, pairs: dict[str, ReviewedAssessment]
-) -> tuple[dict[str, object], dict[str, dict[str, object]]]:
-    """Read one fixed selection for both sections; never use another case."""
+) -> SavedProposalReportContext:
+    """Read one fixed selection for all report context; never use another case."""
     selection, reason = _saved_proposal_selection(connection, proposal)
     market = _market_context_from_selection(proposal, selection, reason)
     charts: dict[str, dict[str, object]] = {}
+    issuers: dict[str, tuple[str, str | None]] = {}
     if selection is not None:
         for item in proposal.items:
             if item.assessment_ref is None:
+                identity = saved_master_identity(
+                    selection,
+                    ticker=item.ticker,
+                    proposal_as_of=proposal.as_of,
+                    prepared_at=proposal.prepared_at,
+                )
+                if identity is not None:
+                    issuers[item.ticker] = identity
                 continue
             pair = pairs[item.assessment_ref.assessment_id]
             chart = estimate_missing(
@@ -514,4 +533,4 @@ def saved_proposal_report_context(
             )
             if chart is not None:
                 charts[pair.assessment_id] = chart
-    return market, charts
+    return SavedProposalReportContext(market, charts, issuers)
