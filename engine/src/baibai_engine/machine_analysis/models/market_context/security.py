@@ -21,23 +21,18 @@ _RETURN_WINDOWS_BARS = (1, 5, 20, 60)
 _PEER_RETURN_WINDOW_BARS = 20
 
 
-def _price_block(
-    bars: Sequence[PriceBar], *, calendar: PriceCalendar, self_range_window_bars: int
-) -> dict[str, object] | None:
+def _price_block(bars: Sequence[PriceBar], *, calendar: PriceCalendar) -> dict[str, object] | None:
     if not bars:
         return None
-    # Return/range/turnover retain their observed-bar windows. Annualized daily
-    # volatility instead needs the complete common-calendar close sequence.
-    prices = [bar.price for bar in bars]
+    # 高安・騰落率は実在bar。年率変動は別の共通営業日窓をすべて必要とする。
+    prices = [bar.price for bar in bars[-_WEEK_52_WINDOW_BARS:]]
     current = prices[-1]
     returns = {
         f"return_{window}d": trailing_return(prices, window) for window in _RETURN_WINDOWS_BARS
     }
-    window_52w = prices[-_WEEK_52_WINDOW_BARS:]
-    valid_range = all(math.isfinite(price) and price > 0 for price in window_52w)
-    high_52w = max(window_52w) if valid_range else None
-    low_52w = min(window_52w) if valid_range else None
-    range_window = prices[-self_range_window_bars:]
+    valid_range = all(math.isfinite(price) and price > 0 for price in prices)
+    high_52w = max(prices) if valid_range else None
+    low_52w = min(prices) if valid_range else None
     turnover_bars = bars[-_TURNOVER_WINDOW_BARS:]
     turnover = [
         bar.turnover_value
@@ -56,12 +51,6 @@ def _price_block(
         "low_52w": low_52w,
         "gap_from_52w_low": (current / low_52w - 1) if low_52w is not None else None,
         "gap_from_52w_high": (current / high_52w - 1) if high_52w is not None else None,
-        "self_range_percentile": (
-            sum(1 for price in range_window if price <= current) / len(range_window)
-        )
-        if all(math.isfinite(price) and price > 0 for price in range_window)
-        else None,
-        "self_range_window_bars": len(range_window),
         "realized_vol_20d": volatility,
         "realized_vol_20d_context": volatility_context,
         "avg_turnover_20d_oku": (
@@ -161,7 +150,6 @@ def calculate_security_market_context(
     benchmark_ticker: str,
     benchmark_prices: Mapping[date, float],
     peer_prices: Sequence[Mapping[date, float]],
-    self_range_window_bars: int,
 ) -> dict[str, object]:
     """固定した個社・市場・同業価格から比較を計算する。追加読取を行わない。"""
     security = None if master is None else master.securities.get(ticker)
@@ -175,9 +163,7 @@ def calculate_security_market_context(
             "is_common_stock": security.is_common_stock,
             "snapshot_date": master.as_of.isoformat(),
         },
-        "price": _price_block(
-            bars, calendar=calendar, self_range_window_bars=self_range_window_bars
-        ),
+        "price": _price_block(bars, calendar=calendar),
         "relative": _relative_block(
             bars=bars,
             sector=None if security is None else security.sector_33,

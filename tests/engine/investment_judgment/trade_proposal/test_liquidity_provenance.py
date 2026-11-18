@@ -45,7 +45,6 @@ def case(tmp_path, monkeypatch):
         benchmark_ticker="1321",
         benchmark_prices={},
         peer_prices=(),
-        self_range_window_bars=750,
     )
     model = GeneratedModel(
         model_id="market_context",

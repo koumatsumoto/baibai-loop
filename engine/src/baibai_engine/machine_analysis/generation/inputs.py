@@ -24,7 +24,6 @@ from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     prepare_market_context_from_bars,
 )
 from baibai_engine.machine_analysis.generation.runners.security_context import (
-    SELF_RANGE_WINDOW_BARS,
     build_security_market_contexts,
 )
 from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
@@ -300,7 +299,6 @@ def read_and_generate_models(
         sqlite_path=path,
         tickers=subjects,
         asof_date=as_of,
-        self_range_window_bars=SELF_RANGE_WINDOW_BARS,
         prepared=prepared,
         price_bars_by_ticker=prices,
         calendar=path_calendar,
@@ -449,7 +447,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-v18-yoy-availability-note",
+        market_context_revision="shared-market-context-v19-no-self-price-rank",
         growth_start=growth_start,
         trends=trends,
     )

@@ -12,9 +12,6 @@ from tests.helpers.market_context import security_context_from_store
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
-from baibai_engine.machine_analysis.generation.runners.security_context import (
-    SELF_RANGE_WINDOW_BARS,
-)
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     read_jpx_regulations,
@@ -78,7 +75,6 @@ class SecurityMarketContextTests(unittest.TestCase):
             root / "market.sqlite",
             ticker=ticker,
             as_of=_ASOF,
-            self_range_window_bars=SELF_RANGE_WINDOW_BARS,
         )
 
     def test_legacy_jquants_earnings_rows_are_not_reported_as_jpx_fact(self) -> None:
@@ -276,7 +272,6 @@ def _security_context(root, asof):
         root / "market.sqlite",
         ticker="AAAA",
         as_of=asof,
-        self_range_window_bars=SELF_RANGE_WINDOW_BARS,
     )
 
 
@@ -422,9 +417,7 @@ def test_negative_saved_turnover_does_not_cancel_valid_liquidity_or_rewrite_sour
             (_ASOF.isoformat(),),
         )
     before = path.read_bytes()
-    profile = security_context_from_store(
-        path, ticker="AAAA", as_of=_ASOF, self_range_window_bars=SELF_RANGE_WINDOW_BARS
-    )
+    profile = security_context_from_store(path, ticker="AAAA", as_of=_ASOF)
     assert profile["price"]["avg_turnover_20d_oku"] == 2.0
     assert profile["price"]["resolved_date"] == _ASOF.isoformat()
     assert profile["price"]["return_5d"] == 0.0

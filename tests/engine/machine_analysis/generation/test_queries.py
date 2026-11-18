@@ -66,7 +66,7 @@ def bars(path, ticker, total_return, *, end=ASOF):
 
 
 def security(path, *, ticker="AAAA", as_of=ASOF):
-    return security_context_from_store(path, ticker=ticker, as_of=as_of, self_range_window_bars=750)
+    return security_context_from_store(path, ticker=ticker, as_of=as_of)
 
 
 def test_past_master_and_peers_ignore_future_classification_and_prices(tmp_path):
