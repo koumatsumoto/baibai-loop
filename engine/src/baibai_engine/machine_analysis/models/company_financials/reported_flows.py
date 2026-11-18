@@ -49,7 +49,7 @@ def _reported_balances(
             "end": record.source_period_end,
         },
         "failure_reasons": snapshot.edinet_failure_reasons,
-        "interpretation": "reported_financial_balances_not_common_equity_surplus",
+        "interpretation": "selected_debt_components_not_proof_of_total_debt_or_distributable_cash",
     }
 
 
