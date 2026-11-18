@@ -12,10 +12,29 @@ import pytest
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     normalize_financial_summary,
     project_financial_documents,
+    read_canonical_financial_summary,
 )
 from baibai_engine.machine_analysis.observations.prices.jquants_normalization import (
     normalize_daily_bars,
 )
+
+
+def test_fixed_financial_summary_retains_one_full_provider_payload():
+    record = {
+        "将来の項目": {"unknown": [None, 0, "文字列"]},
+        "EPS": "0",
+        "Code": "13010",
+        "DiscDate": "2026-04-24",
+        "DiscNo": "42",
+    }
+    expected = normalize_financial_summary(record)
+    assert expected is not None
+    assert expected.document_payload is not None
+    payload = expected.document_payload
+    actual = read_canonical_financial_summary(payload)
+    assert actual == expected
+    assert actual is not None
+    assert actual.document_payload is payload
 
 
 @pytest.mark.parametrize(
