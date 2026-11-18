@@ -115,7 +115,6 @@ def test_first_comparison_and_runless_research_keep_book_source_without_backfill
         now=now,
     )
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
-    assert saved.inputs.screening_selection == selected
     projection = project_research_inputs(saved)
     assert projection["securities"]["1234"]["models"]["company_financials"] == financial
     digest = selection_sha256(saved)

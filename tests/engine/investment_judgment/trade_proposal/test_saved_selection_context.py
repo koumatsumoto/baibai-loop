@@ -144,7 +144,7 @@ def test_normal_operation_keeps_original_questions_after_source_is_unavailable(
     assert app.read_bytes() == before
 
 
-@pytest.mark.parametrize("version", [2, 3, 4])
+@pytest.mark.parametrize("version", [2, 3, 4, 5])
 def test_retained_selection_versions_keep_original_text_and_cutoff(tmp_path, version):
     app = tmp_path / "app.sqlite"
     _ledger(app)
@@ -152,11 +152,12 @@ def test_retained_selection_versions_keep_original_text_and_cutoff(tmp_path, ver
         selected = selection(now=START, tickers=("1234",))
     else:
         selected = _selected(tmp_path)
-        if version == 3:
-            raw = selected.model_dump(mode="json")
-            raw["schema_version"] = 3
-            raw["inputs"].pop("saved_company_context")
-            selected = parse_selection(raw)
+        if version != 5:
+            from tests.helpers.generated_selection import legacy_selection_payload
+
+            selected = parse_selection(
+                legacy_selection_payload(selected, tmp_path / "runs.sqlite", version=version)
+            )
     operation = historical_operation(selected)
     seed_historical_operation(app, operation)
     operations = OperationService(app)

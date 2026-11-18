@@ -116,7 +116,7 @@ def test_context_diagnostic_uses_saved_policy_and_does_not_load_excluded_models(
         lambda **kwargs: publication,
     )
     before = path.read_bytes()
-    normal = load_generated_selection_context(**args(path, now))
+    normal = load_generated_selection_context(**args(path, now), screening_lane="growth_research")
     calls = []
     original_read = generation.read_model_inputs
 
@@ -146,7 +146,9 @@ def test_context_diagnostic_uses_saved_policy_and_does_not_load_excluded_models(
     assert diagnostic_rows[0]["financial_gate"]["checks"]["positive_net_assets"]["value"] == -10
     assert all("2345" not in subjects for subjects in calls)
     assert diagnostic["model_inputs"]["securities"] == {}
-    assert normal == load_generated_selection_context(**args(path, now))
+    assert normal == load_generated_selection_context(
+        **args(path, now), screening_lane="growth_research"
+    )
     assert "excluded_diagnostic" not in normal["screening"]
     detail = load_generated_selection_context(**args(path, now), comparison_tickers=("2345",))
     assert detail["screening"]["comparison_rows"] == diagnostic_rows

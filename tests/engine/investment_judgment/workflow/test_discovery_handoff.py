@@ -103,8 +103,12 @@ def test_nonfinancial_candidate_prepares_and_resumes_without_relabeling_saved_po
     )
     saved = selection_binding(OperationService(app).get(prepared.operation_id).payload)
     assert saved.targets == (target,)
-    assert saved.inputs.screening_selection == source.inputs.screening_selection
-    assert saved.inputs.screening_selection.result.tickers == ("1234",)
+    assert (
+        saved.inputs.screening_selection.source_sha256
+        == source.inputs.screening_selection.source_sha256
+    )
+    assert saved.inputs.screening_selection.result.tickers == ()
+    assert saved.inputs.screening_selection.population_groups[0].tickers == ("1234",)
     assert saved.inputs.screening_selection.result.policy.method == "best-economic-path-v4"
     assert saved.inputs.generation.result("technical_analysis", "9999").payload == {
         "price_momentum": None

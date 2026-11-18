@@ -7,10 +7,11 @@ from hashlib import sha256
 
 from baibai_engine.investment_judgment.company_research.context import CompanyContext, NotFound
 from baibai_engine.investment_judgment.company_research.query import read_company_contexts
+from baibai_engine.investment_judgment.workflow.case_screening import read_case_screening
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchInputsV4,
+    GeneratedResearchInputsV5,
     GeneratedResearchSelectionDraft,
-    GeneratedResearchSelectionV4,
+    GeneratedResearchSelectionV5,
     ResearchRequest,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
@@ -21,7 +22,6 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathPolicy,
     EconomicPathSelection,
 )
-from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
@@ -69,7 +69,7 @@ def seed_generated_selection(
             "UPDATE screening_selection SET published_at=? WHERE selection_id=?",
             ((now - timedelta(seconds=30)).isoformat(), identity),
         )
-    publication = read_publication(path=runs, selection_id=identity)
+    publication = read_case_screening(identity, path=runs, subjects=tickers, known_at=now)
     contexts = (
         read_company_contexts(db, tickers=tickers, as_of=as_of, known_at=now)
         if db is not None
@@ -77,7 +77,7 @@ def seed_generated_selection(
             ticker: CompanyContext(research=NotFound(), assessment=NotFound()) for ticker in tickers
         }
     )
-    return GeneratedResearchSelectionV4(
+    return GeneratedResearchSelectionV5(
         request=ResearchRequest(
             text="合成例：投資提案して",
             scope=scope,
@@ -90,13 +90,13 @@ def seed_generated_selection(
             selected_target(t, "holding" if scope == "review_positions" else "new") for t in tickers
         ),
         capacity=CURRENT_RESEARCH_CAPACITY,
-        inputs=GeneratedResearchInputsV4(
+        inputs=GeneratedResearchInputsV5(
             generation=read_model_inputs(
                 generation.generation_id, subjects=("market", *tickers), path=runs
             ),
             screening_selection_id=identity,
-            screening_selection=publication.selection,
-            screening_published_at=publication.published_at,
+            screening_selection=publication[1],
+            screening_published_at=publication[0],
             saved_company_context=contexts,
         ),
     )
@@ -113,3 +113,22 @@ def generated_draft_for(selection):
         selection_summary=selection.selection_summary,
         targets=selection.targets,
     )
+
+
+def legacy_selection_payload(selection, runs, *, version=4):
+    """Build historical fixtures from the original complete publication, never a finite Case."""
+    from pydantic import TypeAdapter
+
+    from baibai_engine.machine_analysis.screening.selection_query import read_selection
+
+    raw = selection.model_dump(mode="json")
+    raw["schema_version"] = version
+    raw.pop("comparison_tickers", None)
+    identity = selection.inputs.screening_selection_id
+    if identity is not None:
+        raw["inputs"]["screening_selection"] = TypeAdapter(ScreeningSelection).dump_python(
+            read_selection(identity, path=runs), mode="json"
+        )
+    if version == 3:
+        raw["inputs"].pop("saved_company_context", None)
+    return raw

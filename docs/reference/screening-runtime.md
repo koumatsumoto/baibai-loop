@@ -4,28 +4,41 @@
 
 旧版も当時の内容・理由・順序・identityで読む。未記録の区画を現在のモデル・既定値で補わず、現政策で再選抜しない。
 
-## 固定して読む
+## 正準の探索観測
+
+新しい日次発行は、当時の普通株全分母と、株別の観測価格・基準日、経済経路の価格/事業座標、確認すべき不足だけを一つの発行物に固定する。候補外だった会社も含める。全社分の詳細カード・閲覧順位は新規作成しない。詳細を確かめる時だけ同じGenerationの対象別モデルを読む。未観測を不合格、調整価格を発注価格、資本異動の件数を新株主の権利とみなさない。
+
+旧形式には新しい一覧をさかのぼって作らない。通常の読取りが「旧発行物で索引なし」を返す時は、必要な旧情報を同じIDで明示的に読む。今の世代の根拠で補わない。
+
+## 旧レーンの発行物を固定して読む
 
 初回`selection-context`のSelection ID、`research_as_of`、`input_known_at`を保存する。続きも同じ依頼scopeで、それぞれ`--screening-selection-id`、`--research-asof`、timezone付き`--known-at`へ渡す。`--known-at`省略は実行時刻なので、固定した続きには使わない。
 
 | 読みたいもの | 同じ`selection-context`へ追加する引数 |
 | --- | --- |
-| レーンの続き | `--screening-lane <LANE> --screening-page <next>`。ページ番号は0始まりで、返されたnextを使う。 |
+| 通常の新規探索 | オプションなしで全社の分母と問い・反対説明・観測範囲を確認し、`--discovery-question <KEY>` でその問いに対応する銘柄ページへ進む。出力の `repeat_command_args` に `append_args`・`next_args`・`detail_args` のいずれかを付ける。別々の問いは重複し、件数は割安認定でない。 |
+| 過去の保存レーンの続き | `--screening-lane <LANE> --screening-page <next>`。ページ番号は0始まりで、返されたnextを使う。 |
 | 候補外を含む個社の完全モデル | `--compare-ticker <TICKER>`。候補へ追加したりResearchを開始したりしない。 |
 | T合致でも現在の調査仮説がない行 | `--screening-excluded`。保存T合致かつ`no_current_hypothesis`を読む。 |
 | T合致を前提にせず比較不足を探す | `--screening-excluded financial_unresolved`。保存G未確定かつ`no_current_hypothesis`を読む。 |
 
-`candidate_tickers`は表示中のページ、`summary`は全stock planの分母。除外診断は通常レーンへ復帰させず、元の非充足・不足理由を保つ。条件ごとの件数は同じ会社が重なるため加算できず、失った投資機会や棄却の正しさの測定ではない。0件も入力の完全性を意味しない。
+旧レーンの `candidate_tickers` は表示中のページ、`summary`は全stock planの分母。除外診断は通常レーンへ復帰させず、元の非充足・不足理由を保つ。条件ごとの件数は同じ会社が重なるため加算できず、失った投資機会や棄却の正しさの測定ではない。0件も入力の完全性を意味しない。
+
+問いが広過ぎるときは先頭の会社を指名しない。例えば「資本異動で持続利益の取り分が変わったか」なら、同じ公表物で対抗候補の座標（経路・variant・価格側の比較基準・数値）を読み、`--discovery-question capital_change --price-coordinate-min <PATH> <VARIANT> <PRICE_GROUP> <対抗候補の観測値>` で同じ測定だけを照合できる。「以上／未満／同基準の値なし」を分け、比較不能な会社を経済的に棄却しない。絞った後も、確認すべきなのは資本異動が新取得者の取り分を変えたかという原典である。座標値そのものを期待利回りとせず、理由がなければ数値条件は使わない。
+
+通常の調査対象は口座から決めない。保有状況を調べていないことと、未保有確認済みを区別する。利益・回復・再投資の会社側座標は報告値で、普通株の将来手取りではない。簿価や資本異動の存在も、新たに買った一株の回収可能額・受給資格の証明でない。元の対象外や索引行のない会社を「割安でない」としない。全市場のTOB・権利者一覧はこの索引にはない。
+
+軽量索引のない旧公表物は `unindexed_legacy_publication`。0社や現行世代に読み替えず、必要なときだけ明示した旧レーンや個社照合へ進む。旧の単一圧縮原本では、明示した有限の出力であっても全社本文の展開が必要になる。
 
 Research・市場判断は保存/公開時刻をcutoffと照合する。一方、保有は現在台帳を事実時刻でreplayするため、過去の注文/約定の後追記で同じcutoffの対象が変わり得る。この読取を、[保存Operationの固定入力からの再開](../../.agents/skills/investment-judgment/SKILL.md#完了と再開)や当時既知の情報集合と同一視しない。
 
-## 発見根拠と三つのレーン
+## 保存済みの発見根拠と三つのレーン
 
 同じstock plan全社の[技術・市場の発見根拠（T）](../../engine/src/baibai_engine/machine_analysis/screening/policies/technical_discovery.py)、[財務・成長仮説（G）](../../engine/src/baibai_engine/machine_analysis/screening/policies/financial_growth.py)、[財務経路（F）](#rule-purpose)を併読する。T非合致や価格不足でも財務仮説を落とさず、Gを全企業の普遍的な合否にしない。旧財務上位候補や経済順位で再足切りしない。
 
 | レーン | 調べる理由 |
 | --- | --- |
-| `growth_research` | Gの利益成長/営業回復仮説。通常表示だが、正式Research採択ではない。 |
+| `growth_research` | 当時のGの利益成長/営業回復仮説。新規の既定入口や正式Research採択ではない。 |
 | `input_review` | G未確定にT/Fの根拠がある予備調査、または独立した事業仮説に基づく価格/株数入力の確認。 |
 | `alternative_financial_research` | G非合致でも別のF仮説がある。Gの既知悪化・不足を消さない。 |
 
@@ -75,10 +88,14 @@ ModelGenerationとScreeningSelectionは別identity。通常生成で政策を適
 
 次のcallerは私有copyから新しい私有JSONへ出す診断で、通常政策の再適用・Research開始・保存・売買はしない。非zero終了の出力を採用せず、私有JSONを公開log/artifactへ出さない。
 
-<a id="decision-cohort-diagnostic"></a>
-### 現行判断の比較前診断
+### Case固定後の探索証拠
 
-[完了Operationの比較caller](../../tools/experiments/inspect_decision_cohort.py)は保存入力・評価pair・Proposalを照合する。
+新規Researchは当時の発行物から、深掘りする対象とdraftの任意の `comparison_tickers` の行・同世代モデルだけを固定する。明示対照の保存は対象とは別に同じCaseの研究capacityまで（通常3社）。市場検索の範囲や売買適格の基準ではない。明示対照は別の使い道・見送りを後日比較するための証拠で、深掘り・提案・売買対象にはしない。母集団・所属・欠測の識別は残すが、調べなかった全社の明細は再開時に現在headから補わない。L2本文の指紋と、Proposalが参照するCaseの指紋は別である。旧V2–4の保存・署名・訂正を新書式に移さない。
+
+<a id="decision-cohort-diagnostic"></a>
+### 既存の全カードを固定した旧判断の比較前診断
+
+[完了Operationの比較caller](../../tools/experiments/inspect_decision_cohort.py)は旧V3/V4の保存入力・評価pair・Proposalを照合する。新しい有限Caseに、保存していない全社カードを補うための契約ではない。
 
 ```bash
 uv run python -m tools.experiments.inspect_decision_cohort \

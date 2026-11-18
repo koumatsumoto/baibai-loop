@@ -290,9 +290,6 @@ def test_normal_models_and_publication_share_native_master_and_price(
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-        TechnicalFinancialPolicy,
-    )
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -337,7 +334,6 @@ def test_normal_models_and_publication_share_native_master_and_price(
         as_of=DAY,
         lease_handle=tmp_path / "lease",
         growth_start=None,
-        policy=TechnicalFinancialPolicy(page_size=36),
     )
     assert result["company_count"] == 1  # ETF/REIT/preferred and other markets not candidates.
     assert store.get_keys.count(HEAD_KEY) == 1

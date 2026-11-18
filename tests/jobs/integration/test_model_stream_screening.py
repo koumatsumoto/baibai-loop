@@ -18,7 +18,7 @@ from tests.helpers.trends import generation_inputs
 from tests.jobs.integration.test_model_integration import integration as integration
 
 import baibai_engine.machine_analysis.generation.query as generation_query
-import baibai_engine.machine_analysis.screening.policies.technical_financial_selection as screening
+import baibai_engine.machine_analysis.screening.policies.discovery as screening
 import baibai_jobs.integration.models as job
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
@@ -30,9 +30,6 @@ from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-    TechnicalFinancialPolicy,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 
@@ -90,12 +87,11 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
     integration, tmp_path, monkeypatch, caplog, capsys, schema_version, empty, storage_error
 ):
     arguments, _ = integration
-    arguments["policy"] = TechnicalFinancialPolicy(page_size=2)
     generate_models = job.read_and_generate_models
     expected = []
     visited = []
-    project = job.project_technical_financial_row
-    evaluate = job.evaluate_technical_financial_rows
+    project = job.project_discovery_row
+    evaluate = job.evaluate_discovery_rows
     collect = job.read_generation_storage_totals
     collections = []
 
@@ -135,9 +131,9 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
         pytest.fail("normal integration reread its saved model payloads")
 
     monkeypatch.setattr(job, "read_and_generate_models", generate_stream)
-    monkeypatch.setattr(job, "project_technical_financial_row", observe)
-    monkeypatch.setattr(screening, "project_technical_financial_row", observe)
-    monkeypatch.setattr(job, "evaluate_technical_financial_rows", after_commit)
+    monkeypatch.setattr(job, "project_discovery_row", observe)
+    monkeypatch.setattr(screening, "project_discovery_row", observe)
+    monkeypatch.setattr(job, "evaluate_discovery_rows", after_commit)
     monkeypatch.setattr(job, "read_generation_storage_totals", collect_once)
     with monkeypatch.context() as normal:
         normal.setattr(generation_query, "_decode_model", forbidden)
@@ -171,26 +167,14 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
         ).fetchone()[0]
     saved_payload = json.loads(gzip.decompress(payload))
     assert saved_payload.pop("price_inputs") == result["screening_price_inputs"]
-    assert saved_payload["result"]["summary"] == {
-        "planned_stocks": 0 if empty else 4,
-        "technical": {"matched": 0, "not_matched": 0, "unavailable": 0 if empty else 4},
-        "financial_gate": {
-            "research_candidate": 0,
-            "not_selected": 0,
-            "input_unresolved": 0 if empty else 4,
-            "not_evaluated": 0,
-        },
-        "display_pool_count": 0 if empty else 2,
-        "screening_lanes": {
-            "growth_research": 0,
-            "input_review": 0 if empty else 2,
-            "alternative_financial_research": 0,
-            "no_current_hypothesis": 0 if empty else 2,
-        },
-    }
+    summary = saved_payload["result"]["summary"]
+    assert summary["planned_stocks"] == (0 if empty else 4)
+    assert summary["screening_lanes"] == (
+        {} if empty else {"input_review": 2, "no_current_hypothesis": 2}
+    )
     assert publication.selection.price_inputs == result["screening_price_inputs"]
     assert result["screening_price_inputs"] == {
-        "basis": "technical_price_path_readiness_not_all_pricing",
+        "basis": "saved_market_adjusted_close_not_an_order_quote",
         "universe_count": 0 if empty else 4,
         "valid_count": 0,
         "date_mismatch_count": 0,
@@ -199,7 +183,7 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
         "expected_price_dates": {} if empty else {"missing": 4},
     }
     if not empty:
-        assert publication.selection.result.tickers == ("1001", "1002")
+        assert publication.selection.result.tickers == ("1001", "1002", "1003", "9999")
         assert publication.selection.universe_tickers == ("1001", "1002", "1003", "9999")
         assert (
             read_generation(result["generation_id"], path=arguments["runs"]).result(
@@ -229,14 +213,14 @@ def test_stream_failure_rolls_back_models_and_never_publishes_policy(
         pytest.fail("failed stream reached policy publication or pruning")
 
     monkeypatch.setattr(job, "read_and_generate_models", generate_stream)
-    monkeypatch.setattr(job, "evaluate_technical_financial_rows", forbidden)
+    monkeypatch.setattr(job, "evaluate_discovery_rows", forbidden)
     monkeypatch.setattr(job, "prune_model_cache", forbidden)
     if failure == "projection":
 
         def fail(*_args, **_kwargs):
             raise ValueError("projection failed")
 
-        monkeypatch.setattr(job, "project_technical_financial_row", fail)
+        monkeypatch.setattr(job, "project_discovery_row", fail)
     message = {
         "projection": "projection failed",
         "writer": "Out of range float",
@@ -278,7 +262,7 @@ def test_retry_keeps_saved_bytes_and_conflict_stops_before_policy(integration, m
         pytest.fail("conflicting saved identity reached policy publication")
 
     monkeypatch.setattr(job, "read_and_generate_models", changed)
-    monkeypatch.setattr(job, "evaluate_technical_financial_rows", forbidden)
+    monkeypatch.setattr(job, "evaluate_discovery_rows", forbidden)
     with pytest.raises(GenerationConflictError, match="different model content"):
         job.integrate_models(**arguments)
     assert rows(arguments["runs"]) == before
@@ -349,14 +333,13 @@ def test_normal_job_publishes_all_t_g_states_without_old_economic_ranking(
     result = job.integrate_models(**arguments)
     publication = read_publication(path=arguments["runs"])
     selected = publication.selection.result
-    assert tuple(row.ticker for row in selected.rows) == tuple(sorted(tickers))
-    assert selected.tickers == ("1234", "3456", "4567", "5678", "6789")
+    assert tuple(row["ticker"] for row in selected.rows) == tuple(sorted(tickers))
+    assert selected.tickers == tuple(sorted(tickers))
     assert result["screening_summary"]["financial_gate"] == {
         "research_candidate": 3,
         "input_unresolved": 2,
         "not_selected": 1,
-        "not_evaluated": 0,
     }
-    assert result["candidate_count"] == 5
+    assert result["candidate_count"] == len(tickers)
     assert publication.selection.generation_id == metadata.generation_id
-    assert {row.technical["policy_id"] for row in selected.rows} == {"technical-discovery-v1"}
+    assert all("technical" not in row and "financial_gate" not in row for row in selected.rows)

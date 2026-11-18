@@ -95,7 +95,7 @@ def arguments(path, now):
 
 def test_action_gap_survives_first_card_detail_prepare_and_runless_resume(tmp_path):
     path = tmp_path / "runs"
-    fixed, selected, now = seed(path)
+    fixed, _, now = seed(path)
     original = path.read_bytes()
     first = load_generated_selection_context(**arguments(path, now), screening_lane="input_review")
     assert first["candidate_tickers"] == ["1001"]
@@ -132,7 +132,6 @@ def test_action_gap_survives_first_card_detail_prepare_and_runless_resume(tmp_pa
         now=now,
     )
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
-    assert saved.inputs.screening_selection == selected
     projection = project_research_inputs(saved)
     assert projection["securities"]["1001"]["models"]["company_financials"] == cf
     digest = selection_sha256(saved)

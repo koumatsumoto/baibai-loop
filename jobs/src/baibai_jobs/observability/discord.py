@@ -231,7 +231,10 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
         "technical-financial-discovery-v25",
         "technical-financial-discovery-v26",
     }
-    pool_label = "探索閲覧（予備・代替含む）" if integrated else "候補"
+    discovery_index = notice.get("selection_method") == "opportunity-discovery-v1"
+    pool_label = (
+        "探索母集団" if discovery_index else "探索閲覧（予備・代替含む）" if integrated else "候補"
+    )
     lines = [f"モデル生成: {companies}社 / {models}件 / {pool_label}{candidates}社", *cache_warning]
     summary = notice.get("screening_summary")
     gate = summary.get("financial_gate") if isinstance(summary, dict) else None
@@ -246,9 +249,21 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
     if isinstance(coverage, dict):
         valid, universe = coverage.get("valid_count"), coverage.get("universe_count")
         if type(valid) is int and type(universe) is int and 0 <= valid <= universe:
-            price_label = "TA価格経路入力" if integrated else "候補抽出の価格入力"
+            price_label = (
+                "同日価格観測"
+                if discovery_index
+                else "TA価格経路入力"
+                if integrated
+                else "候補抽出の価格入力"
+            )
             lines.append(f"{price_label}: 適格{valid}/{universe}社")
-            if not integrated and candidates == 0 and universe > 0 and valid == 0:
+            if (
+                not integrated
+                and not discovery_index
+                and candidates == 0
+                and universe > 0
+                and valid == 0
+            ):
                 lines.append("候補0の要因: 適格な価格入力なし（投資機会なしの判定ではない）")
     return lines
 

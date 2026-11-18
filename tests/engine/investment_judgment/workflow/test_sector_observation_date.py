@@ -147,8 +147,10 @@ def test_sector_context_survives_fixed_selection_and_resume_without_backfill(tmp
     assert parse_selection(raw).model_dump(mode="json") == raw
     assert selection_sha256(parse_selection(raw)) == prepared.selection_sha256
     if legacy:
+        from tests.helpers.generated_selection import legacy_selection_payload
+
         assert (
-            prepared.selection_sha256
+            selection_sha256(parse_selection(legacy_selection_payload(saved, runs)))
             == "f24da80253b44121ae272e1010c22104c2ef1eb9f9cbb43cbb9fa229856967e0"
         )
         # 固定された日付なしの旧入力を、現在のas_of/価格日で再解釈しない。

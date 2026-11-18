@@ -330,9 +330,6 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
     import baibai_jobs.integration.models as job
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-        TechnicalFinancialPolicy,
-    )
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -385,7 +382,6 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
         as_of=DAY,
         lease_handle=tmp_path / "lease",
         growth_start=None,
-        policy=TechnicalFinancialPolicy(page_size=36),
     )
     assert consumed_prices == [100]
     assert store.get_keys.count(HEAD_KEY) == 1

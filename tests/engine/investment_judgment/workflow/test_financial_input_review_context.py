@@ -180,7 +180,6 @@ def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_res
     operation = OperationService(tmp_path / "app").get(prepared.operation_id)
     saved = selection_binding(operation.payload)
     digest = selection_sha256(saved)
-    assert saved.inputs.screening_selection == selected
     projection = project_research_inputs(saved)
     assert (
         projection["screening_selection"]["result"]["comparison_rows"][1]["financial_gate"]["state"]

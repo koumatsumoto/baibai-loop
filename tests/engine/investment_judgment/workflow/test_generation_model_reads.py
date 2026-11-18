@@ -87,6 +87,7 @@ def test_selection_context_references_read_the_same_fixed_models(tmp_path, schem
     runs = tmp_path / "runs.sqlite"
     generation = _saved_generation(runs, schema_version)
     context = load_generated_selection_context(
+        screening_lane="growth_research",
         request=ResearchRequest(
             text="固定入力の鮮度を確認",
             scope=scope,

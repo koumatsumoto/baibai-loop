@@ -14,6 +14,7 @@ from baibai_engine.investment_judgment.company_research.context import company_c
 from baibai_engine.investment_judgment.company_research.query import read_company_contexts
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
+from baibai_engine.investment_judgment.workflow.discovery import PriceCoordinateMinimum
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     SCREENING_EXCLUSION_SCOPES,
     ScreeningExclusionScope,
@@ -23,6 +24,7 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 )
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.machine_analysis.screening.contracts import ScreeningResult, ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
@@ -48,17 +50,19 @@ def load_generated_selection_context(
     db_path: Path | None,
     comparison_tickers: tuple[str, ...] = (),
     screening_page: int = 0,
-    screening_lane: ResearchLane = "growth_research",
+    screening_lane: ResearchLane | None = None,
+    discovery_question: str | None = None,
+    price_coordinate_min: PriceCoordinateMinimum | None = None,
     screening_excluded: bool = False,
     screening_excluded_scope: ScreeningExclusionScope = "technical_matched",
 ) -> dict[str, Any]:
     """保存された政策結果と同じ生成を読む。contextの取得で再選定しない。"""
-    from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
     from baibai_engine.machine_analysis.generation.contracts import research_subjects
     from baibai_engine.machine_analysis.generation.query import (
         read_model_inputs,
         read_research_model_inputs,
     )
+    from baibai_engine.machine_analysis.screening.discovery_index import read_discovery_index
     from baibai_engine.machine_analysis.screening.selection_query import read_publication
 
     if known_at.utcoffset() is None:
@@ -69,13 +73,83 @@ def load_generated_selection_context(
         not screening_excluded and screening_excluded_scope != "technical_matched"
     ):
         raise ValueError("excluded diagnostic scope requires an explicit valid diagnostic")
-    if screening_excluded and (
-        request.scope != "discover_new" or screening_lane != "growth_research"
-    ):
+    if screening_excluded and (request.scope != "discover_new" or screening_lane is not None):
         raise ValueError("excluded diagnostic requires discovery and no lane override")
     as_of = research_as_of or known_at.astimezone(JST).date()
     if as_of > known_at.astimezone(JST).date():
         raise ValueError("Research date/cutoff is invalid")
+    overview = request.scope == "discover_new" and screening_lane is None and not screening_excluded
+    if price_coordinate_min is not None and discovery_question is None:
+        raise ValueError("a price-coordinate comparison needs an explicit discovery question")
+    if discovery_question is not None and (not overview or comparison_tickers):
+        raise ValueError("discovery question requires new discovery without other views")
+    if overview and screening_page and discovery_question is None:
+        raise ValueError("choose a discovery question before paging")
+    if (
+        request.scope == "discover_new"
+        and generation_id is not None
+        and screening_selection_id is None
+    ):
+        raise ValueError("discovery requires an explicit saved screening selection")
+    # 固定IDなしのlatestも同じ発行物に止める。旧世代の巨大blobは明示された時だけ。
+    legacy_targeted_read = False
+    if screening_selection_id is not None or generation_id is None:
+        from baibai_engine.investment_judgment.workflow.discovery import discovery_context
+
+        index = read_discovery_index(
+            path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
+        )
+        if index.status == "no_publication" and screening_selection_id is not None:
+            raise ValueError("unknown or not yet published screening selection")
+        if generation_id is not None and index.generation_id != generation_id:
+            raise ValueError("screening selection differs from the chosen generation")
+        if index.status == "indexed" or (overview and not comparison_tickers):
+            app = database_path(db_path)
+            held = _ledger_positions(app, known_at) if request.scope == "review_positions" else None
+            requested = request.requested_tickers or held or ()
+            comparisons = tuple(
+                sorted(set(requested) | {normalize_ticker(t) for t in comparison_tickers})
+            )
+            detail = bool(comparison_tickers) or request.scope != "discover_new"
+            if detail and (screening_lane is not None or screening_excluded or screening_page):
+                raise ValueError("choose explicit company detail or one indexed membership page")
+            indexed = discovery_context(
+                index,
+                request=request,
+                as_of=as_of,
+                known_at=known_at,
+                path=runs_path,
+                db_path=db_path,
+                minimum=price_coordinate_min,
+                question=discovery_question,
+                page=screening_page,
+                comparisons=comparisons if detail else None,
+                lane=screening_lane,
+                excluded=screening_excluded_scope if screening_excluded else None,
+            )
+            if indexed["status"] != "ready" or not detail:
+                return indexed
+            assert index.generation_id is not None
+            models = read_research_model_inputs(
+                index.generation_id, targets=comparisons, path=runs_path
+            )
+            if models is None:
+                raise ValueError("chosen model generation is unavailable")
+            _validate_model_cutoff(models, as_of, known_at)
+            indexed["model_inputs"] = _model_context(models, set(comparisons), compact=True)
+            indexed.update(_judgments(app, comparisons, as_of, known_at))
+            indexed["requested_tickers"] = requested
+            if request.scope == "review_positions":
+                indexed["held_tickers"] = held
+                indexed["holding_scope"] = (
+                    "no_ledger_record" if held is None else "current_ledger_replayed_to_fact_cutoff"
+                )
+            return indexed
+        if index.status == "unindexed_legacy":
+            generation_id = index.generation_id
+            screening_selection_id = index.selection_id
+            legacy_targeted_read = overview and bool(comparison_tickers)
+    lane = screening_lane or "growth_research"
     publication = None
     if generation_id is None and screening_selection_id is None:
         publication = read_publication(path=runs_path, as_of=as_of, known_at=known_at)
@@ -107,19 +181,8 @@ def load_generated_selection_context(
         generation_id = screening.generation_id
     if generation_id is None:
         raise ValueError("an explicit generation is required")
-    held: tuple[str, ...] = ()
     app_path = database_path(db_path)
-    if app_path.exists():
-        with closing(connect_read_only(app_path)) as connection:
-            connection.execute("BEGIN")
-            ledger = load_ledger_document(connection)
-            if ledger is not None:
-                state = replay_events_through(ledger.events, known_at)
-                held = tuple(
-                    sorted(
-                        t for t, lots in state.lots.items() if any(lot.quantity > 0 for lot in lots)
-                    )
-                )
+    held = _ledger_positions(app_path, known_at) or ()
     requested = request.requested_tickers or (held if request.scope == "review_positions" else ())
     candidates = () if screening is None else screening.result.tickers
     technical_screening = screening is not None and isinstance(
@@ -131,12 +194,12 @@ def load_generated_selection_context(
         start = screening_page * screening.result.policy.page_size
         candidates = (
             ()
-            if screening_excluded
-            else screening.result.lane_tickers(screening_lane)[
+            if screening_excluded or legacy_targeted_read
+            else screening.result.lane_tickers(lane)[
                 start : start + screening.result.policy.page_size
             ]
         )
-    elif screening_page or screening_lane != "growth_research" or screening_excluded:
+    elif screening_page or lane != "growth_research" or screening_excluded:
         raise ValueError("screening pagination requires a technical-financial selection")
     compact_screening = screening is not None and isinstance(
         screening.result, (EconomicPathSelection, TechnicalFinancialSelection)
@@ -146,7 +209,8 @@ def load_generated_selection_context(
         # 候補株の詳細を展開せず、発行時の完全planから候補に必要な共有文脈を解く。
         # 明示対象・保有は同じgenerationの全予定モデルを通常どおり読める。
         assert publication is not None
-        detail_targets.update(held)
+        if request.scope == "review_positions":
+            detail_targets.update(held)
         metadata = publication.generation
         related = research_subjects(metadata, tuple(sorted(detail_targets | set(candidates))))
         plan = metadata.subject_plan
@@ -165,11 +229,93 @@ def load_generated_selection_context(
         )
     if models is None:
         raise ValueError("chosen model generation is unavailable")
+    _validate_model_cutoff(models, as_of, known_at)
+    model_inputs = _model_context(models, detail_targets, compact=compact_screening)
+    return {
+        "schema_version": 3,
+        "status": "ready",
+        **(
+            {"read_cost": "explicit_full_saved_publication"}
+            if request.scope == "discover_new"
+            else {}
+        ),
+        "request": request.model_dump(mode="json"),
+        "research_as_of": as_of.isoformat(),
+        "input_known_at": known_at.isoformat(),
+        "generation_id": generation_id,
+        "screening_selection_id": screening_selection_id,
+        "capacity": CURRENT_RESEARCH_CAPACITY.model_dump(mode="json"),
+        "screening": None
+        if screening is None
+        else _project_screening(
+            screening,
+            page=None if legacy_targeted_read and technical_screening else screening_page,
+            lane=lane,
+            comparison_tickers=tuple(sorted(detail_targets)),
+            excluded=screening_excluded,
+            excluded_scope=screening_excluded_scope,
+        ),
+        "candidate_tickers": list(candidates),
+        "candidate_order_semantics": (
+            "diagnostic_rows_are_not_candidate_tickers"
+            if screening_excluded
+            else "saved_route_round_robin_page_not_investment_ranking"
+            if technical_screening
+            else "ticker_code_order_attention_priority_in_screening_cards_rank"
+            if compact_screening
+            else "per_view_rank_not_a_union_investment_ranking"
+        ),
+        "requested_tickers": requested,
+        "held_tickers": held,
+        "model_inputs": model_inputs,
+        **_judgments(app_path, tuple(sorted(set(candidates) | detail_targets)), as_of, known_at),
+    }
+
+
+def _judgments(
+    app: Path, tickers: tuple[str, ...], as_of: date, known_at: datetime
+) -> dict[str, Any]:
+    market = latest_assessment(app, as_of=as_of, known_at=known_at)
+    return {
+        "saved_company_context": {
+            ticker: company_context_brief(item)
+            for ticker, item in read_company_contexts(
+                app, tickers=tickers, as_of=as_of, known_at=known_at
+            ).items()
+        },
+        "saved_market_context_assessment": None
+        if market is None
+        else assessment_projection(market, as_of=as_of),
+    }
+
+
+def _ledger_positions(app_path: Path, known_at: datetime) -> tuple[str, ...] | None:
+    if not app_path.exists():
+        return None
+    with closing(connect_read_only(app_path)) as connection:
+        connection.execute("BEGIN")
+        ledger = load_ledger_document(connection)
+        if ledger is None:
+            return None
+        state = replay_events_through(ledger.events, known_at)
+        return tuple(
+            sorted(t for t, lots in state.lots.items() if any(lot.quantity > 0 for lot in lots))
+        )
+
+
+def _validate_model_cutoff(models: ModelInputSlice, as_of: date, known_at: datetime) -> None:
     if models.as_of > as_of or models.evaluation_time > known_at:
         raise ValueError("chosen generation is after the research cutoff")
+
+
+def _model_context(
+    models: ModelInputSlice, detail_targets: set[str], *, compact: bool
+) -> dict[str, Any]:
+    from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
+
     model_inputs = cast(
         dict[str, Any],
-        project_generated_inputs(models, company_growth_periods=None if compact_screening else 12),
+        project_generated_inputs(models, company_growth_periods=None if compact else 12),
     )
     # Selection未保存のcontextは、現存する固定generationを参照する。
     # prepare後の投影だけがapplication DB内のSelectionを参照できる。
@@ -210,60 +356,13 @@ def load_generated_selection_context(
                 "subject": model.subject,
                 "model_id": model.model_id,
             }
-    context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
-    return {
-        "schema_version": 3,
-        "status": "ready",
-        "request": request.model_dump(mode="json"),
-        "research_as_of": as_of.isoformat(),
-        "input_known_at": known_at.isoformat(),
-        "generation_id": generation_id,
-        "screening_selection_id": screening_selection_id,
-        "capacity": CURRENT_RESEARCH_CAPACITY.model_dump(mode="json"),
-        "screening": None
-        if screening is None
-        else _project_screening(
-            screening,
-            page=screening_page,
-            lane=screening_lane,
-            comparison_tickers=tuple(sorted(detail_targets)),
-            excluded=screening_excluded,
-            excluded_scope=screening_excluded_scope,
-        ),
-        "candidate_tickers": list(candidates),
-        "candidate_order_semantics": (
-            "diagnostic_rows_are_not_candidate_tickers"
-            if screening_excluded
-            else "saved_route_round_robin_page_not_investment_ranking"
-            if technical_screening
-            else "ticker_code_order_attention_priority_in_screening_cards_rank"
-            if compact_screening
-            else "per_view_rank_not_a_union_investment_ranking"
-        ),
-        "requested_tickers": requested,
-        "held_tickers": held,
-        "saved_company_context": {
-            ticker: company_context_brief(item)
-            for ticker, item in read_company_contexts(
-                app_path,
-                tickers=tuple(
-                    sorted(set(requested) | set(held) | set(candidates) | detail_targets)
-                ),
-                as_of=as_of,
-                known_at=known_at,
-            ).items()
-        },
-        "model_inputs": model_inputs,
-        "saved_market_context_assessment": None
-        if context is None
-        else assessment_projection(context, as_of=as_of),
-    }
+    return model_inputs
 
 
 def _project_screening(
     selection: ScreeningSelection,
     *,
-    page: int = 0,
+    page: int | None = 0,
     lane: ResearchLane = "growth_research",
     comparison_tickers: tuple[str, ...] = (),
     excluded: bool = False,
@@ -279,7 +378,7 @@ def _project_screening(
         )
         if excluded:
             projection["excluded_diagnostic"] = technical_financial_exclusion_diagnostic(
-                result, page=page, scope=excluded_scope
+                result, page=0 if page is None else page, scope=excluded_scope
             )
     else:
         adapter = TypeAdapter[ScreeningResult](ScreeningResult)

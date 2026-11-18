@@ -8,6 +8,7 @@ from tests.helpers.technical_financial import _seed
 
 from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.policies import discovery as observations
 from baibai_engine.machine_analysis.screening.policies import technical_financial_selection as owner
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
@@ -85,7 +86,7 @@ def test_page_size_is_bounded_not_a_research_budget(size):
 
 def test_gate_runs_for_every_stock_once_and_preserves_missing_known_failure(tmp_path, monkeypatch):
     fixed = _seed(tmp_path / "runs")
-    real = owner._financial_growth_with_path_inputs
+    real = observations._financial_growth_with_path_inputs
     calls = []
 
     def gate(ticker, **kwargs):
@@ -97,7 +98,7 @@ def test_gate_runs_for_every_stock_once_and_preserves_missing_known_failure(tmp_
         assert kwargs["metadata"].generation_id == fixed.generation_id
         return real(ticker, **kwargs)
 
-    monkeypatch.setattr(owner, "_financial_growth_with_path_inputs", gate)
+    monkeypatch.setattr(observations, "_financial_growth_with_path_inputs", gate)
     selected = evaluate_fixed(fixed)
     assert calls == ["1234", "2345", "3456", "4567", "5678", "6789"]
     rows = {row.ticker: row for row in selected.result.rows}

@@ -78,15 +78,19 @@ def test_checkpoint_revalidates_notes_without_changing_saved_operation(tmp_path,
     assert service.active() == operation
 
 
-@pytest.mark.parametrize("version", [2, 3, 4])
+@pytest.mark.parametrize("version", [2, 3, 4, 5])
 def test_valid_copied_notes_keep_saved_selection_and_retry_without_runs(tmp_path, version):
     if version == 2:
         raw = selection(now=NOW).model_dump(mode="json")
     else:
-        raw = seed_generated_selection(runs=tmp_path / "runs", now=NOW).model_dump(mode="json")
-        if version == 3:
-            raw["schema_version"] = 3
-            del raw["inputs"]["saved_company_context"]
+        from tests.helpers.generated_selection import legacy_selection_payload
+
+        source = seed_generated_selection(runs=tmp_path / "runs", now=NOW)
+        raw = (
+            source.model_dump(mode="json")
+            if version == 5
+            else legacy_selection_payload(source, tmp_path / "runs", version=version)
+        )
     selected = parse_selection(raw)
     operation = historical_operation(selected)
     app = tmp_path / "app"

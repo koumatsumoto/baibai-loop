@@ -20,6 +20,10 @@ import yaml
 from pydantic import ValidationError
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalConflictError
+from baibai_engine.investment_judgment.workflow.discovery import (
+    DISCOVERY_QUESTIONS,
+    PriceCoordinateMinimum,
+)
 from baibai_engine.investment_judgment.workflow.operation.service import OperationConflictError
 from baibai_engine.investment_judgment.workflow.screening_brief import SCREENING_EXCLUSION_SCOPES
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -108,8 +112,18 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument(
         "--screening-lane",
         choices=("growth_research", "input_review", "alternative_financial_research"),
-        default="growth_research",
-        help="saved growth, unresolved, or alternative-financial research lane",
+        help="explicitly inspect a historical screening lane (can read the full publication)",
+    )
+    context_parser.add_argument(
+        "--discovery-question",
+        choices=tuple(DISCOVERY_QUESTIONS),
+        help="inspect a finite page of the fixed universe for one economic question",
+    )
+    context_parser.add_argument(
+        "--price-coordinate-min",
+        nargs=4,
+        metavar=("PATH", "VARIANT", "PRICE_GROUP", "VALUE"),
+        help="compare an explicit saved price coordinate within the question; no default",
     )
     context_parser.add_argument(
         "--screening-excluded",
@@ -280,6 +294,10 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     for source in (run_store_path(args.runs_path), database_path(args.db))
                 ):
                     raise ValueError("selection context export must not replace an input database")
+                minimum = None
+                if args.price_coordinate_min is not None:
+                    path_id, variant, group, raw = args.price_coordinate_min
+                    minimum = PriceCoordinateMinimum(path_id, variant, group, float(raw))
                 payload = load_generated_selection_context(
                     request=request,
                     research_as_of=args.research_asof,
@@ -291,6 +309,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     comparison_tickers=tuple(args.compare_ticker),
                     screening_page=args.screening_page,
                     screening_lane=args.screening_lane,
+                    discovery_question=args.discovery_question,
+                    price_coordinate_min=minimum,
                     screening_excluded=args.screening_excluded is not None,
                     screening_excluded_scope=args.screening_excluded or "technical_matched",
                 )

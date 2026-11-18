@@ -390,9 +390,6 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
     )
     from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-        TechnicalFinancialPolicy,
-    )
     from baibai_engine.primitives.market_windows import FINANCIAL_HISTORY_DAYS
     from baibai_engine.storage.snapshots.reader import resolve_current_release
 
@@ -464,7 +461,6 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
         as_of=today,
         lease_handle=tmp_path / "lease",
         growth_start=None,
-        policy=TechnicalFinancialPolicy(page_size=36),
     )
     saved = read_generation(result["generation_id"], path=tmp_path / "runs.sqlite")
     price_input = saved.inputs["price"]
