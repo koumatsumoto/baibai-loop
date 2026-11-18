@@ -19,6 +19,8 @@ uv run baibai-engine investment-judgment selection-context \
 
 通常の新規探索は、買い候補順ではなく**何が価格に対して安い可能性を作るか**を選ぶ。最初の出力の `repeat_command_args` に問いの `append_args` を付け、同じ公表物・同じcutoffで関連会社の根拠と反対説明を比較する。続きは `next_args`、個別に使った価格基準・期間・会社の一次根拠を確かめるには行の `detail_args` を同じ元コマンドへ付ける。対象のコードを先に知る必要はない。参照順を優先順位にせず、1問や全問の枠消化は不要。
 
+報告資産の問いで株価水準によって調べる範囲を絞るときは、同じコマンドに `--discovery-question reported_assets --reported-pbr-max <倍率>` を指定する。赤字でも正の簿価と当時の価格・株数基準が揃えば調査できる。上限は閲覧条件で、買値や普遍的な基準ではない。各行の市場・業種中央値は**閾値適用前**の他社の観測。揃った株価日だけの比較と、簿価の期末・算出法・連単・会計基準まで揃う比較を分ける。標本なしを市場で補わず、違う事業や拘束資産・負担も調べる。値動きは下記の価格観測から別に読む。
+
 銘柄指定は`--scope specified_stocks --ticker <TICKER>`（候補外可）、保有は`--scope review_positions`。new/holdingを混ぜず評価を変える問いで選ぶ。候補外比較は同commandへ返された`--screening-selection-id <ID> --compare-ticker <TICKER>`を渡し、依頼scopeを保って採用対象をdraftへ記す。
 
 比較不足による候補外を探す時は、同じSelection/cutoffで`--screening-excluded financial_unresolved --screening-page <N>`を有限に読む。通常レーンへ復帰させず、元の非充足・不足理由から答えが得られ判断を変える対象だけを前述の個別比較へ渡す。診断の意味と従来のT合致除外との違いは[Screening](../../../docs/reference/screening-runtime.md)へ。
