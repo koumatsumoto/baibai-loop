@@ -63,7 +63,9 @@ def project_document_list(receipts: Sequence[EdinetListReceipt]) -> DocumentList
         # provenance reference; UUID order is never treated as acquisition chronology.
         receipt = min(group, key=lambda receipt: receipt.receipt_id)
         try:
-            candidate_payload, candidate_documents, keys = _decode_receipt(receipt)
+            candidate_payload, candidate_documents, keys = decode_list_response(
+                receipt.body, doc_date=receipt.doc_date
+            )
             next_observed: dict[tuple[int, str], dict[str, Any]] = {}
             enriched: list[dict[str, Any]] = []
             for key, record in zip(keys, candidate_documents, strict=True):
@@ -113,7 +115,7 @@ def document_list_rechecked_asof(
         ):
             continue
         try:
-            _decode_receipt(receipt)
+            decode_list_response(receipt.body, doc_date=receipt.doc_date)
         except (ValueError, UnicodeError):
             continue
         return recheck_day
@@ -131,11 +133,14 @@ def _parse_finite_float(value: str) -> float:
     return parsed
 
 
-def _decode_receipt(
-    receipt: EdinetListReceipt,
+def decode_list_response(
+    source: bytes | str,
+    *,
+    doc_date: date,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[tuple[int, str]]]:
+    """Validate a list body or its retained JSON projection without inventing a receipt."""
     payload = json.loads(
-        receipt.body,
+        source,
         parse_constant=_reject_nonfinite_constant,
         parse_float=_parse_finite_float,
     )
@@ -158,7 +163,7 @@ def _decode_receipt(
         raise ValueError("EDINET metadata status is not successful")
     if "parameter" in metadata:
         parameter = metadata["parameter"]
-        if not isinstance(parameter, dict) or parameter.get("date") != receipt.doc_date.isoformat():
+        if not isinstance(parameter, dict) or parameter.get("date") != doc_date.isoformat():
             raise ValueError("EDINET response date does not match the requested day")
     records = [dict(item) for item in results]
     for record in records:

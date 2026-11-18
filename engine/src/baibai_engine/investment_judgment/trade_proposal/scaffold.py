@@ -74,6 +74,42 @@ def scaffold_proposal(
                     "確かめる。指定だけから買付けの成立、廃止日または支払日を決めない。"
                 ),
             )
+            lookup = context.tender_filing_references
+            refs = (
+                ()
+                if lookup is None
+                else (lookup.references_by_ticker or {}).get(outcome.ticker, ())
+            )
+            if refs:
+                # Different offers for the same target can coexist in the window.
+                groups: dict[str, list[str]] = {}
+                for ref in refs:
+                    groups.setdefault(ref.registration_doc_id, []).append(
+                        f"{ref.document_label}（{ref.doc_id}）"
+                    )
+                names = " ／ ".join(
+                    f"起点{root}：{'、'.join(documents)}" for root, documents in groups.items()
+                )
+                listing_review += (
+                    (
+                        f"EDINETの保存一覧に{names}。各届出の提出者と対象会社を区別して本文を読み、"
+                        "その後の訂正・撤回も確認する。結果報告書の存在は成立や新規取得者への入金の証明ではない。"
+                    ),
+                )
+            elif lookup is not None and lookup.status == "as_of_history_unavailable":
+                listing_review += (
+                    (
+                        "後日に日別一覧が更新され、この保存コピーから判断時点のEDINET書類は復元できない。"
+                        "当時の取下げ・訂正を否定せず、当時の受領版と発行体の開示を確認する。"
+                    ),
+                )
+            else:
+                listing_review += (
+                    (
+                        "今回のEDINET保存一覧ではこの対象の関連書類を特定できない。"
+                        "公開買付けがないとはせず、現在の提出書類・発行体開示を確認する。"
+                    ),
+                )
         items.append(
             DeferItem(
                 ticker=outcome.ticker,

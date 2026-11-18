@@ -385,3 +385,44 @@ def test_empty_scope_remains_uninitialized_and_malformed_list_is_reported(tmp_pa
         assert read_scope(connection) == FactsScope()
         assert connection.execute("SELECT count(*) FROM edinet_source_archives").fetchone()[0] == 0
     assert EDINETReader(output).list_documents(DAY)
+
+
+def test_compact_fixed_list_projection_can_supply_targeted_references_without_archives(tmp_path):
+    from baibai_engine.machine_analysis.observations.disclosures.tender_filing_lookup import (
+        read_tender_filing_references,
+    )
+    from baibai_jobs.integration.edinet_list_native import clear_verified_receipt_cache
+
+    store = MemoryR2Store()
+    owner = EdinetListL1(store, tmp_path / "list")
+    owner.freeze(require_existing=False)
+    fields = {
+        "legalStatus": "1",
+        "withdrawalStatus": "0",
+        "disclosureStatus": "0",
+        "docInfoEditStatus": "0",
+        "submitDateTime": "2026-11-01 09:00",
+    }
+    anchor = {"docID": "SFICTANC", "docTypeCode": "120", "edinetCode": "E90001", "secCode": "12340"}
+    filing = {
+        "docID": "SFICTREG",
+        "docTypeCode": "240",
+        "edinetCode": "E90002",
+        "subjectEdinetCode": "E90001",
+    }
+    records = [dict(fields, **row, seqNumber=i) for i, row in enumerate((anchor, filing), 1)]
+    body = json.dumps({"metadata": {"resultset": {"count": 2}}, "results": records}).encode()
+    fixed = owner.publish(
+        [NativeListReceipt.from_response(DAY, EdinetResponse(AT, body), UUID(int=4).hex)]
+    )
+    market = tmp_path / "consumer.sqlite"
+    assert materialize_lists(fixed, market)["status"] == "completed"
+    assert clear_verified_receipt_cache(fixed, market) == 1
+    with closing(open_connection(market)) as conn:
+        assert not conn.execute("SELECT 1 FROM edinet_list_responses").fetchall()
+        read = read_tender_filing_references(conn, tickers=("1234",), known_at=KNOWN)
+        assert read.status == "observed_lists"
+        (ref,) = read.references_by_ticker["1234"]
+        assert (ref.doc_id, ref.role) == ("SFICTREG", "offeror_filing")
+        assert read.origin_list_receipts[DAY].receipt_id == UUID(int=4).hex
+        assert read.origin_list_receipts[DAY].received_at == AT

@@ -126,3 +126,96 @@ def test_equal_completed_snapshots_are_not_ordered_by_uuid(tmp_path):
     check = _context(case).listing_designations
     assert check.status == "ambiguous_bundle"
     assert check.designations_by_ticker is None
+
+
+@pytest.mark.parametrize("holding", [False, True])
+def test_tender_lookup_follows_flagged_target_and_never_turns_metadata_into_terms(
+    tmp_path, holding
+):
+    import json
+    from uuid import uuid4
+
+    from baibai_engine.data_collection.providers.edinet.list_projection import project_document_list
+    from baibai_engine.data_collection.providers.edinet.receipts import EdinetListReceipt
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+        store_edinet_document_projection,
+    )
+
+    case = backend_case(tmp_path, holding=holding)
+    base = _context(case)
+    assert base.tender_filing_references is None
+    _bundle(case, start=PREPARED - timedelta(minutes=4), page=_page("1234"))
+    assert _context(case).tender_filing_references.status == "no_eligible_list"
+    bidder, target = "E90001", "E90002"
+    data = [
+        ("SFICT001", "240", bidder, target, "56780", None),
+        ("SFICT002", "290", target, bidder, "12340", "SFICT001"),
+        ("SFICT004", "240", "E90003", target, "90120", None),
+        ("SFICT003", "270", bidder, target, "56780", "SFICT001"),
+    ]
+    earlier = PREPARED - timedelta(days=1)
+    for stamp, docs in ((earlier, data[:3]), (PREPARED, data[3:])):
+        day = stamp.date()
+        rows = [
+            {
+                "seqNumber": i,
+                "docID": doc,
+                "docTypeCode": code,
+                "edinetCode": filer,
+                "subjectEdinetCode": subject,
+                "secCode": sec,
+                "parentDocID": parent,
+                "submitDateTime": f"{day} 09:0{i}",
+                "legalStatus": "1",
+                "withdrawalStatus": "0",
+                "disclosureStatus": "0",
+                "docInfoEditStatus": "0",
+            }
+            for i, (doc, code, filer, subject, sec, parent) in enumerate(docs, 1)
+        ]
+        source = json.dumps({"metadata": {"resultset": {"count": len(rows)}}, "results": rows})
+        result = project_document_list(
+            [EdinetListReceipt(str(uuid4()), day, stamp.astimezone(UTC), source.encode())]
+        )
+        store_edinet_document_projection(case.market, result, rechecked_asof=None)
+    ids = ("SFICT001", "SFICT002", "SFICT004", "SFICT003")
+    original = (case.app.read_bytes(), case.market.read_bytes())
+    before = _context(case, PREPARED - timedelta(microseconds=1)).tender_filing_references
+    assert before.status == "as_of_history_unavailable"
+    assert before.references_by_ticker is None
+    context = _context(case)
+    lookup = context.tender_filing_references
+    refs = lookup.references_by_ticker["1234"]
+    assert tuple(r.doc_id for r in refs) == ids
+    assert [r.role for r in refs] == [
+        "offeror_filing",
+        "target_opinion",
+        "offeror_filing",
+        "offeror_filing",
+    ]
+    assert [r.registration_doc_id for r in refs] == [ids[0], ids[0], ids[2], ids[0]]
+    assert lookup.selected_list_days == 2
+    assert lookup.origin_list_receipts[earlier.date()].received_at == earlier
+    assert lookup.latest_list_received_at == PREPARED
+    assert set(context.payload()["tender_filing_references"]["references_by_ticker"]) == {"1234"}
+    assert context.inputs == base.inputs
+    assert context.calculations == base.calculations
+    draft = scaffold_proposal(
+        operation_id=case.operation.operation_id,
+        proposal_id=PROPOSAL_ID,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PREPARED,
+    )
+    item = draft["items"][0]
+    assert item["action"] == "defer"
+    assert all(any(i in r for r in item["review_conditions"]) for i in ids)
+    first, second = next(r for r in item["review_conditions"] if "起点SFICT001" in r).split(" ／ ")
+    assert all(doc_id in first for doc_id in ("SFICT001", "SFICT002", "SFICT003"))
+    assert "SFICT004" not in first
+    assert "起点SFICT004" in second
+    assert "SFICT003" not in second
+    assert "tender_filing_references" not in draft
+    assert original == (case.app.read_bytes(), case.market.read_bytes())
+    _bundle(case, start=PREPARED + timedelta(seconds=1), page=_page("5678"))
+    assert _context(case, PREPARED + timedelta(minutes=1)).tender_filing_references is None
