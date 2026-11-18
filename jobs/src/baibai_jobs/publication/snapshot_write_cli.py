@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sys
 from collections.abc import Callable
 from contextlib import closing
@@ -17,6 +19,7 @@ from baibai_engine.storage.snapshots.hydrate import (
 )
 from baibai_engine.storage.snapshots.models import LakeReleaseSourceRef, load_lake_model_json
 from baibai_engine.storage.snapshots.objects import (
+    MAX_BUFFERED_OBJECT_BYTES,
     LakeCredentialError,
     LakeObjectError,
     LakeObjectSource,
@@ -164,6 +167,23 @@ def _clear_independent_list_cache(
         clear_verified_receipt_cache(fixed, path)
 
 
+def _publication_web_inputs(release: FixedRelease, *, disk_free: int) -> frozenset[str]:
+    # The hosted daily runner will publish into this same mirror. Do not fetch a
+    # single extra object. Leave at least 15/16 of its free space for SQLite,
+    # the seal and other datasets; never carry more than 3 GiB between stages.
+    manifest = release.dataset_manifests.get("equity_web.source_responses")
+    if manifest is None:
+        return frozenset()
+    budget = min(3 * 1024**3, disk_free // 16)
+    keys = set()
+    for part in manifest.partitions:
+        for obj in part.objects:
+            if MAX_BUFFERED_OBJECT_BYTES < obj.bytes <= budget:
+                keys.add(obj.key)
+                budget -= obj.bytes
+    return frozenset(keys)
+
+
 def _hydrate(args: argparse.Namespace) -> int:
     """Resolve one release, then fill the market store's lake-owned tables from it."""
 
@@ -187,6 +207,15 @@ def _hydrate(args: argparse.Namespace) -> int:
                 dataset_names=dataset_names,
                 bucket=args.bucket,
             ) as hydration_cache:
+                if (
+                    args.command == "hydrate"
+                    and os.environ.get("BAIBAI_REUSE_DAILY_WEB_INPUTS") == "1"
+                    and hydration_cache.evict_large_after_read
+                    and hydration_cache.root.is_dir()
+                ):
+                    hydration_cache.keep_for_export = _publication_web_inputs(
+                        release, disk_free=shutil.disk_usage(hydration_cache.root).free
+                    )
                 report = hydrate_market_store(
                     session,
                     release=release,

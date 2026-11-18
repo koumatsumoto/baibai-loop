@@ -149,6 +149,8 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Reuse verified Web originals only on this disposable publication runner.
+          BAIBAI_REUSE_DAILY_WEB_INPUTS: '1'
         run: jobs/scripts/r2_transfer.sh hydrate-market
 
       - name: Apply fixed original receipts and common offline extraction

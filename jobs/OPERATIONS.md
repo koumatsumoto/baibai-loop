@@ -739,6 +739,8 @@ TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な�
 
 mainのcloud-materializeは検証済applicationと固定releaseを使う。単独表示更新は同じmarket originの価格・calendar・masterだけをhydrateし、無関係な原本cacheを取得・消去しない。別releaseへの部分更新はせず、originが合わなければmarketを未検証として扱う。通常dailyの全体hydrateとは別である。market失敗は赤いrunに残し、未検証値を読ませず時価等を未評価にしてledger fact/保存成績/提案を配信する。market復旧と表示公開を別確認する。
 
+日次の使い捨てrunnerだけ、受領済みの公開Web原本（`equity_web.source_responses`）を同じローカルmirrorで公開まで一時再利用する。追加取得せず、大きな原本の保持は最大3 GiBかつ開始時空き容量の1/16以内。手動hydrate・portfolio・他の巨大原本の既定の退避は変えない。すでに手元にある未改版の日別形式L1バイナリ原本は手動exportでも同じ全値検証後に再利用できる。前回とSHA/全列（gzip本文含む）/順序が一致した日は再圧縮せず、公開前の全件照合とR2の閉鎖・pointer確認は通常どおり。古い月刊が手元になければSQLiteから同じ月形状を再生する。実採用数とbyteはjobの `lake snapshot: verified reuse` で確認する。値は一時再生成を省いたバイトで、請求や通信の削減量ではない。
+
 ```bash
 uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
 ```

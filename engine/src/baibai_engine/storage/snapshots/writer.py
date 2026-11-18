@@ -115,7 +115,7 @@ class SealedSQLiteSnapshot:
 @dataclass(frozen=True)
 class _BuiltPartition:
     period: Period
-    staged_path: Path
+    staged_path: Path | None
     manifest: PartitionManifest
 
 
@@ -202,10 +202,8 @@ def export_dataset_snapshot(
     operation, and one export writes every dataset from one seal. Native lineage
     is supplied only for projections rebuilt from that fixed input in this operation.
 
-    Every byte is derived again. A previous single-object partition only keeps its
-    physical shape when this seal regenerates the identical object. Otherwise the
-    requested split applies. The manifest is proved against SQLite in whole, without
-    treating a previous build as a source of rows.
+    Existing binary source objects may be reused after comparison to this seal.
+    They do not supply rows: the final manifest still has to match all of SQLite.
     """
 
     started = _phase_progress(f"export.{dataset.name}")
@@ -240,7 +238,31 @@ def export_dataset_snapshot(
             date_index = tuple(column.name for column in dataset.columns).index(dataset.date_column)
             for period in periods:
                 prior = previous_parts.get(period)
+                reuse = (
+                    prior is not None
+                    and previous is not None
+                    and previous.dataset == dataset.name
+                    and previous.layer == dataset.layer
+                    and tuple(previous.partition_by) == dataset.partition_by
+                    and dataset.layer == "l1_source"
+                    and dataset.has_binary_payload
+                    and object_date_grain == "day"
+                    and projection_revision is None
+                    and any(_mirror_path(mirror_root, obj.key).is_file() for obj in prior.objects)
+                )
                 if object_date_grain == "day" and prior is not None and len(prior.objects) == 1:
+                    if reuse and (
+                        checked := _checked_binary_object(
+                            mirror_root,
+                            dataset,
+                            period,
+                            prior.objects[0],
+                            _period_rows(connection, dataset, period),
+                            snapshot.ref,
+                        )
+                    ):
+                        built.append(checked)
+                        continue
                     whole = _build_period(
                         dataset=dataset,
                         period=period,
@@ -252,7 +274,16 @@ def export_dataset_snapshot(
                     if whole.manifest.objects == prior.objects:
                         built.append(whole)
                         continue
+                    assert whole.staged_path is not None
                     whole.staged_path.unlink()
+                prior_days = (
+                    {
+                        _object_date(_mirror_path(mirror_root, obj.key), dataset=dataset): obj
+                        for obj in prior.objects
+                    }
+                    if reuse and prior is not None
+                    else {}
+                )
                 rows = _period_rows(
                     connection, dataset, period, date_first=object_date_grain == "day"
                 )
@@ -269,6 +300,15 @@ def export_dataset_snapshot(
                     else ((None, rows),)
                 )
                 for day, group in groups:
+                    if day is not None and (obj := prior_days.get(day)) is not None:
+                        if checked := _checked_binary_object(
+                            mirror_root, dataset, period, obj, group, snapshot.ref
+                        ):
+                            built.append(checked)
+                            continue
+                        # Comparison may have consumed part of this group. Re-read
+                        # only this changed day, in the same primary-key order.
+                        group = _period_rows(connection, dataset, period, on=day)
                     built.append(
                         _build_period(
                             dataset=dataset,
@@ -320,6 +360,16 @@ def export_dataset_snapshot(
         validate_snapshot_parity(
             sqlite_path=snapshot.path, mirror_root=mirror_root, manifest=manifest, dataset=dataset
         )
+        reused = [
+            obj for item in built if item.staged_path is None for obj in item.manifest.objects
+        ]
+        if reused:
+            print(
+                f"lake snapshot: verified reuse dataset={dataset.name} objects={len(reused)} "
+                f"bytes={sum(obj.bytes for obj in reused)}",
+                file=sys.stderr,
+                flush=True,
+            )
         manifest_path = _mirror_path(
             mirror_root,
             dataset_manifest_key(
@@ -542,6 +592,34 @@ def _build_period(
     )
 
 
+def _checked_binary_object(
+    mirror: Path,
+    dataset: LakeDataset,
+    period: Period,
+    obj: LakeObject,
+    rows: Iterable[tuple[object, ...]],
+    source: SQLiteSnapshotSourceRef,
+) -> _BuiltPartition | None:
+    """Compare the physical original to this seal, never just its row count or clock."""
+    path = _mirror_path(mirror, obj.key)
+    try:
+        _validate_parquet(
+            path,
+            dataset=dataset,
+            period=period,
+            expected_rows=rows,
+            expected_object=obj,
+            unversioned=True,
+        )
+    except (OSError, ValueError, LakeBuildError):
+        return None
+    return _BuiltPartition(
+        period,
+        None,
+        PartitionManifest(values=period_values(dataset, period), objects=(obj,), sources=(source,)),
+    )
+
+
 def _coverage_assessment(
     connection: sqlite3.Connection, dataset: LakeDataset
 ) -> tuple[CoverageStatus, date, date, int | None]:
@@ -617,6 +695,7 @@ def _validate_parquet(
     expected_rows: Iterable[tuple[object, ...]],
     expected_object: LakeObject,
     source_kind: Literal["legacy_sqlite_import", "l1_derived"] = "legacy_sqlite_import",
+    unversioned: bool = False,
 ) -> None:
     if not path.is_file() or path.stat().st_size <= 0:
         raise LakeBuildError(f"Parquet object missing or empty: {path}")
@@ -632,6 +711,8 @@ def _validate_parquet(
     max_key: tuple[str, ...] | None = None
     count = 0
     with pq.ParquetFile(path, pre_buffer=False) as parquet:
+        if unversioned and PROJECTION_REVISION_METADATA_KEY in (parquet.metadata.metadata or {}):
+            raise LakeBuildError(f"unexpected projection revision: {path}")
         if not parquet.schema_arrow.equals(
             dataset.arrow_schema_for(source_kind), check_metadata=True
         ):
@@ -701,8 +782,8 @@ def _period_rows(
     period: Period,
     *,
     date_first: bool = False,
+    on: str | None = None,
 ) -> Iterator[tuple[object, ...]]:
-    prefix = f"{period_label(period)}-"
     columns = ", ".join(column.name for column in dataset.columns)
     order = ", ".join(
         dict.fromkeys((dataset.date_column, *dataset.primary_key))
@@ -710,11 +791,12 @@ def _period_rows(
         else dataset.primary_key
     )
     # Numeric calendar prefixes need no case folding; GLOB can use the date's BINARY index.
+    match, value = ("=", on) if on is not None else ("GLOB", f"{period_label(period)}-*")
     query = (
         f"SELECT {columns} FROM {dataset.sqlite_table} "  # nosec B608
-        f"WHERE {dataset.date_column} GLOB ? ORDER BY {order}"
+        f"WHERE {dataset.date_column} {match} ? ORDER BY {order}"
     )
-    for row in connection.execute(query, (f"{prefix}*",)):
+    for row in connection.execute(query, (value,)):
         yield tuple(row)
 
 
@@ -773,6 +855,8 @@ def _manifest_partitions(manifest: DatasetManifest) -> dict[Period, PartitionMan
 def _promote_partitions(mirror_root: Path, built: Sequence[_BuiltPartition]) -> int:
     created = 0
     for item in built:
+        if item.staged_path is None:
+            continue
         target = _mirror_path(mirror_root, item.manifest.objects[0].key)
         try:
             if install_immutable_file(
