@@ -251,7 +251,7 @@ def preview_current_terms(
     ):
         connection.execute("BEGIN")
         proposal = load_investment_proposal(connection, proposal_id)
-        records = proposal_records(connection, proposal_id)
+        records = proposal_records(connection, proposal)
         corrected = any(
             record["erroneous_ref"]["proposal_id"] == proposal_id
             for record in records["corrections"]

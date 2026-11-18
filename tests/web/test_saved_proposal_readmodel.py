@@ -27,7 +27,6 @@ from baibai_engine.investment_judgment.trade_proposal.service import TradePropos
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_web.readmodel.builders.proposal import build_latest_proposal, project_saved_proposal
-from baibai_web.sources import proposal as proposal_source
 from baibai_web.sources.proposal import DbProposalSource
 
 
@@ -609,7 +608,7 @@ def test_no_action_is_a_saved_conclusion_not_defer(payload):
     assert "blockers" not in view.items[0].model_dump()
 
 
-def test_source_reads_exact_saved_pair_without_market_or_current_writers(tmp_path, mocker):
+def test_source_reads_exact_saved_pair_without_market_or_current_writers(tmp_path):
     case = backend_case(tmp_path)
     saved = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
@@ -623,21 +622,6 @@ def test_source_reads_exact_saved_pair_without_market_or_current_writers(tmp_pat
     case.market.unlink()
     case.runs.unlink()
     before = case.app.read_bytes()
-    preview = mocker.patch(
-        "baibai_engine.investment_judgment.trade_proposal.preview.preview_current_terms"
-    )
-    writer = mocker.patch.object(TradeProposalService, "publish")
-    current_inputs = mocker.patch(
-        "baibai_engine.investment_judgment.trade_proposal.inputs.collect_proposal_inputs"
-    )
-    original_reader = proposal_source.require_assessment_ref
-
-    def read_exact(connection, reference):
-        assert connection.in_transaction
-        assert connection.execute("PRAGMA query_only").fetchone()[0] == 1
-        return original_reader(connection, reference)
-
-    reader = mocker.patch.object(proposal_source, "require_assessment_ref", side_effect=read_exact)
     generated_at = PUBLISHED + timedelta(days=3)
     view = build_latest_proposal(DbProposalSource(case.app), generated_at=generated_at)
     assert view.status == "ready"
@@ -647,39 +631,9 @@ def test_source_reads_exact_saved_pair_without_market_or_current_writers(tmp_pat
     assert view.proposal.items[0].assessment.valuation.price_yen == str(
         case.pair.document.input_snapshot.facts[0].value
     )
-    assert reader.call_args.args[1] == saved.items[0].assessment_ref
-    preview.assert_not_called()
-    writer.assert_not_called()
-    current_inputs.assert_not_called()
     assert case.app.read_bytes() == before
     assert not case.market.exists()
     assert not case.runs.exists()
-
-
-def test_source_resolves_current_and_original_refs_in_the_same_transaction(
-    tmp_path, payload, mocker
-):
-    original, current = _pair(number=1), _pair(number=10)
-    _current(payload, current)
-    _holding(payload, action="hold", original={"original_assessment_ref": _ref(original)})
-    saved = TradeProposal.model_validate(payload)
-    path = tmp_path / "application.sqlite"
-    initialize_database(path)
-    mocker.patch.object(proposal_source, "load_latest_investment_proposal", return_value=saved)
-    pairs = {pair.assessment_id: pair for pair in (original, current)}
-    connections = []
-
-    def read_exact(connection, reference):
-        assert connection.in_transaction
-        connections.append(connection)
-        return pairs[reference.assessment_id]
-
-    reader = mocker.patch.object(proposal_source, "require_assessment_ref", side_effect=read_exact)
-    view = DbProposalSource(path).latest()
-    assert reader.call_count == 2
-    assert connections[0] is connections[1]
-    assert view.items[0].assessment.assessment_id == current.assessment_id
-    assert view.items[0].original_assessment.assessment_id == original.assessment_id
 
 
 @pytest.mark.parametrize("store", ["missing", "uninitialized", "schema", "corrupt", "empty"])

@@ -229,8 +229,10 @@ def test_original_signature_human_report_and_original_index_stay_exact(
     before = hashlib.sha256(case.app.read_bytes()).hexdigest()
     assert read_saved_proposal(proposal_id=original.proposal_id, db_path=case.app) == original
     with closing(connect_read_only(case.app)) as connection:
-        assert load_latest_investment_proposal(connection).proposal_id == original.proposal_id
-        report = proposal_records(connection, original.proposal_id)["human_reports"][0]
+        connection.execute("BEGIN")
+        saved = load_latest_investment_proposal(connection)
+        assert saved.proposal_id == original.proposal_id
+        report = proposal_records(connection, saved)["human_reports"][0]
         assert report["proposal_ref"] == reference(original).model_dump(mode="json")
         assert report["outcome"] == "not_purchased"
         assert report["reason_quote"] == "様子を見る"

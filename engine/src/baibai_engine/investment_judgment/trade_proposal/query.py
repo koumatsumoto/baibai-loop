@@ -8,6 +8,7 @@ from copy import deepcopy
 from datetime import date, datetime
 
 from baibai_engine.investment_judgment.stock_assessment.store import (
+    ReviewedAssessment,
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -44,6 +45,20 @@ def has_published_proposal_for_operation(connection: sqlite3.Connection, operati
 
 
 def load_investment_proposal(connection: sqlite3.Connection, proposal_id: str) -> TradeProposal:
+    return _load_investment_proposal(connection, proposal_id, None)
+
+
+def load_proposal_with_assessments(
+    connection: sqlite3.Connection, proposal_id: str
+) -> tuple[TradeProposal, dict[str, ReviewedAssessment]]:
+    """保存表示・振り返りには同じ読取で検証した評価pairも渡す。"""
+    pairs: dict[str, ReviewedAssessment] = {}
+    return _load_investment_proposal(connection, proposal_id, pairs), pairs
+
+
+def _load_investment_proposal(
+    connection: sqlite3.Connection, proposal_id: str, pairs: dict[str, ReviewedAssessment] | None
+) -> TradeProposal:
     """本文/hash/index/正確な評価pairを検証する。現在の資格やprogressは読まない。"""
 
     row = connection.execute(
@@ -86,11 +101,15 @@ def load_investment_proposal(connection: sqlite3.Connection, proposal_id: str) -
             pair = require_assessment_ref(connection, item.assessment_ref)
             if pair.document.input_snapshot.ticker != item.ticker:
                 raise ProposalConflictError("stored proposal assessment ticker differs")
+            if pairs is not None:
+                pairs[pair.assessment_id] = pair
     for position in proposal.inputs.positions:
         if position.original_assessment_ref is not None:
             pair = require_assessment_ref(connection, position.original_assessment_ref)
             if pair.document.input_snapshot.ticker != position.ticker:
                 raise ProposalConflictError("stored original assessment ticker differs")
+            if pairs is not None:
+                pairs[pair.assessment_id] = pair
     binding = connection.execute(
         "SELECT reference,ticker,side,origin,proposal_id,source_id,source_digest "
         "FROM position_decision_reference WHERE proposal_id=?",
@@ -117,7 +136,12 @@ def published_proposal_ids(connection: sqlite3.Connection) -> tuple[str, ...]:
 
 
 def load_latest_investment_proposal(connection: sqlite3.Connection) -> TradeProposal | None:
-    """全scopeから最大の(as_of, aware published_at, ID)を読み、破損版を飛ばさない。"""
+    proposal_id = latest_investment_proposal_id(connection)
+    return None if proposal_id is None else load_investment_proposal(connection, proposal_id)
+
+
+def latest_investment_proposal_id(connection: sqlite3.Connection) -> str | None:
+    """全scopeから最大の(as_of, aware published_at, ID)を選ぶ。本文破損で旧版へ戻さない。"""
 
     # Remove only erroneous records from chronological selection. A correction does
     # not pin its replacement over a later, unrelated valid proposal.
@@ -139,14 +163,12 @@ def load_latest_investment_proposal(connection: sqlite3.Connection) -> TradeProp
         headers.append((instant, str(row[0])))
     # Compare aware instants in Python: textual offsets and SQLite julianday
     # respectively lose instant ordering and sub-millisecond precision.
-    if not headers:
-        return None
-    return load_investment_proposal(connection, max(headers)[1])
+    return max(headers)[1] if headers else None
 
 
 def _require_ref(connection: sqlite3.Connection, reference: ProposalReference) -> TradeProposal:
     proposal = load_investment_proposal(connection, reference.proposal_id)
-    if proposal_draft_sha256(proposal) != reference.draft_sha256:
+    if proposal.review.draft_sha256 != reference.draft_sha256:
         raise ProposalConflictError("proposal record exact reference differs")
     return proposal
 
@@ -182,34 +204,40 @@ def load_corrections(connection: sqlite3.Connection) -> tuple[ProposalCorrection
     return tuple(records)
 
 
-def proposal_records(connection: sqlite3.Connection, proposal_id: str) -> ProposalRecords:
-    """Exact reads keep erroneous originals readable, with separate record provenance."""
-    corrections = load_corrections(connection)
+def read_proposal_records(
+    connection: sqlite3.Connection, proposal: TradeProposal
+) -> tuple[list[ProposalCorrection], list[HumanProposalReport]]:
+    """同一transactionで検証済みの提案に、訂正と人間報告のexact参照を照合する。"""
+    proposal_id = proposal.proposal_id
+    corrections = [
+        record
+        for record in load_corrections(connection)
+        if proposal_id in (record.erroneous_ref.proposal_id, record.replacement_ref.proposal_id)
+    ]
     reports = []
     for row in connection.execute(
         "SELECT report_id,recorded_at,payload FROM proposal_human_report WHERE proposal_id=?",
         (proposal_id,),
     ):
         report = HumanProposalReport.model_validate_json(row[2])
-        proposal = _require_ref(connection, report.proposal_ref)
         if (
             report.report_id != row[0]
             or report.proposal_ref.proposal_id != proposal_id
+            or report.proposal_ref.draft_sha256 != proposal.review.draft_sha256
             or report.recorded_at != datetime.fromisoformat(row[1])
             or not proposal.published_at <= report.reported_at <= report.recorded_at
         ):
             raise ProposalConflictError("stored human report identity or time differs")
         reports.append(report)
+    reports.sort(key=lambda report: (report.recorded_at, report.report_id))
+    return corrections, reports
+
+
+def proposal_records(connection: sqlite3.Connection, proposal: TradeProposal) -> ProposalRecords:
+    corrections, reports = read_proposal_records(connection, proposal)
     return {
-        "corrections": [
-            record.model_dump(mode="json")
-            for record in corrections
-            if proposal_id in (record.erroneous_ref.proposal_id, record.replacement_ref.proposal_id)
-        ],
-        "human_reports": [
-            report.model_dump(mode="json")
-            for report in sorted(reports, key=lambda report: (report.recorded_at, report.report_id))
-        ],
+        "corrections": [record.model_dump(mode="json") for record in corrections],
+        "human_reports": [report.model_dump(mode="json") for report in reports],
     }
 
 
