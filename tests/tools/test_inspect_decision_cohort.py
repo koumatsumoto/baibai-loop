@@ -18,7 +18,6 @@ from tests.helpers.retained_economic_selection import ranked_path_fixture, retai
 from tools.experiments.inspect_decision_cohort import inspect_decision_cohort, main
 
 from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import GeneratedResearchSelectionV4
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
@@ -105,30 +104,22 @@ def _start(tmp_path, tickers=("1234", "5678"), *, screening_result=None):
             ((NOW - timedelta(seconds=30)).isoformat(), identity),
         )
     publication = read_publication(path=runs, selection_id=identity)
-    inputs = full.inputs.model_copy(
-        update={
-            "screening_selection_id": identity,
-            "screening_selection": publication.selection,
-            "screening_published_at": publication.published_at,
-        }
-    )
-    selected = GeneratedResearchSelectionV4.model_validate(
-        full.model_copy(
-            update={
-                "targets": tuple(t for t in full.targets if t.ticker in tickers),
-                "inputs": inputs,
-            }
-        ).model_dump(mode="json")
-    )
-    service = OperationService(db, runs_path=runs)
-    operation = service.start(
-        session_kind="capital-allocation",
-        as_of=NOW.date(),
-        started_at=NOW,
-        payload=OperationPayload(
-            checkpoint="合成調査", artifacts=(selected.model_dump(mode="json"),)
+    from pydantic import TypeAdapter
+    from tests.helpers.generated_selection import legacy_selection_payload
+    from tests.helpers.research_selection import historical_operation
+
+    raw = legacy_selection_payload(full, runs)
+    raw["inputs"].update(
+        screening_selection_id=identity,
+        screening_selection=TypeAdapter(ScreeningSelection).dump_python(
+            publication.selection, mode="json"
         ),
+        screening_published_at=publication.published_at,
     )
+    selected = GeneratedResearchSelectionV4.model_validate(raw)
+    service = OperationService(db, runs_path=runs)
+    operation = historical_operation(selected)
+    seed_historical_operation(db, operation)
     return db, runs, service, operation
 
 

@@ -13,7 +13,6 @@ from baibai_engine.investment_judgment.workflow.operation.models import Operatio
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
-from baibai_engine.machine_analysis.screening import selection_query
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CandidateCard,
     EconomicPathPolicy,
@@ -156,35 +155,43 @@ def test_start_preserves_published_screening_json_types(tmp_path, capsys, method
 
 
 @pytest.mark.parametrize("legacy_format", [False, True])
-def test_start_reads_typed_publication_only_for_noncanonical_saved_bytes(
-    tmp_path, monkeypatch, legacy_format
-):
+def test_finite_case_is_bound_to_the_actual_published_bytes(tmp_path, legacy_format):
+    from baibai_engine.investment_judgment.workflow.case_screening import read_case_screening
+
     runs, app = tmp_path / "runs", tmp_path / "app"
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
-    payload = OperationPayload(checkpoint="start", artifacts=(selected.model_dump(mode="json"),))
+    service = OperationService(app, runs_path=runs)
+
+    def start(record):
+        return service.start(
+            session_kind="capital-allocation",
+            as_of=record.research_as_of,
+            started_at=NOW,
+            payload=OperationPayload(
+                checkpoint="start", artifacts=(record.model_dump(mode="json"),)
+            ),
+        )
+
     if legacy_format:
         with sqlite3.connect(runs) as connection:
             (blob,) = connection.execute("SELECT payload_gzip FROM screening_selection").fetchone()
-            raw = json.loads(gzip.decompress(blob))
+            wire = json.dumps(json.loads(gzip.decompress(blob)), indent=2).encode()
             connection.execute(
-                "UPDATE screening_selection SET payload_gzip=?",
-                (gzip.compress(json.dumps(raw, indent=2).encode(), mtime=0),),
+                "UPDATE screening_selection SET payload_gzip=?", (gzip.compress(wire, mtime=0),)
             )
-    source_before = runs.read_bytes()
-    decode = selection_query._decode_selection
-    reads = []
+        from baibai_engine.investment_judgment.workflow.operation.service import (
+            OperationConflictError,
+        )
 
-    def observed(raw):
-        reads.append(len(raw))
-        return decode(raw)
-
-    monkeypatch.setattr(selection_query, "_decode_selection", observed)
-    operation = OperationService(app, runs_path=runs).start(
-        session_kind="capital-allocation",
-        as_of=selected.research_as_of,
-        started_at=NOW,
-        payload=payload,
-    )
-    assert len(reads) == int(legacy_format)
-    assert operation.payload == payload
-    assert runs.read_bytes() == source_before
+        with pytest.raises(OperationConflictError, match="screening selection differs"):
+            start(selected)
+        assert not app.exists()
+        _, fresh = read_case_screening(
+            selected.inputs.screening_selection_id, path=runs, known_at=NOW, subjects=("1234",)
+        )
+        selected = selected.model_copy(
+            update={"inputs": selected.inputs.model_copy(update={"screening_selection": fresh})}
+        )
+    before = runs.read_bytes()
+    assert selection_binding(start(selected).payload) == selected
+    assert runs.read_bytes() == before

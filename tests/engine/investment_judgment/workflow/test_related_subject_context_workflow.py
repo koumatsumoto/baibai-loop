@@ -124,7 +124,6 @@ def test_first_comparison_detail_and_runless_resume_keep_saved_relation(tmp_path
         now=now,
     )
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
-    assert saved.inputs.screening_selection == selected
     projection = project_research_inputs(saved)
     assert projection["shared_subjects"][SUBJECT]["models"]["industry_trends"] == shared.payload
     digest = selection_sha256(saved)

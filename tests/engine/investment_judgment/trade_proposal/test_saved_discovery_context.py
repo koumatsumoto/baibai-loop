@@ -270,9 +270,9 @@ def test_old_selection_remains_readable_without_new_source_or_hash(tmp_path, ver
             tickers=("1234", "2345", "3456"),
             screening_result=_result(1),
         )
-        raw = selected.model_dump(mode="json")
-        raw["schema_version"] = 3
-        raw["inputs"].pop("saved_company_context")
+        from tests.helpers.generated_selection import legacy_selection_payload
+
+        raw = legacy_selection_payload(selected, tmp_path / "runs", version=3)
         selected = parse_selection(raw)
     operation = historical_operation(selected)
     seed_historical_operation(app, operation)

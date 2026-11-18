@@ -90,7 +90,6 @@ def test_saved_policy_order_and_workspace_bytes_survive_runless_resume(
         now=now,
     )
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
-    assert saved.inputs.screening_selection == previous
     digest = selection_sha256(saved)
     assert runs.read_bytes() == source_bytes
     runs.rename(tmp_path / "unavailable-runs")

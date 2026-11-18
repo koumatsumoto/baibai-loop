@@ -16,7 +16,7 @@ from baibai_engine.investment_judgment.workflow.operation.progress import (
     require_coverage,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelectionV4,
+    GeneratedSelectionWithContext,
     ResearchTarget,
     selection_targets,
 )
@@ -32,7 +32,7 @@ def validate_selection(
     connection: sqlite3.Connection, selection: ResearchSelection, *, now: datetime
 ) -> None:
     validate_target_purposes(connection, selection_targets(selection), now=now)
-    if isinstance(selection, GeneratedResearchSelectionV4):
+    if isinstance(selection, GeneratedSelectionWithContext):
         market = latest_assessment_from_connection(
             connection, as_of=selection.research_as_of, known_at=selection.input_known_at
         )

@@ -10,8 +10,8 @@ from typing import Any, Literal
 from pydantic import JsonValue, TypeAdapter
 
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelection,
-    GeneratedResearchSelectionV4,
+    GeneratedResearchSelectionV5,
+    GeneratedSelection,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     ResearchSelectionRecord as ResearchSelection,
@@ -33,7 +33,7 @@ SCREENING_EXCLUSION_SCOPES: tuple[ScreeningExclusionScope, ...] = (
 def saved_discovery_context(
     selection: ResearchSelection, *, selection_hash: str
 ) -> dict[str, JsonValue] | None:
-    if not isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
+    if not isinstance(selection, GeneratedSelection):
         return None
     saved = selection.inputs.screening_selection
     if saved is None or not isinstance(saved.result, TechnicalFinancialSelection):
@@ -64,7 +64,23 @@ def saved_discovery_context(
         "not_in_saved_rows": [
             target.ticker for target in selection.targets if target.ticker not in rows
         ],
-        "full_result_ref": "/inputs/screening_selection/result",
+        **(
+            {
+                "source_sha256": selection.inputs.screening_selection.source_sha256,
+                "detail_scope": "finite_case_not_full_screening_publication",
+                "comparison_rows": [
+                    codec.dump_python(rows[t], mode="json")
+                    for t in selection.comparison_tickers
+                    if t in rows
+                ],
+                "comparisons_not_in_saved_rows": [
+                    t for t in selection.comparison_tickers if t not in rows
+                ],
+            }
+            if isinstance(selection, GeneratedResearchSelectionV5)
+            and selection.inputs.screening_selection is not None
+            else {"full_result_ref": "/inputs/screening_selection/result"}
+        ),
     }
 
 

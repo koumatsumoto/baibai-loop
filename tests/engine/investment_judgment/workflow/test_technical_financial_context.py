@@ -157,7 +157,7 @@ def test_new_selection_prepares_and_resumes_from_saved_inputs_without_run_store(
     tmp_path, monkeypatch, target, state
 ):
     path = tmp_path / "runs"
-    fixed, selected, now = seed(path)
+    fixed, _, now = seed(path)
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
         request=ResearchRequest(text="未確定の比較理由を調べる", scope="discover_new"),
@@ -179,11 +179,11 @@ def test_new_selection_prepares_and_resumes_from_saved_inputs_without_run_store(
     digest = selection_sha256(saved)
     projection = project_research_inputs(saved)
     saved_result = projection["screening_selection"]["result"]
-    assert saved_result["cards"] == []
-    assert saved_result["full_result_ref"] == "/inputs/screening_selection/result"
+    assert "full_result_ref" not in saved_result
     assert saved_result["comparison_rows"][0]["financial_gate"]["state"] == state
-    assert len(saved.inputs.screening_selection.result.rows) == 6
-    assert saved.inputs.screening_selection == selected
+    assert tuple(r.ticker for r in saved.inputs.screening_selection.result.rows) == tuple(
+        t.ticker for t in saved.targets
+    )
     path.unlink()
     resumed = resume_selected_workspace(
         operation_id=prepared.operation_id,
@@ -313,3 +313,82 @@ def test_cli_reads_requested_lane_without_selecting(tmp_path, capsys):
     )
     assert path.read_bytes() == before
     assert not (tmp_path / "absent-app").exists()
+
+
+def test_case_pins_explicit_contrast_and_scope_without_promoting_or_using_later_generation(
+    tmp_path,
+):
+    import gzip
+    import sqlite3
+    from hashlib import sha256
+
+    from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
+    from baibai_engine.investment_judgment.workflow.operation.service import OperationConflictError
+    from baibai_engine.investment_judgment.workflow.screening_brief import saved_discovery_context
+
+    runs, app, workspace = tmp_path / "runs", tmp_path / "app", tmp_path / "case"
+    fixed, source, now = seed(runs)
+    draft = GeneratedResearchSelectionDraft(
+        schema_version=2,
+        request=ResearchRequest(text="有限の根拠を比べる", scope="discover_new"),
+        research_as_of=fixed.as_of,
+        input_known_at=now,
+        generation_id=fixed.generation_id,
+        screening_selection_id="technical-policy",
+        selection_summary="成長仮説と未観測の対照",
+        targets=(selected_target("1234"),),
+        comparison_tickers=("5678", "9999"),
+    )
+    result = prepare_selected_workspace(
+        draft=draft, db_path=app, workspace=workspace, runs_path=runs, now=now
+    )
+    saved = selection_binding(OperationService(app).get(result.operation_id).payload)
+    screen = saved.inputs.screening_selection
+    with sqlite3.connect(runs) as c:
+        wire = gzip.decompress(
+            c.execute(
+                "SELECT payload_gzip FROM screening_selection WHERE selection_id=?",
+                ("technical-policy",),
+            ).fetchone()[0]
+        )
+    assert screen.source_sha256 == sha256(wire).hexdigest() != result.selection_sha256
+    assert screen.universe_tickers == source.universe_tickers
+    assert {t for group in screen.population_groups for t in group.tickers} == set(
+        source.universe_tickers
+    )
+    assert {x.ticker for x in screen.result.rows} == {"1234", "5678"}
+    for entry in screen.result.rows:
+        assert entry == next(r for r in source.result.rows if r.ticker == entry.ticker)
+    assert result.selected_tickers == ("1234",)
+    assert saved.inputs.generation.result("company_growth", "5678") == fixed.result(
+        "company_growth", "5678"
+    )
+    assert saved.inputs.generation.result("company_growth", "2345") is None
+    assert set(saved.inputs.saved_company_context) == {"1234"}
+    projected = project_research_inputs(saved)["screening_selection"]
+    assert projected["outside_published_universe"] == ["9999"]
+    assert projected["no_saved_screening_detail"] == ["9999"]
+    details = saved_discovery_context(saved, selection_hash=result.selection_sha256)
+    assert [x["ticker"] for x in details["rows"]] == ["1234"]
+    assert [x["ticker"] for x in details["comparison_rows"]] == ["5678"]
+    assert details["comparisons_not_in_saved_rows"] == ["9999"]
+    altered = saved.model_dump(mode="json")
+    altered["inputs"]["screening_selection"]["result"]["rows"][0]["name"] = "later disclosure"
+    with pytest.raises(OperationConflictError, match="screening selection differs"):
+        OperationService(tmp_path / "other", runs_path=runs).start(
+            session_kind="capital-allocation",
+            as_of=fixed.as_of,
+            started_at=now,
+            payload=OperationPayload(checkpoint="test", artifacts=(altered,)),
+        )
+    assert not (tmp_path / "other").exists()
+    runs.rename(tmp_path / "unavailable")
+    replay = resume_selected_workspace(
+        operation_id=result.operation_id, db_path=app, workspace=tmp_path / "resumed", now=now
+    )
+    assert replay.selection_sha256 == result.selection_sha256
+    assert (replay.workspace / "domain-inputs.yaml").read_bytes() == (
+        workspace / "domain-inputs.yaml"
+    ).read_bytes()
+    with pytest.raises(ValueError, match="distinct non-target"):
+        type(draft).model_validate({**draft.model_dump(), "comparison_tickers": ["1234"]})

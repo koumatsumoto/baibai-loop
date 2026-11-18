@@ -526,7 +526,9 @@ def test_prepare_saves_full_economic_policy_and_chosen_models_then_resumes_witho
         now=NOW,
     )
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
-    assert saved.inputs.screening_selection == screening
+    assert saved.inputs.screening_selection.result.cards == tuple(
+        card for card in screening.result.cards if card.ticker == "1234"
+    )
     assert saved.inputs.generation.result("company_growth", "1234") == generation.result(
         "company_growth", "1234"
     )

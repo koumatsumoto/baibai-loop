@@ -107,7 +107,6 @@ def test_first_comparison_and_detached_research_keep_activity_without_backfillin
         now=now,
     )
     saved = selection_binding(OperationService(tmp_path / "app").get(prepared.operation_id).payload)
-    assert saved.inputs.screening_selection == selected
     projection = project_research_inputs(saved)
     assert projection["securities"]["1234"]["models"]["market_context"] == market
     digest = selection_sha256(saved)

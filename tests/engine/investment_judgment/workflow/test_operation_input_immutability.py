@@ -74,17 +74,21 @@ def test_start_preserves_exact_generated_payload_type(tmp_path, capsys, value):
     assert runs.read_bytes() == source_before
 
 
-@pytest.mark.parametrize("version", [2, 3, 4])
+@pytest.mark.parametrize("version", [2, 3, 4, 5])
 @pytest.mark.parametrize("change", ["false", "float", "null", "reordered", "same"])
 def test_checkpoint_preserves_saved_selection_json_and_hash(tmp_path, capsys, version, change):
     if version == 2:
         raw = selection(now=NOW, tickers=("1234",)).model_dump(mode="json")
         raw["inputs"]["market_context"]["sample"] = 0
     else:
-        raw = _generated(tmp_path).model_dump(mode="json")
-        if version == 3:
-            raw["schema_version"] = 3
-            del raw["inputs"]["saved_company_context"]
+        from tests.helpers.generated_selection import legacy_selection_payload
+
+        selected = _generated(tmp_path)
+        raw = (
+            selected.model_dump(mode="json")
+            if version == 5
+            else legacy_selection_payload(selected, tmp_path / "runs", version=version)
+        )
     selected = parse_selection(raw)
     operation = historical_operation(selected)
     app = tmp_path / "app"

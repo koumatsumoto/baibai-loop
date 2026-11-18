@@ -7,6 +7,7 @@ import json
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime
+from hashlib import sha256
 from pathlib import Path
 
 from pydantic import TypeAdapter
@@ -15,7 +16,6 @@ from baibai_engine.machine_analysis.generation.contracts import GenerationMetada
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
 )
-from baibai_engine.primitives.json import encode_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 _CODEC = TypeAdapter(ScreeningSelection)
@@ -64,31 +64,22 @@ def read_publication(
     return ScreeningPublication(identity, published_at, generation, _decode_selection(compressed))
 
 
-def matches_validated_publication(
-    *,
-    path: Path,
-    selection_id: str,
-    known_at: datetime,
-    published_at: datetime | None,
-    selection: ScreeningSelection,
-) -> bool:
-    """型検証済みのOperation入力を同時点の発行原本と照合する。"""
+def read_case_publication(
+    *, path: Path, selection_id: str, known_at: datetime
+) -> tuple[datetime, str, ScreeningSelection] | None:
+    """有限Caseを固定する原本の時計・保存JSONの指紋・同一本文を一回の読取から返す。"""
     row = _publication_data(path=path, selection_id=selection_id, known_at=known_at)
     if row is None:
-        return False
-    _, actual_time, _, compressed = row
-    incoming = _canonical_bytes(selection)
-    # 通常writerの正規JSONとの完全一致は、検証済み入力と値・型が同じ証拠。
-    # 表記や省略が異なる旧保存のみ、従来の型読取・再出力を経て比較する。
-    same = (
-        gzip.decompress(compressed) == incoming
-        or _canonical_bytes(_decode_selection(compressed)) == incoming
-    )
-    return same and actual_time == published_at
-
-
-def _canonical_bytes(selection: ScreeningSelection) -> bytes:
-    return encode_json(_CODEC.dump_python(selection, mode="json")).encode()
+        return None
+    _, actual_time, generation, compressed = row
+    wire = gzip.decompress(compressed)
+    digest = sha256(wire).hexdigest()
+    parsed = json.loads(wire)
+    del wire
+    selection = _CODEC.validate_python(parsed)
+    if selection.generation_id != generation.generation_id:
+        raise ValueError("screening selection differs from the chosen generation")
+    return actual_time, digest, selection
 
 
 def _publication_data(

@@ -75,6 +75,10 @@ ModelGenerationとScreeningSelectionは別identity。通常生成で政策を適
 
 次のcallerは私有copyから新しい私有JSONへ出す診断で、通常政策の再適用・Research開始・保存・売買はしない。非zero終了の出力を採用せず、私有JSONを公開log/artifactへ出さない。
 
+### Case固定後の探索証拠
+
+新規Researchは当時の発行物から、深掘りする対象とdraftの任意の `comparison_tickers` の行・同世代モデルだけを固定する。明示対照は別の使い道・見送りを後日比較するための証拠で、深掘り・提案・売買対象にはしない。母集団・所属・欠測の識別は残すが、調べなかった全社の明細は再開時に現在headから補わない。L2本文の指紋と、Proposalが参照するCaseの指紋は別である。旧V2–4の保存・署名・訂正を新書式に移さない。
+
 <a id="decision-cohort-diagnostic"></a>
 ### 現行判断の比較前診断
 

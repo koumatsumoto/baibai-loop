@@ -100,7 +100,6 @@ def test_forecast_card_detail_and_detached_research_keep_same_recorded_source(tm
     saved_row = projection["screening_selection"]["result"]["comparison_rows"][0]
     assert saved_row["financial_gate"]["forecast_context"] == FORECAST
     assert saved_row["technical"]["observations"]["momentum_12_1"] == momentum
-    assert saved.inputs.screening_selection == selected
     path.unlink()
     resumed = resume_selected_workspace(
         operation_id=prepared.operation_id,
