@@ -168,6 +168,10 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
     assert preview.current_inputs.quotes[0].price_as_of == date(2026, 10, 14)
     row = preview.items[0]
     if mode == "buy":
+        assert "calculation_at_maximum_price" not in context.calculations["1234"]
+        assert "maximum_common_grid_price_yen" not in context.calculations["1234"]
+        assert row["saved_limit_revalidation"]["maximum_price_yen"] is None
+        assert row["saved_limit_revalidation"]["current_price_above_maximum"] is None
         assert row["saved_limit_revalidation"]["quantity"] == 0
     elif holding:
         assert row["current_quote_calculation"]["current_price_projection"] is None

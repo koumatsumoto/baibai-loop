@@ -194,6 +194,15 @@ def test_discount_limit_cannot_bypass_any_hard_gate(overrides, blocker):
     assert blocker in codes(result)
     assert result.quantity == 0
     assert result.capital_comparison is None
+    current_valuation = blocker in {
+        "already_held",
+        "active_reservation_exists",
+        "proposal_already_executed",
+        "available_cash_below_board_lot",
+        "positive_limit_required",
+    }
+    assert (result.maximum_price_yen is not None) is current_valuation
+    assert (result.current_price_above_maximum is not None) is current_valuation
 
 
 @pytest.mark.parametrize("price_day", [date(2026, 10, 6), date(2026, 10, 15)])
@@ -202,6 +211,8 @@ def test_stale_and_future_real_quotes_cannot_be_replaced_with_a_limit(price_day)
     assert "quote_missing_or_stale" in codes(result)
     assert result.current_price_projection is None
     assert result.limit_price_projection is None
+    assert result.maximum_price_yen is None
+    assert result.current_price_above_maximum is None
 
 
 @pytest.mark.parametrize(
@@ -215,7 +226,18 @@ def test_assessment_support_and_intact_case_are_required(stance, case):
             "investment_case": document.investment_case.model_copy(update={"status": case}),
         }
     )
-    assert "assessment_not_supported" in codes(evaluate(document))
+    result = evaluate(document)
+    assert "assessment_not_supported" in codes(result)
+    assert result.maximum_price_yen is None
+    assert result.current_price_above_maximum is None
+
+
+def test_capital_shortfall_does_not_invalidate_the_current_valuation_ceiling():
+    result = evaluate(available_cash_yen=Decimal(0))
+    assert codes(result) == {"available_cash_below_board_lot"}
+    assert result.quantity == 0
+    assert result.maximum_price_yen == Decimal(1000)
+    assert result.current_price_above_maximum is True
 
 
 def test_unresolved_valuation_blocks_buy_without_inventing_pmax():

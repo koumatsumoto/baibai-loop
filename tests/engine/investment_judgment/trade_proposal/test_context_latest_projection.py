@@ -73,15 +73,19 @@ def test_context_stops_superseded_current_projection_without_replacing_fixed_pai
     assert context.assessments[case.pair.assessment_id] == case.pair
     assert context.calculations["1234"]["case_reassessment_required"] == holding
     if not holding:
-        for key in ("buy_at_actual_quote", "calculation_at_maximum_price"):
-            diagnostic = context.calculations["1234"][key]
-            assert "latest_assessment_required" in {
-                row["code"] for row in diagnostic["hard_blockers"]
-            }
-            assert diagnostic["current_price_projection"] is None
-            assert diagnostic["limit_price_projection"] is None
-            assert diagnostic["capital_comparison"] is None
-            assert diagnostic["quantity"] == 0
+        row = context.calculations["1234"]
+        diagnostic = row["buy_at_actual_quote"]
+        assert "latest_assessment_required" in {
+            reason["code"] for reason in diagnostic["hard_blockers"]
+        }
+        assert diagnostic["current_price_projection"] is None
+        assert diagnostic["limit_price_projection"] is None
+        assert diagnostic["capital_comparison"] is None
+        assert diagnostic["quantity"] == 0
+        assert diagnostic["maximum_price_yen"] is None
+        assert diagnostic["current_price_above_maximum"] is None
+        assert "calculation_at_maximum_price" not in row
+        assert "maximum_common_grid_price_yen" not in row
     assert case.app.read_bytes() == original
 
 
@@ -109,6 +113,8 @@ def test_explicitly_bound_new_pair_uses_its_value_not_the_old_value(tmp_path):
     assert (
         context.calculations["1234"]["current_quote_projection"]["base"]["total_value_yen"] == 2200
     )
+    assert before.calculations["1234"]["maximum_common_grid_price_yen"] == "1000"
+    assert context.calculations["1234"]["maximum_common_grid_price_yen"] == "2000"
     assert context.calculations != before.calculations
 
 

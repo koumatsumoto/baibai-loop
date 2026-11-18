@@ -52,6 +52,10 @@ from baibai_engine.investment_judgment.workflow.selection import (
 from baibai_engine.investment_judgment.workflow.selection import (
     ResearchSelectionRecord as ResearchSelection,
 )
+from baibai_engine.machine_analysis.observations.disclosures.listing_designations import (
+    ListingDesignationCheck,
+    read_listing_designations,
+)
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
@@ -444,6 +448,7 @@ class ProposalAuthoringContext:
     saved_discovery_context: dict[str, JsonValue] | None
     saved_profit_context: dict[str, JsonValue] | None
     reported_buy_proposal_records: dict[str, JsonValue]
+    listing_designations: ListingDesignationCheck
 
     def payload(self) -> dict[str, object]:
         return {
@@ -470,6 +475,7 @@ class ProposalAuthoringContext:
             "saved_discovery_context": deepcopy(self.saved_discovery_context),
             "saved_profit_context": deepcopy(self.saved_profit_context),
             "reported_buy_proposal_records": deepcopy(self.reported_buy_proposal_records),
+            "listing_designations": self.listing_designations.model_dump(mode="json"),
             "next_order_session": None
             if self.next_order_session is None
             else self.next_order_session.isoformat(),
@@ -489,7 +495,6 @@ def _context_calculations(
     market_connection: sqlite3.Connection | None,
 ) -> dict[str, dict[str, object]]:
     from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
-    from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
     from baibai_engine.investment_judgment.trade_proposal.conditions import (
         assessment_quote_basis,
         buy_evaluation,
@@ -523,29 +528,17 @@ def _context_calculations(
             "case_reassessment_required": outcome.purpose == "holding",
         }
         if outcome.purpose == "new" and quote is not None:
-            row["buy_at_actual_quote"] = buy_evaluation_payload(
-                buy_evaluation(
-                    pair,
-                    inputs=inputs,
-                    proposed_limit_yen=quote.price_yen,
-                    latest=latest[outcome.ticker] == pair.assessment_id,
-                    sqlite_path=sqlite_path,
-                    now=now,
-                    market_connection=market_connection,
-                )
+            at_quote = buy_evaluation(
+                pair,
+                inputs=inputs,
+                proposed_limit_yen=quote.price_yen,
+                latest=latest[outcome.ticker] == pair.assessment_id,
+                sqlite_path=sqlite_path,
+                now=now,
+                market_connection=market_connection,
             )
-            valuation = pair.document.valuation
-            maximum = (
-                None
-                if valuation.base is None
-                or valuation.horizon_months is None
-                or valuation.required_annual_return_pct is None
-                else maximum_entry_price(
-                    valuation.base,
-                    horizon_months=valuation.horizon_months,
-                    required_annual_return_pct=valuation.required_annual_return_pct,
-                )
-            )
+            row["buy_at_actual_quote"] = buy_evaluation_payload(at_quote)
+            maximum = at_quote.maximum_price_yen
             if maximum is not None and maximum > 0:
                 row["calculation_at_maximum_price"] = buy_evaluation_payload(
                     buy_evaluation(
@@ -669,4 +662,9 @@ def build_proposal_context(
             saved_discovery_context(selection, selection_hash=scope.selection_sha256),
             saved_profit_context(selection, selection_hash=scope.selection_sha256),
             _reported_buy_proposal_records(connection, scope, inputs, now=now),
+            read_listing_designations(
+                market_connection,
+                tickers=tuple(target.ticker for target in scope.targets),
+                known_at=now,
+            ),
         )

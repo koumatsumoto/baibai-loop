@@ -109,12 +109,6 @@ def evaluate_buy_terms(
             "valuation_inputs_require_refresh",
             "現在の価値適用には派生計算の入力を再確認してください: " + "; ".join(input_errors),
         )
-    if held_quantity > 0:
-        block("already_held", "既保有銘柄の新規買付は初期 policy の対象外です。")
-    if active_reservation:
-        block("active_reservation_exists", "既存の active 予約を確認してください。")
-    if proposal_executed:
-        block("proposal_already_executed", "この提案に対する買付は既に記録されています。")
     confirmed_basis = basis_confirmed and quote is not None
     if not confirmed_basis:
         block("corporate_action_unresolved", "株式単位と価格の basis を確認してください。")
@@ -133,7 +127,8 @@ def evaluate_buy_terms(
         or valuation.required_annual_return_pct is None
     ):
         block("valuation_unresolved", "Base、期間、要求率の確定が必要です。")
-    else:
+    elif not blockers:
+        # 評価や株式の単位が失効したら元評価を残し、今の購入上限とは比較しない。
         maximum = maximum_entry_price(
             valuation.base,
             horizon_months=valuation.horizon_months,
@@ -141,6 +136,12 @@ def evaluate_buy_terms(
         )
         if limit > maximum:
             block("limit_above_pmax", "提案 limit が Base による購入上限を超えています。")
+    if held_quantity > 0:
+        block("already_held", "既保有銘柄の新規買付は初期 policy の対象外です。")
+    if active_reservation:
+        block("active_reservation_exists", "既存の active 予約を確認してください。")
+    if proposal_executed:
+        block("proposal_already_executed", "この提案に対する買付は既に記録されています。")
     maximum_quantity = 0
     if limit <= 0:
         block("positive_limit_required", "提案 limit は正の価格で指定してください。")

@@ -24,6 +24,7 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXRegulationSnapshot,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
+    JPX_REGULATION_URLS,
     JPX_SPECIAL_CAUTION_SOURCE_NAME,
 )
 from baibai_engine.primitives.stocks import normalize_ticker
@@ -90,10 +91,12 @@ class _JpxHtmlIndexer(HTMLParser):
     header text without writing brittle regex.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, subsections_of: str | None = None) -> None:
         super().__init__(convert_charrefs=True)
         self.tables: list[_ParsedTable] = []
         self.section_text: dict[str, list[str]] = {}
+        self.subsection_text: dict[str, list[str]] = {}
+        self._subsections_of = subsections_of
         self._table_stack: list[dict[str, object]] = []
         self._cell_fragments: list[str] | None = None
         self._cell_tag: str | None = None
@@ -149,6 +152,10 @@ class _JpxHtmlIndexer(HTMLParser):
                 self.section_text.setdefault(text, [])
             else:
                 self._last_h3 = text
+                if self._subsections_of is not None and self._last_h2 == self._subsections_of:
+                    if text in self.subsection_text:
+                        raise JPXProviderError(f"ambiguous JPX subsection: {text}")
+                    self.subsection_text[text] = []
             self._heading_buffer = None
             self._heading_tag = None
             return
@@ -214,6 +221,8 @@ class _JpxHtmlIndexer(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._last_h2 is not None and self._heading_buffer is None:
             self.section_text[self._last_h2].append(data)
+            if self._last_h2 == self._subsections_of and self._last_h3 is not None:
+                self.subsection_text[self._last_h3].append(data)
         if self._heading_buffer is not None:
             self._heading_buffer.append(data)
         if self._cell_fragments is not None:
@@ -343,6 +352,47 @@ def parse_regulation_rows(
     if source_name == "上場廃止警告":
         return _parse_delisting_warning_html_rows(html, url)
     raise JPXProviderError(f"unsupported JPX HTML parser source: {source_name}")
+
+
+def parse_current_listing_designations(
+    content: bytes, url: str, content_type_header: str = ""
+) -> dict[str, tuple[str, ...]]:
+    """Read current listing designations from the receipt, not the historical L2 flags."""
+    if url != JPX_REGULATION_URLS["整理銘柄"]:
+        raise JPXProviderError(f"unexpected JPX listing designation source: {url}")
+    heading = "現在の指定状況"
+    indexer = _JpxHtmlIndexer(subsections_of=heading)
+    indexer.feed(_decode_html_text(content, url, content_type_header))
+    indexer.close()
+    current: dict[str, set[str]] = {}
+    for label in ("監理銘柄（確認中）", "監理銘柄（審査中）", "整理銘柄"):
+        tables = [
+            table
+            for table in indexer.tables
+            if table.preceding_h2 == heading and table.preceding_h3 == label
+        ]
+        # Neither a missing section nor an empty declaration from its neighbour is evidence.
+        section = indexer.subsection_text.get(label)
+        if (
+            not tables
+            and section is not None
+            and "".join(section).strip() == _TRADING_HALT_EMPTY_MARKER
+        ):
+            continue
+        if len(tables) != 1 or "fixedhead" not in tables[0].classes:
+            raise JPXProviderError(f"failed to identify current JPX listing designation: {label}")
+        rows = _rows_from_parsed_table(
+            tables[0],
+            source_name=label,
+            url=url,
+            header_rows=1,
+            code_column=2,
+            expected_header="コード",
+            error_label=label,
+        )
+        for row in rows:
+            current.setdefault(parse_jpx_code(row["code"]), set()).add(label)
+    return {ticker: tuple(sorted(flags)) for ticker, flags in sorted(current.items())}
 
 
 def _decode_html_text(content: bytes, url: str, content_type_header: str = "") -> str:

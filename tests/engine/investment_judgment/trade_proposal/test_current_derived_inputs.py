@@ -160,6 +160,8 @@ def test_old_inconsistent_inputs_cannot_be_used_for_a_new_buy(tmp_path, fault):
     assert [reason.code for reason in checked.blockers] == ["valuation_inputs_require_refresh"]
     diagnostic = checked.calculations["1234"]
     assert diagnostic["quantity"] == 0
+    assert diagnostic["maximum_price_yen"] is None
+    assert diagnostic["current_price_above_maximum"] is None
     assert diagnostic["current_price_projection"] is None
     assert diagnostic["limit_price_projection"] is None
     assert diagnostic["capital_comparison"] is None
