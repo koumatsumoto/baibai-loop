@@ -131,6 +131,15 @@ contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id�
 
 ## 判断の振り返り
 
+継続点検では、全社・全提案を開き直す前に、前回以降に同社のResearchまたは査読済み評価が保存された元提案の問いを読む。
+
+```bash
+uv run baibai-engine investment-judgment judgment-retrospective changes \
+  --after '<PREVIOUS_CHECK_WITH_TIMEZONE>' --known-at '<THIS_CHECK_WITH_TIMEZONE>' --db <APP_DB>
+```
+
+返すのはAppへの受領差分であり、開示日や新事実ではない。読み取れたら次回は`next_after`から続ける。不明があれば同じ窓を保ち、読めた分から調べる。古い事実の再記述、違う仮説・権利、訂正された元提案を条件達成としない。空ならAppに照合対象がないだけで、予定していた発行体開示は原典で別に確認する。該当項目の`coverage`を読み、当初の問いを変える根拠があれば下の`scaffold/save`で記録する。新しい材料がなければ同じメモは重ねない。
+
 正式提案の振り返りは、先にその全項目を開く。発行時の理由・再調査条件（保留なら当初の障害と再開条件も）に並べて、後から何を比較し、次回に何を変えようと記録したかを読む。
 
 ```bash
