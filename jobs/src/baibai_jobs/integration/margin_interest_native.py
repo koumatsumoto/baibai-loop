@@ -8,6 +8,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
@@ -418,11 +419,13 @@ def model_input(
     previous: dict[str, DatasetManifest] | None = None,
 ) -> InputSnapshot:
     """Project all retained balances from fixed L1; old L2 is optional acceleration."""
+    started = time.perf_counter()
     head = fixed.value()
     retained = [date.fromisoformat(day) for day in head["scopes"]]
     first = min([as_of - timedelta(days=WEEKLY_BALANCE_LOOKBACK_DAYS), *retained])
     last = max([as_of, *retained])
     saved = fixed_input(store, fixed, calendar, start=first, end=last, evaluated_at=evaluated_at)
+    fixed_at = time.perf_counter()
     days = _days(first, last)
     scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
     reusable: set[date] = set()
@@ -456,6 +459,7 @@ def model_input(
             and scopes[day.isoformat()].get("adopted")
             == cached.get(day.isoformat(), {}).get("adopted")
         )
+    cache_at = time.perf_counter()
     summary = _descriptor(saved)["summary"]
     assert isinstance(summary, dict)
     calendar_result = materialize_calendar(
@@ -465,6 +469,7 @@ def model_input(
         days=days,
         replace_all=False,
     )
+    calendar_at = time.perf_counter()
     with closing(open_connection(market)) as connection, connection:
         retained_ids = tuple(
             row[0]
@@ -511,12 +516,25 @@ def model_input(
         },
     }
     digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
-    return InputSnapshot(
+    identity = InputSnapshot(
         kind="native_l1",
         reference="jquants-margin-interest-" + digest,
         sha256=digest,
         descriptor=descriptor,
     )
+    # These are elapsed times and day counts, not network-only time or request counts.
+    print(
+        "native margin interest: "
+        f"fixed_input_seconds={fixed_at - started:.3f} "
+        f"prior_projection_seconds={cache_at - fixed_at:.3f} "
+        f"calendar_replay_seconds={calendar_at - cache_at:.3f} "
+        f"project_balances_seconds={time.perf_counter() - calendar_at:.3f} "
+        f"adopted_days={sum(bool(scope.get('adopted')) for scope in scopes.values())} "
+        f"reused_days={len(reusable)}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return identity
 
 
 def build_parser() -> argparse.ArgumentParser:

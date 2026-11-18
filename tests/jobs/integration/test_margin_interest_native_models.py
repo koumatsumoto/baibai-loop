@@ -84,7 +84,9 @@ def build(store, fixed, cal, market, mirror, *, at=AT, previous=None):
     return saved, {name: report.manifest for name, report in reports.items()}
 
 
-def test_equal_confirmation_reuses_both_tables_and_recomputes_coverage(tmp_path, monkeypatch):
+def test_equal_confirmation_reuses_both_tables_and_recomputes_coverage(
+    tmp_path, monkeypatch, capsys
+):
     store, owner, cal, market, mirror = setup(tmp_path, monkeypatch)
     _, previous = build(store, owner.fixed(), cal, market, mirror)
     owner.commit(
@@ -95,6 +97,23 @@ def test_equal_confirmation_reuses_both_tables_and_recomputes_coverage(tmp_path,
     saved, published = build(
         store, fixed, cal, market, mirror, at=AT + timedelta(hours=1), previous=previous
     )
+    diagnostics = [
+        line
+        for line in capsys.readouterr().err.splitlines()
+        if line.startswith("native margin interest:")
+    ]
+    assert len(diagnostics) == 2
+    for line in diagnostics:
+        times = dict(field.split("=") for field in line.split()[3:7])
+        assert set(times) == {
+            "fixed_input_seconds",
+            "prior_projection_seconds",
+            "calendar_replay_seconds",
+            "project_balances_seconds",
+        }
+        assert all(float(value) >= 0 for value in times.values())
+    assert diagnostics[0].endswith("adopted_days=2 reused_days=0")
+    assert diagnostics[1].endswith("adopted_days=2 reused_days=2")
     assert not [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
     assert HEAD_KEY not in store.get_keys
     assert all(manifest.coverage_status == "complete" for manifest in published.values())
