@@ -18,11 +18,29 @@ from baibai_engine.investment_judgment.judgment_retrospective.store import (
     load_retrospective,
     validate_correction,
 )
+from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalItem
 from baibai_engine.investment_judgment.trade_proposal.query import (
     is_erroneous_proposal_as_of,
     load_investment_proposal,
 )
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+
+
+def original_item_questions(item: ProposalItem) -> dict[str, object]:
+    return {
+        "ticker": item.ticker,
+        "original_action": item.action,
+        "original_rationale": item.rationale,
+        "original_review_conditions": list(item.review_conditions),
+        **(
+            {
+                "original_blockers": [b.model_dump(mode="json") for b in item.blockers],
+                "original_resume_conditions": list(item.resume_conditions),
+            }
+            if item.action == "defer"
+            else {}
+        ),
+    }
 
 
 def _item_notes(
@@ -105,18 +123,7 @@ def proposal_review_coverage(
             status, notes = _item_notes(connection, origin, proposal.published_at, cutoff)
             rows.append(
                 {
-                    "ticker": item.ticker,
-                    "original_action": item.action,
-                    "original_rationale": item.rationale,
-                    "original_review_conditions": list(item.review_conditions),
-                    **(
-                        {
-                            "original_blockers": [b.model_dump(mode="json") for b in item.blockers],
-                            "original_resume_conditions": list(item.resume_conditions),
-                        }
-                        if item.action == "defer"
-                        else {}
-                    ),
+                    **original_item_questions(item),
                     "coverage": status,
                     "retrospectives": notes,
                 }

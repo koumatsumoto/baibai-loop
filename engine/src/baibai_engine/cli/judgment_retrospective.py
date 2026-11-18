@@ -13,6 +13,7 @@ from uuid import uuid4
 import yaml
 
 from baibai_engine.investment_judgment.contracts import _datetime
+from baibai_engine.investment_judgment.judgment_retrospective.changes import review_changes
 from baibai_engine.investment_judgment.judgment_retrospective.coverage import (
     proposal_review_coverage,
 )
@@ -61,7 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     coverage.add_argument("--proposal-id", required=True)
     coverage.add_argument("--known-at", help="receipt cutoff with timezone (default: now)")
-    for command in (scaffold, save, get, recent, coverage):
+    changes = commands.add_parser(
+        "changes", help="match newly saved company documents to earlier proposal questions"
+    )
+    changes.add_argument("--after", required=True, help="exclusive receipt time with timezone")
+    changes.add_argument("--known-at", help="inclusive receipt time with timezone (default: now)")
+    for command in (scaffold, save, get, recent, coverage, changes):
         command.add_argument("--db", type=Path)
         command.add_argument("--out", type=Path, help="create a new output file; never overwrite")
     return parser
@@ -111,6 +117,13 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     raise ValueError("coverage cutoff is in the future")
                 payload = proposal_review_coverage(
                     proposal_id=args.proposal_id, known_at=cutoff, db_path=args.db
+                )
+            case "changes":
+                cutoff = instant if args.known_at is None else _datetime(args.known_at)
+                if cutoff > instant:
+                    raise ValueError("changes cutoff is in the future")
+                payload = review_changes(
+                    after=_datetime(args.after), known_at=cutoff, db_path=args.db
                 )
             case "list":
                 payload = list_retrospectives(db_path=args.db, ticker=args.ticker, limit=args.limit)
