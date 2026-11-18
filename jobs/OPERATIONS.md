@@ -696,7 +696,7 @@ publisherは旧SQL原本を固定pairのkey/hash/size/stored_on/scopeと照合�
 
 ## 保存済み旧runを読む
 
-旧ER/FV・四Approach/較正は再生成・再配布せず、exact runと[保存reader](../docs/reference/estimate-calibration.md)を使う。現推計で埋めず、旧Selection/L3/Review/台帳を保持する。
+旧ER/FV・四Approachはexact runで読む。旧E[r]の較正帯は[凍結資料](../docs/reference/estimate-calibration.md)だけを残し、再計算・CLIでの再割当てをしない。旧Selection/L3/Review/台帳は保持する。
 
 ```bash
 uv run baibai-engine historical-evaluation run-show --run-revision-id <RUN_REVISION_ID> --runs-db <PRIVATE_RUNS_COPY>
