@@ -121,21 +121,27 @@ def _finance(f: Row, legacy: Row, limit: date) -> Reading | None:
     when = _day(ep.get("price_date"), limit)
     profit, yld = _num(ep.get("profit_ttm_yen")), _num(ep.get("earnings_yield"))
     if when and ep.get("unavailable_reason") is None and profit is not None and yld is not None:
+        components = _rows(ep.get("profit_components"))
+        ends = [_day(v.get("period_end"), limit) for v in components]
+        last = max((v for v in ends if v), default=None) if all(ends) else None
+        term = f"{last}までの12か月" if last else "直近12か月・実績期末未記録"
         values = [
-            (profit, f"実績純利益（直近12か月）{profit / 1e8:+,.2f}億円、利益利回り{yld:.1%}")
+            (
+                profit,
+                (
+                    f"実績純利益（{term}）{profit / 1e8:+,.2f}億円、"
+                    f"{when}の価格基準の利益利回り{yld:.1%}"
+                ),
+            )
         ]
         source = "企業財務：earnings_price.profit_ttm_yen / earnings_yield"
         # Only pair cash and reported profit when the retained accounts and periods agree.
-        components = _rows(ep.get("profit_components"))
-        ends = [_day(v.get("period_end"), limit) for v in components]
         cf, basis = _num(fin.get("ocf_ttm")), _obj(fin.get("ocf_ttm_period"))
         end = _day(basis.get("end"), limit)
         if (
             cf is not None
             and end
-            and ends
-            and all(ends)
-            and end == max(v for v in ends if v)
+            and end == last
             and ep.get("statement_basis") in ("consolidated", "nonconsolidated")
             and basis.get("statement_basis") == ep.get("statement_basis")
             and ep.get("accounting_standard")
@@ -228,6 +234,16 @@ def _growth(g: Row, legacy: Row, limit: date) -> Reading | None:
         if not math.isclose(delta, v["difference"], rel_tol=1e-10, abs_tol=0.01):
             continue
         signals.append((delta, f"{label} {old / 1e8:,.2f}→{new / 1e8:,.2f}億円"))
+    if not signals and any(
+        v.get("to_end") == day.isoformat() and v.get("reason") == "accounting_standard_incomparable"
+        for v in changes
+    ):
+        return Reading(
+            "insufficient",
+            "直近四半期は前年同期と会計基準が異なり、実額があっても同一基準の増減を判定できません。",
+            "企業成長：quarter / year_over_year（accounting_standard_incomparable）",
+            day,
+        )
     return _signals(
         signals,
         "直近四半期の前年同期比。事業売却・新作等の反動はこの比較だけでは除けません。",
@@ -320,13 +336,16 @@ def _external(e: Row, ticker: str, limit: date, cutoff: datetime) -> Reading | N
         for key, label in (
             ("consensus_target", "コンセンサス目標"),
             ("per_company_forecast", "予想PER方式の外部試算"),
+            ("pbr", "PBR方式の外部試算"),
         ):
             value, origin = _num(obs.get(key)), obs.get(f"{key}_origin")
             if value is None or value <= 0 or not isinstance(origin, str) or not origin:
                 continue
+            basis = "株数基準未確認。" if not obs.get("share_basis") else ""
+            kind = "PBR倍率ではなく外部モデルの一株価格です。" if key == "pbr" else ""
             return Reading(
                 "context_only",
-                f"{origin}の{label} {value:,.0f}円/株。当時取得した外部の参考値で、"
+                f"{origin}の{label} {value:,.0f}円/株。{kind}{basis}当時の参考値で、"
                 "現在の同意見・独立した適正価値・買い推奨とはみなしません。",
                 f"外部評価：{origin} / {key}（取得 {stamp.isoformat()}）",
                 day,

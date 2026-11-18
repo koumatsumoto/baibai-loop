@@ -264,10 +264,15 @@ def test_cash_opposite_to_profit_only_when_end_and_accounting_basis_agree():
         },
     }
     _put(s, "company_financials", f)
-    assert _estimate(s)["company_financials"]["assessment"] == "mixed"
+    row = _estimate(s)["company_financials"]
+    assert row["assessment"] == "mixed"
+    assert "2026-09-30までの12か月" in row["summary"]
+    assert "2026-10-19の価格基準" in row["summary"]
     f["financial"]["ocf_ttm_period"]["end"] = "2026-03-31"
     assert _estimate(s)["company_financials"]["assessment"] == "supportive"
     assert "営業CF" not in _estimate(s)["company_financials"]["summary"]
+    del f["earnings_price"]["profit_components"]
+    assert "実績期末未記録" in _estimate(s)["company_financials"]["summary"]
 
 
 def test_known_monetary_fact_not_its_future_plan_or_other_issuer_claim():
@@ -346,3 +351,18 @@ def test_industry_claim_itself_must_belong_to_the_fixed_subject_and_sample():
     r = _estimate(s)["industry_trends"]
     assert r["assessment"] == "context_only"
     assert "21社" in r["summary"]
+
+
+def test_only_external_pbr_model_is_a_per_share_estimate_not_a_multiple():
+    s = _sel()
+    e = _external(value=None)
+    obs = e["model_valuations"][0]["inputs"]["latest"]
+    obs.update(pbr=18.0, pbr_origin="外部提供社", share_basis=None)
+    _put(s, "external_assessment", e)
+    r = _estimate(s)["external_assessment"]
+    assert r["assessment"] == "context_only"
+    assert "18円/株" in r["summary"]
+    assert "PBR倍率ではなく" in r["summary"]
+    assert "株数基準未確認" in r["summary"]
+    obs["unit"] = "multiple"
+    assert _estimate(s)["external_assessment"]["assessment"] == "insufficient"

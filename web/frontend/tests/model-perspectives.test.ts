@@ -127,5 +127,10 @@ it('当時の資料による見立てを区別し、元の不足判断を推定�
   const rows = html.split('<tbody>')[1].split('</tbody>')[0]
   expect(rows.split('data-model="social_trends"')[1].split('</tr>')[0]).toContain('観測あり・個社への影響未判定')
   expect(rows.split('data-model="company_growth"')[1].split('</tr>')[0]).not.toContain('資料からの推定')
-  expect(rows.split('data-model="market_context"')[1].split('</tr>')[0]).toContain('支持・相反')
+  expect(rows.split('data-model="market_context"')[1].split('</tr>')[0]).toContain('両方向')
+  expect(html.slice(0, html.indexOf('<table'))).toContain('投資仮説への支持・反証を意味しません')
+  a.model_perspectives = []
+  const estimatedOnly = render(a).split('<thead')[1].split('</thead>')[0]
+  expect(estimatedOnly).toContain('プラス側')
+  expect(estimatedOnly).not.toContain('支持')
 })
