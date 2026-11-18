@@ -21,7 +21,6 @@ from baibai_engine.machine_analysis.generation.financial_models import (
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
-from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, InputRelease
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
     read_comparison_population,
@@ -36,7 +35,6 @@ from baibai_engine.machine_analysis.observations.financials.fixed_financial_read
     read_fixed_financial_documents,
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
-from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
@@ -271,7 +269,7 @@ def test_unreceived_correction_remains_a_separate_vintage(tmp_path):
     assert not result[1].pairs
 
 
-def test_models_share_native_comparison_without_rewriting_jquants_or_ttm():
+def test_financial_model_owns_native_comparison_without_rewriting_jquants_or_ttm():
     native = extract()
     raw = {
         "Code": "436A0",
@@ -301,35 +299,53 @@ def test_models_share_native_comparison_without_rewriting_jquants_or_ttm():
     )
     baseline = generate_financial_and_price_models(**kwargs)
     changed = generate_financial_and_price_models(**kwargs, comparisons=[native])
-    comparison = changed[1].payload["reported_comparisons"][0]
+    comparison = changed[0].payload["financial"]["reported_comparisons"][0]
     assert comparison["changes"][1]["difference"] == 267610000
     assert comparison["read_semantics"] == "each_document_vintage_not_latest_or_ttm"
-    assert changed[0].payload["financial"]["reported_comparisons"] == [comparison]
+    assert "reported_comparisons" not in changed[1].payload
     assert changed[0].payload["earnings_price"] == baseline[0].payload["earnings_price"]
     assert changed[1].payload["periods"] == baseline[1].payload["periods"]
     assert changed[1].payload["changes"] == baseline[1].payload["changes"]
     assert document.document_payload == old
-    legacy = baseline[1].payload
-    assert "reported_comparisons" not in legacy
-    assert canonical_json(
-        CompanyGrowth.model_validate(legacy).model_dump(mode="json")
-    ) == canonical_json(legacy)
+    # A previously saved growth-only copy retains its actual filing even without financials.
+    historical = dict(
+        baseline[1].payload,
+        calculation_method="company_growth_retrospective_v20-edinet-comparisons",
+        reported_comparisons=[comparison],
+    )
+    assert CompanyGrowth.model_validate(historical).model_dump(mode="json") == historical
     filtered = generate_financial_and_price_models(
         **kwargs, comparisons=[native], growth_start=date(2026, 8, 1)
     )
     assert filtered[0].payload == changed[0].payload
 
 
-def test_pure_growth_does_not_use_a_future_document():
-    result = generate_company_growth(
-        [],
-        ticker="436A",
+def test_filing_only_evidence_is_not_a_growth_series_or_available_before_submission():
+    native = extract()
+    kwargs = dict(
+        ticker=native.ticker,
+        documents=(),
+        adjusted_bars=(),
+        adjustment_events=(),
+        trading_dates=(),
+        expected_price_date=None,
         sector=None,
-        as_of=date(2026, 7, 23),
         input_release=RELEASE,
-        comparisons=[extract()],
+        ttm_rules=DEFAULT_TTM_RULES,
+        comparisons=(native,),
     )
-    assert not result.reported_comparisons
+    early = generate_financial_and_price_models(**kwargs, as_of=date(2026, 7, 23))
+    assert "reported_comparisons" not in early[0].payload["financial"]
+    after = generate_financial_and_price_models(**kwargs, as_of=ASOF)
+    saved = after[0].payload["financial"]["reported_comparisons"]
+    assert [filing["observation"] for filing in saved] == [native.model_dump(mode="json")]
+    assert saved[0]["changes"]
+    for _, growth, _ in (early, after):
+        assert growth.payload["status"] == "unavailable"
+        assert growth.payload["periods"] == []
+        assert "reported_comparisons" not in growth.payload
+    with pytest.raises(ValueError, match="different ticker"):
+        generate_financial_and_price_models(**{**kwargs, "ticker": "1234"}, as_of=ASOF)
 
 
 def test_fixed_release_matches_sealed_reader_and_ignores_mutable_zip(tmp_path):
@@ -534,9 +550,9 @@ def test_consolidated_comparisons_reach_l3_without_replacing_series_or_ttm(doc):
     )
     baseline = generate_financial_and_price_models(**kwargs)
     changed = generate_financial_and_price_models(**kwargs, comparisons=[native])
-    comparison = changed[1].payload["reported_comparisons"][0]
+    comparison = changed[0].payload["financial"]["reported_comparisons"][0]
     assert comparison["read_semantics"] == "each_document_vintage_not_latest_or_ttm"
-    assert changed[0].payload["financial"]["reported_comparisons"] == [comparison]
+    assert "reported_comparisons" not in changed[1].payload
     assert changed[0].payload["earnings_price"] == baseline[0].payload["earnings_price"]
     assert changed[1].payload["periods"] == baseline[1].payload["periods"]
     assert changed[1].payload["changes"] == baseline[1].payload["changes"]

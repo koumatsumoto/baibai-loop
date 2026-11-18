@@ -130,8 +130,6 @@ def company_growth(path, *, ticker, as_of, start=None, end=None):
         ),
         start=start,
         end=end,
-        comparisons=fixed.comparisons,
-        comparison_input_reason=fixed.comparison_input_reason,
         pdf_input=prepare_pdf_financials(fixed.documents, fixed.pdf_statements, as_of=as_of),
         pdf_input_reason=fixed.pdf_input_reason,
     )

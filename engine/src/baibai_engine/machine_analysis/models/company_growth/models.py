@@ -173,6 +173,7 @@ class CompanyGrowth(Contract):
     coverage: Coverage = Coverage()
     periods: tuple[PeriodState, ...] = ()
     changes: tuple[Change, ...] = ()
+    # Old growth payloads retain their own filing vintages; new ones never copy them.
     reported_comparisons: tuple[ReportedComparison, ...] = Field(
         default=(), exclude_if=lambda value: not value
     )

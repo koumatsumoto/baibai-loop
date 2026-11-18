@@ -42,7 +42,7 @@ EDINETでは明示された日本/米国基準もIFRS抽出の確定的な非対
 
 | 経路 | 固有の成立範囲 |
 | --- | --- |
-| [EDINET同一文書](../../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_comparisons.py) | IFRS年次/半期本表の当期・比較期を別系列へ保存する。J-Quants TTM/倍率へ横結合せず、単体利益を親利益、相対年度名を比較日に読み替えない。 |
+| [EDINET同一文書](../../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_comparisons.py) | IFRS年次/半期本表の当期・比較期は企業財務（`financial.reported_comparisons`）に保存する。成長系列の期間窓/不足とは別で、企業成長しか持たない新しい単独出力からは読めない。旧成長に保存された比較は当時のまま読む。J-Quants TTM/倍率へ横結合せず、単体利益を親利益、相対年度名を比較日に読み替えない。 |
 | [PDF組替](../../engine/src/baibai_engine/machine_analysis/observations/financials/pdf_selection.py) | 最新期/訂正を照合した同一基準の比較欄/TTM。日本基準の遡及変更は同日公表の組替済み前期実績を要し、表示丸めの近似/不明を精密XBRL値としない。参考実績は年度の訂正原本ではなく、四半期とは別の公表時計で照合する。後の年次訂正や公表順不明を再確認済みとしない。 |
 
 同日IFRS年次operandも、そのPDFに一致するnative文書の時計で四半期以前を確認する。額不変で旧PDFを使う場合は、後のEPS訂正の時刻を借用しない。
