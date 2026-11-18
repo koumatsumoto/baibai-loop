@@ -216,13 +216,49 @@ def test_sector_origin_and_context_only_household_observation_no_investment_vote
     )
     r = _estimate(s)
     assert r["market_context"]["assessment"] == "neutral"
+    assert "1321の終値・20本前比 +0.0%" in r["market_context"]["summary"]
+    assert "市場全体の方向" not in r["market_context"]["summary"]
     assert r["industry_trends"]["assessment"] == r["social_trends"]["assessment"] == "context_only"
     assert "中央値 +0.0%" in r["industry_trends"]["summary"]
+    assert "ポイント" not in r["industry_trends"]["summary"]
     assert "2026年08月" in r["social_trends"]["summary"]
     p["master"]["sector_33"] = "他業種"
     m["vintage_at"] = LATE
     r = _estimate(s)
     assert r["industry_trends"]["assessment"] == r["social_trends"]["assessment"] == "insufficient"
+
+
+@pytest.mark.parametrize(("excess", "shown"), [(0.0, "+0.0"), (-0.016, "-1.6")])
+def test_sector_gap_uses_its_recorded_endpoints_not_the_market_calendar(excess, shown):
+    s = _sel()
+    # A thinly traded company's 20 observed price differences can span much longer.
+    _put(
+        s,
+        "market_context",
+        {
+            "master": {"sector_33": "合成業"},
+            "price_path_relative": {
+                "comparisons": {"R20": {"comparison_start_date": "2026-09-17", "own_return": 0.5}}
+            },
+            "relative": {
+                "sector": {
+                    "sector_33": "合成業",
+                    "peer_count": 3,
+                    "peer_median_return_20d": -0.02,
+                    "relative_return_20d": excess,
+                    "comparison_start_date": "2026-08-17",
+                    "comparison_end_date": "2026-10-19",
+                }
+            },
+        },
+    )
+    row = _estimate(s)["industry_trends"]
+    assert row["assessment"] == "context_only"
+    assert "2026-08-17〜2026-10-19" in row["summary"]
+    assert "20立会" not in row["summary"]
+    assert "自社を除く3社" in row["summary"]
+    assert "中央値 -2.0%" in row["summary"]
+    assert f"（自社の騰落−同業中央値）は{shown}ポイント" in row["summary"]
 
 
 def test_exact_legacy_financial_identity_only_and_duplicate_models_not_summed():
