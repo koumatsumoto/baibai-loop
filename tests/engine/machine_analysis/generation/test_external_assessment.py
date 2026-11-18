@@ -169,10 +169,8 @@ def test_tradingview_receipt_forecast_null_and_unresolved_are_distinct(tmp_path)
     missing = read(path, second).tradingview
     assert missing.availability == "all_null"
     assert missing.inputs.previous.eps_forecast_next_fy == 0
-    assert (
-        next(item for item in missing.comparisons if item.metric == "eps_forecast_next_fy").state
-        == "missing"
-    )
+    assert missing.inputs.latest.eps_forecast_next_fy is None
+    assert not missing.forecast_fields
     assert read(path, third).tradingview.availability == "unresolved"
     assert read(path, first - timedelta(microseconds=1)).tradingview.availability == "not_observed"
 
@@ -247,29 +245,28 @@ assert not any(name.startswith("baibai_jobs.maintenance.tradingview") for name i
     )
 
 
-@pytest.mark.parametrize("metric", FORECAST_METRICS)
-def test_tradingview_row_year_metadata_does_not_establish_each_metric_period(tmp_path, metric):
+def test_two_receipts_with_the_same_row_year_are_not_a_forecast_revision(tmp_path):
     path = tmp_path / "market.sqlite"
     first = datetime(2026, 10, 9, 7, tzinfo=UTC)
+    original = {name: i - 7 for i, name in enumerate(FORECAST_METRICS)}
+    revised = {name: value + 1 for name, value in original.items()}
     metadata = dict(
         target_period_label="FY2027",
         target_period_end="2027-03-31",
         estimate_currency="JPY",
         estimate_unit="currency",
     )
-    tv_row(path, first, **{metric: 100}, **metadata)
-    tv_row(path, first + timedelta(days=1), **{metric: 120}, **metadata)
+    tv_row(path, first, **original, **metadata)
+    tv_row(path, first + timedelta(days=1), **revised, **metadata)
     result = read(path).tradingview
-    comparison = next(item for item in result.comparisons if item.metric == metric)
-    assert comparison.state == "not_comparable"
-    assert comparison.reason == "metric_period_mapping_unconfirmed"
-    assert not comparison.comparable
-    assert comparison.delta is None
-    assert comparison.latest_value == 120
-    assert comparison.previous_value == 100
-    assert result.inputs.latest.target_period_label == "FY2027"
-    assert result.inputs.latest.target_period_end == "2027-03-31"
     assert result.availability == "forecast_fields_present"
+    assert set(result.forecast_fields) == set(original)
+    assert result.comparison_basis == "metric_period_mapping_unconfirmed"
+    assert "comparisons" not in result.model_dump()
+    for receipt, values in ((result.inputs.latest, revised), (result.inputs.previous, original)):
+        assert receipt.target_period_label == "FY2027"
+        assert receipt.target_period_end == "2027-03-31"
+        assert {name: getattr(receipt, name) for name in original} == values
 
 
 @pytest.mark.parametrize("stored_offset", [-7, 0, 9])
@@ -344,7 +341,7 @@ def test_new_generation_retains_tradingview_inputs_without_rewriting_saved_histo
     assert personal.tradingview.inputs.latest.eps_forecast_next_fy == 10
     fixed_payload = personal.model_dump_json()
     generated = generate_external_assessment(history, evaluated_at=cutoff)
-    assert generated.method_version == "same-series-v7"
+    assert generated.method_version == "same-series-v8-tradingview-receipts"
     assert generated.tradingview == personal.tradingview
     assert generated.tradingview.availability == "forecast_fields_present"
     assert "eps_forecast_next_fy" in generated.tradingview.forecast_fields
@@ -352,24 +349,31 @@ def test_new_generation_retains_tradingview_inputs_without_rewriting_saved_histo
     assert ExternalAssessment.model_validate_json(fixed_payload).model_dump_json() == fixed_payload
     assert path.read_bytes() == before
 
-    from baibai_engine.machine_analysis.observations.external_assessments.history import (
-        TradingViewHistory,
+    # V5 recorded an explicit exclusion. Reading it must not add V8's receipt policy.
+    historical = generated.model_dump(mode="json")
+    historical.update(
+        method_version="same-series-v5-no-tradingview",
+        tradingview={
+            "inputs": {"latest": None, "previous": None},
+            "availability": "excluded_by_source_terms",
+            "forecast_fields": [],
+            "comparisons": [],
+        },
     )
+    assert ExternalAssessment.model_validate(historical).model_dump(mode="json") == historical
 
-    historical = generated.model_copy(
-        update={
-            "method_version": "same-series-v5-no-tradingview",
-            "tradingview": generated.tradingview.model_copy(
-                update={
-                    "inputs": TradingViewHistory(),
-                    "availability": "excluded_by_source_terms",
-                    "forecast_fields": (),
-                    "comparisons": (),
-                }
-            ),
-        }
-    ).model_dump_json()
-    assert ExternalAssessment.model_validate_json(historical).model_dump_json() == historical
+    # A saved V7 notice is read, not rebuilt from its (here absent) source pair.
+    historical["method_version"] = "same-series-v7"
+    historical["tradingview"] = {
+        **historical["tradingview"],
+        "availability": "not_observed",
+        "comparisons": [
+            {"metric": "eps_forecast_next_fy", "state": "not_observed", "reason": "no_observation"}
+        ],
+    }
+    recorded = ExternalAssessment.model_validate(historical).tradingview
+    assert [c.reason for c in recorded.comparisons] == ["no_observation"]
+    assert "comparison_basis" not in recorded.model_dump()
 
 
 def test_optional_population_read_can_skip_tradingview_rows(tmp_path):
