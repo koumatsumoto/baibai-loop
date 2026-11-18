@@ -149,10 +149,11 @@ def generate_financial_and_price_models(
         as_of=as_of,
         input_release=input_release,
         start=growth_start,
-        comparisons=comparisons,
         pdf_input=pdf_input,
     )
-    # The growth query's display window must not narrow the financial model.
+    # Same-filing evidence belongs to the financial model, outside the growth series window.
+    if any(item.ticker != ticker for item in comparisons):
+        raise ValueError("reported comparisons contain a different ticker")
     reported = tuple(
         build_reported_comparison(item)
         for item in comparisons

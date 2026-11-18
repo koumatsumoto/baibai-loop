@@ -547,7 +547,7 @@ def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(cha
     )
     assert "v17-pdf-period-basis" in financial.calculation_revision
     assert growth.payload["calculation_method"] == (
-        "company_growth_retrospective_v20-pdf-period-basis"
+        "company_growth_retrospective_v21-pdf-period-basis"
     )
 
 

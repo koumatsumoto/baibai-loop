@@ -9,7 +9,6 @@ from itertools import pairwise
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_changes,
     build_period_states,
-    build_reported_comparison,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import (
     CompanyGrowth,
@@ -19,9 +18,6 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
 from baibai_engine.machine_analysis.models.company_growth.pdf_selection import (
     apply_pdf_changes,
     apply_pdf_periods,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
-    FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import period_days
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
@@ -42,8 +38,6 @@ def generate_company_growth(
     input_release: InputRelease,
     start: date | None = None,
     end: date | None = None,
-    comparisons: Sequence[FilingComparisons] = (),
-    comparison_input_reason: str | None = None,
     pdf_input: PdfFinancialInput | None = None,
     pdf_input_reason: str | None = None,
 ) -> CompanyGrowth:
@@ -69,36 +63,18 @@ def generate_company_growth(
     displayed = tuple(
         s for s in states if (start is None or start <= s.period_end) and s.period_end <= end
     )
-    if any(item.ticker != ticker for item in comparisons):
-        raise ValueError("reported comparisons contain a different ticker")
-    reported = tuple(
-        build_reported_comparison(item)
-        for item in comparisons
-        if item.source_submit_datetime.date() <= as_of
-        and (
-            item.current_period_end is None
-            or (
-                (start is None or start <= item.current_period_end)
-                and item.current_period_end <= end
-            )
-        )
-    )
     pdf = pdf_input.supplement if pdf_input is not None else None
-    available = bool(displayed or any(c.changes for c in reported) or (pdf and pdf.comparisons))
+    available = bool(displayed or (pdf and pdf.comparisons))
     return result.model_copy(
         update={
             "status": "available" if available else "unavailable",
             "reason": None if available else "accounting_period_not_observed",
-            "reported_comparisons": reported,
-            "comparison_input_reason": comparison_input_reason,
             "pdf_supplement": pdf,
             "pdf_selection": selected_pdf,
             "pdf_input_reason": pdf_input_reason,
-            "calculation_method": "company_growth_retrospective_v20-pdf-period-basis"
+            "calculation_method": "company_growth_retrospective_v21-pdf-period-basis"
             if pdf is not None
-            else "company_growth_retrospective_v20-edinet-comparisons"
-            if reported
-            else "company_growth_retrospective_v20",
+            else "company_growth_retrospective_v21",
             "input_release": input_release,
             "periods": displayed,
             "changes": tuple(
