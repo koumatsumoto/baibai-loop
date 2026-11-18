@@ -19,6 +19,7 @@ from baibai_engine.investment_judgment.trade_proposal.preview import preview_cur
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 
 def _sell(case, *, limit=1000):
@@ -55,6 +56,12 @@ def _liquidity(adv):
     )
 
 
+@pytest.fixture(scope="module")
+def complete_sell(tmp_path_factory):
+    case = backend_case(tmp_path_factory.mktemp("sell-warning"), holding=True, broken=True)
+    return _sell(case)
+
+
 @pytest.mark.parametrize("limit", [500, 1100, 2000])
 def test_sell_adv_uses_quote_times_saved_quantity_not_author_floor(tmp_path, limit):
     case = backend_case(tmp_path, holding=True, broken=True)
@@ -71,11 +78,9 @@ def test_sell_adv_uses_quote_times_saved_quantity_not_author_floor(tmp_path, lim
 
 
 @pytest.mark.parametrize("adv", [None, Decimal(0), Decimal(-1)])
-def test_sell_unknown_or_nonpositive_adv_is_not_zero_risk(tmp_path, adv):
-    case = backend_case(tmp_path, holding=True, broken=True)
-    proposal = _sell(case)
+def test_sell_unknown_or_nonpositive_adv_is_not_zero_risk(complete_sell, adv):
     result = build_proposal_warnings(
-        proposal.inputs, proposal.items, _liquidity(adv), assessments={}
+        complete_sell.inputs, complete_sell.items, _liquidity(adv), assessments={}
     )
     assert result.terms_warnings["1234"] == ("adv_participation_unassessed",)
 
@@ -83,11 +88,9 @@ def test_sell_unknown_or_nonpositive_adv_is_not_zero_risk(tmp_path, adv):
 @pytest.mark.parametrize(
     "unknown", ["quote_missing", "quote_stale", "quote_future", "basis", "position_missing"]
 )
-def test_sell_unconfirmed_reference_notional_is_unassessed(tmp_path, unknown):
-    case = backend_case(tmp_path, holding=True, broken=True)
-    proposal = _sell(case)
-    quote = proposal.inputs.quotes[0]
-    positions = proposal.inputs.positions
+def test_sell_unconfirmed_reference_notional_is_unassessed(complete_sell, unknown):
+    quote = complete_sell.inputs.quotes[0]
+    positions = complete_sell.inputs.positions
     if unknown == "position_missing":
         positions = ()
     elif unknown == "basis":
@@ -96,11 +99,11 @@ def test_sell_unconfirmed_reference_notional_is_unassessed(tmp_path, unknown):
         quote = quote.model_copy(
             update={"price_as_of": date(2026, 10, 1 if unknown == "quote_stale" else 15)}
         )
-    inputs = proposal.inputs.model_copy(
+    inputs = complete_sell.inputs.model_copy(
         update={"quotes": () if unknown == "quote_missing" else (quote,), "positions": positions}
     )
     result = build_proposal_warnings(
-        inputs, proposal.items, _liquidity(Decimal(2000000)), assessments={}
+        inputs, complete_sell.items, _liquidity(Decimal(2000000)), assessments={}
     )
     assert result.terms_warnings["1234"] == ("adv_participation_unassessed",)
 
@@ -138,8 +141,9 @@ def test_sell_warning_follows_normal_check_save_exact_retry_and_preview(tmp_path
     proposal = _sell(case, limit=500)
     assert proposal.items[0].terms.warnings == ("adv_participation_exceeds_warning",)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    store = LedgerStoreService(case.app)
+    ledger_before = store.load_with_head()
     assert service.check(proposal).valid  # 流動性注意は売却停止gateではない。
-    ledger = case.ledger
     saved = service.publish(proposal)
     before = case.app.read_bytes()
     assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
@@ -152,7 +156,7 @@ def test_sell_warning_follows_normal_check_save_exact_retry_and_preview(tmp_path
     assert preview.items[0]["saved_terms"]["quantity"] == 100
     assert preview.current_inputs.available_cash_yen == proposal.inputs.available_cash_yen
     assert case.app.read_bytes() == before
-    assert case.ledger == ledger
+    assert store.load_with_head() == ledger_before
 
 
 def test_legacy_saved_sell_without_warning_remains_exact_but_preview_adds_current_attention(
