@@ -82,8 +82,6 @@ quote不足/古さ/権利未解決は該当時価を未評価とし、cash・予
 
 受領済みactionと基準日・種別・比率が一致した分だけ数量basisを解決する。別action・粗い係数で照合不能・価格/calendar欠測は未評価のまま残す。確認済みeventより前のraw quoteを新数量に掛けない。既存保存Proposal/Outcomeは不変で、新しい提案・新IDの実績だけへ反映する。
 
-draft作成は移行ではなく、適用にはapplication schema30が必要。29の通常保存を保つ限定互換、一回切替・読戻し・撤去条件は[運用手順](../../../jobs/OPERATIONS.md#share-conversion-cutover)に集約する。
-
 <a id="historical-outcome"></a>
 ## Historical Outcome
 

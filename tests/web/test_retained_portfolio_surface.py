@@ -73,7 +73,7 @@ def test_retired_task_data_remains_untouched_and_cannot_block_portfolio_views(tm
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
     seed_ledger(app, ledger)
     PortfolioOutcomeStore(app).publish(_publication())
-    # A pre-removal schema-29 store can still contain private, invalid Task payloads.
+    # An upgraded store can still contain private, invalid Task payloads.
     # Retiring the feature neither parses them nor runs a destructive migration.
     with closing(sqlite3.connect(app)) as connection, connection:
         connection.executescript("""
