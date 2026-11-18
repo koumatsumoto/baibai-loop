@@ -33,6 +33,46 @@ export interface ReportEntry {
   item: SavedProposalView['items'][number]
 }
 
+// An excerpt can discard a final 「ただし…」 or attach another ticker's decision to this one.
+function shortWhole(text: string | null | undefined): string | null {
+  const value = text?.trim().replace(/\s+/gu, ' ')
+  return value && [...value].length <= 90 ? value : null
+}
+
+export function reportListSummary({ proposal, item }: ReportEntry): string {
+  const authored = shortWhole(item.rationale) ?? (proposal.items.length === 1 ? shortWhole(proposal.headline) : null)
+  if (authored !== null) return authored
+
+  // Long and older records still have the item's saved decision. Never amend the report.
+  switch (item.action) {
+    case 'defer':
+      return shortWhole(item.blockers[0]?.message) ?? '判断に必要な条件がそろわず保留。確認事項は個別レポートに記録。'
+    case 'buy': {
+      const action = item.timing === 'wait_limit' ? '指値で待つ案' : '買い指値案'
+      if (item.terms != null) {
+        const terms = item.terms
+        return shortWhole(`${terms.target_session}の${action}：${terms.limit_price_yen}円・${terms.quantity}株。`) ?? `保存時の${action}。価格・数量は個別レポートに記録。`
+      }
+      return shortWhole(item.proposed_limit_yen && `${item.proposed_limit_yen}円の${action}。具体的な注文条件は未記録。`) ?? '買い指値案。具体的な注文条件は未記録。'
+    }
+    case 'no_action': {
+      const valuation = item.assessment?.valuation
+      if (valuation?.status === 'resolved') {
+        const base = Number(valuation.base.annualized_return_pct)
+        const required = Number(valuation.required_annual_return_pct)
+        if (valuation.base.annualized_return_pct?.trim() && valuation.required_annual_return_pct?.trim() && Number.isFinite(base) && Number.isFinite(required)) {
+          return `評価時の中心ケースは年率約${base.toFixed(1)}%、要求年率は約${required.toFixed(1)}%。今回は購入を見送り。`
+        }
+      }
+      return '他の選択肢と比較し、今回は新規購入を見送った。'
+    }
+    case 'hold':
+      return item.holding_basis === 'investment_case_intact' ? '当初の投資仮説が続いているため、保有を継続。' : '今後の見返りが十分と判断し、保有を継続。'
+    case 'sell':
+      return item.reason_code === 'economic_invalidation' ? '重要な投資仮説が成立しなくなったため、全量売却を提案。' : '保有を続ける見返りが足りないため、全量売却を提案。'
+  }
+}
+
 export function groupProposalReports(proposals: SavedProposalView[]) {
   // The saved reader orders aware publication instants (including microseconds), not market as_of.
   const groups = new Map<string, ReturnType<typeof publicationPeriod> & { reports: ReportEntry[] }>()
