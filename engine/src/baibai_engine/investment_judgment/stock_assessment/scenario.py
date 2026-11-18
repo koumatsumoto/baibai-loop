@@ -142,8 +142,20 @@ def required_total_value(
     """Value needed at a price, using the requirement recorded in the Stock Assessment."""
     with localcontext() as context:
         context.prec = 50
+        return required_value_over_years(
+            price_yen=price_yen,
+            years=_horizon(horizon_months),
+            required_annual_return_pct=required_annual_return_pct,
+        )
+
+
+def required_value_over_years(
+    *, price_yen: Decimal, years: Decimal, required_annual_return_pct: Decimal
+) -> Decimal:
+    with localcontext() as context:
+        context.prec = 50
         price = _positive(price_yen, "price_yen")
-        horizon = _horizon(horizon_months)
+        horizon = _positive(years, "years")
         rate = _positive(required_annual_return_pct, "required_annual_return_pct") / 100
         return price * (1 + rate) ** horizon
 

@@ -109,6 +109,72 @@ def test_changed_target_session_blocks_preview_without_mutating_saved_terms(tmp_
     assert _snapshot(case.app) == before
 
 
+@pytest.mark.parametrize(
+    ("calendar_state", "expected_reason"),
+    [
+        ("unchanged", None),
+        ("missing", "order_session_unknown"),
+        ("closed", "target_session_not_next_available"),
+    ],
+)
+def test_target_session_controls_planned_quantity_but_not_per_share_valuation(
+    tmp_path, calendar_state, expected_reason
+):
+    case = backend_case(tmp_path)
+    draft = reviewed_proposal(case)
+    saved = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(draft)
+    target = saved.items[0].terms.target_session
+    now = PUBLISHED + timedelta(minutes=5)
+    assert now.date() < target
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        if calendar_state == "missing":
+            connection.execute(
+                "DELETE FROM jquants_market_calendar WHERE day=?", (target.isoformat(),)
+            )
+        elif calendar_state == "closed":
+            connection.execute(
+                "UPDATE jquants_market_calendar SET holiday_division='0' WHERE day=?",
+                (target.isoformat(),),
+            )
+    checked = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now).check(
+        draft
+    )
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=900")
+    before = _snapshot(case.app)
+    preview = preview_current_terms(
+        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=now
+    )
+    row = preview.items[0]
+    assert row["saved_terms"] == saved.items[0].terms.model_dump(mode="json")
+    assert row["saved_order_readiness"] == "ready"
+    session_codes = {"order_session_unknown", "target_session_not_next_available"}
+    expected = {expected_reason} if expected_reason else set()
+    assert {r.code for r in checked.blockers} & session_codes == expected
+    assert {r.code for r in preview.change_reasons} & session_codes == expected
+    assert {r["code"] for r in row["blockers"]} & session_codes == expected
+    for trial in (
+        row["saved_limit_revalidation"],
+        row["current_quote_calculation"],
+        checked.calculations["1234"],
+    ):
+        assert {r["code"] for r in trial["hard_blockers"]} & session_codes == expected
+        assert trial["current_price_projection"] is not None
+        assert trial["limit_price_projection"] is not None
+        if expected_reason:
+            assert trial["quantity"] == 0
+            assert trial["maximum_quantity"] is None
+            assert trial["capital_comparison"] is None
+        else:
+            assert trial["quantity"] > 0
+            assert trial["maximum_quantity"] >= trial["quantity"]
+            assert trial["capital_comparison"] is not None
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    assert _snapshot(case.app) == before
+
+
 def test_preview_reports_current_budget_warnings_separately_from_saved_terms(tmp_path, monkeypatch):
     import baibai_engine.investment_judgment.trade_proposal.inputs as proposal_inputs
 

@@ -115,18 +115,22 @@ def buy_evaluation(
     )
 
 
-def buy_evaluation_payload(result: BuyTermsEvaluation) -> dict[str, object]:
+def buy_evaluation_payload(
+    result: BuyTermsEvaluation, *, order_blockers: tuple[GateReason, ...] = ()
+) -> dict[str, object]:
+    # 終値・仮の指値での一株価値は、元の注文案を再利用できることとは別。
+    reasons = {reason.code: reason for reason in (*order_blockers, *result.hard_blockers)}
     return {
-        "hard_blockers": [reason.model_dump(mode="json") for reason in result.hard_blockers],
+        "hard_blockers": [reason.model_dump(mode="json") for reason in reasons.values()],
         "maximum_price_yen": None
         if result.maximum_price_yen is None
         else str(result.maximum_price_yen),
-        "quantity": result.quantity,
-        "maximum_quantity": result.maximum_quantity,
+        "quantity": 0 if order_blockers else result.quantity,
+        "maximum_quantity": None if order_blockers else result.maximum_quantity,
         "current_price_above_maximum": result.current_price_above_maximum,
         "current_price_projection": result.current_price_projection,
         "limit_price_projection": result.limit_price_projection,
-        "capital_comparison": result.capital_comparison,
+        "capital_comparison": None if order_blockers else result.capital_comparison,
     }
 
 
@@ -198,6 +202,13 @@ def terms_unavailable_reasons(
             GateReason(
                 code="price_grid_rule_unavailable",
                 message="次sessionへ適用できる呼値ruleが未確定です。",
+            )
+        )
+    if session is not None and item.terms is not None and item.terms.target_session != session:
+        reasons.append(
+            GateReason(
+                code="target_session_not_next_available",
+                message="保存条件の対象日が次の注文可能sessionと異なります。",
             )
         )
     return tuple(reasons)

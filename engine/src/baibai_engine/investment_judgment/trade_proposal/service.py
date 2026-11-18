@@ -54,7 +54,6 @@ from baibai_engine.investment_judgment.workflow.operation.research_binding impor
 )
 from baibai_engine.investment_judgment.workflow.selection import saved_market_assessment
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
-from baibai_engine.portfolio.holdings.market_observations import next_order_session
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
@@ -84,6 +83,13 @@ def _validate_action(
     inputs = proposal.inputs
     blockers: list[GateReason] = []
     calculation: dict[str, object] = {}
+    unavailable = (
+        terms_unavailable_reasons(
+            item, inputs, sqlite_path=sqlite_path, now=now, market_connection=market_connection
+        )
+        if item.action in {"buy", "sell"}
+        else ()
+    )
     if item.action == "buy":
         result = buy_evaluation(
             pair,
@@ -96,7 +102,7 @@ def _validate_action(
             market_connection=market_connection,
         )
         blockers.extend(result.hard_blockers)
-        calculation = buy_evaluation_payload(result)
+        calculation = buy_evaluation_payload(result, order_blockers=unavailable)
         if item.terms is not None and (
             (
                 result.maximum_price_yen is not None
@@ -160,9 +166,6 @@ def _validate_action(
                 )
             )
     if item.action in {"buy", "sell"}:
-        unavailable = terms_unavailable_reasons(
-            item, inputs, sqlite_path=sqlite_path, now=now, market_connection=market_connection
-        )
         if item.terms is None:
             if {reason.code for reason in unavailable} != {
                 reason.code for reason in item.terms_unavailable_reasons
@@ -183,15 +186,6 @@ def _validate_action(
                     GateReason(
                         code="sell_valuation_basis_differs",
                         message="売却条件の評価日は参照した保存評価の基準日へ一致させてください。",
-                    )
-                )
-            if item.terms.target_session != next_order_session(
-                sqlite_path=sqlite_path, now=now, connection=market_connection
-            ):
-                blockers.append(
-                    GateReason(
-                        code="target_session_not_next_available",
-                        message="提案条件のsessionが次の注文可能sessionへ一致しません。",
                     )
                 )
     return tuple(blockers), calculation
