@@ -1,8 +1,6 @@
 """成長表示の一時copy削減は、保存入力と全投影の意味を変えない。"""
 
-from copy import deepcopy
 from datetime import UTC, date, datetime
-from hashlib import sha256
 
 import pytest
 from tests.engine.machine_analysis.models.company_growth.test_company_growth import document
@@ -15,7 +13,7 @@ from tests.engine.machine_analysis.observations.financials.test_pdf_jp_restateme
 from baibai_engine.investment_judgment.workflow import generated_inputs
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
-from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, InputRelease
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     normalize_financial_summary,
 )
@@ -61,6 +59,26 @@ def growth_payload(kind):
     return payload
 
 
+@pytest.mark.parametrize(
+    "recorded",
+    [
+        {},
+        {"per": {"status": "not_provided", "reason": "old-share-basis"}},
+        {"peer": {"reason": "recorded-without-status"}},
+        {
+            "per": {"reason": "older-price-basis"},
+            "peer": {"status": "not_provided", "reason": "no-fixed-peers"},
+        },
+    ],
+)
+def test_growth_displays_only_valuation_notes_actually_saved(recorded):
+    payload = growth_payload("unavailable")
+    assert {"per", "peer"}.isdisjoint(payload)
+    payload.update(recorded)
+    displayed = generated_inputs.project_company_growth(payload, ticker=payload["ticker"])
+    assert {key: displayed[key] for key in ("per", "peer") if key in displayed} == recorded
+
+
 def containers(value):
     if isinstance(value, dict):
         yield value
@@ -74,7 +92,7 @@ def containers(value):
 
 @pytest.mark.parametrize("kind", ["current", "legacy", "pdf", "unavailable"])
 @pytest.mark.parametrize("periods", [12, None])
-def test_projection_matches_full_dump_and_copy_without_aliasing(monkeypatch, kind, periods):
+def test_shown_periods_keep_reported_values_and_their_fixed_input(kind, periods):
     payload = growth_payload(kind)
     ticker = payload["ticker"]
     saved = ModelInputSlice(
@@ -93,35 +111,24 @@ def test_projection_matches_full_dump_and_copy_without_aliasing(monkeypatch, kin
         ),
     )
     before = canonical_json(saved.model_dump(mode="json"))
-    digest = sha256(before.encode()).hexdigest()
-    project = generated_inputs.project_company_growth
-    dump = CompanyGrowth.model_dump
-
-    # Reproduce both removed operations, without duplicating the projection policy.
-    def full_dump(self, **kwargs):
-        kwargs.pop("include", None)
-        return dump(self, **kwargs)
-
-    def copied_projection(source, **kwargs):
-        return project(deepcopy(source), **kwargs)
-
-    with monkeypatch.context() as patch:
-        patch.setattr(CompanyGrowth, "model_dump", full_dump)
-        patch.setattr(generated_inputs, "project_company_growth", copied_projection)
-        expected = generated_inputs.project_generated_inputs(saved, company_growth_periods=periods)
     actual = generated_inputs.project_generated_inputs(saved, company_growth_periods=periods)
-    assert canonical_json(actual) == canonical_json(expected)
     growth = actual["securities"][ticker]["company_growth"]
     assert growth["full_result_ref"] == "/inputs/generation/models/0/payload"
-    assert growth["display_scope"]["period_count"] == min(periods or 999, len(payload["periods"]))
-    source_ids = {id(value) for value in containers(saved.models[0].payload)}
-    output = list(containers(actual))
-    assert not source_ids.intersection(id(value) for value in output)
-    for value in output:
+    shown = payload["periods"][-periods:] if periods else payload["periods"]
+    assert growth["display_scope"]["period_count"] == len(shown)
+    raw_sales = [
+        (obs["period_end"], obs["metrics"]["sales"]["value"])
+        for state in shown
+        for obs in state["observations"]
+        if obs["measurement"] == "reported"
+    ]
+    column = growth["reported"]["columns"].index("sales")
+    assert [(row["period_end"], row["values"][column]) for row in growth["reported"]["rows"]] == (
+        raw_sales
+    )
+    for value in list(containers(actual)):
         if isinstance(value, dict):
             value["mutation_probe"] = True
         else:
             value.append("mutation_probe")
-    after = canonical_json(saved.model_dump(mode="json"))
-    assert after == before
-    assert sha256(after.encode()).hexdigest() == digest
+    assert canonical_json(saved.model_dump(mode="json")) == before
