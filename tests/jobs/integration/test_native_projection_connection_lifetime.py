@@ -147,7 +147,7 @@ def test_projection_rejection_does_not_change_execution_store(
     error = LakePublishError if failure == "missing-pack" else sqlite3.OperationalError
     with pytest.raises(error):
         project()
-    # Price reserves the disposable working store for day equality checks even if a later
-    # pack is missing. Both raw rejection and open failure leave its main bytes untouched.
-    assert opened == ([market] if failure == "connect" or source == "price" else [])
+    # Market master and price use the disposable working store as their transaction,
+    # even if a later pack is missing. Raw rejection must leave its bytes untouched.
+    assert opened == ([market] if failure == "connect" or source in {"master", "price"} else [])
     assert market.read_bytes() == before
