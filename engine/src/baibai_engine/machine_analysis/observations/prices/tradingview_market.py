@@ -169,6 +169,7 @@ def stored_market_context(path: Path, *, asof: date, known_at: datetime) -> dict
             # reception as their latest failure rather than reviving old prices.
             observation = {
                 "status": "invalid_payload",
+                "capture_sha256": capture.digest(),
                 "available_at": capture.received_at_utc.astimezone(UTC).isoformat(),
             }
         args = capture.request_parameters
@@ -187,7 +188,7 @@ def stored_market_context(path: Path, *, asof: date, known_at: datetime) -> dict
                 candidate = {
                     **item,
                     "receipt_id": receipt_id,
-                    "capture_sha256": capture.digest(),
+                    "capture_sha256": observation["capture_sha256"],
                     "received_at": observation["available_at"],
                 }
                 _keep_latest(
@@ -217,7 +218,7 @@ def stored_market_context(path: Path, *, asof: date, known_at: datetime) -> dict
                 "symbol": symbol,
                 "status": status,
                 "receipt_id": receipt_id,
-                "capture_sha256": capture.digest(),
+                "capture_sha256": observation["capture_sha256"],
                 "received_at": observation["available_at"],
                 "last_bar_at": observation.get("last_bar_at") if last is not None else None,
                 "last_bar": last,
