@@ -359,6 +359,64 @@ def test_clear_compacts_only_legacy_raw_and_keeps_warm_ledger_clocks(legacy):
     assert store.get_keys == []
 
 
+@pytest.mark.parametrize("tight", [False, True])
+def test_native_release_does_not_compact_one_unrelated_free_page_unless_seal_needs_room(
+    legacy, monkeypatch, tight
+):
+    store, _, archives, saved, market, mirror, _ = legacy
+    with publication.prepare_market_lake(
+        sqlite_path=market, mirror_root=mirror, store=store, release_id="native", edinet_input=saved
+    ) as prepared:
+        publication.publish_prepared_market_lake(prepared, store=store)
+    from baibai_jobs.integration import edinet_archive_native
+
+    free_pages = []
+
+    def prepare_with_unrelated_free_page(archives, market, *, keep_small_slack):
+        # Seed after earlier native phases: those writes may legitimately use a free page.
+        with sqlite3.connect(market) as db:
+            db.execute("CREATE TABLE unrelated_work(x)")
+            db.execute("DROP TABLE unrelated_work")
+            free = db.execute("PRAGMA freelist_count").fetchone()[0]
+            assert 0 < free * 8 < db.execute("PRAGMA page_count").fetchone()[0]
+        free_pages.append(free)
+        return prepare_archive_execution(archives, market, keep_small_slack=keep_small_slack)
+
+    monkeypatch.setattr(
+        edinet_archive_native, "prepare_archive_execution", prepare_with_unrelated_free_page
+    )
+    if tight:
+        monkeypatch.setattr(publication, "sqlite_seal_capacity", lambda *_: (100, 200, 199))
+    with publication.prepare_market_lake(
+        sqlite_path=market, mirror_root=mirror, store=store, release_id="next", edinet_input=saved
+    ) as prepared:
+        with sqlite3.connect(prepared.source_snapshot.path) as db:
+            assert db.execute("PRAGMA freelist_count").fetchone() == (
+                0 if tight else free_pages[0],
+            )
+            assert db.execute("SELECT count(*) FROM edinet_source_archives").fetchone() == (0,)
+            assert read_scope(db) == archives.scope
+        assert RAW not in prepared.release.datasets
+    assert not any(key.endswith(".zip") for key in store.get_keys)
+
+
+def test_skipping_small_slack_does_not_carry_a_mostly_empty_market(legacy):
+    _, _, archives, _, market, _, _ = legacy
+    # Actual old ZIPs must be cleared and compacted even on a native-only release.
+    assert prepare_archive_execution(archives, market, keep_small_slack=True)["cleared_archives"]
+    with sqlite3.connect(market) as db:
+        db.execute("CREATE TABLE unrelated_work(x)")
+        db.execute("INSERT INTO unrelated_work VALUES(zeroblob(1048576))")
+        db.execute("DROP TABLE unrelated_work")
+    size = market.stat().st_size
+    assert not prepare_archive_execution(archives, market, keep_small_slack=True)[
+        "cleared_archives"
+    ]
+    assert market.stat().st_size < size
+    with sqlite3.connect(market) as db:
+        assert db.execute("PRAGMA freelist_count").fetchone() == (0,)
+
+
 def test_failed_compaction_retries_without_rehydrating_cleared_zip(legacy, monkeypatch):
     store, _, archives, saved, market, mirror, _ = legacy
     pointer = store.values[POINTER]

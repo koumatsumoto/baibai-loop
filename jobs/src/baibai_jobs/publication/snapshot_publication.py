@@ -76,6 +76,7 @@ from baibai_engine.storage.snapshots.writer import (
     SealedSQLiteSnapshot,
     export_market_snapshot,
     sealed_sqlite_snapshot,
+    sqlite_seal_capacity,
 )
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
@@ -260,7 +261,16 @@ def prepare_market_lake(
         if read_lake_store_origin(sqlite_path) != _pointer_origin(previous):
             raise LakePublishError("fixed EDINET publication requires the serving store origin")
         phase_started = _phase_progress("retain_edinet_archives")
-        prepare_archive_execution(fixed_edinet.archives, sqlite_path)
+        keep_small_slack = False
+        if (
+            serving_release is not None
+            and "edinet.source_archives" not in serving_release.dataset_manifests
+        ):
+            _, required, free = sqlite_seal_capacity(sqlite_path, mirror_root)
+            keep_small_slack = free >= required
+        prepare_archive_execution(
+            fixed_edinet.archives, sqlite_path, keep_small_slack=keep_small_slack
+        )
         published_coverage_start.pop("edinet.source_archives", None)
         _phase_progress("retain_edinet_archives", phase_started)
     alerts_identity = None

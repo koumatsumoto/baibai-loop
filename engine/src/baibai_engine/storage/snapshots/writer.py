@@ -119,6 +119,11 @@ class _BuiltPartition:
     manifest: PartitionManifest
 
 
+def sqlite_seal_capacity(source: Path, workspace: Path) -> tuple[int, int, int]:
+    size = source.stat().st_size
+    return size, max(size * 2, 64 * 1024 * 1024), shutil.disk_usage(workspace).free
+
+
 @contextmanager
 def sealed_sqlite_snapshot(
     *,
@@ -148,9 +153,7 @@ def sealed_sqlite_snapshot(
     sealed = workspace / "snapshot.sqlite"
     try:
         try:
-            source_bytes = sqlite_path.stat().st_size
-            required = max(source_bytes * 2, 64 * 1024 * 1024)
-            free_bytes = shutil.disk_usage(workspace).free
+            source_bytes, required, free_bytes = sqlite_seal_capacity(sqlite_path, workspace)
             print(
                 f"lake snapshot capacity: source_bytes={source_bytes} "
                 f"required_bytes={required} free_bytes={free_bytes} "
