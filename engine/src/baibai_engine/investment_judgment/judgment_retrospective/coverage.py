@@ -43,7 +43,7 @@ def original_item_questions(item: ProposalItem) -> dict[str, object]:
     }
 
 
-def _item_notes(
+def item_review_notes(
     connection: sqlite3.Connection, origin: ProposalItemRef, published: datetime, cutoff: datetime
 ) -> tuple[str, list[dict[str, object]]]:
     records: list[RetrospectiveRecord] = []
@@ -120,7 +120,7 @@ def proposal_review_coverage(
                 draft_sha256=proposal.review.draft_sha256,
                 ticker=item.ticker,
             )
-            status, notes = _item_notes(connection, origin, proposal.published_at, cutoff)
+            status, notes = item_review_notes(connection, origin, proposal.published_at, cutoff)
             rows.append(
                 {
                     **original_item_questions(item),
