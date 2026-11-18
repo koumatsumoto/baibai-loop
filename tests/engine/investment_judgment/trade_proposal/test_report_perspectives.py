@@ -245,6 +245,7 @@ def test_exact_legacy_financial_identity_only_and_duplicate_models_not_summed():
 
 def test_cash_opposite_to_profit_only_when_end_and_accounting_basis_agree():
     s = _sel()
+    _put(s, "market_context", {"master": {"sector_33": "機械", "snapshot_date": DAY}})
     f = {
         "earnings_price": {
             "price_date": "2026-10-19",
@@ -450,3 +451,45 @@ def test_unfinished_report_uses_only_its_fixed_issuer_and_dated_master():
         "snapshot_date": "2026-10-21",
     }
     assert identity(legacy) is None
+
+
+@pytest.mark.parametrize("sector", ["銀行業", "保険業", "その他金融業", None, "機械"])
+@pytest.mark.parametrize("cf", [-1e8, 0.0, 1e8])
+def test_cf_direction_is_not_a_financial_institution_owner_return(sector, cf):
+    s = _sel()
+    f = {"financial": {"edinet_ocf_ttm": cf, "edinet_source_period_end": "2026-03-31"}}
+    _put(s, "company_financials", f)
+    _put(s, "market_context", {"master": {"sector_33": sector, "snapshot_date": DAY}})
+    original = deepcopy(s)
+    row = _estimate(s)["company_financials"]
+    assert row["assessment"] == (
+        ("supportive" if cf > 0 else "adverse" if cf < 0 else "neutral")
+        if sector == "機械"
+        else "context_only"
+    )
+    assert f"{cf / 1e8:+,.2f}" in row["summary"]
+    assert s == original
+    assert "company_financials" not in _estimate(s, recorded={"company_financials"})
+    if sector == "銀行業":
+        assert "CET1" in row["summary"]
+    f["earnings_price"] = {
+        "price_date": DAY,
+        "profit_ttm_yen": -100e6,
+        "earnings_yield": -0.02,
+        "profit_components": [{"period_end": "2026-09-30"}],
+        "accounting_standard": "JP",
+        "statement_basis": "consolidated",
+    }
+    f["financial"].update(
+        {
+            "ocf_ttm": cf,
+            "ocf_ttm_period": {
+                "end": "2026-09-30",
+                "accounting_standard": "JP",
+                "statement_basis": "consolidated",
+            },
+        }
+    )
+    joined = _estimate(s)["company_financials"]
+    assert joined["assessment"] == ("mixed" if sector == "機械" and cf > 0 else "adverse")
+    assert "営業CF" in joined["summary"]
