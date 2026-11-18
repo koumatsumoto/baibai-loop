@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from baibai_engine.machine_analysis.models.technical_analysis import path_statistics
 from baibai_engine.machine_analysis.models.technical_analysis.path_statistics import (
     close_path_statistics,
 )
@@ -123,7 +124,11 @@ def test_valid_close_is_independent_of_missing_other_daily_fields(state):
     assert _context(result)["price_row_basis"] == "observed_finite_positive_adjusted_close"
 
 
-def test_each_calendar_window_is_independent_and_unknown_is_not_no_episode():
+def test_each_calendar_window_is_independent_and_unknown_is_not_no_episode(monkeypatch):
+    def unused_turnover(*_):
+        pytest.fail("短期の回復だけを読むために長期向けの売買代金比較を作らない")
+
+    monkeypatch.setattr(path_statistics, "_turnover_comparison", unused_turnover)
     bars = _bars([100] * 61)
     short = price_calendar(
         {day: value for day, value in CALENDAR.items() if day >= WINDOW[40]}, as_of=ASOF
