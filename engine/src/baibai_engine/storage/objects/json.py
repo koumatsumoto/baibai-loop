@@ -54,6 +54,14 @@ def read_private(store: ObjectStore, key: str) -> SavedObject | None:
     return SavedObject(payload, before.etag)
 
 
+def read_write_once_private(store: ObjectStore, key: str) -> SavedObject | None:
+    """Read a create-only JSON object, checking the body and metadata from one response."""
+    if isinstance(store, CheckedObjectMetadataReader):
+        response = store.get_checked_object(key, max_bytes=MAX_PRIVATE_OBJECT_BYTES)
+        return None if response is None else SavedObject(response[0], response[1].etag)
+    return read_private(store, key)
+
+
 def read_fixed_private(store: ObjectStore, key: str, *, sha256: str) -> SavedObject | None:
     """Read content-addressed JSON; mutable markers must use read_private instead."""
     if isinstance(store, VerifiedObjectMetadataReader):

@@ -9,7 +9,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from baibai_engine.storage.objects.json import put_private, read_fixed_private, read_private
+from baibai_engine.storage.objects.json import (
+    put_private,
+    read_fixed_private,
+    read_private,
+    read_write_once_private,
+)
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
@@ -115,8 +120,8 @@ def save_ready(store: ReceiptStore, item: PreparedPlan) -> dict[str, str]:
 
 
 def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPlan:
-    saved = read_private(store, reference["key"])
-    if saved is None or hashlib.sha256(saved.payload).hexdigest() != reference["sha256"]:
+    saved = read_fixed_private(store, reference["key"], sha256=reference["sha256"])
+    if saved is None:
         raise ValueError("fixed external ready selection changed")
     value = json.loads(saved.payload)
     plan = read_plan(store, value["run_id"])
@@ -146,7 +151,7 @@ def _prepare_ready(
         confirmed = confirmed_stages.get(expected_key)
         if confirmed is None:
             saved = read_fixed_private(store, expected_key, sha256=stage_ref["sha256"])
-            if saved is None or hashlib.sha256(saved.payload).hexdigest() != stage_ref["sha256"]:
+            if saved is None:
                 raise ValueError("confirmed external cohort snapshot changed")
             confirmed = (load_stage(plan, saved.payload), saved.etag)
             confirmed_stages[expected_key] = confirmed
@@ -172,7 +177,12 @@ def read_acknowledgement(
     saved = read_private(store, acknowledgement_key(item.plan, reference))
     if saved is None:
         return None
-    value = json.loads(saved.payload)
+    return _validate_acknowledgement(item, reference, json.loads(saved.payload))
+
+
+def _validate_acknowledgement(
+    item: PreparedPlan, reference: dict[str, str], value: Any
+) -> dict[str, object]:
     if (
         not isinstance(value, dict)
         or value.get("format") != "external-assessment-integration-ack-v1"
@@ -245,7 +255,7 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
                 closed[run_id] = read_terminal(store, plan) is not None
             if closed[run_id]:
                 continue
-            saved = read_private(store, key)
+            saved = read_write_once_private(store, key)
             if saved is None:
                 raise ValueError("listed external ready selection is missing")
             value = json.loads(saved.payload)
@@ -298,8 +308,7 @@ def acknowledged_bundles(store: ReceiptStore, plan: RunPlan) -> dict[str, dict[s
         item = load_ready(store, reference)
         if item.plan != plan or key != acknowledgement_key(plan, reference):
             raise ValueError("external acknowledged plan changed")
-        ack = read_acknowledgement(store, item, reference)
-        assert ack is not None
+        ack = _validate_acknowledgement(item, reference, value)
         allowed = {bundle for stage, _ in item.stages.values() for bundle in stage.raw_bundle_keys}
         receipts = ack.get("bundle_receipts", {})
         if not isinstance(receipts, dict) or not receipts.keys() <= allowed:

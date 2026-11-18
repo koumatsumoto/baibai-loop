@@ -169,28 +169,49 @@ def test_valid_terminal_before_or_during_scan_prevents_adoption(
         assert second["key"] not in store.get_keys
 
 
-def test_only_fixed_stages_use_atomic_verified_reads(publication, monkeypatch):
+def test_create_only_objects_use_one_get_while_current_markers_are_rechecked(
+    publication, monkeypatch
+):
     import hashlib
 
     from baibai_engine.storage.objects.json import MAX_PRIVATE_OBJECT_BYTES
 
     store, plan, first, second = cumulative_pair(publication)
-    verified = []
+    checked, pinned = [], []
+
+    def checked_get(key, *, max_bytes):
+        assert max_bytes == MAX_PRIVATE_OBJECT_BYTES
+        checked.append(key)
+        return store.get_bytes_with_metadata(key)
 
     def fixed_get(key, *, sha256, max_bytes):
-        assert "/confirmed-stages/" in key
         assert max_bytes == MAX_PRIVATE_OBJECT_BYTES
         body, metadata = store.get_bytes_with_metadata(key)
         assert hashlib.sha256(body).hexdigest() == sha256
-        verified.append(key)
+        pinned.append(key)
         return body, metadata
 
+    monkeypatch.setattr(store, "get_checked_object", checked_get, raising=False)
     monkeypatch.setattr(store, "get_verified_object", fixed_get, raising=False)
     assert available_ready(store) == ([second], [])
-    assert len(verified) == 2
-    assert not set(verified) & set(store.head_keys)
-    assert store.head_keys.count(first["key"]) == 2
-    assert store.head_keys.count(second["key"]) == 2
-    assert store.head_keys.count(prefix(plan.run_id) + "/published.json") == 2
-    assert store.head_keys.count(acknowledgement_key(plan, second)) == 1
+    terminal = prefix(plan.run_id) + "/published.json"
+    assert Counter(checked) == Counter(
+        [
+            prefix(plan.run_id) + "/plan.json",
+            first["key"],
+            second["key"],
+            terminal,
+            terminal,
+            acknowledgement_key(plan, second),
+        ]
+    )
+    assert len(pinned) == 2
+    assert all("/confirmed-stages/" in key for key in pinned)
+    assert not store.head_keys
     assert not store.put_keys
+
+    # The independently loaded ready selection has an expected body digest.
+    pinned.clear()
+    assert len(load_ready(store, second).stages) == 2
+    assert pinned[0] == second["key"]
+    assert len(pinned) == 3
