@@ -124,6 +124,31 @@ def test_reader_does_not_fill_absent_legacy_fields_or_normalize_evidence_numbers
     assert canonical_json(payload) == before
 
 
+def test_retained_native_share_pair_is_read_as_saved_not_recalculated():
+    payload = saved_growth()
+    payload["calculation_method"] = "company_growth_retrospective_v12"
+    saved = {
+        "metric": "issued_shares",
+        "measurement": "balance",
+        "comparison": "year_over_year",
+        "from_start": "2024-06-30",
+        "from_end": "2024-06-30",
+        "to_start": "2025-06-30",
+        "to_end": "2025-06-30",
+        "from_value": 100,
+        "to_value": 500,
+        "reason": "share_basis_unverified",
+    }
+    payload["changes"].append(saved)
+    reader = CompanyGrowthReader(payload)
+    (pair,) = reader.year_over_year(
+        reader.observation(reader.latest_period, "balance"), "issued_shares"
+    )
+    assert pair.difference is None
+    assert pair.rate is None
+    assert reader.saved_change(pair) is saved
+
+
 def test_saved_evidence_uses_identity_even_for_equal_typed_observations_and_changes():
     payload = saved_growth()
     state = deepcopy(payload["periods"][-1])

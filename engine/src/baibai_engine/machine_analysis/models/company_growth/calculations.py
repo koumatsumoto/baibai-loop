@@ -496,6 +496,15 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
         prior_starts = {p.period_start for p in priors}
         prior_start = next(iter(prior_starts)) if len(prior_starts) == 1 else None
         for metric, value in current.metrics.items():
+            # Each filing keeps its own share basis. Its dated amounts are observations,
+            # not comparable year-over-year earnings or dilution.
+            if metric in {
+                "reported_basic_eps",
+                "average_shares",
+                "issued_shares",
+                "treasury_shares",
+            }:
+                continue
             prior_values = {
                 previous.value if (previous := p.metrics.get(metric)) is not None else None
                 for p in priors
@@ -503,14 +512,7 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
             before = next(iter(prior_values)) if len(prior_values) == 1 else None
             after = value.value
             reason = None
-            if metric in {
-                "reported_basic_eps",
-                "average_shares",
-                "issued_shares",
-                "treasury_shares",
-            }:
-                reason = "share_basis_unverified"
-            elif not priors:
+            if not priors:
                 reason = "comparable_prior_period_not_observed"
             elif len(prior_starts) != 1 or len(prior_values) != 1:
                 reason = "ambiguous_growth_comparison"

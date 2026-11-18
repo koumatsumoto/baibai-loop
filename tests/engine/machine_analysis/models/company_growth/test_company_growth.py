@@ -261,19 +261,29 @@ def test_margin_points_do_not_become_a_growth_score():
     assert change(result, date(2024, 6, 30), "operating_profit").rate == 0.5
 
 
-def test_eps_split_comparison_is_unverified_but_reported_values_survive():
-    result = states(
+def test_unverified_share_bases_keep_native_amounts_not_yoy_comparisons():
+    periods = states(
         [
-            document(2023, 4, 100, 20, 10, EPS=788.29, ShOutFY=100, TrShFY=20),
+            document(2023, 4, 100, 20, 10, EPS=788.29, AvgSh=80, ShOutFY=100, TrShFY=0),
             document(2024, 4, 120, 25, 12, EPS=188.71, ShOutFY=500, TrShFY=100),
         ]
     )
-    value = change(build_changes(result), date(2025, 3, 31), "reported_basic_eps")
-    assert (value.from_value, value.to_value) == (788.29, 188.71)
-    assert value.difference is None
-    assert value.reason == "share_basis_unverified"
-    assert amount(result[0], "balance", "issued_shares").value == 100
-    assert amount(result[1], "balance", "treasury_shares").value == 100
+    native = {
+        "reported_basic_eps": ("reported", (788.29, 188.71)),
+        "average_shares": ("reported", (80, None)),
+        "issued_shares": ("balance", (100, 500)),
+        "treasury_shares": ("balance", (0, 100)),
+    }
+    for metric, (measurement, expected) in native.items():
+        assert tuple(amount(p, measurement, metric).value for p in periods) == expected
+        assert observation(periods[-1], measurement).share_basis == "source_reported_unverified"
+    assert amount(periods[0], "reported", "reported_basic_eps").documents[0].disclosure_number == (
+        "synthetic-2023-4"
+    )
+    assert amount(periods[-1], "reported", "average_shares").reason == "not_observed"
+    changes = build_changes(periods)
+    assert not {item.metric for item in changes} & native.keys()
+    assert change(changes, date(2025, 3, 31), "parent_profit").difference == 2
 
 
 def test_cf_bs_and_ordinary_profit_are_not_filled_or_relabelled():
