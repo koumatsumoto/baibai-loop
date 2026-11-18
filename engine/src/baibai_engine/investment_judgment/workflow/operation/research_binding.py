@@ -12,7 +12,8 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
 from baibai_engine.investment_judgment.workflow.operation.progress import (
-    proposal_scope,
+    fixed_proposal_scope,
+    progress_binding,
     selection_binding,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -43,7 +44,10 @@ def require_proposal_research_scope(
         raise ValueError("fixed research_selection is required")
     if selection.request.scope != request_scope:
         raise ValueError("Proposal request scope differs from the Research selection")
-    if proposal_scope(operation.operation_id, operation.payload) != scope:
+    if (
+        fixed_proposal_scope(operation.operation_id, selection, progress_binding(operation.payload))
+        != scope
+    ):
         raise ValueError("Proposal scope differs from the Operation's fixed coverage")
     if published_at.utcoffset() is None or published_at < operation.started_at:
         raise ValueError("Proposal publication precedes the active Research Operation")

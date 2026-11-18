@@ -25,7 +25,6 @@ from baibai_engine.investment_judgment.market_assessment.service import Assessme
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.progress import (
-    UnfinishedTarget,
     selection_binding,
 )
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
@@ -42,14 +41,11 @@ def _case(tmp_path, *, action="no_action", market=True, unfinished=False):
     with closing(connect_read_only(app)) as connection:
         pair = load_reviewed_assessment(connection, assessment_id())
     if unfinished:
-        operation = OperationService(app).record_outcome(
+        operation = OperationService(app).record_unfinished(
             operation.operation_id,
-            UnfinishedTarget(
-                ticker="1234",
-                purpose="new",
-                unfinished_reason="合成: 個社借換期を未確認",
-                references=("https://example.invalid/synthetic-rates",),
-            ),
+            ticker="1234",
+            reason="合成: 個社借換期を未確認",
+            references=("https://example.invalid/synthetic-rates",),
             now=PREPARED,
         )
     case = SimpleNamespace(app=app, market=market_path, operation=operation, pair=pair)

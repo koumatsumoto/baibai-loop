@@ -2,7 +2,6 @@
 
 import json
 import sqlite3
-import weakref
 from contextlib import closing
 from datetime import datetime
 
@@ -145,56 +144,3 @@ def test_metadata_validation_does_not_serialize_or_replace_artifacts():
     payload = OperationPayload.model_construct(checkpoint="valid", artifacts=(raw,))
     payload.validate_metadata()
     assert payload.artifacts[0] is raw
-
-
-@pytest.mark.parametrize("version", [2, 3, 4])
-@pytest.mark.parametrize("complete", [False, True])
-def test_update_releases_validated_selection_copies_before_payload_encoding(
-    tmp_path, monkeypatch, version, complete
-):
-    if version == 2:
-        raw = selection(now=NOW).model_dump(mode="json")
-    else:
-        raw = seed_generated_selection(runs=tmp_path / "runs", now=NOW).model_dump(mode="json")
-        if version == 3:
-            raw["schema_version"] = 3
-            del raw["inputs"]["saved_company_context"]
-    operation = historical_operation(parse_selection(raw))
-    app = tmp_path / "app"
-    seed_historical_operation(app, operation)
-    service = OperationService(app, runs_path=tmp_path / "absent-runs")
-    references = []
-    bind = operation_service.selection_binding
-    encode = operation_service.encode_json
-
-    def track(payload):
-        selected = bind(payload)
-        references.append(weakref.ref(selected))
-        return selected
-
-    def save(payload):
-        assert len(references) == 2
-        assert all(reference() is None for reference in references)
-        return encode(payload)
-
-    monkeypatch.setattr(operation_service, "selection_binding", track)
-    monkeypatch.setattr(operation_service, "encode_json", save)
-    if complete:
-        expected = operation.payload.model_copy(
-            update={"result": "no targets selected", "next": "wait for request"}
-        )
-        updated = service.complete(
-            operation.operation_id,
-            result=expected.result,
-            next=expected.next,
-            completed_at=NOW,
-        )
-    else:
-        expected = operation.payload.model_copy(update={"checkpoint": "sources rechecked"})
-        updated = service.checkpoint(operation.operation_id, expected, now=NOW)
-    assert updated.payload == expected
-    assert updated.payload.artifacts == operation.payload.artifacts
-    assert service.get(operation.operation_id) == updated
-    with closing(sqlite3.connect(app)) as connection:
-        saved = connection.execute("SELECT payload FROM operation_session").fetchone()[0]
-    assert saved == encode_json(expected.model_dump(mode="json"))

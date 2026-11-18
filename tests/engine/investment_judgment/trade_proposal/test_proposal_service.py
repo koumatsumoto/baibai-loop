@@ -109,15 +109,17 @@ def test_published_unbound_unfinished_proposal_cannot_be_skipped(case, monkeypat
     )
     proposal = reviewed_proposal(case, action="defer")
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
-    get = case.operations.get
     if publication == "after_read":
+        from baibai_engine.investment_judgment.workflow.operation import service as operation_owner
 
-        def read_then_publish(operation_id):
-            before = get(operation_id)
+        open_writer = operation_owner.connect_existing
+
+        def publish_before_operation_write(path):
+            monkeypatch.setattr(operation_owner, "connect_existing", open_writer)
             service.publish(proposal)
-            return before
+            return open_writer(path)
 
-        monkeypatch.setattr(case.operations, "get", read_then_publish)
+        monkeypatch.setattr(operation_owner, "connect_existing", publish_before_operation_write)
     else:
         service.publish(proposal)
     if publication == "changed_reason":
@@ -136,7 +138,7 @@ def test_published_unbound_unfinished_proposal_cannot_be_skipped(case, monkeypat
             next="不足する資料を確認する",
             completed_at=PUBLISHED,
         )
-    assert get(operation.operation_id) == operation
+    assert case.operations.get(operation.operation_id) == operation
     assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app).payload() == {
         **proposal.payload(),
         "published_at": PUBLISHED.isoformat(),
@@ -146,9 +148,8 @@ def test_published_unbound_unfinished_proposal_cannot_be_skipped(case, monkeypat
             case.operations.record_proposal(
                 operation.operation_id, proposal.proposal_id, now=PUBLISHED
             )
-        assert get(operation.operation_id) == operation
+        assert case.operations.get(operation.operation_id) == operation
     else:
-        monkeypatch.setattr(case.operations, "get", get)
         case.operations.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
         completed = case.operations.complete(
             operation.operation_id,
@@ -704,16 +705,12 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
     from tests.helpers.assessment_v1 import assessment_id, pair_payload
 
     from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-    from baibai_engine.investment_judgment.workflow.operation.progress import UnfinishedTarget
 
-    case.operation = case.operations.record_outcome(
+    case.operation = case.operations.record_unfinished(
         case.operation.operation_id,
-        UnfinishedTarget(
-            ticker="5678",
-            purpose="new",
-            unfinished_reason="確認する資料が残る。",
-            references=("https://example.invalid/pending",),
-        ),
+        ticker="5678",
+        reason="確認する資料が残る。",
+        references=("https://example.invalid/pending",),
         now=PUBLISHED - timedelta(minutes=12),
     )
     proposal = reviewed_proposal(case, action="no_action")

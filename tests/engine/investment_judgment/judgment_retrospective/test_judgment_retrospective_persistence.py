@@ -22,7 +22,6 @@ from baibai_engine.investment_judgment.judgment_retrospective.store import (
 )
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_engine.investment_judgment.workflow.operation.progress import UnfinishedTarget
 from baibai_engine.portfolio.ledger.events import ExecutionEvent, PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -188,14 +187,11 @@ def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_
 
 def test_no_action_defer_without_assessment_and_assessment_only_keep_original_meaning(tmp_path):
     case = backend_case(tmp_path, tickers=("1234", "5678"))
-    case.operation = case.operations.record_outcome(
+    case.operation = case.operations.record_unfinished(
         case.operation.operation_id,
-        UnfinishedTarget(
-            ticker="5678",
-            purpose="new",
-            unfinished_reason="一次資料の確認が未了",
-            references=("https://example.test/pending",),
-        ),
+        ticker="5678",
+        reason="一次資料の確認が未了",
+        references=("https://example.test/pending",),
         now=PUBLISHED - timedelta(minutes=12),
     )
     proposal = _publish(case, action="no_action")
