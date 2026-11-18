@@ -17,6 +17,7 @@ from baibai_engine.machine_analysis.screening.contracts import (
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DISCOVERY_SUFFIX,
     DiscoverySelection,
+    require_publishable_rows,
     validate_discovery_publication,
 )
 from baibai_engine.primitives.json import encode_json
@@ -36,6 +37,7 @@ class ScreeningSelectionStore:
         if not selection_id:
             raise ValueError("selection_id must not be empty")
         if isinstance(selection.result, DiscoverySelection):
+            require_publishable_rows(selection.result.rows)
             validate_discovery_publication(
                 selection_id=selection_id,
                 generation_id=selection.generation_id,

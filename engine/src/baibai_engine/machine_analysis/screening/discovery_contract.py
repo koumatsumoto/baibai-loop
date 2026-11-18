@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final, Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
 
 DISCOVERY_METHOD: Final = "opportunity-discovery-v1"
 DISCOVERY_SUFFIX: Final = "-" + DISCOVERY_METHOD
@@ -16,6 +16,25 @@ class DiscoveryPolicy(BaseModel):
     method: Literal["opportunity-discovery-v1"] = DISCOVERY_METHOD
 
 
+class MatchedPaths(TypedDict):
+    financial: list[str]
+    growth: list[str]
+
+
+class EconomicCoordinate(TypedDict):
+    path_id: str
+    variant: str
+    price_group: str
+    business_group: str
+    price_value: float | int | None
+    business_value: float | int | None
+
+
+class CapitalActionCounts(TypedDict):
+    observations: int | None
+    share_basis_adjustments: int | None
+
+
 class DiscoveryRow(TypedDict):
     ticker: str
     models_recorded: bool
@@ -24,16 +43,24 @@ class DiscoveryRow(TypedDict):
     screening_lane: str
     technical_state: str
     financial_state: str
-    matched_paths: dict[str, list[str]]
+    matched_paths: MatchedPaths
     missing: list[str]
-    coordinates: list[dict[str, JsonValue]]
+    coordinates: list[EconomicCoordinate]
     price: float | int | None
     price_date: str | None
     expected_price_date: str | None
     basis: str | None
     price_ready: bool
     book_equity: dict[str, JsonValue] | None
-    capital_action: dict[str, int | None] | None
+    capital_action: CapitalActionCounts | None
+
+
+_ROWS = TypeAdapter(tuple[DiscoveryRow, ...])
+
+
+def require_publishable_rows(rows: tuple[DiscoveryRow, ...]) -> None:
+    # A typed dict is still mutable in the writer. Missing evidence is not an empty route set.
+    _ROWS.validate_python(rows, strict=True)
 
 
 @dataclass(frozen=True, slots=True)

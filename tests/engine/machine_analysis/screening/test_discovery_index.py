@@ -151,3 +151,26 @@ def test_missing_source_is_an_explicit_member_not_an_absent_or_duplicate_row(tmp
         )
     with pytest.raises(ValueError, match="differs"):
         discovery_index.read_discovery_index(path=path, selection_id=identity)
+
+
+@pytest.mark.parametrize(
+    ("field", "partial"),
+    [
+        ("matched_paths", {}),
+        ("coordinates", [{"path_id": "earning_power"}]),
+        ("capital_action", {"observations": 0}),
+    ],
+)
+def test_writer_rejects_incomplete_evidence_instead_of_publishing_empty_meaning(
+    tmp_path, field, partial
+):
+    path = tmp_path / "runs"
+    _, _, source, identity = fixed(path)
+    only = source.result.rows[0]
+    altered = replace(
+        source,
+        result=replace(source.result, rows=({**only, field: partial}, *source.result.rows[1:])),
+    )
+    with pytest.raises(ValueError, match="Field required"):
+        ScreeningSelectionStore(path).publish(identity, altered)
+    assert discovery_index.read_discovery_index(path=path).status == "no_publication"
