@@ -28,17 +28,17 @@ from baibai_engine.machine_analysis.generation.query import read_research_model_
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 
 START = PREPARED - timedelta(minutes=3)
-ENVIRONMENT = frozenset(
-    {"external_assessment", "market_context", "industry_trends", "social_trends"}
-)
 
 
-def _seed(tmp_path, *, planned=True, external=True):
+def _seed(tmp_path, *, planned=True, external=True, technical=None, market=None):
     payloads = [
         ("company_financials", "1234", {"known_loss": -10}),
-        ("technical_analysis", "1234", {"signal": False}),
         ("market_context", "market", {"value": None, "reason": "not_observed"}),
     ]
+    if technical is not None:
+        payloads.append(("technical_analysis", "1234", technical))
+    if market is not None:
+        payloads.append(("market_context", "1234", market))
     if external:
         payloads.append(
             (
@@ -66,6 +66,7 @@ def _seed(tmp_path, *, planned=True, external=True):
                 "company_growth",
                 "technical_analysis",
                 "external_assessment",
+                "market_context",
             ),
             related_subjects=("industry:test",),
             related_subject_basis={"industry:test": "合成分類。全社感応度ではない"},
@@ -102,18 +103,24 @@ def _seed(tmp_path, *, planned=True, external=True):
 def test_environment_view_separates_display_omission_from_not_generated(
     tmp_path, planned, external
 ):
-    runs, generation = _seed(tmp_path, planned=planned, external=external)
+    runs, generation = _seed(
+        tmp_path, planned=planned, external=external, technical={"rsi_14bar": None}
+    )
     saved = read_research_model_inputs(generation.generation_id, targets=("1234",), path=runs)
     before = saved.model_dump_json()
     complete = project_generated_inputs(saved)
-    view = project_generated_inputs(saved, model_ids=ENVIRONMENT)
+    view = project_generated_inputs(saved, proposal_view=True)
     row = view["securities"]["1234"]
     assert row["not_generated"] == complete["securities"]["1234"]["not_generated"]
     assert ("external_assessment" in row["not_generated"]) is not external
-    assert set(row["omitted_from_view"]) == {"company_financials", "technical_analysis"}
+    assert set(row["omitted_from_view"]) == {"company_financials"}
     models = row["models"] if planned else row
     assert "company_financials" not in models
-    assert "technical_analysis" not in models
+    # 古い生成にモメンタムがなければ「0」「横ばい」や別の価格指標で埋めない。
+    index = next(i for i, m in enumerate(saved.models) if m.model_id == "technical_analysis")
+    assert models["technical_analysis"] == {
+        "full_result_ref": f"/inputs/generation/models/{index}/payload"
+    }
     if external:
         assert models["external_assessment"] == saved.result("external_assessment", "1234").payload
         models["external_assessment"]["comparisons"].clear()
@@ -129,8 +136,82 @@ def test_environment_view_separates_display_omission_from_not_generated(
     assert project_generated_inputs(saved) == complete
 
 
-def test_final_context_keeps_saved_environment_without_source_or_latest_head(tmp_path, monkeypatch):
-    runs, generation = _seed(tmp_path)
+@pytest.mark.parametrize(
+    ("peer_start", "peer_end", "alignment"),
+    [
+        ("2026-09-10", "2026-10-13", "same_recorded_endpoints"),
+        ("2026-09-09", "2026-10-13", "different_recorded_endpoints"),
+        ("2026-09-10", "2026-10-09", "different_recorded_endpoints"),
+        (None, "2026-10-13", "endpoints_unavailable"),
+        ("bad-date", "2026-10-13", "endpoints_unavailable"),
+        ("2026-10-14", "2026-10-13", "endpoints_unavailable"),
+    ],
+)
+def test_proposal_compares_recorded_r20_dates_not_returns(
+    tmp_path, peer_start, peer_end, alignment
+):
+    market = {
+        "price_path_relative": {
+            "benchmark_ticker": "1321",
+            "comparisons": {
+                "R20": {
+                    "comparison_start_date": "2026-09-10",
+                    "comparison_end_date": "2026-10-13",
+                    "own_return": -0.08,
+                    "benchmark_return": None,
+                    "relative_return": None,
+                    "status": "missing_benchmark_endpoint",
+                }
+            },
+        },
+        "relative": {
+            "sector": {
+                "comparison_start_date": peer_start,
+                "comparison_end_date": peer_end,
+                "peer_count": 1,
+                "relative_return_20d": 0.01,
+            }
+        },
+    }
+    runs, generation = _seed(tmp_path, market=market)
+    saved = read_research_model_inputs(generation.generation_id, targets=("1234",), path=runs)
+    subject = project_generated_inputs(saved, proposal_view=True)["securities"]["1234"]
+    assert subject["r20_index_sector_windows"] == {
+        "index_r20_window": ["2026-09-10", "2026-10-13"],
+        "sector_20bar_window": None
+        if alignment == "endpoints_unavailable"
+        else [peer_start, peer_end],
+        "alignment": alignment,
+    }
+    # 同一日付は代理指数価格の存在や比較成立の認定ではない。旧保存・通常調査の表示は不変。
+    assert subject["models"]["market_context"] == market
+    assert "r20_index_sector_windows" not in project_generated_inputs(saved)["securities"]["1234"]
+
+
+@pytest.mark.parametrize("momentum_status", ["available", "missing_endpoint", "not_generated"])
+def test_final_context_keeps_saved_environment_without_source_or_latest_head(
+    tmp_path, monkeypatch, momentum_status
+):
+    as_of = START.date()
+    technical = {
+        "as_of": as_of.isoformat(),
+        "history_end_date": (as_of - timedelta(days=2)).isoformat(),
+        "price_basis": "price_adjusted_close",
+        "read_semantics": "retained_prices_at_date_cutoff_not_original_publication_vintage",
+        "price_momentum_revision": "common-calendar-252-21-v2",
+        "price_momentum": {
+            "reference_date": as_of.isoformat(),
+            "start_date": (as_of - timedelta(days=365)).isoformat(),
+            "end_date": (as_of - timedelta(days=30)).isoformat(),
+            "status": momentum_status,
+            "value": -0.12 if momentum_status == "available" else None,
+        },
+        "price_path": {"freshness": "stale"},
+        "rsi_14bar": {"rsi": 67},
+    }
+    runs, generation = _seed(
+        tmp_path, technical=None if momentum_status == "not_generated" else technical
+    )
     app, market = tmp_path / "app.sqlite", tmp_path / "absent-market.sqlite"
     seed_ledger(
         app,
@@ -193,8 +274,24 @@ def test_final_context_keeps_saved_environment_without_source_or_latest_head(tmp
     )
     payload = context.payload()
     assert "saved_analysis_context" in payload
-    expected = project_generated_inputs(saved.inputs.generation, model_ids=ENVIRONMENT)
+    expected = project_generated_inputs(saved.inputs.generation, proposal_view=True)
     assert payload["saved_analysis_context"] == expected
+    row = payload["saved_analysis_context"]["securities"]["1234"]
+    if momentum_status == "not_generated":
+        assert "technical_analysis" in row["not_generated"]
+        assert "technical_analysis" not in row["models"]
+    else:
+        shown = row["models"]["technical_analysis"]
+        assert {k: v for k, v in shown.items() if k != "full_result_ref"} == {
+            k: v for k, v in technical.items() if k not in {"price_path", "rsi_14bar"}
+        }
+        full = saved.model_dump(mode="json")
+        for key in shown["full_result_ref"].strip("/").split("/"):
+            full = full[int(key)] if isinstance(full, list) else full[key]
+        assert full == technical
+        assert "technical_analysis" not in row["not_generated"]
+        shown["price_momentum"]["value"] = 42
+        assert context.payload()["saved_analysis_context"] == expected
     assert payload["saved_market_context_assessment"] is None
     assert payload["assessments"] == {}
     payload["saved_analysis_context"]["shared_subjects"].clear()
