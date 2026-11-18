@@ -858,6 +858,7 @@ def test_held_new_is_a_conflict_before_input_collection_and_cli_exit4(
 
 
 def test_saved_capacity_controls_resume_after_current_policy_changes(tmp_path, monkeypatch):
+    from baibai_engine.investment_judgment.workflow import selection_policy
     from baibai_engine.investment_judgment.workflow.selection_policy import ResearchCapacity
 
     value = seed_generated_selection(
@@ -865,7 +866,7 @@ def test_saved_capacity_controls_resume_after_current_policy_changes(tmp_path, m
     )
     prepared = prepare(tmp_path, value=value)
     monkeypatch.setattr(
-        selected_prepare, "CURRENT_RESEARCH_CAPACITY", ResearchCapacity(max_deep_research_targets=1)
+        selection_policy, "CURRENT_RESEARCH_CAPACITY", ResearchCapacity(max_deep_research_targets=1)
     )
     resumed = prepare(tmp_path, value=value)
     assert resumed.operation_id == prepared.operation_id
@@ -953,13 +954,14 @@ def test_legacy_draft_cli_cannot_start_new_operation(tmp_path, capsys):
 
 
 def test_historical_capacity_and_hash_survive_current_policy_change(tmp_path, monkeypatch):
+    from baibai_engine.investment_judgment.workflow import selection_policy
     from baibai_engine.investment_judgment.workflow.selection_policy import ResearchCapacity
 
     saved = selection(now=NOW, tickers=("1000", "1001", "1002"))
     operation = historical_operation(saved)
     seed_historical_operation(tmp_path / "app", operation)
     monkeypatch.setattr(
-        selected_prepare, "CURRENT_RESEARCH_CAPACITY", ResearchCapacity(max_deep_research_targets=1)
+        selection_policy, "CURRENT_RESEARCH_CAPACITY", ResearchCapacity(max_deep_research_targets=1)
     )
     resumed = resume_selected_workspace(
         operation_id=operation.operation_id,
@@ -1001,3 +1003,27 @@ def test_prepare_retry_releases_manifest_selection_before_resume(tmp_path, monke
     assert retried.status == "resumed"
     assert retried.operation_id == first.operation_id
     assert retried.selection_sha256 == first.selection_sha256
+
+
+def test_wider_coverage_only_for_recorded_holdings(tmp_path, holding_case):
+    from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
+    from baibai_engine.investment_judgment.workflow.workspace import ResearchWorkspaceConflictError
+
+    assert research_capacity("review_positions", 10).max_deep_research_targets == 10
+    for unrelated_scope in ("discover_new", "specified_stocks"):
+        assert research_capacity(unrelated_scope, 10).max_deep_research_targets == 3
+    db, _, _ = holding_case
+    value = seed_generated_selection(
+        runs=tmp_path / "runs", now=NOW, tickers=("2331",), scope="review_positions"
+    )
+    draft = generated_draft_for(value)
+    targets = tuple(selected_target(t, "holding") for t in ("2331", "1001", "1002", "1003"))
+    with pytest.raises(ResearchWorkspaceConflictError, match="purpose_conflict"):
+        prepare_selected_workspace(
+            draft=draft.model_copy(update={"targets": targets}),
+            db_path=db,
+            workspace=tmp_path / "new",
+            runs_path=tmp_path / "runs",
+            now=NOW,
+        )
+    assert OperationService(db).active() is None

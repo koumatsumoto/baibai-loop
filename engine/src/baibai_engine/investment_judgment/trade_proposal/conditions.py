@@ -149,6 +149,13 @@ def terms_unavailable_reasons(
     market_connection: sqlite3.Connection | None = None,
 ) -> tuple[GateReason, ...]:
     """経済判断と独立した、具体注文条件の不足を現在入力から列挙する。"""
+    if item.action == "sell" and item.conditional_recovery is not None:
+        return (
+            GateReason(
+                code="conditional_recovery_not_order_terms",
+                message="台帳上の保有を減らす条件案です。実口座・売却可能数・未成立注文・売値は未確認で、注文条件は提示しません。",
+            ),
+        )
     reasons: list[GateReason] = []
     quote = proposal_quote(inputs, item.ticker)
     if (

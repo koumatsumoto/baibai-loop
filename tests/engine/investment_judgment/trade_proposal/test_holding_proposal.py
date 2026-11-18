@@ -222,3 +222,48 @@ def test_sell_floor_never_requires_invalidated_valuation_or_replaces_missing_cur
     )
     assert insufficient.action == "defer"
     assert insufficient.sell_limit_projection is None
+
+
+@pytest.mark.parametrize(
+    ("qty", "known", "mode", "expected"),
+    [
+        (200, True, "consider_partial_recovery", "sell"),
+        (150, True, "consider_partial_recovery", "sell"),
+        (100, True, "consider_partial_recovery", "defer"),
+        (50, True, "consider_partial_recovery", "defer"),
+        (200, False, "consider_partial_recovery", "defer"),
+        (100, False, "consider_full_recovery", "sell"),
+    ],
+)
+def test_conditional_recovery_uses_current_position_but_never_asserts_an_order(
+    qty, known, mode, expected
+):
+    result = evaluate(
+        position=position(quantity=qty, quantity_basis_confirmed=known),
+        board_lot=100,
+        conditional_recovery=mode,
+    )
+    assert result.action == expected
+    assert (
+        result.sell_quantity
+        is result.sell_limit_projection
+        is result.current_price_projection
+        is None
+    )
+    assert [e.code for e in result.hard_blockers] == (
+        [] if expected == "sell" else ["quantity_basis_unconfirmed"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ({"quote": None}, "quote_missing_or_stale"),
+        ({"price_basis_confirmed": False}, "corporate_action_unresolved"),
+        ({"primary_verified": False}, "primary_evidence_requires_verification"),
+    ],
+)
+def test_allocation_review_does_not_replace_fresh_evidence(change, reason):
+    result = evaluate(conditional_recovery="consider_full_recovery", board_lot=100, **change)
+    assert result.action == "defer"
+    assert result.reason_code == reason

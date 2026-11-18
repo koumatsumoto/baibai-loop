@@ -15,6 +15,16 @@ class ResearchCapacity(BaseModel):
 CURRENT_RESEARCH_CAPACITY = ResearchCapacity()
 
 
+def research_capacity(scope: str, target_count: int) -> ResearchCapacity:
+    # 保有の範囲は台帳で入場時に検証する。既保有の全体見直しを新規調査枠で分断しない。
+    if (
+        scope == "review_positions"
+        and target_count > CURRENT_RESEARCH_CAPACITY.max_deep_research_targets
+    ):
+        return ResearchCapacity(max_deep_research_targets=target_count)
+    return CURRENT_RESEARCH_CAPACITY
+
+
 def validate_capacity(target_count: int, capacity: ResearchCapacity) -> None:
     if not 0 <= target_count <= capacity.max_deep_research_targets:
         raise ValueError("selected targets exceed the saved research capacity")

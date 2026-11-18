@@ -200,6 +200,8 @@ def _preview_holding(
         reviewed=True,
         latest=latest,
         max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
+        conditional_recovery=item.conditional_recovery if item.action == "sell" else None,
+        board_lot=inputs.board_lot,
         proposed_sell_limit_yen=(
             item.terms.limit_price_yen if item.action == "sell" and item.terms is not None else None
         ),

@@ -31,7 +31,7 @@ import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { formatJstDateTime, formatPct } from '../lib/format'
-import { ACTION_LABEL, isCorrectedProposal } from '../lib/proposal-history'
+import { proposalActionLabel, isCorrectedProposal } from '../lib/proposal-history'
 
 type ProposalItem = SavedProposalView['items'][number]
 
@@ -470,7 +470,9 @@ function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }
     <div className="grid gap-4">
       <p className="text-sm font-medium">{item.action === 'hold'
         ? item.holding_basis === 'investment_case_intact' ? '保有継続の根拠：投資仮説の維持' : '保有継続の根拠：十分な残存見返り'
-        : item.reason_code === 'economic_invalidation' ? '売却の根拠：重要な投資仮説の不成立' : '売却の根拠：残存見返りの不足'}</p>
+        : item.reason_code === 'consider_partial_recovery' || item.reason_code === 'consider_full_recovery'
+          ? '保有を続ける場合と比べた資金配分の条件案です。売却可能数量・指値・注文は確定していません。'
+          : item.reason_code === 'economic_invalidation' ? '売却の根拠：重要な投資仮説の不成立' : '売却の根拠：残存見返りの不足'}</p>
       {item.action === 'hold' && item.holding_basis === 'investment_case_intact' && <p className="text-xs leading-6 text-muted-foreground">投資仮説の維持と、現在の収益率が十分なことは別です。</p>}
       <div><p className="mb-1 text-sm font-medium">今回の再評価理由</p><Prose>{item.case_reassessment_reason}</Prose></div>
       {item.remaining_reward !== null && <div><p className="mb-1 text-sm font-medium">残存見返り：{REWARD_LABEL[item.remaining_reward.status]}</p><Prose>{item.remaining_reward.reason}</Prose></div>}
@@ -487,7 +489,7 @@ function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }
 
 export function ProposalItemCard({ item }: { item: ProposalItem }) {
   return (
-    <SectionCard headingLevel={3} meta={<Badge variant="secondary">資金の判断：{ACTION_LABEL[item.action]} · {item.action}</Badge>} padded title={item.ticker}>
+    <SectionCard headingLevel={3} meta={<Badge variant="secondary">資金の判断：{proposalActionLabel(item)} · {item.action}</Badge>} padded title={item.ticker}>
       <div className="grid min-w-0 gap-5">
         <PriceValueFinding assessment={item.assessment} />
         <ReportSummary text={item.rationale} />
@@ -504,7 +506,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
             </dl>}
             {item.action === 'buy' && <p className="text-sm text-muted-foreground">保存時の指値区分：{TIMING_LABEL[item.timing]}（{item.timing}）</p>}
             {(item.action === 'buy' || item.action === 'sell') && (item.terms !== null ? <SavedTerms terms={item.terms} withPriceFinding={item.assessment?.price_value_case != null} /> : <div className="grid gap-3">
-              <p className="text-sm font-medium">具体条件未確定</p>
+              <p className="text-sm font-medium">{item.action === 'sell' && item.reason_code.startsWith('consider_') ? '保有配分の条件案（注文対象外）' : '具体条件未確定'}</p>
               {item.action === 'buy' && item.proposed_limit_yen !== null && <dl><Field label="作者指定の上限（具体条件未確定）">{item.proposed_limit_yen} 円</Field></dl>}
               <Reasons reasons={item.terms_unavailable_reasons} title="具体条件が不足する理由" />
             </div>)}

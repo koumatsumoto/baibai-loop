@@ -4,9 +4,9 @@ import { createMemoryRouter, MemoryRouter, RouterProvider, useSearchParams } fro
 import { describe, expect, it } from 'vitest'
 
 import type { ProposalHistoryView, SavedProposalView } from '../src/api/types'
-import { groupProposalReports, proposalReportHref, publicationPeriod } from '../src/lib/proposal-history'
+import { groupProposalReports, proposalActionLabel, proposalReportHref, publicationPeriod } from '../src/lib/proposal-history'
 import { ProposalHistory } from '../src/pages/ProposalHistoryPage'
-import { buyFixture, newProposalFixture, reviewedDeferFixture } from './fixtures/proposals'
+import { buyFixture, newProposalFixture, reviewedDeferFixture, sellFixture } from './fixtures/proposals'
 
 function view(proposals: SavedProposalView[], missing: string[] = []): ProposalHistoryView {
   return { generated_at: '2026-11-20T00:00:00Z', status: missing.length ? 'partial' : (proposals.length ? 'ready' : 'empty'), error: missing.length ? '一部を読めません' : null, proposals, unavailable_proposal_ids: missing }
@@ -143,4 +143,11 @@ it('preserves exact report selection through repeated navigation and router Back
   await router.navigate(1)
   expect(html()).toContain(buyFixture.rationale)
   router.dispose()
+})
+
+
+it('keeps allocation comparisons distinct from an entire sale', () => {
+  expect(proposalActionLabel(sellFixture)).toBe('全量売却')
+  expect(proposalActionLabel({ ...sellFixture, reason_code: 'consider_partial_recovery' })).toBe('一部回収の条件案')
+  expect(proposalActionLabel({ ...sellFixture, reason_code: 'consider_full_recovery' })).toBe('全量回収の条件案')
 })

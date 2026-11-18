@@ -33,7 +33,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
     validate_input_known_at,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import (
-    CURRENT_RESEARCH_CAPACITY,
+    research_capacity,
     validate_capacity,
 )
 from baibai_engine.investment_judgment.workflow.workspace.admission import (
@@ -112,7 +112,7 @@ def _generated_selection(
         input_known_at=draft.input_known_at,
         selection_summary=draft.selection_summary,
         targets=draft.targets,
-        capacity=CURRENT_RESEARCH_CAPACITY,
+        capacity=research_capacity(draft.request.scope, len(draft.targets)),
         inputs=GeneratedResearchInputsV5(
             saved_company_context=read_company_contexts(
                 app_path,
@@ -179,7 +179,9 @@ def prepare_selected_workspace(
             company_growth_periods=company_growth_periods,
         )
     try:
-        validate_capacity(len(draft.targets), CURRENT_RESEARCH_CAPACITY)
+        validate_capacity(
+            len(draft.targets), research_capacity(draft.request.scope, len(draft.targets))
+        )
     except ValueError as error:
         raise ResearchWorkspaceConflictError(str(error)) from error
     tickers = tuple(t.ticker for t in draft.targets)

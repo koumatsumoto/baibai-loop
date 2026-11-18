@@ -8,6 +8,12 @@ export const ACTION_LABEL: Record<SavedProposalView['items'][number]['action'], 
   defer: '判断保留',
 }
 
+export function proposalActionLabel(item: SavedProposalView['items'][number]) {
+  if (item.action === 'sell' && item.reason_code === 'consider_full_recovery') return '全量回収の条件案'
+  if (item.action === 'sell' && item.reason_code === 'consider_partial_recovery') return '一部回収の条件案'
+  return ACTION_LABEL[item.action]
+}
+
 const publicationClock = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',

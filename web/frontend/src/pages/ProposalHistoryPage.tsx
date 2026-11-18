@@ -10,7 +10,7 @@ import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { formatJstDateTime } from '../lib/format'
-import { ACTION_LABEL, groupProposalReports, isCorrectedProposal, proposalReportHref, publicationPeriod } from '../lib/proposal-history'
+import { proposalActionLabel, groupProposalReports, isCorrectedProposal, proposalReportHref, publicationPeriod } from '../lib/proposal-history'
 import { ProposalReport } from './ProposalPage'
 
 function BackToReports() {
@@ -55,7 +55,7 @@ export function ProposalHistory({ data, proposalId = null, ticker = null }: {
             <div className="min-w-0"><h3 className="break-words text-lg font-semibold">{item.company_name ?? '会社名未記録'}</h3><p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="font-mono">{item.ticker}</span><span>{item.sector ?? '業種未記録'}</span></p></div>
             <ArrowUpRight aria-hidden="true" className="mt-1 size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
           </div>
-          <div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{ACTION_LABEL[item.action]}</Badge>{isCorrectedProposal(proposal) && <Badge variant="outline">訂正済みの旧提案</Badge>}</div>
+          <div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{proposalActionLabel(item)}</Badge>{isCorrectedProposal(proposal) && <Badge variant="outline">訂正済みの旧提案</Badge>}</div>
           <p className="whitespace-pre-wrap break-words text-sm leading-7">{item.rationale}</p>
           <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5"><Clock3 aria-hidden="true" className="size-3.5" /><time dateTime={proposal.published_at}>{publicationPeriod(proposal.published_at).time} 発行</time></span><span>提案基準日 {proposal.as_of}</span></div>
         </Link>)}

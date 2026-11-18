@@ -13,10 +13,12 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     current_price_projection,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
+    ConditionalRecovery,
     GateReason,
     PositionInput,
     QuoteInput,
     RemainingReward,
+    can_compare_partial_recovery,
 )
 
 type HoldingGateCode = Literal[
@@ -61,6 +63,8 @@ def evaluate_holding_proposal(
     latest: bool,
     max_quote_age_days: int,
     proposed_sell_limit_yen: Decimal | None = None,
+    conditional_recovery: ConditionalRecovery | None = None,
+    board_lot: int | None = None,
 ) -> HoldingProposalEvaluation:
     """Broken verified cases sell without quotes; intact holds need an explicit current check."""
     ticker = assessment.input_snapshot.ticker
@@ -82,6 +86,22 @@ def evaluate_holding_proposal(
     case = assessment.investment_case
     if case.status == "uncertain":
         block("investment_case_uncertain", "仮説の維持または破綻が未確定です。")
+    if conditional_recovery is not None:
+        if conditional_recovery == "consider_partial_recovery" and not can_compare_partial_recovery(
+            position, board_lot
+        ):
+            block(
+                "quantity_basis_unconfirmed",
+                "一部回収の比較には、取得単位が確認でき、一単元を除いても残る台帳保有が必要です。",
+            )
+        if assessment.input_snapshot.as_of != as_of:
+            block(
+                "valuation_basis_requires_refresh", "配分の条件案には今回の時点での評価が必要です。"
+            )
+        if quote is None or not 0 <= (as_of - quote.price_as_of).days <= max_quote_age_days:
+            block("quote_missing_or_stale", "現在の分配との比較に用いる終値を確認してください。")
+        if not price_basis_confirmed:
+            block("corporate_action_unresolved", "比較する終値と評価の株式単位を確認してください。")
     if blockers:
         return HoldingProposalEvaluation(
             "defer", blockers[0].code, tuple(blockers), None, None, None, None
@@ -96,6 +116,9 @@ def evaluate_holding_proposal(
             None,
             None,
         )
+    if conditional_recovery is not None:
+        # 比較の時点と査読を確認する。売れる株数、指値や見返り不足は推認しない。
+        return HoldingProposalEvaluation("sell", conditional_recovery, (), None, None, None, None)
     unavailable_code: HoldingGateCode | None = None
     if assessment.valuation.status != "resolved":
         unavailable_code = "valuation_unresolved"
