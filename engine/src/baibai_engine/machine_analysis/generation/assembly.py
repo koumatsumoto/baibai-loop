@@ -40,9 +40,6 @@ from baibai_engine.machine_analysis.observations.financials.capital_action_pdf i
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
-    HolderReportedCapital,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -68,9 +65,6 @@ class CompanyModelInputs:
     comparisons: Sequence[FilingComparisons] = ()
     pdf_statements: Sequence[PdfStatement] = ()
     capital_actions: Sequence[CapitalAction] = ()
-    holder_capital: Sequence[HolderReportedCapital] = ()
-    holder_coverage: str = "not_observed"
-    holder_snapshot_sealed_at: datetime | None = None
     provider_capital: dict[str, object] | None = None
 
 
@@ -201,9 +195,6 @@ def generate_models(
                 comparisons=company.comparisons,
                 pdf_statements=company.pdf_statements,
                 capital_actions=company.capital_actions,
-                holder_capital=company.holder_capital,
-                holder_coverage=company.holder_coverage,
-                holder_snapshot_sealed_at=company.holder_snapshot_sealed_at,
                 provider_capital=company.provider_capital,
             )
             history = external_observations.get(ticker)
