@@ -11,8 +11,6 @@ from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from pydantic import TypeAdapter
-
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -53,8 +51,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
-from baibai_engine.machine_analysis.screening.selection_query import read_publication
+from baibai_engine.machine_analysis.screening.selection_query import matches_validated_publication
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import RUNS_DB_PATH
@@ -67,7 +64,6 @@ from baibai_engine.storage.sqlite.application.write import (
 )
 from baibai_engine.storage.sqlite.read import read_rows
 
-_SCREENING_CODEC = TypeAdapter(ScreeningSelection)
 type _Edit = Callable[
     [sqlite3.Connection, OperationSession, ResearchSelectionRecord, ResearchProgress],
     OperationPayload | None,
@@ -145,29 +141,17 @@ class OperationService:
             raise ValueError("model input slice differs from its canonical generation")
         del canonical
         selection_id = selection.inputs.screening_selection_id
-        if selection_id is not None:
-            publication = read_publication(
+        if selection_id is not None and (
+            selection.inputs.screening_selection is None
+            or not matches_validated_publication(
                 path=self._runs_path,
                 selection_id=selection_id,
                 known_at=selection.input_known_at,
+                published_at=selection.inputs.screening_published_at,
+                selection=selection.inputs.screening_selection,
             )
-            if publication is None or selection.inputs.screening_selection is None:
-                raise OperationConflictError("screening selection differs from chosen generation")
-            published_at = publication.published_at
-            published_json = encode_json(
-                _SCREENING_CODEC.dump_python(publication.selection, mode="json")
-            )
-            # 比較用JSONがあれば、入力側の展開時まで元の全社木を保持する必要はない。
-            del publication
-            if (
-                published_json
-                != encode_json(
-                    _SCREENING_CODEC.dump_python(selection.inputs.screening_selection, mode="json")
-                )
-                or published_at != selection.inputs.screening_published_at
-            ):
-                raise OperationConflictError("screening selection differs from chosen generation")
-            del published_json
+        ):
+            raise OperationConflictError("screening selection differs from chosen generation")
         if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
             raise OperationConflictError(
                 "current ticker must be a four-character alphanumeric code"
