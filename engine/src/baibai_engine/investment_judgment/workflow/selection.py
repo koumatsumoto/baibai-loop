@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from hashlib import sha256
 from typing import Annotated, Literal, Self
@@ -23,7 +24,6 @@ from baibai_engine.investment_judgment.company_research.context import (
     AvailableResearch,
     CompanyContext,
 )
-from baibai_engine.investment_judgment.workflow.case_screening import CaseScreening
 from baibai_engine.investment_judgment.workflow.selection_policy import (
     CURRENT_RESEARCH_CAPACITY,
     ResearchCapacity,
@@ -311,6 +311,28 @@ class GeneratedSelectionWithContext(GeneratedSelection):
 
 class GeneratedResearchSelectionV4(GeneratedSelectionWithContext):
     schema_version: Literal[4] = 4
+
+
+@dataclass(frozen=True, slots=True)
+class PopulationGroup:
+    """分類だけ。全社を実際に調査したとも、欠測を落選とも扱わない。"""
+
+    scope: str
+    technical_state: str | None
+    financial_state: str | None
+    tickers: tuple[str, ...]
+    models_recorded: Annotated[bool | None, Field(exclude_if=lambda v: v is None)] = None
+
+
+@dataclass(frozen=True, slots=True)
+class CaseScreening(ScreeningSelection):
+    """resultの明細は有限行のみ。全体の明細はsource_sha256が指す発行物に属する。"""
+
+    source_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] = field(kw_only=True)
+    population_groups: tuple[PopulationGroup, ...] = field(kw_only=True)
+    legacy_candidate_count: Annotated[int | None, Field(ge=0, exclude_if=lambda v: v is None)] = (
+        field(kw_only=True, default=None)
+    )
 
 
 class GeneratedResearchInputsV5(GeneratedResearchInputsV4):

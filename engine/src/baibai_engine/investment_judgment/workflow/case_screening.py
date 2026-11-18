@@ -1,14 +1,14 @@
 """一度発行された探索から、Caseが実際に使った行と当時の母集団を固定する。"""
 
 from collections import defaultdict
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
 
-from pydantic import Field, TypeAdapter
+from pydantic import TypeAdapter
 
-from baibai_engine.machine_analysis.screening.contracts import ScreeningResult, ScreeningSelection
+from baibai_engine.investment_judgment.workflow.selection import CaseScreening, PopulationGroup
+from baibai_engine.machine_analysis.screening.contracts import ScreeningResult
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DISCOVERY_SUFFIX,
     DiscoverySelection,
@@ -20,28 +20,6 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_case_publication
 from baibai_engine.primitives.json import encode_json
-
-
-@dataclass(frozen=True, slots=True)
-class PopulationGroup:
-    """分類だけ。全社を実際に調査したとも、欠測を落選とも扱わない。"""
-
-    scope: str
-    technical_state: str | None
-    financial_state: str | None
-    tickers: tuple[str, ...]
-    models_recorded: Annotated[bool | None, Field(exclude_if=lambda v: v is None)] = None
-
-
-@dataclass(frozen=True, slots=True)
-class CaseScreening(ScreeningSelection):
-    """resultの明細は有限行のみ。全体の明細はsource_sha256が指す発行物に属する。"""
-
-    source_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] = field(kw_only=True)
-    population_groups: tuple[PopulationGroup, ...] = field(kw_only=True)
-    legacy_candidate_count: Annotated[int | None, Field(ge=0, exclude_if=lambda v: v is None)] = (
-        field(kw_only=True, default=None)
-    )
 
 
 def _state(value: object) -> str | None:
