@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import sqlite3
 from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
@@ -16,16 +16,20 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
 )
 from baibai_engine.investment_judgment.stock_assessment.store import (
     load_reviewed_assessment,
+    require_assessment_ref,
 )
-from baibai_engine.investment_judgment.workflow.selection import (
-    ResearchSelectionRecord as ResearchSelection,
+from baibai_engine.investment_judgment.workflow.operation.progress import (
+    ResearchOutcome,
+    progress_binding,
+    require_coverage,
 )
+from baibai_engine.investment_judgment.workflow.selection import selection_targets
 from baibai_engine.investment_judgment.workflow.workspace.admission import (
-    workspace_selection,
+    read_workspace_operation,
+    validate_workspace_selection,
 )
 from baibai_engine.investment_judgment.workflow.workspace.files import (
     _load_mapping,
-    _parse_date,
 )
 from baibai_engine.investment_judgment.workflow.workspace.validation import (
     _case_eligibility,
@@ -50,55 +54,105 @@ def compute_status(
     gate new authored work; they do not change an exact saved publication's status.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    gate = workspace_selection(manifest, db_path=db_path)
-    _validate_editable_drafts(workspace, manifest, gate=gate)
-    status = _draft_status(
-        workspace, manifest, selection=gate, db_path=db_path, now=now or datetime.now(JST)
-    )
-    status["request_scope"] = gate.request.scope
-    status["selection_summary"] = gate.selection_summary
-    return status
-
-
-def _draft_status(
-    workspace: Path,
-    manifest: Mapping[str, object],
-    *,
-    selection: ResearchSelection,
-    db_path: Path | None,
-    now: datetime,
-) -> dict[str, object]:
-    asof = _parse_date(str(manifest.get("research_as_of")), label="manifest research_as_of")
+    operation = read_workspace_operation(manifest, db_path=db_path)
+    selection = validate_workspace_selection(manifest, operation=operation)
+    progress = progress_binding(operation.payload)
+    completed_at = operation.completed_at
+    operation_status = operation.status
+    del operation  # Older Operations carry the whole market; release it before projecting inputs.
+    _validate_editable_drafts(workspace, manifest, gate=selection)
+    targets = selection_targets(selection)
+    require_coverage(targets, progress.outcomes, complete=False)
+    recorded = {o.ticker: o for o in progress.outcomes}
     holding = manifest.get("holding_ticker")
     cases = []
-    for target in selection.targets:
-        if holding is not None and holding != target.ticker:
-            continue
-        case_workspace = (
-            workspace / "holdings" / target.ticker
-            if target.purpose == "holding" and holding is None
-            else workspace
-        )
-        cases.append(_case_status(case_workspace, target.ticker, asof, db_path=db_path, now=now))
-    outstanding = [case for case in cases if case["status"] != "published"]
+    instant = now or datetime.now(JST)
+    with closing(connect_read_only(database_path(db_path))) as connection:
+        connection.execute("BEGIN")
+        for target in targets:
+            if holding is not None and holding != target.ticker:
+                continue
+            case_workspace = (
+                workspace / "holdings" / target.ticker
+                if target.purpose == "holding" and holding is None
+                else workspace
+            )
+            cases.append(
+                _case_status(
+                    connection,
+                    case_workspace,
+                    target.ticker,
+                    selection.research_as_of,
+                    outcome=recorded.get(target.ticker),
+                    now=instant,
+                    completed_at=completed_at,
+                )
+            )
+    next_action = next((row["next_action"] for row in cases if row["next_action"]), None)
     return {
         "workspace_status": (
-            "no_research" if not cases else "published" if not outstanding else "incomplete"
+            "no_research"
+            if not cases
+            else "published"
+            if all(row["status"] == "published" for row in cases)
+            else "incomplete"
         ),
         "cases": cases,
-        "next_action": outstanding[0]["next_action"] if outstanding else None,
+        "next_action": next_action,
+        "operation_status": operation_status,
+        "request_scope": selection.request.scope,
+        "selection_summary": selection.selection_summary,
     }
 
 
 def _case_status(
-    workspace: Path, ticker: str, asof: date, *, db_path: Path | None, now: datetime
+    connection: sqlite3.Connection,
+    workspace: Path,
+    ticker: str,
+    asof: date,
+    *,
+    outcome: ResearchOutcome | None,
+    now: datetime,
+    completed_at: datetime | None,
 ) -> dict[str, object]:
     case = _read_case(workspace, ticker, asof)
+    # Local edits still need their own review. Only a clean workspace reads the bound result
+    # in lieu of those files; a same-ticker latest pair is not this Operation's decision.
+    if not case.has_authored_files and outcome is not None:
+        result: dict[str, object] = {
+            "ticker": ticker,
+            "status_basis": "recorded_outcome",
+            "recorded_outcome": outcome.model_dump(mode="json"),
+            "assessment_id": None,
+            "assessment_validation_errors": [],
+            "review_validation_errors": [],
+            "next_action": None,
+        }
+        if outcome.status == "unfinished":
+            return {**result, "status": "recorded_unfinished"}
+        try:
+            pair = require_assessment_ref(connection, outcome.assessment_ref)
+            recorded_by = min(now, completed_at) if completed_at else now
+            if pair.document.input_snapshot.ticker != ticker or pair.published_at > recorded_by:
+                raise ValueError("recorded Assessment differs from the target or postdates status")
+        except ValueError as error:
+            return {
+                **result,
+                "status": "recorded_outcome_unreadable",
+                "assessment_validation_errors": [str(error)],
+                "next_action": f"{ticker}: verify the recorded Assessment and Review reference",
+            }
+        return {
+            **result,
+            "status": "published",
+            "assessment_id": pair.assessment_id,
+            "assessment_as_of": pair.document.input_snapshot.as_of.isoformat(),
+        }
     assessment_id = None
     if not case.assessment_errors and not case.review_errors:
         assert case.assessment is not None
         assert case.review is not None
-        assessment_id = _published_case(case.assessment, case.review, db_path=db_path)
+        assessment_id = _published_case(connection, case.assessment, case.review)
     # Publication is a historical fact; current eligibility only guides unpublished work.
     assessment_errors, review_errors = (
         (case.assessment_errors, case.review_errors)
@@ -112,34 +166,53 @@ def _case_status(
         if review_errors
         else "ready_for_promotion"
     )
+    next_action = None
     if assessment_id is not None:
         status = "published"
+        assert case.review is not None
+        if (
+            outcome is None
+            or outcome.status != "reviewed"
+            or outcome.assessment_ref.assessment_id != assessment_id
+            or outcome.assessment_ref.review_id != case.review.review_id
+            or outcome.assessment_ref.core_sha256 != case.review.reviewed_assessment_sha256
+        ):
+            status = "published_not_bound"
+            if completed_at is None:
+                next_action = (
+                    f"{ticker}: compare the published pair with this Operation's question and "
+                    "recorded outcome; if adopting it, bind with operation record-assessment, "
+                    "do not republish"
+                )
+    elif completed_at is None:
+        next_action = _next_action(status, ticker)
     return {
         "ticker": ticker,
         "status": status,
+        "status_basis": "workspace_files",
+        # A local publication can exist without being the Operation's chosen pair.
+        "recorded_outcome": outcome.model_dump(mode="json") if outcome is not None else None,
         "assessment_id": assessment_id,
         "assessment_validation_errors": assessment_errors,
         "review_validation_errors": review_errors,
-        "next_action": None if status == "published" else _next_action(status, ticker),
+        "next_action": next_action,
     }
 
 
 def _published_case(
-    assessment: StockAssessmentDocument, review: AssessmentReview, *, db_path: Path | None
+    connection: sqlite3.Connection, assessment: StockAssessmentDocument, review: AssessmentReview
 ) -> str | None:
     """Show Research publication only for this exact assessment core and authored review."""
-    with closing(connect_read_only(database_path(db_path))) as connection:
-        connection.execute("BEGIN")
-        rows = connection.execute(
-            "SELECT t.assessment_id FROM stock_assessment t "
-            "JOIN stock_assessment_review r ON r.assessment_id=t.assessment_id "
-            "WHERE t.core_sha256=? AND r.review_id=?",
-            (assessment_core_hash(assessment), review.review_id),
-        ).fetchall()
-        for row in rows:
-            pair = load_reviewed_assessment(connection, str(row["assessment_id"]))
-            if pair.document == assessment and pair.review == review:
-                return pair.assessment_id
+    rows = connection.execute(
+        "SELECT t.assessment_id FROM stock_assessment t "
+        "JOIN stock_assessment_review r ON r.assessment_id=t.assessment_id "
+        "WHERE t.core_sha256=? AND r.review_id=?",
+        (assessment_core_hash(assessment), review.review_id),
+    ).fetchall()
+    for row in rows:
+        pair = load_reviewed_assessment(connection, str(row["assessment_id"]))
+        if pair.document == assessment and pair.review == review:
+            return pair.assessment_id
     return None
 
 

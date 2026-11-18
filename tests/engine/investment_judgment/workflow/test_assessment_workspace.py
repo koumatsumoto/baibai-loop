@@ -38,6 +38,7 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     compute_status,
     prepare_selected_workspace,
     promote,
+    resume_selected_workspace,
     scaffold_assessment,
     scaffold_review,
 )
@@ -266,6 +267,125 @@ def test_promote_records_exact_assessment_for_new_target_and_retry_preserves_id(
         assert connection.execute("SELECT COUNT(*) FROM ledger_event").fetchone()[0] == 0
 
 
+def test_clean_resume_reads_only_the_bound_exact_pair_not_the_same_company_head(case, tmp_path):
+    db, _, operation_id = case
+    store = AssessmentStoreService(db, clock=lambda: NOW)
+    old, review = pair_payload()
+    bound = store.publish_reviewed_assessment(
+        assessment_payload=old,
+        review_payload=review,
+        assessment_id=assessment_id(),
+        supersedes_id=None,
+    )
+    resume = tmp_path / "second-workspace"
+    resume_selected_workspace(operation_id=operation_id, workspace=resume, db_path=db, now=NOW)
+    # A publication about the same company, even today, is not the Operation's chosen pair.
+    assert compute_status(resume, db_path=db, now=NOW)["cases"][0]["status"] == "incomplete"
+    OperationService(db).record_assessment(operation_id, bound.assessment_id, now=NOW)
+    other, other_review = pair_payload(review_number=3)
+    other["findings"]["business_understanding"] += "Separate decision premise"
+    update_review_hash(other, other_review)
+    AssessmentStoreService(
+        db, clock=lambda: NOW + timedelta(seconds=5)
+    ).publish_reviewed_assessment(
+        assessment_payload=other,
+        review_payload=other_review,
+        assessment_id=assessment_id(2),
+        supersedes_id=bound.assessment_id,
+    )
+    after = db.read_bytes()
+    assert not (resume / "1234").exists()
+    status = compute_status(resume, db_path=db, now=NOW + timedelta(days=1))
+    (row,) = status["cases"]
+    assert status["workspace_status"] == row["status"] == "published"
+    assert status["next_action"] is row["next_action"] is None
+    assert row["assessment_id"] == bound.assessment_id
+    assert row["assessment_as_of"] == NOW.date().isoformat()  # Not tomorrow's evaluation.
+    assert row["recorded_outcome"]["assessment_ref"] == {
+        "assessment_id": bound.assessment_id,
+        "core_sha256": bound.core_sha256,
+        "review_id": bound.review.review_id,
+    }
+    assert not (resume / "1234").exists()
+    assert db.read_bytes() == after
+
+    # The other published pair has now also been opened here. It did not change the decision.
+    directory = case[1] / "1234"
+    directory.mkdir(exist_ok=True)
+    (directory / "assessment-draft.yaml").write_text(yaml.safe_dump(other))
+    (directory / "assessment-review.yaml").write_text(yaml.safe_dump(other_review))
+    local = compute_status(case[1], db_path=db, now=NOW + timedelta(hours=1))
+    (local_row,) = local["cases"]
+    assert local["workspace_status"] == "incomplete"
+    assert local_row["status"] == "published_not_bound"
+    assert local_row["status_basis"] == "workspace_files"
+    assert local_row["assessment_id"] == assessment_id(2)
+    assert local_row["recorded_outcome"]["assessment_ref"]["assessment_id"] == bound.assessment_id
+    assert "record-assessment" in local["next_action"]
+    assert db.read_bytes() == after
+
+    with closing(sqlite3.connect(db)) as conn, conn:
+        conn.execute("DROP TRIGGER stock_assessment_immutable")  # Corrupted fixture copy.
+        conn.execute(
+            "UPDATE stock_assessment SET core_sha256 = ? WHERE assessment_id = ?",
+            ("0" * 64, bound.assessment_id),
+        )
+    (row,) = compute_status(resume, db_path=db, now=NOW + timedelta(days=1))["cases"]
+    assert row["status"] == "recorded_outcome_unreadable"
+    assert row["assessment_id"] is None
+    assert row["assessment_validation_errors"]
+    assert "verify" in row["next_action"]  # Do not substitute the healthy newer pair.
+
+
+def test_clean_resume_distinguishes_unfinished_from_unresearched_without_hiding_local_edits(
+    case, tmp_path
+):
+    db, _, operation_id = case
+    OperationService(db).record_unfinished(
+        operation_id,
+        ticker="1234",
+        reason="決算延期。訂正後の事業キャッシュが不明。",
+        references=("決算延期の公表資料",),
+        now=NOW,
+    )
+    resume = tmp_path / "second-workspace"
+    resume_selected_workspace(operation_id=operation_id, workspace=resume, db_path=db, now=NOW)
+    before = db.read_bytes()
+    status = compute_status(resume, db_path=db, now=NOW)
+    (row,) = status["cases"]
+    assert status["workspace_status"] == "incomplete"  # Explicitly unfinished is not published.
+    assert row["status"] == "recorded_unfinished"
+    assert row["assessment_id"] is None
+    assert row["recorded_outcome"]["unfinished_reason"].startswith("決算延期")
+    assert row["recorded_outcome"]["references"] == ["決算延期の公表資料"]
+    assert row["next_action"] is status["next_action"] is None
+
+    # A started or broken local draft is not an absent draft.
+    path = resume / "1234" / "assessment-draft.yaml"
+    path.parent.mkdir()
+    path.write_text("{}")
+    (row,) = compute_status(resume, db_path=db, now=NOW)["cases"]
+    assert row["status"] == "incomplete"
+    assert row["assessment_validation_errors"]
+    assert row["next_action"]
+    assert db.read_bytes() == before
+
+    # Even both files of a valid publication do not replace the explicit unfinished result.
+    doc, review = author((db, resume, operation_id))
+    AssessmentStoreService(db, clock=lambda: NOW).publish_reviewed_assessment(
+        assessment_id(), doc, review
+    )
+    saved = db.read_bytes()
+    active = compute_status(resume, db_path=db, now=NOW)
+    (published,) = active["cases"]
+    assert active["workspace_status"] == "incomplete"
+    assert published["status"] == "published_not_bound"
+    assert published["recorded_outcome"]["status"] == "unfinished"
+    assert published["assessment_id"] == assessment_id()
+    assert "record-assessment" in active["next_action"]
+    assert db.read_bytes() == saved
+
+
 def test_legacy_price_clock_pair_remains_readable_and_retryable_but_not_newly_publishable(case):
     db, workspace, _ = case
     scaffold(case)
@@ -315,7 +435,10 @@ def test_legacy_price_clock_pair_remains_readable_and_retryable_but_not_newly_pu
         )
         == saved
     )
-    assert compute_status(workspace, db_path=db, now=NOW)["cases"][0]["status"] == "published"
+    assert (
+        compute_status(workspace, db_path=db, now=NOW)["cases"][0]["status"]
+        == "published_not_bound"
+    )
     promoted = promote(workspace=workspace, ticker="1234", db_path=db, now=NOW)
     assert promote(workspace=workspace, ticker="1234", db_path=db, now=NOW) == promoted
     assert promoted.assessment_sha256 == core_hash
@@ -573,6 +696,16 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
     child_status = compute_status(child, db_path=db, now=sold_at)
 
     assert parent == child_status
+    clean = tmp_path / "restored-holdings"
+    resume_selected_workspace(
+        operation_id=prepared.operation_id, workspace=clean, db_path=db, now=sold_at
+    )
+    restored = compute_status(clean, db_path=db, now=sold_at)
+    assert restored == compute_status(clean / "holdings/2331", db_path=db, now=sold_at)
+    assert restored["workspace_status"] == "published"
+    assert restored["next_action"] is None
+    assert restored["cases"][0]["assessment_id"] == published.assessment_id
+    assert restored["cases"][0]["recorded_outcome"]["purpose"] == "holding"
     assert parent["workspace_status"] == "published"
     assert parent["cases"][0]["assessment_id"] == published.assessment_id
     assert db.read_bytes() == saved_database
@@ -982,14 +1115,14 @@ def test_status_reuses_the_validated_workspace_selection_once(case, monkeypatch)
     from baibai_engine.investment_judgment.workflow.workspace import status
 
     db, workspace, _ = case
-    original = status.workspace_selection
+    original = status.validate_workspace_selection
     calls = []
 
     def observe(*args, **kwargs):
         calls.append(kwargs)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(status, "workspace_selection", observe)
+    monkeypatch.setattr(status, "validate_workspace_selection", observe)
     before = db.read_bytes()
     result = compute_status(workspace, db_path=db, now=NOW)
     assert result["workspace_status"] == "incomplete"
