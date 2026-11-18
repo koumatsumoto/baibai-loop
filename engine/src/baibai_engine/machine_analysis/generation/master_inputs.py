@@ -25,8 +25,12 @@ _CONTRACT = FullDayInputContract(
 )
 
 
-def retain_master_input(store: ObjectStore, selected: dict[str, Any]) -> dict[str, JsonValue]:
-    return retain_full_day_input(store, selected, contract=_CONTRACT)
+def retain_master_input(
+    store: ObjectStore, selected: dict[str, Any], *, immediate_full_replay: bool = False
+) -> dict[str, JsonValue]:
+    return retain_full_day_input(
+        store, selected, contract=_CONTRACT, immediate_full_replay=immediate_full_replay
+    )
 
 
 def read_master_input(

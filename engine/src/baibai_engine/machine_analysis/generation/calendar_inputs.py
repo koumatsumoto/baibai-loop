@@ -41,8 +41,12 @@ def calendar_day_closed(scope: Mapping[str, Any]) -> bool:
     return calendar_day_usable(scope) and scope["division"] in {"0", "3"}
 
 
-def retain_calendar_input(store: ObjectStore, selected: dict[str, Any]) -> dict[str, JsonValue]:
-    return retain_full_day_input(store, selected, contract=_CONTRACT)
+def retain_calendar_input(
+    store: ObjectStore, selected: dict[str, Any], *, immediate_full_replay: bool = False
+) -> dict[str, JsonValue]:
+    return retain_full_day_input(
+        store, selected, contract=_CONTRACT, immediate_full_replay=immediate_full_replay
+    )
 
 
 def read_calendar_input(
