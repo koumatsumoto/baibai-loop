@@ -34,6 +34,8 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 
+_PATH_CODEC = TypeAdapter(tuple[PathCoordinates, ...])
+
 
 def technical_financial_selection_id(
     generation_id: str, *, policy: TechnicalFinancialPolicy
@@ -56,7 +58,7 @@ def project_technical_financial_row(
     coordinates, input_reviews = project_company_with_input_reviews(
         ticker, models=models, metadata=metadata
     )
-    paths = TypeAdapter(tuple[PathCoordinates, ...]).dump_python(coordinates.paths, mode="json")
+    paths = _PATH_CODEC.dump_python(coordinates.paths, mode="json")
     financial_paths: dict[str, JsonValue] = {
         "source": "saved_model_economic_path_coordinates_not_ranking",
         "matched_routes": cast(

@@ -17,7 +17,11 @@ from baibai_engine.machine_analysis.models.company_growth.reading import (
     CompanyGrowthReader,
     metric_value,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
+from baibai_engine.machine_analysis.screening.policies.economic_path_context import _growth_coverage
+from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
+    can_use_full_fy,
+    saved_growth_change,
+)
 
 POLICY_ID = "financial-growth-research-trial-v1"
 _MODELS = ("company_financials", "company_growth")
@@ -61,6 +65,7 @@ _CASH_FLOW_CONTEXT = (
     "ocf_ttm_period",
     "ttm_quality_ocf_yield",
 )
+_QUARTER_METRICS: tuple[Metric, ...] = ("sales", "operating_profit", "operating_margin")
 _SHARE_METRICS: tuple[Metric, ...] = ("parent_profit", "reported_basic_eps", "average_shares")
 
 type CheckState = Literal["met", "not_met", "unavailable"]
@@ -77,28 +82,22 @@ def evaluate_financial_growth_gate(
         raise ValueError("financial-growth diagnostic requires unique saved models")
     index = {model.model_id: model for model in relevant}
     growth_model = index.get("company_growth")
-    reader = CompanyGrowthReader(growth_model.payload if growth_model is not None else None)
+    growth = growth_model.payload if growth_model is not None else {}
+    reader = CompanyGrowthReader(growth if growth_model is not None else None)
     if reader.model is not None and reader.model.ticker != ticker:
         raise ValueError("growth payload belongs to a different subject")
 
-    # Reuse the owner's bounded FY/comparison projection, not price, path eligibility,
-    # peer ranks or TA. Even an unavailable pricing contract is irrelevant here.
-    projected = project_company(
-        ticker, models=(growth_model,) if growth_model is not None else (), metadata=metadata
-    ).context
-    annual_context = _object(projected.get("annual_observation"))
-    uses_fy = annual_context.get("selected_variant") == "full_fy"
-    annual = (
-        reader.latest_full_fy if uses_fy else reader.observation(reader.latest_period, "annual_ttm")
-    )
-    quarter = reader.observation(reader.latest_period, "quarter")
-    reported = reader.observation(reader.latest_period, "reported")
-    balance = reader.observation(reader.latest_period, "balance")
-    changes = {
-        metric: _object(_object(projected.get("latest_growth_changes")).get(metric)).get(
-            "latest_quarter"
-        )
-        for metric in ("sales", "operating_profit", "operating_margin")
+    # These facts come from the validated growth model, not the price or path selection.
+    anchor = reader.latest_period
+    latest_ttm = reader.observation(anchor, "annual_ttm")
+    full_fy = reader.latest_full_fy
+    uses_fy = can_use_full_fy(anchor, latest_ttm, full_fy)
+    annual = full_fy if uses_fy else latest_ttm
+    quarter = reader.observation(anchor, "quarter")
+    reported = reader.observation(anchor, "reported")
+    balance = reader.observation(anchor, "balance")
+    changes: dict[str, JsonValue | None] = {
+        metric: saved_growth_change(reader, quarter, metric) for metric in _QUARTER_METRICS
     }
     checks = {
         "positive_net_assets": _metric_check(balance, "net_assets"),
@@ -190,9 +189,7 @@ def evaluate_financial_growth_gate(
                 "annual_variant": "full_fy" if uses_fy else "annual_ttm",
                 "metric_units": {
                     key: value
-                    for key, value in _object(
-                        growth_model.payload.get("metric_units") if growth_model else None
-                    ).items()
+                    for key, value in _object(growth.get("metric_units")).items()
                     if key in {"operating_profit", "parent_profit"}
                 },
                 "annual": _observation_metrics(
@@ -204,12 +201,10 @@ def evaluate_financial_growth_gate(
             },
             "reported_share_context": {
                 "read_semantics": "reported_basic_eps_not_diluted_or_current_share_basis",
-                "comparison_basis": projected.get("growth_comparison_basis"),
+                "comparison_basis": growth.get("comparison_basis"),
                 "metric_units": {
                     key: value
-                    for key, value in _object(
-                        growth_model.payload.get("metric_units") if growth_model else None
-                    ).items()
+                    for key, value in _object(growth.get("metric_units")).items()
                     if key in _SHARE_METRICS
                 },
                 "reported": _observation_metrics(reader, reported, _SHARE_METRICS),
@@ -222,12 +217,10 @@ def evaluate_financial_growth_gate(
                 },
             },
             "quarter_growth_context": {
-                "comparison_basis": projected.get("growth_comparison_basis"),
+                "comparison_basis": growth.get("comparison_basis"),
                 "metric_units": {
                     key: value
-                    for key, value in _object(
-                        growth_model.payload.get("metric_units") if growth_model else None
-                    ).items()
+                    for key, value in _object(growth.get("metric_units")).items()
                     if key in changes
                 },
                 "changes": changes,
@@ -245,17 +238,15 @@ def evaluate_financial_growth_gate(
                 "quarter": reader.saved_observation(quarter),
                 "balance": reader.saved_observation(balance),
                 "latest_reported": reader.saved_observation(reported),
-                "latest_ttm": reader.saved_observation(
-                    reader.observation(reader.latest_period, "annual_ttm")
-                ),
+                "latest_ttm": reader.saved_observation(latest_ttm),
                 "quarter_changes": changes,
                 "quarter_comparison_prior_observations": _comparison_priors(
                     reader, quarter, changes
                 ),
-                "growth_status": projected.get("growth_status"),
-                "growth_reason": projected.get("growth_reason"),
-                "comparison_basis": projected.get("growth_comparison_basis"),
-                "coverage": projected.get("growth_coverage"),
+                "growth_status": growth.get("status"),
+                "growth_reason": growth.get("reason"),
+                "comparison_basis": growth.get("comparison_basis"),
+                "coverage": _growth_coverage(_object(growth.get("coverage"))),
             },
             "financial_context": {key: financial.get(key) for key in _FINANCIAL_CONTEXT},
             **(
@@ -302,7 +293,7 @@ def _comparison_priors(
     if quarter is None:
         return []
     priors: dict[int, dict[str, JsonValue]] = {}
-    for metric in ("sales", "operating_profit", "operating_margin"):
+    for metric in _QUARTER_METRICS:
         for change in reader.year_over_year(quarter, metric):
             # Follow the already selected comparison, not a second selection rule.
             # PDF-derived priors are not raw observations in periods.observations.

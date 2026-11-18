@@ -116,14 +116,14 @@ def project_company_with_input_reviews(
     quarter = growth_read.observation(anchor, "quarter")
     reported = growth_read.observation(anchor, "reported")
     full_fy = growth_read.latest_full_fy
-    use_full_fy = _can_use_full_fy(anchor, annual, full_fy)
+    use_full_fy = can_use_full_fy(anchor, annual, full_fy)
     annual_variant = "full_fy" if use_full_fy else "annual_ttm"
     annual_observations: dict[str, Observation | None] = {"annual_ttm": annual}
     if full_fy is not None:
         annual_observations["full_fy"] = full_fy
     changes: dict[str, dict[str, dict[str, JsonValue]]] = {
         variant: {
-            metric: _change(
+            metric: saved_growth_change(
                 growth_read,
                 observation,
                 metric,
@@ -587,7 +587,7 @@ def _growth_policy_inputs(payload: dict[str, JsonValue] | None) -> dict[str, Jso
     }
 
 
-def _can_use_full_fy(
+def can_use_full_fy(
     anchor: PeriodState | None, annual: Observation | None, full_fy: Observation | None
 ) -> bool:
     if (
@@ -715,7 +715,7 @@ def _observation(observation: dict[str, JsonValue], name: str) -> dict[str, Json
     return result
 
 
-def _change(
+def saved_growth_change(
     growth: CompanyGrowthReader,
     observation: Observation | None,
     metric: Metric,
