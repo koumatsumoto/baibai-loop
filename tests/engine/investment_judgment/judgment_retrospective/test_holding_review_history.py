@@ -21,7 +21,7 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_engine.portfolio.ledger.events import ExecutionEvent
+from baibai_engine.portfolio.ledger.events import ExecutionEvent, ordered_replay_events
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 STEP = timedelta(microseconds=1)
@@ -75,7 +75,7 @@ def _context(case, capsys, when, *options, scope="review_positions"):
     return json.loads(capsys.readouterr().out)
 
 
-def _record(case, when, side, qty=100):
+def _record(case, when, side, qty=100, *, recorded_as_of=None):
     store = LedgerStoreService(case.app)
     ledger, head = store.load_with_head()
     event = ExecutionEvent(
@@ -93,7 +93,12 @@ def _record(case, when, side, qty=100):
     store.apply_document(
         expected_head=head,
         expected_document=ledger,
-        replacement=ledger.model_copy(update={"events": (*ledger.events, event), "as_of": when}),
+        replacement=ledger.model_copy(
+            update={
+                "events": ordered_replay_events((*ledger.events, event)),
+                "as_of": recorded_as_of or when,
+            }
+        ),
     )
 
 
@@ -206,3 +211,15 @@ def test_new_buy_for_the_same_issuer_is_not_a_prior_holding_review(tmp_path, cap
     assert _context(case, capsys, PUBLISHED + STEP)["holding_review_history"]["items"] == {
         "1234": {"status": "not_recorded"}
     }
+
+
+def test_late_earlier_buy_does_not_break_a_never_closed_position(tmp_path, capsys):
+    case = backend_case(tmp_path, holding=True)
+    proposal = _publish(case)
+    # Earlier than the originally recorded first buy; neither holding was sold.
+    earlier = case.ledger.events[0].occurred_at + timedelta(seconds=10)
+    _record(case, earlier, "buy", recorded_as_of=PUBLISHED + STEP)
+    row = _context(case, capsys, PUBLISHED + STEP)["holding_review_history"]["items"]["1234"]
+    assert row["status"] == "same_recorded_holding_episode"
+    assert row["origin"]["draft_sha256"] == proposal.review.draft_sha256
+    assert row["original_review_conditions"] == list(proposal.items[0].review_conditions)

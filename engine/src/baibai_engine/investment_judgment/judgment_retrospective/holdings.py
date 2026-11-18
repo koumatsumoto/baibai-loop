@@ -17,6 +17,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
 )
 from baibai_engine.portfolio.ledger.events import (
+    ExecutionEvent,
     LedgerEvent,
     PortfolioLedgerDocument,
     holding_episodes,
@@ -43,6 +44,13 @@ def holding_review_history(
     pending = set(tickers)
     rows: dict[str, dict[str, object]] = {}
     current = _openings(ledger.events, known_at) if pending else {}
+    # Ledger order between same-instant fills is stable. An earlier buy reported
+    # late can move the start without ending the position the author reviewed.
+    fill_order = {
+        event.event_id: i
+        for i, event in enumerate(ledger.events)
+        if pending and isinstance(event, ExecutionEvent) and event.occurred_at <= known_at
+    }
 
     @cache
     def previous(head: int, checked: datetime) -> dict[str, str] | None:
@@ -103,10 +111,11 @@ def holding_review_history(
                 not original
                 or ticker not in original
                 or ticker not in current
+                or original[ticker] not in fill_order
                 or not any(p.ticker == ticker and p.quantity > 0 for p in inputs.positions)
             ):
                 row["status"] = "holding_episode_unconfirmed"
-            elif original[ticker] != current[ticker]:
+            elif fill_order[original[ticker]] < fill_order[current[ticker]]:
                 row["status"] = "different_recorded_holding_episode"
             else:
                 status, notes = item_review_notes(conn, ref, published, known_at)
