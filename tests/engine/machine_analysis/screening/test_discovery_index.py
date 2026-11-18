@@ -7,7 +7,11 @@ from dataclasses import replace
 from datetime import timedelta
 
 import pytest
-from tests.helpers.archived_technical_financial import SIX_STOCK_ORDER, archived_from_models
+from tests.helpers.archived_technical_financial import (
+    SIX_STOCK_ORDER,
+    stored_publication,
+    stored_row,
+)
 from tests.helpers.technical_financial import _seed
 
 from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
@@ -23,8 +27,27 @@ from baibai_engine.primitives.json import encode_json
 def fixed(path):
     full = _seed(path)
     meta = GenerationMetadata.model_validate(full.model_dump(exclude={"models"}))
-    legacy = archived_from_models(full, order=SIX_STOCK_ORDER)
-    subjects = legacy.universe_tickers
+    # A historical publication is a declared input, never reconstructed from current models.
+    growth = ["profit_growth", "operating_recovery"]
+    recorded = [
+        ("1234", "growth_research", "matched", "research_candidate", growth),
+        ("2345", "no_current_hypothesis", "matched", "not_selected", []),
+        ("3456", "input_review", "matched", "input_unresolved", []),
+        ("4567", "growth_research", "unavailable", "research_candidate", growth),
+        ("5678", "growth_research", "unavailable", "research_candidate", growth),
+        ("6789", "input_review", "matched", "input_unresolved", []),
+    ]
+    legacy = stored_publication(
+        meta.generation_id,
+        [
+            stored_row(
+                t, lane=lane, technical={"state": ta}, gate={"state": g, "matched_routes": routes}
+            )
+            for t, lane, ta, g, routes in recorded
+        ],
+        order=SIX_STOCK_ORDER,
+    )
+    subjects = tuple(sorted(t for t, plan in meta.subject_plan.items() if plan.scope == "stock"))
     rows = {
         t: project_discovery_row(
             t, models=tuple(m for m in full.models if m.subject == t), metadata=meta

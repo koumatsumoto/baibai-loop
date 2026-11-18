@@ -6,6 +6,7 @@ import pytest
 from tests.engine.machine_analysis.screening.test_financial_input_review import (
     case,
     current,
+    observations,
     project_unchanged,
 )
 
@@ -28,16 +29,15 @@ def test_stale_price_keeps_selected_nonprice_support_without_financial_clearance
     data = stale_case(expansion=expansion, technical=technical)
     row = project_unchanged(data)
     baseline = project_unchanged(case(expansion=expansion, technical=technical))
-    assert row.financial_gate == baseline.financial_gate
-    assert row.technical == baseline.technical
-    assert row.financial_gate["state"] == "not_selected"
-    assert row.screening_lane == "input_review"
-    assert row.financial_paths["matched_routes"] == []
-    assert not any(p["eligible"] for p in row.financial_paths["paths"])
-    assert all(p["price_value"] is None for p in row.financial_paths["paths"])
-    reasons = row.financial_paths["input_review_reasons"]
-    assert len(reasons) == 1
-    reason = reasons[0]
+    _, _, coordinates, reviews = observations(data)
+    assert row["financial_state"] == baseline["financial_state"] == "not_selected"
+    assert row["technical_state"] == baseline["technical_state"]
+    assert row["screening_lane"] == "input_review"
+    assert row["matched_paths"]["financial"] == row["coordinates"] == []
+    assert "financial:stale_price" in row["missing"]
+    assert not any(p.eligible for p in coordinates.paths)
+    assert all(p.price_value is None for p in coordinates.paths)
+    (reason,) = reviews
     assert reason["path_id"] == path
     assert reason["reason"] == "stale_price"
     assert reason["source_field"] == "earnings_price.price_date"
@@ -45,11 +45,9 @@ def test_stale_price_keeps_selected_nonprice_support_without_financial_clearance
     assert reason["expected_price_date"] == "2026-11-13"
     assert reason["interpretation"] == "stale_price_review_not_current_price_or_financial_clearance"
     selected = next(
-        p
-        for p in row.financial_paths["paths"]
-        if (p["path_id"], p["variant"]) == (path, reason["variant"])
+        p for p in coordinates.paths if (p.path_id, p.variant) == (path, reason["variant"])
     )
-    assert selected["evidence"]["selected_variant"] == reason["variant"]
+    assert selected.evidence["selected_variant"] == reason["variant"]
 
 
 @pytest.mark.parametrize(
@@ -71,14 +69,18 @@ def test_stale_price_keeps_selected_nonprice_support_without_financial_clearance
 def test_stale_reason_does_not_rescue_other_missing_or_invalid_price_inputs(field, value):
     data = stale_case()
     data["company_financials"]["earnings_price"][field] = value
-    assert "input_review_reasons" not in project_unchanged(data).financial_paths
+    row = project_unchanged(data)
+    assert row["screening_lane"] == "no_current_hypothesis"
+    assert "financial:stale_price" not in row["missing"]
 
 
 @pytest.mark.parametrize("expected", [None, "invalid-date", "2026-11-31", "2026-11-15"])
 def test_stale_price_needs_a_known_expected_date_no_later_than_as_of(expected):
     data = stale_case()
     data["company_financials"]["expected_price_date"] = expected
-    assert "input_review_reasons" not in project_unchanged(data).financial_paths
+    row = project_unchanged(data)
+    assert row["screening_lane"] == "no_current_hypothesis"
+    assert "financial:stale_price" not in row["missing"]
 
 
 @pytest.mark.parametrize(
@@ -98,7 +100,7 @@ def test_stale_price_does_not_supply_missing_earning_power(problem):
         earnings["profit_components"][0]["amount_yen"] = 0.0
     else:
         earnings["profit_components"][0]["disclosed_at"] = "2026-11-15"
-    assert project_unchanged(data).screening_lane == "no_current_hypothesis"
+    assert project_unchanged(data)["screening_lane"] == "no_current_hypothesis"
 
 
 def test_expansion_review_retains_loss_deterioration_and_negative_net_assets():
@@ -106,12 +108,10 @@ def test_expansion_review_retains_loss_deterioration_and_negative_net_assets():
     current(data, "balance")["metrics"]["net_assets"]["value"] = -22.0
     without_price_review = deepcopy(data)
     without_price_review["company_financials"]["earnings_price"]["unavailable_reason"] = "other"
-    row = project_unchanged(data)
-    assert row.financial_gate == project_unchanged(without_price_review).financial_gate
-    assert row.financial_gate["checks"]["positive_net_assets"]["value"] == -22.0
-    assert row.financial_gate["checks"]["quarter_operating_profit_increase"]["value"] == -10.0
-    assert row.financial_gate["routes"]["operating_recovery"]["state"] == "not_matched"
-    assert row.screening_lane == "input_review"
-    assert [p["path_id"] for p in row.financial_paths["input_review_reasons"]] == [
-        "business_expansion"
-    ]
+    _, gate, _, reviews = observations(data)
+    assert gate == observations(without_price_review)[1]
+    assert gate["checks"]["positive_net_assets"]["value"] == -22.0
+    assert gate["checks"]["quarter_operating_profit_increase"]["value"] == -10.0
+    assert gate["routes"]["operating_recovery"]["state"] == "not_matched"
+    assert project_unchanged(data)["screening_lane"] == "input_review"
+    assert [p["path_id"] for p in reviews] == ["business_expansion"]

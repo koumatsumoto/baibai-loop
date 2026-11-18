@@ -1,17 +1,13 @@
-"""商い拡大の相対条件と円規模・観測不足を同じ候補で読む。"""
+"""売買代金の円規模と倍率、測れなかった倍率と観測したゼロを区別する。"""
 
 from copy import deepcopy
-from dataclasses import asdict
 
 import pytest
-from tests.engine.machine_analysis.screening.test_financial_input_review import (
-    case,
-    project_unchanged,
-)
-from tests.helpers.archived_technical_financial import stored_result
+from tests.helpers.technical_discovery import _metadata, _models
 
-from baibai_engine.investment_judgment.workflow.screening_brief import (
-    technical_financial_screening_brief,
+from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
+from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
+    evaluate_technical_strategy,
 )
 
 FIELD = "turnover_activity_20d"
@@ -30,92 +26,52 @@ ACTIVITY = {
     "status": "available",
     "unavailable_reason": None,
 }
+INCOMPLETE_ACTIVITY = {
+    **ACTIVITY,
+    "status": "unavailable",
+    "unavailable_reason": "incomplete_turnover_window",
+    "current_yen": 0,
+    "prior_valid_days": 9,
+    "prior_mean_yen": None,
+    "prior_median_yen": None,
+    "prior_min_yen": None,
+    "current_to_prior_mean_ratio": None,
+}
 
 
-def payloads(activity):
-    data = case(reason=None)
-    data["market_context"].setdefault("price", {})[FIELD] = deepcopy(activity)
-    return data
-
-
-@pytest.mark.parametrize("state", ["available", "incomplete", "zero", "old_date", "null", "empty"])
-def test_original_activity_values_window_and_absence_reach_first_card(state):
-    activity = deepcopy(ACTIVITY)
-    if state == "incomplete":
-        activity.update(
-            status="unavailable",
-            unavailable_reason="incomplete_turnover_window",
-            prior_valid_days=9,
-            prior_mean_yen=None,
-            prior_median_yen=None,
-            prior_min_yen=None,
-            current_to_prior_mean_ratio=None,
-        )
-    elif state == "zero":
-        activity.update(current_yen=0.0, current_to_prior_mean_ratio=0.0)
-    elif state == "old_date":
-        activity["current_date"] = "2026-11-12"
-    elif state == "null":
-        activity = None
-    elif state == "empty":
-        activity = {}
-    data = payloads(activity)
-    row = project_unchanged(data)
-    card = technical_financial_screening_brief(
-        stored_result((row,), order=("1234",)), lane=row.screening_lane
-    )["cards"][0]
-    assert row.technical[FIELD] == activity
-    assert card["technical"][FIELD] == activity
-    if state == "incomplete":
-        assert card["technical"][FIELD]["current_yen"] == 400000.0
-        assert card["technical"]["routes"]["turnover_expansion"]["state"] == "unavailable"
-    elif state == "old_date":
-        assert card["technical"]["routes"]["turnover_expansion"]["state"] == "unavailable"
-    if activity:
-        card["technical"][FIELD]["current_yen"] = 999.0
-        assert row.technical[FIELD]["current_yen"] == activity["current_yen"]
-        row.technical[FIELD]["current_yen"] = 111.0
-        assert data["market_context"]["price"][FIELD] == activity
-
-
-@pytest.mark.parametrize("missing_model", [False, True])
-def test_unrecorded_activity_is_not_filled_or_turned_into_zero(missing_model):
-    data = payloads(ACTIVITY)
-    baseline = project_unchanged(data)
-    if missing_model:
-        del data["market_context"]
-    else:
-        del data["market_context"]["price"][FIELD]
-    row = project_unchanged(data)
-    assert row.financial_gate == baseline.financial_gate
-    assert FIELD not in row.technical
-    brief = technical_financial_screening_brief(
-        stored_result((row,), order=("1234",)), comparison_tickers=("1234",)
-    )
-    assert all(FIELD not in card["technical"] for card in brief["cards"])
-    detail = brief["comparison_rows"][0]
-    assert FIELD not in detail["technical"]
-    assert detail["technical"]["observation_failures"][FIELD]["source_state"] == (
-        "model_not_generated" if missing_model else "not_recorded"
-    )
-
-
-def test_same_ratio_at_different_yen_scale_does_not_change_T_G_F_or_attention():
-    small = project_unchanged(payloads(ACTIVITY))
-    large_activity = deepcopy(ACTIVITY)
+def test_same_relative_expansion_at_different_yen_scale_does_not_rank_the_company():
+    stock, meta = _models(), _metadata()
+    price = stock[1].payload["price"]
+    price[FIELD] = deepcopy(ACTIVITY)
+    small = project_discovery_row("1234", models=stock, metadata=meta)
     for key in ("current_yen", "prior_mean_yen", "prior_median_yen", "prior_min_yen"):
-        large_activity[key] *= 100
-    large = project_unchanged(payloads(large_activity))
-    assert small.technical[FIELD] != large.technical[FIELD]
-    left, right = asdict(small), asdict(large)
-    del left["technical"][FIELD], right["technical"][FIELD]
-    assert left == right
-    assert small.technical["routes"]["turnover_expansion"]["state"] == "matched"
+        price[FIELD][key] *= 100
+    large = project_discovery_row("1234", models=stock, metadata=meta)
+    assert small == large
+    assert price[FIELD]["current_yen"] == 40000000
+    technical = evaluate_technical_strategy("1234", models=stock, metadata=meta)
+    assert technical["observations"][FIELD]["value"] == 4.0
+    assert technical["routes"]["turnover_expansion"]["state"] == "matched"
 
 
-def test_unknown_activity_fields_are_preserved_without_new_inference():
-    activity = {**ACTIVITY, "source_detail": {"late_receipt": True, "clock": None}}
-    row = project_unchanged(payloads(activity))
-    assert row.technical[FIELD] == activity
-    assert "adv_yen" not in row.technical[FIELD]
-    assert "quantity_limit" not in row.technical[FIELD]
+@pytest.mark.parametrize(
+    ("change", "value", "reason"),
+    [
+        ({"current_yen": 0, "current_to_prior_mean_ratio": 0.0}, 0.0, None),
+        (INCOMPLETE_ACTIVITY, None, "recorded_null"),
+        ({"current_date": "2026-11-12"}, 4.0, "price_date_mismatch_or_unknown"),
+    ],
+)
+def test_ratio_keeps_clock_and_coverage_before_it_can_be_used(change, value, reason):
+    stock = _models()
+    activity = {**ACTIVITY, **change}
+    stock[1].payload["price"][FIELD] = activity
+    answer = evaluate_technical_strategy("1234", models=stock, metadata=_metadata())
+    obs = answer["observations"][FIELD]
+    assert (obs["value"], obs["unavailable_reason"]) == (value, reason)
+    assert obs["source_unavailable_reason"] == activity["unavailable_reason"]
+    assert obs["window"]["current_date"] == activity["current_date"]
+    assert obs["window"]["prior_valid_days"] == activity["prior_valid_days"]
+    assert answer["routes"]["turnover_expansion"]["state"] == (
+        "unavailable" if reason else "not_matched"
+    )

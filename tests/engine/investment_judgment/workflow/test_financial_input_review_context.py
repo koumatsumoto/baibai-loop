@@ -1,6 +1,5 @@
 """株数確認の予備調査を同じ保存入力で読む。G・価格・採否は補わない。"""
 
-from copy import deepcopy
 from dataclasses import replace
 from datetime import timedelta
 
@@ -10,7 +9,11 @@ from tests.engine.machine_analysis.screening.test_financial_input_review import 
 from tests.engine.machine_analysis.screening.test_unresolved_financial_input_review import (
     unresolved_case,
 )
-from tests.helpers.archived_technical_financial import FOUR_STOCK_ORDER, archived_from_models
+from tests.helpers.archived_technical_financial import (
+    FOUR_STOCK_ORDER,
+    stored_publication,
+    stored_row,
+)
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.technical_discovery import _metadata
@@ -42,9 +45,6 @@ from baibai_engine.machine_analysis.screening.contracts import ScreeningSelectio
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialPolicy,
     TechnicalFinancialSelection,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    project_technical_financial_row,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -97,7 +97,33 @@ def seed(path, *, stale=False, unresolved=False):
     )
     fixed = ModelGeneration(**dict(metadata), models=tuple(generated))
     publish_generation(fixed, path=path)
-    selection = archived_from_models(fixed, order=FOUR_STOCK_ORDER, page_size=1)
+    reason = {
+        "path_id": "earning_power",
+        "reason": "stale_price" if stale else "missing_capital_basis",
+        "price_date": "2026-11-12" if stale else "2026-11-13",
+        "expected_price_date": "2026-11-13",
+        "generation_id": fixed.generation_id,
+    }
+    rows = (
+        stored_row(
+            "1234",
+            lane="input_review",
+            gate={"state": "input_unresolved" if unresolved else "not_selected"},
+            paths={"input_review_reasons": [reason]},
+        ),
+        stored_row(
+            "2345",
+            lane="input_review",
+            gate={
+                "state": "not_selected",
+                "checks": {"positive_net_assets": {"state": "not_met", "value": -22.0}},
+            },
+            paths={"input_review_reasons": [reason]},
+        ),
+        stored_row("3456", lane="alternative_financial_research", gate={"state": "not_selected"}),
+        stored_row("4567", lane="no_current_hypothesis", gate={"state": "not_selected"}),
+    )
+    selection = stored_publication(fixed.generation_id, rows, order=FOUR_STOCK_ORDER, page_size=1)
     identity = "archived-financial-review"
     ScreeningSelectionStore(path).publish(identity, selection)
     publication = read_publication(path=path, selection_id=identity)
@@ -107,7 +133,7 @@ def seed(path, *, stale=False, unresolved=False):
 @pytest.mark.parametrize("stale", [False, True])
 @pytest.mark.parametrize("unresolved", [False, True])
 def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_resume(
-    tmp_path, monkeypatch, stale, unresolved
+    tmp_path, stale, unresolved
 ):
     path = tmp_path / "runs"
     fixed, selected, identity, now = seed(path, stale=stale, unresolved=unresolved)
@@ -202,12 +228,11 @@ def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_res
 
 
 def test_new_review_queue_is_company_unique_and_reaches_all_pages():
-    data = case(expansion=True, reason="missing_capital_basis", technical=False)
-    from tests.engine.machine_analysis.screening.test_financial_input_review import models
-
-    base = project_technical_financial_row("1234", models=models(data), metadata=_metadata())
-    reasons = deepcopy(base.financial_paths["input_review_reasons"])
-    reasons.append({**reasons[0], "path_id": "earning_power"})
+    base = stored_row("1234", lane="input_review", gate={"state": "not_selected"})
+    reasons = [
+        {"path_id": path, "reason": "missing_capital_basis"}
+        for path in ("business_expansion", "earning_power")
+    ]
     rows = tuple(
         replace(
             base,

@@ -33,27 +33,7 @@ _COMPARABILITY_REASONS = {
     "comparison_intervals_unaligned",
     "ambiguous_growth_comparison",
 }
-_FORECAST_CONTEXT = (
-    "forecast_profit_yen",
-    "forecast_eps_yen",
-    "forecast_ordinary_profit_yen",
-    "forecast_full_year_loss_flag",
-    "earnings_forecast_source",
-)
-_DIVIDEND_FORECAST_CONTEXT = ("dps_forecast_annual", "dividend_forecast_source")
-_CASH_FLOW_CONTEXT = (
-    "edinet_reported_flows",
-    "edinet_capex_source",
-    "edinet_failure_reasons",
-    "cfo",
-    "cfo_source",
-    "ocf_ttm",
-    "ocf_ttm_period",
-    "ttm_quality_ocf_yield",
-)
 _QUARTER_METRICS: tuple[Metric, ...] = ("sales", "operating_profit", "operating_margin")
-_SHARE_METRICS: tuple[Metric, ...] = ("parent_profit", "reported_basic_eps", "average_shares")
-
 type CheckState = Literal["met", "not_met", "unavailable"]
 
 
@@ -156,10 +136,6 @@ def _financial_growth_with_path_inputs(
         if any(route["state"] == "unresolved" for route in routes.values())
         else "not_selected"
     )
-    financial_model = index.get("company_financials")
-    financial = _object(
-        financial_model.payload.get("financial") if financial_model is not None else None
-    )
     gate: dict[str, JsonValue] = deepcopy(
         {
             "policy_id": POLICY_ID,
@@ -172,78 +148,6 @@ def _financial_growth_with_path_inputs(
             "matched_routes": list(matched),
             "routes": dict(routes),
             "checks": dict(checks),
-            "income_attribution_context": {
-                "read_semantics": "saved_income_not_normalized_or_common_share_cash",
-                "annual_variant": "full_fy" if uses_fy else "annual_ttm",
-                "metric_units": {
-                    key: value
-                    for key, value in _object(growth.get("metric_units")).items()
-                    if key in {"operating_profit", "parent_profit"}
-                },
-                "annual": _observation_metrics(
-                    reader, annual, ("operating_profit", "parent_profit")
-                ),
-                "quarter": _observation_metrics(
-                    reader, quarter, ("operating_profit", "parent_profit")
-                ),
-            },
-            "reported_share_context": {
-                "read_semantics": "reported_basic_eps_not_diluted_or_current_share_basis",
-                "comparison_basis": growth.get("comparison_basis"),
-                "metric_units": {
-                    key: value
-                    for key, value in _object(growth.get("metric_units")).items()
-                    if key in _SHARE_METRICS
-                },
-                "reported": _observation_metrics(reader, reported, _SHARE_METRICS),
-                "year_over_year_observations": {
-                    metric: [
-                        reader.saved_change(change)
-                        for change in reader.year_over_year(reported, metric)
-                    ]
-                    for metric in _SHARE_METRICS
-                },
-            },
-            "quarter_growth_context": {
-                "comparison_basis": growth.get("comparison_basis"),
-                "metric_units": {
-                    key: value
-                    for key, value in _object(growth.get("metric_units")).items()
-                    if key in changes
-                },
-                "changes": changes,
-            },
-            "observation_period_context": {
-                "read_semantics": "saved_measurement_and_source_dates_not_point_in_time",
-                "annual_variant": "full_fy" if uses_fy else "annual_ttm",
-                "annual": _period_context(reader, annual),
-                "quarter": _period_context(reader, quarter),
-                "balance": _period_context(reader, balance),
-            },
-            **(
-                {"reported_balance_context": financial["edinet_reported_balances"]}
-                if "edinet_reported_balances" in financial
-                else {}
-            ),
-            # 成長/回復の実績とは別の会社予想。未記録やscopeの未確定を補完しない。
-            **(
-                {
-                    "forecast_context": {
-                        key: financial[key] for key in _FORECAST_CONTEXT if key in financial
-                    },
-                    "dividend_forecast_context": {
-                        key: financial[key]
-                        for key in _DIVIDEND_FORECAST_CONTEXT
-                        if key in financial
-                    },
-                    # 利益の改善と資金化を同一視せず、原CFの期/不足を初回比較へ残す。
-                    "cash_flow_context": {
-                        key: financial[key] for key in _CASH_FLOW_CONTEXT if key in financial
-                    },
-                }
-                if financial_model is not None
-                else {}
-            ),
             "missing_models": [name for name in _MODELS if name not in index],
             "model_revisions": {name: model.calculation_revision for name, model in index.items()},
             "limits": [
@@ -386,60 +290,3 @@ def _profit_sign(value: JsonValue | None) -> JsonValue:
     if not isinstance(value, (float, int)) or isinstance(value, bool):
         return None
     return "positive" if value > 0 else "negative" if value < 0 else "zero"
-
-
-def _period_context(
-    reader: CompanyGrowthReader, observation: Observation | None
-) -> dict[str, JsonValue] | None:
-    if observation is None:
-        return None
-    saved = reader.saved_observation(observation)
-    # 全出典日を残し、最大日を観測全体の公表時刻・利用可能時刻にしない。
-    dates = set()
-    for value in _object(saved.get("metrics")).values():
-        documents = _object(value).get("documents")
-        if isinstance(documents, list):
-            for document in documents:
-                day = _object(document).get("disclosed_at")
-                if isinstance(day, str):
-                    dates.add(day)
-    return {
-        **{
-            key: saved[key]
-            for key in (
-                "measurement",
-                "period_start",
-                "period_end",
-                "statement_basis",
-                "accounting_standard",
-                "period_status",
-            )
-            if key in saved
-        },
-        "source_disclosure_dates": cast(list[JsonValue], sorted(dates)),
-    }
-
-
-def _observation_metrics(
-    reader: CompanyGrowthReader, observation: Observation | None, metrics: tuple[Metric, ...]
-) -> dict[str, JsonValue] | None:
-    if observation is None:
-        return None
-    saved = reader.saved_observation(observation)
-    return {
-        **{
-            key: saved[key]
-            for key in (
-                "measurement",
-                "period_start",
-                "period_end",
-                "statement_basis",
-                "accounting_standard",
-                "period_status",
-            )
-            if key in saved
-        },
-        "metrics": {
-            key: value for key, value in _object(saved.get("metrics")).items() if key in metrics
-        },
-    }

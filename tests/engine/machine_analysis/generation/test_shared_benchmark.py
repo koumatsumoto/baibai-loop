@@ -10,7 +10,6 @@ from tests.helpers.lake_release import market_store
 from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
-from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
 from baibai_engine.machine_analysis.generation.query import (
@@ -22,10 +21,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
     DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    project_technical_financial_row,
-)
+from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 
 ASOF = date(2026, 10, 23)
@@ -500,7 +496,7 @@ def test_sma75_fixed_generation_survives_correction_without_legacy_backfill(tmp_
     assert [item.model_dump_json() for item in fixed] == encoded
 
 
-def test_short_recovery_generation_keeps_policy_and_legacy_detached_inputs(tmp_path):
+def test_short_recovery_source_is_fixed_but_does_not_change_discovery_scope(tmp_path):
     path, dates = activity_source(tmp_path)
     current = generate(path, tickers=("1001",))
     technical = current.result("technical_analysis", "1001")
@@ -528,23 +524,7 @@ def test_short_recovery_generation_keeps_policy_and_legacy_detached_inputs(tmp_p
     for generation in (legacy, current):
         metadata = GenerationMetadata.model_validate(generation.model_dump(exclude={"models"}))
         models = tuple(model for model in generation.models if model.subject == "1001")
-        row = project_technical_financial_row("1001", models=models, metadata=metadata)
-        row.technical.pop("model_revisions")
-        row.financial_paths.pop("model_revisions")
-        rows.append(row)
-        coordinates = project_company("1001", models=models, metadata=metadata)
-        brief = economic_screening_brief(
-            {
-                "policy": {},
-                "eligible_count": 0,
-                "cards": [{"ticker": "1001", "paths": [], "context": coordinates.context}],
-            }
-        )
-        observed = brief["cards"][0]["context"]["price_path"]["observations"]["R20"]
-        if generation is current:
-            assert observed["path_statistics"] == short
-        else:
-            assert "path_statistics" not in observed
+        rows.append(project_discovery_row("1001", models=models, metadata=metadata))
     assert rows[0] == rows[1]
     runs = tmp_path / "runs.sqlite"
     for generation in (legacy, current):

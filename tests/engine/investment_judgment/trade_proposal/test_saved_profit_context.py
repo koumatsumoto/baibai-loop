@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.archived_technical_financial import stored_result
+from tests.helpers.archived_technical_financial import stored_publication, stored_row
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
@@ -21,7 +21,6 @@ from baibai_engine.investment_judgment.workflow.selection import (
 from baibai_engine.investment_judgment.workflow.workspace import prepare_selected_workspace
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
-    GenerationMetadata,
     GenerationSubject,
     InputSnapshot,
     ModelGeneration,
@@ -37,10 +36,6 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
-from baibai_engine.machine_analysis.screening.policies.technical_financial_selection import (
-    project_technical_financial_row,
-)
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 
@@ -129,11 +124,14 @@ def _prepare(tmp_path, models, *, screening=True):
     publish_generation(generation, path=runs)
     selection_id = None
     if screening:
-        metadata = GenerationMetadata.model_validate(generation.model_dump(exclude={"models"}))
-        row = project_technical_financial_row("1001", models=models, metadata=metadata)
-        result = ScreeningSelection(
-            metadata.generation_id, ("1001",), stored_result((row,), order=("1001",)), {}
+        # This is the historical selection, not a rule reapplied to the two profit vintages.
+        row = stored_row(
+            "1001",
+            lane="growth_research",
+            gate={"state": "research_candidate"},
+            paths={"matched_routes": ["earning_power"]},
         )
+        result = stored_publication(generation.generation_id, (row,), order=("1001",))
         selection_id = "synthetic-selection"
         ScreeningSelectionStore(runs).publish(selection_id, result)
     now = max(datetime.now(UTC), EVALUATED) + timedelta(seconds=1)

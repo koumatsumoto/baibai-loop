@@ -158,10 +158,6 @@ def test_financial_routes_preserve_clocks_and_leave_adoption_to_the_caller():
     assert result["as_of"] == "2026-11-13"
     assert result["evaluation_time"] == "2026-11-14T08:41:00+00:00"
     assert "action" not in result
-    assert (
-        result["quarter_growth_context"]["comparison_basis"]
-        == "source_reported_economic_scope_unverified"
-    )
 
 
 def test_price_sector_technical_and_old_eligibility_do_not_decide_financial_gate():
@@ -329,8 +325,8 @@ def test_limited_full_fy_fallback_keeps_missing_current_ttm_and_source_period():
     add_prior_fy(data)
     result = evaluate(data)
     assert "profit_growth" in result["matched_routes"]
-    assert result["observation_period_context"]["annual_variant"] == "full_fy"
-    assert result["observation_period_context"]["annual"]["period_end"] == "2025-12-31"
+    assert result["checks"]["positive_annual_operating_profit"]["value"] == 500.0
+    assert current(data, "annual_ttm")["metrics"]["operating_profit"]["value"] is None
 
 
 @pytest.mark.parametrize("mode", ["metric_missing", "basis_change", "undisclosed_fy"])
@@ -374,7 +370,6 @@ def test_fy_reversal_check_does_not_use_a_later_disclosure_as_current_evidence()
     result = evaluate(data)
     assert "profit_growth" in result["matched_routes"]
     assert result["checks"]["full_fy_without_newer_income_reversal"]["state"] == "met"
-    assert result["reported_share_context"]["reported"]["metrics"]["parent_profit"]["value"] == -5.0
 
 
 def test_full_fy_does_not_rescue_observed_latest_deterioration():
@@ -407,7 +402,7 @@ def test_diagnostic_does_not_mutate_saved_inputs_or_return_mutable_aliases():
     data = payloads()
     before = deepcopy(data)
     result = evaluate(data)
-    result["quarter_growth_context"]["changes"]["sales"]["to_value"] = 999.0
+    result["checks"]["quarter_sales_increase"]["value"] = 999.0
     assert data == before
 
 
@@ -466,10 +461,6 @@ def test_banking_shape_separates_inapplicability_without_substituting_other_inco
     ]
     assert recovery["failures"] == []
     assert recovery["profitability"] is None
-    assert (
-        result["income_attribution_context"]["quarter"]["metrics"]["parent_profit"]["value"]
-        == 1234.0
-    )
 
 
 def test_finance_ordinary_growth_is_not_vetoed_by_unused_inapplicable_margin():
@@ -654,4 +645,4 @@ def test_saved_prior_cannot_backfill_a_missing_operand_or_clear_its_basis():
         result["checks"]["quarter_operating_profit_increase"]["reason"]
         == "accounting_standard_incomparable"
     )
-    assert result["quarter_growth_context"]["changes"]["operating_profit"]["from_value"] is None
+    assert result["checks"]["quarter_operating_profit_increase"]["value"] is None

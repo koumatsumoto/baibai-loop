@@ -7,8 +7,8 @@ from datetime import timedelta
 import pytest
 from pydantic import TypeAdapter
 from tests.engine.investment_judgment.workflow.test_financial_input_review_context import seed
-from tests.engine.machine_analysis.screening.test_related_subject_context import BASIS, SUBJECT
-from tests.helpers.archived_technical_financial import FOUR_STOCK_ORDER, archived_from_models
+from tests.helpers.archived_technical_financial import stored_publication, stored_row
+from tests.helpers.discovery_source_examples import BASIS, SUBJECT
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
@@ -61,17 +61,14 @@ def test_first_comparison_detail_and_runless_resume_keep_saved_relation(tmp_path
         }
     )
     publish_generation(fixed, path=path)
-    selected = archived_from_models(fixed, order=FOUR_STOCK_ORDER)
-    assert selected.result.policy.method == "technical-financial-discovery-v26"
+    row = stored_row("1234", lane="input_review", related=None if legacy else context)
+    selected = stored_publication(fixed.generation_id, (row,), order=("1234",))
     if legacy:
         selected = replace(
             selected,
             result=replace(
                 selected.result,
                 policy=TechnicalFinancialPolicy(method="technical-financial-discovery-v24"),
-                rows=tuple(
-                    replace(row, related_subject_context=None) for row in selected.result.rows
-                ),
             ),
         )
     codec = TypeAdapter(ScreeningSelection)

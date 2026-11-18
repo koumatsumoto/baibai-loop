@@ -9,7 +9,7 @@ from tests.engine.machine_analysis.screening.test_capital_action_input_review im
     REASON,
     native_generation,
 )
-from tests.helpers.archived_technical_financial import archived_from_models
+from tests.helpers.archived_technical_financial import stored_publication, stored_row
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
@@ -40,37 +40,29 @@ from baibai_engine.primitives.json import encode_json
 def seed(path, *, version=None):
     fixed = native_generation(completed_action=True)
     publish_generation(fixed, path=path)
-    selected = archived_from_models(fixed, order=("1001",))
-    assert selected.result.policy.method == "technical-financial-discovery-v26"
-    if version is not None:
-        row = selected.result.rows[0]
+    if version is None:
+        row = stored_row(
+            "1001",
+            lane="input_review",
+            paths={
+                "input_review_reasons": [{"path_id": "earning_power", "reason": REASON}],
+                "capital_action_context": {
+                    "observations": [{"issued_shares": 130}],
+                    "earnings_price_unavailable_reason": REASON,
+                    "share_basis_adjustments": [],
+                },
+            },
+        )
+        selected = stored_publication(fixed.generation_id, (row,), order=("1001",))
+    else:
+        # This publication did not contain a gap or a candidate. The richer source still exists.
+        row = stored_row("1001", lane="no_current_hypothesis")
+        selected = stored_publication(fixed.generation_id, (row,), order=())
         selected = replace(
             selected,
             result=replace(
                 selected.result,
                 policy=TechnicalFinancialPolicy(method=f"technical-financial-discovery-v{version}"),
-                rows=(
-                    replace(
-                        row,
-                        financial_paths={
-                            key: value
-                            for key, value in row.financial_paths.items()
-                            if key not in {"input_review_reasons", "capital_action_context"}
-                        },
-                        screening_lane="no_current_hypothesis",
-                    ),
-                ),
-                display_order=(),
-                summary={
-                    **selected.result.summary,
-                    "display_pool_count": 0,
-                    "screening_lanes": {
-                        "growth_research": 0,
-                        "input_review": 0,
-                        "alternative_financial_research": 0,
-                        "no_current_hypothesis": 1,
-                    },
-                },
             ),
         )
     ScreeningSelectionStore(path).publish("capital-action-selection", selected)
