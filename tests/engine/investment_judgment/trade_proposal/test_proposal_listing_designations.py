@@ -150,10 +150,11 @@ def test_tender_lookup_follows_flagged_target_and_never_turns_metadata_into_term
     data = [
         ("SFICT001", "240", bidder, target, "56780", None),
         ("SFICT002", "290", target, bidder, "12340", "SFICT001"),
+        ("SFICT004", "240", "E90003", target, "90120", None),
         ("SFICT003", "270", bidder, target, "56780", "SFICT001"),
     ]
     earlier = PREPARED - timedelta(days=1)
-    for stamp, docs in ((earlier, data[:2]), (PREPARED, data[2:])):
+    for stamp, docs in ((earlier, data[:3]), (PREPARED, data[3:])):
         day = stamp.date()
         rows = [
             {
@@ -177,7 +178,7 @@ def test_tender_lookup_follows_flagged_target_and_never_turns_metadata_into_term
             [EdinetListReceipt(str(uuid4()), day, stamp.astimezone(UTC), source.encode())]
         )
         store_edinet_document_projection(case.market, result, rechecked_asof=None)
-    ids = ("SFICT001", "SFICT002", "SFICT003")
+    ids = ("SFICT001", "SFICT002", "SFICT004", "SFICT003")
     original = (case.app.read_bytes(), case.market.read_bytes())
     before = _context(case, PREPARED - timedelta(microseconds=1)).tender_filing_references
     assert before.status == "as_of_history_unavailable"
@@ -186,8 +187,13 @@ def test_tender_lookup_follows_flagged_target_and_never_turns_metadata_into_term
     lookup = context.tender_filing_references
     refs = lookup.references_by_ticker["1234"]
     assert tuple(r.doc_id for r in refs) == ids
-    assert [r.role for r in refs] == ["offeror_filing", "target_opinion", "offeror_filing"]
-    assert {r.registration_doc_id for r in refs} == {ids[0]}
+    assert [r.role for r in refs] == [
+        "offeror_filing",
+        "target_opinion",
+        "offeror_filing",
+        "offeror_filing",
+    ]
+    assert [r.registration_doc_id for r in refs] == [ids[0], ids[0], ids[2], ids[0]]
     assert lookup.selected_list_days == 2
     assert lookup.origin_list_receipts[earlier.date()].received_at == earlier
     assert lookup.latest_list_received_at == PREPARED
@@ -204,6 +210,11 @@ def test_tender_lookup_follows_flagged_target_and_never_turns_metadata_into_term
     item = draft["items"][0]
     assert item["action"] == "defer"
     assert all(any(i in r for r in item["review_conditions"]) for i in ids)
+    first, second = next(r for r in item["review_conditions"] if "起点SFICT001" in r).split(" ／ ")
+    assert all(doc_id in first for doc_id in ("SFICT001", "SFICT002", "SFICT003"))
+    assert "SFICT004" not in first
+    assert "起点SFICT004" in second
+    assert "SFICT003" not in second
     assert "tender_filing_references" not in draft
     assert original == (case.app.read_bytes(), case.market.read_bytes())
     _bundle(case, start=PREPARED + timedelta(seconds=1), page=_page("5678"))

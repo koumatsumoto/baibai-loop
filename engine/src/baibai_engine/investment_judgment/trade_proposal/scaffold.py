@@ -81,11 +81,18 @@ def scaffold_proposal(
                 else (lookup.references_by_ticker or {}).get(outcome.ticker, ())
             )
             if refs:
-                # Full filing roles, registration links, dates and list receipts are in context.
-                names = "、".join(f"{ref.document_label}（{ref.doc_id}）" for ref in refs)
+                # Different offers for the same target can coexist in the window.
+                groups: dict[str, list[str]] = {}
+                for ref in refs:
+                    groups.setdefault(ref.registration_doc_id, []).append(
+                        f"{ref.document_label}（{ref.doc_id}）"
+                    )
+                names = " ／ ".join(
+                    f"起点{root}：{'、'.join(documents)}" for root, documents in groups.items()
+                )
                 listing_review += (
                     (
-                        f"EDINETの保存一覧に{names}。同じ買付けの提出者と対象会社を区別して本文を読み、"
+                        f"EDINETの保存一覧に{names}。各届出の提出者と対象会社を区別して本文を読み、"
                         "その後の訂正・撤回も確認する。結果報告書の存在は成立や新規取得者への入金の証明ではない。"
                     ),
                 )
