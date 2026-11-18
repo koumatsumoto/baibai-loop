@@ -22,6 +22,7 @@ from baibai_engine.storage.objects.r2 import (
     R2Error,
 )
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan, summarize
+from baibai_jobs.acquisition.external_assessments.identity import COORDINATION_PREFIX
 from baibai_jobs.acquisition.external_assessments.raw import preserve_raw_bundle
 from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
@@ -31,6 +32,7 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     read_terminal,
     require_extension,
     stage_bytes,
+    valid_state_counts,
 )
 from baibai_jobs.acquisition.receipts import ReceiptStore
 
@@ -124,16 +126,11 @@ def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPlan:
     if saved is None:
         raise ValueError("fixed external ready selection changed")
     value = json.loads(saved.payload)
-    plan = read_plan(store, value["run_id"])
+    plan = _bound_plan(read_plan(store, value["run_id"]), value)
     return _prepare_ready(store, value, plan, {})
 
 
-def _prepare_ready(
-    store: ObjectStore,
-    value: dict[str, Any],
-    plan: RunPlan | None,
-    confirmed_stages: dict[str, tuple[CohortStage, str]],
-) -> PreparedPlan:
+def _bound_plan(plan: RunPlan | None, value: dict[str, Any]) -> RunPlan:
     if (
         plan is None
         or plan.run_id != value["run_id"]
@@ -141,6 +138,15 @@ def _prepare_ready(
         or plan.sources != (value["source"],)
     ):
         raise ValueError("external ready selection differs from its exact plan")
+    return plan
+
+
+def _prepare_ready(
+    store: ObjectStore,
+    value: dict[str, Any],
+    plan: RunPlan,
+    confirmed_stages: dict[str, tuple[CohortStage, str]],
+) -> PreparedPlan:
     stages = {}
     if type(value["confirmed_partial"]) is not bool:
         raise ValueError("external partial confirmation must be explicit")
@@ -177,26 +183,26 @@ def read_acknowledgement(
     saved = read_private(store, acknowledgement_key(item.plan, reference))
     if saved is None:
         return None
-    return _validate_acknowledgement(item, reference, json.loads(saved.payload))
+    return _validate_acknowledgement(item.plan, reference, json.loads(saved.payload), item)
 
 
 def _validate_acknowledgement(
-    item: PreparedPlan, reference: dict[str, str], value: Any
+    plan: RunPlan, reference: dict[str, str], value: Any, prepared: PreparedPlan | None = None
 ) -> dict[str, object]:
     if (
         not isinstance(value, dict)
         or value.get("format") != "external-assessment-integration-ack-v1"
         or value.get("reference") != reference
-        or value.get("plan_sha256") != item.plan.plan_sha256
+        or value.get("plan_sha256") != plan.plan_sha256
         or value.get("readback") != "verified"
         or not isinstance(value.get("release_id"), str)
         or not value["release_id"]
         or not isinstance(value.get("release_manifest_sha256"), str)
         or re.fullmatch(r"[0-9a-f]{64}", value["release_manifest_sha256"]) is None
-        or value.get("state_counts") != item.accounting["state_counts"]
-        or value.get("expected_pairs") != item.accounting["expected_pairs"]
-        or value.get("observations")
-        != sum(len(stage.result.observations) for stage, _ in item.stages.values())
+        or value.get("expected_pairs") != len(plan.tickers) * len(plan.sources)
+        or not valid_state_counts(value)
+        or value["state_counts"]["unattempted"] == value["expected_pairs"]
+        or (prepared is not None and value["state_counts"] != prepared.accounting["state_counts"])
     ):
         raise ValueError("external assessment acknowledgement binding changed")
     return cast("dict[str, object]", value)
@@ -232,62 +238,71 @@ def _select_cumulative(entries: list[_ReadyEntry]) -> _ReadyEntry:
     return selected
 
 
-def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    candidates: dict[str, list[_ReadyEntry]] = {}
-    # この走査内だけ共有する。terminalは採用直前にも読み、途中の公開を見落とさない。
-    plans: dict[str, RunPlan] = {}
-    closed: dict[str, bool] = {}
+def _pending_ready(
+    store: ReceiptStore, run_id: str, keys: list[str], acknowledgements: set[str]
+) -> dict[str, str] | None:
+    plan = read_plan(store, run_id)
+    if plan is None:
+        raise ValueError("ready selection has no exact plan")
+    if read_terminal(store, plan) is not None:
+        return None
+    entries: list[_ReadyEntry] = []
     confirmed_stages: dict[str, tuple[CohortStage, str]] = {}
-    failed = []
-    invalid: set[str] = set()
-    for key, _ in store.iter_objects("coordination/external-assessment/"):
-        if "/ready-" not in key or not key.endswith(".json"):
-            continue
-        run_id = key.split("/")[-2]
+    for key in keys:
+        saved = read_write_once_private(store, key)
+        if saved is None:
+            raise ValueError("listed external ready selection is missing")
+        value = json.loads(saved.payload)
+        _bound_plan(plan, value)
+        clock = datetime.fromisoformat(value["created_at"])
+        if clock.tzinfo is None:
+            raise ValueError("external ready clock must have a timezone")
+        reference = {"key": key, "sha256": hashlib.sha256(saved.payload).hexdigest()}
+        if (
+            len(keys) == 1
+            and value.get("mode") == "cumulative-v1"
+            and value["confirmed_partial"] is False
+        ):
+            ack_key = acknowledgement_key(plan, reference)
+            if ack_key in acknowledgements:
+                # 正本読戻し済みの同一集合。新旧集合の包含や保存stageの再監査は要らない。
+                ack = read_write_once_private(store, ack_key)
+                if ack is None:
+                    raise ValueError("listed external acknowledgement disappeared")
+                _validate_acknowledgement(plan, reference, json.loads(ack.payload))
+                return None
+        entries.append((clock, reference, _prepare_ready(store, value, plan, confirmed_stages)))
+
+    legacy_partial = [entry for entry in entries if entry[2].confirmed_partial]
+    if legacy_partial:
+        selected = max(legacy_partial, key=lambda entry: entry[0])
+    elif any(entry[2].cumulative for entry in entries):
+        selected = _select_cumulative(entries)
+    else:
+        selected = max(entries, key=lambda entry: entry[0])
+    _, reference, item = selected
+    if read_terminal(store, plan) is not None:
+        return None
+    if item.cumulative and read_acknowledgement(store, item, reference) is not None:
+        return None
+    return reference
+
+
+def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    by_run: dict[str, list[str]] = {}
+    acknowledgements: set[str] = set()
+    for key, _ in store.iter_objects(COORDINATION_PREFIX):
+        run_id, _, name = key.removeprefix(COORDINATION_PREFIX).partition("/")
+        if name.endswith(".json"):
+            if name.startswith("ready-"):
+                by_run.setdefault(run_id, []).append(key)
+            elif name.startswith("ack-"):
+                acknowledgements.add(key)
+    ready, failed = [], []
+    for run_id, keys in sorted(by_run.items()):
         try:
-            plan = plans.get(run_id)
-            if plan is None:
-                plan = read_plan(store, run_id)
-            if plan is None:
-                raise ValueError("ready selection has no exact plan")
-            plans[run_id] = plan
-            if run_id not in closed:
-                closed[run_id] = read_terminal(store, plan) is not None
-            if closed[run_id]:
-                continue
-            saved = read_write_once_private(store, key)
-            if saved is None:
-                raise ValueError("listed external ready selection is missing")
-            value = json.loads(saved.payload)
-            clock = datetime.fromisoformat(value["created_at"])
-            if clock.tzinfo is None:
-                raise ValueError("external ready clock must have a timezone")
-            reference = {"key": key, "sha256": hashlib.sha256(saved.payload).hexdigest()}
-            item = _prepare_ready(store, value, plan, confirmed_stages)
-            candidates.setdefault(run_id, []).append((clock, reference, item))
-        except (R2Error, LakeCASConflict):
-            raise
-        except (LakePublishError, ValueError, KeyError, TypeError) as error:
-            invalid.add(run_id)
-            failed.append({"run_id": run_id, "reason": type(error).__name__})
-    ready = []
-    for run_id, entries in sorted(candidates.items()):
-        if run_id in invalid:
-            continue
-        try:
-            # 旧明示partialはplanを閉じる本人の操作。新しい累積ackへ読み替えない。
-            legacy_partial = [entry for entry in entries if entry[2].confirmed_partial]
-            if legacy_partial:
-                selected = max(legacy_partial, key=lambda entry: entry[0])
-            elif any(entry[2].cumulative for entry in entries):
-                # 集合包含を先に確認。後着の小さい集合やclock skewで原本を落とさない。
-                selected = _select_cumulative(entries)
-            else:
-                selected = max(entries, key=lambda entry: entry[0])
-            _, reference, item = selected
-            if read_terminal(store, item.plan) is not None:
-                continue
-            if not item.cumulative or read_acknowledgement(store, item, reference) is None:
+            reference = _pending_ready(store, run_id, keys, acknowledgements)
+            if reference is not None:
                 ready.append(reference)
         except (R2Error, LakeCASConflict):
             raise
@@ -308,7 +323,7 @@ def acknowledged_bundles(store: ReceiptStore, plan: RunPlan) -> dict[str, dict[s
         item = load_ready(store, reference)
         if item.plan != plan or key != acknowledgement_key(plan, reference):
             raise ValueError("external acknowledged plan changed")
-        ack = _validate_acknowledgement(item, reference, value)
+        ack = _validate_acknowledgement(plan, reference, value, item)
         allowed = {bundle for stage, _ in item.stages.values() for bundle in stage.raw_bundle_keys}
         receipts = ack.get("bundle_receipts", {})
         if not isinstance(receipts, dict) or not receipts.keys() <= allowed:

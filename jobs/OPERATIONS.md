@@ -511,7 +511,7 @@ gh workflow run cloud-external-assessment.yml --ref main -f source=monex -f batc
 uv run python -m baibai_jobs.acquisition.external_assessments.raw --preserve-run-id <EXACT_RUN_ID>
 ```
 
-lease外でacquire→inspect→ready --cumulative、共通統合で固定集合を公開/readbackしてackする。後着小集合で後退させない。確定分で明示終了するときだけworkflowの-f operation=stage_confirmed_partialを使う。401/403/429/未完を自動closeしない。pointer後terminal失敗は現状態を読み、未sealならfresh hydrateから再適用する。hard kill前の未保存試行・期限切れ原本の復元は保証しない。history_digestsは保存後baselineで、更新前の全履歴保全を証明しない。
+lease外でacquire→inspect→ready --cumulative、共通統合で固定集合を公開/readbackしてackする。通常の探索は、同じplanにreadyが一つだけでその本文SHAへ正式ackがあるとき、採用済みstageを再監査しない。別のreadyがあれば固定集合の包含を確認し、後着小集合で後退させない。確定分で明示終了するときだけworkflowの-f operation=stage_confirmed_partialを使う。401/403/429/未完を自動closeしない。pointer後terminal失敗は現状態を読み、未sealならfresh hydrateから再適用する。hard kill前の未保存試行・期限切れ原本の復元は保証しない。history_digestsは保存後baselineで、更新前の全履歴保全を証明しない。
 
 #### EDINET 財務cash内訳
 

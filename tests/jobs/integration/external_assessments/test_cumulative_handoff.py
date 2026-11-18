@@ -1,5 +1,7 @@
 """累積原本の反映は、取得planの終了ではない。"""
 
+import hashlib
+import json
 from dataclasses import replace
 from datetime import timedelta
 
@@ -56,7 +58,7 @@ def add_cohort(store, plan, index, *, seconds=0):
     )
 
 
-def test_partial_ack_keeps_plan_open_and_later_superset_integrates(publication):
+def test_partial_ack_keeps_plan_open_and_later_superset_integrates(publication, monkeypatch):
     store, plan = make_partial(publication)
     _, _, handle, database, mirror, directory = publication
     first = save_ready(store, prepare_plan(store, plan, cumulative=True))
@@ -67,7 +69,30 @@ def test_partial_ack_keeps_plan_open_and_later_superset_integrates(publication):
     assert staging.read_terminal(store, plan) is None
     ack = read_acknowledgement(store, load_ready(store, first), first)
     assert ack["state_counts"]["unattempted"] == 1
+    store.get_keys.clear()
     assert available_ready(store) == ([], [])
+    assert acknowledgement_key(plan, first) in store.get_keys
+    assert not any("/confirmed-stages/" in key for key in store.get_keys)
+
+    # Same key with different ready bytes has no receipt. Explicit replay always needs the stage.
+    marker = json.loads(store.values[first["key"]].body)
+    with monkeypatch.context() as patch:
+        stage = marker["stages"][0]["key"]
+        patch.delitem(store.values, stage)
+        assert available_ready(store) == ([], [])
+        with pytest.raises(ValueError, match="confirmed external cohort snapshot changed"):
+            load_ready(store, first)
+        patch.delitem(store.values, acknowledgement_key(plan, first))
+        assert available_ready(store) == ([], [{"run_id": plan.run_id, "reason": "ValueError"}])
+    with monkeypatch.context() as patch:
+        patch.delitem(store.values, first["key"])
+        marker["created_at"] = "2026-01-01T00:00:00Z"
+        changed = json.dumps(marker, sort_keys=True).encode()
+        store.store_object(first["key"], changed)
+        assert available_ready(store) == (
+            [{"key": first["key"], "sha256": hashlib.sha256(changed).hexdigest()}],
+            [],
+        )
     assert merge_ready(store, [first], database=database)["plans"] == []
 
     # 短期handoffが失効しても、先に公開済みの原受領はcanonical hydrateから再読する。
@@ -136,6 +161,7 @@ def test_raw_only_parse_failure_can_be_handed_off_and_not_marked_success(publica
     verify_and_seal(store, state, handle=handle, directory=directory / "raw-only")
     ack = read_acknowledgement(store, load_ready(store, reference), reference)
     assert ack["observations"] == 0
+    assert available_ready(store) == ([], [])
     assert ack["state_counts"] == {"failure": 1, "unattempted": 1, "success": 0, "normal_null": 0}
     assert staging.read_terminal(store, plan) is None
 

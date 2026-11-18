@@ -83,14 +83,23 @@ def _terminal_object(items: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
+def valid_state_counts(value: dict[str, object]) -> bool:
+    states = value.get("state_counts")
+    return (
+        isinstance(states, dict)
+        and set(states) == _TERMINAL_STATES
+        and all(type(count) is int and count >= 0 for count in states.values())
+        and type(value.get("expected_pairs")) is int
+        and type(value.get("observations")) is int
+        and sum(states.values()) == value["expected_pairs"]
+        and states["success"] + states["normal_null"] == value["observations"]
+    )
+
+
 def _valid_partial_counts(value: dict[str, object], plan: RunPlan) -> bool:
-    states, coverage = value["state_counts"], value["receipt_date_coverage"]
+    coverage = value["receipt_date_coverage"]
     if (
-        not isinstance(states, dict)
-        or set(states) != _TERMINAL_STATES
-        or any(type(count) is not int or count < 0 for count in states.values())
-        or sum(states.values()) != value["expected_pairs"]
-        or states["success"] + states["normal_null"] != value["observations"]
+        not valid_state_counts(value)
         or value["observations"] == 0
         or not isinstance(coverage, dict)
     ):
