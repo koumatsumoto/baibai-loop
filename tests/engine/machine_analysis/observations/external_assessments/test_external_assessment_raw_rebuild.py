@@ -227,7 +227,9 @@ def test_selected_replacement_matches_clean_parse_and_preserves_other_keys_and_l
     clean = tmp_path / "clean.sqlite"
     with closing(open_connection(target)) as conn:
         attempt = _capture(conn)[0]
-        other_attempt = _capture(conn, ticker="9432")[0]
+        other_attempt = _capture(
+            conn, ticker="9432", body=monex_html("9432", value="500円").encode("shift_jis")
+        )[0]
         parsed = decode_attempt(_responses(conn, attempt))
         other = decode_attempt(_responses(conn, other_attempt))
         original_l1 = conn.execute(
@@ -236,24 +238,21 @@ def test_selected_replacement_matches_clean_parse_and_preserves_other_keys_and_l
     with closing(open_connection(clean)) as conn:
         clean_attempt = _capture(conn)[0]
     stale = parsed.model_copy(update={"consensus_target": 1.0})
-    save_observations(target, [stale, other])
-    assert rebuild_attempts(target, attempt_ids=[attempt]) == 1
-    assert rebuild_attempts(clean, attempt_ids=[clean_attempt]) == 1
+    earlier = stale.model_copy(update={"fetched_at_utc": RECEIVED - timedelta(seconds=1)})
+    save_observations(target, [stale, earlier, other])
+    key = (parsed.ticker, parsed.fetched_at_utc.isoformat(timespec="microseconds"))
+    rows = f"SELECT * FROM {MODEL_VALUATION_TABLE}"
+    selected = rows + " WHERE (ticker, fetched_at_utc) = (?, ?)"
+    unselected = rows + " WHERE (ticker, fetched_at_utc) != (?, ?) ORDER BY ticker, fetched_at_utc"
     with closing(sqlite3.connect(target)) as conn, closing(sqlite3.connect(clean)) as clean_conn:
-        rebuilt = conn.execute(
-            f"SELECT * FROM {MODEL_VALUATION_TABLE} WHERE ticker='7203'"
-        ).fetchone()
-        expected = clean_conn.execute(
-            f"SELECT * FROM {MODEL_VALUATION_TABLE} WHERE ticker='7203'"
-        ).fetchone()
-        assert rebuilt == expected
-        assert (
-            rebuilt
-            != conn.execute(f"SELECT * FROM {MODEL_VALUATION_TABLE} WHERE ticker='9432'").fetchone()
-        )
-        assert conn.execute(
-            f"SELECT COUNT(*) FROM {MODEL_VALUATION_TABLE} WHERE ticker='9432'"
-        ).fetchone() == (1,)
+        before = conn.execute(unselected, key).fetchall()
+        assert len(before) == 2
+        assert rebuild_attempts(target, attempt_ids=[attempt]) == 1
+        assert rebuild_attempts(clean, attempt_ids=[clean_attempt]) == 1
+        expected = clean_conn.execute(selected, key).fetchone()
+        assert expected is not None
+        assert conn.execute(selected, key).fetchone() == expected
+        assert conn.execute(unselected, key).fetchall() == before
         assert (
             conn.execute(
                 "SELECT receipt_id, body_gzip FROM equity_web_source_responses ORDER BY receipt_id"
