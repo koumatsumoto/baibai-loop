@@ -18,7 +18,8 @@ import io
 import re
 import sqlite3
 import zipfile
-from collections.abc import Callable, Iterable, Mapping, Sequence
+import zlib
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -188,31 +189,32 @@ def read_tender_offer_outcome(blocks: Mapping[str, str]) -> bool | None:
     return outcomes.pop() == "す"
 
 
-def read_tender_offer_blocks(content: bytes) -> dict[str, str]:
-    """Read each retained CSV entry. An unreadable ZIP is not a business rejection."""
-    blocks: dict[str, str] = {}
+def _csv_members(content: bytes) -> Iterator[bytes]:
+    """Only container or decompressor failures here are source failures."""
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as archive:
             for member in archive.infolist():
-                if not member.filename.lower().endswith(".csv"):
-                    continue
-                try:
-                    decoded = archive.read(member).decode("utf-16")
-                except UnicodeDecodeError as error:
-                    raise TenderOfferError(
-                        f"tender-offer filing CSV is unreadable: {error}"
-                    ) from error
-                for row in csv.reader(io.StringIO(decoded), delimiter="\t"):
-                    if len(row) >= 2:
-                        element, value = row[0], row[-1]
-                        # Conflicting occurrences stay unreadable, including same-named entries.
-                        blocks[element] = (
-                            "" if element in blocks and blocks[element] != value else value
-                        )
-    except (OSError, zipfile.BadZipFile) as error:
+                if member.filename.lower().endswith(".csv"):
+                    yield archive.read(member)
+    except (EOFError, OSError, zipfile.BadZipFile, zlib.error) as error:
         raise EDINETProviderError(
             f"stored EDINET tender-offer archive is not a ZIP or is corrupt: {error}"
         ) from error
+
+
+def read_tender_offer_blocks(content: bytes) -> dict[str, str]:
+    """Read each retained CSV entry. An unreadable ZIP is not a business rejection."""
+    blocks: dict[str, str] = {}
+    for raw in _csv_members(content):
+        try:
+            decoded = raw.decode("utf-16")
+        except UnicodeDecodeError as error:
+            raise TenderOfferError(f"tender-offer filing CSV is unreadable: {error}") from error
+        for row in csv.reader(io.StringIO(decoded), delimiter="\t"):
+            if len(row) >= 2:
+                element, value = row[0], row[-1]
+                # Conflicting occurrences stay unreadable, including same-named entries.
+                blocks[element] = "" if element in blocks and blocks[element] != value else value
     return blocks
 
 

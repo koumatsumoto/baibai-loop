@@ -12,7 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from tests.helpers.edinet_csv_zip import damaged_archive_directory
+from tests.helpers.edinet_csv_zip import damaged_archive_directory, damaged_deflated_csv
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.models import (
@@ -1317,6 +1317,8 @@ class ControlEventExitBuildTest(unittest.TestCase):
         broken = (
             ("non_zip", b"not a ZIP"),
             ("directory", damaged_archive_directory()),
+            ("deflate", damaged_deflated_csv()),
+            ("short_read", valid),
             ("member_crc", valid.replace(b"\xff\xfe", b"\xfe\xff", 1)),
         )
         for route, cases in (("offline", (("missing", None), *broken)), ("refresh", broken)):
@@ -1332,6 +1334,9 @@ class ControlEventExitBuildTest(unittest.TestCase):
                             "store_tender_offer_exit_values",
                             wraps=store_tender_offer_exit_values,
                         ) as save,
+                        patch.object(zipfile.ZipFile, "read", side_effect=EOFError("short read"))
+                        if kind == "short_read"
+                        else nullcontext(),
                         redirect_stderr(stderr),
                     ):
                         if route == "offline":

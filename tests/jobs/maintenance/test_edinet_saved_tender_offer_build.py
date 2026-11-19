@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from tests.helpers.edinet_csv_zip import damaged_archive_directory
+from tests.helpers.edinet_csv_zip import damaged_archive_directory, damaged_deflated_csv
 from tests.jobs.integration.test_edinet_fixed_consumer_input import (
     ARCHIVE_HEAD,
     ASOF,
@@ -249,6 +249,7 @@ def test_saved_build_ignores_later_list_withdrawal_and_preserves_market_edinet_p
         "bad_csv",
         "crc",
         "directory",
+        "deflate",
         "no_csv",
         "bad_list",
     ],
@@ -275,6 +276,8 @@ def test_saved_build_source_failures_keep_old_exits_without_good_sql_fallback(
         _replace_result(case, body=b"not a ZIP")
     elif damage == "bad_csv":
         _replace_result(case, body=zipped({"XBRL_TO_CSV/report.csv": b"\xff"}))
+    elif damage == "deflate":
+        _replace_result(case, body=damaged_deflated_csv())
     elif damage == "directory":
         _replace_result(case, body=damaged_archive_directory())
     elif damage == "crc":

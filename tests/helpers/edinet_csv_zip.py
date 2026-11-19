@@ -24,3 +24,15 @@ def damaged_archive_directory() -> bytes:
     assert marker
     assert marker in before
     return before + b"lost" + after
+
+
+def damaged_deflated_csv() -> bytes:
+    """A damaged compressed member; its directory, name and CRC field remain intact."""
+    archive_path = "XBRL_TO_CSV/result.csv"
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(archive_path, "要素ID\t値\n結果\t買付けを行います".encode("utf-16"))
+    content = bytearray(buffer.getvalue())
+    start = content.index(archive_path.encode("ascii")) + len(archive_path)
+    content[start] |= 0b110  # unreadable first DEFLATE block, not a stored-member CRC mismatch
+    return bytes(content)
