@@ -78,7 +78,10 @@ jobs:
 
   notify:
     needs: acquire
-    if: ${{ always() }}
+    # Healthy scheduled receipts already have acquisition logs; manual runs keep their summary.
+    if: >-
+      ${{ always() && (github.event_name != 'schedule' || needs.acquire.result != 'success'
+      || needs.acquire.outputs.handoff == '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
