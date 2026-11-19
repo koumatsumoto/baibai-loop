@@ -6,7 +6,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 
 import pytest
-from tests.helpers.edinet_research_sources import facts
+from tests.helpers.edinet_research_sources import facts_at_test_clock
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import lake as lake
 
@@ -35,7 +35,11 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
     names = ("edinet.segment_facts", "edinet.debt_schedule")
     narrow_release_policy(monkeypatch, datasets=names)
     db = tmp_path / "source.sqlite"
-    store_facts(db, identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"), facts=facts())
+    store_facts(
+        db,
+        identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"),
+        facts=facts_at_test_clock(),
+    )
     mirror = tmp_path / "mirror"
     stamp = datetime(2026, 9, 19, tzinfo=UTC)
     with sealed_sqlite_snapshot(
