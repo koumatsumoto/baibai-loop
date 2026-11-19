@@ -108,8 +108,9 @@ def test_sparse_history_all_products_and_unknown_fields_survive_cold_rebuild(tmp
     assert not any(code == "99990" for _, code, _ in stored_rows(market))
     with sqlite3.connect(market) as connection:
         assert connection.execute(
-            "SELECT coverage_start,status FROM source_coverage WHERE source='jquants_master_snapshots' ORDER BY 1"
-        ).fetchall() == [(DAY.isoformat(), "ok"), (NEXT.isoformat(), "ok")]
+            "SELECT coverage_start,record_count,status FROM source_coverage "
+            "WHERE source='jquants_master_snapshots' ORDER BY 1"
+        ).fetchall() == [(DAY.isoformat(), 2503, "ok"), (NEXT.isoformat(), 2503, "ok")]
     assert read_master_snapshot(market, as_of=DAY).as_of == DAY
     assert read_master_snapshot(market, as_of=NEXT + timedelta(days=1)).as_of == NEXT
     assert read_master_snapshot(market, as_of=DAY - timedelta(days=1)) is None
@@ -206,6 +207,47 @@ def test_replay_changes_only_different_fixed_rows_and_removes_only_selected_date
     with sqlite3.connect(market) as connection:
         assert connection.execute("SELECT * FROM writes").fetchall() == [("delete", "99999")]
     assert stored_rows(market) == expected
+
+
+@pytest.mark.parametrize("failure", ["row", "coverage"])
+def test_failed_master_correction_leaves_previous_rows_and_coverage_intact(tmp_path, failure):
+    store, owner, market = setup_native(tmp_path, [attempt("previous"), attempt("next", day=NEXT)])
+    model_input(store, owner.fixed(), as_of=NEXT, evaluated_at=AT, market=market)
+    original = stored_rows(market)
+    revised = [row for row in records() if row["Code"] != "80010"]
+    revised[0]["CoName"] = "corrected"
+    revised.append({**revised[0], "Code": "99000"})
+    later = AT + timedelta(hours=1)
+    owner.commit([attempt("revised", at=later, rows=revised)])
+    saved = fixed_input(store, owner.fixed(), days=[DAY], as_of=DAY, evaluated_at=later)
+
+    coverage_sql = "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+    trigger = (
+        "BEFORE INSERT ON jquants_master_snapshots WHEN NEW.security_code='99000'"
+        if failure == "row"
+        else "BEFORE INSERT ON source_coverage WHEN NEW.source='jquants_master_snapshots'"
+    )
+    with sqlite3.connect(market) as conn:
+        preceding = conn.execute(coverage_sql).fetchall()
+        conn.execute(
+            f"CREATE TRIGGER interrupt {trigger} BEGIN SELECT RAISE(ABORT, 'injected'); END"
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="injected"):
+        materialize_saved_input(store, saved, market=market, days=[DAY])
+    assert stored_rows(market) == original
+    with sqlite3.connect(market) as conn:
+        assert conn.execute(coverage_sql).fetchall() == preceding
+        conn.execute("DROP TRIGGER interrupt")
+
+    materialize_saved_input(store, saved, market=market, days=[DAY])
+    corrected = read_master_snapshot(market, as_of=DAY)
+    assert corrected is not None
+    assert corrected.securities["1000"].name == "corrected"
+    assert "9900" in corrected.securities
+    assert "8001" not in corrected.securities
+    assert [row for row in stored_rows(market) if row[0] == NEXT.isoformat()] == [
+        row for row in original if row[0] == NEXT.isoformat()
+    ]
 
 
 def test_invalid_later_required_snapshot_rolls_back_an_earlier_valid_change(tmp_path):

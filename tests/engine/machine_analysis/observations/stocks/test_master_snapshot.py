@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import json
-import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
@@ -12,10 +11,10 @@ from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
+from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_master
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     masters_from_payloads,
     validate_master_snapshot,
@@ -26,28 +25,7 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 
-def _db_fingerprint(db: Path) -> tuple[tuple[object, ...], tuple[object, ...]]:
-    conn = sqlite3.connect(db)
-    try:
-        rows = tuple(
-            conn.execute(
-                "SELECT snapshot_date, security_code, record_json "
-                "FROM jquants_master_snapshots ORDER BY snapshot_date, security_code"
-            ).fetchall()
-        )
-        coverage = tuple(
-            conn.execute(
-                "SELECT source, coverage_key, coverage_start, coverage_end, "
-                "fetched_at_utc, record_count, status, error FROM source_coverage "
-                "WHERE source = 'jquants_master_snapshots' ORDER BY coverage_key"
-            ).fetchall()
-        )
-    finally:
-        conn.close()
-    return rows, coverage
-
-
-class MasterSnapshotStoreTests(unittest.TestCase):
+class MasterSnapshotContractTests(unittest.TestCase):
     def test_native_snapshot_preserves_secondary_classes_and_all_provider_fields(self) -> None:
         asof = date(2026, 5, 29)
         records = make_master_records(asof, secondary_class_count=2)
@@ -58,67 +36,18 @@ class MasterSnapshotStoreTests(unittest.TestCase):
         self.assertEqual(json.loads(validated.rows[0][2]), records[0])
         self.assertEqual(json.loads(validated.rows[-1][2]), records[-1])
         self.assertTrue(validated.rows[-2][1].endswith("1"))
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            self.assertEqual(store_jquants_master(db, records, requested_asof=asof), 2503)
-            with closing(sqlite3.connect(db)) as conn:
-                persisted = conn.execute(
-                    "SELECT security_code, record_json FROM jquants_master_snapshots "
-                    "ORDER BY security_code"
-                ).fetchall()
-            self.assertEqual(
-                {code: json.loads(payload) for code, payload in persisted},
-                {row["Code"]: row for row in records},
-            )
-            projected = read_master_snapshot(db, as_of=asof)
-            assert projected is not None
-            self.assertEqual(projected.as_of, asof)
-            self.assertEqual(len(projected.securities), 2501)
-            self.assertEqual(
-                sum(row.is_common_stock for row in projected.securities.values()), 2500
-            )
-            self.assertFalse(projected.securities["9000"].is_common_stock)
+        self.assertEqual(
+            {code: json.loads(payload) for _, code, payload in validated.rows},
+            {row["Code"]: row for row in records},
+        )
+        securities = masters_from_payloads([row[2] for row in validated.rows])
+        self.assertEqual(len(securities), 2501)
+        self.assertEqual(sum(security.is_common_stock for security in securities), 2500)
+        self.assertFalse(
+            next(security for security in securities if security.ticker == "9000").is_common_stock
+        )
 
-    def test_two_dates_are_append_only_and_same_date_is_idempotent(self) -> None:
-        first = date(2026, 5, 29)
-        second = date(2026, 6, 30)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            first_records = make_master_records(first, secondary_class_count=2)
-            self.assertEqual(
-                store_jquants_master(db, first_records, requested_asof=first),
-                2502,
-            )
-            first_rows, first_coverage = _snapshot_state(db, first)
-
-            second_records = make_master_records(second)
-            store_jquants_master(db, second_records, requested_asof=second)
-            self.assertEqual(_snapshot_state(db, first), (first_rows, first_coverage))
-            self.assertEqual(_snapshot_dates(db), [first.isoformat(), second.isoformat()])
-
-            replacement = copy.deepcopy(second_records)
-            replacement[0]["CoName"] = "Replacement"
-            store_jquants_master(db, replacement, requested_asof=second)
-            conn = sqlite3.connect(db)
-            try:
-                second_count = conn.execute(
-                    "SELECT COUNT(*) FROM jquants_master_snapshots WHERE snapshot_date = ?",
-                    (second.isoformat(),),
-                ).fetchone()[0]
-                replaced_name = conn.execute(
-                    "SELECT json_extract(record_json, '$.CoName') FROM jquants_master_snapshots "
-                    "WHERE snapshot_date = ? AND security_code = '10000'",
-                    (second.isoformat(),),
-                ).fetchone()[0]
-            finally:
-                conn.close()
-            self.assertEqual(second_count, 2500)
-            self.assertEqual(replaced_name, "Replacement")
-            self.assertEqual(_snapshot_state(db, first), (first_rows, first_coverage))
-
-    def test_invalid_response_table_preserves_two_good_snapshots(self) -> None:
-        first = date(2026, 5, 29)
-        second = date(2026, 6, 30)
+    def test_invalid_response_is_not_a_complete_requested_snapshot(self) -> None:
         requested = date(2026, 7, 31)
         base = make_master_records(requested)
 
@@ -153,65 +82,9 @@ class MasterSnapshotStoreTests(unittest.TestCase):
             "missing_product_category": missing_product,
         }
 
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, make_master_records(first), requested_asof=first)
-            store_jquants_master(db, make_master_records(second), requested_asof=second)
-            good_fingerprint = _db_fingerprint(db)
-
-            for label, records in invalid_cases.items():
-                with self.subTest(label=label):
-                    with self.assertRaises(JQuantsProviderError):
-                        store_jquants_master(db, records, requested_asof=requested)
-                    self.assertEqual(_db_fingerprint(db), good_fingerprint)
-
-    def test_invalid_response_does_not_create_sqlite_file(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with self.assertRaises(JQuantsProviderError):
-                store_jquants_master(db, [], requested_asof=date(2026, 5, 29))
-            self.assertFalse(db.exists())
-
-    def test_coverage_write_failure_rolls_back_same_date_replacement(self) -> None:
-        asof = date(2026, 5, 29)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-            before = _db_fingerprint(db)
-            replacement = make_master_records(asof)
-            replacement[0]["CoName"] = "must rollback"
-
-            with (
-                patch(
-                    "baibai_engine.machine_analysis.observations.jquants_writer.record_source_coverage",
-                    side_effect=sqlite3.OperationalError("injected coverage failure"),
-                ),
-                self.assertRaises(sqlite3.OperationalError),
-            ):
-                store_jquants_master(db, replacement, requested_asof=asof)
-
-            self.assertEqual(_db_fingerprint(db), before)
-
-    def test_insert_failure_rolls_back_same_date_replacement(self) -> None:
-        asof = date(2026, 5, 29)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-            with closing(sqlite3.connect(db)) as conn, conn:
-                conn.execute(
-                    "CREATE TRIGGER fail_master_insert BEFORE INSERT "
-                    "ON jquants_master_snapshots WHEN json_extract(NEW.record_json, '$.CoName') = 'must rollback' "
-                    "BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END"
-                )
-                conn.commit()
-            before = _db_fingerprint(db)
-            replacement = make_master_records(asof)
-            replacement[0]["CoName"] = "must rollback"
-
-            with self.assertRaisesRegex(sqlite3.IntegrityError, "injected insert failure"):
-                store_jquants_master(db, replacement, requested_asof=asof)
-
-            self.assertEqual(_db_fingerprint(db), before)
+        for label, records in invalid_cases.items():
+            with self.subTest(label=label), self.assertRaises(JQuantsProviderError):
+                validate_master_snapshot(records, requested)
 
     def test_sector_spelling_is_normalized_only_in_the_reading_projection(self) -> None:
         asof = date(2026, 5, 7)
@@ -237,21 +110,17 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
     def test_snapshot_selection_uses_exact_or_prior_but_never_future(self) -> None:
         first = date(2026, 5, 29)
         second = date(2026, 6, 30)
-        first_records = make_master_records(first)
-        first_records.append(
-            {
-                "Date": first.isoformat(),
-                "Code": "80000",
-                "CoName": "Old only",
-                "MktNm": "Prime",
-                "S33Nm": "機械",
-                "ProdCat": "011",
-            }
-        )
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, first_records, requested_asof=first)
-            store_jquants_master(db, make_master_records(second), requested_asof=second)
+            with closing(open_connection(db)) as conn, conn:
+                insert_master_rows(
+                    conn,
+                    [
+                        (first.isoformat(), "8000", "Old only", "Prime", "機械", "011"),
+                        (first.isoformat(), "7203", "Previous", "Prime", "機械", "011"),
+                        (second.isoformat(), "7203", "Current", "Prime", "機械", "011"),
+                    ],
+                )
 
             first_snapshot = read_master_snapshot(db, as_of=first)
             second_snapshot = read_master_snapshot(db, as_of=second)
@@ -259,9 +128,10 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             assert second_snapshot is not None
             self.assertEqual(first_snapshot.as_of, first)
             self.assertEqual(second_snapshot.as_of, second)
-            self.assertEqual(len(first_snapshot.securities), 2501)
-            self.assertEqual(len(second_snapshot.securities), 2500)
-            self.assertNotIn("8000", second_snapshot.securities)
+            self.assertEqual(set(first_snapshot.securities), {"7203", "8000"})
+            self.assertEqual(set(second_snapshot.securities), {"7203"})
+            self.assertEqual(first_snapshot.securities["7203"].name, "Previous")
+            self.assertEqual(second_snapshot.securities["7203"].name, "Current")
             self.assertEqual(
                 read_master_snapshot(db, as_of=second - timedelta(days=1)), first_snapshot
             )
@@ -271,53 +141,15 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
         asof = date(2026, 5, 29)
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-            with closing(sqlite3.connect(db)) as conn, conn:
-                conn.execute(
-                    "UPDATE jquants_master_snapshots SET record_json = json_set(record_json, '$.Code', '!') "
-                    "WHERE snapshot_date = ? AND security_code = '10000'",
-                    (asof.isoformat(),),
+            with closing(open_connection(db)) as conn, conn:
+                insert_master_rows(
+                    conn, [(asof.isoformat(), "1000", "Stored", "Prime", "機械", "011")]
                 )
-                conn.commit()
-            with self.assertRaises(JQuantsProviderError):
+                conn.execute(
+                    "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.Code','!')"
+                )
+            with self.assertRaisesRegex(JQuantsProviderError, "invalid J-Quants code"):
                 read_master_snapshot(db, as_of=asof)
-
-
-def _snapshot_dates(db: Path) -> list[str]:
-    conn = sqlite3.connect(db)
-    try:
-        return [
-            str(row[0])
-            for row in conn.execute(
-                "SELECT DISTINCT snapshot_date FROM jquants_master_snapshots ORDER BY snapshot_date"
-            ).fetchall()
-        ]
-    finally:
-        conn.close()
-
-
-def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[object, ...]]:
-    conn = sqlite3.connect(db)
-    try:
-        rows = tuple(
-            conn.execute(
-                "SELECT security_code, record_json "
-                "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY security_code",
-                (asof.isoformat(),),
-            ).fetchall()
-        )
-        coverage = tuple(
-            conn.execute(
-                "SELECT coverage_key, coverage_start, coverage_end, fetched_at_utc, "
-                "record_count, status, error FROM source_coverage "
-                "WHERE source = 'jquants_master_snapshots' AND coverage_start = ? "
-                "ORDER BY coverage_key",
-                (asof.isoformat(),),
-            ).fetchall()
-        )
-    finally:
-        conn.close()
-    return rows, coverage
 
 
 def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():
@@ -352,8 +184,6 @@ def test_invalid_stored_master_projection_is_a_source_error(field, missing):
 
 
 def test_finite_master_read_uses_latest_market_date_and_only_requested_primary_issues(tmp_path):
-    from tests.helpers.master import insert_master_rows
-
     db = tmp_path / "market.sqlite"
     first, latest = date(2026, 5, 29), date(2026, 6, 30)
     with closing(open_connection(db)) as connection, connection:
