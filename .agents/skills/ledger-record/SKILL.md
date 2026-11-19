@@ -49,7 +49,7 @@ uv run baibai-engine portfolio sell-execution-draft --db stores/application/baib
 <a id="human-result-semantics"></a>
 ### 予約・約定・cash
 
-買予約は未予約cash、売予約は保有数量を拘束し、partial fill後は残注文を保つ。見込代金/未約定数量でcash/lotを変えず、取消/失効は人間確認のreleaseで解放する。時刻だけでは解放しない。
+買予約は未予約cash、売予約は保有数量を拘束し、partial fill後は残注文を保つ。見込代金/未約定数量でcash/lotを変えず、取消/失効は人間確認のreleaseで解放する。失効の正確な時刻は不要だが、記録済みの期限を迎える前に失効したとは報告できない。期限到来だけでも解放しない。
 
 注文未登録の直接約定も記帳でき、架空の発注時刻/注文を補わない。非拘束株の独立売却で他予約を減らさず、拘束株なら対応注文または取消事実を確認する。
 
