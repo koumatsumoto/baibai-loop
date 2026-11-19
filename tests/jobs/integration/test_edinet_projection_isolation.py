@@ -4,10 +4,9 @@ import hashlib
 import json
 import shutil
 from contextlib import closing
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.edinet_handoff_inputs import DAY, STAMP, projection_state, receive
 from tests.helpers.edinet_receipts import seed_list_response
 from tests.helpers.jquants_receipts import calendar
 from tests.helpers.lake_policy import narrow_release_policy
@@ -42,6 +41,34 @@ from baibai_jobs.integration.source_handoff import _export
 from baibai_jobs.integration.sources import apply, main
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
+
+DAY = date(2026, 10, 15)
+STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
+
+
+def receive(path, doc_id, stamp, *, day=DAY):
+    payload = {
+        "metadata": {"resultset": {"count": 1}},
+        "results": [{"seqNumber": 1, "docID": doc_id, "secCode": "72030"}],
+    }
+    with closing(open_connection(path)) as conn:
+        return seed_list_response(
+            conn, doc_date=day, received_at=stamp, body=json.dumps(payload).encode()
+        )
+
+
+def projection_state(path):
+    with closing(open_connection(path)) as conn:
+        return (
+            conn.execute(
+                "SELECT * FROM edinet_documents ORDER BY doc_date, sequence_number"
+            ).fetchall(),
+            conn.execute("SELECT * FROM edinet_document_lists ORDER BY doc_date").fetchall(),
+            conn.execute(
+                "SELECT * FROM source_coverage WHERE source = 'edinet_documents' "
+                "ORDER BY coverage_key"
+            ).fetchall(),
+        )
 
 
 @pytest.mark.parametrize(
