@@ -198,6 +198,7 @@ def test_external_keeps_current_levels_states_periods_and_all_genuine_changes():
             }
         )
     for index in range(6):
+        latest = 3.0 if index % 2 else 1.0
         rows.append(
             {
                 "kind": "quants_scores",
@@ -205,9 +206,9 @@ def test_external_keeps_current_levels_states_periods_and_all_genuine_changes():
                 "origin": "origin-b",
                 "metric": f"changed_{index}",
                 "state": "increased" if index % 2 else "decreased",
-                "latest_value": 1.0,
+                "latest_value": latest,
                 "previous_value": 2.0,
-                "delta": -1.0,
+                "delta": latest - 2.0,
                 "comparable": True,
                 "target_period": "FY2028",
                 "previous_target_period": "FY2028",
@@ -220,7 +221,13 @@ def test_external_keeps_current_levels_states_periods_and_all_genuine_changes():
     external = brief["cards"][0]["context"]["external_assessment"]
     assert sum(external["state_counts"].values()) == len(rows)
     assert len(external["comparable_changes"]) == 6  # 任意の先頭4件へ切らない。
-    assert {row["state"] for row in external["comparable_changes"]} == {"increased", "decreased"}
+    by_metric = {row["metric"]: row for row in external["comparable_changes"]}
+    for index in range(6):
+        change = by_metric[f"changed_{index}"]
+        assert change["previous_value"] == 2.0
+        assert (change["state"], change["latest_value"], change["delta"]) == (
+            ("increased", 3.0, 1.0) if index % 2 else ("decreased", 1.0, -1.0)
+        )
     assert len(external["sources"]) == 2  # providerが同じでもorigin/対象期を誤結合しない。
     first = external["sources"][0]
     assert first["origin"] == "origin-a"

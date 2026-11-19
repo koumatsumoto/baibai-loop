@@ -134,6 +134,14 @@ def _external_observations(at, *, missing=False, target=1500):
     ]
 
 
+def _target_hypothesis(document):
+    return next(
+        h
+        for h in document["findings"]["hypotheses"]
+        if h["statement"] == "外部提示を自己終価へ採用できるか"
+    )
+
+
 def _retain_shared_articles(path, *, at=START, revision="original"):
     from tests.helpers.trends import BOJ, PHARMA
 
@@ -529,6 +537,21 @@ def _assessment_payload(case):
     )
     external = fixed["external_assessment"]
     observations = [item["inputs"]["latest"] for item in external["model_valuations"]]
+    target_facts = tuple(
+        sorted(
+            (row["distributor"], row["consensus_target_origin"].lower(), row["consensus_target"])
+            for row in observations
+        )
+    )
+    target_reason = {
+        (("monex", "ifis", None),): "受領した目標値は欠測。0や中立にしない。",
+        (
+            ("monex", "ifis", 1234),
+        ): "モネックス掲載のIFIS目標1234円は一つの外部評価。自己仮定の裏取りとせず採用しない。",
+        (("monex", "ifis", 1500), ("synthetic-ifis", "ifis", 1500)): (
+            "二媒体の同じifis目標1500円は一原評価。自己仮定の裏取りとせず採用しない。"
+        ),
+    }[target_facts]
     external_refs = []
     for observation in observations:
         source_id = "external-" + observation["distributor"]
@@ -588,9 +611,7 @@ def _assessment_payload(case):
             "statement": "外部提示を自己終価へ採用できるか",
             "origin": "research",
             "result": "unresolved" if case.scenario == "gaps" else "refuted",
-            "reason": "受領した目標値は欠測。0や中立にしない。"
-            if case.scenario == "gaps"
-            else "二媒体の同じifis目標1500円は一原評価。自己仮定の裏取りとせず採用しない。",
+            "reason": target_reason,
             "source_ids": external_refs,
         },
         {
@@ -802,6 +823,13 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     authored = context.payload()["assessments"][assessment_id()]
     assert authored["document"] == case.document
     assert authored["review"] == case.review
+    target = _target_hypothesis(authored["document"])
+    if scenario == "gaps":
+        assert target["source_ids"] == ["external-monex"]
+        assert "欠測" in target["reason"]
+    else:
+        assert set(target["source_ids"]) == {"external-monex", "external-synthetic-ifis"}
+        assert "二媒体の同じifis目標1500円" in target["reason"]
     assert set(pair.review.checked_source_ids) == {
         source.source_id for source in pair.document.input_snapshot.sources
     }
@@ -1212,13 +1240,23 @@ def test_sealed_monex_eps_reaches_formal_web_without_bodies_in_authoring_copy(
     assert reference["current_fy"]["eps_jpy_per_share"] == -3.5
     assert reference["next_fy"]["eps_jpy_per_share"] == 0
     assert reference["rolling_one_year"]["eps_jpy_per_share"] == 123.4
-    original_price = fixed.payload["model_valuations"][0]["inputs"]["latest"]
+    (valuation,) = fixed.payload["model_valuations"]
+    original_price = valuation["inputs"]["latest"]
+    assert (original_price["distributor"], original_price["consensus_target_origin"]) == (
+        "monex",
+        "IFIS",
+    )
     assert original_price["consensus_target"] == 1234
     assert original_price["parser_version"] == "monex-theory-4"
     assert case.selected.inputs.generation.inputs["market_snapshot"].kind == "sqlite_snapshot"
     domain = yaml.safe_load((case.prepared.workspace / "domain-inputs.yaml").read_text())
     assert domain["securities"]["1234"]["models"]["external_assessment"]["monex_fiscal_eps"] == eps
     context, draft = _promote_and_propose(case)
+    target = _target_hypothesis(context.payload()["assessments"][assessment_id()]["document"])
+    assert target["source_ids"] == ["external-monex"]
+    assert "モネックス掲載のIFIS目標1234円" in target["reason"]
+    assert "二媒体" not in target["reason"]
+    assert "1500円" not in target["reason"]
     assert (
         context.payload()["saved_analysis_context"]["securities"]["1234"]["models"][
             "external_assessment"
