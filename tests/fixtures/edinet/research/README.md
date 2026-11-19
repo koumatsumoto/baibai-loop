@@ -19,4 +19,8 @@ EDINET type=1のPublicDoc instance、issuer XSD、Japanese label linkbaseから�
 
 4試料のv2対照はセグメント142行・満期24行。提出者自身の事業ラベルは保持し、公式標準ラベルは製品別名と区別する（例：`ReconcilingItemsMember` の標準ラベルは「調整項目」、v2表示は「調整額」）。試料には提出者の定義リンクがない。標準事業セグメント軸上の独自QNameは提出者が記した組であって、所属を別途検証した証拠ではない。[金融庁ガイド5-4-5-1](https://www.fsa.go.jp/search/20251111/2b-1_InstanceGuide.pdf#page=49)に従い、軸省略だけでは連結としない。裏付けた連結セグメント注記がないときはメンバーを残し、帰属は不明。2つの連結明細表では表の標準概念自身が根拠となる。正規の個別財務諸表向け明細表の新規対応、他年度、義務のない項目への既定適用はこの試験の範囲外。
 
+[報告書インスタンスガイド §5-4-3, §5-4-5](https://www.fsa.go.jp/search/20251111/2b-1_InstanceGuide.pdf#page=45)では `entity/segment` を使わず `context/scenario` にメンバーを置く。試料の明示指定66個は全てscenario直下。実験は平坦化前のcontext IDと配置を照合し、誤配置を「軸なし」に読み替えない。
+
+[提出者別タクソノミガイド 図表5-2-20・21](https://www.fsa.go.jp/search/20251111/2a-1_TaxonomyGuide.pdf#page=90)では軸とメンバーで型・代替グループが異なる。実験は提出者宣言の `type` と `substitutionGroup` をその要素で有効なURIで照合する。元の4つのXSD抜粋は `nonnum:domainItemType` のprefix宣言が欠落しているため、独自60行のQNameと原ラベルは保つが型は未確定（それ以外の82行は標準メンバー）。この抜粋の制約は元提出書類の欠陥を意味しない。別prefixで正規型を明示した合成例のみを型確認の正例とし、軸への差し替え・別URIの同名型は採らない。完全なスキーマ検証や提出者DTSの所属判定ではない。
+
 この対照はv2・固定release・L3・日次を変更しない。読取先には接続しない。v3の保存・読取と新旧世代の分離・採用可否は[設計Issue #2692](https://github.com/koumatsumoto/baibai-loop/issues/2692)の別段階。

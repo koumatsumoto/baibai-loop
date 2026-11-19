@@ -9,9 +9,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
+from xml.etree import ElementTree as ET  # nosec B405 -- only inspect already-parsed elements
 
 Basis = Literal["consolidated", "non_consolidated"]
-Kind = Literal["issuer_reported", "total", "other", "reconciliation"]
+Kind = Literal["issuer_reported", "issuer_unverified", "total", "other", "reconciliation"]
 
 _ROOT = "http://disclosure.edinet-fsa.go.jp/taxonomy/"
 _VERSIONS = ("2024-11-01", "2025-11-01")
@@ -53,6 +54,86 @@ _FACTS = {
 }
 
 
+_I = "{http://www.xbrl.org/2003/instance}"
+_DI = "{http://xbrl.org/2006/xbrldi}"
+_XS = "{http://www.w3.org/2001/XMLSchema}"
+_DOMAIN_TYPE = "{http://www.xbrl.org/dtr/type/non-numeric}domainItemType"
+Scopes = Mapping[ET.Element, Mapping[str, str]]
+
+
+def _qname(raw: str | None, ns: Mapping[str, str]) -> str | None:
+    parts = (raw or "").strip().split(":")
+    if len(parts) == 1:
+        parts.insert(0, "")
+    if len(parts) != 2 or not parts[1] or not (uri := ns.get(parts[0])):
+        return None
+    return "{" + uri + "}" + parts[1]
+
+
+@dataclass(frozen=True, slots=True)
+class ContextEvidence:
+    context_id: str
+    pairs: tuple[tuple[str, str], ...] = ()
+    problem: str | None = None
+
+
+def observe_context(node: ET.Element, scopes: Scopes) -> ContextEvidence:
+    """Preserve context ID and reject unsupported placement before flattening."""
+    context_id = node.get("id", "")
+    scenarios = node.findall(_I + "scenario")
+    direct = node.findall(f"{_I}scenario/{_DI}explicitMember")
+    if (
+        node.tag != _I + "context"
+        or not context_id
+        or len(scenarios) > 1
+        or node.find(f"{_I}entity/{_I}segment") is not None
+        or set(direct) != set(node.iter(_DI + "explicitMember"))
+        or node.find(".//" + _DI + "typedMember") is not None
+        or (scenarios and (list(scenarios[0]) != direct or (scenarios[0].text or "").strip()))
+        or any(len(m) or (m.tail or "").strip() for m in direct)
+    ):
+        return ContextEvidence(context_id, problem="context_placement_unsupported")
+    pairs = []
+    for member in direct:
+        ns = scopes.get(member, {})
+        axis, key = _qname(member.get("dimension"), ns), _qname(member.text, ns)
+        if axis is None or key is None:
+            return ContextEvidence(context_id, problem="dimension_qname_unresolved")
+        pairs.append((axis, key))
+    return ContextEvidence(context_id, tuple(pairs))
+
+
+@dataclass(frozen=True, slots=True)
+class IssuerDeclaration:
+    data_type: str | None
+    group: str | None
+    label: str | None
+
+
+def issuer_declarations(
+    schema: ET.Element, scopes: Scopes, labels: Mapping[str, str]
+) -> dict[str, IssuerDeclaration]:
+    """Record the filing's declarations; do not guess a missing prefix or fetch a DTS."""
+    namespace = schema.get("targetNamespace")
+    if schema.tag != _XS + "schema" or not namespace:
+        return {}
+    result = {}
+    for declaration in schema.findall(_XS + "element"):
+        if not (name := declaration.get("name")):
+            continue
+        key = "{" + namespace + "}" + name
+        if key in result:
+            result[key] = IssuerDeclaration(None, None, labels.get(key))
+            continue
+        ns = scopes.get(declaration, {})
+        result[key] = IssuerDeclaration(
+            _qname(declaration.get("type"), ns),
+            _qname(declaration.get("substitutionGroup"), ns),
+            labels.get(key),
+        )
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class Segment:
     key: str
@@ -71,15 +152,15 @@ class Attribution:
 
 def classify(
     concept: str,
-    dimensions: tuple[tuple[str, str], ...] | None,
+    context: ContextEvidence | None,
     *,
-    issuer_members: Mapping[str, str | None],
+    issuer_members: Mapping[str, IssuerDeclaration],
     verified_annual_segment_note: Basis | None = None,
 ) -> Attribution:
     """Classify a finite candidate; no I/O, value conversion or v2 fallback.
 
-    issuer_members keys are full QNames declared in this filing's own XSD; values
-    are Japanese standard-role labels, or None. The optional note scope is
+    Inputs retain placement and the issuer declaration's scoped type and group.
+    The optional note scope is
     independent evidence of the applicable annual segment note, not a context ID,
     issuer name or inference from the absence of dimensions. Without it we do
     not apply the consolidation default to a segment observation.
@@ -89,8 +170,11 @@ def classify(
         namespace = concept.partition("}")[0] + "}"
         reason = "concept_unverified" if namespace in _STANDARD_NS else "taxonomy_unverified"
         return Attribution(None, reason)
-    if dimensions is None:
+    if context is None:
         return Attribution(None, "context_unavailable")
+    if context.problem:
+        return Attribution(None, context.problem)
+    dimensions = context.pairs
     version, family = profile
     jpcrp, jppfs = _ns("jpcrp", version), _ns("jppfs", version)
     segment_axis = jpcrp + "OperatingSegmentsAxis"
@@ -113,7 +197,18 @@ def classify(
         if special:
             member = Segment(key, *special, "standard")
         elif key.startswith("{") and not key.startswith("{" + _ROOT) and key in issuer_members:
-            label = issuer_members[key] or None
+            declaration = issuer_members[key]
+            label = declaration.label or None
+            if declaration.data_type not in {None, _DOMAIN_TYPE} or declaration.group not in {
+                None,
+                _I + "item",
+            }:
+                return Attribution(None, "issuer_declaration_not_member")
+            if declaration.data_type is None or declaration.group is None:
+                unverified = Segment(
+                    key, "issuer_unverified", label, "issuer" if label else "missing"
+                )
+                return Attribution(None, "issuer_declaration_unresolved", unverified)
             member = Segment(key, "issuer_reported", label, "issuer" if label else "missing")
         else:
             return Attribution(None, "segment_member_unverified")

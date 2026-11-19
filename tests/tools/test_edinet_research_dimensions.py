@@ -6,10 +6,19 @@ import json
 import zipfile
 from collections import Counter
 from dataclasses import replace
+from xml.etree import ElementTree as ET
 
 import pytest
 from tests.helpers.edinet_research_sources import facts_at_test_clock, source_zip
-from tools.experiments.edinet_research_dimensions import Attribution, Segment, classify
+from tools.experiments.edinet_research_dimensions import (
+    Attribution,
+    ContextEvidence,
+    IssuerDeclaration,
+    Segment,
+    classify,
+    issuer_declarations,
+    observe_context,
+)
 
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.debt import debt_facts
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import (
@@ -20,7 +29,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.models 
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
     read_instance,
-    xml_root,
 )
 
 # Captured from unmodified v2 at b2e12514, not independent accounting evidence.
@@ -44,18 +52,42 @@ _BASELINE = {
 }
 
 
+_DTR = "http://www.xbrl.org/dtr/type/non-numeric"
+_I = "http://www.xbrl.org/2003/instance"
+_DI = "http://xbrl.org/2006/xbrldi"
+# The real excerpt lost xmlns:nonnum. Use a different, bound prefix ONLY as a synthetic positive.
+_BOUND_TYPE = {
+    "<xs:schema ": f'<xs:schema xmlns:nn="{_DTR}" ',
+    "nonnum:domainItemType": "nn:domainItemType",
+}
+
+
+def _scoped(raw):
+    # Only the small versioned fixtures and locally constructed controls enter this helper.
+    parser = ET.iterparse(io.BytesIO(raw), events=("start-ns", "start", "end"))
+    scopes, new, stack = {}, {}, [{}]
+    for event, obj in parser:
+        if event == "start-ns":
+            prefix, uri = obj
+            new[prefix] = uri
+        elif event == "start":
+            stack.append(stack[-1] | new if new else stack[-1])
+            scopes[obj] = stack[-1]
+            new = {}
+        else:
+            stack.pop()
+    return parser.root, scopes
+
+
 def _source(doc, replacements=None):
     content = source_zip(doc, replacements)
-    instance = read_instance(content)
+    labels = read_instance(content).labels
     with zipfile.ZipFile(io.BytesIO(content)) as z:
-        xsd, _ = xml_root(z.read(f"XBRL/PublicDoc/{doc}.xsd"))
-    namespace = xsd.attrib["targetNamespace"]
-    qnames = {
-        "{" + namespace + "}" + element.attrib["name"]
-        for element in xsd.findall("{http://www.w3.org/2001/XMLSchema}element")
-    }
-    # A declaration is not a definition link proving membership in a dimension.
-    return instance, {key: instance.labels.get(key) for key in qnames}
+        xsd, xs_scopes = _scoped(z.read(f"XBRL/PublicDoc/{doc}.xsd"))
+        xml, scopes = _scoped(z.read(f"XBRL/PublicDoc/{doc}.xbrl"))
+    return {
+        c.get("id"): observe_context(c, scopes) for c in xml.findall("{" + _I + "}context")
+    }, issuer_declarations(xsd, xs_scopes, labels)
 
 
 @pytest.mark.parametrize("doc", _BASELINE)
@@ -75,47 +107,55 @@ def test_original_filing_rows_and_unqualified_scope(doc):
         n_debt,
         digest,
     )
-    instance, issuers = _source(doc)
+    contexts, issuers = _source(doc)
     counts = Counter()
     for row in v2.segments:
-        dimensions = instance.contexts[row.source_context].dimensions
+        dimensions = contexts[row.source_context]
         actual = classify(row.source_element, dimensions, issuer_members=issuers)
         # All four excerpts omit the issuer definition linkbase. Do not manufacture note scope.
         assert actual.basis is None
-        assert actual.evidence_or_reason == "segment_note_scope_unverified"
         member = actual.member
         assert member is not None
         assert member.key == row.segment_key
-        if member.kind == "issuer_reported":
+        if member.kind == "issuer_unverified":
+            assert actual.evidence_or_reason == "issuer_declaration_unresolved"
             assert member.label_source == "issuer"
             assert member.label == row.segment_name
         else:
+            assert actual.evidence_or_reason == "segment_note_scope_unverified"
             assert member.label_source == "standard"
             assert member.kind == row.segment_kind
         counts[member.kind] += 1
         counts["display_label_changes"] += member.label != row.segment_name
         # Conditional control, not evidence of the note in the truncated filing.
-        assert classify(
+        conditional = classify(
             row.source_element,
             dimensions,
             issuer_members=issuers,
             verified_annual_segment_note="consolidated",
-        ) == Attribution("consolidated", "applicable_note_default", member)
-    assert counts["issuer_reported"] == n_issuer
+        )
+        assert conditional == (
+            actual
+            if member.kind == "issuer_unverified"
+            else Attribution("consolidated", "applicable_note_default", member)
+        )
+        assert dimensions.context_id == row.source_context
+    assert counts["issuer_unverified"] == n_issuer
+    assert counts["issuer_reported"] == 0
     assert counts["display_label_changes"] == n_label_changes
     for row in v2.debt:
         assert classify(
             row.source_element,
-            instance.contexts[row.source_context].dimensions,
+            contexts[row.source_context],
             issuer_members=issuers,
         ) == Attribution("consolidated", "consolidated_annex_concept")
 
 
 def _housing(replacements=None):
-    instance, issuers = _source("S100YR5P", replacements)
+    contexts, issuers = _source("S100YR5P", replacements)
     facts = facts_at_test_clock("S100YR5P", replacements)
     return [
-        (r, instance.contexts[r.source_context].dimensions, issuers)
+        (r, contexts[r.source_context], issuers)
         for r in facts.segments
         if r.segment_name == "住宅事業"
     ]
@@ -131,7 +171,7 @@ def _housing(replacements=None):
 def test_same_local_issuer_member_reproduces_v2_but_never_becomes_standard(
     local, v2_kind, v2_basis
 ):
-    rows = _housing({"HousingReportableSegmentsMember": local})
+    rows = _housing({**_BOUND_TYPE, "HousingReportableSegmentsMember": local})
     assert len(rows) == 8
     for row, dims, issuers in rows:
         assert (row.segment_kind, row.consolidation_basis) == (v2_kind, v2_basis)
@@ -150,14 +190,14 @@ def test_renamed_prefix_is_equivalent_and_same_local_issuer_axis_is_not():
     modified_axis = {
         "jpcrp_cor:OperatingSegmentsAxis": "jpcrp030000-asr_E00197-000:OperatingSegmentsAxis"
     }
-    instance, issuers = _source("S100YR5P", modified_axis)
+    contexts, issuers = _source("S100YR5P", modified_axis)
     v2 = facts_at_test_clock("S100YR5P", modified_axis)
     assert len(v2.segments) == 40
     assert v2.debt == facts_at_test_clock("S100YR5P").debt
     for row in v2.segments:
         assert classify(
             row.source_element,
-            instance.contexts[row.source_context].dimensions,
+            contexts[row.source_context],
             issuer_members=issuers,
         ) == Attribution(None, "dimension_unsupported")
     # The same archive's unrelated debt contexts remain usable.
@@ -165,7 +205,7 @@ def test_renamed_prefix_is_equivalent_and_same_local_issuer_axis_is_not():
         assert (
             classify(
                 row.source_element,
-                instance.contexts[row.source_context].dimensions,
+                contexts[row.source_context],
                 issuer_members=issuers,
             ).basis
             == "consolidated"
@@ -184,7 +224,8 @@ def test_synthetic_note_applicability_and_ambiguous_dimensions(version):
     member = Segment(crp + "ReconcilingItemsMember", "reconciliation", "調整項目", "standard")
 
     def evaluate(dims, scope=None):
-        return classify(item, dims, issuer_members={}, verified_annual_segment_note=scope)
+        obs = ContextEvidence("synthetic", dims) if dims is not None else None
+        return classify(item, obs, issuer_members={}, verified_annual_segment_note=scope)
 
     assert evaluate(seg, "consolidated") == Attribution(
         "consolidated", "applicable_note_default", member
@@ -237,6 +278,7 @@ def test_synthetic_note_applicability_and_ambiguous_dimensions(version):
     ):
         key = crp + local
         assert evaluate(((sa, key),)).member == Segment(key, kind, label, "standard")
+    synthetic = ContextEvidence("synthetic", seg)
     for concept, reason in (
         (item.replace(version, "2030-11-01"), "taxonomy_unverified"),
         (crp + "NetSales", "concept_unverified"),
@@ -245,18 +287,22 @@ def test_synthetic_note_applicability_and_ambiguous_dimensions(version):
             "concept_unverified",
         ),
     ):
-        assert classify(concept, seg, issuer_members={}) == Attribution(None, reason)
+        assert classify(concept, synthetic, issuer_members={}) == Attribution(None, reason)
     debt = crp + "AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock"
-    assert classify(debt, single, issuer_members={}) == Attribution(
+    assert classify(debt, ContextEvidence("synthetic", single), issuer_members={}) == Attribution(
         None, "basis_contradicts_source"
     )
-    assert classify(debt, ((ca, "{urn:u}Unknown"),), issuer_members={}) == Attribution(
-        None, "basis_member_unverified"
-    )
+    assert classify(
+        debt, ContextEvidence("synthetic", ((ca, "{urn:u}Unknown"),)), issuer_members={}
+    ) == Attribution(None, "basis_member_unverified")
     unlabeled = classify(
         item,
-        ((sa, "{urn:this-issuer}OtherReportableSegmentsMember"),),
-        issuer_members={"{urn:this-issuer}OtherReportableSegmentsMember": None},
+        ContextEvidence("synthetic", ((sa, "{urn:this-issuer}OtherReportableSegmentsMember"),)),
+        issuer_members={
+            "{urn:this-issuer}OtherReportableSegmentsMember": IssuerDeclaration(
+                "{" + _DTR + "}domainItemType", "{" + _I + "}item", None
+            )
+        },
     )
     assert unlabeled.member == Segment(
         "{urn:this-issuer}OtherReportableSegmentsMember", "issuer_reported", None, "missing"
@@ -272,7 +318,8 @@ def test_synthetic_note_applicability_and_ambiguous_dimensions(version):
 )
 def test_postparse_maturity_control_cannot_inherit_v2_basis(use_standard_axis, old_basis, reason):
     v2 = facts_at_test_clock()
-    instance, issuers = _source("S100YR5P")
+    _, issuers = _source("S100YR5P")
+    instance = read_instance(source_zip("S100YR5P"))
     standard = "{http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor}"
     axis = (standard if use_standard_axis else "{urn:issuer}") + "ConsolidatedOrNonConsolidatedAxis"
     key = "{urn:issuer}" + ("Unknown" if use_standard_axis else "NonConsolidatedMember")
@@ -294,5 +341,125 @@ def test_postparse_maturity_control_cannot_inherit_v2_basis(use_standard_axis, o
     assert {r.consolidation_basis for r in old} == {old_basis}
     for r in old:
         assert classify(
-            r.source_element, contexts[r.source_context].dimensions, issuer_members=issuers
+            r.source_element,
+            ContextEvidence(r.source_context, contexts[r.source_context].dimensions),
+            issuer_members=issuers,
         ) == Attribution(None, reason)
+
+
+@pytest.mark.parametrize("under", ["entity_segment", "scenario_child"])
+def test_unsupported_placement_is_not_absence_even_for_a_consolidated_annex(under):
+    doc = "S100YR5P"
+    row = facts_at_test_clock(doc).debt[0]
+    with zipfile.ZipFile(io.BytesIO(source_zip(doc))) as z:
+        xml, scopes = _scoped(z.read(f"XBRL/PublicDoc/{doc}.xbrl"))
+    ctx = next(c for c in xml.findall("{" + _I + "}context") if c.get("id") == row.source_context)
+    # Same actual annex: its original context has no explicit dimensions.
+    valid = observe_context(ctx, scopes)
+    assert classify(row.source_element, valid, issuer_members={}).basis == "consolidated"
+    donor = next(xml.iter("{" + _DI + "}explicitMember"))
+    if under == "entity_segment":
+        entity = ctx.find("{" + _I + "}entity")
+        target = ET.SubElement(entity, "{" + _I + "}segment")
+    else:
+        target = ET.SubElement(ET.SubElement(ctx, "{" + _I + "}scenario"), "{urn:other}container")
+    target.append(donor)
+    invalid = observe_context(ctx, scopes)
+    assert invalid.context_id == row.source_context
+    assert classify(row.source_element, invalid, issuer_members={}) == Attribution(
+        None, "context_placement_unsupported"
+    )
+
+
+def test_moving_an_explicit_segment_from_scenario_to_entity_rejects_only_that_context():
+    doc = "S100YR5P"
+    v2 = facts_at_test_clock(doc)
+    row = next(r for r in v2.segments if r.segment_name == "住宅事業")
+    with zipfile.ZipFile(io.BytesIO(source_zip(doc, _BOUND_TYPE))) as z:
+        xml, scopes = _scoped(z.read(f"XBRL/PublicDoc/{doc}.xbrl"))
+    _, issuers = _source(doc, _BOUND_TYPE)
+    contexts = {x.get("id"): x for x in xml.findall("{" + _I + "}context")}
+    ctx = contexts[row.source_context]
+    scenario = ctx.find("{" + _I + "}scenario")
+    member = scenario.find("{" + _DI + "}explicitMember")
+    saved = observe_context(ctx, scopes)
+    assert (
+        classify(
+            row.source_element,
+            saved,
+            issuer_members=issuers,
+            verified_annual_segment_note="consolidated",
+        ).basis
+        == "consolidated"
+    )
+    ctx.remove(scenario)
+    ET.SubElement(ctx.find("{" + _I + "}entity"), "{" + _I + "}segment").append(member)
+    scoped = observe_context(ctx, scopes)
+    assert scoped.context_id == saved.context_id
+    assert classify(
+        row.source_element,
+        scoped,
+        issuer_members=issuers,
+        verified_annual_segment_note="consolidated",
+    ) == Attribution(None, "context_placement_unsupported")
+    ann = v2.debt[0]
+    assert (
+        classify(
+            ann.source_element,
+            observe_context(contexts[ann.source_context], scopes),
+            issuer_members=issuers,
+        ).basis
+        == "consolidated"
+    )
+
+
+def test_issuer_declaration_scopes_do_not_leak_to_a_sibling_or_turn_an_axis_into_a_member():
+    doc = "S100YR5P"
+    v2 = facts_at_test_clock(doc)
+    housing = next(r for r in v2.segments if r.segment_name == "住宅事業")
+    hotel = next(r for r in v2.segments if r.segment_name == "ホテル事業")
+    # Only the hotel element gets a local binding for the lexical type in the excerpt.
+    hotel_id = hotel.segment_key.split("}")[1]
+    scoped_binding = {
+        f'<xs:element id="jpcrp030000-asr_E00197-000_{hotel_id}"': f'<xs:element xmlns:nonnum="{_DTR}" id="jpcrp030000-asr_E00197-000_{hotel_id}"'
+    }
+    contexts, issuers = _source(doc, scoped_binding)
+
+    def decision(row, declarations):
+        return classify(
+            row.source_element,
+            contexts[row.source_context],
+            issuer_members=declarations,
+            verified_annual_segment_note="consolidated",
+        )
+
+    assert decision(housing, issuers).member == Segment(
+        housing.segment_key, "issuer_unverified", "住宅事業", "issuer"
+    )
+    assert decision(hotel, issuers).member == Segment(
+        hotel.segment_key, "issuer_reported", "ホテル事業", "issuer"
+    )
+    # A synthetic complete declaration works with an arbitrary prefix; changing only
+    # Housing's declared type/group cannot promote it via its unchanged label.
+    with zipfile.ZipFile(io.BytesIO(source_zip(doc, _BOUND_TYPE))) as z:
+        xsd, scopes = _scoped(z.read(f"XBRL/PublicDoc/{doc}.xsd"))
+    labels = {housing.segment_key: "住宅事業", hotel.segment_key: "ホテル事業"}
+    decl = next(d for d in xsd if d.get("name") == housing.segment_key.split("}")[1])
+    baseline = issuer_declarations(xsd, scopes, labels)
+    assert decision(housing, baseline).basis == "consolidated"
+    for attribute, wrong_value in (
+        ("type", "xbrli:stringItemType"),
+        ("type", "wrong:domainItemType"),
+        ("substitutionGroup", "dim:dimensionItem"),
+    ):
+        correct = decl.get(attribute)
+        decl.set(attribute, wrong_value)
+        scopes[decl] = {
+            **scopes[decl],
+            "dim": "http://xbrl.org/2005/xbrldt",
+            "wrong": "urn:not-dtr",
+        }
+        changed = issuer_declarations(xsd, scopes, labels)
+        assert decision(housing, changed) == Attribution(None, "issuer_declaration_not_member")
+        assert decision(hotel, changed) == decision(hotel, baseline)
+        decl.set(attribute, correct)
