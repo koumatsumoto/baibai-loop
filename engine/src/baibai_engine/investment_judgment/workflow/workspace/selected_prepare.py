@@ -47,6 +47,7 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
     _write_workspace_file,
 )
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
+from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
@@ -138,6 +139,7 @@ def prepare_selected_workspace(
     workspace: Path,
     runs_path: Path,
     now: datetime,
+    sqlite_path: Path | None = MARKET_DB_PATH,
     force: bool = False,
     company_growth_periods: int | EllipsisType | None = ...,
 ) -> SelectedResearchPreparation:
@@ -213,6 +215,7 @@ def prepare_selected_workspace(
         started_at=now,
         ticker=tickers[0] if holding and len(tickers) == 1 else None,
         payload=payload,
+        sqlite_path=sqlite_path,
     ).operation_id
     del payload
     committed = service.get(operation_id)

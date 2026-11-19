@@ -53,7 +53,11 @@ def project_research_inputs(
     if isinstance(selection, GeneratedSelection):
         return {
             **project_generated_inputs(
-                selection.inputs.generation, company_growth_periods=company_growth_periods
+                selection.inputs.generation,
+                company_growth_periods=company_growth_periods,
+                monex_fiscal_eps=selection.inputs.monex_fiscal_eps
+                if isinstance(selection, GeneratedResearchSelectionV5)
+                else None,
             ),
             **(
                 {

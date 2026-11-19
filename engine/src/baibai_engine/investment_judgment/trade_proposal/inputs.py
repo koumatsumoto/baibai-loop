@@ -47,6 +47,7 @@ from baibai_engine.investment_judgment.workflow.operation.progress import (
 from baibai_engine.investment_judgment.workflow.profit_context import saved_profit_context
 from baibai_engine.investment_judgment.workflow.screening_brief import saved_discovery_context
 from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchSelectionV5,
     GeneratedSelection,
     saved_market_assessment,
 )
@@ -718,7 +719,13 @@ def build_proposal_context(
                 market_connection=market_connection,
             ),
             saved_context,
-            project_generated_inputs(selection.inputs.generation, proposal_view=True)
+            project_generated_inputs(
+                selection.inputs.generation,
+                proposal_view=True,
+                monex_fiscal_eps=selection.inputs.monex_fiscal_eps
+                if isinstance(selection, GeneratedResearchSelectionV5)
+                else None,
+            )
             if isinstance(selection, GeneratedSelection)
             else None,
             {

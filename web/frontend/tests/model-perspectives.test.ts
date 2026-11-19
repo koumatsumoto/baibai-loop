@@ -111,6 +111,7 @@ it('当時の資料による見立てを区別し、元の不足判断を推定�
   const a = assessmentFixture('supplement')
   a.model_perspectives = [{ model: 'company_growth', assessment: 'insufficient', summary: '元の作者が確認できず。', source_ids: [] }]
   a.estimated_model_chart = {
+    monex_fiscal_eps: null,
     selection_sha256: 'a'.repeat(64), input_known_at: '2026-10-26T03:00:00Z', research_as_of: '2026-10-26', generation_id: 'fixed-test',
     rows: [
       { model: 'company_growth', assessment: 'supportive', summary: '上書きしてはいけない', evidence: '古い選定', observed_on: '2026-09-30', source_url: null },
@@ -133,4 +134,25 @@ it('当時の資料による見立てを区別し、元の不足判断を推定�
   const estimatedOnly = render(a).split('<thead')[1].split('</thead>')[0]
   expect(estimatedOnly).toContain('プラス側')
   expect(estimatedOnly).not.toContain('支持')
+})
+
+it('外部評価の当初判断は変えず、今期・来期EPSだけを受領時刻付きで併記する', () => {
+  const a = assessmentFixture('fiscal-eps')
+  a.model_perspectives = [{ model: 'external_assessment', assessment: 'insufficient', summary: '当初の判定を保持', source_ids: [] }]
+  const fiscal = { provider_label: '今期予想コンセンサス', fiscal_end_label: '2025/09', eps_jpy_per_share: -3.5, analyst_count: null, provider_published_at_utc: null }
+  a.estimated_model_chart = {
+    selection_sha256: 'fixed', generation_id: 'fixed', input_known_at: '2025-03-04T06:00:00Z', research_as_of: '2025-03-04',
+    rows: [], monex_fiscal_eps: { source_url: 'https://scouter.monex.co.jp/report/theoryDps/1234', received_at_utc: '2025-03-04T05:40:00Z',
+      current_fy: fiscal, next_fy: { ...fiscal, provider_label: '来期予想コンセンサス', fiscal_end_label: '2026/09', eps_jpy_per_share: 0 },
+      annualized_to_12_months: true, share_basis: 'shares_at_provider_last_update',
+    },
+  }
+  const html = render(a)
+  const chart = html.split('<tbody>')[1].split('</tbody>')[0]
+  const external = chart.split('data-model="external_assessment"')[1].split('</tr>')[0]
+  expect(external).toContain('情報不足')
+  for (const wording of ['当初の判定を保持', '2025/09期', '-3.5 円/株', '2026/09期', '0 円/株', '配信元：マネックス証券', '保存ページの受領', '公表日時は未確認']) expect(html).toContain(wording)
+  a.estimated_model_chart.monex_fiscal_eps!.current_fy = null
+  expect(render(a)).toContain('未確認')
+  expect(render(a)).not.toContain('-3.5 円/株')
 })

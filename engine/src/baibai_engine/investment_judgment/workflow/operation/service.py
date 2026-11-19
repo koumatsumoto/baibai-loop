@@ -25,6 +25,7 @@ from baibai_engine.investment_judgment.workflow.case_screening import (
     read_case_screening,
     same_case_screening,
 )
+from baibai_engine.investment_judgment.workflow.monex_fiscal_eps import freeze_monex_fiscal_eps
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationHeader,
     OperationPayload,
@@ -58,7 +59,7 @@ from baibai_engine.machine_analysis.generation.query import read_research_model_
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.paths import RUNS_DB_PATH
+from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import (
@@ -104,6 +105,7 @@ class OperationService:
         started_at: datetime,
         payload: OperationPayload,
         ticker: str | None = None,
+        sqlite_path: Path | None = MARKET_DB_PATH,
     ) -> OperationSession:
         payload.validate_metadata()
         if started_at.utcoffset() is None:
@@ -150,6 +152,25 @@ class OperationService:
                 continue
             if CompanyGrowth.model_validate(model.payload).ticker != model.subject:
                 raise ValueError("growth payload belongs to a different subject")
+        matched = freeze_monex_fiscal_eps(
+            sqlite_path, canonical, tickers=[t.ticker for t in selection.targets]
+        )
+        if selection.inputs.monex_fiscal_eps and selection.inputs.monex_fiscal_eps != matched:
+            raise OperationConflictError("fiscal EPS differs from retained Monex receipts")
+        if matched and not selection.inputs.monex_fiscal_eps:
+            selection = selection.model_copy(
+                update={"inputs": selection.inputs.model_copy(update={"monex_fiscal_eps": matched})}
+            )
+            payload = payload.model_copy(
+                update={
+                    "artifacts": tuple(
+                        selection.model_dump(mode="json")
+                        if item.get("kind") == "research_selection"
+                        else item
+                        for item in payload.artifacts
+                    )
+                }
+            )
         del canonical
         selection_id = selection.inputs.screening_selection_id
         if selection_id is not None:

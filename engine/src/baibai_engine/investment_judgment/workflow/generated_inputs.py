@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Set
+from collections.abc import Mapping, Set
 from copy import deepcopy
 from datetime import date
 from typing import cast
@@ -19,6 +19,9 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
 )
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
+from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
+    MonexEPSReceipt,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
 
@@ -132,6 +135,7 @@ def project_generated_inputs(
     company_growth_periods: int | None = 12,
     full_growth_tickers: Set[str] = frozenset(),
     proposal_view: bool = False,
+    monex_fiscal_eps: Mapping[str, MonexEPSReceipt] | None = None,
 ) -> dict[str, JsonValue]:
     """モデル固有の意味を維持し、未生成と生成内の欠測を区別して提示する。"""
     securities: dict[str, object] = {}
@@ -196,6 +200,8 @@ def project_generated_inputs(
             "calculation_revisions": revisions,
             "not_generated": [name for name in expected if name not in available],
         }
+        if monex_fiscal_eps and ticker in monex_fiscal_eps:
+            row["monex_fiscal_eps"] = monex_fiscal_eps[ticker].model_dump(mode="json")
         if scope == "stock" and "company_financials" in available:
             limit = cash_flow_limit(
                 models.get("market_context"),
