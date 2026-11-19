@@ -668,7 +668,6 @@ def test_complementary_earnings_documents_keep_independent_fields_and_sources(
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_complementary_fy_eps_and_dps_keep_both_without_joining_capital_pair(reverse: bool) -> None:
-
     a, b = (
         actual_document("eps", ShOutFY="1000"),
         actual_document("payout", DivAnn="7", TrShFY="100"),
@@ -676,6 +675,9 @@ def test_complementary_fy_eps_and_dps_keep_both_without_joining_capital_pair(rev
     a["NP"] = a["Sales"] = ""
     b["EPS"] = b["NP"] = b["Sales"] = ""
     rows = decode([a, b] if not reverse else [b, a])
+    projected = {row.disclosure_number: row for row in project_financial_documents(rows, ASOF)}
+    assert projected["eps"].cumulative_eps == 20
+    assert snapshot(rows).dps_actual_annual == 7
     assert _resolve_capital_basis(rows).shares_ex_treasury is None
 
 
