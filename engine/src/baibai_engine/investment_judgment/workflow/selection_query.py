@@ -378,7 +378,11 @@ def _model_context(
 
     model_inputs = cast(
         dict[str, Any],
-        project_generated_inputs(models, company_growth_periods=None if compact else 12),
+        project_generated_inputs(
+            models,
+            company_growth_periods=None if compact else 12,
+            full_growth_tickers=detail_targets,
+        ),
     )
     # Selection未保存のcontextは、現存する固定generationを参照する。
     # prepare後の投影だけがapplication DB内のSelectionを参照できる。
@@ -389,13 +393,9 @@ def _model_context(
                 "generation_id": models.generation_id,
                 "json_pointer": entry.pop("full_result_ref").removeprefix("/inputs/generation"),
             }
-    # contextにはOperationの/inputs/generation参照先がない。政策の有無にかかわらず
-    # 明示詳細は完全payloadを渡し、古いquarter/annual観測もその場で読めるようにする。
     for model in models.models:
         if model.model_id == "company_growth" and model.subject in detail_targets:
-            security = model_inputs["securities"][model.subject]
-            detail = security if models.subject_plan is None else security["models"]
-            detail["company_growth"] = deepcopy(model.payload)
+            # 明示詳細は完全な原文で、省略した表示への参照はない。
             continue
         if model.model_id not in {"company_financials", "company_growth", "market_context"}:
             continue
