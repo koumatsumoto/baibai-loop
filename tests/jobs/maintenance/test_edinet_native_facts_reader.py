@@ -1,7 +1,7 @@
-"""Manual facts extraction reads the just-materialized head before closing its store."""
+"""Manual facts keeps an offline annual copy and extracts against the same open fixed head."""
 
 import io
-import zipfile
+from contextlib import closing
 from unittest.mock import Mock
 
 import pytest
@@ -9,30 +9,46 @@ from tests.jobs.acquisition.test_edinet_archive_native_acquisition import AT, DA
 
 from baibai_engine.data_collection.providers.edinet import archive_native, list_native
 from baibai_engine.data_collection.providers.edinet.archive_native import NativeArchive
+from baibai_engine.data_collection.providers.edinet.facts_scope import FactsScope, read_scope
 from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.objects.r2 import LakePublishError
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition import edinet_archive_native as acquisition
 from baibai_jobs.integration import edinet_archive_native as archive_copy
 from baibai_jobs.integration import edinet_list_native as list_copy
 from baibai_jobs.maintenance import edinet_extraction as refresh
 
 
-@pytest.mark.parametrize(("initialize", "tickers"), [(False, ()), (True, ("7203",))])
 @pytest.mark.parametrize(
-    ("report_status", "extract_exit"),
-    [("received", 0), ("failed", 0), ("received", 1), ("failed", 1)],
+    ("initialize", "tickers", "report_status", "extract_exit"),
+    [
+        (False, (), "received", 0),
+        (True, ("7203",), "failed", 0),
+        (True, (), "received", 1),
+        (False, ("7203",), "failed", 1),
+    ],
 )
 def test_manual_facts_shares_post_acquisition_head_until_extraction_finishes(
     tmp_path, monkeypatch, initialize, tickers, report_status, extract_exit
 ):
     owner, client, _, lists = setup(tmp_path, [filing("S100ONE")])
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("XBRL/PublicDoc/source.xbrl", "<xbrl/>")
-    original = buffer.getvalue()
+    original = client.fetch_archive.return_value.body
+    scope = FactsScope(doc_ids=frozenset({"S100ONE", "S100OLD", "S100MISSING"}))
     archives = owner.publish(
-        [NativeArchive.from_response("S100ONE", 1, EdinetResponse(AT, original))]
+        [
+            NativeArchive.from_response(doc_id, kind, EdinetResponse(AT, body))
+            for doc_id, kind, body in (
+                ("S100ONE", 1, original),
+                ("S100OLD", 1, b"previously requested annual"),
+                ("S100ONE", 5, b"same ID, different source"),
+                ("S100HOLD", 1, b"holder"),
+            )
+        ],
+        scope=scope,
     )
+    owner.store.get_keys.clear()
+    database = tmp_path / "market.sqlite"
     owner.store.close = Mock()
     events = []
     selected_owner = Mock()
@@ -54,18 +70,22 @@ def test_manual_facts_shares_post_acquisition_head_until_extraction_finishes(
         events.append("freeze")
         return archives
 
-    def materialize(selected, database):
-        assert selected is archives
-        assert database == tmp_path / "unused.sqlite"
-        owner.store.close.assert_not_called()
-        events.append("materialize")
-
     def extract(**kwargs):
-        assert events == ["acquire", "freeze", "materialize"]
-        list_materialize.assert_called_once_with(lists, tmp_path / "unused.sqlite")
+        assert events == ["acquire", "freeze"]
+        owner.store.close.assert_not_called()
+        list_materialize.assert_called_once_with(lists, database)
+        with closing(connect_read_only(database)) as conn:
+            assert read_scope(conn) == scope
+            rows = conn.execute(
+                "SELECT doc_id,source_type FROM edinet_source_archives ORDER BY doc_id"
+            )
+            assert [tuple(row) for row in rows] == [("S100OLD", 1), ("S100ONE", 1)]
+        assert EDINETReader(database).read_xbrl_zip("S100ONE") == original
+        assert EDINETReader(database).read_xbrl_zip("S100OLD") == b"previously requested annual"
+        assert len([key for key in owner.store.get_keys if key.endswith(".zip")]) == 2
         assert kwargs == {
             "asof": DAY,
-            "sqlite_path": tmp_path / "unused.sqlite",
+            "sqlite_path": database,
             "reader": archives,
             "initialize": initialize,
             "tickers": tickers,
@@ -83,21 +103,20 @@ def test_manual_facts_shares_post_acquisition_head_until_extraction_finishes(
     monkeypatch.setattr(archive_native, "EdinetArchiveL1", Mock(return_value=selected_owner))
     monkeypatch.setattr(list_native, "EdinetListL1", Mock(return_value=list_owner))
     monkeypatch.setattr(acquisition, "acquire_archives", acquire)
-    monkeypatch.setattr(archive_copy, "materialize_archives", materialize)
     list_materialize = Mock()
     monkeypatch.setattr(list_copy, "materialize_lists", list_materialize)
     monkeypatch.setattr(refresh, "extract_edinet_facts_command", extract)
     out = io.StringIO()
     result = refresh.refresh_edinet_facts_command(
         asof=DAY,
-        sqlite_path=tmp_path / "unused.sqlite",
+        sqlite_path=database,
         acquisition=client,
         initialize=initialize,
         tickers=tickers,
         stdout=out,
     )
     assert result == max(int(report_status == "failed"), extract_exit)
-    assert events == ["acquire", "freeze", "materialize", "extract"]
+    assert events == ["acquire", "freeze", "extract"]
     selected_owner.freeze.assert_called_once_with()
     owner.store.close.assert_called_once_with()
 

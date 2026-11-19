@@ -158,7 +158,9 @@ def prepare_archive_execution(
     }
 
 
-def materialize_archives(archives: FixedEdinetArchives, database: Path) -> dict[str, object]:
+def materialize_archives(
+    archives: FixedEdinetArchives, database: Path, *, annual_facts_only: bool = False
+) -> dict[str, object]:
     """Reuse verified execution-copy bytes; fetch only missing fixed originals.
 
     An older execution copy can hold a later receipt day than the fixed head.
@@ -178,7 +180,11 @@ def materialize_archives(archives: FixedEdinetArchives, database: Path) -> dict[
             "UPDATE edinet_source_archives SET stored_on=? WHERE doc_id=? AND source_type=?",
             adjusted,
         )
-        for doc_id, source_type in sorted(archives.archive_keys - retained.keys()):
+        missing = archives.archive_keys - retained.keys()
+        if annual_facts_only:
+            # Preserve offline annual re-extraction without hydrating holder XBRL or metrics CSV.
+            missing &= {(doc_id, 1) for doc_id in archives.scope.doc_ids}
+        for doc_id, source_type in sorted(missing):
             metadata = archives.metadata(doc_id, source_type)
             assert metadata is not None
             connection.execute(
@@ -196,7 +202,7 @@ def materialize_archives(archives: FixedEdinetArchives, database: Path) -> dict[
         "status": "completed",
         "l1_identity": archives.identity,
         "archive_count": len(archives.archive_keys),
-        "copied_archives": len(archives.archive_keys - retained.keys()),
+        "copied_archives": len(missing),
     }
 
 
