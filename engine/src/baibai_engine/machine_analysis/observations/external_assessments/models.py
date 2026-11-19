@@ -32,6 +32,34 @@ class FrozenModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class ConsensusEPS(FrozenModel):
+    provider_label: str
+    fiscal_end_label: str | None
+    eps_jpy_per_share: FiniteFloat | None
+    analyst_count: int | None = None
+    provider_published_at_utc: None = None
+
+
+class ReferenceEPS(FrozenModel):
+    current_fy: ConsensusEPS | None
+    next_fy: ConsensusEPS | None
+    rolling_one_year: ConsensusEPS | None
+    annualized_to_12_months: Literal[True] | None
+    share_basis: Literal["shares_at_provider_last_update"] | None
+
+
+class MonexEPSReceipt(FrozenModel):
+    receipt_id: str
+    attempt_id: str
+    body_sha256: str
+    ticker: str
+    source_url: str
+    received_at_utc: datetime
+    distributor: Literal["monex"] = "monex"
+    parser_version: Literal["monex-reference-eps-1"] = "monex-reference-eps-1"
+    reference_eps: ReferenceEPS | None
+
+
 class ReceivedObservation(FrozenModel):
     ticker: str
     fetched_at_utc: datetime

@@ -10,7 +10,7 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
     ProposalCorrection,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex_eps
+from baibai_engine.machine_analysis.observations.external_assessments.models import ConsensusEPS
 
 PerspectiveModel = Literal[
     "company_financials",
@@ -44,8 +44,8 @@ class EstimatedPerspectiveView(BaseModel):
 class MonexFiscalEPSView(BaseModel):
     source_url: str
     received_at_utc: datetime
-    current_fy: monex_eps.ConsensusEPS | None
-    next_fy: monex_eps.ConsensusEPS | None
+    current_fy: ConsensusEPS | None
+    next_fy: ConsensusEPS | None
     annualized_to_12_months: Literal[True] | None
     share_basis: Literal["shares_at_provider_last_update"] | None
 

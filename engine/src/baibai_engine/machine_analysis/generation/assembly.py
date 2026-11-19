@@ -36,7 +36,7 @@ from baibai_engine.machine_analysis.models.social_trends.calculations import cal
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     MonexEPSReceipt,
 )
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction

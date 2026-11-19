@@ -12,8 +12,8 @@ from zlib import error as DeflateError
 
 from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
 
-from .models import ModelValuationObservation, utc_datetime
-from .monex_receipt import MonexEPSReceipt, project_monex_eps
+from .models import ModelValuationObservation, MonexEPSReceipt, utc_datetime
+from .monex_receipt import project_monex_eps
 from .normalization import monex
 
 _DAY_INDEX = "idx_equity_web_source_responses_received_on"

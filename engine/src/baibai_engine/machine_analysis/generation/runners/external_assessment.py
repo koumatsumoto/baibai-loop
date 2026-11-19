@@ -8,7 +8,7 @@ from baibai_engine.machine_analysis.models.external_assessment.models import Ext
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     MonexEPSReceipt,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (

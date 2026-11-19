@@ -6,7 +6,6 @@ import hashlib
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
 
 from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_engine.data_collection.receipts.public_pages.receipts import (
@@ -16,22 +15,11 @@ from baibai_engine.data_collection.receipts.public_pages.receipts import (
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
-from .models import FrozenModel, ModelValuationObservation, utc_datetime
+from .models import ModelValuationObservation, utc_datetime
+from .models import MonexEPSReceipt as MonexEPSReceipt
 from .normalization import monex
 from .normalization.decode import response_html
-from .normalization.monex_eps import ReferenceEPS, reference_eps
-
-
-class MonexEPSReceipt(FrozenModel):
-    receipt_id: str
-    attempt_id: str
-    body_sha256: str
-    ticker: str
-    source_url: str
-    received_at_utc: datetime
-    distributor: Literal["monex"] = "monex"
-    parser_version: Literal["monex-reference-eps-1"] = "monex-reference-eps-1"
-    reference_eps: ReferenceEPS | None
+from .normalization.monex_eps import reference_eps
 
 
 def read_monex_eps(

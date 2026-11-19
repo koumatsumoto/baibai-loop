@@ -15,12 +15,12 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
     TradingViewHistory,
     latest_monex,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.models import FrozenModel
-from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
-    MonexEPSReceipt,
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    monex_public_url,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.normalization.monex import (
-    public_url,
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    FrozenModel,
+    MonexEPSReceipt,
 )
 
 METHOD_VERSION = "same-series-v4"
@@ -121,7 +121,7 @@ class ExternalAssessment(FrozenModel):
             self.method_version != MONEX_FISCAL_METHOD_VERSION
             or anchor is None
             or (eps.ticker, anchor.ticker) != (self.ticker, self.ticker)
-            or eps.source_url != public_url(self.ticker)
+            or eps.source_url != monex_public_url(self.ticker)
             or anchor.source_url != eps.source_url
             or eps.received_at_utc.utcoffset() is None
             or self.cutoff.utcoffset() is None

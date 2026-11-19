@@ -23,11 +23,9 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QUANTS_METRICS,
     VALUATION_METRICS,
+    MonexEPSReceipt,
     Observation,
     utc_datetime,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
-    MonexEPSReceipt,
 )
 
 from ...observations.external_assessments.tradingview.contract import (
