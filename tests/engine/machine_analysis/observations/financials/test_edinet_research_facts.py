@@ -8,7 +8,7 @@ from datetime import date
 from unittest.mock import Mock, patch
 
 import pytest
-from tests.helpers.edinet_research_sources import FIXTURES, facts, source_zip
+from tests.helpers.edinet_research_sources import FIXTURES, facts_at_test_clock, source_zip
 from tests.helpers.http_doubles import FakeSession, response
 from tests.jobs.acquisition.test_edinet_archive_native_acquisition import DAY, filing, setup
 
@@ -55,8 +55,19 @@ def _enable_source(path, since=date(2026, 9, 18)):
         merge_scope(connection, FactsScope(since, frozenset(extraction_status(path))))
 
 
+@pytest.mark.parametrize(
+    ("doc_id", "ticker"),
+    [("S100XTM0", "2501"), ("S100YCUF", "5410"), ("S100YJ24", "1811"), ("S100YR5P", "1873")],
+)
+def test_saved_excerpt_preserves_source_issuer_and_document(doc_id, ticker):
+    extracted = facts_at_test_clock(doc_id)
+    assert {(row.ticker, row.source_doc_id) for row in (*extracted.segments, *extracted.debt)} == {
+        (ticker, doc_id)
+    }
+
+
 def test_source_exact_segments_periods_labels_and_principal_buckets():
-    extracted = facts()
+    extracted = facts_at_test_clock()
     housing = [
         r
         for r in extracted.segments
@@ -96,7 +107,7 @@ def test_source_exact_segments_periods_labels_and_principal_buckets():
 
 
 def test_current_long_term_borrowing_label_keeps_the_one_year_principal():
-    extracted = facts("S100YCUF")
+    extracted = facts_at_test_clock("S100YCUF")
     borrowings = [r for r in extracted.debt if r.debt_category != "bonds"]
     assert {
         (r.debt_category, r.due_from_months, r.due_to_months): r.principal for r in borrowings
@@ -114,7 +125,7 @@ def test_current_long_term_borrowing_label_keeps_the_one_year_principal():
 
 
 def test_leases_are_excluded_and_no_bonds_does_not_become_zero():
-    extracted = facts("S100YJ24")
+    extracted = facts_at_test_clock("S100YJ24")
     assert [(r.debt_category, r.principal) for r in extracted.debt] == [
         ("long_term_borrowings", 14700000000),
         ("short_term_borrowings", 18550000000),
@@ -123,7 +134,7 @@ def test_leases_are_excluded_and_no_bonds_does_not_become_zero():
 
 
 def test_profit_basis_and_aggregate_members_are_not_operating_segments():
-    ordinary = facts("S100YCUF")
+    ordinary = facts_at_test_clock("S100YCUF")
     assert {r.profit_basis for r in ordinary.segments if r.metric == "segment_profit"} == {
         "ordinary"
     }
@@ -132,7 +143,7 @@ def test_profit_basis_and_aggregate_members_are_not_operating_segments():
         for r in ordinary.segments
     )
     assert any(r.segment_kind == "other" for r in ordinary.segments)
-    ifrs = facts("S100XTM0")
+    ifrs = facts_at_test_clock("S100XTM0")
     alcohol = [
         r for r in ifrs.segments if r.segment_name == "酒類" and r.period_end == "2025-12-31"
     ]
@@ -142,12 +153,12 @@ def test_profit_basis_and_aggregate_members_are_not_operating_segments():
 
 
 def test_debt_zero_dash_and_unknown_header_are_distinct():
-    original = facts()
+    original = facts_at_test_clock()
     # Replace only the source table's numeric cell text, retaining its delimiters.
     text = (FIXTURES / "S100YR5P.xbrl").read_text()
     assert "&gt;1,282&lt;" in text
-    zero = facts(replace={"&gt;1,282&lt;": "&gt;0&lt;"})
-    missing = facts(replace={"&gt;1,282&lt;": "&gt;－&lt;"})
+    zero = facts_at_test_clock(replace={"&gt;1,282&lt;": "&gt;0&lt;"})
+    missing = facts_at_test_clock(replace={"&gt;1,282&lt;": "&gt;－&lt;"})
 
     def pick(items):
         return next(
@@ -159,7 +170,7 @@ def test_debt_zero_dash_and_unknown_header_are_distinct():
     assert pick(original) == 1282000000
     assert pick(zero) == 0
     assert pick(missing) is None
-    unsupported = facts(replace={"1,282": "金額未定"})
+    unsupported = facts_at_test_clock(replace={"1,282": "金額未定"})
     assert "debt_amount_unsupported" in unsupported.debt_reasons
     assert not any(
         r.debt_category == "long_term_borrowings" and r.due_from_months > 0
@@ -628,8 +639,8 @@ def test_native_xbrl_rejects_non_zip_without_publishing(tmp_path, body, reason):
 
 def test_store_keeps_vintages_and_coverage_reasons(tmp_path):
     path = tmp_path / "market.sqlite"
-    one = facts()
-    two = facts("S100YJ24")
+    one = facts_at_test_clock()
+    two = facts_at_test_clock("S100YJ24", synthetic_ticker="1873")
     for doc, rows in [("S100YR5P", one), ("S100YJ24", two), ("S100YR5P", one)]:
         store_facts(path, identity=filing_identity("1873", doc, "2026-07-22 10:00"), facts=rows)
     before = extraction_status(path)

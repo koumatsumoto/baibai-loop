@@ -9,4 +9,6 @@ EDINET type=1のPublicDoc instance、issuer XSD、Japanese label linkbaseから�
 | S100YCUF | 5410 合同製鐵 | 経常利益basis、報告セグメント合計・その他 |
 | S100XTM0 | 2501 サッポロホールディングス | IFRS売上・営業利益、nilと調整行 |
 
+表の銘柄とdocIDは出典の組み合わせ。抜粋に一覧の提出時刻は含まれないため、factの提出時刻には固定の試験時計を使う。同一銘柄の別書類を仮定する保存・統合テストだけは、銘柄も明示的に置き換える。
+
 原典: [EDINET](https://disclosure2.edinet-fsa.go.jp/) の各docID。有効なAPI認証で `/api/v2/documents/<docID>?type=1` から取得できる。

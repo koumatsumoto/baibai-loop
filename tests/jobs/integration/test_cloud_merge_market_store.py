@@ -866,7 +866,7 @@ class TestCommand:
 def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     import json
 
-    from tests.helpers.edinet_research_sources import facts
+    from tests.helpers.edinet_research_sources import facts_at_test_clock
 
     from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
         extraction_status,
@@ -877,7 +877,9 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     source, target = _store(tmp_path / "source.sqlite"), _store(tmp_path / "target.sqlite")
     # Two documents submitted the same day are independent claims.
     store_facts(
-        target, identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"), facts=facts()
+        target,
+        identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"),
+        facts=facts_at_test_clock(),
     )
     record_failure(target, doc_id="S100FAIL", disclosed_on="2026-07-22", reason="unavailable")
     # Target successfully retried the source's failure.
@@ -886,7 +888,7 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     store_facts(
         source,
         identity=filing_identity("1873", "S100YJ24", "2026-07-22 10:00"),
-        facts=facts("S100YJ24"),
+        facts=facts_at_test_clock("S100YJ24", synthetic_ticker="1873"),
     )
     from baibai_engine.data_collection.providers.edinet.facts_scope import (
         FactsScope,
@@ -909,7 +911,9 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
         assert read_scope(connection).doc_ids == frozenset({"S100YJ24"})
     # Different extractor revisions retain the target claim attached to its facts.
     store_facts(
-        source, identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"), facts=facts()
+        source,
+        identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"),
+        facts=facts_at_test_clock(),
     )
     with closing(sqlite3.connect(target)) as conn, conn:
         conn.execute(
