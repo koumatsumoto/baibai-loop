@@ -92,7 +92,8 @@ def test_worker_deploy_token_is_limited_to_the_verified_main_dispatch() -> None:
             for scope in (workflow, job, *job.get("steps", [])):
                 if "CLOUDFLARE_API_TOKEN" in scope.get("env", {}):
                     assert scope.get("working-directory") == "web/edge"
-                    assert scope.get("run", "").split() == ["npx", "wrangler", "deploy"]
+                    command = scope.get("run", "").strip(" \t\n")
+                    assert re.fullmatch(r"npx[ \t]+wrangler[ \t]+deploy", command)
                     guard = scope["if"].removeprefix("${{").removesuffix("}}")
                     grants.append((path.name, {term.strip() for term in guard.split("&&")}))
     assert grants == [
