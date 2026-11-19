@@ -8,8 +8,11 @@ from datetime import date, datetime, time
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
 from baibai_engine.investment_judgment.cash_flow_use import CashFlowLimit, cash_flow_limit
 from baibai_engine.machine_analysis.models.company_financials import REPORTED_PROFIT_BASIS
+from baibai_engine.machine_analysis.models.external_assessment.models import ExternalAssessment
 from baibai_engine.primitives.time import JST
 
 Row = dict[str, Any]
@@ -652,12 +655,42 @@ def estimate_missing(
     selection: Row, *, ticker: str, recorded: set[str], selection_sha256: str
 ) -> Row | None:
     """Caller verifies the exact as-published selection; no current DB, ledger or price access."""
-    if set(MODELS) <= recorded or (target := _fixed_target(selection, ticker)) is None:
+    if (target := _fixed_target(selection, ticker)) is None:
         return None
     version, cutoff, limit = target.version, target.cutoff, target.research_as_of
     i, model = target.inputs, target.model
     g = _obj(i.get("generation"))
     generation_id = g.get("generation_id")
+    chart: Row = {
+        "selection_sha256": selection_sha256,
+        "input_known_at": cutoff,
+        "research_as_of": limit,
+        "generation_id": generation_id,
+        "rows": [],
+    }
+    external = model("external_assessment", ticker)
+    if version == 5 and external.get("monex_fiscal_eps") is not None:
+        try:
+            fixed = ExternalAssessment.model_validate(external)
+        except ValidationError:
+            pass
+        else:
+            eps = fixed.monex_fiscal_eps
+            clock = _stamp(g.get("evaluation_time"))
+            if (
+                eps is not None
+                and eps.reference_eps is not None
+                and clock is not None
+                and fixed.evaluated_at <= clock
+                and eps.received_at_utc.astimezone(JST).date() <= target.model_as_of
+            ):
+                chart["monex_fiscal_eps"] = {
+                    "source_url": eps.source_url,
+                    "received_at_utc": eps.received_at_utc,
+                    **eps.reference_eps.model_dump(mode="json", exclude={"rolling_one_year"}),
+                }
+    if set(MODELS) <= recorded:
+        return chart if "monex_fiscal_eps" in chart else None
     legacy = {}
     sec = target.market(ticker)
     financial_clock = _stamp(g.get("evaluation_time"))
@@ -748,10 +781,4 @@ def estimate_missing(
                 "source_url": r.source_url,
             }
         )
-    return {
-        "selection_sha256": selection_sha256,
-        "input_known_at": cutoff,
-        "research_as_of": limit,
-        "generation_id": generation_id,
-        "rows": rows,
-    }
+    return {**chart, "rows": rows}

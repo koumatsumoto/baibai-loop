@@ -5,28 +5,10 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
-from typing import Literal
 
-from pydantic import FiniteFloat
-
-from ..models import FrozenModel
+from ..models import ConsensusEPS as ConsensusEPS
+from ..models import ReferenceEPS as ReferenceEPS
 from . import Element, ParseError, compact, number
-
-
-class ConsensusEPS(FrozenModel):
-    provider_label: str
-    fiscal_end_label: str | None
-    eps_jpy_per_share: FiniteFloat | None
-    analyst_count: int | None = None
-    provider_published_at_utc: None = None
-
-
-class ReferenceEPS(FrozenModel):
-    current_fy: ConsensusEPS | None
-    next_fy: ConsensusEPS | None
-    rolling_one_year: ConsensusEPS | None
-    annualized_to_12_months: Literal[True] | None
-    share_basis: Literal["shares_at_provider_last_update"] | None
 
 
 def _cells(row: Element) -> list[Element]:

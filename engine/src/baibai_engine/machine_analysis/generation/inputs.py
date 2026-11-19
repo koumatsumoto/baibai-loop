@@ -37,6 +37,10 @@ from baibai_engine.machine_analysis.models.technical_analysis.price_path import 
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     ObservedFilingHistory,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.history import latest_monex
+from baibai_engine.machine_analysis.observations.external_assessments.monex_generation import (
+    read_generation_monex_eps,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observation_population,
 )
@@ -322,6 +326,21 @@ def read_and_generate_models(
         include_tradingview=True,
         include_retired=False,
     )
+    latest = {
+        ticker: price_anchor
+        for ticker, history in histories.items()
+        if (price_anchor := latest_monex(history.model_valuations)) is not None
+    }
+    # Both reads refer to this same sealed model input. Its on-disk origin can still
+    # name the prior lake release; the generation records this seal and its new export.
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        fiscal_eps = read_generation_monex_eps(
+            connection,
+            latest=latest,
+            cutoff=min(evaluation_time, market_snapshot.sealed_at),
+            as_of=as_of,
+        )
     trends = read_trend_inputs(
         path,
         release_id=market_release.release_id,
@@ -396,6 +415,7 @@ def read_and_generate_models(
         expected_price_date=path_calendar.expected_price_date,
         ttm_rules=ttm_rules,
         external_observations=histories,
+        monex_fiscal_eps=fiscal_eps,
         market_context={
             "market": build_market_snapshot(sqlite_path=path, asof_date=as_of, prepared=prepared),
             "benchmark_trend": None

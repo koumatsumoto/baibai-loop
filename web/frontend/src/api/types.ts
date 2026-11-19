@@ -2,6 +2,14 @@
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
 
+export interface ConsensusEPS {
+  provider_label: string
+  fiscal_end_label: string | null
+  eps_jpy_per_share: number | null
+  analyst_count: number | null
+  provider_published_at_utc: null
+}
+
 export interface DashboardView {
   generated_at: string
   ledger_exists: boolean
@@ -35,6 +43,7 @@ export interface EstimatedModelChartView {
   research_as_of: string
   generation_id: string | null
   rows: EstimatedPerspectiveView[]
+  monex_fiscal_eps: MonexFiscalEPSView | null
 }
 
 export interface EstimatedPerspectiveView {
@@ -78,6 +87,15 @@ export interface LatestProposalView {
   status: 'ready' | 'empty' | 'unavailable'
   error: string | null
   proposal: SavedProposalView | null
+}
+
+export interface MonexFiscalEPSView {
+  source_url: string
+  received_at_utc: string
+  current_fy: ConsensusEPS | null
+  next_fy: ConsensusEPS | null
+  annualized_to_12_months: true | null
+  share_basis: 'shares_at_provider_last_update' | null
 }
 
 export type NonEmptyStr = string

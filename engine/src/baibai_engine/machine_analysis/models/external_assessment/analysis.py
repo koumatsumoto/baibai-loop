@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from baibai_engine.machine_analysis.models.external_assessment.models import (
+    MONEX_FISCAL_METHOD_VERSION,
     ExternalAssessment,
     MetricComparison,
     ModelValuationAssessment,
@@ -22,6 +23,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QUANTS_METRICS,
     VALUATION_METRICS,
+    MonexEPSReceipt,
     Observation,
     utc_datetime,
 )
@@ -97,7 +99,12 @@ def _compare(
     )
 
 
-def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalAssessment:
+def analyze(
+    history: ObservationHistory,
+    *,
+    evaluated_at: datetime,
+    monex_fiscal_eps: MonexEPSReceipt | None = None,
+) -> ExternalAssessment:
     evaluated_at, cutoff = utc_datetime(evaluated_at), utc_datetime(history.cutoff)
     if cutoff > evaluated_at:
         raise ValueError("analysis cutoff cannot be later than evaluation time")
@@ -210,7 +217,10 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
         ticker=history.ticker,
         cutoff=cutoff,
         evaluated_at=evaluated_at,
-        method_version="same-series-v8-tradingview-receipts",
+        method_version="same-series-v8-tradingview-receipts"
+        if monex_fiscal_eps is None
+        else MONEX_FISCAL_METHOD_VERSION,
+        monex_fiscal_eps=monex_fiscal_eps,
         model_valuations=tuple(models),
         analyst_ratings=(),
         quants_scores=tuple(scores),

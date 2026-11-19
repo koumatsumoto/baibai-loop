@@ -17,11 +17,13 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 
+from ..identity import monex_public_url
+
 PARSER_VERSION = "monex-theory-4"
 
 
 def public_url(ticker: str) -> str:
-    return f"https://scouter.monex.co.jp/report/theoryDps/{normalize_ticker(ticker)}"
+    return monex_public_url(ticker)
 
 
 def identified_page(html: str, *, ticker: str, source_url: str) -> Element:
@@ -40,6 +42,15 @@ def parse_html(
     """Replay captured HTML with its original receipt time; never infer a judgment."""
     ticker = normalize_ticker(ticker)
     page = identified_page(html, ticker=ticker, source_url=source_url)
+    return prices_from_identified_page(
+        page, ticker=ticker, source_url=source_url, fetched_at_utc=fetched_at_utc
+    )
+
+
+def prices_from_identified_page(
+    page: Element, *, ticker: str, source_url: str, fetched_at_utc: datetime
+) -> ModelValuationObservation:
+    """The original four-price contract, on an already identity-checked document."""
     sections = [
         element for element in page.find("div") if element.has_class("theory_summary_inner")
     ]

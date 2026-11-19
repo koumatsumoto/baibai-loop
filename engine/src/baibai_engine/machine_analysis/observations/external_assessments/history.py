@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Literal
 
@@ -19,6 +20,15 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
 class ModelValuationHistory(FrozenModel):
     latest: ModelValuationObservation | None = None
     previous: ModelValuationObservation | None = None
+
+
+def latest_monex(series: Iterable[ModelValuationHistory]) -> ModelValuationObservation | None:
+    rows = [
+        item.latest
+        for item in series
+        if item.latest is not None and item.latest.distributor == "monex"
+    ]
+    return rows[0] if len(rows) == 1 else None
 
 
 class AnalystRatingHistory(FrozenModel):

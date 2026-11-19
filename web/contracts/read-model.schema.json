@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 13,
+  "schemaVersion": 14,
   "roots": {
     "views/latest-proposal.json": "#/$defs/LatestProposalView",
     "views/outcomes.json": "#/$defs/OutcomesView",
@@ -9,6 +9,63 @@
     "views/proposal-history.json": "#/$defs/ProposalHistoryView"
   },
   "$defs": {
+    "ConsensusEPS": {
+      "additionalProperties": false,
+      "properties": {
+        "provider_label": {
+          "title": "Provider Label",
+          "type": "string"
+        },
+        "fiscal_end_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fiscal End Label"
+        },
+        "eps_jpy_per_share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Eps Jpy Per Share"
+        },
+        "analyst_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Analyst Count"
+        },
+        "provider_published_at_utc": {
+          "default": null,
+          "title": "Provider Published At Utc",
+          "type": "null"
+        }
+      },
+      "required": [
+        "provider_label",
+        "fiscal_end_label",
+        "eps_jpy_per_share",
+        "analyst_count",
+        "provider_published_at_utc"
+      ],
+      "title": "ConsensusEPS",
+      "type": "object"
+    },
     "DashboardView": {
       "properties": {
         "generated_at": {
@@ -245,6 +302,17 @@
           },
           "title": "Rows",
           "type": "array"
+        },
+        "monex_fiscal_eps": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MonexFiscalEPSView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -252,7 +320,8 @@
         "input_known_at",
         "research_as_of",
         "generation_id",
-        "rows"
+        "rows",
+        "monex_fiscal_eps"
       ],
       "title": "EstimatedModelChartView",
       "type": "object"
@@ -552,6 +621,73 @@
         "proposal"
       ],
       "title": "LatestProposalView",
+      "type": "object"
+    },
+    "MonexFiscalEPSView": {
+      "properties": {
+        "source_url": {
+          "title": "Source Url",
+          "type": "string"
+        },
+        "received_at_utc": {
+          "format": "date-time",
+          "title": "Received At Utc",
+          "type": "string"
+        },
+        "current_fy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsensusEPS"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_fy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsensusEPS"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "annualized_to_12_months": {
+          "anyOf": [
+            {
+              "const": true,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annualized To 12 Months"
+        },
+        "share_basis": {
+          "anyOf": [
+            {
+              "const": "shares_at_provider_last_update",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Share Basis"
+        }
+      },
+      "required": [
+        "source_url",
+        "received_at_utc",
+        "current_fy",
+        "next_fy",
+        "annualized_to_12_months",
+        "share_basis"
+      ],
+      "title": "MonexFiscalEPSView",
       "type": "object"
     },
     "NonEmptyStr": {

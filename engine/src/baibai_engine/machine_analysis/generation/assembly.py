@@ -36,6 +36,9 @@ from baibai_engine.machine_analysis.models.social_trends.calculations import cal
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    MonexEPSReceipt,
+)
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
@@ -80,6 +83,7 @@ def generate_models(
     expected_price_date: date | None,
     ttm_rules: TTMRules,
     external_observations: Mapping[str, ObservationHistory],
+    monex_fiscal_eps: Mapping[str, MonexEPSReceipt] | None = None,
     market_context: dict[str, object] | None,
     securities_context: Mapping[str, dict[str, object]],
     market_context_revision: str,
@@ -201,7 +205,11 @@ def generate_models(
             if history is not None:
                 if history.ticker != ticker or history.cutoff > evaluation_time:
                     raise ValueError("external observation identity or cutoff differs")
-                external = generate_external_assessment(history, evaluated_at=evaluation_time)
+                external = generate_external_assessment(
+                    history,
+                    evaluated_at=evaluation_time,
+                    monex_fiscal_eps=monex_fiscal_eps.get(ticker) if monex_fiscal_eps else None,
+                )
                 yield GeneratedModel(
                     model_id="external_assessment",
                     subject=ticker,

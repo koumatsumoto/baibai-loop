@@ -1,4 +1,4 @@
-import type { SavedModelPerspectiveView, SavedAssessmentView } from '../api/types'
+import type { SavedModelPerspectiveView, SavedAssessmentView, MonexFiscalEPSView } from '../api/types'
 import { formatJstDateTime } from '../lib/format'
 import { AssessmentSources } from './AssessmentSources'
 
@@ -29,6 +29,27 @@ const OBSERVATION_LABELS: Partial<Record<keyof typeof JUDGMENTS, string>> = {
 }
 function labelFor(key: keyof typeof JUDGMENTS, estimate: boolean) {
   return (estimate ? OBSERVATION_LABELS[key] : undefined) ?? JUDGMENTS[key].label
+}
+
+function FiscalEPS({ reference }: { reference: MonexFiscalEPSView }) {
+  const periods = [['今期', reference.current_fy], ['来期', reference.next_fy]] as const
+  return <div className="mt-3 rounded-md bg-muted/40 p-3 text-sm">
+    <p className="font-medium">アナリスト予想EPS（1株当たり利益）</p>
+    <dl className="my-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+      {periods.map(([label, period]) => <div className="contents" key={label}>
+        <dt>{label}{period?.fiscal_end_label && `（${period.fiscal_end_label}期）`}</dt>
+        <dd>{period?.eps_jpy_per_share == null ? '未確認' : `${period.eps_jpy_per_share} 円/株`}</dd>
+      </div>)}
+    </dl>
+    <p className="text-xs leading-6 text-muted-foreground">
+      会社予想、目標株価、ローリング1年予想とは別の参考値です。
+      {reference.annualized_to_12_months && '提供元が12か月換算。'}
+      {reference.share_basis && '株数は提供元の最終更新時点。'}
+      予想人数・公表日時は未確認。
+      <br /><a className="underline" href={reference.source_url} rel="noopener noreferrer" target="_blank">配信元：マネックス証券</a>
+      {' ／ 保存ページの受領：'}<time dateTime={reference.received_at_utc}>{formatJstDateTime(reference.received_at_utc)} JST</time>
+    </p>
+  </div>
 }
 
 export function ModelPerspectives({ assessment }: { assessment: SavedAssessmentView }) {
@@ -90,6 +111,7 @@ export function ModelPerspectives({ assessment }: { assessment: SavedAssessmentV
           {rows.map(({ model, label, row, authored, estimate }) => <section className="min-w-0 py-4 first:pt-0 last:pb-0" key={model}>
             <h5 className="mb-2 text-sm font-semibold">{label}<span className="ml-2 text-xs font-normal text-muted-foreground">{row ? labelFor(row.assessment, !!estimate) : '未記録'}</span></h5>
             <p className="whitespace-pre-wrap break-words text-sm leading-7">{row?.summary ?? '観点別の判断は保存されていません。'}</p>
+            {model === 'external_assessment' && chart?.monex_fiscal_eps && <FiscalEPS reference={chart.monex_fiscal_eps} />}
             {authored && <><p className="mt-1 text-xs text-muted-foreground">当初の作者が記録した評価</p><AssessmentSources sourceIds={authored.source_ids} sources={sources} /></>}
             {estimate && <p className="mt-1 break-words text-xs leading-6 text-muted-foreground">固定資料からの推定。根拠：{estimate.evidence}{estimate.observed_on && <> ／ 観測日の基準：<time dateTime={estimate.observed_on}>{estimate.observed_on}</time></>}{estimate.source_url && <> ／ <a className="underline" href={estimate.source_url} target="_blank" rel="noopener noreferrer">元資料を開く</a></>}</p>}
           </section>)}
