@@ -341,7 +341,8 @@ def parse_earnings_calendar_excel(content: bytes, url: str) -> _EarningsCalendar
 
 def parse_regulation_rows(
     source_name: str, content: bytes, url: str, content_type_header: str = ""
-) -> list[dict[str, str]]:
+) -> list[str]:
+    """Extract the original code cells; the enclosing page supplies the regulation flag."""
     html = _decode_html_text(content, url, content_type_header)
     if source_name == JPX_SPECIAL_CAUTION_SOURCE_NAME:
         return _parse_special_attention_html_rows(html, url)
@@ -381,17 +382,16 @@ def parse_current_listing_designations(
             continue
         if len(tables) != 1 or "fixedhead" not in tables[0].classes:
             raise JPXProviderError(f"failed to identify current JPX listing designation: {label}")
-        rows = _rows_from_parsed_table(
+        codes = _codes_from_parsed_table(
             tables[0],
-            source_name=label,
             url=url,
             header_rows=1,
             code_column=2,
             expected_header="コード",
             error_label=label,
         )
-        for row in rows:
-            current.setdefault(parse_jpx_code(row["code"]), set()).add(label)
+        for code in codes:
+            current.setdefault(parse_jpx_code(code), set()).add(label)
     return {ticker: tuple(sorted(flags)) for ticker, flags in sorted(current.items())}
 
 
@@ -425,7 +425,7 @@ def _extract_charset(content_type_header: str) -> str | None:
     return None
 
 
-def _parse_special_attention_html_rows(html: str, url: str) -> list[dict[str, str]]:
+def _parse_special_attention_html_rows(html: str, url: str) -> list[str]:
     indexer = _JpxHtmlIndexer()
     indexer.feed(html)
     sections = [title for title in indexer.section_text if title.startswith("現在の指定状況")]
@@ -482,12 +482,10 @@ def _parse_special_attention_html_rows(html: str, url: str) -> list[dict[str, st
                 data_count += 1
         if continuation_columns is not None or not data_count:
             raise JPXProviderError(error)
-    return [
-        {"code": raw_code, "flag": JPX_SPECIAL_CAUTION_SOURCE_NAME} for raw_code in codes.values()
-    ]
+    return list(codes.values())
 
 
-def _parse_reorganization_html_rows(html: str, url: str) -> list[dict[str, str]]:
+def _parse_reorganization_html_rows(html: str, url: str) -> list[str]:
     indexer = _JpxHtmlIndexer()
     indexer.feed(html)
     error_label = "h3>整理銘柄 + table.fixedhead"
@@ -498,9 +496,8 @@ def _parse_reorganization_html_rows(html: str, url: str) -> list[dict[str, str]]
         table_classes=("fixedhead",),
         preceding_h3="整理銘柄",
     )
-    return _rows_from_parsed_table(
+    return _codes_from_parsed_table(
         table,
-        source_name="整理銘柄",
         url=url,
         header_rows=1,
         code_column=2,
@@ -509,7 +506,7 @@ def _parse_reorganization_html_rows(html: str, url: str) -> list[dict[str, str]]
     )
 
 
-def _parse_trading_halt_html_rows(html: str, url: str) -> list[dict[str, str]]:
+def _parse_trading_halt_html_rows(html: str, url: str) -> list[str]:
     indexer = _JpxHtmlIndexer()
     indexer.feed(html)
     error_label = "h2>本日の売買停止情報 + table.fixedhead.rows-2"
@@ -526,9 +523,8 @@ def _parse_trading_halt_html_rows(html: str, url: str) -> list[dict[str, str]]:
         if _TRADING_HALT_EMPTY_MARKER in "".join(section):
             return []
         raise
-    return _rows_from_parsed_table(
+    return _codes_from_parsed_table(
         table,
-        source_name="取引停止",
         url=url,
         header_rows=2,
         code_column=1,
@@ -537,7 +533,7 @@ def _parse_trading_halt_html_rows(html: str, url: str) -> list[dict[str, str]]:
     )
 
 
-def _parse_delisting_warning_html_rows(html: str, url: str) -> list[dict[str, str]]:
+def _parse_delisting_warning_html_rows(html: str, url: str) -> list[str]:
     indexer = _JpxHtmlIndexer()
     indexer.feed(html)
     error_label = "table.fixedhead th=上場廃止日"
@@ -548,9 +544,8 @@ def _parse_delisting_warning_html_rows(html: str, url: str) -> list[dict[str, st
         table_classes=("fixedhead",),
         header_text="上場廃止日",
     )
-    return _rows_from_parsed_table(
+    return _codes_from_parsed_table(
         table,
-        source_name="上場廃止警告",
         url=url,
         header_rows=1,
         code_column=2,
@@ -582,16 +577,15 @@ def _select_table(
     raise JPXProviderError(f"failed to locate JPX HTML table for {error_label}: {url}")
 
 
-def _rows_from_parsed_table(
+def _codes_from_parsed_table(
     table: _ParsedTable,
     *,
-    source_name: str,
     url: str,
     header_rows: int,
     code_column: int,
     expected_header: str,
     error_label: str,
-) -> list[dict[str, str]]:
+) -> list[str]:
     rows = table.rows
     if len(rows) < header_rows + 1:
         raise JPXProviderError(f"failed to parse JPX HTML table rows for {error_label}: {url}")
@@ -606,7 +600,7 @@ def _rows_from_parsed_table(
     if len(header.cells) <= code_column or header.cells[code_column] != expected_header:
         raise JPXProviderError(f"unexpected JPX HTML table layout for {error_label}: {url}")
 
-    parsed_rows: list[dict[str, str]] = []
+    codes: list[str] = []
     for row in rows[header_rows:]:
         if len(row.cells) <= code_column:
             raise JPXProviderError(f"unexpected JPX HTML row layout for {error_label}: {url}")
@@ -615,32 +609,20 @@ def _rows_from_parsed_table(
         code = row.cells[code_column]
         if not code:
             raise JPXProviderError(f"missing JPX code in HTML row for {error_label}: {url}")
-        parsed_rows.append({"code": code, "flag": source_name})
-    return parsed_rows
+        codes.append(code)
+    return codes
 
 
 def build_regulation_snapshot(
-    parsed_sources: Mapping[str, Sequence[dict[str, str]]],
+    parsed_sources: Mapping[str, Sequence[str]],
 ) -> JPXRegulationSnapshot:
     flags: dict[str, set[str]] = {}
-    fetched_source_names: list[str] = []
-    for source_name, rows in parsed_sources.items():
-        fetched_source_names.append(source_name)
-        for row in rows:
-            ticker_raw = (
-                row.get("ticker") or row.get("code") or row.get("銘柄コード") or row.get("コード")
-            )
-            flag = row.get("flag") or row.get("規制区分") or row.get("status") or source_name
-            if not ticker_raw:
-                raise JPXProviderError(
-                    f"missing JPX code column in regulation source {source_name}"
-                )
-            ticker = parse_jpx_code(ticker_raw)
-            flags.setdefault(ticker, set()).add(str(flag))
-
+    for source_name, codes in parsed_sources.items():
+        for raw_code in codes:
+            flags.setdefault(parse_jpx_code(raw_code), set()).add(source_name)
     return JPXRegulationSnapshot(
         flags_by_ticker={ticker: tuple(sorted(values)) for ticker, values in sorted(flags.items())},
-        source_names=tuple(sorted(fetched_source_names)),
+        source_names=tuple(sorted(parsed_sources)),
     )
 
 

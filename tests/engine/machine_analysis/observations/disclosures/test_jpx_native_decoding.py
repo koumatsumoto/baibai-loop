@@ -380,10 +380,7 @@ class JPXNativeDecodingTests(unittest.TestCase):
             "<tr><td>A</td><td>29010</td></tr><tr><td>C</td><td>6548</td></tr></table>",
         )
         rows = _parse_special_attention_html_rows(html, "fixture")
-        self.assertEqual(
-            rows,
-            [{"code": code, "flag": "特別注意銘柄"} for code in ("2901", "130A", "6548")],
-        )
+        self.assertEqual(rows, ["2901", "130A", "6548"])
 
     def test_jpx_special_attention_all_sections_empty(self) -> None:
         html = "<h2>現在の指定状況</h2><p>現在、該当する情報はありません。</p>"
@@ -417,13 +414,7 @@ class JPXNativeDecodingTests(unittest.TestCase):
             "https://www.jpx.co.jp/listing/market-alerts/supervision/",
             "text/html; charset=UTF-8",
         )
-        self.assertEqual(
-            rows,
-            [
-                {"code": "4917", "flag": "整理銘柄"},
-                {"code": "7426", "flag": "整理銘柄"},
-            ],
-        )
+        self.assertEqual(rows, ["4917", "7426"])
 
     def test_jpx_parse_trading_halt_html_rows_extracts_codes(self) -> None:
 
@@ -433,7 +424,7 @@ class JPXNativeDecodingTests(unittest.TestCase):
             "https://www.jpx.co.jp/markets/equities/suspended/",
         )
 
-        self.assertEqual(rows, [{"code": "9941", "flag": "取引停止"}])
+        self.assertEqual(rows, ["9941"])
 
     def test_jpx_parse_delisting_warning_html_rows_extracts_codes(self) -> None:
 
@@ -443,12 +434,11 @@ class JPXNativeDecodingTests(unittest.TestCase):
             "https://www.jpx.co.jp/listing/stocks/delisted/",
         )
 
+        self.assertEqual(rows, ["7709", "7426"])
+        snapshot = build_regulation_snapshot({"整理銘柄": ["7426"], "上場廃止警告": rows})
         self.assertEqual(
-            rows,
-            [
-                {"code": "7709", "flag": "上場廃止警告"},
-                {"code": "7426", "flag": "上場廃止警告"},
-            ],
+            snapshot.flags_by_ticker,
+            {"7426": ("上場廃止警告", "整理銘柄"), "7709": ("上場廃止警告",)},
         )
 
     def test_jpx_parse_html_rows_fail_fast_on_layout_change(self) -> None:
@@ -510,7 +500,7 @@ class JPXNativeDecodingTests(unittest.TestCase):
             self._read_jpx_fixture("reorganization_nested.html"),
             "https://www.jpx.co.jp/listing/market-alerts/supervision/",
         )
-        self.assertEqual(rows, [{"code": "4917", "flag": "整理銘柄"}])
+        self.assertEqual(rows, ["4917"])
 
     def test_jpx_decode_html_text_prefers_content_type_charset(self) -> None:
         # JPX が cp932 ページを Content-Type で告知してきた場合、フォールバックの utf-8
