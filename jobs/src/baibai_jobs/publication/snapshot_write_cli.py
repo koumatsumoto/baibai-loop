@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sqlite3
 import sys
+import time
 from collections.abc import Callable
-from contextlib import closing
+from contextlib import closing, suppress
 from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import LakePublishError
@@ -170,9 +172,22 @@ def _clear_independent_list_cache(
 
     if args.bucket is None:
         raise ValueError("native EDINET receipt cache verification requires --bucket")
+    started = time.perf_counter() if store_path is not None else None
     with closing(Boto3R2Store(bucket=args.bucket)) as store:
         fixed = EdinetListL1(store, args.mirror / "edinet-native").freeze()
-        clear_verified_receipt_cache(fixed, path)
+        verified = clear_verified_receipt_cache(fixed, path)
+    if started is not None and verified:
+        # Use the unbuffered stderr descriptor: a failed flush can otherwise be
+        # retried during interpreter shutdown and fail the verified transfer.
+        with suppress(OSError):
+            os.write(
+                2,
+                (
+                    "snapshot: phase=verify_native_edinet_list_cache state=done "
+                    f"elapsed_seconds={time.perf_counter() - started:.3f} "
+                    f"verified_rows={verified}\n"
+                ).encode("ascii"),
+            )
 
 
 def _publication_web_inputs(release: FixedRelease, *, disk_free: int) -> frozenset[str]:

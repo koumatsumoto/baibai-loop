@@ -18,6 +18,7 @@ machine_bundle_keys=(market.sqlite runs.sqlite)
 transfer_staging=""
 evidence_dir=""
 evidence_pending_key=""
+measure_machine_upload=0
 
 cleanup_staging() {
   if [[ -n "${transfer_staging}" && -d "${transfer_staging}" ]]; then
@@ -620,7 +621,7 @@ _push_keys() {
   fi
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   # Report snapshot, backup and upload times separately for each store.
-  local key source body started uploaded_version
+  local key source body started uploaded_version put_started upload_parts=""
   local -a snapshot_seconds=()
   for key in "$@"; do
     source="$(store_path "${key}")"
@@ -664,6 +665,7 @@ _push_keys() {
       if [[ -n "${evidence_dir}" ]]; then
         put_with_evidence "${key}" "${expected_version}"
       else
+        if [[ "${measure_machine_upload}" == 1 ]]; then put_started="${SECONDS}"; fi
         uploaded_version="$(aws s3api put-object \
           --bucket "${stores_bucket}" \
           --key "${key}" \
@@ -671,6 +673,10 @@ _push_keys() {
           --if-match "${expected_version}" \
           --endpoint-url "${endpoint}" \
           --query ETag --output text)"
+        if [[ "${measure_machine_upload}" == 1 ]]; then
+          printf -v upload_parts ' lease_before_put=%ss conditional_put_cli=%ss' \
+            "$((put_started - started))" "$((SECONDS - put_started))"
+        fi
       fi
       if [[ "${key}" == "baibai.sqlite" ]]; then
         # Only this PUT's response identifies our snapshot; a later HEAD could
@@ -692,12 +698,12 @@ _push_keys() {
         --endpoint-url "${endpoint}" \
         >/dev/null
     fi
-    printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss\n' \
+    printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss%s\n' \
       "${key}" \
       "$(wc -c < "${body}" | tr -d ' \n')" \
       "${snapshot_seconds[index]}" \
       "${backup_elapsed}" \
-      "$((SECONDS - started))"
+      "$((SECONDS - started))" "${upload_parts}"
     index=$((index + 1))
   done
   cleanup_staging
@@ -866,6 +872,7 @@ case "${1:-}" in
     seed_keys market.sqlite runs.sqlite indicators.sqlite baibai.sqlite
     ;;
   push-machine)
+    if [[ -z "${evidence_dir}" ]]; then measure_machine_upload=1; fi
     verify_publication_lease
     push_pulled_keys "${machine_bundle_keys[@]}"
     ;;
