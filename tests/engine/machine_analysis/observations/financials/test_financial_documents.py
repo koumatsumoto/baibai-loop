@@ -1148,15 +1148,36 @@ def test_explicit_consolidated_forecast_remains_when_reporting_scope_catches_up(
     assert source["disclosure_number"] == "consolidated-revision"
 
 
-def test_separate_simultaneous_standalone_revision_is_not_poisoned_by_consolidated_values():
+@pytest.mark.parametrize("con_time", ["16:00:00", ""])
+@pytest.mark.parametrize("nc_eps", ["23", "NaN", None])
+def test_same_day_scope_revisions_use_explicit_standalone_only_if_order_is_resolved(
+    con_time, nc_eps
+):
     statement = _scope_forecast_statement("NonConsolidated")
-    consolidated = document("consolidated-only", FEPS="30", FNP="150")
-    standalone = document("standalone-only", FNCEPS="23", FNCNP="115")
-    for pair in ([consolidated, standalone], [standalone, consolidated]):
-        result = snapshot(decode([statement, *pair]))
-        assert (result.forecast_eps_yen, result.forecast_profit_yen) == (23, 115)
-        assert result.earnings_forecast_source["forecast_eps_source_records"] == "standalone-only"
-        assert result.earnings_forecast_source["status"] == "confirmed"
+    consolidated = document("consolidated-only", time=con_time, FEPS="30", FNP="150")
+    # A standalone sales-only notice also has no point estimate of annual earnings.
+    standalone = document("standalone-only", FNCEPS=nc_eps or "", FNCSales="300")
+    forward, reverse = (
+        snapshot(decode([statement, *pair]))
+        for pair in ((consolidated, standalone), (standalone, consolidated))
+    )
+    assert forward.earnings_forecast_source == reverse.earnings_forecast_source
+    for result in (forward, reverse):
+        source = result.earnings_forecast_source
+        assert result.forecast_eps_yen == (23 if con_time and nc_eps == "23" else None)
+        assert source["status"] == (
+            "confirmed" if result.forecast_eps_yen is not None else "unresolved"
+        )
+        assert source["basis"] == source["target_basis"] == "nonconsolidated"
+        if con_time:
+            assert (
+                source["disclosure_number"]
+                == source["forecast_eps_source_records"]
+                == "standalone-only"
+            )
+        else:
+            assert source["candidate_disclosure_numbers"] == "consolidated-only,standalone-only"
+            assert source["forecast_eps_source_records"] == source["candidate_disclosure_numbers"]
 
 
 @pytest.mark.parametrize(("period", "end"), [("1Q", "2026-09-30"), ("3Q", "2027-03-31")])

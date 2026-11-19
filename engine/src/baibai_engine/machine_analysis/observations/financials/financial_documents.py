@@ -24,6 +24,7 @@ from baibai_engine.machine_analysis.observations.jquants_decode import (
 
 AccountingPeriodKey = tuple[date, int, date, date, int]
 
+_EARNINGS_FIELDS = ("forecast_eps", "forecast_profit", "forecast_ordinary_profit")
 _FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
 _NON_REPORTING_DOC_TYPES = frozenset(
     {
@@ -428,11 +429,14 @@ def project_financial_documents(
                 if source_basis != target_basis or target_basis == "basis_unresolved":
                     # A change to consolidated guidance cannot confirm (or revive)
                     # an earlier standalone forecast. Keep the latest disclosure.
-                    earnings_status = (
-                        "unresolved"
-                        if consolidated_revision and target_basis == "nonconsolidated"
-                        else "basis_mismatch"
-                    )
+                    if consolidated_revision and target_basis == "nonconsolidated":
+                        earnings_status = "unresolved"
+                        if row.disclosure_number:
+                            field_sources.extend(
+                                (field, (row.disclosure_number,)) for field in _EARNINGS_FIELDS
+                            )
+                    else:
+                        earnings_status = "basis_mismatch"
                 else:
                     scope_conflict = _ambiguous_short_period_revision(
                         record, keys, slot=selected_slot
@@ -457,7 +461,7 @@ def project_financial_documents(
                     else:
                         eps, profit, ordinary = (to_float(record.get(key)) for key in keys)
                     for field, key in zip(
-                        ("forecast_eps", "forecast_profit", "forecast_ordinary_profit"),
+                        _EARNINGS_FIELDS,
                         keys,
                         strict=True,
                     ):
@@ -520,6 +524,11 @@ def latest_forecast_source(
         return None
     latest = latest_disclosure_candidates(candidates)
     if not dividend:
+        # At the same known time, the actual standalone disclosure answers the
+        # question. With unknown order the consolidated-only barrier still counts.
+        if all(row.disclosed_time for row in latest):
+            in_scope = [row for row in latest if row.forecast_basis == row.forecast_target_basis]
+            latest = in_scope or latest
         # A simultaneous, explicit FY revision resolves the scope of a separate
         # Q速報. Unknown times cannot establish this relationship, and genuine FY
         # conflicts/withdrawals must still participate in value reconciliation.
@@ -555,16 +564,13 @@ def latest_forecast_source(
             )
             not in annual_keys
         ]
-    fields = (
-        ("dps_forecast_annual",)
-        if dividend
-        else ("forecast_eps", "forecast_profit", "forecast_ordinary_profit")
-    )
+    fields = ("dps_forecast_annual",) if dividend else _EARNINGS_FIELDS
     source = max(
         latest,
         key=lambda row: (
             sum(getattr(row, field) is not None for field in fields),
             tuple(getattr(row, field) is not None for field in fields),
+            not dividend and row.forecast_basis == row.forecast_target_basis,
         ),
     )
     if len(latest) > 1:

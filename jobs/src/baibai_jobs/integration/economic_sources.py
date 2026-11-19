@@ -125,6 +125,7 @@ def integrate(
         canonical = work / "canonical.sqlite"
         shutil.copyfile(base, canonical)
     outcomes: list[dict[str, Any]] = []
+    validation_seconds: list[float] | None = [] if log_publication else None
     for index, entry in enumerate(entries):
         packet = work / f"receipt-{index:05d}"
         result: dict[str, Any] = {}
@@ -149,7 +150,7 @@ def integrate(
                     raise ValueError("invalid economic source SQLite receipt") from error
                 accepted = packet / "accepted.sqlite"
                 result = accept_rechecks(packet / "receipts.sqlite", canonical, accepted)
-                merge_stores(accepted, canonical)
+                merge_stores(accepted, canonical, validation_seconds=validation_seconds)
                 applied = True
                 failed = bool(result["late_recovery_required"])
                 source_report = json.loads((packet / "result.json").read_text())
@@ -198,6 +199,14 @@ def integrate(
                 "recovery": failed,
             }
         )
+    if validation_seconds is not None and sys.stderr is not None:
+        with suppress(OSError, ValueError):
+            print(
+                "economic L1 handoff: phase=validate_collection_confirmations "
+                f"checks={len(validation_seconds)} elapsed_seconds={sum(validation_seconds):.3f}",
+                file=sys.stderr,
+                flush=True,
+            )
     report: dict[str, Any] = {
         "asof": asof.isoformat(),
         "handoffs": outcomes,
