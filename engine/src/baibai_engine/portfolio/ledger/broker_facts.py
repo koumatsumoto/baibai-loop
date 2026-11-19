@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -333,7 +333,7 @@ def _validate_report_time(occurrence: date, *, now: datetime | None) -> datetime
     if effective_now.tzinfo is None:
         raise BrokerFactRecordingError("now must include a timezone")
     if isinstance(occurrence, datetime):
-        if occurrence > effective_now:
+        if occurrence.astimezone(UTC) > effective_now.astimezone(UTC):
             raise BrokerFactRecordingError("occurred_at must not be in the future")
     elif occurrence > effective_now.astimezone(JST).date():
         raise BrokerFactRecordingError("occurred_on must not be in the future")

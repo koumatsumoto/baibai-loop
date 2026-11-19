@@ -110,6 +110,37 @@ def test_date_only_sell_does_not_claim_latest_saved_replay_key_is_its_fill_time(
     assert new.occurred_at == OCCURRED_AT > reported_earlier_that_day
 
 
+@pytest.mark.parametrize(
+    ("fill_fold", "fill_minute", "report_fold", "report_minute", "accepted"),
+    [
+        (0, 30, 0, 30, True),
+        (1, 30, 1, 30, True),
+        (1, 30, 0, 30, False),
+        (0, 30, 1, 30, True),
+        (1, 15, 0, 45, False),
+        (0, 45, 1, 15, True),
+    ],
+)
+def test_sell_report_compares_instants_through_a_repeated_clock_hour(
+    tmp_path: Path,
+    fill_fold: int,
+    fill_minute: int,
+    report_fold: int,
+    report_minute: int,
+    accepted: bool,
+) -> None:
+    service = _seed(tmp_path / "app.sqlite")
+    repeated = datetime(2026, 11, 1, 1, tzinfo=ZoneInfo("America/New_York"))
+    fill = repeated.replace(minute=fill_minute, fold=fill_fold)
+    reported = repeated.replace(minute=report_minute, fold=report_fold)
+    trade = dict(ticker="2331", quantity=100, price_yen=Decimal("1100"))
+    if accepted:
+        assert build_sell_execution_draft(service, **trade, occurred_at=fill, now=reported)
+    else:
+        with pytest.raises(ValueError, match="occurred_at must not be in the future"):
+            build_sell_execution_draft(service, **trade, occurred_at=fill, now=reported)
+
+
 def test_sell_over_current_holding_is_rejected_fail_closed(tmp_path: Path) -> None:
     service = _seed(tmp_path / "app.sqlite")
     with pytest.raises(PortfolioLedgerError, match="exceeds repository holding for 2331"):
