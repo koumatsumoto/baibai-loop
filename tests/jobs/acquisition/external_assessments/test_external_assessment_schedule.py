@@ -139,12 +139,8 @@ def test_manual_exact_plan_is_not_rebound_and_invalid_cycle_is_rejected():
 
 
 @pytest.mark.parametrize("day", [date(2026, 10, 9), date(2026, 10, 11), date(2026, 10, 12)])
-def test_new_daily_plan_reads_calendar_and_exact_master_only_and_resumes_its_release(
-    tmp_path, monkeypatch, day
-):
-    store, _master, _ = build_native_master(
-        tmp_path, monkeypatch, snapshot=FRIDAY, calendar=CALENDAR
-    )
+def test_new_daily_plan_reads_calendar_and_exact_master_only_and_resumes_its_release(tmp_path, day):
+    store, _master = build_native_master(tmp_path, snapshot=FRIDAY, calendar=CALENDAR)
     run_id = f"external-assessment-daily-{day.isoformat()}"
     p = daily.initialize(
         store, run_id=run_id, master_asof=None, observation_date=day, mirror=tmp_path / "cache"
@@ -164,7 +160,7 @@ def test_new_daily_plan_reads_calendar_and_exact_master_only_and_resumes_its_rel
 
 
 @pytest.mark.parametrize("fault", ["missing_day", "gap", "no_business", "missing_master"])
-def test_unavailable_calendar_or_exact_master_creates_no_plan(tmp_path, monkeypatch, fault):
+def test_unavailable_calendar_or_exact_master_creates_no_plan(tmp_path, fault):
     calendar = list(CALENDAR)
     snapshot = FRIDAY
     if fault == "missing_day":
@@ -175,7 +171,7 @@ def test_unavailable_calendar_or_exact_master_creates_no_plan(tmp_path, monkeypa
         calendar = [(day, 0) for day, _ in calendar]
     else:
         snapshot = date(2026, 10, 8)
-    store, _, _ = build_native_master(tmp_path, monkeypatch, snapshot=snapshot, calendar=calendar)
+    store, _ = build_native_master(tmp_path, snapshot=snapshot, calendar=calendar)
     store.put_keys.clear()
     with pytest.raises(ValueError, match=r"calendar|master"):
         daily.initialize(
@@ -200,10 +196,10 @@ def test_saved_plan_history_status_never_refreezes_its_universe(monkeypatch, cap
     assert all(key == staging.prefix(p.run_id) + "/plan.json" for _, key in store.events)
 
 
-def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path, monkeypatch):
+def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path):
     basis = date(2025, 12, 30)
     calendar = [("2025-12-30", 1), ("2025-12-31", 0), ("2026-01-01", 0), ("2026-01-02", 0)]
-    store, _, _ = build_native_master(tmp_path, monkeypatch, snapshot=basis, calendar=calendar)
+    store, _ = build_native_master(tmp_path, snapshot=basis, calendar=calendar)
     p = daily.initialize(
         store,
         run_id="external-assessment-daily-2026-01-02",

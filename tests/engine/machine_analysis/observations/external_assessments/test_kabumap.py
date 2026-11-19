@@ -341,13 +341,11 @@ def test_daily_plan_defaults_to_active_sources_and_reads_a_historical_subset():
     assert plan(sources=("monex", "rakuten")).sources == ("monex", "rakuten")
 
 
-def test_bank_is_in_saved_ordinary_universe_without_financial_eligibility_filter(
-    tmp_path, monkeypatch
-):
+def test_bank_is_in_saved_ordinary_universe_without_financial_eligibility_filter(tmp_path):
     from tests.helpers.external_assessment_universe import build_native_master
     from tests.jobs.integration.test_master_native_models import attempt, records
 
-    store, owner, _ = build_native_master(tmp_path, monkeypatch)
+    store, owner = build_native_master(tmp_path)
     rows = records(ASOF)
     for row in rows:
         row["MktNm"] = "PRIME"

@@ -7,23 +7,28 @@ import sqlite3
 from collections.abc import Iterable
 
 
+def master_record(
+    day: str, ticker: str, name: str | None, market: str, sector: str | None, product_category: str
+) -> dict[str, str | None]:
+    return {
+        "Date": day,
+        "Code": f"{ticker}0",
+        "CoName": name,
+        "MktNm": market,
+        "S33Nm": sector,
+        "ProdCat": product_category,
+    }
+
+
 def insert_master_rows(
     connection: sqlite3.Connection,
     rows: Iterable[tuple[str, str, str | None, str, str | None, str]],
 ) -> None:
     """Seed native records from date, ticker, name, market, sector and explicit ProdCat."""
     records = []
-    for day, ticker, name, market, sector, product_category in rows:
-        code = f"{ticker}0"
-        record = {
-            "Date": day,
-            "Code": code,
-            "CoName": name,
-            "MktNm": market,
-            "S33Nm": sector,
-            "ProdCat": product_category,
-        }
-        records.append((day, code, json.dumps(record, ensure_ascii=False)))
+    for row in rows:
+        record = master_record(*row)
+        records.append((record["Date"], record["Code"], json.dumps(record, ensure_ascii=False)))
     connection.executemany(
         "INSERT OR REPLACE INTO jquants_master_snapshots "
         "(snapshot_date, security_code, record_json) VALUES (?, ?, ?)",
