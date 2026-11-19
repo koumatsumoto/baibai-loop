@@ -18,7 +18,12 @@ const item: SavedSellItemView = {
   ...sellFixture,
   reason_code: 'insufficient_remaining_reward',
   rationale: '合成の観測終値では見返り不足。下限で保有する機会費用は別に比較した。',
-  assessment: buyFixture.assessment,
+  assessment: { ...buyFixture.assessment!, valuation: {
+    status: 'resolved', price_yen: '1000', price_as_of: '2026-10-23', price_observed_at: null,
+    price_basis: 'last_close_unadjusted', horizon_months: 12, required_annual_return_pct: '6',
+    base: { terminal_value_per_share_yen: '1100', cash_distribution_per_share_yen: '0', annualized_return_pct: '10', calculation: '合成の中心ケース。', source_ids: [], sources: [] },
+    downside: { terminal_value_per_share_yen: '700', cash_distribution_per_share_yen: '0', annualized_return_pct: '-30', calculation: '合成の下方ケース。', source_ids: [], sources: [] },
+  } },
   saved_quote: buyFixture.saved_quote,
   terms: { ...buyFixture.terms!, limit_price_yen: '900.0000000000000001', quantity: 100, notional_yen: '90000.00000000000001', maximum_entry_price_yen: null },
   remaining_reward: { status: 'insufficient', reason: '合成の観測終値での残存見返りが不足。' },
@@ -29,9 +34,10 @@ const render = (value: SavedSellItemView) => renderToStaticMarkup(createElement(
 describe('保存売却下限の保有機会費用', () => {
   it('作者下限・元評価株価・終値を別にし、下方見返りを保持する', () => {
     const html = render(item)
-    for (const text of ['保存売却下限と保有継続の比較', '900.0000000000000001 円', '22.2222 %', '-22.2222 %', '12 か月', '中心ケース（Base）の保有継続', '下方ケース（Downside）の保有継続', '比較に用いた売却下限']) expect(html).toContain(text)
-    expect(html).toContain('保存株価（未調整終値）')
-    expect(html).toContain('保存評価の見返り')
+    for (const text of ['保存売却下限と保有継続の比較', '22.2222 %', '-22.2222 %', '12 か月', '中心ケース（Base）の保有継続', '下方ケース（Downside）の保有継続']) expect(html).toContain(text)
+    expect(html).toMatch(/比較に用いた売却下限<\/dt><dd[^>]*>900\.0000000000000001 円<\/dd>/)
+    expect(html).toMatch(/評価に用いた株価<\/dt><dd[^>]*>1000 円<\/dd>/)
+    expect(html).toMatch(/保存株価（未調整終値）<\/dt><dd[^>]*>1300\.0000000000000001 円<\/dd>/)
     expect(html).toContain('売却後の運用収益ではありません')
     expect(html).toContain('数値だけで売却や保有へ変更しません')
     expect(html).toContain('投資家税・売買費用・配当再投資は含みません')
