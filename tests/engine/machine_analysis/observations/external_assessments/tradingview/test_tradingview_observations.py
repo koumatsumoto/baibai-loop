@@ -1,6 +1,8 @@
 """Pure TradingView forecast normalization and response accounting."""
 
 import copy
+import sqlite3
+from contextlib import closing
 
 import pytest
 from tests.helpers.tradingview import NOW, payload
@@ -11,14 +13,17 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 )
 
 
-@pytest.mark.parametrize("forecast", [None, 0, -5])
-def test_normal_null_zero_and_negative_forecast_are_not_unresolved(forecast) -> None:
+@pytest.mark.parametrize("forecast", [None, 0, -5, 2**63, -(2**64)])
+def test_representable_forecasts_remain_storable_and_are_not_unresolved(forecast) -> None:
     data = payload(["TSE:1000"])
     data["data"]["TSE:1000"]["earnings_per_share_forecast_next_fy"] = forecast
     result = normalize_batch(data, ["TSE:1000"], NOW)
     assert result[0]["fetch_status"] == "ok"
     assert result[0]["recommendation_total"] is None
-    assert result[0]["eps_forecast_next_fy"] == forecast
+    value = result[0]["eps_forecast_next_fy"]
+    assert value == forecast
+    with closing(sqlite3.connect(":memory:")) as db:
+        assert db.execute("SELECT CAST(? AS REAL)", (value,)).fetchone() == (forecast,)
 
 
 @pytest.mark.parametrize(
@@ -47,6 +52,8 @@ def test_response_accounting_refuses_invalid_payload(case: str) -> None:
     ("provider_field", "field", "value", "reason"),
     [
         ("close", "quote_close", float("nan"), "invalid_numeric"),
+        ("close", "quote_close", 10**400, "invalid_numeric"),
+        ("recommendation_total", "recommendation_total", 2**63, "invalid_analyst_count"),
         ("recommendation_total", "recommendation_total", -1, "invalid_analyst_count"),
         ("currency", "quote_currency", 42, "invalid_text_type"),
     ],
@@ -128,11 +135,12 @@ def test_explicit_missing_receipt_does_not_depend_on_batch_composition(batch_siz
     }
 
 
-def test_populated_retained_row_keeps_all_eighteen_native_field_mappings():
+@pytest.mark.parametrize("analysts", [7, 2**63 - 1])
+def test_populated_retained_row_keeps_all_eighteen_native_field_mappings(analysts):
     data = payload(["TSE:1000"])
     data["data"]["TSE:1000"].update(
         AnalystRating="Buy",
-        recommendation_total=7,
+        recommendation_total=analysts,
         price_target_average=170,
         price_target_high=220,
         price_target_low=130,
@@ -154,7 +162,7 @@ def test_populated_retained_row_keeps_all_eighteen_native_field_mappings():
             "fetched_at_utc": NOW.isoformat(),
             "fetch_status": "ok",
             "analyst_rating": "Buy",
-            "recommendation_total": 7,
+            "recommendation_total": analysts,
             "price_target_average": 170,
             "price_target_high": 220,
             "price_target_low": 130,
