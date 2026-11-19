@@ -113,6 +113,7 @@ def _write_rows(
     connection.execute(f"DELETE FROM {table} WHERE source_doc_id = ?", (doc_id,))  # nosec B608
     if not rows:
         return
-    columns = tuple(type(rows[0]).model_fields)
-    query = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})"  # nosec B608
-    connection.executemany(query, [tuple(row.model_dump()[key] for key in columns) for row in rows])
+    columns = type(rows[0]).model_fields
+    bindings = ", ".join(f":{column}" for column in columns)
+    query = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({bindings})"  # nosec B608
+    connection.executemany(query, (row.model_dump() for row in rows))
