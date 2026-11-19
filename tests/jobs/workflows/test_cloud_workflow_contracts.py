@@ -83,8 +83,30 @@ def test_publication_lease_surrounds_every_cloud_writer(
         assert {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"} <= set(step["env"])
 
 
-def test_legacy_independent_deploy_workflow_is_removed() -> None:
-    assert not (WORKFLOWS / "cloud-deploy.yml").exists()
+def test_worker_deploy_token_is_limited_to_the_verified_main_dispatch() -> None:
+    """Check the declared Wrangler entry point and gate without executing a deployment."""
+    grants = []
+    for path in WORKFLOWS.glob("*.y*ml"):
+        workflow = _workflow(path.name)
+        for job in workflow["jobs"].values():
+            for scope in (workflow, job, *job.get("steps", [])):
+                if "CLOUDFLARE_API_TOKEN" in scope.get("env", {}):
+                    assert scope.get("working-directory") == "web/edge"
+                    command = scope.get("run", "").strip(" \t\n")
+                    assert re.fullmatch(r"npx[ \t]+wrangler[ \t]+deploy", command)
+                    guard = scope["if"].removeprefix("${{").removesuffix("}}")
+                    grants.append((path.name, {term.strip() for term in guard.split("&&")}))
+    assert grants == [
+        (
+            "web.yml",
+            {
+                "success()",
+                "github.event_name == 'workflow_dispatch'",
+                "github.ref == 'refs/heads/main'",
+                "steps.deploy-target.outputs.current == 'true'",
+            },
+        )
+    ]
 
 
 def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:

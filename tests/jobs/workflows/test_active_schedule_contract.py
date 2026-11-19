@@ -1,4 +1,4 @@
-"""Restore the exact pre-cutover UTC slots recorded by PR #1826."""
+"""Operational writers keep their UTC slots and manual entry points."""
 
 from pathlib import Path
 
@@ -19,11 +19,10 @@ SCHEDULES = {
 
 
 @pytest.mark.parametrize("name", SCHEDULES)
-def test_resumed_writer_has_original_active_slots_and_manual_entry(name):
+def test_writer_has_active_slots_and_manual_entry(name):
     raw = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
     assert declared_schedule(raw) == [{"cron": cron} for cron in SCHEDULES[name]]
     assert "workflow_dispatch" in yaml.load(raw, Loader=yaml.BaseLoader)["on"]
-    assert "#1820 本番切替中は定期起動を停止" not in raw
 
 
 @pytest.mark.parametrize(
@@ -33,6 +32,6 @@ def test_resumed_writer_has_original_active_slots_and_manual_entry(name):
         'on:\n  # schedule:\n  #   - cron: "43 13 * * *"\n  workflow_dispatch: {}\n',
     ],
 )
-def test_comment_only_schedule_cannot_satisfy_resumed_trigger_contract(raw):
+def test_comment_only_schedule_is_not_an_active_trigger(raw):
     with pytest.raises(KeyError):
         declared_schedule(raw)
