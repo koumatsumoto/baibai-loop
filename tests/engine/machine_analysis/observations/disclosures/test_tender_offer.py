@@ -6,11 +6,13 @@ import os
 import sqlite3
 import unittest
 import zipfile
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+
+from tests.helpers.edinet_csv_zip import damaged_archive_directory
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.models import (
@@ -26,7 +28,7 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_offer import
     build_tender_offer_exit_values,
     parse_ordinary_share_offer_price,
     pays_in_cash_only,
-    read_document_blocks,
+    read_tender_offer_blocks,
     read_tender_offer_exit_values,
     read_tender_offer_filings,
     read_tender_offer_outcome,
@@ -1309,33 +1311,57 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertIn("resolved=1, reads=2", output.getvalue())
             self.assertEqual(read_tender_offer_exit_values(sqlite_path)[0].offer_price_yen, 1060.0)
 
-    def test_offline_missing_or_non_zip_archive_preserves_old_exit(self) -> None:
-        for kind in ("missing", "non_zip"):
-            with self.subTest(kind=kind), TemporaryDirectory() as tmp:
-                sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
-                old = self._old_exit()
-                store_tender_offer_exit_values(sqlite_path, (old,))
-                if kind == "non_zip":
-                    self._retain_archives(sqlite_path, {"SRES": b"not a ZIP archive"})
-                stderr = io.StringIO()
-                with (
-                    patch.object(delisting_cli, "store_tender_offer_exit_values") as save,
-                    redirect_stderr(stderr),
-                ):
-                    result = delisting_cli.build_tender_offer_exits_command(
-                        sqlite_path=sqlite_path,
-                        asof_date=self.ASOF,
-                        reader=EDINETReader(sqlite_path),
-                        stdout=io.StringIO(),
-                    )
-                self.assertEqual(result, 1)
-                self.assertIn("EDINETProviderError:", stderr.getvalue())
-                if kind == "non_zip":
-                    self.assertIn(
-                        "stored EDINET tender-offer archive is not a ZIP", stderr.getvalue()
-                    )
-                save.assert_not_called()
-                self.assertEqual(read_tender_offer_exit_values(sqlite_path), (old,))
+    def test_broken_archive_preserves_exits_in_offline_build_and_refresh(self) -> None:
+        valid = _archive({_OUTCOME: _SUCCESS})
+        # A footer can survive even when the central directory or a member is damaged.
+        broken = (
+            ("non_zip", b"not a ZIP"),
+            ("directory", damaged_archive_directory()),
+            ("member_crc", valid.replace(b"\xff\xfe", b"\xfe\xff", 1)),
+        )
+        for route, cases in (("offline", (("missing", None), *broken)), ("refresh", broken)):
+            for kind, content in cases:
+                with self.subTest(route=route, kind=kind), TemporaryDirectory() as tmp:
+                    db = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+                    old = self._old_exit()
+                    store_tender_offer_exit_values(db, (old,))
+                    stderr = io.StringIO()
+                    with (
+                        patch.object(
+                            delisting_cli,
+                            "store_tender_offer_exit_values",
+                            wraps=store_tender_offer_exit_values,
+                        ) as save,
+                        redirect_stderr(stderr),
+                    ):
+                        if route == "offline":
+                            if content is not None:
+                                self._retain_archives(db, {"SRES": content})
+                            result = delisting_cli.build_tender_offer_exits_command(
+                                sqlite_path=db,
+                                asof_date=self.ASOF,
+                                reader=EDINETReader(db),
+                                stdout=io.StringIO(),
+                            )
+                        else:
+                            self._retain_archives(db, {"SRES": valid})
+                            download = Mock(return_value=content)
+                            with patch.object(
+                                EDINETReader,
+                                "read_csv_zip",
+                                side_effect=AssertionError("SQL fallback"),
+                            ):
+                                result = delisting_cli.refresh_tender_offer_exits_command(
+                                    sqlite_path=db,
+                                    asof_date=self.ASOF,
+                                    download_csv_zip=download,
+                                    stdout=io.StringIO(),
+                                )
+                            download.assert_called_once_with("SRES")
+                    self.assertEqual(result, 1)
+                    self.assertIn("EDINETProviderError:", stderr.getvalue())
+                    save.assert_not_called()
+                    self.assertEqual(read_tender_offer_exit_values(db), (old,))
 
     def test_successful_empty_offline_build_retracts_old_exit(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -1434,34 +1460,6 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 save.assert_not_called()
                 self.assertEqual(read_tender_offer_exit_values(sqlite_path), (old,))
 
-    def test_refresh_non_zip_response_does_not_fall_back_to_sql_or_replace_old_exit(self) -> None:
-        with TemporaryDirectory() as tmp:
-            sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
-            old = self._old_exit()
-            store_tender_offer_exit_values(sqlite_path, (old,))
-            self._retain_archives(sqlite_path, {"SRES": _archive({_OUTCOME: _SUCCESS})})
-            acquisition = Mock()
-            acquisition.download_csv_zip.return_value = b"not a ZIP"
-            stderr = io.StringIO()
-            with (
-                patch.object(delisting_cli, "store_tender_offer_exit_values") as save,
-                patch.object(
-                    EDINETReader, "read_csv_zip", side_effect=AssertionError("SQL body fallback")
-                ),
-                redirect_stderr(stderr),
-            ):
-                result = delisting_cli.refresh_tender_offer_exits_command(
-                    sqlite_path=sqlite_path,
-                    asof_date=self.ASOF,
-                    download_csv_zip=acquisition.download_csv_zip,
-                    stdout=io.StringIO(),
-                )
-            self.assertEqual(result, 1)
-            self.assertIn("EDINETProviderError:", stderr.getvalue())
-            acquisition.download_csv_zip.assert_called_once_with("SRES")
-            save.assert_not_called()
-            self.assertEqual(read_tender_offer_exit_values(sqlite_path), (old,))
-
     def test_refresh_keeps_acquired_sources_when_l2_store_fails(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
@@ -1514,20 +1512,25 @@ class DocumentBlocksTest(unittest.TestCase):
         )
         for element, first, second, parse, agreed in cases:
             for values in ((first, second, first), (second, first, second), (first, first)):
-                with self.subTest(element=element, values=values):
-                    buffer = io.BytesIO()
-                    with zipfile.ZipFile(buffer, "w") as archive:
-                        for index, value in enumerate(values):
-                            text = io.StringIO()
-                            writer = csv.writer(text, delimiter="\t")
-                            writer.writerow(("要素ID", "項目名", "値"))
-                            writer.writerow((element, "項目", value))
-                            archive.writestr(
-                                f"member-{index}.csv", text.getvalue().encode("utf-16")
-                            )
-                    blocks = read_document_blocks(buffer.getvalue())
-                    self.assertIn(element, blocks)
-                    self.assertEqual(parse(blocks), agreed if len(set(values)) == 1 else None)
+                for shared in (False, True):
+                    with self.subTest(element=element, values=values, shared_name=shared):
+                        buffer = io.BytesIO()
+                        with zipfile.ZipFile(buffer, "w") as archive:
+                            for index, value in enumerate(values):
+                                text = io.StringIO()
+                                writer = csv.writer(text, delimiter="\t")
+                                writer.writerow(("要素ID", "項目名", "値"))
+                                writer.writerow((element, "項目", value))
+                                name = "filing.csv" if shared else f"member-{index}.csv"
+                                with (
+                                    self.assertWarnsRegex(UserWarning, "Duplicate name")
+                                    if shared and index
+                                    else nullcontext()
+                                ):
+                                    archive.writestr(name, text.getvalue().encode("utf-16"))
+                        blocks = read_tender_offer_blocks(buffer.getvalue())
+                        self.assertIn(element, blocks)
+                        self.assertEqual(parse(blocks), agreed if len(set(values)) == 1 else None)
 
     def test_matching_suffixes_must_agree_regardless_of_mapping_order(self) -> None:
         first = {
@@ -1541,7 +1544,7 @@ class DocumentBlocksTest(unittest.TestCase):
         )
 
     def test_every_element_of_every_csv_member_is_flattened(self) -> None:
-        blocks = read_document_blocks(_archive({_PRICE: "価格", _OUTCOME: "成否"}))
+        blocks = read_tender_offer_blocks(_archive({_PRICE: "価格", _OUTCOME: "成否"}))
         self.assertEqual(blocks[_PRICE], "価格")
         self.assertEqual(blocks[_OUTCOME], "成否")
 
