@@ -8,7 +8,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
+from baibai_engine.data_collection.receipts.public_pages.receipts import (
+    read_responses,
+    validate_response,
+)
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
@@ -44,6 +48,22 @@ def read_monex_eps(
         if row is None or utc_datetime(datetime.fromisoformat(row[0])) > cutoff:
             raise ValueError("no matching retained Monex receipt at this cutoff")
         (receipt,) = read_responses(conn, (receipt_id,))
+    return project_monex_eps(receipt, ticker=ticker, cutoff=cutoff)
+
+
+def project_monex_eps(
+    receipt: EquityWebSourceResponse, *, ticker: str, cutoff: datetime
+) -> MonexEPSReceipt:
+    """Project the exact object whose legacy observation the caller can independently verify."""
+    validate_response(receipt)
+    ticker, cutoff = normalize_ticker(ticker), utc_datetime(cutoff)
+    if (
+        receipt.source != "monex"
+        or receipt.role != "page"
+        or receipt.requested_ticker != ticker
+        or receipt.received_at_utc > cutoff
+    ):
+        raise ValueError("no matching retained Monex receipt at this cutoff")
     page = monex.identified_page(
         response_html(receipt), ticker=ticker, source_url=receipt.requested_url
     )

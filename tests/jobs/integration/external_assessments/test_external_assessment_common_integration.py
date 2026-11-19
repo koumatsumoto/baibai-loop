@@ -4,6 +4,7 @@ import uuid
 from contextlib import closing
 
 import pytest
+from tests.helpers.external_assessment_html import monex_eps_section, monex_html
 from tests.helpers.external_assessment_publication import (
     RECEIVED,
     _plan,
@@ -15,10 +16,18 @@ from tests.helpers.external_assessment_publication import (
     independent_plans as independent_plans,
 )
 from tests.helpers.external_assessment_publication import publication as publication
+from tests.helpers.external_assessment_responses import response
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.acquisition.external_assessments.staging as staging
 import baibai_jobs.publication.snapshot_publication as publisher
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    ModelValuationObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
+    read_monex_eps,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
     decode_attempt as external_assessment_decode_attempt,
 )
@@ -92,6 +101,68 @@ def test_two_ready_sources_use_one_common_publication_and_keep_separate_verified
     assert {item["release_id"] for item in terminals} == {published.release_id}
     assert len({item["plan_sha256"] for item in terminals}) == 2
     assert all(item["readback"] == "verified" for item in terminals)
+
+
+def test_common_integration_replays_frozen_monex_v4_with_or_without_reference_eps(publication):
+    store, previous, _, database, _, _ = publication
+    references = []
+    originals = []
+    for ticker, lower in [("7203", ""), ("6758", monex_eps_section())]:
+        plan = _plan(previous, run_id=f"monex-v4-replay-{ticker}", tickers=(ticker,))
+        html = monex_html(ticker)
+        for price in ("101円", "202円", "303円", "404円"):
+            html = html.replace("1,234円", price, 1)
+        url = monex.public_url(ticker)
+        original = response(
+            "monex", ticker, (html + lower).encode(), url=url, received_at_utc=RECEIVED
+        )
+        # Freeze the v4 observation independently of the decoder used inside merge_ready.
+        frozen = ModelValuationObservation.model_validate(
+            {
+                "ticker": ticker,
+                "distributor": "monex",
+                "origin": "IFIS",
+                "source_url": url,
+                "fetched_at_utc": RECEIVED,
+                "parser_version": "monex-theory-4",
+                "currency": "JPY",
+                "unit": "JPY/share",
+                "per_company_forecast": 101,
+                "per_consensus": 202,
+                "pbr": 303,
+                "consensus_target": 404,
+                "per_company_forecast_origin": "Monex Scouter model",
+                "per_consensus_origin": "Monex Scouter model",
+                "pbr_origin": "Monex Scouter model",
+                "consensus_target_origin": "IFIS",
+            }
+        )
+        _stage(
+            store,
+            plan,
+            0,
+            [("monex", ticker, "observed", original.attempt_id, frozen, 200)],
+            (original,),
+        )
+        staging.save_new_plan(store, plan)
+        references.append(save_ready(store, prepare_plan(store, plan)))
+        originals.append(original)
+
+    state = merge_ready(store, references, database=database)
+    assert state["failed"] == []
+    assert [
+        (p["reference"], p["rows_added"], p["source_responses_added"]) for p in state["plans"]
+    ] == [(ref, 1, 1) for ref in references]
+    assert set(state["selected_digests"]) == {x.receipt_id for x in originals}
+    legacy, extended = [
+        read_monex_eps(
+            database, receipt_id=x.receipt_id, ticker=x.requested_ticker, cutoff=RECEIVED
+        ).reference_eps
+        for x in originals
+    ]
+    assert legacy is None
+    assert (extended.current_fy.eps_jpy_per_share, extended.next_fy.eps_jpy_per_share) == (-3.5, 0)
+    assert extended.rolling_one_year.eps_jpy_per_share == 123.4
 
 
 def test_common_readback_failure_never_repairs_sqlite_or_seals_any_terminal(

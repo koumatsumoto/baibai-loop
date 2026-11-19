@@ -25,6 +25,34 @@ def monex_html(ticker="7203", *, value="1,234円"):
     )
 
 
+def monex_eps_row(label, period, value):
+    period_html = f'<span class="thin_str">{period}</span>' if period else ""
+    return (
+        f'<tr><th class="set_word">{label}{period_html}</th>'
+        f'<td class="td_left_data">{value}</td><td class="td_right_data">99.5％</td></tr>'
+    )
+
+
+def monex_eps_section(rows=None):
+    if rows is None:
+        rows = [
+            monex_eps_row("前期実績", "2024/09", "88.0円"),
+            monex_eps_row("今期会社予想", "2025/09", "99.0円"),
+            monex_eps_row("今期予想コンセンサス", "2025/09", "-3.5円"),
+            monex_eps_row("1年後コンセンサス", None, "123.4円"),
+            monex_eps_row("来期予想コンセンサス", "2026/09", "0.0円"),
+        ]
+    return (
+        '<div class="reference_table_left"><div class="table_title">参考EPS</div>'
+        '<table class="table_left"><tr><th></th><td>EPS</td><td>前期比</td></tr>'
+        + "".join(rows)
+        + "</table>"
+        '<div class="calc_area_comments">※EPSは最終更新日付時点の株数にて計算した値を表示</div>'
+        '<div class="calc_area_comments">※EPSは12か月換算した値を表示</div></div>'
+        "<p>ページ更新 2025-05-04 20:00:00、目標株価の人数：35人</p>"
+    )
+
+
 def official_html(ticker="7203"):
     return f'''<meta property="og:url" content="{rakuten.public_url(ticker)}">
     <script>var requestURL="{rakuten.IFRAME_BASE}";

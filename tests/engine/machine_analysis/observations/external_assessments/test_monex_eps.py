@@ -3,15 +3,19 @@
 import hashlib
 import json
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from tests.helpers.external_assessment_html import monex_eps_row as row
+from tests.helpers.external_assessment_html import monex_eps_section as section
 from tests.helpers.external_assessment_html import monex_html
 from tests.helpers.external_assessment_responses import response
 
 from baibai_engine.cli.external_assessment import main
 from baibai_engine.data_collection.receipts.public_pages.receipts import insert_response
 from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
+    project_monex_eps,
     read_monex_eps,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
@@ -28,34 +32,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 NOW = datetime(2025, 5, 5, 1, 0, 0, 123456, tzinfo=UTC)
-
-
-def row(label, period, value):
-    period_html = f'<span class="thin_str">{period}</span>' if period else ""
-    return (
-        f'<tr><th class="set_word">{label}{period_html}</th>'
-        f'<td class="td_left_data">{value}</td><td class="td_right_data">99.5％</td></tr>'
-    )
-
-
-def section(rows=None):
-    if rows is None:
-        rows = [
-            row("前期実績", "2024/09", "88.0円"),
-            row("今期会社予想", "2025/09", "99.0円"),
-            row("今期予想コンセンサス", "2025/09", "-3.5円"),
-            row("1年後コンセンサス", None, "123.4円"),
-            row("来期予想コンセンサス", "2026/09", "0.0円"),
-        ]
-    return (
-        '<div class="reference_table_left"><div class="table_title">参考EPS</div>'
-        '<table class="table_left"><tr><th></th><td>EPS</td><td>前期比</td></tr>'
-        + "".join(rows)
-        + "</table>"
-        '<div class="calc_area_comments">※EPSは最終更新日付時点の株数にて計算した値を表示</div>'
-        '<div class="calc_area_comments">※EPSは12か月換算した値を表示</div></div>'
-        "<p>ページ更新 2025-05-04 20:00:00、目標株価の人数：35人</p>"
-    )
 
 
 def test_individual_fiscal_rows_and_rolling_horizon_do_not_borrow_other_context():
@@ -160,3 +136,32 @@ def test_explicit_receipt_adds_only_opt_in_context_and_never_changes_the_store(t
         with pytest.raises(ValueError, match="no matching retained"):
             read_monex_eps(db, receipt_id=native.receipt_id, ticker=ticker, cutoff=cutoff)
     assert hashlib.sha256(db.read_bytes()).digest() == before
+
+
+def test_projection_checks_native_identity_before_exposing_eps():
+    native = response(
+        "monex",
+        "7203",
+        (monex_html() + section()).encode(),
+        url=monex.public_url("7203"),
+        received_at_utc=NOW,
+    )
+    p = project_monex_eps(native, ticker="7203", cutoff=NOW)
+    assert (p.receipt_id, p.body_sha256) == (
+        native.receipt_id,
+        hashlib.sha256(native.body).hexdigest(),
+    )
+    for wrong, reason in [
+        (replace(native, source="kabumap"), "no matching retained"),
+        (replace(native, role="iframe"), "only a Rakuten iframe"),
+        (
+            replace(native, parent_receipt_id=native.receipt_id),
+            "page response cannot have a parent",
+        ),
+        (replace(native, requested_ticker="6758"), "no matching retained"),
+        (replace(native, received_at_utc=NOW + timedelta(microseconds=1)), "no matching retained"),
+        (replace(native, requested_url=monex.public_url("6758")), "source_identity"),
+        (replace(native, body=(monex_html("6758") + section()).encode()), "ticker_identity"),
+    ]:
+        with pytest.raises(ValueError, match=reason):
+            project_monex_eps(wrong, ticker="7203", cutoff=NOW)
