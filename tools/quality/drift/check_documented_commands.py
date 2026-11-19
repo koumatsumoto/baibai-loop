@@ -191,7 +191,6 @@ def _missing_required(parser: argparse.ArgumentParser, tokens: Sequence[str]) ->
 
 
 def _unknown_options(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> list[str]:
-    tokens = tokens[: tokens.index("--")] if "--" in tokens else tokens
     known = {option for action in parser._actions for option in action.option_strings}
     return [
         argument.split("=", 1)[0]
@@ -239,6 +238,8 @@ def check(root: Path) -> list[str]:
             except _Unresolvable as error:
                 errors.append(f"{relative}: {error}")
                 continue
+            if "--" in rest:
+                rest = rest[: rest.index("--")]
             unknown = _unknown_options(parser, rest)
             if unknown:
                 errors.append(f"{relative}: `{command}` has unknown options {', '.join(unknown)}")

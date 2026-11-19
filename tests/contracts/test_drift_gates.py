@@ -398,6 +398,7 @@ def test_leaf_options_keep_parent_alias_repeatable_negative_and_placeholder_valu
     [
         ("baibai-engine market-context reading --asof <ASOF>", None),
         ("baibai-engine market-context reading", "omits required --asof"),
+        ("baibai-engine market-context reading -- --asof <ASOF>", "omits required --asof"),
         (
             "baibai-engine market-context reading --asof <ASOF> --typo",
             "has unknown options --typo",
