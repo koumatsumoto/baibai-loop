@@ -70,6 +70,57 @@ def _qname(raw: str | None, ns: Mapping[str, str]) -> str | None:
     return "{" + uri + "}" + parts[1]
 
 
+def consolidated_note_at(
+    parts: Mapping[str, tuple[ET.Element, Scopes]],
+    locator: tuple[str, tuple[int, ...]] | None,
+    *,
+    concept: str,
+    context_id: str,
+) -> Literal["consolidated"] | None:
+    """Check a single occurrence in an already pinned filing, not a matching value.
+
+    The caller supplies a known (archive member, child-index path); do not choose
+    among equal facts. Only the directly enclosing note observed in the 2025-11-01
+    example is supported. This does not read a ZIP or match normalized amounts.
+    """
+    if locator is None or not context_id or _FACTS.get(concept) != ("2025-11-01", "segment"):
+        return None
+    part, path = locator
+    if not part or not path or part not in parts:
+        return None
+    node, scopes = parts[part]
+    ix = "{http://www.xbrl.org/2008/inlineXBRL}"
+    xhtml = "{http://www.w3.org/1999/xhtml}"
+    if node.tag != xhtml + "html":
+        return None
+    note = (
+        _ns("jpcrp", "2025-11-01")
+        + "NotesSegmentInformationEtcConsolidatedFinancialStatementsTextBlock"
+    )
+    inside = False
+    for index in path:
+        if not node.tag.startswith(xhtml):
+            if (
+                inside
+                or node.tag != ix + "nonNumeric"
+                or not node.get("contextRef")
+                or _qname(node.get("name"), scopes.get(node, {})) != note
+            ):
+                return None
+            inside = True
+        if not 0 <= index < len(node):
+            return None
+        node = node[index]
+    if (
+        inside
+        and node.tag == ix + "nonFraction"
+        and node.get("contextRef") == context_id
+        and _qname(node.get("name"), scopes.get(node, {})) == concept
+    ):
+        return "consolidated"
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class ContextEvidence:
     context_id: str
@@ -161,8 +212,8 @@ def classify(
 
     Inputs retain placement and the issuer declaration's scoped type and group.
     The optional note scope is
-    independent evidence of the applicable annual segment note, not a context ID,
-    issuer name or inference from the absence of dimensions. Without it we do
+    independent evidence of the applicable annual segment note at this particular
+    source occurrence, not a value match, context ID or filing-wide flag. Without it we do
     not apply the consolidation default to a segment observation.
     """
     profile = _FACTS.get(concept)

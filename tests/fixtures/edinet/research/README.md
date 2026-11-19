@@ -24,3 +24,9 @@ EDINET type=1のPublicDoc instance、issuer XSD、Japanese label linkbaseから�
 [提出者別タクソノミガイド 図表5-2-20・21](https://www.fsa.go.jp/search/20251111/2a-1_TaxonomyGuide.pdf#page=90)では軸とメンバーで型・代替グループが異なる。実験は提出者宣言の `type` と `substitutionGroup` をその要素で有効なURIで照合する。元の4つのXSD抜粋は `nonnum:domainItemType` のprefix宣言が欠落しているため、独自60行のQNameと原ラベルは保つが型は未確定（それ以外の82行は標準メンバー）。この抜粋の制約は元提出書類の欠陥を意味しない。別prefixで正規型を明示した合成例のみを型確認の正例とし、軸への差し替え・別URIの同名型は採らない。完全なスキーマ検証や提出者DTSの所属判定ではない。
 
 この対照はv2・固定release・L3・日次を変更しない。読取先には接続しない。v3の保存・読取と新旧世代の分離・採用可否は[設計Issue #2692](https://github.com/koumatsumoto/baibai-loop/issues/2692)の別段階。
+
+### 注記は数値の出現位置に結び付ける
+
+**固定原本での確認（自動テストには含めない）。** NCD `S100YEMH` の固定一覧と保存済みtype=1（SHA-256 `45b0c26da66b2a7ea5359c60b3de2ef2db631010f332b0d8a0ea77de7b08dd8b`）で照合した。v2のセグメント42行はすべて `0105110` の連結セグメント注記内の1出現に一致する。一方、事業セグメント軸のない別の4組は、概念QName・context・金額・単位・精度まで同じなのに、注記内と注記外（`0105020`）の両方に現れる。4組はv2の42行に含まれず、この原本でv2の誤分類を発見したわけではない。
+
+**合成対照。** [テスト](../../../tools/test_edinet_research_dimensions.py)は架空の金額と2つのInline XBRL断片で4組を作る。固定ZIP内のファイル名＋要素の位置を指定し、その位置の数値QName・contextと包んでいる注記の完全QNameを照合する。値から位置を探さない。軸がなければ両方ともセグメント対象外。感度確認のため正規のセグメント軸を仮に与えた場合にも、連結の根拠になるのは注記内の出現だけである。この試験は原本の自動再現でも汎用Inline XBRL readerでもない。正式受入には、候補の原値／nil・単位・精度も同じ固定原本で照合し、出現位置と親注記を特定できなければ注記からの連結判定を保留する。[#2692](https://github.com/koumatsumoto/baibai-loop/issues/2692)の3件は解除しない。

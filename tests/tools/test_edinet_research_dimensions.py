@@ -16,6 +16,7 @@ from tools.experiments.edinet_research_dimensions import (
     IssuerDeclaration,
     Segment,
     classify,
+    consolidated_note_at,
     issuer_declarations,
     observe_context,
 )
@@ -463,3 +464,64 @@ def test_issuer_declaration_scopes_do_not_leak_to_a_sibling_or_turn_an_axis_into
         assert decision(housing, changed) == Attribution(None, "issuer_declaration_not_member")
         assert decision(hotel, changed) == decision(hotel, baseline)
         decl.set(attribute, correct)
+
+
+def test_equal_inline_facts_do_not_share_their_parent_note():
+    # Four synthetic pairs only. No filing, original amounts, list or external I/O.
+    base = "http://disclosure.edinet-fsa.go.jp/taxonomy/"
+    pfs = base + "jppfs/2025-11-01/jppfs_cor"
+    crp = base + "jpcrp/2025-11-01/jpcrp_cor"
+    note = "NotesSegmentInformationEtcConsolidatedFinancialStatementsTextBlock"
+    keys = [(item, ctx) for ctx in ("A", "B") for item in ("NetSales", "OperatingIncome")]
+    cells = "".join(
+        f'<i:nonFraction name="p:{item}" contextRef="{ctx}" unitRef="JPY" decimals="0">'
+        f"{100 + index}</i:nonFraction>"
+        for index, (item, ctx) in enumerate(keys)
+    )
+
+    def page(section, end, note_ns=crp):
+        return _scoped(
+            (
+                f'<html xmlns="http://www.w3.org/1999/xhtml" xmlns:n="{note_ns}" xmlns:p="{pfs}"'
+                f' xmlns:i="http://www.xbrl.org/2008/inlineXBRL"><body>{section}<div>{cells}</div>'
+                f"{end}</body></html>"
+            ).encode()
+        )
+
+    inside = page(f'<i:nonNumeric name="n:{note}" contextRef="A">', "</i:nonNumeric>")
+    outside = page("<section>", "</section>")
+    parts = {"a.htm": outside, "b.htm": inside}
+    synthetic_axis = (f"{{{crp}}}OperatingSegmentsAxis", f"{{{crp}}}ReportableSegmentsMember")
+    for i, (item, ctx) in enumerate(keys):
+        inner, outer = (part[0][0][0][0][i] for part in (inside, outside))
+        assert inner.attrib == outer.attrib
+        assert inner.text == outer.text
+        concept = f"{{{pfs}}}{item}"
+        path = (0, 0, 0, i)
+        for filename, expected in (("a.htm", None), ("b.htm", "consolidated")):
+            scope = consolidated_note_at(parts, (filename, path), concept=concept, context_id=ctx)
+            assert scope == expected
+            # The real duplicate pattern has NO segment axis. Even a true note is insufficient.
+            assert classify(
+                concept, ContextEvidence(ctx), issuer_members={}, verified_annual_segment_note=scope
+            ) == Attribution(None, "no_explicit_segment")
+            # Add a segment axis ONLY as a sensitivity control: borrowing the inner note would
+            # now give the outer occurrence a false positive.
+            candidate = classify(
+                concept,
+                ContextEvidence(ctx, (synthetic_axis,)),
+                issuer_members={},
+                verified_annual_segment_note=scope,
+            )
+            assert candidate.basis == expected
+
+    sample = f"{{{pfs}}}NetSales"
+    positive = ("b.htm", (0, 0, 0, 0))
+    assert consolidated_note_at(parts, None, concept=sample, context_id="A") is None
+    for ambiguous in (("missing.htm", positive[1]), ("b.htm", (0, 0, 0, -1)), ("b.htm", (0, 0))):
+        assert consolidated_note_at(parts, ambiguous, concept=sample, context_id="A") is None
+    assert consolidated_note_at(parts, positive, concept=sample, context_id="B") is None
+    parts["b.htm"] = page(
+        f'<i:nonNumeric name="n:{note}" contextRef="A">', "</i:nonNumeric>", "urn:homonym"
+    )
+    assert consolidated_note_at(parts, positive, concept=sample, context_id="A") is None
