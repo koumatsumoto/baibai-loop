@@ -18,6 +18,7 @@ from baibai_engine.portfolio.ledger.events import (
     replay_events_through,
     reservation_snapshots,
 )
+from baibai_engine.primitives.time import JST
 
 type BrokerFactStatus = Literal["open", "filled", "cancelled", "expired"]
 
@@ -325,14 +326,17 @@ def record_terminal_broker_facts(
     return _patch_document(document, additions=additions, occurred_at=occurred_at)
 
 
-def _validate_report_time(occurred_at: datetime, *, now: datetime | None) -> datetime:
-    if occurred_at.tzinfo is None:
+def _validate_report_time(occurrence: date, *, now: datetime | None) -> datetime:
+    if isinstance(occurrence, datetime) and occurrence.tzinfo is None:
         raise BrokerFactRecordingError("occurred_at must include a timezone")
     effective_now = now or datetime.now().astimezone()
     if effective_now.tzinfo is None:
         raise BrokerFactRecordingError("now must include a timezone")
-    if occurred_at > effective_now:
-        raise BrokerFactRecordingError("occurred_at must not be in the future")
+    if isinstance(occurrence, datetime):
+        if occurrence > effective_now:
+            raise BrokerFactRecordingError("occurred_at must not be in the future")
+    elif occurrence > effective_now.astimezone(JST).date():
+        raise BrokerFactRecordingError("occurred_on must not be in the future")
     return effective_now
 
 
