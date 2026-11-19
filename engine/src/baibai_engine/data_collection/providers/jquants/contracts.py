@@ -114,6 +114,20 @@ class JQuantsRequest:
 
 def complete_request(pages: Sequence[JQuantsPage]) -> JQuantsRequest:
     """Validate the same native pagination chain in a bounded dependency handoff."""
+    return _complete_request(pages, None)
+
+
+def complete_request_with_records(
+    pages: Sequence[JQuantsPage],
+) -> tuple[JQuantsRequest, list[dict[str, Any]]]:
+    """Expose source rows only after the entire native pagination chain validates."""
+    records: list[dict[str, Any]] = []
+    return _complete_request(pages, records), records
+
+
+def _complete_request(
+    pages: Sequence[JQuantsPage], records: list[dict[str, Any]] | None
+) -> JQuantsRequest:
     if not pages:
         raise JQuantsAcquisitionError("J-Quants request has no pages")
     source = pages[0].source
@@ -126,6 +140,8 @@ def complete_request(pages: Sequence[JQuantsPage]) -> JQuantsRequest:
         if page.source != source or dict(page.query) != expected_query:
             raise JQuantsAcquisitionError("J-Quants request pagination identity differs")
         payload = page_envelope(page)
+        if records is not None:
+            records.extend(payload["data"])
         cursor = payload.get("pagination_key")
         if cursor is None or cursor == "":
             if index != len(pages) - 1:

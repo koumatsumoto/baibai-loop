@@ -285,11 +285,11 @@ def test_fixed_head_is_decoded_once_and_stays_local(
         decoded.append(result)
         return result
 
-    def read(store, *, scopes, receipts, days):
+    def read(store, *, scopes, receipts, days, **kwargs):
         observed.append((scopes, receipts))
         # The mutable head can move without altering an operation's fixed bytes.
         store.values[HEAD_KEY].body = b'{"format":"changed"}'
-        return original_read(store, scopes=scopes, receipts=receipts, days=days)
+        return original_read(store, scopes=scopes, receipts=receipts, days=days, **kwargs)
 
     monkeypatch.setattr(FixedPriceL1, "value", value)
     monkeypatch.setattr(price_native, "read_price_requests", read)
@@ -330,3 +330,84 @@ def test_fixed_head_is_decoded_once_and_stays_local(
             output=tmp_path / "invalid",
         )
     assert not (tmp_path / "invalid").exists()
+
+
+def test_daily_uses_verified_prices_but_disputed_and_large_requests_keep_cold_path(
+    tmp_path, monkeypatch, fixed_prices
+):
+    from collections import Counter
+
+    from baibai_engine.data_collection.providers.jquants import contracts
+    from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+
+    store, _ = fixed_prices
+    owner = PriceL1(store, tmp_path / "native")
+    huge = DAY + timedelta(days=3)
+    plain = {"Code": "13010", "Date": huge.isoformat(), "C": 8}
+    # One normal row but an unusual >4MiB native page.
+    body = json.dumps({"data": [plain], "extra": "x" * (4 * 1024**2)}).encode()
+    owner.commit(
+        [
+            PriceAttempt(
+                "large",
+                huge,
+                AT,
+                (JQuantsPage("daily_bars", {"date": huge.isoformat()}, AT, body),),
+            )
+        ]
+    )
+    fixed = owner.fixed()
+    seen = Counter()
+    page_envelope = contracts.page_envelope
+
+    def counted(page):
+        seen[(page.query["date"], page.body[:24])] += 1
+        return page_envelope(page)
+
+    monkeypatch.setattr(contracts, "page_envelope", counted)
+    market = market_store(tmp_path / "prices.sqlite")
+    saved = price_native.model_input(
+        store, fixed, as_of=huge, evaluated_at=AT + timedelta(hours=1), market=market
+    )
+    by_day = Counter()
+    for (day, _), n in seen.items():
+        by_day[day] += n
+    assert [by_day[(DAY + timedelta(days=i)).isoformat()] for i in range(4)] == [3, 1, 1, 2]
+    assert saved.descriptor["summary"]["partial_days"] == 0
+    assert len(rows_at(market)["jquants_daily_bars"]) == 5
+
+
+def test_verified_rows_do_not_turn_discarded_conflicts_into_errors_or_cross_requests():
+    from baibai_engine.data_collection.providers.jquants.contracts import (
+        RetainedRequest,
+        complete_request_with_records,
+    )
+    from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+    from baibai_engine.machine_analysis.observations.prices.from_l1 import (
+        PriceBatchRows,
+        rebuild_price_days,
+    )
+
+    def checked(values, at):
+        body = json.dumps(
+            {"data": [{"Code": "13010", "Date": DAY.isoformat(), "C": v} for v in values]}
+        ).encode()
+        return complete_request_with_records(
+            (JQuantsPage("daily_bars", {"date": DAY.isoformat()}, at, body),)
+        )
+
+    early, early_rows = checked([100, 101], AT)
+    late, late_rows = checked([200], AT + timedelta(seconds=1))
+    state = PriceBatchRows()
+    state.consume("first", early, early_rows)
+    state.consume("second", late, late_rows)
+    assert state.get("second", early) is None
+    early_item = RetainedRequest("first", early, None)
+    late_item = RetainedRequest("second", late, None)
+    # A conflicting old price was not selected. Selecting it alone must still fail.
+    for order in ((early_item, late_item), (late_item, early_item)):
+        assert rebuild_price_days(order, days=(DAY,), prepared=state) == rebuild_price_days(
+            order, days=(DAY,)
+        )
+    with pytest.raises(JQuantsProviderError, match="conflicting daily bars"):
+        rebuild_price_days((early_item,), days=(DAY,), prepared=state)

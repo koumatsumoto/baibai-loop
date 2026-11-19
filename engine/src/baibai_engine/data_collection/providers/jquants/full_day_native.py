@@ -24,6 +24,7 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsRequest,
     RetainedRequest,
     complete_request,
+    complete_request_with_records,
     page_envelope,
 )
 from baibai_engine.data_collection.providers.jquants.native_objects import (
@@ -234,6 +235,9 @@ def full_day_request_packs(
             yield identity, receipts[identity]["pack"]
 
 
+type VerifiedDayRows = Callable[[str, JQuantsRequest, list[dict[str, Any]]], None]
+
+
 def read_full_day_requests(
     store: ObjectStore,
     *,
@@ -242,6 +246,7 @@ def read_full_day_requests(
     days: Sequence[date],
     contract: FullDayContract,
     attempt_type: type[FullDayAttempt],
+    consume: VerifiedDayRows | None = None,
 ) -> Iterator[RetainedRequest]:
     """Read digest-verified packs using an explicitly fixed head or saved input selection."""
     by_pack: dict[str, set[str]] = {}
@@ -262,10 +267,23 @@ def read_full_day_requests(
                 raise LakePublishError("full-day receipt differs from its fixed head")
             found.add(identity)
             item = attempt_type.from_value(raw)
+            records = None
             try:
-                request = complete_request(item.pages)
+                # Never buffer every decoded page across a large or disputed request.
+                if (
+                    consume is not None
+                    and (scope := scopes.get(item.day.isoformat(), {})).get("adopted") == identity
+                    and not (scope.get("failure") or scope.get("held"))
+                    and sum(len(page.body) for page in item.pages) <= 4 * 1024**2
+                ):
+                    request, records = complete_request_with_records(item.pages)
+                else:
+                    request = complete_request(item.pages)
             except JQuantsAcquisitionError:
                 request = None
+            if records is not None and request is not None and consume is not None:
+                consume(identity, request, records)
+                del records
             yield RetainedRequest(
                 identity,
                 request,
