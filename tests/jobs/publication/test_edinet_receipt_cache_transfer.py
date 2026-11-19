@@ -18,7 +18,7 @@ from baibai_jobs.publication.snapshot_write_cli import _clear_independent_list_c
 
 
 @pytest.mark.parametrize("existing", [False, True])
-def test_empty_local_copy_needs_no_bucket_or_native_head(tmp_path, monkeypatch, existing):
+def test_empty_local_copy_needs_no_bucket_or_native_head(tmp_path, monkeypatch, existing, capsys):
     database = tmp_path / "market.sqlite"
     if existing:
         with closing(open_connection(database)):
@@ -30,6 +30,7 @@ def test_empty_local_copy_needs_no_bucket_or_native_head(tmp_path, monkeypatch, 
     _clear_independent_list_cache(args, release)
     assert database.exists() is existing
     remote.assert_not_called()
+    assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize("legacy_release", [False, True])
@@ -58,7 +59,7 @@ def test_nonempty_cache_requires_native_verification_only_when_release_omits_ori
     remote.assert_not_called()
 
 
-def test_native_cache_clear_uses_the_original_receipt_proof(tmp_path, monkeypatch):
+def test_native_cache_clear_uses_the_original_receipt_proof(tmp_path, monkeypatch, capsys):
     store = MemoryR2Store()
     store.close = Mock()
     lists = EdinetListL1(store, tmp_path / "lists")
@@ -84,3 +85,7 @@ def test_native_cache_clear_uses_the_original_receipt_proof(tmp_path, monkeypatc
     with closing(open_connection(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (0,)
     store.close.assert_called_once_with()
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err.startswith("snapshot: phase=verify_native_edinet_list_cache state=done ")
+    assert output.err.strip().endswith(" verified_rows=1")

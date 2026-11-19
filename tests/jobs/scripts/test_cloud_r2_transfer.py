@@ -589,12 +589,7 @@ def test_machine_store_push_rejects_a_generation_replaced_by_manual_publish(
 
 
 def test_machine_store_push_reports_where_each_key_spends_its_time(tmp_path: Path) -> None:
-    """A push is three waits and only one of them sends bytes over the link.
-
-    Compressing the snapshot or sending a diff shortens the upload alone. Without the
-    split the run's log cannot say whether that is most of the wait or a corner of it,
-    and the choice between the two would rest on an inference from throughput.
-    """
+    """Separate the ordinary machine PUT call from the preceding lease check."""
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["GITHUB_ACTIONS"] = "true"
@@ -610,8 +605,10 @@ def test_machine_store_push_reports_where_each_key_spends_its_time(tmp_path: Pat
 
     reported = dict(
         re.findall(
-            r"store push: key=(\S+) bytes=(\d+) snapshot=\d+s backup=\d+s upload=\d+s",
+            r"^store push: key=(\S+) bytes=(\d+) snapshot=\d+s backup=\d+s upload=\d+s"
+            r" lease_before_put=\d+s conditional_put_cli=\d+s$",
             result.stdout,
+            flags=re.MULTILINE,
         )
     )
     # The staged snapshot is what gets uploaded, so its size is the transferred byte
@@ -1468,6 +1465,7 @@ def test_runs_only_push_uses_pulled_generation_and_does_not_reupload_other_store
         text=True,
     )
     assert completed.returncode == 0, completed.stderr
+    assert "conditional_put_cli=" not in completed.stdout
     uploads = [
         command for command in _transfer_commands(log) if command.startswith("s3api put-object ")
     ]
