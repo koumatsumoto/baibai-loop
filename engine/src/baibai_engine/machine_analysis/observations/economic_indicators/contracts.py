@@ -30,7 +30,6 @@ class SeriesDefinition:
     plausible_min: float | None = None
     plausible_max: float | None = None
     aliases: tuple[str, ...] = ()
-    tradingview_symbol: str | None = None
 
     def __post_init__(self) -> None:
         for field, value in (
