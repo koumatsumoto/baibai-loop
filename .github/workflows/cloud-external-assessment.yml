@@ -30,6 +30,8 @@ permissions:
 
 jobs:
   plan:
+    env:
+      UV_NO_DEV: "true"
     if: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
