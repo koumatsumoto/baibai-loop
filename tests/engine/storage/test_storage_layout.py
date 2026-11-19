@@ -10,12 +10,7 @@ import sys
 from baibai_engine.data_collection.transport import public_pages as equity_http
 from baibai_engine.data_collection.providers.tradingview import receipts
 for prefix in (
-    'baibai_engine.machine_analysis.models.external_assessment',
-    'baibai_engine.market',
-    'baibai_engine.machine_analysis.models.market_context',
-    'baibai_engine.machine_analysis.models.technical_analysis',
-    'baibai_engine.machine_analysis.models.company_financials',
-    'baibai_engine.machine_analysis.screening',
+    'baibai_engine.machine_analysis',
     'baibai_engine.portfolio',
     'baibai_engine.investment_judgment',
 ):
@@ -33,7 +28,8 @@ from baibai_engine.machine_analysis.observations.external_assessments import con
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import contract as tv_contract, observations
 from baibai_engine.storage.snapshots import models as lake_models
 for prefix in (
-    'baibai_engine.data_collection.external_assessment',
+    'baibai_engine.data_collection.transport.public_pages',
+    'baibai_jobs.acquisition.external_assessments',
     'baibai_engine.machine_analysis.observations.external_assessments.store',
     'baibai_jobs.maintenance.tradingview_context',
     'baibai_engine.storage.sqlite.source_cache',
