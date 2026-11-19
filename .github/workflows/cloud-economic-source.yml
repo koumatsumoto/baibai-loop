@@ -27,6 +27,8 @@ concurrency:
 
 jobs:
   acquire:
+    env:
+      UV_NO_DEV: "true"
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     concurrency:
