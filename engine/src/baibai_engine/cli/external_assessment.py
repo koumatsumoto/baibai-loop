@@ -29,6 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("--cutoff", required=True, type=datetime.fromisoformat)
     show.add_argument("--evaluated-at", type=datetime.fromisoformat)
     show.add_argument("--db", type=Path, default=MARKET_DB_PATH)
+    show.add_argument(
+        "--monex-eps-receipt-id", help="also read fiscal EPS from this exact retained Monex page"
+    )
     return parser
 
 
@@ -54,7 +57,29 @@ def main(argv: list[str] | None = None, /) -> int:
             cutoff=args.cutoff,
             evaluated_at=args.evaluated_at or args.cutoff,
         )
-        print(result.model_dump_json(indent=2))
+        if args.monex_eps_receipt_id is None:
+            print(result.model_dump_json(indent=2))
+        else:
+            from baibai_engine.machine_analysis.observations.external_assessments import (
+                monex_receipt,
+            )
+
+            selected = monex_receipt.read_monex_eps(
+                args.db,
+                receipt_id=args.monex_eps_receipt_id,
+                ticker=args.ticker,
+                cutoff=args.cutoff,
+            )
+            print(
+                json.dumps(
+                    {
+                        **result.model_dump(mode="json"),
+                        "selected_monex_eps_receipt": selected.model_dump(mode="json"),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
         return 0
     except (ValueError, OSError, sqlite3.Error) as error:
         print(f"error: external assessment read failed: {error}", file=sys.stderr)

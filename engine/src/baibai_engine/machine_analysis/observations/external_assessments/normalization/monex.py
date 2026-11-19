@@ -8,6 +8,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
     ModelValuationObservation,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    Element,
     ParseError,
     compact,
     document,
@@ -23,17 +24,22 @@ def public_url(ticker: str) -> str:
     return f"https://scouter.monex.co.jp/report/theoryDps/{normalize_ticker(ticker)}"
 
 
-def parse_html(
-    html: str, *, ticker: str, source_url: str, fetched_at_utc: datetime
-) -> ModelValuationObservation:
-    """Replay captured HTML with its original receipt time; never infer a judgment."""
-    ticker = normalize_ticker(ticker)
+def identified_page(html: str, *, ticker: str, source_url: str) -> Element:
     if source_url != public_url(ticker):
         raise ParseError("source_identity")
     page = document(html)
     identities = page.find("input", id="stockCd")
     if len(identities) != 1 or identities[0].attrs.get("value") != ticker:
         raise ParseError("ticker_identity")
+    return page
+
+
+def parse_html(
+    html: str, *, ticker: str, source_url: str, fetched_at_utc: datetime
+) -> ModelValuationObservation:
+    """Replay captured HTML with its original receipt time; never infer a judgment."""
+    ticker = normalize_ticker(ticker)
+    page = identified_page(html, ticker=ticker, source_url=source_url)
     sections = [
         element for element in page.find("div") if element.has_class("theory_summary_inner")
     ]
