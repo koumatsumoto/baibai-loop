@@ -53,7 +53,7 @@ def decode_tool_result(result_json: str) -> dict[str, Any]:
             raise ProviderPayloadError("malformed_envelope")
         try:
             payload = json.loads(texts[0])
-        except json.JSONDecodeError:
+        except ValueError:
             raise ProviderPayloadError("malformed_envelope") from None
     if isinstance(payload, dict) and payload.get("success") is False:
         error = payload.get("error")

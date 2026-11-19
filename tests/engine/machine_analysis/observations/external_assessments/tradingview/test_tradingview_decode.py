@@ -1,5 +1,7 @@
 """Interpret retained SDK envelopes without a client, OAuth, or network."""
 
+import sys
+
 import pytest
 from mcp.types import CallToolResult, TextContent
 
@@ -91,3 +93,17 @@ def test_unrecognized_saved_envelope_stays_invalid_without_text_fallback(payload
 def test_successful_saved_envelope_does_not_extract_status_from_an_unrelated_field():
     payload = {"success": True, "data": {}, "error": SCANNER_ERROR}
     assert decoded(CallToolResult(isError=False, structuredContent=payload, content=[])) == payload
+
+
+def test_text_json_limits_and_syntax_fail_as_malformed_envelopes():
+    def read(text):
+        return decoded(CallToolResult(content=[TextContent(type="text", text=text)]))
+
+    assert read('{"success":true,"data":7}')["data"] == 7
+    invalid = ["{"]
+    if limit := sys.get_int_max_str_digits():
+        invalid.append('{"success":true,"data":' + "9" * (limit + 1) + "}")
+    for text in invalid:
+        with pytest.raises(ProviderPayloadError) as caught:
+            read(text)
+        assert (caught.value.reason, caught.value.field) == ("malformed_envelope", None)
