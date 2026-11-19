@@ -605,7 +605,7 @@ plan/calendar-fixedと実受領時計を保つ。saved-inputは固定margin/cale
 <a id="edinet-list-native-l1"></a>
 ## EDINETの独立L1
 
-一覧→ZIP/scope→L2を分け、通常source/手動refresh/TOBはnativeへ原本を先に確定する。ZIP取得計画は固定一覧原本とsource scopeから直接作り、market DBやL2のschema/抽出成否を読み込まない。共通統合・モデル・publisherはplan/applied.jsonの同じ固定一覧/archive pairを使い、欠落を現在headや旧stageで埋めない。旧固定release readerと明示cold再構築は残す。
+一覧→ZIP/scope→L2を分け、通常source/手動refresh/TOBはnativeへ原本を先に確定する。通常のnative archive取得はmarket DBを読まず、固定一覧原本とsource scopeからZIP候補を決める。明示の `maintain-market refresh-edinet-metrics` は固定一覧をmarket SQLiteへ投影し、その一覧行からCSV ZIP候補を選ぶ。どちらも抽出済みmetricsに依存しない。共通統合・モデル・publisherはplan/applied.jsonの同じ固定一覧/archive pairを使い、欠落を現在headや旧stageで埋めない。旧固定release readerと明示cold再構築は残す。
 
 head欠落を空initializeで埋めない。原本のない隔離環境だけで新規取得を始める。以下は一覧とarchiveを同じ隔離bucketに作る例で、一覧CLIだけは環境変数でbucketを指定する。
 
