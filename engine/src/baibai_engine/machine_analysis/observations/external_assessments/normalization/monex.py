@@ -17,9 +17,13 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 
-from ..identity import monex_public_url as public_url
+from ..identity import monex_public_url
 
 PARSER_VERSION = "monex-theory-4"
+
+
+def public_url(ticker: str) -> str:
+    return monex_public_url(ticker)
 
 
 def identified_page(html: str, *, ticker: str, source_url: str) -> Element:
