@@ -107,6 +107,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "defusedxml" },
     { name = "duckdb" },
     { name = "httpx2" },
     { name = "jquants-api-client" },
@@ -171,6 +172,7 @@ typing = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.43.78" },
+    { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "duckdb", specifier = ">=1.5.5" },
     { name = "httpx2", specifier = ">=2.10.0" },
     { name = "jquants-api-client", specifier = ">=2.4.0" },

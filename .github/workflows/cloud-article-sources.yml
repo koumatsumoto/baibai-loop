@@ -17,6 +17,8 @@ permissions:
 
 jobs:
   acquire:
+    env:
+      UV_NO_DEV: "true"
     strategy:
       fail-fast: false
       matrix:
