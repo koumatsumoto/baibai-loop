@@ -10,25 +10,22 @@ def test_scheduled_slot_uses_actual_jst_day():
         datetime(2026, 9, 28, 12, tzinfo=UTC),
         event_name="schedule",
         schedule="37 6,8,10,12,14 * * 1-5",
-    ) == (date(2026, 9, 28), "post-close-2h", True, "")
+    ) == (date(2026, 9, 28), "post-close-2h")
 
 
-@pytest.mark.parametrize(
-    ("hour", "expected"),
-    [(0, True), (1, True), (7, True)],
-)
-def test_delayed_prior_day_firing_uses_current_day(hour, expected):
+@pytest.mark.parametrize("hour", [0, 1, 7])
+def test_delayed_prior_day_firing_uses_current_day(hour):
     assert resolve_tradingview_target(
         datetime(2026, 9, 29, hour, tzinfo=UTC),
         event_name="schedule",
         schedule="37 6,8,10,12,14 * * 1-5",
-    ) == (date(2026, 9, 29), "post-close-2h", expected, "")
+    ) == (date(2026, 9, 29), "post-close-2h")
 
 
 def test_manual_uses_current_day_and_defers_market_close_check_to_preflight():
     assert resolve_tradingview_target(
         datetime(2026, 9, 28, 6, 29, tzinfo=UTC), event_name="workflow_dispatch", schedule=""
-    ) == (date(2026, 9, 28), "manual", True, "")
+    ) == (date(2026, 9, 28), "manual")
 
 
 def test_explicit_manual_observation_uses_actual_weekend_date_before_close():
@@ -37,7 +34,7 @@ def test_explicit_manual_observation_uses_actual_weekend_date_before_close():
         event_name="workflow_dispatch",
         schedule="",
         manual_observation=True,
-    ) == (date(2026, 10, 11), "manual-observation", True, "")
+    ) == (date(2026, 10, 11), "manual-observation")
     with pytest.raises(ValueError, match="workflow_dispatch"):
         resolve_tradingview_target(
             datetime(2026, 10, 11, 1, tzinfo=UTC),
@@ -66,7 +63,7 @@ def test_weekend_candidate_slots_use_actual_day(hour):
         datetime(2026, 10, 11, hour, 37, tzinfo=UTC),
         event_name="schedule",
         schedule="37 0,4,8 * * 0,6",
-    ) == (date(2026, 10, 11), "rest-day-4h", True, "")
+    ) == (date(2026, 10, 11), "rest-day-4h")
 
 
 def test_before_nine_resumes_previous_cycle_without_backdating_receipt():
@@ -75,7 +72,7 @@ def test_before_nine_resumes_previous_cycle_without_backdating_receipt():
         event_name="workflow_dispatch",
         schedule="",
         manual_observation=True,
-    ) == (date(2026, 10, 10), "manual-observation", True, "")
+    ) == (date(2026, 10, 10), "manual-observation")
 
 
 @pytest.mark.parametrize(
@@ -89,7 +86,7 @@ def test_before_nine_resumes_previous_cycle_without_backdating_receipt():
 def test_late_weekday_slot_retains_unfinished_cycle(instant):
     assert resolve_tradingview_target(
         instant, event_name="schedule", schedule="37 6,8,10,12,14 * * 1-5"
-    ) == (date(2026, 11, 2), "post-close-2h", True, "")
+    ) == (date(2026, 11, 2), "post-close-2h")
 
 
 def test_next_nine_starts_next_cycle_even_if_old_job_wakes_late():
@@ -97,4 +94,4 @@ def test_next_nine_starts_next_cycle_even_if_old_job_wakes_late():
         datetime(2026, 11, 3, 0, 0, tzinfo=UTC),
         event_name="schedule",
         schedule="37 6,8,10,12,14 * * 1-5",
-    ) == (date(2026, 11, 3), "post-close-2h", True, "")
+    ) == (date(2026, 11, 3), "post-close-2h")

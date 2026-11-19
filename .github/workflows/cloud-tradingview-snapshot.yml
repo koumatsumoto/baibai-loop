@@ -61,7 +61,7 @@ jobs:
 
           now = datetime.now(UTC)
           master_asof = os.environ.get("OBSERVATION_MASTER_ASOF", "")
-          day, slot, eligible, reason = resolve_tradingview_target(
+          day, slot = resolve_tradingview_target(
               now, event_name=os.environ["EVENT_NAME"], schedule=os.environ.get("EVENT_SCHEDULE", ""),
               manual_observation=bool(master_asof),
           )
@@ -76,7 +76,8 @@ jobs:
               for key, value in {
                   "target_date": day.isoformat(), "slot": slot,
                   "master_asof": master_asof,
-                  "eligible": str(eligible).lower(), "reason": reason,
+                  # Keep the existing summary fields; preflight decides whether to fetch.
+                  "eligible": "true", "reason": "",
                   "actual_start_utc": now.isoformat(), "actual_start_jst": jst.isoformat(),
               }.items():
                   print(f"{key}={value}", file=output)
@@ -84,28 +85,23 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         id: setup
-        if: steps.target.outputs.eligible == 'true'
         with:
           python-version-file: .python-version
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         id: setup-uv
-        if: steps.target.outputs.eligible == 'true'
         with:
           enable-cache: true
       - name: Sync Python environment
         id: sync
-        if: steps.target.outputs.eligible == 'true'
         run: uv sync --locked
       - name: Read only TradingView scoped input
         id: pull
-        if: steps.target.outputs.eligible == 'true'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.integration.source_handoff input --source tradingview --directory "$RUNNER_TEMP/source-input"
       - name: Fix native master before resuming TradingView receipts
-        if: steps.target.outputs.eligible == 'true'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -114,7 +110,6 @@ jobs:
         run: uv run baibai-jobs master-dependency hydrate --asof "$TARGET_DATE" --directory "$RUNNER_TEMP/source-input"
       - name: Resume own ready receipts without full market hydration
         id: hydrate
-        if: steps.target.outputs.eligible == 'true'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -122,7 +117,6 @@ jobs:
         run: uv run python -m baibai_jobs.integration.source_handoff resume --source tradingview --asof "${{ steps.target.outputs.target_date }}" --directory "$RUNNER_TEMP/source-input"
       - name: Check exact-date snapshot
         id: preflight
-        if: steps.target.outputs.eligible == 'true'
         env:
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
           MASTER_ASOF: ${{ steps.target.outputs.master_asof }}
@@ -170,7 +164,6 @@ jobs:
         run: uv run python -m baibai_jobs.acquisition.tradingview.cooldown check --directory "$RUNNER_TEMP"
       - name: Record original receipt cutoff
         id: receipt-cutoff
-        if: steps.target.outputs.eligible == 'true'
         run: echo "since=$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >> "$GITHUB_OUTPUT"
       - name: Fetch exact-date J-Quants master
         id: master
