@@ -400,11 +400,15 @@ def test_initial_cards_keep_evidence_without_reading_candidate_details(
 @pytest.mark.parametrize("specified", [False, True])
 @pytest.mark.parametrize("scoped", [False, True])
 def test_explicit_candidate_and_non_candidate_details_keep_all_n_models(
-    tmp_path, specified, scoped
+    tmp_path, monkeypatch, specified, scoped
 ):
     runs = tmp_path / "runs"
     generation, _ = seed_economic_generation(runs, scoped=scoped)
     baseline = context(runs)
+    monkeypatch.setattr(
+        "baibai_engine.investment_judgment.workflow.generated_inputs.project_company_growth",
+        lambda *a, **kw: pytest.fail("明示した会社の完全な成長履歴に表示用の表は不要"),
+    )
     request = (
         ResearchRequest(
             text="指定を調査する", scope="specified_stocks", requested_tickers=("9999",)

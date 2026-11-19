@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Set
 from copy import deepcopy
 from datetime import date
 from typing import cast
@@ -17,6 +18,7 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
     project_company_growth,
 )
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
+from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
 
@@ -128,6 +130,7 @@ def project_generated_inputs(
     saved: ModelInputSlice,
     *,
     company_growth_periods: int | None = 12,
+    full_growth_tickers: Set[str] = frozenset(),
     proposal_view: bool = False,
 ) -> dict[str, JsonValue]:
     """モデル固有の意味を維持し、未生成と生成内の欠測を区別して提示する。"""
@@ -167,10 +170,15 @@ def project_generated_inputs(
                 }
                 payload["full_result_ref"] = f"/inputs/generation/models/{index}/payload"
             elif scope == "stock" and model.model_id == "company_growth":
-                payload = project_company_growth(
-                    model.payload, ticker=ticker, periods=company_growth_periods
-                )
-                payload["full_result_ref"] = f"/inputs/generation/models/{index}/payload"
+                if ticker in full_growth_tickers:
+                    # 検証後に再シリアライズすると、旧保存の未収録欄や整数表現を変えてしまう。
+                    CompanyGrowth.model_validate(model.payload)
+                    payload = deepcopy(model.payload)
+                else:
+                    payload = project_company_growth(
+                        model.payload, ticker=ticker, periods=company_growth_periods
+                    )
+                    payload["full_result_ref"] = f"/inputs/generation/models/{index}/payload"
             elif model.model_id == "market_context":
                 payload = _project_market_context(
                     model.payload, full_result_ref=f"/inputs/generation/models/{index}/payload"
