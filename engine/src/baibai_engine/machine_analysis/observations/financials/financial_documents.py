@@ -418,8 +418,21 @@ def project_financial_documents(
                 use_nc = has_nc and (target_basis == "nonconsolidated" or not has_primary)
                 keys = nc_keys if use_nc else primary_keys
                 source_basis = "nonconsolidated" if use_nc else source_basis
+                # Unlike a standalone statement, an earnings revision's primary
+                # fields explicitly describe the consolidated forecast.
+                consolidated_revision = (
+                    row.document_type == "EarnForecastRevision" and has_primary and not use_nc
+                )
+                if consolidated_revision and target_basis in {"consolidated", "nonconsolidated"}:
+                    source_basis = "consolidated"
                 if source_basis != target_basis or target_basis == "basis_unresolved":
-                    earnings_status = "basis_mismatch"
+                    # A change to consolidated guidance cannot confirm (or revive)
+                    # an earlier standalone forecast. Keep the latest disclosure.
+                    earnings_status = (
+                        "unresolved"
+                        if consolidated_revision and target_basis == "nonconsolidated"
+                        else "basis_mismatch"
+                    )
                 else:
                     scope_conflict = _ambiguous_short_period_revision(
                         record, keys, slot=selected_slot

@@ -1073,6 +1073,92 @@ def _scope_forecast_statement(basis: str = "Consolidated") -> dict[str, Any]:
     )
 
 
+@pytest.mark.parametrize("slot", ["current", "next"])
+def test_consolidated_revision_cannot_replace_or_revive_standalone_guidance(slot):
+    previous, revision = _next_year_earnings_records(
+        "NonConsolidated", NxFEPS="30", NxFNp="150", NxFOdP="140"
+    )
+    if slot == "current":
+        revision = document("revision", FEPS="30", FNP="150", FOdP="140")
+    baseline = snapshot(decode([previous]))
+    assert baseline.forecast_eps_yen == 20  # A standalone statement uses its primary fields.
+    for records in ([previous, revision], [revision, previous]):
+        result = snapshot(decode(records))
+        source = result.earnings_forecast_source
+        assert (source["status"], source["basis"], source["target_basis"]) == (
+            "unresolved",
+            "consolidated",
+            "nonconsolidated",
+        )
+        assert source["disclosure_number"] == revision["DiscNo"]
+        assert (source["period_start"], source["period_end"]) == ("2026-07-01", "2027-06-30")
+        assert (
+            result.forecast_eps_yen,
+            result.forecast_profit_yen,
+            result.forecast_ordinary_profit_yen,
+            result.per_forward,
+        ) == (None,) * 4
+        assert result.market_cap == baseline.market_cap == 107400
+        assert result.dps_forecast_annual == baseline.dps_forecast_annual == 7
+
+
+@pytest.mark.parametrize(
+    ("basis", "expected"),
+    [("NonConsolidated", (23, 0, None)), ("Consolidated", (30, 150, 140))],
+)
+def test_revision_with_both_scopes_reads_only_the_matching_column(basis, expected):
+    rows = [
+        _scope_forecast_statement(basis),
+        document("two-scopes", FEPS="30", FNP="150", FOdP="140", FNCEPS="23", FNCNP="0"),
+    ]
+    result = snapshot(decode(rows))
+    assert (
+        result.forecast_eps_yen,
+        result.forecast_profit_yen,
+        result.forecast_ordinary_profit_yen,
+    ) == expected
+    assert result.earnings_forecast_source["disclosure_number"] == "two-scopes"
+    assert result.earnings_forecast_source["basis"] == basis.lower()
+
+
+def test_explicit_consolidated_forecast_remains_when_reporting_scope_catches_up():
+    statement = _scope_forecast_statement("NonConsolidated")
+    revision = document("consolidated-revision", FEPS="30", FNP="150")
+    first_consolidated = document(
+        "new-actuals",
+        day="2026-10-01",
+        DocType="1QFinancialStatements_Consolidated_JP",
+        CurPerType="1Q",
+        CurPerEn="2026-09-30",
+        EPS="6",
+        NP="32",
+    )
+    result = snapshot(decode([statement, revision, first_consolidated]))
+    assert (result.forecast_eps_yen, result.forecast_profit_yen, result.per_forward) == (
+        30,
+        150,
+        1074 / 30,
+    )
+    source = result.earnings_forecast_source
+    assert (source["status"], source["basis"], source["target_basis"]) == (
+        "confirmed",
+        "consolidated",
+        "consolidated",
+    )
+    assert source["disclosure_number"] == "consolidated-revision"
+
+
+def test_separate_simultaneous_standalone_revision_is_not_poisoned_by_consolidated_values():
+    statement = _scope_forecast_statement("NonConsolidated")
+    consolidated = document("consolidated-only", FEPS="30", FNP="150")
+    standalone = document("standalone-only", FNCEPS="23", FNCNP="115")
+    for pair in ([consolidated, standalone], [standalone, consolidated]):
+        result = snapshot(decode([statement, *pair]))
+        assert (result.forecast_eps_yen, result.forecast_profit_yen) == (23, 115)
+        assert result.earnings_forecast_source["forecast_eps_source_records"] == "standalone-only"
+        assert result.earnings_forecast_source["status"] == "confirmed"
+
+
 @pytest.mark.parametrize(("period", "end"), [("1Q", "2026-09-30"), ("3Q", "2027-03-31")])
 @pytest.mark.parametrize(("basis", "prefix"), [("Consolidated", "F"), ("NonConsolidated", "FNC")])
 def test_short_revision_does_not_claim_annual_values(period, end, basis, prefix):
@@ -1330,7 +1416,7 @@ def test_short_fiscal_year_uses_current_statement_basis(new_basis, late_old_corr
                 CurFYEn="2027-12-31",
                 CurPerSt="2027-01-01",
                 CurPerEn="2027-12-31",
-                FEPS="25",
+                **{"FNCEPS" if new_basis == "NonConsolidated" else "FEPS": "25"},
             )
         )
     for ordered in (records, list(reversed(records))):
