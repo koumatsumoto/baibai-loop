@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -111,20 +111,6 @@ class FakeSession:
         if isinstance(answer, BaseException):
             raise answer
         return answer
-
-
-def always(answer: FakeResponse | BaseException) -> FakeSession:
-    """A session that answers every request the same way."""
-
-    return FakeSession(default=answer)
-
-
-def by_url(answers: Mapping[str, FakeResponse | BaseException]) -> FakeSession:
-    return FakeSession(by_url=answers)
-
-
-def sequence(answers: Iterable[FakeResponse | BaseException]) -> FakeSession:
-    return FakeSession(*answers)
 
 
 class ExplodingSession:
