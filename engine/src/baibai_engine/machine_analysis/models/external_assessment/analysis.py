@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from baibai_engine.machine_analysis.models.external_assessment.models import (
+    MONEX_DAY_PAIR_METHOD_VERSION,
     MONEX_FISCAL_METHOD_VERSION,
     ExternalAssessment,
     MetricComparison,
@@ -23,6 +24,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QUANTS_METRICS,
     VALUATION_METRICS,
+    ModelValuationObservation,
     MonexEPSReceipt,
     Observation,
     utc_datetime,
@@ -108,6 +110,7 @@ def analyze(
     evaluated_at, cutoff = utc_datetime(evaluated_at), utc_datetime(history.cutoff)
     if cutoff > evaluated_at:
         raise ValueError("analysis cutoff cannot be later than evaluation time")
+    window = history.monex_generation_window
     all_series: tuple[
         ModelValuationHistory | QuantsScoreHistory | TradingViewHistory,
         ...,
@@ -122,6 +125,15 @@ def analyze(
                 row.ticker != history.ticker or utc_datetime(row.fetched_at_utc) > cutoff
             ):
                 raise ValueError("analysis input outside ticker/cutoff")
+            if (
+                window is not None
+                and isinstance(row, ModelValuationObservation)
+                and row.distributor == "monex"
+                and (
+                    row.snapshot_date > window.as_of or row.fetched_at_utc > window.received_through
+                )
+            ):
+                raise ValueError("Monex price is outside the generation receipt window")
         if series.previous is not None and (
             series.latest is None or series.previous.fetched_at_utc >= series.latest.fetched_at_utc
         ):
@@ -213,13 +225,16 @@ def analyze(
         if forecast_fields
         else "all_null"
     )
+    method = (
+        MONEX_FISCAL_METHOD_VERSION if monex_fiscal_eps else "same-series-v8-tradingview-receipts"
+    )
+    if window is not None:
+        method = MONEX_DAY_PAIR_METHOD_VERSION
     return ExternalAssessment(
         ticker=history.ticker,
         cutoff=cutoff,
         evaluated_at=evaluated_at,
-        method_version="same-series-v8-tradingview-receipts"
-        if monex_fiscal_eps is None
-        else MONEX_FISCAL_METHOD_VERSION,
+        method_version=method,
         monex_fiscal_eps=monex_fiscal_eps,
         model_valuations=tuple(models),
         analyst_ratings=(),

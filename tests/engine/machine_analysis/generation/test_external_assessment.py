@@ -15,7 +15,16 @@ from baibai_engine.cli.external_assessment import main
 from baibai_engine.machine_analysis.generation.runners.external_assessment import (
     external_assessment,
 )
-from baibai_engine.machine_analysis.models.external_assessment.analysis import FORECAST_METRICS
+from baibai_engine.machine_analysis.models.external_assessment.analysis import (
+    FORECAST_METRICS,
+    analyze,
+)
+from baibai_engine.machine_analysis.models.external_assessment.models import (
+    MONEX_DAY_PAIR_METHOD_VERSION,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
+    MonexGenerationWindow,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QuantsScoreObservation,
 )
@@ -462,3 +471,91 @@ def test_tradingview_history_only_decodes_latest_two_rows_per_ticker(tmp_path, m
         assert history.tradingview.latest.eps_forecast_next_fy == 10
         assert history.tradingview.previous.eps_forecast_next_fy == 9
     assert len(validated) == 4
+
+
+@pytest.mark.parametrize("same_day_previous", [False, True])
+def test_only_generation_monex_ranks_within_the_jst_day_even_with_two_later_receipts(
+    tmp_path, same_day_previous
+):
+    path = tmp_path / "market.sqlite"
+    # A and both later receipts have the *same UTC date*. D+1 midnight is ineligible.
+    boundary = datetime.fromisoformat("2026-05-08T00:00:00+09:00")
+    as_of = (boundary - timedelta(days=1)).date()
+    a = boundary - timedelta(microseconds=1)
+    p = a - timedelta(hours=8) if same_day_previous else a - timedelta(days=1)
+    b = boundary + timedelta(minutes=5)
+    cutoff = b + timedelta(seconds=7)
+    prior = valuation(p, consensus_target=100)
+    last = valuation(a, consensus_target=120)
+    mono = [prior, last, valuation(boundary, consensus_target=180), valuation(b)]
+    other = [
+        valuation(x.fetched_at_utc + timedelta(microseconds=3), distributor="other") for x in mono
+    ]
+    only_later = [valuation(b, ticker="8888")]
+    save_observations(path, [*mono, *other, *only_later])
+    tv_row(path, a, price_target_average=800)
+    tv_row(path, b, price_target_average=900)
+    window = MonexGenerationWindow(as_of=as_of, received_through=cutoff)
+    histories = read_observation_population(
+        path, tickers=("1234", "8888"), cutoff=cutoff, monex_window=window
+    )
+    daily = analyze(histories["1234"], evaluated_at=cutoff)
+    assert daily.method_version == MONEX_DAY_PAIR_METHOD_VERSION
+    assert daily.cutoff == daily.evaluated_at == cutoff
+    assert histories["8888"].model_valuations == ()
+    assert daily.monex_fiscal_eps is None
+    single = read(path, cutoff)
+    by_source = {x.inputs.latest.distributor: x for x in daily.model_valuations}
+    legacy = {x.inputs.latest.distributor: x for x in single.model_valuations}
+    assert by_source["other"] == legacy["other"]
+    assert daily.tradingview == single.tradingview
+    assert daily.tradingview.inputs.latest.fetched_at_utc == b
+    assert (by_source["monex"].inputs.latest, by_source["monex"].inputs.previous) == (last, prior)
+    assert by_source["monex"].comparisons[0].delta == 20
+    assert {
+        r.fetched_at_utc
+        for g in daily.origin_groups
+        for r in g.references
+        if r.distributor == "monex"
+    } == {a}
+    assert legacy["monex"].inputs.latest == mono[-1]
+    assert legacy["monex"].inputs.previous == mono[-2]
+    assert single.method_version == "same-series-v8-tradingview-receipts"
+
+
+@pytest.mark.parametrize("seal_first", [False, True])
+def test_received_cutoff_is_inclusive_to_the_microsecond_and_keeps_nulls(tmp_path, seal_first):
+    path = tmp_path / "market.sqlite"
+    at = datetime.fromisoformat("2026-05-07T16:30:12.432101+09:00")
+    before, after = at - timedelta(microseconds=1), at + timedelta(microseconds=1)
+    seal, evaluation = (at, after) if seal_first else (after, at)
+    rows = [valuation(before), valuation(at, consensus_target=None), valuation(after)]
+    save_observations(path, rows)
+    window = MonexGenerationWindow(as_of=at.date(), received_through=min(seal, evaluation))
+    history = read_observation_population(
+        path, tickers=("1234",), cutoff=evaluation, monex_window=window
+    )["1234"]
+    result = analyze(history, evaluated_at=evaluation)
+    assert (
+        result.model_valuations[0].inputs.latest,
+        result.model_valuations[0].inputs.previous,
+    ) == (rows[1], rows[0])
+    assert result.model_valuations[0].comparisons[0].state == "missing"
+    assert result.cutoff == result.evaluated_at == evaluation
+    assert result.method_version == MONEX_DAY_PAIR_METHOD_VERSION
+
+
+@pytest.mark.parametrize("bound", ["day", "clock"])
+def test_unfiltered_history_cannot_be_relabeled_as_the_new_daily_method(tmp_path, bound):
+    path = tmp_path / "market.sqlite"
+    row = valuation()
+    save_observations(path, [row])
+    history = read_observations(path, row.ticker, RECEIVED)
+    window = MonexGenerationWindow(
+        as_of=row.snapshot_date - timedelta(days=int(bound == "day")),
+        received_through=RECEIVED - timedelta(microseconds=int(bound == "clock")),
+    )
+    with pytest.raises(ValueError, match="outside the generation receipt window"):
+        analyze(
+            history.model_copy(update={"monex_generation_window": window}), evaluated_at=RECEIVED
+        )

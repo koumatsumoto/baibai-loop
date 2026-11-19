@@ -8,13 +8,27 @@ from unittest.mock import patch
 import pytest
 from tests.helpers.external_assessment_html import monex_eps_section, monex_html
 from tests.helpers.external_assessment_responses import response
+from tests.helpers.model_generation import generation, publish_generation
 
 from baibai_engine.data_collection.receipts.public_pages.receipts import insert_response
+from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.machine_analysis.generation.query import read_generation
+from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
+from baibai_engine.machine_analysis.models.external_assessment.models import ExternalAssessment
 from baibai_engine.machine_analysis.observations.external_assessments import monex_generation
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
+    MonexGenerationWindow,
+    latest_monex,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
     decode_attempt,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+    read_observation_population,
+    read_observations,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 NOW = datetime(2026, 5, 7, 15, 0, 0, 384, tzinfo=UTC)
@@ -117,3 +131,102 @@ def test_foreign_old_absent_or_out_of_cutoff_is_not_bound_to_a_model(tmp_path, d
             as_of=NOW.date() if difference == "day" else price.snapshot_date,
         )
     assert result == {}
+
+
+@pytest.mark.parametrize("fault", ["no_original", "no_table", "ambiguous", "bad_gzip"])
+def test_eligible_price_survives_missing_eps_without_borrowing_either_neighbors_original(
+    tmp_path, fault
+):
+    db = tmp_path / "market.sqlite"
+    a = NOW - timedelta(minutes=5)  # before JST midnight
+    past = receipt("7203", at=a - timedelta(days=1))
+    target = receipt("7203", at=a, extra="" if fault == "no_table" else None)
+    future = receipt("7203", at=NOW)
+    save_observations(db, [decode_attempt((x,)) for x in (past, target, future)])
+    with closing(open_connection(db)) as conn, conn:
+        for x in (past, future):
+            insert_response(conn, x)
+        if fault != "no_original":
+            insert_response(conn, target)
+        if fault == "ambiguous":
+            insert_response(conn, receipt("7203", at=a))
+        if fault == "bad_gzip":
+            conn.execute(
+                "UPDATE equity_web_source_responses SET body_gzip=x'00' WHERE receipt_id=?",
+                (target.receipt_id,),
+            )
+    day = decode_attempt((target,)).snapshot_date
+    window = MonexGenerationWindow(as_of=day, received_through=NOW)
+    history = read_observation_population(db, tickers=("7203",), cutoff=NOW, monex_window=window)[
+        "7203"
+    ]
+    anchor = latest_monex(history.model_valuations)
+    assert anchor == decode_attempt((target,))
+    with (
+        closing(open_connection(db)) as conn,
+        patch.object(
+            monex_generation, "read_responses", wraps=monex_generation.read_responses
+        ) as read,
+    ):
+        eps = monex_generation.read_generation_monex_eps(
+            conn, latest={"7203": anchor}, cutoff=NOW, as_of=day
+        )
+    assert [call.args[1] for call in read.call_args_list] == (
+        [(target.receipt_id,)] if fault in {"bad_gzip", "no_table"} else []
+    )
+    assert eps == {}
+    model = analyze(history, evaluated_at=NOW)
+    assert model.method_version == "same-series-v10-monex-asof-pair"
+    assert "monex_fiscal_eps" not in model.model_dump()
+    assert model.model_valuations[0].inputs.previous == decode_attempt((past,))
+
+
+def test_v8_v9_and_new_method_remain_distinct_immutable_ledger_payloads(tmp_path):
+    db, ledger = tmp_path / "market.sqlite", tmp_path / "runs.sqlite"
+    r = receipt("7203")
+    price = decode_attempt((r,))
+    save_observations(db, [price])
+    with closing(open_connection(db)) as conn, conn:
+        insert_response(conn, r)
+        eps = monex_generation.read_generation_monex_eps(
+            conn, latest={"7203": price}, cutoff=NOW, as_of=price.snapshot_date
+        )["7203"]
+    legacy = read_observations(db, "7203", NOW)
+    daily = read_observation_population(
+        db,
+        tickers=("7203",),
+        cutoff=NOW,
+        monex_window=MonexGenerationWindow(as_of=price.snapshot_date, received_through=NOW),
+    )["7203"]
+    models = [
+        ("same-series-v8-tradingview-receipts", analyze(legacy, evaluated_at=NOW)),
+        (
+            "same-series-v9-monex-fiscal-eps",
+            analyze(legacy, evaluated_at=NOW, monex_fiscal_eps=eps),
+        ),
+        ("same-series-v10-monex-asof-pair", analyze(daily, evaluated_at=NOW, monex_fiscal_eps=eps)),
+    ]
+    for version, result in models:
+        assert result.method_version == version
+        model = GeneratedModel(
+            model_id="external_assessment",
+            subject="7203",
+            calculation_revision=version,
+            payload=result.model_dump(mode="json"),
+        )
+        payload = generation().model_copy(
+            update={
+                "generation_id": version,
+                "models": (model,),
+                "as_of": price.snapshot_date,
+                "evaluation_time": NOW,
+            }
+        )
+        assert publish_generation(payload, path=ledger)
+    db.rename(tmp_path / "unused.sqlite")
+    for version, result in models:
+        stored = read_generation(version, path=ledger).result("external_assessment", "7203")
+        assert stored.calculation_revision == stored.payload["method_version"] == version
+        assert stored.payload == result.model_dump(mode="json")
+        assert ExternalAssessment.model_validate(stored.payload) == result
+    assert "monex_fiscal_eps" not in models[0][1].model_dump(mode="json")

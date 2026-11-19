@@ -93,8 +93,8 @@ def test_both_datasets_read_one_snapshot_despite_an_interleaved_wal_commit(tmp_p
     latest_rows = reader._latest_rows
     writes = []
 
-    def read_then_commit(conn, table, columns, ticker, cutoff):
-        rows = latest_rows(conn, table, columns, ticker, cutoff)
+    def read_then_commit(conn, table, columns, ticker, cutoff, **kwargs):
+        rows = latest_rows(conn, table, columns, ticker, cutoff, **kwargs)
         if table == MODEL_VALUATION_TABLE and not writes:
             # Commit a complete new pair between the two reads, without threads.
             writes.append(save_observations(db, [next_valuation, next_rating]))

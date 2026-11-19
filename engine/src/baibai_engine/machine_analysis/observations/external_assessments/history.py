@@ -83,9 +83,19 @@ class AnalystForecastHistory(FrozenModel):
     previous: AnalystForecastObservation | None = None
 
 
+class MonexGenerationWindow(FrozenModel):
+    """Monex receipts must meet both the JST model day and the real input clock."""
+
+    as_of: date
+    received_through: AwareDatetime
+
+
 class ObservationHistory(FrozenModel):
     ticker: str
     cutoff: datetime
+    monex_generation_window: MonexGenerationWindow | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     model_valuations: tuple[ModelValuationHistory, ...] = ()
     analyst_ratings: tuple[AnalystRatingHistory, ...] = ()
     quants_scores: tuple[QuantsScoreHistory, ...] = ()

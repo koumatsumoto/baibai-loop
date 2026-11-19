@@ -23,6 +23,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
     AnalystForecastHistory,
     AnalystRatingHistory,
     ModelValuationHistory,
+    MonexGenerationWindow,
     ObservationHistory,
     QuantsScoreHistory,
     TradingViewHistory,
@@ -52,6 +53,8 @@ def _latest_rows(
     columns: tuple[Column, ...],
     ticker: str | None,
     cutoff: datetime,
+    *,
+    monex_window: MonexGenerationWindow | None = None,
 ) -> list[sqlite3.Row]:
     if (
         conn.execute(
@@ -61,14 +64,24 @@ def _latest_rows(
     ):
         return []
     names = ",".join(column[0] for column in columns)
-    # Identifiers come only from the two leaf contracts; caller values are bound.
+    # Restrict only Monex valuation rows, *before* ranking. The two newest receipts
+    # can both be from after midnight; filtering the chosen pair would lose the last eligible row.
+    bound = ""
+    params: tuple[str | None, ...] = (ticker, ticker, cutoff.isoformat(timespec="microseconds"))
+    if monex_window is not None:
+        bound = " AND (distributor<>'monex' OR (snapshot_date<=? AND fetched_at_utc<=?))"
+        params += (
+            monex_window.as_of.isoformat(),
+            utc_datetime(monex_window.received_through).isoformat(timespec="microseconds"),
+        )
+    # Identifiers and the optional predicate are internal constants; values are bound.
     return conn.execute(
         f"SELECT {names} FROM (SELECT {names}, "  # nosec B608
         "row_number() OVER (PARTITION BY ticker, distributor ORDER BY fetched_at_utc DESC) "
         "AS receive_rank "
-        f"FROM {table} WHERE (? IS NULL OR ticker=?) AND fetched_at_utc<=?) "
+        f"FROM {table} WHERE (? IS NULL OR ticker=?) AND fetched_at_utc<=?{bound}) "
         "WHERE receive_rank<=2 ORDER BY distributor, fetched_at_utc DESC",
-        (ticker, ticker, cutoff.isoformat(timespec="microseconds")),
+        params,
     ).fetchall()
 
 
@@ -132,12 +145,18 @@ def read_observation_population(
     cutoff: datetime,
     include_tradingview: bool = True,
     include_retired: bool = True,
+    monex_window: MonexGenerationWindow | None = None,
 ) -> dict[str, ObservationHistory]:
     """履歴読取は旧sourceも保持し、新規生成は廃止sourceをquery/decodeしない。"""
     requested = sorted({normalize_ticker(ticker) for ticker in tickers})
     cutoff = utc_datetime(cutoff)
     if not requested or not sqlite_path.exists():
-        return {ticker: ObservationHistory(ticker=ticker, cutoff=cutoff) for ticker in requested}
+        return {
+            ticker: ObservationHistory(
+                ticker=ticker, cutoff=cutoff, monex_generation_window=monex_window
+            )
+            for ticker in requested
+        }
     selected = set(requested)
     ticker = requested[0] if len(requested) == 1 else None
     conn = connect_read_only(sqlite_path)
@@ -146,7 +165,12 @@ def read_observation_population(
         valuation = [
             ModelValuationObservation.model_validate(dict(row))
             for row in _latest_rows(
-                conn, MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS, ticker, cutoff
+                conn,
+                MODEL_VALUATION_TABLE,
+                MODEL_VALUATION_COLUMNS,
+                ticker,
+                cutoff,
+                monex_window=monex_window,
             )
             if row["ticker"] in selected
         ]
@@ -197,6 +221,7 @@ def read_observation_population(
         code: _history(
             code,
             cutoff,
+            monex_window=monex_window,
             valuation=valuations.get(code, []),
             rating=ratings.get(code, []),
             quants=quant_groups.get(code, []),
@@ -222,6 +247,7 @@ def _history(
     ticker: str,
     cutoff: datetime,
     *,
+    monex_window: MonexGenerationWindow | None,
     valuation: list[ModelValuationObservation],
     rating: list[AnalystRatingObservation],
     quants: list[QuantsScoreObservation],
@@ -229,6 +255,7 @@ def _history(
     tradingview: list[TradingViewObservation],
 ) -> ObservationHistory:
     return ObservationHistory(
+        monex_generation_window=monex_window,
         ticker=ticker,
         cutoff=cutoff,
         model_valuations=tuple(

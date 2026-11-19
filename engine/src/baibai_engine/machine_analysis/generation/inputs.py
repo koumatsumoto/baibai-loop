@@ -37,7 +37,10 @@ from baibai_engine.machine_analysis.models.technical_analysis.price_path import 
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     ObservedFilingHistory,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.history import latest_monex
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
+    MonexGenerationWindow,
+    latest_monex,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.monex_generation import (
     read_generation_monex_eps,
 )
@@ -319,12 +322,16 @@ def read_and_generate_models(
                 turnover=turnover,
                 calendar=path_calendar,
             )
+    monex_window = MonexGenerationWindow(
+        as_of=as_of, received_through=min(evaluation_time, market_snapshot.sealed_at)
+    )
     histories = read_observation_population(
         path,
         tickers=subjects,
         cutoff=evaluation_time,
         include_tradingview=True,
         include_retired=False,
+        monex_window=monex_window,
     )
     latest = {
         ticker: price_anchor
@@ -338,8 +345,8 @@ def read_and_generate_models(
         fiscal_eps = read_generation_monex_eps(
             connection,
             latest=latest,
-            cutoff=min(evaluation_time, market_snapshot.sealed_at),
-            as_of=as_of,
+            cutoff=monex_window.received_through,
+            as_of=monex_window.as_of,
         )
     trends = read_trend_inputs(
         path,
