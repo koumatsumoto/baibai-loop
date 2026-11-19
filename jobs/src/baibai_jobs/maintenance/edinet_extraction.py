@@ -9,7 +9,7 @@ import sys
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Protocol, TextIO
+from typing import Protocol, TextIO, cast
 
 from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.data_collection.providers.edinet.archive_plan import select_metric_archives
@@ -78,7 +78,12 @@ def refresh_edinet_metrics_command(
         )
         for doc_id in candidates:
             acquisition.download_csv_zip(doc_id)
-        _require_metric_document_window(sqlite_path, asof=asof_date, lookback_days=lookback_days)
+        _require_metric_document_window(
+            sqlite_path,
+            asof=asof_date,
+            lookback_days=lookback_days,
+            failed_days=set(cast("list[str]", result["failed_days"])),
+        )
     except (
         EdinetAcquisitionError,
         EDINETProviderError,
@@ -188,7 +193,9 @@ def metric_archive_candidates(
     return select_metric_archives(documents, origin_start=start)
 
 
-def _require_metric_document_window(database: Path, *, asof: date, lookback_days: int) -> None:
+def _require_metric_document_window(
+    database: Path, *, asof: date, lookback_days: int, failed_days: set[str]
+) -> None:
     """Incomplete lists defer L2 without preventing receipt of known originals."""
     with closing(connect_read_only(database)) as connection:
         connection.execute("BEGIN")
@@ -196,4 +203,7 @@ def _require_metric_document_window(database: Path, *, asof: date, lookback_days
         while day <= asof:
             if not date_covered(connection, "edinet_documents", day):
                 raise EDINETProviderError("stored EDINET document list is unavailable")
+            # A usable earlier list can supply known ZIPs but cannot clear a failed recheck.
+            if day.isoformat() in failed_days:
+                raise EDINETProviderError(f"latest stored EDINET document list failed: {day}")
             day += timedelta(days=1)
