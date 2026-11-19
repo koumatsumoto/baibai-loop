@@ -126,7 +126,7 @@ def _project_economic_paths(
         for variant, observation in {"quarter": quarter, **annual_observations}.items()
     }
     # A historical FY cannot restore positive earning power after observed newer weakness.
-    full_fy_income_adverse = any(
+    full_fy_income_adverse = use_full_fy and any(
         value is not None and value <= 0
         for metric in _INCOME_METRICS
         for value in (
