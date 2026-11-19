@@ -172,38 +172,24 @@ class OptionIvReadingsTest(unittest.TestCase):
         assert skewed.iv_skew is not None
         self.assertAlmostEqual(skewed.iv_skew - clean.iv_skew, 4.0, places=9)
 
-    def test_sides_that_disagree_beyond_the_bound_withhold_the_differences(self) -> None:
-        # Above the operational bound the differences are withheld. The level is
-        # retained; only this symmetric fixture guarantees cancellation.
-        ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
-
-        readings = option_iv_readings(
-            [
-                *_chain(NEAR, ladder=ladder, basis_gap=25.0),
-                *_chain(FAR, ladder=ladder, basis_gap=25.0),
-            ],
-            ASOF,
-        )
-
-        self.assertIsNone(readings.iv_skew)
-        self.assertIsNone(readings.iv_term)
-        self.assertIsNotNone(readings.iv_30d)
-
-    def test_a_gap_inside_the_bound_leaves_the_readings_alone(self) -> None:
-        # This fixture falls inside the chosen tolerance and keeps the difference
-        # readings available. Availability does not prove the numbers are unchanged.
-        ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
-
-        readings = option_iv_readings(
-            [
-                *_chain(NEAR, ladder=ladder, basis_gap=11.0),
-                *_chain(FAR, ladder=ladder, basis_gap=11.0),
-            ],
-            ASOF,
-        )
-
-        self.assertIsNotNone(readings.iv_skew)
-        self.assertIsNotNone(readings.iv_term)
+    def test_basis_gap_withholds_only_the_differences_outside_either_bound(self) -> None:
+        # Opposite quote offsets cancel in this fixture, not necessarily in real chains.
+        # The 16/44-day expiries give the 20/24 ATM vols equal variance weights.
+        level = ((20.0**2 + 24.0**2) / 2) ** 0.5
+        for magnitude, admitted in ((11.0, True), (12.0, True), (12.5, False), (25.0, False)):
+            for gap in (-magnitude, magnitude):
+                with self.subTest(gap=gap):
+                    readings = option_iv_readings(
+                        [*_chain(NEAR, basis_gap=gap), *_chain(FAR, level=4.0, basis_gap=gap)], ASOF
+                    )
+                    self.assertEqual(
+                        readings,
+                        OptionIvReadings(
+                            iv_30d=level,
+                            iv_skew=10.0 if admitted else None,
+                            iv_term=4.0 if admitted else None,
+                        ),
+                    )
 
     def test_the_basis_check_reads_the_strikes_around_the_money_not_only_the_money(self) -> None:
         # A source can agree at one strike and disagree either side of it, so a check
@@ -489,23 +475,6 @@ class OptionIvReadingsTest(unittest.TestCase):
         readings = option_iv_readings([*slipped, *_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings, clean)
-
-    def test_the_basis_bound_admits_the_gap_it_names_and_refuses_the_next_one(self) -> None:
-        # Fix the inclusive operational threshold, not a guarantee about future
-        # source behaviour or the accuracy of an admitted observation.
-        ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
-
-        def readings_at(gap: float) -> OptionIvReadings:
-            return option_iv_readings(
-                [
-                    *_chain(NEAR, ladder=ladder, basis_gap=gap),
-                    *_chain(FAR, ladder=ladder, basis_gap=gap),
-                ],
-                ASOF,
-            )
-
-        self.assertIsNotNone(readings_at(12.0).iv_skew)
-        self.assertIsNone(readings_at(12.5).iv_skew)
 
     def test_the_basis_check_reads_the_edges_of_its_band(self) -> None:
         # The band is a fraction of the underlying, so where it sits and whether its
