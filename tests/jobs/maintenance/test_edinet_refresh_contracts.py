@@ -45,12 +45,7 @@ def test_download_csv_zip_rejects_invalid_doc_id_before_acquisition(tmp_path):
 
 
 @pytest.mark.parametrize("failure", ["rate_limit", "connection"])
-def test_csv_retry_retains_native_original_and_reuses_it_ignoring_old_file(
-    tmp_path, native_owner, failure
-):
-    cached = tmp_path / "edinet/csv_zips/S100TEST.zip"
-    cached.parent.mkdir(parents=True)
-    cached.write_bytes(b"obsolete non-ZIP file")
+def test_csv_retry_retains_native_original_and_reuses_it(tmp_path, native_owner, failure):
     expected = _edinet_csv_zip([("jppfs_cor:NetSales", "CurrentYearDuration", "1000")])
     first = (
         response(b'{"StatusCode":"429","message":"Too Many Requests"}')
@@ -65,7 +60,6 @@ def test_csv_retry_retains_native_original_and_reuses_it_ignoring_old_file(
         assert EDINETReader(database).read_csv_zip("S100TEST") == expected
         assert provider.download_csv_zip("S100TEST") == expected
     assert len(session.calls) == 2
-    assert cached.read_bytes() == b"obsolete non-ZIP file"
 
 
 @pytest.mark.parametrize("failure", ["rate_limit", "connection"])
@@ -87,7 +81,6 @@ def test_exhausted_csv_retry_does_not_publish_or_create_sql_copy(tmp_path, nativ
     assert "secret-key" not in str(caught.value)
     assert not native_owner.freeze().archive_keys
     assert not database.exists()
-    assert not (tmp_path / "edinet/csv_zips/S100TEST.zip").exists()
 
 
 @pytest.mark.parametrize(

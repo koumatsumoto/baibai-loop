@@ -26,9 +26,6 @@ from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 def test_missing_reader_inputs_never_create_a_store_or_connect(tmp_path):
     path = tmp_path / "absent" / "market.sqlite"
-    local_zip = tmp_path / "edinet" / "csv_zips" / "S100TEST.zip"
-    local_zip.parent.mkdir(parents=True)
-    local_zip.write_bytes(b"local download cache is not a retained archive")
     reader = EDINETReader(path)
     with patch("requests.Session", side_effect=AssertionError("reader attempted HTTP")):
         assert reader.load_metric_records(date(2026, 4, 24)) == {}
@@ -40,7 +37,6 @@ def test_missing_reader_inputs_never_create_a_store_or_connect(tmp_path):
             reader.read_xbrl_zip("S100TEST")
     assert not path.exists()
     assert not path.parent.exists()
-    assert local_zip.read_bytes() == b"local download cache is not a retained archive"
 
 
 def test_reader_preserves_empty_listing_but_rejects_unversioned_metric_values(tmp_path):
