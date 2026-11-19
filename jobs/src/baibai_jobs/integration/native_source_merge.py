@@ -9,6 +9,7 @@ import tempfile
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
+from time import perf_counter
 
 from baibai_engine.data_collection.acquisition.refresh import SourceRefreshSuccess, refresh_sources
 from baibai_engine.data_collection.catalog import load_sources
@@ -88,7 +89,9 @@ def verify_stores(source: Path, target: Path) -> None:
             conn.execute("DETACH DATABASE source")
 
 
-def merge_stores(source: Path, target: Path) -> MergeReport:
+def merge_stores(
+    source: Path, target: Path, *, validation_seconds: list[float] | None = None
+) -> MergeReport:
     for path in (source, target):
         if not path.is_file():
             raise MergeError(f"economic source store does not exist: {path}")
@@ -118,10 +121,14 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                             save_collection_confirmation(connection, tuple(row))
                         except ValueError as error:
                             raise MergeError(str(error)) from error
+                    started = perf_counter() if validation_seconds is not None else 0.0
                     try:
                         validate_collection_confirmations(connection)
                     except ValueError as error:
                         raise MergeError(str(error)) from error
+                    finally:
+                        if validation_seconds is not None:
+                            validation_seconds.append(perf_counter() - started)
                     connection.commit()
                     return MergeReport(tables=tables)
                 except BaseException:
