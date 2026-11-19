@@ -103,7 +103,7 @@ _INDEX_HEADERS = {
 class IndexEntry:
     """One release the publisher's index currently lists."""
 
-    published_on: date
+    published_on: date | None
     title: str
     url: str
 
@@ -159,20 +159,17 @@ def parse_release_index(html: str) -> tuple[IndexEntry, ...]:
 
     entries: list[IndexEntry] = []
     for match in _LIST_ITEM_RE.finditer(html):
-        published_on = _parse_published(unescape(match["published"]).replace("\xa0", " "))
         url = unescape(match["url"])
         # The link comes from a page this tool does not control and ends up both in a
         # fetch and in the manifest, so anything that is not a release URL is dropped
         # here rather than carried to either.
-        if published_on is None or RELEASE_URL_RE.fullmatch(url) is None:
+        if RELEASE_URL_RE.fullmatch(url) is None:
             continue
-        entries.append(
-            IndexEntry(
-                published_on=published_on,
-                title=" ".join(unescape(match["title"]).split()),
-                url=url,
-            )
-        )
+        title = " ".join(unescape(match["title"]).split())
+        published_on = _parse_published(unescape(match["published"]).replace("\xa0", " "))
+        if published_on is None and title not in STREAM_TITLES.values():
+            continue
+        entries.append(IndexEntry(published_on=published_on, title=title, url=url))
     return tuple(entries)
 
 
@@ -182,9 +179,9 @@ def _parse_published(raw: str) -> date | None:
         return None
     try:
         month = _MONTH_NAMES.index(match["month"].capitalize()) + 1
+        return date(int(match["year"]), month, int(match["day"]))
     except ValueError:
         return None
-    return date(int(match["year"]), month, int(match["day"]))
 
 
 def observed_month_of(published_on: date) -> date:
@@ -203,16 +200,21 @@ def newest_release_candidate(
     """The newest release the index lists for ``stream``, or None when it lists none."""
 
     title = STREAM_TITLES[stream]
-    matching = [entry for entry in entries if entry.title == title]
-    if not matching:
-        return None
-    newest = max(matching, key=lambda entry: entry.published_on)
-    return ReleaseCandidate(
-        stream=stream,
-        observed_at=observed_month_of(newest.published_on),
-        published_on=newest.published_on,
-        url=newest.url,
-    )
+    newest: ReleaseCandidate | None = None
+    for entry in entries:
+        if entry.title != title:
+            continue
+        if entry.published_on is None:
+            # An undated matching release could be newer than the dated entries.
+            raise IndicatorsProviderError(f"{stream}: invalid release index date for {entry.url}")
+        if newest is None or entry.published_on > newest.published_on:
+            newest = ReleaseCandidate(
+                stream=stream,
+                observed_at=observed_month_of(entry.published_on),
+                published_on=entry.published_on,
+                url=entry.url,
+            )
+    return newest
 
 
 def verified_value(release_candidate: ReleaseCandidate, *, context: FetchContext) -> float:
