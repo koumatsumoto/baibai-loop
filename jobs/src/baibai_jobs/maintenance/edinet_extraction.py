@@ -147,7 +147,7 @@ def refresh_edinet_facts_command(
             )
             print(json.dumps({"native_archive_acquisition": report}, sort_keys=True), file=out)
             archives = owner.freeze()
-            materialize_archives(archives, sqlite_path)
+            materialize_archives(archives, sqlite_path, annual_facts_only=True)
             materialize_lists(lists, sqlite_path)
             # Extraction must use this same head while its object store is open.
             return max(
