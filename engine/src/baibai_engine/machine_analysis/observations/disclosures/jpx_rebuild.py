@@ -102,7 +102,7 @@ def _regulations(bundle: JPXSourceBundle) -> JPXRegulationSnapshot:
     resources = {item.resource_name: item.response for item in bundle.responses}
     if set(resources) != set(JPX_REGULATION_URLS):
         raise JPXProviderError("JPX regulation bundle must contain the four required sources")
-    parsed_sources: dict[str, list[dict[str, str]]] = {}
+    parsed_sources: dict[str, list[str]] = {}
     for name in JPX_REGULATION_URLS:
         response = resources[name]
         validate_allowed_url(response.requested_url)

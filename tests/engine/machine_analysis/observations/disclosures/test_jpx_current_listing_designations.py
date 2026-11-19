@@ -1,6 +1,7 @@
 import pytest
 
 from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
+    build_regulation_snapshot,
     parse_current_listing_designations,
     parse_regulation_rows,
 )
@@ -35,9 +36,8 @@ def test_current_sections_only_preserve_distinct_designations_without_reclassify
         "3300": (DELIST,),
     }
     # The published four-source historical projection must still replay identically.
-    assert parse_regulation_rows("整理銘柄", html.encode(), URL) == [
-        {"code": "3300", "flag": DELIST}
-    ]
+    old_rows = parse_regulation_rows(DELIST, html.encode(), URL)
+    assert build_regulation_snapshot({DELIST: old_rows}).flags_by_ticker == {"3300": (DELIST,)}
 
 
 def test_explicitly_empty_current_subsection_is_not_a_missing_table_or_a_cleared_other_status():
