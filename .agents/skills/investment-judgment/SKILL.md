@@ -54,9 +54,9 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --runs-path stores/screening/runs.sqlite
 ```
 
-個社のアナリスト予想を確認するときは、既存のローカル市場SQLiteを使う（既定以外は新規prepareに `--sqlite-path <LOCAL_MARKET_COPY>`）。選んだ企業のモデル世代と同じ市場release ID・manifest hashで、保存した4価格観測も再現できるマネックス原本だけが、個社の `monex_fiscal_eps` として調査・提案の固定入力に残る。今期・来期とローリング1年を区別し、人数・公表日時がないことや原本が照合できないことをゼロ／低評価にしない。旧調査・提案を現在の原本で補わない。
-
 prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。書込CLIの応答は操作ID・状態などのヘッダだけを返す。IDなしの`show`も履歴ヘッダのみ。固定証拠・進捗・結果の全文はIDを指定して読む。
+
+個社の `external_assessment.monex_fiscal_eps` があれば、世代に固定済みの配信元・対象決算期・円/株・受領時刻を用いる。今期／来期のアナリスト予想、会社予想、目標株価、ローリング1年予想を取り違えない。欄なしは実世界での予想なしを証明しない。調査や提案のために原本の全件復元／再取得をせず、過去の判断へ後発データを足さない。
 
 nativeは保存descriptorから[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)へ進みsummary/latestで代用しない。候補/省略/未生成/欠測と時点・Reading・保存範囲は[観測reference](../../../docs/reference/model-observations.md#judgment-use)に従う。
 

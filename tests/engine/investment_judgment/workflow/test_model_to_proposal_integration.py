@@ -25,6 +25,8 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.external_assessment_html import monex_eps_section, monex_html
+from tests.helpers.external_assessment_responses import response
 from tests.helpers.lake_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
 from tests.helpers.proposal import (
@@ -37,6 +39,7 @@ from tests.helpers.proposal import (
 from tests.helpers.research_selection import selected_target
 from tests.helpers.screening_sqlite import insert_financial_record, seed_daily_bars
 
+from baibai_engine.data_collection.receipts.public_pages.receipts import insert_response
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
@@ -54,6 +57,10 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal.report_perspectives import (
+    MODELS,
+    estimate_missing,
+)
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
@@ -82,12 +89,18 @@ from baibai_engine.machine_analysis.models.company_growth.models import InputRel
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     ModelValuationObservation,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
+from baibai_web.sources.proposal import DbProposalSource
 
 START = datetime.fromisoformat("2026-10-14T15:45:00+09:00")
 PROMOTED = datetime.fromisoformat("2026-10-14T16:06:00+09:00")
@@ -176,6 +189,7 @@ def _prepare_case(
     shared_trends=False,
     economic_input=None,
     ledger_age=0,
+    monex_original=False,
 ):
     # urllib3 probes local IPv6 support at import (socket + bind, no remote IO).
     # Initialize it before the strict workflow guard, independent of test order.
@@ -256,10 +270,35 @@ def _prepare_case(
             "baibai_engine.machine_analysis.generation.inputs.read_trend_inputs",
             partial(read_trend_inputs, industries=(industry,)),
         )
+    if monex_original:
+        html = (
+            (monex_html("1234") + monex_eps_section())
+            .replace("2025/09", "2027/03")
+            .replace("2026/09", "2028/03")
+        )
+        original = response(
+            "monex",
+            "1234",
+            html.encode(),
+            url=monex.public_url("1234"),
+            received_at_utc=(START - timedelta(minutes=1)).astimezone(UTC),
+        )
+        with closing(sqlite3.connect(market)) as conn, conn:
+            insert_response(conn, original)
+        save_observations(
+            market, [decode_attempt((original,), expected_parser_version="monex-theory-4")]
+        )
     publish_market_fixture(market, "five-domain-fixed-input", created_at=START)
-    save_observations(
-        market, _external_observations(START - timedelta(minutes=1), missing=scenario == "gaps")
-    )
+    if monex_original:
+        origin = read_lake_store_origin(market)
+        model_release = InputRelease(
+            release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256
+        )
+    else:
+        model_release = InputRelease(release_id="synthetic-fixed-release", manifest_sha256="a" * 64)
+        save_observations(
+            market, _external_observations(START - timedelta(minutes=1), missing=scenario == "gaps")
+        )
     AssessmentService(app).publish(
         MarketContextAssessment.model_validate(
             {
@@ -285,9 +324,7 @@ def _prepare_case(
         generation = read_and_generate_models(
             generation_id="synthetic-five-models",
             market_snapshot=snapshot,
-            market_release=InputRelease(
-                release_id="synthetic-fixed-release", manifest_sha256="a" * 64
-            ),
+            market_release=model_release,
             economic_input=economic_input,
             as_of=START.date(),
             evaluation_time=START,
@@ -295,6 +332,10 @@ def _prepare_case(
             tickers=("1234",),
         )
         ModelGenerationStore(runs).publish_stream(generation)
+    if monex_original:
+        # In the authoring transfer, retained native bodies are not available.
+        with closing(sqlite3.connect(market)) as conn, conn:
+            conn.execute("DELETE FROM equity_web_source_responses")
     prepared = prepare_selected_workspace(
         draft=GeneratedResearchSelectionDraft(
             schema_version=2,
@@ -1151,3 +1192,80 @@ def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_
     assert (case.prepared.workspace / "domain-inputs.yaml").read_bytes() == projected
     assert read_saved_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
     assert LedgerStoreService(case.app).load() == case.ledger
+
+
+def test_sealed_monex_eps_reaches_formal_web_without_bodies_in_authoring_copy(
+    tmp_path, monkeypatch
+):
+    case = _prepare_case(tmp_path, monkeypatch, monex_original=True)
+    with closing(sqlite3.connect(case.market)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone()[0] == 0
+    fixed = case.selected.inputs.generation.result("external_assessment", "1234")
+    eps = fixed.payload["monex_fiscal_eps"]
+    reference = eps["reference_eps"]
+    assert reference["current_fy"]["eps_jpy_per_share"] == -3.5
+    assert reference["next_fy"]["eps_jpy_per_share"] == 0
+    assert reference["rolling_one_year"]["eps_jpy_per_share"] == 123.4
+    original_price = fixed.payload["model_valuations"][0]["inputs"]["latest"]
+    assert original_price["consensus_target"] == 1234
+    assert original_price["parser_version"] == "monex-theory-4"
+    assert case.selected.inputs.generation.inputs["market_snapshot"].kind == "sqlite_snapshot"
+    domain = yaml.safe_load((case.prepared.workspace / "domain-inputs.yaml").read_text())
+    assert domain["securities"]["1234"]["models"]["external_assessment"]["monex_fiscal_eps"] == eps
+    context, draft = _promote_and_propose(case)
+    assert (
+        context.payload()["saved_analysis_context"]["securities"]["1234"]["models"][
+            "external_assessment"
+        ]["monex_fiscal_eps"]
+        == eps
+    )
+    published = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(draft)
+    assert published.proposal_id == PROPOSAL_ID
+    case.market.rename(tmp_path / "removed-market.sqlite")
+    item = DbProposalSource(case.app).latest().items[0]
+    view = item.assessment.estimated_model_chart.monex_fiscal_eps
+    assert view.current_fy.fiscal_end_label == "2027/03"
+    assert view.next_fy.fiscal_end_label == "2028/03"
+    assert view.current_fy.eps_jpy_per_share == -3.5
+    assert view.next_fy.eps_jpy_per_share == 0
+    assert view.current_fy.analyst_count is None
+    assert view.source_url == eps["source_url"]
+    assert "rolling_one_year" not in view.model_dump()
+    assert "body_sha256" not in view.model_dump()
+    # The original authors still win even when all seven models were addressed.
+    saved = case.selected.model_dump(mode="json")
+
+    def chart(selection):
+        return estimate_missing(
+            selection,
+            ticker="1234",
+            recorded=set(MODELS),
+            selection_sha256=selection_sha256(case.selected),
+        )
+
+    assert chart(saved)["rows"] == []
+    assert chart(saved)["monex_fiscal_eps"]["current_fy"]["eps_jpy_per_share"] == -3.5
+    for field, wrong in [
+        ("ticker", "5678"),
+        ("source_url", "https://example.invalid/"),
+        ("received_at_utc", (START + timedelta(hours=1)).isoformat()),
+    ]:
+        other = deepcopy(saved)
+        model = next(
+            m["payload"]
+            for m in other["inputs"]["generation"]["models"]
+            if m["model_id"] == "external_assessment" and m["subject"] == "1234"
+        )
+        model["monex_fiscal_eps"][field] = wrong
+        assert chart(other) is None
+    archived = deepcopy(saved)
+    old = next(
+        m["payload"]
+        for m in archived["inputs"]["generation"]["models"]
+        if m["model_id"] == "external_assessment" and m["subject"] == "1234"
+    )
+    old.pop("monex_fiscal_eps")
+    old["method_version"] = "same-series-v8-tradingview-receipts"
+    assert chart(archived) is None

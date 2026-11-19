@@ -11,14 +11,8 @@ from urllib.parse import urlsplit
 from pydantic import ValidationError
 
 from baibai_engine.investment_judgment.cash_flow_use import CashFlowLimit, cash_flow_limit
-from baibai_engine.investment_judgment.workflow.monex_fiscal_eps import (
-    matches_fiscal_eps,
-    price_anchor,
-)
 from baibai_engine.machine_analysis.models.company_financials import REPORTED_PROFIT_BASIS
-from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
-    MonexEPSReceipt,
-)
+from baibai_engine.machine_analysis.models.external_assessment.models import ExternalAssessment
 from baibai_engine.primitives.time import JST
 
 Row = dict[str, Any]
@@ -674,24 +668,22 @@ def estimate_missing(
         "generation_id": generation_id,
         "rows": [],
     }
-    raw_eps = _at(i, "monex_fiscal_eps", ticker)
-    if (
-        version == 5
-        and raw_eps is not None
-        and (clock := _stamp(g.get("evaluation_time"))) is not None
-    ):
+    external = model("external_assessment", ticker)
+    if version == 5 and external.get("monex_fiscal_eps") is not None:
         try:
-            eps = MonexEPSReceipt.model_validate(raw_eps)
+            fixed = ExternalAssessment.model_validate(external)
         except ValidationError:
             pass
         else:
-            anchor = price_anchor(
-                model("external_assessment", ticker),
-                ticker=ticker,
-                cutoff=clock,
-                as_of=target.model_as_of,
-            )
-            if eps.reference_eps is not None and matches_fiscal_eps(eps, anchor):
+            eps = fixed.monex_fiscal_eps
+            clock = _stamp(g.get("evaluation_time"))
+            if (
+                eps is not None
+                and eps.reference_eps is not None
+                and clock is not None
+                and fixed.evaluated_at <= clock
+                and eps.received_at_utc.astimezone(JST).date() <= target.model_as_of
+            ):
                 chart["monex_fiscal_eps"] = {
                     "source_url": eps.source_url,
                     "received_at_utc": eps.received_at_utc,

@@ -18,7 +18,7 @@ from baibai_engine.investment_judgment.workflow.operation.models import (
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.primitives.time import JST
 from baibai_engine.primitives.yaml import safe_load
-from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
+from baibai_engine.storage.paths import RUNS_DB_PATH
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,12 +28,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--db", type=Path)
     parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
-    parser.add_argument(
-        "--sqlite-path",
-        type=Path,
-        default=MARKET_DB_PATH,
-        help="existing market cache (new start only)",
-    )
     parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -138,7 +132,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     ticker=args.ticker,
                     started_at=current_time,
                     payload=_load_payload(args.payload),
-                    sqlite_path=args.sqlite_path,
                 )
             elif args.command == "checkpoint":
                 operation = service.checkpoint(

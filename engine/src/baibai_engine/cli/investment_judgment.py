@@ -160,12 +160,6 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     prepare_parser.add_argument(
-        "--sqlite-path",
-        type=Path,
-        default=MARKET_DB_PATH,
-        help="existing local market receipts; only consulted for a new selection",
-    )
-    prepare_parser.add_argument(
         "--company-growth-periods",
         type=_growth_display_periods,
         default=...,
@@ -352,7 +346,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         db_path=args.db,
                         workspace=args.workspace,
                         runs_path=args.runs_path,
-                        sqlite_path=args.sqlite_path,
                         company_growth_periods=args.company_growth_periods,
                         now=resolved_now,
                         force=args.force,

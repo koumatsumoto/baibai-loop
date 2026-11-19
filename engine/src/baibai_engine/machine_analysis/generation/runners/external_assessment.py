@@ -8,6 +8,9 @@ from baibai_engine.machine_analysis.models.external_assessment.models import Ext
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
+    MonexEPSReceipt,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observations,
 )
@@ -22,6 +25,9 @@ def external_assessment(
 
 
 def generate_external_assessment(
-    history: ObservationHistory, *, evaluated_at: datetime
+    history: ObservationHistory,
+    *,
+    evaluated_at: datetime,
+    monex_fiscal_eps: MonexEPSReceipt | None = None,
 ) -> ExternalAssessment:
-    return analyze(history, evaluated_at=evaluated_at)
+    return analyze(history, evaluated_at=evaluated_at, monex_fiscal_eps=monex_fiscal_eps)

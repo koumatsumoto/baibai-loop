@@ -24,19 +24,12 @@ from baibai_engine.investment_judgment.company_research.context import (
     AvailableResearch,
     CompanyContext,
 )
-from baibai_engine.investment_judgment.workflow.monex_fiscal_eps import (
-    matches_fiscal_eps,
-    price_anchor,
-)
 from baibai_engine.investment_judgment.workflow.selection_policy import (
     CURRENT_RESEARCH_CAPACITY,
     ResearchCapacity,
     validate_capacity,
 )
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice, research_subjects
-from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
-    MonexEPSReceipt,
-)
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
 )
@@ -343,9 +336,6 @@ class CaseScreening(ScreeningSelection):
 
 
 class GeneratedResearchInputsV5(GeneratedResearchInputsV4):
-    monex_fiscal_eps: dict[Ticker, MonexEPSReceipt] = Field(
-        default_factory=dict, exclude_if=lambda value: not value
-    )
     screening_selection: CaseScreening | None = None
 
 
@@ -364,25 +354,6 @@ class GeneratedResearchSelectionV5(GeneratedSelectionWithContext):
         _validate_comparisons(
             self.comparison_tickers, self.targets, self.inputs.screening_selection_id, self.capacity
         )
-        generation = self.inputs.generation
-        for ticker, eps in self.inputs.monex_fiscal_eps.items():
-            model = generation.result("external_assessment", ticker)
-            if (
-                ticker not in {t.ticker for t in self.targets}
-                or model is None
-                or not matches_fiscal_eps(
-                    eps,
-                    price_anchor(
-                        model.payload,
-                        ticker=ticker,
-                        cutoff=generation.evaluation_time,
-                        as_of=generation.as_of,
-                    ),
-                )
-            ):
-                raise ValueError(
-                    "fiscal EPS differs from the selected company's fixed Monex observation"
-                )
         return self
 
 

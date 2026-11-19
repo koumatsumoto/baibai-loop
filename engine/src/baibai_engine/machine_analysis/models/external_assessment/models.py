@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     AnalystForecastHistory,
@@ -13,10 +13,18 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
     ModelValuationHistory,
     QuantsScoreHistory,
     TradingViewHistory,
+    latest_monex,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.models import FrozenModel
+from baibai_engine.machine_analysis.observations.external_assessments.monex_receipt import (
+    MonexEPSReceipt,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.monex import (
+    public_url,
+)
 
 METHOD_VERSION = "same-series-v4"
+MONEX_FISCAL_METHOD_VERSION = "same-series-v9-monex-fiscal-eps"
 
 
 class MetricComparison(FrozenModel):
@@ -101,3 +109,30 @@ class ExternalAssessment(FrozenModel):
     tradingview: TradingViewReceipts | SavedTradingViewComparisons
     origin_groups: tuple[OriginGroup, ...]
     minkabu: AnalystForecastHistory = Field(default_factory=AnalystForecastHistory)
+    monex_fiscal_eps: MonexEPSReceipt | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @model_validator(mode="after")
+    def fiscal_eps_matches_price_original(self) -> Self:
+        eps = self.monex_fiscal_eps
+        if eps is None:
+            return self
+        anchor = latest_monex(item.inputs for item in self.model_valuations)
+        if (
+            self.method_version != MONEX_FISCAL_METHOD_VERSION
+            or anchor is None
+            or (eps.ticker, anchor.ticker) != (self.ticker, self.ticker)
+            or eps.source_url != public_url(self.ticker)
+            or anchor.source_url != eps.source_url
+            or eps.received_at_utc.utcoffset() is None
+            or self.cutoff.utcoffset() is None
+            or self.evaluated_at.utcoffset() is None
+            or anchor.fetched_at_utc != eps.received_at_utc
+            or not eps.received_at_utc <= self.cutoff <= self.evaluated_at
+            or eps.reference_eps is None
+            or not any(
+                row and row.eps_jpy_per_share is not None
+                for row in (eps.reference_eps.current_fy, eps.reference_eps.next_fy)
+            )
+        ):
+            raise ValueError("fiscal EPS differs from this company's fixed Monex price observation")
+        return self

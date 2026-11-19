@@ -16,7 +16,7 @@ from baibai_engine.data_collection.receipts.public_pages.receipts import (
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
-from .models import FrozenModel, utc_datetime
+from .models import FrozenModel, ModelValuationObservation, utc_datetime
 from .normalization import monex
 from .normalization.decode import response_html
 from .normalization.monex_eps import ReferenceEPS, reference_eps
@@ -52,7 +52,11 @@ def read_monex_eps(
 
 
 def project_monex_eps(
-    receipt: EquityWebSourceResponse, *, ticker: str, cutoff: datetime
+    receipt: EquityWebSourceResponse,
+    *,
+    ticker: str,
+    cutoff: datetime,
+    expected_prices: ModelValuationObservation | None = None,
 ) -> MonexEPSReceipt:
     """Project the exact object whose legacy observation the caller can independently verify."""
     validate_response(receipt)
@@ -67,6 +71,17 @@ def project_monex_eps(
     page = monex.identified_page(
         response_html(receipt), ticker=ticker, source_url=receipt.requested_url
     )
+    if (
+        expected_prices is not None
+        and monex.prices_from_identified_page(
+            page,
+            ticker=ticker,
+            source_url=receipt.requested_url,
+            fetched_at_utc=receipt.received_at_utc,
+        )
+        != expected_prices
+    ):
+        raise ValueError("retained Monex prices differ from the fixed observation")
     return MonexEPSReceipt(
         receipt_id=receipt.receipt_id,
         attempt_id=receipt.attempt_id,
