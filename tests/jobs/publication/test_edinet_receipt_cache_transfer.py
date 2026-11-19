@@ -59,7 +59,10 @@ def test_nonempty_cache_requires_native_verification_only_when_release_omits_ori
     remote.assert_not_called()
 
 
-def test_native_cache_clear_uses_the_original_receipt_proof(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("transfer_copy", [False, True])
+def test_native_cache_clear_uses_the_original_receipt_proof(
+    tmp_path, monkeypatch, capsys, transfer_copy
+):
     store = MemoryR2Store()
     store.close = Mock()
     lists = EdinetListL1(store, tmp_path / "lists")
@@ -81,11 +84,18 @@ def test_native_cache_clear_uses_the_original_receipt_proof(tmp_path, monkeypatc
         )
     monkeypatch.setattr("baibai_engine.storage.objects.r2.Boto3R2Store", lambda **_: store)
     args = SimpleNamespace(store=database, mirror=tmp_path / "mirror", bucket="fixture")
-    _clear_independent_list_cache(args, SimpleNamespace(dataset_names=lambda: ()))
+    _clear_independent_list_cache(
+        args,
+        SimpleNamespace(dataset_names=lambda: ()),
+        store_path=database if transfer_copy else None,
+    )
     with closing(open_connection(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (0,)
     store.close.assert_called_once_with()
     output = capsys.readouterr()
     assert output.out == ""
-    assert output.err.startswith("snapshot: phase=verify_native_edinet_list_cache state=done ")
-    assert output.err.strip().endswith(" verified_rows=1")
+    if transfer_copy:
+        assert output.err.startswith("snapshot: phase=verify_native_edinet_list_cache state=done ")
+        assert output.err.strip().endswith(" verified_rows=1")
+    else:
+        assert output.err == ""

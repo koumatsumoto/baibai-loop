@@ -171,11 +171,11 @@ def _clear_independent_list_cache(
 
     if args.bucket is None:
         raise ValueError("native EDINET receipt cache verification requires --bucket")
-    started = time.perf_counter()
+    started = time.perf_counter() if store_path is not None else None
     with closing(Boto3R2Store(bucket=args.bucket)) as store:
         fixed = EdinetListL1(store, args.mirror / "edinet-native").freeze()
         verified = clear_verified_receipt_cache(fixed, path)
-    if verified:
+    if started is not None and verified:
         print(
             "snapshot: phase=verify_native_edinet_list_cache state=done "
             f"elapsed_seconds={time.perf_counter() - started:.3f} verified_rows={verified}",
