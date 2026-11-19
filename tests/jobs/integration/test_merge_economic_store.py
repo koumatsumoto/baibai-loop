@@ -13,7 +13,7 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
     row_count,
 )
 from baibai_engine.storage.sqlite.merge import MergeError
-from baibai_jobs.integration.native_source_merge import merge_stores
+from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 
 DAY = date(2026, 7, 20)
 WHEN = datetime(2026, 7, 21, tzinfo=UTC)
@@ -55,6 +55,17 @@ def test_merge_keeps_sources_without_a_current_l2_use_and_is_idempotent(tmp_path
     assert merge_stores(source, target).inserted == 0
     with closing(initialize_database(target)) as connection:
         assert row_count(connection, "economic_source_records") == 1
+
+
+def test_readback_refuses_a_missing_row_without_repairing_either_copy(tmp_path):
+    source, target = tmp_path / "received.sqlite", tmp_path / "readback.sqlite"
+    _source(source)
+    with closing(initialize_database(target)):
+        pass
+    before = source.read_bytes(), target.read_bytes()
+    with pytest.raises(MergeError, match="missing received rows"):
+        verify_stores(source, target)
+    assert (source.read_bytes(), target.read_bytes()) == before
 
 
 def test_conflicting_native_payload_is_not_silently_replaced(tmp_path):

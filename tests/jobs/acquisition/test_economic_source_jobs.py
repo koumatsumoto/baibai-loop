@@ -18,9 +18,8 @@ from baibai_engine.data_collection.receipts.native_sources.store import initiali
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
 )
-from baibai_engine.storage.sqlite.merge import MergeError
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
-from baibai_jobs.integration.economic_handoff import acquire, receive
+from baibai_jobs.integration.economic_handoff import acquire
 
 DAY = date(2026, 10, 20)
 WHEN = datetime(2026, 10, 20, tzinfo=UTC)
@@ -44,32 +43,6 @@ def handoff(tmp_path, group, source, value):
         json.dumps({"group": group, "sources": [{"source_id": source, "status": "ok"}]})
     )
     return directory
-
-
-def test_independent_handoffs_union_into_fresh_canonical_without_reverting_another_source(tmp_path):
-    a = handoff(tmp_path, "fred_csv", "fred-payems", "A")
-    b = handoff(tmp_path, "mof_jgb", "mof-jgbcm-all", "B")
-    canonical = tmp_path / "canonical.sqlite"
-    snapshot(canonical, "fed-h15", "new unrelated canonical receipt", WHEN + timedelta(hours=1))
-    receive(b, canonical, "mof_jgb", "mof-jgbcm-all", verify=False)
-    receive(a, canonical, "fred_csv", "fred-payems", verify=False)
-    receive(a, canonical, "fred_csv", "fred-payems", verify=True)
-    with closing(initialize_database(canonical)) as conn:
-        assert {
-            r[0] for r in conn.execute("SELECT DISTINCT source_id FROM economic_source_records")
-        } == {"fred-payems", "mof-jgbcm-all", "fed-h15"}
-
-
-def test_readback_missing_a_received_row_is_a_failure(tmp_path):
-    a = handoff(tmp_path, "fred_csv", "fred-payems", "A")
-    canonical = tmp_path / "canonical.sqlite"
-    with closing(initialize_database(canonical)):
-        pass
-    before = canonical.read_bytes()
-    for _ in range(2):
-        with pytest.raises(MergeError, match="readback"):
-            receive(a, canonical, "fred_csv", "fred-payems", verify=True)
-        assert canonical.read_bytes() == before
 
 
 def test_handoff_contains_only_new_selected_receipts_and_preserves_a_b_a(tmp_path):

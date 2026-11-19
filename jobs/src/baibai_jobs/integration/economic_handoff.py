@@ -48,9 +48,7 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakePublishError,
 )
-from baibai_engine.storage.sqlite.merge import MergeError
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
-from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_jobs.observability.discord import is_expected_pmi_refusal
 from baibai_jobs.schedule import acquisition_target_date
 
@@ -166,21 +164,9 @@ def validate_handoff(directory: Path, group: str, source_id: str | None = None) 
                 raise ValueError("economic handoff contains another acquisition group's receipts")
 
 
-def receive(directory: Path, database: Path, group: str, source_id: str, *, verify: bool) -> None:
-    validate_handoff(directory, group, source_id)
-    source = directory / "receipts.sqlite"
-    if verify:
-        verify_stores(source, database)
-        print("economic publication readback verified")
-    else:
-        print(merge_stores(source, database).render())
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "command", choices=("plan", "input", "acquire", "stage", "download", "merge", "verify")
-    )
+    parser.add_argument("command", choices=("plan", "input", "acquire", "stage", "download"))
     parser.add_argument("--group", default="all")
     parser.add_argument("--source-id", default="")
     parser.add_argument("--asof", type=date.fromisoformat)
@@ -221,20 +207,6 @@ def main(argv: list[str] | None = None) -> int:
             ) as store:
                 load_input(store, "economic-" + args.group, args.db, args.directory)
             return 0
-        if args.command in {"stage", "download"}:
-            if args.stage_id is None:
-                raise ValueError("--stage-id is required")
-            with closing(
-                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-            ) as store:
-                if args.command == "stage":
-                    identity = save_handoff(store, args.stage_id, args.directory)
-                    if output := os.environ.get("GITHUB_OUTPUT"):
-                        with Path(output).open("a", encoding="utf-8") as stream:
-                            print(f"handoff={identity}", file=stream)
-                else:
-                    load_handoff(store, args.stage_id, args.directory)
-            return 0
         if args.command == "acquire":
             load_project_env()
             if args.asof is None:
@@ -247,21 +219,29 @@ def main(argv: list[str] | None = None) -> int:
                 args.db,
                 current_only_now=args.current_only_now,
             )
-        receive(
-            args.directory, args.db, args.group, args.source_id, verify=args.command == "verify"
-        )
+        if args.stage_id is None:
+            raise ValueError("--stage-id is required")
+        with closing(
+            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        ) as store:
+            if args.command == "stage":
+                identity = save_handoff(store, args.stage_id, args.directory)
+                if output := os.environ.get("GITHUB_OUTPUT"):
+                    with Path(output).open("a", encoding="utf-8") as stream:
+                        print(f"handoff={identity}", file=stream)
+            else:
+                load_handoff(store, args.stage_id, args.directory)
+        return 0
     except (
         OSError,
         sqlite3.Error,
         ValueError,
         KeyError,
         EconomicSchemaError,
-        MergeError,
         LakePublishError,
     ) as error:
         print(f"economic handoff failed: {type(error).__name__}", file=sys.stderr)
         return 1
-    return 0
 
 
 if __name__ == "__main__":
