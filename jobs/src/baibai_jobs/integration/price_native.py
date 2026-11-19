@@ -35,6 +35,7 @@ from baibai_engine.machine_analysis.generation.price_inputs import (
     with_calendar_closures,
 )
 from baibai_engine.machine_analysis.observations.prices.from_l1 import (
+    PriceBatchRows,
     PriceDay,
     materialize_price_days,
     rebuild_price_days,
@@ -201,9 +202,14 @@ def model_input(
         connection.execute("DELETE FROM jquants_source_pages WHERE source='daily_bars'")
         connection.execute("DELETE FROM source_coverage WHERE source='jquants_daily_bars'")
         for batch in _native_batches(days, scopes=head["scopes"], receipts=head["receipts"]):
+            prepared = PriceBatchRows()
             requests = tuple(
                 read_price_requests(
-                    store, scopes=head["scopes"], receipts=head["receipts"], days=batch
+                    store,
+                    scopes=head["scopes"],
+                    receipts=head["receipts"],
+                    days=batch,
+                    consume=prepared.consume,
                 )
             )
             if any(
@@ -211,7 +217,7 @@ def model_input(
                 for item in requests
             ):
                 raise ValueError("price input contains receipts later than the evaluation clock")
-            results = rebuild_price_days(requests, days=batch)
+            results = rebuild_price_days(requests, days=batch, prepared=prepared)
             for day, item in results.items():
                 key = day.isoformat()
                 if not prefilled or not _same_price_day(connection, key, item.rows):

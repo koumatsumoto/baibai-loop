@@ -15,6 +15,7 @@ from baibai_engine.data_collection.providers.jquants.full_day_native import (
     FullDayContract,
     FullDayL1,
     FullDayObjectStore,
+    VerifiedDayRows,
     read_full_day_requests,
     verify_migrated_full_day_receipts,
 )
@@ -38,7 +39,12 @@ class FixedPriceL1(FixedFullDayL1):
 
 
 def read_price_requests(
-    store: ObjectStore, *, scopes: dict[str, Any], receipts: dict[str, Any], days: Sequence[date]
+    store: ObjectStore,
+    *,
+    scopes: dict[str, Any],
+    receipts: dict[str, Any],
+    days: Sequence[date],
+    consume: VerifiedDayRows | None = None,
 ) -> Iterator[RetainedRequest]:
     return read_full_day_requests(
         store,
@@ -47,6 +53,7 @@ def read_price_requests(
         days=days,
         contract=_CONTRACT,
         attempt_type=PriceAttempt,
+        consume=consume,
     )
 
 

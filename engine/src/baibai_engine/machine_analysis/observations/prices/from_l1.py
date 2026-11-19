@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsRequest,
+    RetainedRequest,
+)
 from baibai_engine.data_collection.providers.jquants.day_selection import select_full_days
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.normalization import NormalizedRows
 from baibai_engine.machine_analysis.observations.prices.jquants_normalization import (
     normalize_daily_bars,
 )
@@ -30,8 +35,34 @@ class PriceDay:
     incomplete_requests: int
 
 
+@dataclass(slots=True)
+class PriceBatchRows:
+    """Hold only normalized values per successful receipt in one local application batch."""
+
+    _prepared: dict[str, tuple[JQuantsRequest, NormalizedRows]] = field(default_factory=dict)
+
+    def consume(
+        self, identity: str, request: JQuantsRequest, records: list[dict[str, Any]]
+    ) -> None:
+        if request.source != "daily_bars" or set(request.params) != {"date"}:
+            return
+        try:
+            rows = normalize_daily_bars(records)
+        except (JQuantsProviderError, ValueError, TypeError, OverflowError, RecursionError):
+            # Only a selected receipt can raise a projection error, after clocks and ties.
+            return
+        self._prepared[identity] = request, rows
+
+    def get(self, identity: str, request: JQuantsRequest) -> NormalizedRows | None:
+        pair = self._prepared.get(identity)
+        return pair[1] if pair is not None and pair[0] is request else None
+
+
 def rebuild_price_days(
-    requests: Iterable[RetainedRequest], *, days: Iterable[date]
+    requests: Iterable[RetainedRequest],
+    *,
+    days: Iterable[date],
+    prepared: PriceBatchRows | None = None,
 ) -> dict[date, PriceDay]:
     wanted = set(days)
     if not wanted:
@@ -44,7 +75,9 @@ def rebuild_price_days(
             output[day] = PriceDay(day, None, (), "unavailable", 0, 0, incomplete[day])
             continue
         identity, request = chosen
-        normalized = normalize_daily_bars(request.records())
+        normalized = None if prepared is None else prepared.get(identity, request)
+        if normalized is None:
+            normalized = normalize_daily_bars(request.records())
         if any(str(row[1]) != day.isoformat() for row in normalized.rows):
             raise ValueError("daily price payload contains a date outside the request")
         output[day] = PriceDay(
