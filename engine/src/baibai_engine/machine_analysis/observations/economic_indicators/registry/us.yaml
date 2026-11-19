@@ -9,7 +9,6 @@ series:
     plausible_max: 30
     reading_key: RIFLGFCY10_N.B
     source_id: fed-h15
-    tradingview_symbol: TVC:US10Y
     aliases: [米10Y利回り, 米10Y, US 10Y, DGS10, us_10y_treasury]
   - series_id: us.2y
     name: 米2Y利回り
@@ -21,7 +20,6 @@ series:
     plausible_max: 30
     reading_key: RIFLGFCY02_N.B
     source_id: fed-h15
-    tradingview_symbol: TVC:US02Y
     aliases: [米2Y利回り, 米2Y, US 2Y, DGS2]
   - series_id: us.fed_funds.upper
     name: FF目標レンジ上限
@@ -99,7 +97,6 @@ series:
     plausible_max: 100000
     reading_key: SP500
     source_id: fred-sp500
-    tradingview_symbol: SP:SPX
     notes: FRED SP500は直近約10年のみ保持(ライセンス制約)。直近の調整・下落分析には十分
     aliases: [S&P500, SP500, エスアンドピー500, 米国株, 米国株指数]
   - series_id: us.nasdaq
@@ -112,7 +109,6 @@ series:
     plausible_max: 500000
     reading_key: NASDAQCOM
     source_id: fred-nasdaqcom
-    tradingview_symbol: NASDAQ:IXIC
     aliases: [NASDAQ, ナスダック, NASDAQCOM, Nasdaq Composite, ナスダック総合]
   - series_id: us.dow
     name: ダウ工業株30種
@@ -124,7 +120,6 @@ series:
     plausible_max: 1000000
     reading_key: DJIA
     source_id: fred-djia
-    tradingview_symbol: TVC:DJI
     aliases: [ダウ, Dow, DJIA, Dow Jones, ダウ平均, ダウ工業株30種]
   - series_id: credit.us_hy_oas
     name: 米ハイイールドOAS
@@ -338,7 +333,6 @@ series:
     plausible_max: 50000
     reading_key: ^RUT
     source_id: yahoo-rut
-    tradingview_symbol: TVC:RUT
     notes: 米小型株指数(日次)。大型グロース/小型バリューのローテーション・市場breadth・内需循環の温度計。S&P500との相対で局面を読む
     aliases: [ラッセル2000, Russell 2000, RUT, 米小型株, small caps]
   - series_id: us.sox
@@ -351,7 +345,6 @@ series:
     plausible_max: 200000
     reading_key: ^SOX
     source_id: yahoo-sox
-    tradingview_symbol: NASDAQ:SOX
     notes: PHLX半導体指数(日次)。AI/半導体サイクルの先行ゲージで、日本の半導体株は本指数に高感応。proprietary指数でFRED非対応のためYahooで取得
     aliases: [SOX, 半導体指数, sox_semiconductor, フィラデルフィア半導体, PHLX Semiconductor]
   - series_id: us.gdp_growth

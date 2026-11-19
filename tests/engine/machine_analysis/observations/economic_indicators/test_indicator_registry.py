@@ -152,41 +152,6 @@ class IndicatorsRegistryTests(unittest.TestCase):
             self.assertEqual(by_id[series_id].category, "equity-index")
             self.assertEqual(by_id[series_id].provider, "fred_csv")
 
-    def test_tradingview_symbols_cover_major_market_series(self) -> None:
-        by_id = load_definitions().by_id()
-        configured = {
-            series_id: definition.tradingview_symbol
-            for series_id, definition in by_id.items()
-            if definition.tradingview_symbol is not None
-        }
-
-        self.assertGreaterEqual(len(configured), 10)
-        self.assertEqual(configured["us.10y"], "TVC:US10Y")
-        self.assertEqual(configured["usd_jpy"], "FX:USDJPY")
-        self.assertEqual(configured["vix"], "CBOE:VIX")
-        self.assertEqual(configured["jp.nikkei225"], "TVC:NI225")
-        self.assertEqual(configured["us.sp500"], "SP:SPX")
-        self.assertIsNone(by_id["jp.pmi_manufacturing"].tradingview_symbol)
-
-    def test_tradingview_symbol_rejects_invalid_format(self) -> None:
-        canonical = Path(
-            "engine/src/baibai_engine/machine_analysis/observations/economic_indicators/registry/us.yaml"
-        ).read_text(encoding="utf-8")
-        for invalid in ("invalid symbol", ":", "TVC:", ":US10Y", "A:B:C"):
-            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as tmp:
-                definitions = Path(tmp) / "us.yaml"
-                definitions.write_text(
-                    canonical.replace(
-                        "tradingview_symbol: TVC:US10Y",
-                        f'tradingview_symbol: "{invalid}"',
-                        1,
-                    ),
-                    encoding="utf-8",
-                )
-
-                with self.assertRaisesRegex(ValueError, "EXCHANGE:SYMBOL"):
-                    load_definitions(definitions)
-
     def test_registry_rejects_duplicate_series_id_across_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             registry = Path(tmp)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import re
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
@@ -17,7 +16,6 @@ from baibai_engine.primitives.yaml import strict_safe_load
 # Series definitions are split across one yaml per region so no single file grows
 # unmanageable as the registry scales; the loader globs and merges them.
 DEFAULT_REGISTRY_DIR = Path(__file__).with_name("registry")
-_TRADINGVIEW_SYMBOL_RE = re.compile(r"[A-Za-z0-9._-]+:[A-Za-z0-9._!/-]+\Z")
 
 
 def load_definitions(path: Path = DEFAULT_REGISTRY_DIR) -> IndicatorDefinitions:
@@ -110,7 +108,6 @@ def _parse_series(raw: object, sources: Mapping[str, SourceDefinition]) -> Serie
         plausible_min=plausible_min,
         plausible_max=plausible_max,
         aliases=tuple(str(alias) for alias in _list(entry.get("aliases"))),
-        tradingview_symbol=_optional_tradingview_symbol(entry),
     )
 
 
@@ -158,15 +155,3 @@ def _optional_float(entry: Mapping[str, object], key: str) -> float | None:
     if not math.isfinite(number):
         raise ValueError(f"indicator definition field {key!r} must be a finite number")
     return number
-
-
-def _optional_tradingview_symbol(entry: Mapping[str, object]) -> str | None:
-    value = entry.get("tradingview_symbol")
-    if value is None:
-        return None
-    if not isinstance(value, str) or not value or _TRADINGVIEW_SYMBOL_RE.fullmatch(value) is None:
-        raise ValueError(
-            "indicator definition field 'tradingview_symbol' must be a non-empty "
-            "EXCHANGE:SYMBOL string"
-        )
-    return value
