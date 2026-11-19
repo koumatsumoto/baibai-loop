@@ -74,15 +74,6 @@ def test_metadata_order_and_exclusive_writer():
     assert "github.event_name" in target["env"]["EVENT_NAME"]
     assert "github.event.schedule" in target["env"]["EVENT_SCHEDULE"]
     assert "${{" not in target["run"]
-    for field in (
-        "target_date",
-        "slot",
-        "eligible",
-        "reason",
-        "actual_start_utc",
-        "actual_start_jst",
-    ):
-        assert f'"{field}"' in target["run"]
 
 
 def test_notification_uses_job_result_and_only_retained_outputs():
@@ -195,15 +186,6 @@ def test_private_partial_receipts_survive_failed_cooldown_until_common_integrati
 def test_gates_secret_scopes_and_durability():
     data = workflow()
     steps = {step["id"]: step for step in all_steps(data) if "id" in step}
-    for name in (
-        "setup",
-        "setup-uv",
-        "sync",
-        "pull",
-        "hydrate",
-        "preflight",
-    ):
-        assert steps[name]["if"] == "steps.target.outputs.eligible == 'true'"
     assert steps["master"]["if"] == (
         "steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'"
     )
@@ -278,18 +260,18 @@ def test_gates_secret_scopes_and_durability():
 
 
 @pytest.mark.parametrize(
-    ("basis", "event", "interval", "valid", "eligible"),
+    ("basis", "event", "interval", "valid"),
     [
-        ("", "workflow_dispatch", "15", True, "true"),
-        ("", "schedule", "", True, "true"),
-        ("2026-10-09", "workflow_dispatch", "15", True, "true"),
-        ("2026-10-12", "workflow_dispatch", "15", False, None),
-        ("2026-10-09", "schedule", "15", False, None),
-        ("2026-10-09", "workflow_dispatch", "14", False, None),
+        ("", "workflow_dispatch", "15", True),
+        ("", "schedule", "", True),
+        ("2026-10-09", "workflow_dispatch", "15", True),
+        ("2026-10-12", "workflow_dispatch", "15", False),
+        ("2026-10-09", "schedule", "15", False),
+        ("2026-10-09", "workflow_dispatch", "14", False),
     ],
 )
-def test_actual_target_script_keeps_normal_guard_and_validates_manual_observation_before_lease(
-    tmp_path, monkeypatch, basis, event, interval, valid, eligible
+def test_target_outputs_current_cycle_only_after_validating_inputs(
+    tmp_path, monkeypatch, basis, event, interval, valid
 ):
     step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "target")
     code = step["run"].split("<<'PYTARGET'\n", 1)[1].rsplit("\nPYTARGET", 1)[0]
@@ -318,7 +300,10 @@ def test_actual_target_script_keeps_normal_guard_and_validates_manual_observatio
     fields = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert fields["target_date"] == "2026-10-11"
     assert fields["master_asof"] == basis
-    assert fields["eligible"] == eligible
+    assert fields["eligible"] == "true"
+    assert fields["reason"] == ""
+    assert fields["actual_start_utc"] == "2026-10-11T01:00:00+00:00"
+    assert fields["actual_start_jst"] == "2026-10-11T10:00:00+09:00"
     assert fields["slot"] == (
         "manual-observation"
         if basis

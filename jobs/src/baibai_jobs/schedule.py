@@ -99,7 +99,7 @@ def tradingview_observation_window(
 
 def resolve_tradingview_target(
     now: datetime, *, event_name: str, schedule: str, manual_observation: bool = False
-) -> tuple[date, str, bool, str]:
+) -> tuple[date, str]:
     """Resolve the current acquisition cycle, including an overnight delayed slot."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("timezone-aware observation clock required")
@@ -114,4 +114,4 @@ def resolve_tradingview_target(
     else:
         raise ValueError("unknown TradingView event")
     # The saved calendar still enforces post-close / rest-day opening in preflight.
-    return tradingview_cycle_date(now), slot, True, ""
+    return tradingview_cycle_date(now), slot
