@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import marshal
 import shutil
 import sqlite3
 import sys
 import time
 import uuid
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -60,6 +62,8 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     read_lake_store_origin_from_connection,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION
+
+type _SQLiteRow = tuple[str | bytes | int | float | None, ...]
 
 _ROW_GROUP_SIZE = 65_536
 _BINARY_VERIFY_BYTES = 1024 * 1024
@@ -117,6 +121,7 @@ class _BuiltPartition:
     period: Period
     staged_path: Path | None
     manifest: PartitionManifest
+    row_digest: bytes | None = None
 
 
 def sqlite_seal_capacity(source: Path, mirror_root: Path) -> tuple[int, int, int]:
@@ -364,16 +369,30 @@ def export_dataset_snapshot(
             totals=totals,
         )
         new_objects = _promote_partitions(mirror_root, built)
-        validate_snapshot_parity(
-            sqlite_path=snapshot.path, mirror_root=mirror_root, manifest=manifest, dataset=dataset
-        )
-        reused = [
-            obj for item in built if item.staged_path is None for obj in item.manifest.objects
-        ]
+        reused = {
+            (item.period, item.manifest.objects[0]): item.row_digest
+            for item in built
+            if item.row_digest is not None
+        }
+        if reused:
+            _snapshot_parity(
+                sqlite_path=snapshot.path,
+                mirror_root=mirror_root,
+                manifest=manifest,
+                dataset=dataset,
+                checked=reused,
+            )
+        else:
+            validate_snapshot_parity(
+                sqlite_path=snapshot.path,
+                mirror_root=mirror_root,
+                manifest=manifest,
+                dataset=dataset,
+            )
         if reused:
             print(
                 f"lake snapshot: verified reuse dataset={dataset.name} objects={len(reused)} "
-                f"bytes={sum(obj.bytes for obj in reused)}",
+                f"bytes={sum(obj.bytes for _, obj in reused)}",
                 file=sys.stderr,
                 flush=True,
             )
@@ -471,6 +490,23 @@ def validate_snapshot_parity(
     from the other is a hole no per-partition check would look at, and answering it
     costs one query. Every partition's rows are then compared in full.
     """
+    _snapshot_parity(
+        dataset=dataset,
+        sqlite_path=sqlite_path,
+        mirror_root=mirror_root,
+        manifest=manifest,
+        checked={},
+    )
+
+
+def _snapshot_parity(
+    *,
+    dataset: LakeDataset,
+    sqlite_path: Path,
+    mirror_root: Path,
+    manifest: DatasetManifest,
+    checked: Mapping[tuple[Period, LakeObject], bytes],
+) -> None:
     validate_dataset_contract(manifest, dataset)
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
@@ -495,14 +531,28 @@ def validate_snapshot_parity(
                 partition.objects,
                 key=lambda item: (days[item.key] if date_first else "", item.min_key),
             )
+            source_kind = parquet_source_kind(partition.sources)
             for obj in objects:
+                expected = islice(rows, obj.rows)
+                if (
+                    source_kind == "legacy_sqlite_import"
+                    and (proof := checked.get((period, obj))) is not None
+                ):
+                    # The final bytes and the ordered SQLite values must separately still
+                    # match the pair we actually decoded together during this export.
+                    _require_object_bytes(mirror_root / obj.key, obj)
+                    if _row_digest(expected) != proof:
+                        raise LakeBuildError(
+                            f"Parquet values or row order differ from SQLite: {obj.key}"
+                        )
+                    continue
                 _validate_parquet(
                     mirror_root / obj.key,
                     dataset=dataset,
                     period=period,
-                    expected_rows=islice(rows, obj.rows),
+                    expected_rows=expected,
                     expected_object=obj,
-                    source_kind=parquet_source_kind(partition.sources),
+                    source_kind=source_kind,
                 )
             if next(rows, None) is not None:
                 raise LakeBuildError("manifest objects omit SQLite partition rows")
@@ -604,17 +654,18 @@ def _checked_binary_object(
     dataset: LakeDataset,
     period: Period,
     obj: LakeObject,
-    rows: Iterable[tuple[object, ...]],
+    rows: Iterable[_SQLiteRow],
     source: SQLiteSnapshotSourceRef,
 ) -> _BuiltPartition | None:
     """Compare the physical original to this seal, never just its row count or clock."""
     path = _mirror_path(mirror, obj.key)
     try:
+        digest = hashlib.sha256()
         _validate_parquet(
             path,
             dataset=dataset,
             period=period,
-            expected_rows=rows,
+            expected_rows=_digest_rows(rows, digest.update),
             expected_object=obj,
             unversioned=True,
         )
@@ -624,6 +675,7 @@ def _checked_binary_object(
         period,
         None,
         PartitionManifest(values=period_values(dataset, period), objects=(obj,), sources=(source,)),
+        digest.digest(),
     )
 
 
@@ -694,6 +746,36 @@ def _binary_verify_batches(metadata: Iterable[tuple[int, int]]) -> Iterator[tupl
         yield len(groups), groups
 
 
+def _digest_rows(
+    rows: Iterable[_SQLiteRow],
+    update: Callable[[bytes], object],
+) -> Iterator[_SQLiteRow]:
+    # Only SQLite scalar tuples cross this in-process comparison. Format 2 tags and
+    # frames values without reference-identity encoding; no bytes are loaded or persisted.
+    for row in rows:
+        # Keep a large source BLOB out of the encoding buffer. A tuple cannot be a
+        # SQLite scalar, so its framed length cannot alias an integer (or empty NULL).
+        update(marshal.dumps(tuple((len(v),) if isinstance(v, bytes) else v for v in row), 2))
+        for value in row:
+            if isinstance(value, bytes):
+                update(value)
+        yield row
+
+
+def _row_digest(rows: Iterable[_SQLiteRow]) -> bytes:
+    digest = hashlib.sha256()
+    for _ in _digest_rows(rows, digest.update):
+        pass
+    return digest.digest()
+
+
+def _require_object_bytes(path: Path, expected_object: LakeObject) -> None:
+    if not path.is_file() or path.stat().st_size <= 0:
+        raise LakeBuildError(f"Parquet object missing or empty: {path}")
+    if sha256_file(path) != expected_object.sha256 or path.stat().st_size != expected_object.bytes:
+        raise LakeBuildError(f"Parquet checksum or size mismatch: {path}")
+
+
 def _validate_parquet(
     path: Path,
     *,
@@ -704,10 +786,7 @@ def _validate_parquet(
     source_kind: Literal["legacy_sqlite_import", "l1_derived"] = "legacy_sqlite_import",
     unversioned: bool = False,
 ) -> None:
-    if not path.is_file() or path.stat().st_size <= 0:
-        raise LakeBuildError(f"Parquet object missing or empty: {path}")
-    if sha256_file(path) != expected_object.sha256 or path.stat().st_size != expected_object.bytes:
-        raise LakeBuildError(f"Parquet checksum or size mismatch: {path}")
+    _require_object_bytes(path, expected_object)
     names = tuple(column.name for column in dataset.columns)
     date_index = names.index(dataset.date_column)
     pk_indexes = _pk_indexes(dataset)
@@ -790,7 +869,7 @@ def _period_rows(
     *,
     date_first: bool = False,
     on: str | None = None,
-) -> Iterator[tuple[object, ...]]:
+) -> Iterator[_SQLiteRow]:
     columns = ", ".join(column.name for column in dataset.columns)
     order = ", ".join(
         dict.fromkeys((dataset.date_column, *dataset.primary_key))

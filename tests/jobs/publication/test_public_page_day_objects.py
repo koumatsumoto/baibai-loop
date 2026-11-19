@@ -406,7 +406,15 @@ def test_bounded_hydration_and_export_reuse_only_same_sealed_receipts(tmp_path, 
     assert cache.transfers.fetched_objects == len(objects)
 
 
-def test_reuse_does_not_waive_final_published_body_check(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("changed", "message"),
+    [
+        ("parquet", "checksum or size mismatch"),
+        ("sqlite-body", "values or row order"),
+        ("sqlite-field", "values or row order"),
+    ],
+)
+def test_reuse_does_not_waive_final_published_body_check(tmp_path, monkeypatch, changed, message):
     database, mirror = tmp_path / "source.sqlite", tmp_path / "mirror"
     open_connection(database).close()
     import_responses(database, (response(1, 1), response(2, 2)))
@@ -417,14 +425,54 @@ def test_reuse_does_not_waive_final_published_body_check(tmp_path, monkeypatch):
     def change_checked_file(mirror_root, built):
         assert all(part.staged_path is None for part in built)
         result = promote(mirror_root, built)
-        path = mirror_root / built[0].manifest.objects[0].key
-        path.write_bytes(b"wrong bytes after verification")
+        if changed == "parquet":
+            path = mirror_root / built[0].manifest.objects[0].key
+            original = path.read_bytes()
+            path.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+        else:
+            (sealed,) = (mirror_root / "lake/staging").glob("*/snapshot.sqlite")
+            with closing(sqlite3.connect(sealed)) as conn, conn:
+                conn.execute("PRAGMA journal_mode=DELETE")
+                if changed == "sqlite-body":
+                    conn.execute(
+                        "UPDATE equity_web_source_responses SET body_gzip=zeroblob(length(body_gzip))"
+                    )
+                else:
+                    conn.execute("UPDATE equity_web_source_responses SET selected_encoding='ascii'")
         return result
 
     monkeypatch.setattr(writer, "_promote_partitions", change_checked_file)
-    with pytest.raises(LakeBuildError, match="checksum or size mismatch"):
+    with pytest.raises(LakeBuildError, match=message):
         build(database, mirror, "new", previous=original)
     assert set((mirror / "lake/manifests").rglob("*.json")) == before
+
+
+def test_checked_objects_decode_once_but_standalone_parity_never_inherits_the_proof(
+    tmp_path,
+    monkeypatch,
+):
+    database, mirror = tmp_path / "source.sqlite", tmp_path / "mirror"
+    open_connection(database).close()
+    import_responses(database, (response(1, 1), response(2, 2)))
+    _, previous = build(database, mirror, "old")
+    import_responses(database, (response(3, 3),))
+    decoded = []
+    validate = writer._validate_parquet
+
+    def observe(*args, **kwargs):
+        decoded.append(kwargs["expected_object"].key)
+        return validate(*args, **kwargs)
+
+    monkeypatch.setattr(writer, "_validate_parquet", observe)
+    _, current = build(database, mirror, "current", previous=previous)
+    manifest = current.dataset_manifest(DATASET.name)
+    keys = sorted(obj.key for part in manifest.partitions for obj in part.objects)
+    assert sorted(decoded) == keys
+    decoded.clear()
+    validate_snapshot_parity(
+        dataset=DATASET, sqlite_path=database, mirror_root=mirror, manifest=manifest
+    )
+    assert sorted(decoded) == keys
 
 
 pytestmark = pytest.mark.usefixtures(
