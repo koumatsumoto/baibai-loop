@@ -64,12 +64,34 @@ def _estimate(rows: list[list[Element]], label: str, *, fiscal: bool) -> Consens
     return ConsensusEPS(provider_label=label, fiscal_end_label=period, eps_jpy_per_share=yen)
 
 
+def _displayed_sections(page: Element) -> list[Element]:
+    """Only copy candidate sections; inert descendants cannot supply or duplicate a value."""
+    sections: list[Element] = []
+    pending: list[tuple[Element | str, Element | None]] = [(page, None)]
+    while pending:
+        node, parent = pending.pop()
+        if isinstance(node, str):
+            if parent is not None:
+                parent.children.append(node)
+            continue
+        if node.tag in {"template", "script", "style"} or "hidden" in node.attrs:
+            continue
+        is_section = node.tag == "div" and node.has_class("reference_table_left")
+        visible = Element(node.tag, node.attrs) if is_section or parent is not None else None
+        if visible is not None:
+            if parent is not None:
+                parent.children.append(visible)
+            if is_section:
+                sections.append(visible)
+        pending.extend((child, visible) for child in reversed(node.children))
+    return sections
+
+
 def reference_eps(page: Element) -> ReferenceEPS | None:
     sections = [
         section
-        for section in page.find("div")
-        if section.has_class("reference_table_left")
-        and [compact(n.text) for n in section.find("div") if n.has_class("table_title")]
+        for section in _displayed_sections(page)
+        if [compact(n.text) for n in section.find("div") if n.has_class("table_title")]
         == ["参考EPS"]
     ]
     if len(sections) != 1:

@@ -105,6 +105,30 @@ def test_duplicate_or_wrong_period_units_and_locked_cell_are_not_forecasts(rows)
     assert (eps.current_fy, eps.next_fy, eps.rolling_one_year) == (None, None, None)
 
 
+@pytest.mark.parametrize("wrapper", ["<template>{}</template>", "<div hidden>{}</div>"])
+def test_inert_reference_table_is_neither_evidence_nor_a_competing_table(wrapper):
+    visible = section()
+    inert = wrapper.format(visible.replace("-3.5円", "876円"))
+    assert reference_eps(document(inert)) is None
+    assert reference_eps(document(inert + visible)) == reference_eps(document(visible))
+
+
+def test_hidden_rows_cells_and_notes_do_not_supply_fiscal_context():
+    hidden_current = row("今期予想コンセンサス", "2025/09", "3円").replace("<tr>", "<tr hidden>")
+    hidden_next = row("来期予想コンセンサス", "2026/09", "7円").replace(
+        '<td class="td_left_data">', '<td hidden class="td_left_data">'
+    )
+    visible_roll = row("1年後コンセンサス", None, "4円")
+    lower = section([hidden_current, hidden_next, visible_roll]).replace(
+        '<div class="calc_area_comments">', '<div class="calc_area_comments" hidden>'
+    )
+    eps = reference_eps(document(lower))
+    assert (eps.current_fy, eps.next_fy, eps.annualized_to_12_months, eps.share_basis) == (
+        None,
+    ) * 4
+    assert eps.rolling_one_year.eps_jpy_per_share == 4
+
+
 def test_explicit_receipt_adds_only_opt_in_context_and_never_changes_the_store(tmp_path, capsys):
     db = tmp_path / "market.sqlite"
     body = (monex_html() + section()).encode()
