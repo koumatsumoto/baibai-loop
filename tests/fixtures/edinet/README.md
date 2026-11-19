@@ -1,6 +1,6 @@
-# EDINET CapEx抽出fixture
+# EDINET財務指標の原本抜粋fixture
 
-EDINET API v2の`documents/{doc_id}?type=5`から2026-09-17に取得したCSV-ZIPのうち、既存財務抽出対象conceptの行をTSVへ抜粋したもの。行のconcept/context・連結区分・単位・値は原本のまま保持する。
+次の7件は、EDINET API v2の`documents/{doc_id}?type=5`から2026-09-17に取得したCSV-ZIPのうち、既存財務抽出対象conceptの行をTSVへ抜粋したもの。行のconcept/context・連結区分・単位・値は原本のまま保持する。
 
 | doc_id | ticker | 原本ZIP SHA256 |
 | --- | --- | --- |
@@ -37,6 +37,10 @@ S100YRSR（436A）とS100Y6VZ（4494）は、同じ当期・単体contextに日�
 S100YG7Z（6803）はrun 43119209378の固定EDINET入力から2026-11-12にread-onlyで取得した原本CSV行の抜粋。原本ZIP SHA256は`a53ce3f3f8c357b27325782c3ad7748fa4e97858363b5ccaba656973bee2ed4f`、保存日は2026-10-29で、精密な受領時計は残っていない。標準IFRS合算取得支出、営業CF、現金・借入・リース、前期/個別値、会計/連結DEIを元のconcept/context・単位・値のまま保持する。
 
 保持済みtype=1 XBRL（SHA256 `b0c8ba935536d64dd82037d63581938e58dd6e9bbe85baefa9e164ddc969094d`）でも、当年連結contextが2025-04-01〜2026-03-31、JPY単位、合算取得支出が−151百万円であることを確認した。営業CF1,610百万円からの差額は1,459百万円。合算値を有形/無形へ分解したり、欠けた内訳を0としたりしない。全角ダッシュはnilを表し得るため、ASCIIハイフンと同じゼロへ変換しない。
+
+### IFRSの棚卸資産による営業CF増減（訂正報告書）
+
+[S100YRX1.tsv](S100YRX1.tsv)（9268）は、当期JPYの棚卸資産による営業CF増減（−10,059百万円）と営業CF（689百万円）の2行抜粋。[原本照合の記録 #2137](https://github.com/koumatsumoto/baibai-loop/pull/2137) は、固定run `43119209378` の訂正報告書、対象期間2025-04-01〜2026-03-31としている。この2行は内訳の符号を検証するもので、実際の開始・終了日、連結区分を示すDEI、原ZIP全体は含まない。
 
 ### IFRSの社債・借入金とリース
 
