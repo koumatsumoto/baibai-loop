@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pandas as pd
 from tests.helpers.edinet_documents import store_edinet_documents
-from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
@@ -37,7 +36,6 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_fin_summaries,
     store_jquants_margin_alerts,
     store_jquants_market_calendar,
-    store_jquants_master,
     store_jquants_weekly_margin,
 )
 from baibai_engine.machine_analysis.observations.normalization import (
@@ -695,14 +693,6 @@ class SourceProjectionTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
 
             self.assertEqual(
-                store_jquants_master(
-                    db,
-                    make_master_records(date(2026, 5, 8)),
-                    requested_asof=date(2026, 5, 8),
-                ),
-                2500,
-            )
-            self.assertEqual(
                 store_jpx_earnings_calendar_snapshot(db, _earnings_snapshot(date(2026, 5, 8))),
                 1,
             )
@@ -776,7 +766,7 @@ class SourceProjectionTests(unittest.TestCase):
                     conn.execute(
                         "SELECT source, record_count FROM source_coverage "
                         "WHERE source IN ("
-                        "'jquants_master_snapshots', 'jpx_earnings_calendar', "
+                        "'jpx_earnings_calendar', "
                         "'jquants_market_calendar', 'edinet_documents', 'edinet_metrics', "
                         "'jpx_regulation_flags')"
                     ).fetchall()
@@ -787,7 +777,6 @@ class SourceProjectionTests(unittest.TestCase):
             self.assertEqual(
                 coverage,
                 {
-                    "jquants_master_snapshots": 2500,
                     "jpx_earnings_calendar": 1,
                     "jquants_market_calendar": 1,
                     "edinet_documents": 2,

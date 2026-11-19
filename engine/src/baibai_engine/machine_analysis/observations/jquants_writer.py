@@ -23,11 +23,6 @@ from baibai_engine.machine_analysis.observations.normalization import (
 from baibai_engine.machine_analysis.observations.prices.jquants_normalization import (
     normalize_daily_bars,
 )
-from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
-    MASTER_SOURCE,
-    master_coverage_key,
-    validate_master_snapshot,
-)
 from baibai_engine.machine_analysis.observations.trading_activity.jquants_contract import (
     ALL_ISSUES_DAILY_MARGIN_SOURCE,
     MARGIN_ALERT_OPERATION,
@@ -615,55 +610,6 @@ def _all_issues_daily_margin_rows_with_quality(
         rejected_count=rejected_count,
         excluded_count=excluded_count,
     )
-
-
-def store_jquants_master(
-    db_path: Path,
-    records: Iterable[Mapping[str, Any]],
-    *,
-    requested_asof: date,
-    fetched_at_utc: str | None = None,
-    connection: sqlite3.Connection | None = None,
-) -> int:
-    validated = validate_master_snapshot(list(records), requested_asof)
-    conn = connection if connection is not None else open_connection(db_path)
-    try:
-        iso = requested_asof.isoformat()
-        if not conn.in_transaction:
-            conn.execute("BEGIN")
-        conn.execute("DELETE FROM jquants_master_snapshots WHERE snapshot_date = ?", (iso,))
-        conn.execute(
-            "DELETE FROM source_coverage WHERE source = ? "
-            "AND coverage_start = ? AND coverage_end = ?",
-            (MASTER_SOURCE, iso, iso),
-        )
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots(snapshot_date, security_code, record_json) "
-            "VALUES (?, ?, ?)",
-            validated.rows,
-        )
-        persisted_count = validated.persisted_count
-        record_source_coverage(
-            conn,
-            source=MASTER_SOURCE,
-            coverage_key=master_coverage_key(requested_asof),
-            coverage_start=iso,
-            coverage_end=iso,
-            record_count=persisted_count,
-            status="ok",
-            error=None,
-            fetched_at_utc=fetched_at_utc,
-        )
-        if connection is None:
-            conn.commit()
-        return persisted_count
-    except BaseException:
-        if connection is None:
-            conn.rollback()
-        raise
-    finally:
-        if connection is None:
-            conn.close()
 
 
 def store_jquants_daily_bars(
