@@ -59,10 +59,8 @@ def test_nonempty_cache_requires_native_verification_only_when_release_omits_ori
     remote.assert_not_called()
 
 
-@pytest.mark.parametrize("transfer_copy", [False, True])
-def test_native_cache_clear_uses_the_original_receipt_proof(
-    tmp_path, monkeypatch, capsys, transfer_copy
-):
+@pytest.mark.parametrize("mode", ["working-store", "transfer-copy", "broken-stderr"])
+def test_native_cache_clear_uses_the_original_receipt_proof(tmp_path, monkeypatch, capfd, mode):
     store = MemoryR2Store()
     store.close = Mock()
     lists = EdinetListL1(store, tmp_path / "lists")
@@ -84,17 +82,23 @@ def test_native_cache_clear_uses_the_original_receipt_proof(
         )
     monkeypatch.setattr("baibai_engine.storage.objects.r2.Boto3R2Store", lambda **_: store)
     args = SimpleNamespace(store=database, mirror=tmp_path / "mirror", bucket="fixture")
-    _clear_independent_list_cache(
-        args,
-        SimpleNamespace(dataset_names=lambda: ()),
-        store_path=database if transfer_copy else None,
-    )
+    with monkeypatch.context() as log_context:
+        if mode == "broken-stderr":
+            write = Mock(side_effect=OSError("diagnostic stream unavailable"))
+            log_context.setattr("baibai_jobs.publication.snapshot_write_cli.os.write", write)
+        _clear_independent_list_cache(
+            args,
+            SimpleNamespace(dataset_names=lambda: ()),
+            store_path=None if mode == "working-store" else database,
+        )
+        if mode == "broken-stderr":
+            write.assert_called_once()
     with closing(open_connection(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (0,)
     store.close.assert_called_once_with()
-    output = capsys.readouterr()
+    output = capfd.readouterr()
     assert output.out == ""
-    if transfer_copy:
+    if mode == "transfer-copy":
         assert output.err.startswith("snapshot: phase=verify_native_edinet_list_cache state=done ")
         assert output.err.strip().endswith(" verified_rows=1")
     else:
