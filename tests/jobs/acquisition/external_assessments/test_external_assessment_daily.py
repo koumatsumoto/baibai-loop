@@ -51,17 +51,17 @@ def test_saved_plan_master_assertion_is_checked_without_refreezing(monkeypatch):
         daily.initialize(store, run_id=p.run_id, master_asof=date(2026, 10, 12), mirror=None)
 
 
-def test_initial_native_plan_and_saved_resume_keep_immutable_universe(tmp_path, monkeypatch):
+def test_initial_native_plan_and_saved_resume_keep_immutable_universe(tmp_path):
     from baibai_engine.data_collection.providers.jquants.master_native import HEAD_KEY
 
-    store, _master, _ = build_native_master(tmp_path, monkeypatch)
+    store, _master = build_native_master(tmp_path)
     cache = tmp_path / "private-plan-cache"
     p = daily.initialize(store, run_id="new-master-only", master_asof=ASOF, mirror=cache)
     assert p.tickers == tuple(sorted((*map(str, range(1000, 3500)), "130A")))
     assert json.loads(p.universe_binding)["master_native_input"]["kind"] == "native_l1"
     assert cache.stat().st_mode & 0o777 == 0o700
     assert not any(key.endswith(".parquet") or key.startswith("lake/") for key in store.get_keys)
-    assert not list(cache.rglob("*.sqlite"))
+    assert not list(tmp_path.rglob("*.sqlite"))
     del store.values[HEAD_KEY]
     store.get_keys.clear()
     assert daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None) == p
@@ -88,8 +88,8 @@ def test_old_saved_collector_binding_can_load_without_release_reads(monkeypatch)
     assert all(key == staging.prefix(p.run_id) + "/plan.json" for _, key in store.events)
 
 
-def test_corrupt_native_master_cannot_publish_a_new_plan(tmp_path, monkeypatch):
-    store, _, _ = build_native_master(tmp_path, monkeypatch)
+def test_corrupt_native_master_cannot_publish_a_new_plan(tmp_path):
+    store, _ = build_native_master(tmp_path)
     key = next(key for key in store.values if "/packs/" in key)
     original = store.values[key].body
     store.store_object(key, bytes([original[0] ^ 1]) + original[1:])

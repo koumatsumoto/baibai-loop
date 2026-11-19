@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
+import json
 from datetime import UTC, date, datetime
 
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
@@ -11,7 +10,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from tests.helpers.master import TSE_33_SECTORS, insert_master_rows
+from tests.helpers.master import TSE_33_SECTORS, insert_master_rows, master_record
 from tests.helpers.r2_store import MemoryR2Store
 
 ASOF = date(2026, 10, 11)
@@ -19,26 +18,28 @@ RECEIVED = datetime(2026, 10, 11, 0, 0, 1, 123456, tzinfo=UTC)
 ORIGIN = LakeStoreOrigin("synthetic-fixed-release", "a" * 64)
 
 
-def seed_database(path, *, count=2500, snapshot=ASOF, origin=True):
+def _ordinary_rows(snapshot, count):
+    day = snapshot.isoformat()
     sectors = sorted(TSE_33_SECTORS)
     markets = ("PRIME", "standard", "グロース", "東証一部")
-    tickers = tuple(str(1000 + index) for index in range(count))
+    return [
+        (
+            day,
+            str(1000 + i),
+            f"合成会社{i}",
+            markets[i % len(markets)],
+            sectors[i % len(sectors)],
+            "011",
+        )
+        for i in range(count)
+    ]
+
+
+def seed_database(path, *, count=2500, snapshot=ASOF, origin=True):
+    rows = _ordinary_rows(snapshot, count)
     connection = open_connection(path)
     try:
-        insert_master_rows(
-            connection,
-            [
-                (
-                    snapshot.isoformat(),
-                    ticker,
-                    f"合成会社{index}",
-                    markets[index % 4],
-                    sectors[index % 33],
-                    "011",
-                )
-                for index, ticker in enumerate(tickers)
-            ],
-        )
+        insert_master_rows(connection, rows)
         if origin:
             write_lake_store_origin(connection, ORIGIN)
         connection.execute(
@@ -48,13 +49,11 @@ def seed_database(path, *, count=2500, snapshot=ASOF, origin=True):
         connection.commit()
     finally:
         connection.close()
-    return tickers
+    return tuple(row[1] for row in rows)
 
 
-def build_native_master(tmp_path, monkeypatch, *, snapshot=ASOF, count=2500, calendar=None):
+def build_native_master(tmp_path, *, snapshot=ASOF, count=2500, calendar=None):
     """実native原本から固定universeを作る。旧lakeもready依存も用意しない。"""
-    import json
-
     from baibai_engine.data_collection.providers.jquants.calendar_native import (
         CalendarAttempt,
         CalendarL1,
@@ -65,24 +64,16 @@ def build_native_master(tmp_path, monkeypatch, *, snapshot=ASOF, count=2500, cal
         MasterL1,
     )
 
-    database = tmp_path / "market.sqlite"
-    seed_database(database, snapshot=snapshot, count=count)
-    with closing(sqlite3.connect(database)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [
-                (snapshot.isoformat(), "130A", "合成英字会社", "PRIME", "電気機器", "011"),
-                (snapshot.isoformat(), "9401", "合成ETF", "PRIME", "その他", "014"),
-                (snapshot.isoformat(), "9402", "合成PRO", "TOKYO PRO MARKET", "電気機器", "011"),
-                (snapshot.isoformat(), "9403", "合成市場外", "RESIDUAL", "電気機器", "011"),
-            ],
-        )
-        rows = [
-            json.loads(payload)
-            for (payload,) in connection.execute(
-                "SELECT record_json FROM jquants_master_snapshots ORDER BY security_code"
-            )
-        ]
+    day = snapshot.isoformat()
+    inputs = [
+        *_ordinary_rows(snapshot, count),
+        (day, "130A", "合成英字会社", "PRIME", "電気機器", "011"),
+        (day, "9401", "合成ETF", "PRIME", "その他", "014"),
+        (day, "9402", "合成PRO", "TOKYO PRO MARKET", "電気機器", "011"),
+        (day, "9403", "合成市場外", "RESIDUAL", "電気機器", "011"),
+    ]
+    by_ticker = {row[1]: master_record(*row) for row in inputs}
+    rows = sorted(by_ticker.values(), key=lambda row: row["Code"])
     store = MemoryR2Store()
     master = MasterL1(store, tmp_path / "master-native")
     master.initialize()
@@ -134,4 +125,4 @@ def build_native_master(tmp_path, monkeypatch, *, snapshot=ASOF, count=2500, cal
         )
     store.get_keys.clear()
     store.put_keys.clear()
-    return store, master, database
+    return store, master
