@@ -84,13 +84,15 @@ def test_publication_lease_surrounds_every_cloud_writer(
 
 
 def test_worker_deploy_token_is_limited_to_the_verified_main_dispatch() -> None:
+    """Check the declared Wrangler entry point and gate without executing a deployment."""
     grants = []
     for path in WORKFLOWS.glob("*.y*ml"):
         workflow = _workflow(path.name)
         for job in workflow["jobs"].values():
             for scope in (workflow, job, *job.get("steps", [])):
                 if "CLOUDFLARE_API_TOKEN" in scope.get("env", {}):
-                    assert "run" in scope
+                    assert scope.get("working-directory") == "web/edge"
+                    assert scope.get("run", "").split() == ["npx", "wrangler", "deploy"]
                     guard = scope["if"].removeprefix("${{").removesuffix("}}")
                     grants.append((path.name, {term.strip() for term in guard.split("&&")}))
     assert grants == [
