@@ -12,3 +12,11 @@ EDINET type=1のPublicDoc instance、issuer XSD、Japanese label linkbaseから�
 表の銘柄とdocIDは出典の組み合わせ。抜粋に一覧の提出時刻は含まれないため、factの提出時刻には固定の試験時計を使う。同一銘柄の別書類を仮定する保存・統合テストだけは、銘柄も明示的に置き換える。
 
 原典: [EDINET](https://disclosure2.edinet-fsa.go.jp/) の各docID。有効なAPI認証で `/api/v2/documents/<docID>?type=1` から取得できる。
+
+### #2692 帰属判定の設計対照（通常抽出・公開には未接続）
+
+[純関数](../../../../tools/experiments/edinet_research_dimensions.py)は[金融庁2025年版](https://www.fsa.go.jp/search/20241112.html)・[2026年版](https://www.fsa.go.jp/search/20251111.html)のXSD・定義リンク・日本語標準ラベルと、上記4試料にある8数値概念・2連結明細表だけを対象とする。資料の提出日ではなくQNameのURIを照合する。公式ZIPのSHA-256は順に `70abacbac7b9d897dc794faadb4a2be46775f618ab79a8888622847a4d62ae90`、`8d57f84802b20a8dc6a517ad6d4768270c294aa6991621d66cb5adb562df5de2`。資料の再取得はテストに不要。
+
+4試料のv2対照はセグメント142行・満期24行。提出者自身の事業ラベルは保持し、公式標準ラベルは製品別名と区別する（例：`ReconcilingItemsMember` の標準ラベルは「調整項目」、v2表示は「調整額」）。試料には提出者の定義リンクがない。標準事業セグメント軸上の独自QNameは提出者が記した組であって、所属を別途検証した証拠ではない。[金融庁ガイド5-4-5-1](https://www.fsa.go.jp/search/20251111/2b-1_InstanceGuide.pdf#page=49)に従い、軸省略だけでは連結としない。裏付けた連結セグメント注記がないときはメンバーを残し、帰属は不明。2つの連結明細表では表の標準概念自身が根拠となる。正規の個別財務諸表向け明細表の新規対応、他年度、義務のない項目への既定適用はこの試験の範囲外。
+
+この対照はv2・固定release・L3・日次を変更しない。読取先には接続しない。v3の保存・読取と新旧世代の分離・採用可否は[設計Issue #2692](https://github.com/koumatsumoto/baibai-loop/issues/2692)の別段階。
