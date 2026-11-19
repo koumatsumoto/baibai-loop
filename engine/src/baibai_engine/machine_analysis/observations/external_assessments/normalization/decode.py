@@ -50,7 +50,7 @@ def parse_source_html(
     return observation
 
 
-def _html(response: EquityWebSourceResponse) -> str:
+def response_html(response: EquityWebSourceResponse) -> str:
     try:
         return response.body.decode(response.selected_encoding, errors="strict")
     except (LookupError, UnicodeDecodeError):
@@ -91,11 +91,11 @@ def decode_attempt(
         response = roles["iframe"]
         if response.parent_receipt_id != page.receipt_id:
             raise ParseError("parent_identity")
-        url = rakuten.iframe_url(_html(page), ticker=ticker, source_url=page.requested_url)
+        url = rakuten.iframe_url(response_html(page), ticker=ticker, source_url=page.requested_url)
         if url != response.requested_url:
             raise ParseError("source_identity")
     return parse_source_html(
-        _html(response),
+        response_html(response),
         source=source,
         ticker=ticker,
         source_url=response.requested_url,
