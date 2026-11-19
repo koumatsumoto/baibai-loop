@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import UTC, date, timedelta
 from pathlib import Path
 from typing import TextIO
@@ -30,6 +31,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLiteSchemaError,
     connect_current,
     open_connection,
+    validate_current_schema,
 )
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -57,18 +59,16 @@ def pending_edinet_document_dates(
     )
 
 
-def rebuild_edinet_document_day(
-    sqlite_path: Path, on_date: date, *, connection: sqlite3.Connection | None = None
-) -> DocumentListProjection:
-    """Save current success or failed coverage, then return the deterministic result."""
+def rebuild_edinet_document_day(sqlite_path: Path, on_date: date) -> DocumentListProjection:
+    """Read this day's retained receipts and write its projection in one transaction."""
     if not sqlite_path.exists():
         raise EDINETProviderError("EDINET retained source database is missing")
-    conn = connection if connection is not None else connect_current(sqlite_path)
-    if conn is None:
-        raise EDINETProviderError("EDINET retained source database is unavailable")
-    try:
-        if connection is None:
-            conn.execute("BEGIN")
+    uri = sqlite_path.resolve().as_uri() + "?mode=rw"
+    with closing(sqlite3.connect(uri, uri=True)) as conn, conn:
+        # Reserve the writer before selecting receipts: an older replay must not
+        # overwrite rows and coverage already rebuilt from a newer receipt.
+        conn.execute("BEGIN IMMEDIATE")
+        validate_current_schema(conn)
         receipts = read_list_responses(conn, doc_date=on_date)
         if not receipts:
             raise EDINETProviderError(f"EDINET list receipts are missing: {on_date.isoformat()}")
@@ -80,13 +80,9 @@ def rebuild_edinet_document_day(
             if on_date < capture_day:
                 proof = read_list_responses(conn, doc_date=capture_day)
                 rechecked_asof = document_list_rechecked_asof(projection, proof)
-    finally:
-        if connection is None:
-            conn.rollback()
-            conn.close()
-    store_edinet_document_projection(
-        sqlite_path, projection, rechecked_asof=rechecked_asof, connection=connection
-    )
+        store_edinet_document_projection(
+            sqlite_path, projection, rechecked_asof=rechecked_asof, connection=conn
+        )
     return projection
 
 

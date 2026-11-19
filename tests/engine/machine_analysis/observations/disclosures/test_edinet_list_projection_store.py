@@ -17,6 +17,7 @@ from baibai_engine.data_collection.providers.edinet.list_projection import (
 )
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
+from baibai_engine.machine_analysis.observations.disclosures import edinet_list_rebuild as rebuild
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_current_filing_documents,
     read_edinet_documents,
@@ -25,7 +26,7 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_sto
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     store_edinet_document_projection,
 )
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 _DAY = date(2026, 10, 15)
 _STAMP = datetime(2026, 10, 15, 9, tzinfo=UTC)
@@ -298,3 +299,86 @@ def test_failed_serialization_preserves_previous_rows_and_coverage(tmp_path: Pat
     with pytest.raises(ValueError, match="Out of range float"):
         store_edinet_document_projection(path, broken, rechecked_asof=None)
     assert _snapshot(path) == before
+
+
+@pytest.mark.parametrize("pause_after", ["receipt_read", "before_projection_write"])
+def test_manual_replay_cannot_rewind_a_newer_receipt_and_projection(
+    tmp_path, monkeypatch, pause_after
+):
+    path = tmp_path / "market.sqlite"
+    first = _add_receipt(path, _A, seconds=1)
+    with closing(open_connection(path)) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+    newer_body = _wire([{"seqNumber": 1, "docID": "S100NEW", "legalStatus": "1"}])
+    attempted = False
+    busy = False
+    newer_id = None
+
+    def write_newer():
+        # A real second writer. Never sleep or wait under the interrupted reader's lock.
+        nonlocal newer_id
+        with closing(sqlite3.connect(path, timeout=0)) as writer:
+            newer_id = seed_list_response(
+                writer, doc_date=_DAY, received_at=_STAMP + timedelta(seconds=2), body=newer_body
+            )
+            with writer:
+                writer.execute("BEGIN IMMEDIATE")
+                latest = project_document_list(read_list_responses(writer, doc_date=_DAY))
+                store_edinet_document_projection(
+                    path, latest, rechecked_asof=None, connection=writer
+                )
+
+    def interleave():
+        nonlocal attempted, busy
+        assert not attempted
+        attempted = True
+        try:
+            write_newer()
+        except sqlite3.OperationalError as exc:
+            if exc.sqlite_errorcode != sqlite3.SQLITE_BUSY:
+                raise
+            busy = True
+
+    def after_read(conn, *, doc_date):
+        originals = read_list_responses(conn, doc_date=doc_date)
+        if doc_date == _DAY:
+            interleave()
+        return originals
+
+    def before_store(*args, **kwargs):
+        interleave()
+        return store_edinet_document_projection(*args, **kwargs)
+
+    with monkeypatch.context() as hook:
+        if pause_after == "receipt_read":
+            hook.setattr(rebuild, "read_list_responses", after_read)
+        else:
+            hook.setattr(rebuild, "store_edinet_document_projection", before_store)
+        assert rebuild.rebuild_edinet_document_day(path, _DAY).selected_receipt.receipt_id == first
+
+    assert attempted
+    if busy:
+        write_newer()  # The competing operation can complete once manual replay releases the day.
+    docs, meta, coverage = _snapshot(path)
+    assert [doc["doc_id"] for doc in docs] == ["S100NEW"]
+    assert meta["selected_receipt_id"] == newer_id
+    assert (
+        meta["latest_received_at_utc"]
+        == coverage[3]
+        == (_STAMP + timedelta(seconds=2)).isoformat(timespec="microseconds")
+    )
+    with closing(open_connection(path)) as conn:
+        assert [r.receipt_id for r in read_list_responses(conn, doc_date=_DAY)] == [first, newer_id]
+        assert rebuild.pending_edinet_document_dates(conn, through=_DAY) == ()
+    assert busy
+
+
+def test_manual_replay_rejects_empty_or_missing_store_without_initializing_it(tmp_path):
+    path = tmp_path / "market #1?.sqlite"
+    with pytest.raises(EDINETProviderError, match="missing"):
+        rebuild.rebuild_edinet_document_day(path, _DAY)
+    assert not path.exists()
+    path.touch()
+    with pytest.raises(SQLiteSchemaError, match="obsolete"):
+        rebuild.rebuild_edinet_document_day(path, _DAY)
+    assert path.read_bytes() == b""
