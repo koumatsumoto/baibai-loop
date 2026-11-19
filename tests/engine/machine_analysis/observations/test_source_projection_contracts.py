@@ -35,7 +35,6 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
     store_jquants_margin_alerts,
-    store_jquants_market_calendar,
     store_jquants_weekly_margin,
 )
 from baibai_engine.machine_analysis.observations.normalization import (
@@ -697,18 +696,6 @@ class SourceProjectionTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(
-                store_jquants_market_calendar(
-                    db,
-                    [
-                        {"Date": "2026-05-08", "HolDiv": "1"},
-                        {"Date": "2026-05-08", "HolDiv": "1"},
-                    ],
-                    requested_start=date(2026, 5, 8),
-                    requested_end=date(2026, 5, 8),
-                ),
-                1,
-            )
-            self.assertEqual(
                 store_edinet_documents(
                     db,
                     date(2026, 5, 8),
@@ -767,7 +754,7 @@ class SourceProjectionTests(unittest.TestCase):
                         "SELECT source, record_count FROM source_coverage "
                         "WHERE source IN ("
                         "'jpx_earnings_calendar', "
-                        "'jquants_market_calendar', 'edinet_documents', 'edinet_metrics', "
+                        "'edinet_documents', 'edinet_metrics', "
                         "'jpx_regulation_flags')"
                     ).fetchall()
                 )
@@ -778,7 +765,6 @@ class SourceProjectionTests(unittest.TestCase):
                 coverage,
                 {
                     "jpx_earnings_calendar": 1,
-                    "jquants_market_calendar": 1,
                     "edinet_documents": 2,
                     "edinet_metrics": 1,
                     "jpx_regulation_flags": 1,
@@ -945,33 +931,6 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
             )
             self.assertEqual(persisted, 0)
 
-    def test_an_empty_calendar_payload_replaces_stored_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            window = (date(2020, 12, 1), date(2020, 12, 31))
-            store_jquants_market_calendar(
-                db,
-                [{"Date": "2020-12-30", "HolDiv": "1"}],
-                requested_start=window[0],
-                requested_end=window[1],
-            )
-
-            self.assertEqual(
-                store_jquants_market_calendar(
-                    db, [], requested_start=window[0], requested_end=window[1]
-                ),
-                0,
-            )
-
-            conn = open_connection(db)
-            try:
-                remaining = conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[
-                    0
-                ]
-            finally:
-                conn.close()
-            self.assertEqual(remaining, 0)
-
     def test_a_non_empty_payload_still_replaces_what_the_range_held(self) -> None:
         # A complete refetch replaces the scoped cross-section: a name the
         # provider no longer reports has to disappear.
@@ -1045,12 +1004,6 @@ class RepeatedObservationTest(unittest.TestCase):
             record["C"] = 1000
             store = partial(store_jquants_daily_bars, db, requested_start=day, requested_end=day)
             return store, record, "C", "jquants_daily_bars", "close", 1001
-        if kind == "calendar":
-            record = {"Date": day.isoformat(), "HolDiv": "1"}
-            store = partial(
-                store_jquants_market_calendar, db, requested_start=day, requested_end=day
-            )
-            return store, record, "HolDiv", "jquants_market_calendar", "holiday_division", "0"
         if kind == "alerts":
             record = {
                 "PubDate": day.isoformat(),
@@ -1122,7 +1075,7 @@ class RepeatedObservationTest(unittest.TestCase):
                         )
 
     def test_identical_records_conflicts_and_later_corrections(self):
-        for kind in ("bars", "calendar", "weekly", "daily", "alerts"):
+        for kind in ("bars", "weekly", "daily", "alerts"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
                 db = Path(tmp) / "market.sqlite"
                 store, record, field, table, column, correction = self._case(kind, db)

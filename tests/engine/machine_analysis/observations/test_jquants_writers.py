@@ -22,6 +22,8 @@ from tests.helpers.jquants_receipts import (
     source_record,
 )
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.master_calendar_native import seed_calendar
+from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
@@ -37,7 +39,6 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
     store_jquants_margin_alerts,
-    store_jquants_market_calendar,
     store_jquants_short_sale_reports,
     store_jquants_weekly_margin,
 )
@@ -60,6 +61,7 @@ from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration.calendar_native import model_input as calendar_model_input
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -509,18 +511,17 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
         ),
         FIRST_AT,
     )
-    calendar_id = receive(
+    receive(
         db_path,
         "market_calendar",
         {"from": DAY, "to": DAY},
-        body([{"Date": DAY, "HolDiv": "1"}]),
+        body([{"Date": DAY, "HolDiv": "3"}]),
         FIRST_AT,
     )
     with sqlite3.connect(db_path) as conn:
         for request_id, writer in (
             (bars_id, store_jquants_daily_bars),
             (financial_id, store_jquants_fin_summaries),
-            (calendar_id, store_jquants_market_calendar),
         ):
             request = read_complete_request(conn, request_id)
             writer(
@@ -530,6 +531,11 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
                 requested_end=day,
                 fetched_at_utc=request.received_at.isoformat(timespec="microseconds"),
             )
+    store = MemoryR2Store()
+    calendar_source = seed_calendar(store, db_path, db_path.parent / "native", as_of=day)
+    calendar_model_input(
+        store, calendar_source.fixed(), as_of=day, evaluated_at=FIRST_AT, market=db_path
+    )
     original_db = db_path.read_bytes()
 
     def unexpected_http(*args, **kwargs):
@@ -549,7 +555,7 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
     assert [row.fiscal_period for row in summaries] == ["FY", "1Q"]
     calendar = read_market_calendar(db_path, day, day)
     assert calendar is not None
-    assert calendar[0].is_business_day
+    assert calendar[0].is_business_day is False
     assert db_path.read_bytes() == original_db
 
 

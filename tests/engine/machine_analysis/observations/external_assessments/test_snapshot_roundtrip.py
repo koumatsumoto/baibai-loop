@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from contextlib import closing
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,7 +20,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.reader imp
     read_observations,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_market_calendar
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -31,6 +30,7 @@ from baibai_engine.storage.snapshots.writer import (
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
+from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import (
@@ -85,16 +85,20 @@ def test_optional_release_roundtrip_preserves_received_history_and_other_dataset
 ) -> None:
     narrow_release_policy(monkeypatch, datasets=DATASETS, carries_history=True)
     path = tmp_path / "market.sqlite"
-    open_connection(path).close()
-    store_jquants_market_calendar(
-        path,
-        [
-            {"Date": "2026-09-30", "HolDiv": "1"},
-            {"Date": "2026-10-01", "HolDiv": "1"},
-        ],
-        requested_start=date(2026, 9, 30),
-        requested_end=date(2026, 10, 1),
-    )
+    with closing(open_connection(path)) as connection, connection:
+        # A previously published SQLite-era dataset, including its original coverage window.
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
+            [("2026-09-30", "1"), ("2026-10-01", "1")],
+        )
+        record_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="get_mkt_calendar:2026-09-30..2026-10-01",
+            coverage_start="2026-09-30",
+            coverage_end="2026-10-01",
+            record_count=2,
+        )
     mirror = tmp_path / "mirror"
     old, old_cache, _ = _publish(path, mirror, (CALENDAR,), "before-retail")
     restored = tmp_path / "restored.sqlite"
