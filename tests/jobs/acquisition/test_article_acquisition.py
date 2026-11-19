@@ -272,7 +272,10 @@ def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch,
     assert planning.requests[original["requested_url"]]["stage"]["stage_id"] == ready[0]["stage_id"]
 
 
-def test_failure_in_one_source_does_not_stop_another_private_stage(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("group", ["public", "scheduled"])
+def test_failure_in_one_source_does_not_stop_another_private_stage(
+    tmp_path, monkeypatch, capsys, group
+):
     calls = []
 
     def acquire(_store, *, source, **_):
@@ -287,7 +290,7 @@ def test_failure_in_one_source_does_not_stop_another_private_stage(tmp_path, mon
         articles.main(
             [
                 "--group",
-                "public",
+                group,
                 "--created-at",
                 SLOT.isoformat(),
                 "--identity",
@@ -298,7 +301,9 @@ def test_failure_in_one_source_does_not_stop_another_private_stage(tmp_path, mon
         )
         == 1
     )
-    assert calls == list(articles.GROUPS["public"])
+    assert calls == list(articles.GROUPS[group])
+    if group == "scheduled":
+        assert calls == ["tsr_data", "boj_news"]
     assert "private failure detail" not in capsys.readouterr().out
 
 

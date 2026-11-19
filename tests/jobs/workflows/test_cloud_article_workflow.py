@@ -11,7 +11,10 @@ def test_article_slots_use_bounded_host_groups_without_model_generation():
     workflow = yaml.load(raw, Loader=yaml.BaseLoader)
     assert declared_schedule(raw) == [{"cron": "13 1,5,9,13,17,21 * * *"}]
     job = workflow["jobs"]["acquire"]
-    assert job["strategy"]["matrix"]["group"] == ["public", "world", "rakuten"]
+    assert job["strategy"]["matrix"]["group"] == (
+        "${{ fromJSON(github.event_name == 'schedule' && "
+        "'[\"scheduled\"]' || '[\"public\",\"world\",\"rakuten\"]') }}"
+    )
     assert workflow["on"]["workflow_dispatch"]["inputs"]["group"]["options"] == [
         "all",
         "public",
@@ -19,7 +22,12 @@ def test_article_slots_use_bounded_host_groups_without_model_generation():
         "rakuten",
     ]
     assert job["strategy"]["fail-fast"] == "false"
-    assert "source-host-" in job["concurrency"]["group"]
+    assert job["concurrency"]["group"] == (
+        "source-host-${{ (matrix.group == 'public' || matrix.group == 'scheduled') "
+        "&& 'article-public' || matrix.group }}"
+    )
+    assert job["concurrency"]["queue"] == "max"
+    assert job["concurrency"]["cancel-in-progress"] == "false"
     assert "model-integration" not in raw
     assert "upload-artifact" not in raw
     collector = yaml.load(
@@ -38,5 +46,6 @@ def test_manual_and_scheduled_article_dispatch_share_one_acquisition_contract():
     )
     steps = workflow["jobs"]["acquire"]["steps"]
     acquire = next(step for step in steps if step.get("name", "").startswith("Acquire due"))
+    assert acquire["env"]["GROUP"] == "${{ matrix.group }}"
     assert "--manual" not in acquire["run"]
     assert '--created-at "$CREATED_AT"' in acquire["run"]

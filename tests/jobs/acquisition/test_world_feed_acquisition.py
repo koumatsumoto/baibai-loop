@@ -20,7 +20,8 @@ FEED = b"""<rss><channel><item><guid>one</guid><link>https://example.invalid/one
 
 
 def test_world_group_does_not_reduce_existing_group_budgets():
-    assert set(articles.GROUPS) == {"public", "world", "rakuten"}
+    assert set(articles.GROUPS) == {"public", "world", "rakuten", "scheduled"}
+    assert articles.GROUPS["scheduled"] == ("tsr_data", "boj_news")
     assert articles.GROUPS["rakuten"] == ("toushiru",)
     assert {source for group in articles.GROUPS.values() for source in group} == set(
         COLLECTION_SOURCES
@@ -38,6 +39,7 @@ def test_world_group_does_not_reduce_existing_group_budgets():
         "world": 4 * 1024 * 1024,
         "public": 80 * 1024 * 1024,
         "rakuten": 24 * 1024 * 1024,
+        "scheduled": 80 * 1024 * 1024,
     }
     assert sum(len(SOURCES[source].entry_urls) for source in WORLD_NEWS_SOURCES) == 4
 

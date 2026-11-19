@@ -22,11 +22,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [public, world, rakuten]
-    # Article groups serialize independently; Toushiru keeps the rakuten queue.
+        group: ${{ fromJSON(github.event_name == 'schedule' && '["scheduled"]' || '["public","world","rakuten"]') }}
+    # Scheduled and manual public share one queue; manual Toushiru keeps its own.
     # No global provider barrier, publication lease, or model calculation here.
     concurrency:
-      group: source-host-${{ matrix.group == 'public' && 'article-public' || matrix.group }}
+      group: source-host-${{ (matrix.group == 'public' || matrix.group == 'scheduled') && 'article-public' || matrix.group }}
       queue: max
       cancel-in-progress: false
     runs-on: ubuntu-24.04
