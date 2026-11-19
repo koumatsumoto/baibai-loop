@@ -286,7 +286,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     if args.command == "broker-fact-draft":
         return _run_record_broker_fact(args, now=now)
     if args.command == "sell-execution-draft":
-        return _run_sell_execution_draft(args)
+        return _run_sell_execution_draft(args, now=now)
     if args.command == "share-conversion-draft":
         try:
             draft = build_share_conversion_draft(
@@ -692,7 +692,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
     return 0
 
 
-def _run_sell_execution_draft(args: argparse.Namespace) -> int:
+def _run_sell_execution_draft(args: argparse.Namespace, *, now: datetime | None) -> int:
     source_event_ids: set[str] = set()
     try:
         draft = build_sell_execution_draft(
@@ -707,6 +707,7 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
             tax_yen=args.tax_yen,
             decision_reference=args.decision_reference,
             execution_id=args.execution_id,
+            now=now,
         )
         if draft is not None:
             output_path = _root_path(args.root, args.out)

@@ -19,6 +19,7 @@ from baibai_engine.portfolio.ledger.broker_facts import (
     BrokerFactStatus,
     _provided_execution_suffix,
     _validate_execution_id,
+    _validate_report_time,
     find_reported_execution,
     record_broker_fact,
     record_terminal_broker_facts,
@@ -439,6 +440,7 @@ def build_sell_execution_draft(
     tax_yen: int | None = None,
     decision_reference: str | None = None,
     execution_id: str | None = None,
+    now: datetime | None = None,
 ) -> LedgerDraft | None:
     """Record a human-reported sell fill as a source-bound execution draft.
 
@@ -511,6 +513,8 @@ def build_sell_execution_draft(
         ):
             raise ValueError("conflicting human report for existing execution_id")
         return None
+    # Only a new sell needs a clock check; a date-only replay key is not its fill time.
+    _validate_report_time(occurred_on or occurred_at, now=now)
     if reservation_id is not None:
         active = {
             item.reservation_id: item

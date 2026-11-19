@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -38,6 +38,107 @@ def _holding(service: LedgerStoreService, ticker: str) -> object:
     return next(
         item for item in portfolio_snapshot(service.load()).holdings if item.ticker == ticker
     )
+
+
+@pytest.mark.parametrize(
+    ("flag", "value", "report_clock", "accepted"),
+    [
+        ("--occurred-at", "2026-07-12T10:10:00+09:00", "2026-07-12T10:00:00+09:00", False),
+        ("--occurred-at", "2026-07-12T00:00:00+09:00", "2026-07-11T14:59:59.999999Z", False),
+        ("--occurred-at", "2026-07-12T00:00:00+09:00", "2026-07-11T15:00:00Z", True),
+        ("--occurred-at", "2026-07-11T15:00:00Z", "2026-07-12T00:00:00.000001+09:00", True),
+        ("--occurred-on", "2026-07-12", "2026-07-11T14:59:59.999999Z", False),
+        ("--occurred-on", "2026-07-12", "2026-07-11T15:00:00Z", True),
+        ("--occurred-on", "2026-07-11", "2026-07-11T15:00:00Z", True),
+    ],
+)
+def test_new_sell_cannot_be_reported_before_its_instant_or_tokyo_day(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    flag: str,
+    value: str,
+    report_clock: str,
+    accepted: bool,
+) -> None:
+    db, out = tmp_path / "app.sqlite", tmp_path / "draft.yaml"
+    _seed(db)
+    before = db.read_bytes()
+    result = main(
+        [
+            "sell-execution-draft",
+            "--db",
+            str(db),
+            "--ticker",
+            "2331",
+            "--quantity",
+            "100",
+            "--price-yen",
+            "1100",
+            flag,
+            value,
+            "--out",
+            str(out),
+        ],
+        now=datetime.fromisoformat(report_clock),
+    )
+    assert result == (0 if accepted else 2)
+    assert out.exists() is accepted
+    assert db.read_bytes() == before
+    if not accepted:
+        assert "must not be in the future" in capsys.readouterr().err
+
+
+def test_date_only_sell_does_not_claim_latest_saved_replay_key_is_its_fill_time(tmp_path: Path):
+    service = _seed(tmp_path / "app.sqlite")
+    report = dict(ticker="2331", quantity=100, price_yen=Decimal("1100"))
+    previous = build_sell_execution_draft(
+        service, **report, occurred_at=OCCURRED_AT, now=OCCURRED_AT
+    )
+    assert previous is not None
+    apply_draft(service, previous, human_confirmed=True)
+    reported_earlier_that_day = OCCURRED_AT - timedelta(hours=1)
+    dated = build_sell_execution_draft(
+        service,
+        **report,
+        occurred_on=OCCURRED_AT.date(),
+        now=reported_earlier_that_day,
+    )
+    assert dated is not None
+    assert dated.replacement.events[:-1] == dated.source.events
+    new = dated.replacement.events[-1]
+    assert new.occurred_on == OCCURRED_AT.date()
+    assert new.occurred_at == OCCURRED_AT > reported_earlier_that_day
+
+
+@pytest.mark.parametrize(
+    ("fill_fold", "fill_minute", "report_fold", "report_minute", "accepted"),
+    [
+        (0, 30, 0, 30, True),
+        (1, 30, 1, 30, True),
+        (1, 30, 0, 30, False),
+        (0, 30, 1, 30, True),
+        (1, 15, 0, 45, False),
+        (0, 45, 1, 15, True),
+    ],
+)
+def test_sell_report_compares_instants_through_a_repeated_clock_hour(
+    tmp_path: Path,
+    fill_fold: int,
+    fill_minute: int,
+    report_fold: int,
+    report_minute: int,
+    accepted: bool,
+) -> None:
+    service = _seed(tmp_path / "app.sqlite")
+    repeated = datetime(2026, 11, 1, 1, tzinfo=ZoneInfo("America/New_York"))
+    fill = repeated.replace(minute=fill_minute, fold=fill_fold)
+    reported = repeated.replace(minute=report_minute, fold=report_fold)
+    trade = dict(ticker="2331", quantity=100, price_yen=Decimal("1100"))
+    if accepted:
+        assert build_sell_execution_draft(service, **trade, occurred_at=fill, now=reported)
+    else:
+        with pytest.raises(ValueError, match="occurred_at must not be in the future"):
+            build_sell_execution_draft(service, **trade, occurred_at=fill, now=reported)
 
 
 def test_sell_over_current_holding_is_rejected_fail_closed(tmp_path: Path) -> None:
@@ -216,7 +317,7 @@ def test_sell_cli_passes_execution_id_and_reports_retry_as_no_change(
         "--execution-id",
         "broker-order-s/fill-1",
     ]
-    assert main([*args, "--out", "sell.yaml"]) == 0
+    assert main([*args, "--out", "sell.yaml"], now=OCCURRED_AT) == 0
     assert yaml.safe_load(capsys.readouterr().out)["status"] == "draft_created"
     draft = load_draft(tmp_path / "sell.yaml")
     assert (
@@ -228,7 +329,7 @@ def test_sell_cli_passes_execution_id_and_reports_retry_as_no_change(
         == "broker-order-s/fill-1"
     )
     apply_draft(service, draft, human_confirmed=True)
-    assert main([*args, "--out", "retry.yaml"]) == 0
+    assert main([*args, "--out", "retry.yaml"], now=OCCURRED_AT - timedelta(days=1)) == 0
     assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
     assert not (tmp_path / "retry.yaml").exists()
 
@@ -257,6 +358,7 @@ def test_identical_sell_parameters_after_apply_are_no_change(
         ticker="2331",
         quantity=100,
         price_yen=Decimal("1100"),
+        now=OCCURRED_AT,
     )
     apply_draft(service, first, human_confirmed=True)
     assert (
@@ -266,6 +368,7 @@ def test_identical_sell_parameters_after_apply_are_no_change(
             ticker="2331",
             quantity=100,
             price_yen=Decimal("1100"),
+            now=OCCURRED_AT - timedelta(microseconds=1),
         )
         is None
     )
@@ -277,6 +380,7 @@ def test_identical_sell_parameters_after_apply_are_no_change(
             ticker="2331",
             quantity=100,
             price_yen=Decimal("1101"),
+            now=OCCURRED_AT - timedelta(microseconds=1),
         )
 
 
