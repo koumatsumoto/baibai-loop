@@ -161,6 +161,31 @@ def test_newest_release_candidate_takes_the_latest_release_the_index_lists_for_t
     assert release_candidate.url == _JP_MFG_URL
 
 
+@pytest.mark.parametrize("old_first", [True, False])
+def test_rank_publication_date_before_deriving_only_the_selected_month(old_first: bool) -> None:
+    title = "S&amp;P Global Japan Manufacturing PMI"
+    oldest = _list_item("January 01 0001", title, _OLDER_URL)
+    newer = _list_item("July 01 2026", title, _JP_MFG_URL)
+    entries = parse_release_index(oldest + newer if old_first else newer + oldest)
+
+    candidate = newest_release_candidate(entries, stream="jp_manufacturing")
+    assert candidate is not None
+    assert (candidate.observed_at, candidate.url) == (date(2026, 6, 1), _JP_MFG_URL)
+
+
+def test_selected_date_without_a_representable_previous_month_fails_only_its_stream() -> None:
+    index = _INDEX_HTML + _list_item(
+        "January 01 0001", "S&amp;P Global US Services PMI", _OLDER_URL
+    )
+    entries = parse_release_index(index)
+
+    with pytest.raises(
+        IndicatorsProviderError, match="us_services: no representable previous month"
+    ):
+        newest_release_candidate(entries, stream="us_services")
+    assert newest_release_candidate(entries, stream="jp_manufacturing") is not None
+
+
 def test_newest_release_candidate_is_none_when_the_index_does_not_list_the_stream() -> None:
     assert newest_release_candidate(parse_release_index(_INDEX_HTML), stream="us_services") is None
 

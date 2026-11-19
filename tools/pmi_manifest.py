@@ -200,21 +200,27 @@ def newest_release_candidate(
     """The newest release the index lists for ``stream``, or None when it lists none."""
 
     title = STREAM_TITLES[stream]
-    newest: ReleaseCandidate | None = None
+    newest: tuple[date, str] | None = None
     for entry in entries:
         if entry.title != title:
             continue
         if entry.published_on is None:
             # An undated matching release could be newer than the dated entries.
             raise IndicatorsProviderError(f"{stream}: invalid release index date for {entry.url}")
-        if newest is None or entry.published_on > newest.published_on:
-            newest = ReleaseCandidate(
-                stream=stream,
-                observed_at=observed_month_of(entry.published_on),
-                published_on=entry.published_on,
-                url=entry.url,
-            )
-    return newest
+        if newest is None or entry.published_on > newest[0]:
+            newest = entry.published_on, entry.url
+    if newest is None:
+        return None
+    published_on, url = newest
+    try:
+        observed_at = observed_month_of(published_on)
+    except OverflowError as error:
+        raise IndicatorsProviderError(
+            f"{stream}: no representable previous month for {published_on.isoformat()} at {url}"
+        ) from error
+    return ReleaseCandidate(
+        stream=stream, observed_at=observed_at, published_on=published_on, url=url
+    )
 
 
 def verified_value(release_candidate: ReleaseCandidate, *, context: FetchContext) -> float:
