@@ -93,7 +93,7 @@ def _wire_refresh(
     store = Mock()
     monkeypatch.setattr(refresh, "Boto3R2Store", Mock(return_value=store))
     monkeypatch.setattr(list_native, "EdinetListL1", Mock())
-    monkeypatch.setattr(list_copy, "materialize_lists", Mock(return_value={}))
+    monkeypatch.setattr(list_copy, "materialize_lists", Mock(return_value={"failed_days": []}))
     monkeypatch.setattr(refresh, "metric_archive_candidates", Mock(return_value=(source_ids, None)))
     monkeypatch.setattr(refresh, "_require_metric_document_window", Mock())
 

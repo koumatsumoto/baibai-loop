@@ -232,8 +232,9 @@ def test_native_refresh_missing_list_keeps_known_csv_without_completing_l2(
         assert set(EDINETReader(database).load_metric_records(DAY)) == {"7203"}
 
 
-def test_missing_list_preserves_good_metrics_while_retaining_another_known_original(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("list_problem", ["missing_day", "failed_recheck"])
+def test_incomplete_list_preserves_good_metrics_while_retaining_another_known_original(
+    tmp_path, monkeypatch, capsys, list_problem
 ):
     _store, owner = native_input(tmp_path, monkeypatch, 0)
     database = tmp_path / "market.sqlite"
@@ -282,20 +283,32 @@ def test_missing_list_preserves_good_metrics_while_retaining_another_known_origi
             [("72030", "S100NATIVE"), ("83060", "S100NEXT")], 1
         )
     ]
-    owner.publish(
-        [
-            NativeListReceipt.from_response(
-                DAY,
-                EdinetResponse(
-                    AT + timedelta(minutes=1),
-                    json.dumps(
-                        {"metadata": {"resultset": {"count": 2}}, "results": documents}
-                    ).encode(),
-                ),
-            )
-        ]
-    )
-    assert refresh_window(1) == 1
+    valid_body = json.dumps(
+        {"metadata": {"resultset": {"count": 2}}, "results": documents}
+    ).encode()
+
+    def receive(day, minute, body):
+        return NativeListReceipt.from_response(
+            day, EdinetResponse(AT + timedelta(minutes=minute), body)
+        )
+
+    owner.publish([receive(DAY, 1, valid_body)])
+    if list_problem == "failed_recheck":
+        owner.publish([receive(DAY, 2, b"{")])
+    requested_lookback = 0 if list_problem == "failed_recheck" else 1
+    assert refresh_window(requested_lookback) == 1
     assert calls == [("S100NATIVE", 5), ("S100NEXT", 5)]
-    assert acquisition.retained_archives().read_csv_zip("S100NEXT") == zip_content
+    archives = acquisition.retained_archives()
+    assert all(archives.read_csv_zip(doc_id) == zip_content for doc_id, _ in calls)
     assert l2_rows() == baseline
+
+    if list_problem == "failed_recheck":
+        assert f"latest stored EDINET document list failed: {DAY}" in capsys.readouterr().err
+        tomorrow = DAY + timedelta(days=1)
+        empty = b'{"metadata":{"resultset":{"count":0}},"results":[]}'
+        owner.publish(
+            [receive(DAY, 3, valid_body), receive(tomorrow, 4, empty), receive(tomorrow, 5, b"{")]
+        )
+        # The same failed recheck outside the requested window does not block recovery.
+        assert refresh_window(0) == 0
+        assert calls == [("S100NATIVE", 5), ("S100NEXT", 5)]
