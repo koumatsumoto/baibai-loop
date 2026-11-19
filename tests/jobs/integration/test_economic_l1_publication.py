@@ -84,10 +84,27 @@ def test_l1_and_every_input_publish_without_market_runs_lake_or_models(tmp_path,
         key.startswith("lake/") or key in {"market.sqlite", "runs.sqlite", "machine-manifest.json"}
         for key in store.get_keys + store.head_keys + store.put_keys
     )
-    # A later model failure cannot undo already-retained L1 or the next cycle's input.
-    run(tmp_path, setup, "next")
+    # Later independent groups must not revert an already-sealed source.
+    later = AT + timedelta(hours=1)
+    stage(tmp_path, store, source="fred-vixcls", name="next-fred", value="B", clock=later)
+    stage(
+        tmp_path,
+        store,
+        group="mof_jgb",
+        source="mof-jgbcm-all",
+        name="next-mof",
+        value="C",
+        clock=later,
+    )
+    second = run(tmp_path, setup, "next")
+    assert second["l1_sealed"]
+    assert not any(row["failed"] for row in second["handoffs"])
     with closing(sqlite3.connect(tmp_path / "next.sqlite")) as conn:
-        assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 3
+        for source, expected in ((SOURCE, "A"), ("fred-vixcls", "B"), ("mof-jgbcm-all", "C")):
+            assert next(read_snapshots(conn, DAY, DAY, source_id=source)).records == (
+                {"value": expected},
+            )
 
 
 def test_l1_put_unknown_ack_is_resolved_by_bytes(tmp_path, setup, monkeypatch):
