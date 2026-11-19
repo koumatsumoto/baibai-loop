@@ -14,6 +14,7 @@ from baibai_engine.data_collection.providers.tradingview.accounting import (
 from .contract import FIELDS
 
 COLUMNS = list(FIELDS.values())
+_INT64_LIMIT = 1 << 63
 
 
 class FetchError(RuntimeError):
@@ -81,8 +82,18 @@ def normalize_batch(
                     if not isinstance(value, str):
                         raise ProviderPayloadError("invalid_text_type", column)
                 elif column == "recommendation_total":
-                    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    if (
+                        isinstance(value, bool)
+                        or not isinstance(value, int)
+                        or not 0 <= value < _INT64_LIMIT
+                    ):
                         raise ProviderPayloadError("invalid_analyst_count", column)
+                elif isinstance(value, int) and not -_INT64_LIMIT <= value < _INT64_LIMIT:
+                    # SQLite binds Python integers as int64 even for REAL columns.
+                    try:
+                        value = float(value)
+                    except OverflowError:
+                        raise ProviderPayloadError("invalid_numeric", column) from None
                 elif (
                     isinstance(value, bool)
                     or not isinstance(value, int | float)
