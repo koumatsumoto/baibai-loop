@@ -60,38 +60,6 @@ DATASETS = (
     "jpx.source_responses",
     "tse.capital_policy_snapshots",
 )
-GROUP = (
-    None,
-    "業種\nコード",
-    "業種",
-    "市場区分",
-    "証券\nコード",
-    "銘柄名",
-    "開示状況",
-    None,
-    "開示内容の\nアップデート日",
-    "開示内容 ※１",
-    "機関投資家からのより活発なコンタクトを希望 ※２",
-    None,
-    None,
-    "英文開示",
-)
-DETAIL = (
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    "要請に基づく\n開示状況",
-    "前月からの\n開示状況の変更",
-    None,
-    None,
-    "申請状況",
-    "掲載開始日",
-    "コンタクト先",
-    None,
-)
 
 
 def _workbook(sheets: list[tuple[int, int, list[tuple[int, str, date | None]]]]) -> bytes:
@@ -100,27 +68,21 @@ def _workbook(sheets: list[tuple[int, int, list[tuple[int, str, date | None]]]])
     for year, month, rows in sheets:
         worksheet = workbook.create_sheet(f"開示企業一覧（{year}年{month}月末時点）")
         worksheet.append(("本資料の目的",))
-        worksheet.append(GROUP)
-        worksheet.append(DETAIL)
-        for ticker, status, updated in rows:
-            worksheet.append(
-                (
-                    None,
-                    50,
-                    "水産・農林業",
-                    "プライム",
-                    ticker,
-                    "企業",
-                    status,
-                    "",
-                    updated,
-                    "本文",
-                    "",
-                    "",
-                    "",
-                    "有",
-                )
+        # Release and replay need typed facts; parser tests cover the full sheet layouts.
+        worksheet.append(
+            (
+                "証券コード",
+                "開示状況",
+                None,
+                "開示内容のアップデート日",
+                "機関投資家からのより活発なコンタクトを希望",
             )
+        )
+        worksheet.append(
+            (None, "要請に基づく開示状況", "前月からの開示状況の変更", None, "申請状況")
+        )
+        for ticker, status, updated in rows:
+            worksheet.append((ticker, status, None, updated, None))
     buffer = BytesIO()
     workbook.save(buffer)
     workbook.close()
