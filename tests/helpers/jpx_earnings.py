@@ -13,7 +13,6 @@ SOURCE_FILES = {
     "上場廃止警告": "delisting_warning.html",
 }
 FILE_A = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
-FILE_B = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan09_1015.xlsx"
 
 
 def _workbook(stamp: str, rows: list[list[str]]) -> bytes:
