@@ -161,6 +161,46 @@ def test_wrong_group_source_isolated_from_valid_handoff(tmp_path, setup):
     assert report["l1_published"]
 
 
+def test_handoff_validation_timer_counts_only_entered_checks_including_failure(
+    tmp_path, setup, monkeypatch, capsys
+):
+    from baibai_jobs.integration import native_source_merge
+
+    store, lease, _ = setup
+    stage(tmp_path, store, group="boj", name="wrong")  # rejected before merge
+    stage(tmp_path, store, name="first")
+    stage(tmp_path, store, name="next", clock=AT + timedelta(hours=1))
+    validate = native_source_merge.validate_collection_confirmations
+    checks = []
+
+    def fail_first(conn):
+        validate(conn)
+        checks.append(None)
+        if len(checks) == 1:
+            raise ValueError("private validation error")
+
+    ticks = iter((1.0, 2.25, 4.0, 6.5))
+    monkeypatch.setattr(native_source_merge, "validate_collection_confirmations", fail_first)
+    monkeypatch.setattr(native_source_merge, "perf_counter", lambda: next(ticks))
+    report = integrate(
+        store,
+        tmp_path / "plan",
+        database=tmp_path / "out.sqlite",
+        asof=DAY,
+        lease_handle=lease,
+        log_publication=True,
+    )
+    captured = capsys.readouterr()
+    assert captured.err == (
+        "economic L1 handoff: phase=validate_collection_confirmations "
+        "checks=2 elapsed_seconds=3.750\n"
+    )
+    assert [r["applied"] for r in report["handoffs"]] == [False, False, True]
+    assert report["handoffs"][1]["result"] == {"reason": "MergeError"}
+    assert json.loads(captured.out)["handoffs"] == report["handoffs"]
+    assert json.loads((tmp_path / "plan/applied.json").read_bytes()) == report
+
+
 def test_expired_lease_before_seal_does_not_advance_watermark(tmp_path, setup, monkeypatch):
     store, _, handle = setup
     stage(tmp_path, store)
