@@ -52,6 +52,7 @@ def test_manual_and_scheduled_article_dispatch_share_one_acquisition_contract():
     assert "--manual" not in acquire["run"]
     assert '--created-at "$CREATED_AT"' in acquire["run"]
 
+
 @pytest.mark.parametrize(
     ("requested", "group", "selected"),
     [
