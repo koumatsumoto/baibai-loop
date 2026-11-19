@@ -78,6 +78,8 @@ GROUPS = {
     ),
     "world": tuple(source for source in COLLECTION_SOURCES if source in WORLD_NEWS_SOURCES),
     "rakuten": ("toushiru",),
+    # Only the two article sources read by default trend models run on schedule.
+    "scheduled": ("tsr_data", "boj_news"),
 }
 
 
@@ -87,6 +89,7 @@ GROUP_BYTES = {
     "world": 4 * 1024 * 1024,
     "rakuten": 24 * 1024 * 1024,
 }
+GROUP_BYTES["scheduled"] = GROUP_BYTES["public"]
 
 
 def cooldown_key(source: str) -> str:

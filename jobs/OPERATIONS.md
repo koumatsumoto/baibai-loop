@@ -405,7 +405,9 @@ validateはL2算式/L3履歴の証明でない。原本更新時だけ経済push
 
 起動は[workflow](../.github/workflows/cloud-article-sources.yml)、source/予算は[契約](../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)、cycle/再開は[planning](src/baibai_jobs/acquisition/article_planning.py)に従う。group直列化/共有host queueを守り、試行時計を受領成功にしない。TSRの正常indexでの日次充足とBOJ/MOFの再発見/未処理本文を分ける。
 
-`minkabu_news`と見出し専用の`rakuten_news`は通常・手動workflowの取得と新規planningの既定対象から外し、[必要時L3調査](../docs/reference/stock-assessment.md#recent-news-research)で読む。外部見解の見出しを含む将来の自動発見・取得時点原本は残らず、Web検索は速報性・全件再発見・過去bytesの復元を保証しない。未取得pendingは自動再開せず、保存済みreceipt/stage/世代とparser・遅着回復は保持する。同hostの数値External Assessment、`toushiru`の定性外部評価、他の記事sourceは別であり変更しない。
+`minkabu_news`と見出し専用の`rakuten_news`は通常・手動workflowの取得と新規planningの既定対象から外し、[必要時L3調査](../docs/reference/stock-assessment.md#recent-news-research)で読む。外部見解の見出しを含む将来の自動発見・取得時点原本は残らず、Web検索は速報性・全件再発見・過去bytesの復元を保証しない。未取得pendingは自動再開せず、保存済みreceipt/stage/世代とparser・遅着回復は保持する。同hostの数値External Assessmentは別経路であり変更しない。
+
+定期枠は通常モデルに入力を供給するTSRデータインサイト（`tsr_data`）と日銀新着（`boj_news`）の2ソースを取得し、手動`public`と同じqueueを使う。取得はフィード単位で、モデルが採用する記事への絞り込みは取得後に行う。その他の現役記事source（NHK、BBC、FRB・ECB・財務省の更新、TSR倒産速報、トウシル）は既存の手動`public`・`world`・`rakuten`または`all`で取得できる。通常日次は手動用の計画も準備するが、記事本文を取得しない。既存の原本・stage統合・履歴の照合は維持する。定期取得を止めた期間の未受領原本を後から同時点に補完はしない。
 
 初回planningは取得前にintegration.sources inputsで発行し、原本stage保存後だけCAS更新する。旧planningからの切替はpendingを新stageへ引継ぎ、旧writerをdrainする。統合は不変stage/markerから発見し、sealでplanningを変えない。L2停止中も原本/worksetを保つ。連鎖照合は失ったroot・CAS未確定孤立stage・導入前pending外の全原本復元を保証しない。
 
