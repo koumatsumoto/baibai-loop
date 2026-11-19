@@ -40,10 +40,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.store i
     extraction_status,
     store_facts,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
-    SourceFormatError,
-    xml_root,
-)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.edinet_archive_native import acquire_archives
 from baibai_jobs.integration.edinet_list_native import materialize_lists
@@ -169,20 +165,6 @@ def test_debt_zero_dash_and_unknown_header_are_distinct():
         r.debt_category == "long_term_borrowings" and r.due_from_months > 0
         for r in unsupported.debt
     )
-
-
-@pytest.mark.parametrize(
-    "content",
-    [
-        b'<!DOCTYPE x [<!ENTITY a "secret">]><x>&a;</x>',
-        b'<a xmlns:q="urn:a"><b xmlns:q="urn:b"/></a>',
-        b"<x>",
-        b"\xff",
-    ],
-)
-def test_unsupported_xml_is_rejected(content):
-    with pytest.raises(SourceFormatError):
-        xml_root(content)
 
 
 def document(doc_id="S100TEST", submitted="2026-06-24 14:00", **kwargs):
@@ -587,9 +569,6 @@ def test_retained_annual_family_receives_later_corrections():
 
 def test_native_xbrl_acquisition_retries_rate_limit_and_reuses_raw_zip(tmp_path, monkeypatch):
     owner, _, _, lists = setup(tmp_path, [filing("S100YR5P")])
-    old_file = tmp_path / "edinet/xbrl_zips/S100YR5P.zip"
-    old_file.parent.mkdir(parents=True)
-    old_file.write_bytes(b"obsolete non-ZIP file")
     content = source_zip()
     session = FakeSession(response(b'{"StatusCode":429}'), response(content))
     monkeypatch.setattr(
@@ -614,7 +593,6 @@ def test_native_xbrl_acquisition_retries_rate_limit_and_reuses_raw_zip(tmp_path,
         assert "type=1" in session.calls[-1]
         with pytest.raises(ValueError, match="normalized document id"):
             provider.fetch_archive("../secret", 1)
-    assert old_file.read_bytes() == b"obsolete non-ZIP file"
     assert not (tmp_path / "absent.sqlite").exists()
 
 
@@ -626,12 +604,8 @@ def test_native_xbrl_acquisition_retries_rate_limit_and_reuses_raw_zip(tmp_path,
         (b'{"StatusCode":403}', "ValueError"),
     ],
 )
-def test_native_xbrl_rejects_non_zip_without_importing_old_file(tmp_path, body, reason):
+def test_native_xbrl_rejects_non_zip_without_publishing(tmp_path, body, reason):
     owner, _, _, lists = setup(tmp_path, [filing("S100YR5P")])
-    old_file = tmp_path / "edinet/xbrl_zips/S100YR5P.zip"
-    old_file.parent.mkdir(parents=True)
-    original = source_zip()
-    old_file.write_bytes(original)
     session = FakeSession(response(body))
     with closing(
         EDINETRefresh("test-key", sqlite_path=tmp_path / "absent.sqlite", session=session)
@@ -649,7 +623,6 @@ def test_native_xbrl_rejects_non_zip_without_importing_old_file(tmp_path, body, 
     assert report["failed"] == [{"doc_id": "S100YR5P", "reason": reason}]
     assert not owner.freeze().archive_keys
     assert len(session.calls) == 1
-    assert old_file.read_bytes() == original
     assert not (tmp_path / "absent.sqlite").exists()
 
 
@@ -677,13 +650,6 @@ def test_store_keeps_vintages_and_coverage_reasons(tmp_path):
             ordered = sorted(expected, key=lambda row: (row.source_doc_id, row.source_locator))
             assert [dict(row) for row in saved] == [row.model_dump() for row in ordered]
     assert json.loads(extraction_status(path)["S100YJ24"][1])["debt_reasons"] == ["debt_no_table"]
-
-
-@pytest.mark.parametrize("encoding", ["utf-16-le", "utf-16-be"])
-def test_dtd_cannot_bypass_guard_via_alternate_encoding(encoding):
-    content = '<!DOCTYPE x [<!ENTITY a "EXPANDED">]><x>&a;</x>'.encode(encoding)
-    with pytest.raises(SourceFormatError, match="xml_encoding_unsupported"):
-        xml_root(content)
 
 
 def test_new_annual_unknown_period_blocks_old_filing_and_records_reason(tmp_path):

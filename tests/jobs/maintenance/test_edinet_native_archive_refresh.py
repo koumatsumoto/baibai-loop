@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 from tests.helpers.edinet_metrics import _edinet_csv_zip
+from tests.helpers.edinet_research_sources import source_zip
 from tests.jobs.acquisition.test_edinet_archive_native_acquisition import AT, DAY, filing, setup
 
 from baibai_engine.data_collection.providers.edinet.archive_native import (
@@ -19,7 +20,7 @@ from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.edinet_archive_native import materialize_archives
 from baibai_jobs.maintenance import edinet_extraction as refresh
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
+from baibai_jobs.maintenance.source_refresh import edinet as source
 
 
 @pytest.mark.parametrize("tickers", [(), ("7203",)])
@@ -93,24 +94,25 @@ def test_explicit_tob_zip_refresh_publishes_original_before_sql_and_reuses_it(
 ):
     owner, _, _, _ = setup(tmp_path, [])
     owner.store.close = Mock()
-    monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_refresh.edinet.Boto3R2Store", lambda **_: owner.store
-    )
+    monkeypatch.setattr(source, "Boto3R2Store", lambda **_: owner.store)
+    xbrl = source_zip()
+    owner.publish([NativeArchive.from_response("S100OFFER", 1, EdinetResponse(AT, xbrl))])
     database = tmp_path / "market.sqlite"
-    with closing(EDINETRefresh("synthetic", sqlite_path=database)) as client:
+
+    def open_after_publication(path):
+        metadata = owner.freeze().metadata("S100OFFER", 5)
+        assert metadata is not None
+        assert metadata.received_at_utc == AT
+        assert metadata.stored_on == AT.date()
+        return open_connection(path)
+
+    monkeypatch.setattr(source, "open_connection", open_after_publication)
+    with closing(source.EDINETRefresh("synthetic", sqlite_path=database)) as client:
         http = Mock()
         http.fetch_archive.return_value = EdinetResponse(AT, _edinet_csv_zip())
         client._http = http
-        retained = client._retain_document_zip
-
-        def retain(doc_id, kind, content, *, stored_on):
-            metadata = owner.freeze().metadata(doc_id, kind)
-            assert metadata.received_at_utc == AT
-            assert metadata.stored_on == stored_on
-            return retained(doc_id, kind, content, stored_on=stored_on)
-
-        monkeypatch.setattr(client, "_retain_document_zip", retain)
         assert client.download_csv_zip("S100OFFER") == http.fetch_archive.return_value.body
+        assert client.retained_archives().read_xbrl_zip("S100OFFER") == xbrl
         owner.store.get_keys.clear()
         assert client.download_csv_zip("S100OFFER") == http.fetch_archive.return_value.body
         http.fetch_archive.assert_called_once_with("S100OFFER", 5)
@@ -131,9 +133,7 @@ def test_explicit_tob_zip_refresh_publishes_original_before_sql_and_reuses_it(
 def test_manual_zip_reads_freeze_metadata_once_and_still_refuse_pending_work(tmp_path, monkeypatch):
     owner, _, _, _ = setup(tmp_path, [])
     owner.store.close = Mock()
-    monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_refresh.edinet.Boto3R2Store", lambda **_: owner.store
-    )
+    monkeypatch.setattr(source, "Boto3R2Store", lambda **_: owner.store)
     content = _edinet_csv_zip()
     documents = [f"S100WARM{number}" for number in range(5)]
     fixed = owner.publish(
@@ -142,7 +142,7 @@ def test_manual_zip_reads_freeze_metadata_once_and_still_refuse_pending_work(tmp
     database = tmp_path / "market.sqlite"
     materialize_archives(fixed, database)
     owner.store.get_keys.clear()
-    with closing(EDINETRefresh("synthetic", sqlite_path=database)) as client:
+    with closing(source.EDINETRefresh("synthetic", sqlite_path=database)) as client:
         http = Mock()
         client._http = http
         for doc_id in documents:

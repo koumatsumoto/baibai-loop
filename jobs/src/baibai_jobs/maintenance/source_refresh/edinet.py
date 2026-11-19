@@ -82,28 +82,24 @@ class EDINETRefresh:
             self._http = EDINETHTTP(self._require_api_key(operation), session=self._session)
         return self._http
 
-    def download_csv_zip(self, doc_id: str) -> bytes:
-        return self._download_native_zip(parse_doc_id(doc_id), source_type=5)
-
     def fetch_archive(self, doc_id: str, source_type: int) -> EdinetResponse:
         """The native acquisition owner retains this actual response before L2 work."""
         return self._http_client("download_document_zip").fetch_archive(doc_id, source_type)
 
-    def _download_native_zip(self, doc_id: str, *, source_type: int) -> bytes:
-        """Explicit metrics/facts/TOB refresh retains L1 before its SQL consumer copy."""
-        if source_type not in (1, 5):
-            raise ValueError("unsupported EDINET archive type")
+    def download_csv_zip(self, doc_id: str) -> bytes:
+        """明示した指標・TOB用CSVは、固定原本を確定してからSQLiteの消費用コピーを返す。"""
+        doc_id = parse_doc_id(doc_id)
         owner = self._native_archives()
         if self._native_fixed is None:
             self._native_fixed = owner.freeze()
         fixed = self._native_fixed
-        metadata = fixed.metadata(doc_id, source_type)
+        metadata = fixed.metadata(doc_id, 5)
         if self._sqlite_path.exists():
             with closing(connect_read_only(self._sqlite_path)) as connection:
                 row = connection.execute(
                     "SELECT stored_on,zip_content FROM edinet_source_archives "
-                    "WHERE doc_id=? AND source_type=?",
-                    (doc_id, source_type),
+                    "WHERE doc_id=? AND source_type=5",
+                    (doc_id,),
                 ).fetchone()
             if row is not None:
                 recorded = date.fromisoformat(row[0])
@@ -119,42 +115,27 @@ class EDINETRefresh:
                     with closing(open_connection(self._sqlite_path)) as connection, connection:
                         connection.execute(
                             "UPDATE edinet_source_archives SET stored_on=? "
-                            "WHERE doc_id=? AND source_type=?",
-                            (metadata.stored_on.isoformat(), doc_id, source_type),
+                            "WHERE doc_id=? AND source_type=5",
+                            (metadata.stored_on.isoformat(), doc_id),
                         )
                 return bytes(row[1])
         if metadata is None:
-            received = self._http_client("download_document_zip").fetch_archive(doc_id, source_type)
-            if not _is_zip_bytes(received.body):
+            received = self.fetch_archive(doc_id, 5)
+            if not zipfile.is_zipfile(io.BytesIO(received.body)):
                 raise EDINETProviderError("EDINET archive response is not a ZIP")
-            fixed = owner.publish(
-                [NativeArchive.from_response(doc_id, 1 if source_type == 1 else 5, received)]
-            )
+            fixed = owner.publish([NativeArchive.from_response(doc_id, 5, received)])
             self._native_fixed = fixed
             content = received.body
-            metadata = fixed.metadata(doc_id, source_type)
+            metadata = fixed.metadata(doc_id, 5)
         else:
-            content = fixed.read_archive(doc_id, source_type)
+            content = fixed.read_csv_zip(doc_id)
         assert metadata is not None
-        return self._retain_document_zip(doc_id, source_type, content, stored_on=metadata.stored_on)
-
-    def _retain_document_zip(
-        self, doc_id: str, source_type: int, content: bytes, *, stored_on: date
-    ) -> bytes:
         with closing(open_connection(self._sqlite_path)) as connection:
             return retain_source_archive(
-                connection,
-                doc_id,
-                source_type,
-                content,
-                stored_on=stored_on,
+                connection, doc_id, 5, content, stored_on=metadata.stored_on
             )
 
     def _require_api_key(self, operation: str) -> str:
         if not self._api_key:
             raise EdinetAcquisitionError(f"EDINET_API_KEY is required for {operation}")
         return self._api_key
-
-
-def _is_zip_bytes(content: bytes) -> bool:
-    return zipfile.is_zipfile(io.BytesIO(content))

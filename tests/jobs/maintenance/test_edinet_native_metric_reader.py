@@ -40,12 +40,11 @@ def test_retained_archives_keeps_self_publication_but_does_not_resolve_new_heads
     monkeypatch.setattr(source, "Boto3R2Store", Mock(return_value=owner.store))
     content = _edinet_csv_zip()
     with closing(
-        source.EDINETRefresh("synthetic", sqlite_path=tmp_path / "unused.sqlite")
+        source.EDINETRefresh("synthetic", sqlite_path=tmp_path / "market.sqlite")
     ) as client:
         http = Mock()
         http.fetch_archive.return_value = EdinetResponse(AT, content)
         client._http = http
-        monkeypatch.setattr(client, "_retain_document_zip", lambda _doc, _kind, body, **_: body)
         client.download_csv_zip("S100FIRST")
         first = client.retained_archives()
         client.download_csv_zip("S100SECOND")
@@ -87,8 +86,7 @@ def _wire_refresh(
     events = []
     sql_reader = Mock()
     native_reader = Mock()
-    client = Mock()
-    client.list_documents.side_effect = lambda day: events.append(("list", day))
+    client = Mock(spec_set=refresh.EdinetMetricAcquisition)
     client.download_csv_zip.side_effect = lambda doc: events.append(("acquire", doc))
     client.retained_archives.side_effect = lambda: events.append(("reader",)) or native_reader
     plan = SimpleNamespace(archive_candidates=(object(),) if needs_body else ())
@@ -135,9 +133,7 @@ def _wire_refresh(
         extractor.assert_not_called()
     else:
         extractor.assert_called_once()
-    client.list_documents.assert_not_called()
     store.close.assert_called_once_with()
-    return client
 
 
 def test_failed_sql_plan_does_not_select_a_native_body_reader(tmp_path, monkeypatch):
