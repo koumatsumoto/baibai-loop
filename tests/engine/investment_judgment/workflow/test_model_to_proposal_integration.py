@@ -11,6 +11,7 @@ import socket
 import sqlite3
 from contextlib import closing
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
@@ -86,6 +87,11 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
     DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.models.external_assessment.models import (
+    MONEX_DAY_PAIR_METHOD_VERSION,
+    ExternalAssessment,
+)
+from baibai_engine.machine_analysis.observations.external_assessments import monex_generation
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     ModelValuationObservation,
 )
@@ -1269,3 +1275,114 @@ def test_sealed_monex_eps_reaches_formal_web_without_bodies_in_authoring_copy(
     old.pop("monex_fiscal_eps")
     old["method_version"] = "same-series-v8-tradingview-receipts"
     assert chart(archived) is None
+
+
+@pytest.mark.parametrize(
+    ("case", "latest", "prior"),
+    [("overnight", 1, 0), ("next_day", 3, 2), ("seal_first", 2, 1), ("eval_first", 2, 1)],
+)
+def test_monex_fixed_research_uses_the_same_eligible_price_pair_and_eps_original(
+    tmp_path, mocker, case, latest, prior
+):
+    market, runs, app = (tmp_path / f"{name}.sqlite" for name in ("market", "runs", "app"))
+    a = datetime.fromisoformat("2026-05-07T23:40:00+09:00")
+    b = a + timedelta(hours=1)
+    stamps = [a - timedelta(days=1), a, b, b + timedelta(microseconds=1)]
+    upper = b + timedelta(hours=2)
+    evaluation = b if case == "eval_first" else upper
+    seal_clock = b if case == "seal_first" else upper
+    as_of = a.date() if case == "overnight" else b.date()
+    seed_daily_bars(market, [("1234", t.date().isoformat(), 100.0, 1.0) for t in (a, b)])
+    receipts = []
+    with closing(sqlite3.connect(market)) as conn, conn:
+        insert_master_rows(
+            conn, [(a.date().isoformat(), "1234", "合成企業", "Prime", "情報・通信業", "011")]
+        )
+        conn.executemany(
+            "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
+            [(t.date().isoformat(), 1) for t in (a, b)],
+        )
+        for i, at in enumerate(stamps):
+            html = monex_html("1234", value=f"{100 + i}円") + monex_eps_section().replace(
+                "-3.5円", f"{10 + i}円"
+            )
+            r = response(
+                "monex",
+                "1234",
+                html.encode(),
+                url=monex.public_url("1234"),
+                received_at_utc=at.astimezone(UTC),
+            )
+            insert_response(conn, r)
+            receipts.append(r)
+    save_observations(market, [decode_attempt((receipt,)) for receipt in receipts])
+    reads = mocker.spy(monex_generation, "read_responses")
+    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot:
+
+        def build():
+            return read_and_generate_models(
+                generation_id="fixed-overnight",
+                market_snapshot=replace(snapshot, sealed_at=seal_clock),
+                market_release=InputRelease(release_id="fixture-release", manifest_sha256="a" * 64),
+                economic_input=None,
+                as_of=as_of,
+                evaluation_time=evaluation,
+                ttm_rules=DEFAULT_TTM_RULES,
+                tickers=("1234",),
+            )
+
+        store = ModelGenerationStore(runs)
+        assert store.publish_stream(build()).created
+        assert not store.publish_stream(
+            build()
+        ).created  # same frozen input and clock, exact replay
+    assert [call.args[1] for call in reads.call_args_list] == [(receipts[latest].receipt_id,)] * 2
+    market.rename(
+        tmp_path / "unused.sqlite"
+    )  # normal Research consumes runs, never the live source
+    prepared = prepare_selected_workspace(
+        draft=GeneratedResearchSelectionDraft(
+            schema_version=2,
+            request=ResearchRequest(
+                text="合成の時点照合", scope="specified_stocks", requested_tickers=("1234",)
+            ),
+            research_as_of=as_of,
+            input_known_at=evaluation,
+            generation_id="fixed-overnight",
+            selection_summary="受領ペアの照合",
+            targets=(selected_target(),),
+        ),
+        db_path=app,
+        runs_path=runs,
+        workspace=tmp_path / "research",
+        now=evaluation,
+    )
+    selected = selection_binding(OperationService(app).get(prepared.operation_id).payload)
+    fixed = selected.inputs.generation.result("external_assessment", "1234")
+    model = ExternalAssessment.model_validate(fixed.payload)
+    assert fixed.calculation_revision == model.method_version == MONEX_DAY_PAIR_METHOD_VERSION
+    assert model.cutoff == model.evaluated_at == evaluation
+    assert selected.inputs.generation.evaluation_time == evaluation
+    pair = model.model_valuations[0].inputs
+    assert (pair.latest.fetched_at_utc, pair.previous.fetched_at_utc) == (
+        stamps[latest],
+        stamps[prior],
+    )
+    assert (pair.latest.consensus_target, pair.previous.consensus_target) == (
+        100 + latest,
+        100 + prior,
+    )
+    assert {r.fetched_at_utc for group in model.origin_groups for r in group.references} == {
+        stamps[latest]
+    }
+    assert model.monex_fiscal_eps.receipt_id == receipts[latest].receipt_id
+    assert model.monex_fiscal_eps.received_at_utc == stamps[latest]
+    chart = estimate_missing(
+        selected.model_dump(mode="json"),
+        ticker="1234",
+        recorded=set(),
+        selection_sha256=selection_sha256(selected),
+    )
+    assert chart["monex_fiscal_eps"]["current_fy"]["eps_jpy_per_share"] == 10 + latest
+    row = next(row for row in chart["rows"] if row["model"] == "external_assessment")
+    assert f"{100 + latest}円/株" in row["summary"]

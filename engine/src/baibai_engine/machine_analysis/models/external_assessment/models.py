@@ -25,6 +25,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
 
 METHOD_VERSION = "same-series-v4"
 MONEX_FISCAL_METHOD_VERSION = "same-series-v9-monex-fiscal-eps"
+MONEX_DAY_PAIR_METHOD_VERSION = "same-series-v10-monex-asof-pair"
 
 
 class MetricComparison(FrozenModel):
@@ -118,7 +119,7 @@ class ExternalAssessment(FrozenModel):
             return self
         anchor = latest_monex(item.inputs for item in self.model_valuations)
         if (
-            self.method_version != MONEX_FISCAL_METHOD_VERSION
+            self.method_version not in {MONEX_FISCAL_METHOD_VERSION, MONEX_DAY_PAIR_METHOD_VERSION}
             or anchor is None
             or (eps.ticker, anchor.ticker) != (self.ticker, self.ticker)
             or eps.source_url != monex_public_url(self.ticker)

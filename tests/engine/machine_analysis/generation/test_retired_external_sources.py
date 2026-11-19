@@ -142,9 +142,9 @@ def test_current_reads_do_not_query_retired_tables_while_history_reads_do(tmp_pa
     calls = []
     original = reader._latest_rows
 
-    def record(conn, table, *args):
+    def record(conn, table, *args, **kwargs):
         calls.append(table)
-        return original(conn, table, *args)
+        return original(conn, table, *args, **kwargs)
 
     monkeypatch.setattr(reader, "_latest_rows", record)
     current = external_assessment(path, ticker="1234", cutoff=RECEIVED, evaluated_at=RECEIVED)
