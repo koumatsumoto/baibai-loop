@@ -515,7 +515,7 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
         db_path,
         "market_calendar",
         {"from": DAY, "to": DAY},
-        body([{"Date": DAY, "HolDiv": "1"}]),
+        body([{"Date": DAY, "HolDiv": "3"}]),
         FIRST_AT,
     )
     with sqlite3.connect(db_path) as conn:
@@ -555,7 +555,7 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
     assert [row.fiscal_period for row in summaries] == ["FY", "1Q"]
     calendar = read_market_calendar(db_path, day, day)
     assert calendar is not None
-    assert calendar[0].is_business_day
+    assert calendar[0].is_business_day is False
     assert db_path.read_bytes() == original_db
 
 
