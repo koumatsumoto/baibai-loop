@@ -89,7 +89,7 @@ def test_exact_scope_clock_and_author_priority_without_a_latest_fallback():
     assert "company_growth" not in rows
     assert rows["external_assessment"]["assessment"] == "context_only"
     assert rows["external_assessment"]["source_url"].startswith("https://scouter.monex.co.jp/")
-    assert "PER方式" in rows["external_assessment"]["summary"]
+    assert "外部試算（PER方式、利益は発行会社の予想）" in rows["external_assessment"]["summary"]
     assert rows["technical_analysis"]["assessment"] == "mixed"
     assert "2026-09-17" in rows["technical_analysis"]["summary"]
     assert _estimate(s, "0000") is None
@@ -416,6 +416,18 @@ def test_industry_claim_itself_must_belong_to_the_fixed_subject_and_sample():
     r = _estimate(s)["industry_trends"]
     assert r["assessment"] == "context_only"
     assert "21社" in r["summary"]
+
+
+def test_consensus_target_is_not_attributed_to_the_company_profit_forecast():
+    s = _sel()
+    e = _external(value=100.0)
+    obs = e["model_valuations"][0]["inputs"]["latest"]
+    obs.update(consensus_target=120.0, consensus_target_origin="IFIS")
+    _put(s, "external_assessment", e)
+    r = _estimate(s)["external_assessment"]
+    assert r["assessment"] == "context_only"
+    assert "IFISのコンセンサス目標 120円/株" in r["summary"]
+    assert "発行会社の予想" not in r["summary"]
 
 
 def test_only_external_pbr_model_is_a_per_share_estimate_not_a_multiple():
