@@ -466,7 +466,8 @@ def test_issuer_declaration_scopes_do_not_leak_to_a_sibling_or_turn_an_axis_into
         decl.set(attribute, correct)
 
 
-def test_equal_inline_facts_do_not_share_their_parent_note():
+@pytest.mark.parametrize("same_file", [False, True], ids=["different-files", "same-file-siblings"])
+def test_equal_inline_facts_do_not_share_their_parent_note(same_file):
     # Four synthetic pairs only. No filing, original amounts, list or external I/O.
     base = "http://disclosure.edinet-fsa.go.jp/taxonomy/"
     pfs = base + "jppfs/2025-11-01/jppfs_cor"
@@ -479,26 +480,32 @@ def test_equal_inline_facts_do_not_share_their_parent_note():
         for index, (item, ctx) in enumerate(keys)
     )
 
-    def page(section, end, note_ns=crp):
+    def page(body, note_ns=crp):
         return _scoped(
             (
                 f'<html xmlns="http://www.w3.org/1999/xhtml" xmlns:n="{note_ns}" xmlns:p="{pfs}"'
-                f' xmlns:i="http://www.xbrl.org/2008/inlineXBRL"><body>{section}<div>{cells}</div>'
-                f"{end}</body></html>"
+                f' xmlns:i="http://www.xbrl.org/2008/inlineXBRL"><body>{body}</body></html>'
             ).encode()
         )
 
-    inside = page(f'<i:nonNumeric name="n:{note}" contextRef="A">', "</i:nonNumeric>")
-    outside = page("<section>", "</section>")
-    parts = {"a.htm": outside, "b.htm": inside}
+    table = f"<div>{cells}</div>"
+    inside = f'<i:nonNumeric name="n:{note}" contextRef="A">{table}</i:nonNumeric>'
+    outside = f"<section>{table}</section>"
+    if same_file:
+        parts = {"b.htm": page(inside + outside)}
+        outer_file, outer_branch = "b.htm", 1
+    else:
+        parts = {"b.htm": page(inside), "a.htm": page(outside)}
+        outer_file, outer_branch = "a.htm", 0
+    occurrences = (("b.htm", 0, "consolidated"), (outer_file, outer_branch, None))
     synthetic_axis = (f"{{{crp}}}OperatingSegmentsAxis", f"{{{crp}}}ReportableSegmentsMember")
     for i, (item, ctx) in enumerate(keys):
-        inner, outer = (part[0][0][0][0][i] for part in (inside, outside))
+        inner, outer = (parts[file][0][0][branch][0][i] for file, branch, _ in occurrences)
         assert inner.attrib == outer.attrib
         assert inner.text == outer.text
         concept = f"{{{pfs}}}{item}"
-        path = (0, 0, 0, i)
-        for filename, expected in (("a.htm", None), ("b.htm", "consolidated")):
+        for filename, branch, expected in occurrences:
+            path = (0, branch, 0, i)
             scope = consolidated_note_at(parts, (filename, path), concept=concept, context_id=ctx)
             assert scope == expected
             # The real duplicate pattern has NO segment axis. Even a true note is insufficient.
@@ -521,7 +528,5 @@ def test_equal_inline_facts_do_not_share_their_parent_note():
     for ambiguous in (("missing.htm", positive[1]), ("b.htm", (0, 0, 0, -1)), ("b.htm", (0, 0))):
         assert consolidated_note_at(parts, ambiguous, concept=sample, context_id="A") is None
     assert consolidated_note_at(parts, positive, concept=sample, context_id="B") is None
-    parts["b.htm"] = page(
-        f'<i:nonNumeric name="n:{note}" contextRef="A">', "</i:nonNumeric>", "urn:homonym"
-    )
+    parts["b.htm"] = page(inside, "urn:homonym")
     assert consolidated_note_at(parts, positive, concept=sample, context_id="A") is None
