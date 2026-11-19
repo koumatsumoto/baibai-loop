@@ -659,9 +659,23 @@ def test_store_keeps_vintages_and_coverage_reasons(tmp_path):
     two = facts("S100YJ24")
     for doc, rows in [("S100YR5P", one), ("S100YJ24", two), ("S100YR5P", one)]:
         store_facts(path, identity=filing_identity("1873", doc, "2026-07-22 10:00"), facts=rows)
-    conn = sqlite3.connect(path)
-    assert conn.execute("select count(*) from edinet_segment_facts").fetchone()[0] == 72
-    conn.close()
+    before = extraction_status(path)
+    with pytest.raises(sqlite3.IntegrityError):
+        store_facts(
+            path,
+            identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"),
+            facts=ExtractedFacts((), (one.debt[0], one.debt[0])),
+        )
+    assert extraction_status(path) == before
+    with closing(sqlite3.connect(path)) as conn:
+        conn.row_factory = sqlite3.Row
+        for table, expected in (
+            ("edinet_segment_facts", one.segments + two.segments),
+            ("edinet_debt_schedule", one.debt + two.debt),
+        ):
+            saved = conn.execute(f"SELECT * FROM {table} ORDER BY source_doc_id, source_locator")
+            ordered = sorted(expected, key=lambda row: (row.source_doc_id, row.source_locator))
+            assert [dict(row) for row in saved] == [row.model_dump() for row in ordered]
     assert json.loads(extraction_status(path)["S100YJ24"][1])["debt_reasons"] == ["debt_no_table"]
 
 
