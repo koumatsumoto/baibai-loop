@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, timedelta
 from decimal import Decimal
 
 import pytest
@@ -337,25 +337,100 @@ def test_date_only_order_without_expiry_can_be_cancelled_and_retried(tmp_path):
     assert not replay_events_through(stored.events, stored.as_of).active_reservations
 
 
-def test_date_only_expiry_report_does_not_require_exact_expiry_clock_time(tmp_path):
-    service, _ = _service(tmp_path)
-    opened, _ = open_direct(service, expires_at=NOW + timedelta(hours=5))
+def test_date_only_expiry_checks_report_clock_not_replay_key(tmp_path):
+    service, path = _service(tmp_path)
+    expiry = NOW + timedelta(hours=5)
+    opened, _ = open_direct(service, expires_at=expiry)
     apply_draft(service, opened, human_confirmed=True)
     order = opened.replacement.events[-1]
-    expired, _ = build_broker_fact_draft(
-        service,
-        unavailable,
+    report = dict(
         decision_reference=order.decision_reference,
         status="expired",
         occurred_on=NOW.date(),
         reservation_id=order.reservation_id,
-        now=NOW + timedelta(hours=6),
     )
+    boundary = expiry.astimezone(UTC)
+    just_before = boundary - timedelta(microseconds=1)
+    reserved = path.read_bytes()
+    with pytest.raises(BrokerFactRecordingError, match="date-only expired report"):
+        build_broker_fact_draft(service, unavailable, **report, now=just_before)
+    assert path.read_bytes() == reserved
+
+    expired, ids = build_broker_fact_draft(service, unavailable, **report, now=boundary)
     assert expired is not None
-    assert expired.replacement.events[-1].occurred_on == NOW.date()
+    assert build_broker_fact_draft(
+        service, unavailable, **report, now=expiry + timedelta(hours=1)
+    ) == (
+        expired,
+        ids,
+    )
+    release = expired.replacement.events[-1]
+    assert release.occurred_on == NOW.date()
+    assert release.occurred_at == order.occurred_at < expiry
     apply_draft(service, expired, human_confirmed=True)
     stored = service.load()
     assert not replay_events_through(stored.events, stored.as_of).active_reservations
+    saved = path.read_bytes()
+    assert build_broker_fact_draft(service, unavailable, **report, now=just_before) == (None, ())
+    assert path.read_bytes() == saved
+
+
+@pytest.mark.parametrize(
+    ("status", "expiry"), [("expired", None), ("cancelled", NOW + timedelta(hours=5))]
+)
+def test_date_only_terminal_report_does_not_infer_an_expiry(tmp_path, status, expiry):
+    service, _ = _service(tmp_path)
+    opened, _ = open_direct(service, expires_at=expiry)
+    apply_draft(service, opened, human_confirmed=True)
+    order = opened.replacement.events[-1]
+    released, _ = build_broker_fact_draft(
+        service,
+        unavailable,
+        decision_reference=order.decision_reference,
+        status=status,
+        occurred_on=NOW.date(),
+        reservation_id=order.reservation_id,
+        now=NOW,
+    )
+    assert released is not None
+    release = released.replacement.events[-1]
+    assert (release.reason, release.occurred_on) == (status, NOW.date())
+
+
+def test_batch_date_only_expiry_waits_for_each_recorded_deadline(tmp_path):
+    service, path = _service(tmp_path)
+    reference = "manual-fact-00000000-0000-4000-8000-000000000009"
+    reservation_ids = []
+    for hours in (4, 5):
+        opened, _ = open_direct(
+            service,
+            decision_reference=reference,
+            quantity=100,
+            order_id=f"order-{hours}",
+            expires_at=NOW + timedelta(hours=hours),
+        )
+        apply_draft(service, opened, human_confirmed=True)
+        reservation_ids.append(opened.replacement.events[-1].reservation_id)
+    report = dict(
+        decision_reference=reference,
+        status="expired",
+        occurred_on=NOW.date(),
+        reservation_ids=tuple(reservation_ids),
+    )
+    boundary = NOW + timedelta(hours=5)
+    reserved = path.read_bytes()
+    with pytest.raises(BrokerFactRecordingError, match="date-only expired report"):
+        build_broker_fact_draft(
+            service, unavailable, **report, now=boundary - timedelta(microseconds=1)
+        )
+    assert path.read_bytes() == reserved
+    released, ids = build_broker_fact_draft(
+        service, unavailable, **report, now=boundary + timedelta(microseconds=1)
+    )
+    assert released is not None
+    assert len(ids) == 2
+    state = replay_events_through(released.replacement.events, released.replacement.as_of)
+    assert (state.reserved_cash_yen, state.available_cash_yen) == (0, 300_000)
 
 
 @pytest.mark.parametrize("open_order_count", [1, 2])

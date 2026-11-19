@@ -69,7 +69,7 @@ def record_broker_fact(
         if status != "filled":
             raise BrokerFactRecordingError("execution_id is only valid for a fill")
         _validate_execution_id(execution_id)
-    _validate_report_time(occurred_at, now=now)
+    reported_at = _validate_report_time(occurred_at, now=now)
     if status == "expired" and reservation_id is None:
         raise BrokerFactRecordingError("expired requires reservation_id")
 
@@ -257,6 +257,7 @@ def record_broker_fact(
                 decision_reference=decision_reference,
                 status=status,
                 occurred_at=occurred_at,
+                reported_at=reported_at,
                 event_identity=f"{reservation.ticker}:{reservation.reservation_id}",
                 occurred_on=occurred_on,
             )
@@ -281,7 +282,7 @@ def record_terminal_broker_facts(
     """Append simultaneous terminal broker facts as one reconciled ledger change."""
 
     _validate_decision_reference(decision_reference)
-    _validate_report_time(occurred_at, now=now)
+    reported_at = _validate_report_time(occurred_at, now=now)
     if len(reservation_ids) < 2:
         raise BrokerFactRecordingError(
             "batch terminal broker fact requires multiple reservation_ids"
@@ -317,6 +318,7 @@ def record_terminal_broker_facts(
                 decision_reference=decision_reference,
                 status=status,
                 occurred_at=occurred_at,
+                reported_at=reported_at,
                 event_identity=f"{reservation.ticker}:{reservation.reservation_id}",
                 occurred_on=occurred_on,
             )
@@ -369,6 +371,7 @@ def _release_addition(
     decision_reference: str,
     status: Literal["cancelled", "expired"],
     occurred_at: datetime,
+    reported_at: datetime,
     occurred_on: date | None = None,
     event_identity: str,
 ) -> dict[str, object]:
@@ -378,6 +381,15 @@ def _release_addition(
     ):
         raise BrokerFactRecordingError(
             f"{status} decision_reference does not match the active reservation"
+        )
+    if (
+        status == "expired"
+        and occurred_on is not None
+        and reservation.expires_at is not None
+        and reported_at < reservation.expires_at
+    ):
+        raise BrokerFactRecordingError(
+            f"date-only expired report predates expires_at: {reservation.reservation_id}"
         )
     suffix = _event_suffix(decision_reference, status, event_identity, occurred_at, occurred_on)
     prefix = "human-cancel" if status == "cancelled" else "human-expire"
