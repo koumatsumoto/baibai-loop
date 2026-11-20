@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 from baibai_engine.investment_judgment.market_assessment.models import (
+    ASSESSMENT_SCHEMA_VERSION,
+    RECEIPTED_ENVELOPE_VERSION,
     StoredAssessment,
     require_aware,
 )
@@ -34,7 +37,11 @@ def assessment_history(path: Path | None) -> list[StoredAssessment]:
         records = [_stored_assessment(row) for row in rows]
         return sorted(
             records,
-            key=lambda r: (r.published_at.astimezone(UTC), r.as_of, r.context_id),
+            key=lambda r: (
+                (r.recorded_at or r.published_at).astimezone(UTC),
+                r.as_of,
+                r.context_id,
+            ),
             reverse=True,
         )
     finally:
@@ -70,17 +77,15 @@ def _stored_assessment(row: sqlite3.Row) -> StoredAssessment:
     if not isinstance(payload, dict):
         raise ValueError("assessment payload must be an object")
     record = StoredAssessment.from_payload(payload)
-    if (
-        record.context_id,
-        record.schema_version,
-        record.as_of.isoformat(),
-        record.published_at.isoformat(),
-    ) != (
-        str(row["context_id"]),
-        int(row["schema_version"]),
-        str(row["as_of"]),
-        str(row["published_at"]),
-    ):
+    if (record.context_id, record.as_of.isoformat()) != (row["context_id"], row["as_of"]):
+        raise ValueError("assessment publication identity differs")
+    version = int(row["schema_version"])
+    if version == RECEIPTED_ENVELOPE_VERSION:
+        recorded = require_aware(datetime.fromisoformat(str(row["published_at"])))
+        if record.schema_version != ASSESSMENT_SCHEMA_VERSION or recorded < record.published_at:
+            raise ValueError("assessment receipt differs from its authored publication")
+        return replace(record, recorded_at=recorded)
+    if record.schema_version != version or record.published_at.isoformat() != row["published_at"]:
         raise ValueError("assessment publication identity differs")
     return record
 
@@ -111,28 +116,56 @@ def latest_assessment(
 
 
 def latest_assessment_from_connection(
-    connection: sqlite3.Connection, *, as_of: date, known_at: datetime
+    connection: sqlite3.Connection,
+    *,
+    as_of: date,
+    known_at: datetime,
+    require_receipt: bool = False,
 ) -> StoredAssessment | None:
     """呼出元のtransaction内で選ぶ。Operationの他の開始材料と断面を揃える。"""
+    require_aware(known_at)
     rows = connection.execute(
-        "SELECT context_id,as_of,published_at FROM market_context_assessment "
-        "WHERE schema_version IN (3,4,5,6) AND as_of<=?",
-        (as_of.isoformat(),),
-    ).fetchall()
+        "SELECT context_id,as_of,published_at,schema_version FROM market_context_assessment "
+        "WHERE schema_version IN (3,4,5,6,?) AND as_of<=?",
+        (RECEIPTED_ENVELOPE_VERSION, as_of.isoformat()),
+    )
     eligible: list[tuple[datetime, date, str]] = []
+    unknown: set[str] = set()
     for row in rows:
-        published = require_aware(datetime.fromisoformat(str(row["published_at"])))
-        if published.astimezone(UTC) <= known_at.astimezone(UTC):
+        instant = require_aware(datetime.fromisoformat(str(row["published_at"])))
+        if instant > known_at:
+            continue
+        identity = str(row["context_id"])
+        if require_receipt and row["schema_version"] != RECEIPTED_ENVELOPE_VERSION:
+            unknown.add(identity)
+        else:
             eligible.append(
-                (
-                    published.astimezone(UTC),
-                    date.fromisoformat(str(row["as_of"])),
-                    str(row["context_id"]),
-                )
+                (instant.astimezone(UTC), date.fromisoformat(str(row["as_of"])), identity)
             )
-    if not eligible:
+    selected_id = max(eligible)[2] if eligible else None
+    if unknown:
+        # A superseded ancestor indisputably existed before this trusted publication.
+        # An independent or later old-writer row has no receipt; don't call it absent
+        # or silently declare some other judgment was the most recent at the cutoff.
+        ancestors = set()
+        if selected_id is not None:
+            ancestors = {
+                row[0]
+                for row in connection.execute(
+                    "WITH RECURSIVE ancestry(id) AS (SELECT supersedes_id "
+                    "FROM market_context_assessment WHERE context_id=? UNION "
+                    "SELECT m.supersedes_id FROM market_context_assessment m JOIN ancestry a "
+                    "ON m.context_id=a.id) SELECT id FROM ancestry WHERE id IS NOT NULL",
+                    (selected_id,),
+                )
+            }
+        if unknown - ancestors:
+            raise ValueError(
+                "market publication receipt unknown for historical judgment: "
+                + ", ".join(sorted(unknown - ancestors))
+            )
+    if selected_id is None:
         return None
-    selected_id = max(eligible)[2]
     selected = connection.execute(
         "SELECT context_id,schema_version,as_of,published_at,payload "
         "FROM market_context_assessment WHERE context_id=?",
