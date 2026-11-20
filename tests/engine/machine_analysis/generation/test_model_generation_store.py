@@ -15,8 +15,10 @@ from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
 )
+from baibai_engine.storage.sqlite import machine_analysis as machine_store
 from baibai_engine.storage.sqlite.machine_analysis import (
     GENERATION_SCHEMA_SQL,
+    RUN_STORE_SCHEMA_VERSION,
     SCHEMA_SQL,
     connect_read_only,
     initialize_run_store,
@@ -105,6 +107,18 @@ def test_failed_generation_publication_rolls_back_header_and_models(tmp_path):
         assert connection.execute("SELECT count(*) FROM generated_model").fetchone()[0] == 0
 
 
+def test_initialization_failure_rolls_back_schema_and_can_retry(tmp_path, monkeypatch):
+    path = tmp_path / "runs.sqlite"
+    with monkeypatch.context() as patch:
+        patch.setattr(machine_store, "SCHEMA_SQL", SCHEMA_SQL + "\nINVALID SQL;")
+        with pytest.raises(sqlite3.OperationalError):
+            initialize_run_store(path)
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("SELECT name FROM sqlite_schema").fetchall() == []
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION
+
+
 def test_schema6_is_rejected_without_changing_existing_data(tmp_path):
     path = tmp_path / "runs.sqlite"
     with closing(sqlite3.connect(path)) as connection:
@@ -126,8 +140,8 @@ def test_schema6_is_rejected_without_changing_existing_data(tmp_path):
         )
         connection.commit()
     before = path.read_bytes()
-    with pytest.raises(RuntimeError, match="obsolete schema"):
-        initialize_run_store(path)
+    with pytest.raises(RuntimeError, match="explicit migration"):
+        publish_generation(generation(), path=path)
     with pytest.raises(RuntimeError, match="schema is not current"):
         connect_read_only(path)
     assert path.read_bytes() == before

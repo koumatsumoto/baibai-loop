@@ -28,7 +28,7 @@
 | `machine_analysis/models/` | 解析の問い・計算・結果。候補政策を知らない。 |
 | `machine_analysis/generation/` | 固定入力・モデル実行・保存/読取。途中で外部取得しない。 |
 | `machine_analysis/screening/` | 保存モデルへの候補政策と結果保存。 |
-| `machine_analysis/historical_evaluation/` | 保存済み旧run/Selectionの読取。 |
+| `machine_analysis/historical_evaluation/` | 保存済みResearchへ埋め込まれた旧評価の投影。 |
 | `investment_judgment/` | L3判断。workflowは固定/進行/再開、retrospectiveは後日照合と学び。 |
 | `portfolio/` | 確認済みledger、holdings、performance。採否/調査完了は持たない。 |
 | `storage/` | SQLite・snapshot・object転送/条件付き書込。業務の意味は決めない。 |
@@ -66,7 +66,7 @@
 | 共有固定入力 | 採用原本/確認/失敗のmetadataとL1本文参照。保存入力の再計算に必要な間保持する。 |
 | 固定lake | L2と未移行L1のimmutable object/manifest。同じreleaseで読む。旧releaseの固定読取も保持する。 |
 | source cache SQLite | market実行copy。未移行原本/運用状態を含み、全体は廃棄可能cacheではない。 |
-| runs | ModelGeneration/ScreeningSelectionを保存する。再計算には保持入力と当時の実行条件が必要。旧runは読み取り専用で、[旧較正](reference/estimate-calibration.md)は固定資料として残す。 |
+| runs | ModelGeneration/ScreeningSelectionを保存する。再計算には保持入力と当時の実行条件が必要。旧runの原行は保持するが専用閲覧は終了。[旧較正](reference/estimate-calibration.md)は固定資料として残す。 |
 
 原本受領・原本公開・L2公開は別の成功で、独立L1をL2成功待ちにしない。生成/公開は開始入力を固定し、未生成と結果内欠測を分ける。再開で現在のモデル一覧・既定値・latest headを補わない。L3は必要断面をapplicationへ保存し、元runや可変storeに依存せず再開する。整理/GCは原本・判断・取引履歴・R2全体の削除許可ではない。
 
