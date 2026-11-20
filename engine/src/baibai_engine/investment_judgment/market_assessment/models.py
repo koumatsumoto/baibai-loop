@@ -12,6 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from baibai_engine.primitives.time import JST
 
 ASSESSMENT_SCHEMA_VERSION = 6
+# Storage edition only: body stays the canonical authored v6 document.
+# Its row's publication clock is independently recorded by the App writer.
+RECEIPTED_ENVELOPE_VERSION = 7
 ASSESSMENT_STALE_DAYS = 45
 
 
@@ -119,6 +122,7 @@ class StoredAssessment:
     published_at: datetime
     summary: str
     document: dict[str, Any]
+    recorded_at: datetime | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> StoredAssessment:
