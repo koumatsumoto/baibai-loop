@@ -16,6 +16,8 @@
 
 初回`selection-context`のSelection ID・基準日・timezone付きcutoffを、出力の `repeat_command_args` で引き継ぐ。`--discovery-question <KEY>` を付け、続きは `next_args`、個社の完全モデルは `detail_args` の `--compare-ticker`。候補への追加やResearch開始は行わない。入力不足なら `input_gap`、旧表示の外なら `outside_display`。後者と入力不足は重なり、先頭・数・相対騰落は割安の順位ではない。
 
+旧レーンを明示しない通常の指定銘柄・保有・個社比較では、必要な銘柄と同じGenerationの関係資料だけを返す。軽量索引がない旧公表物をIDで固定した場合も、同じ原本に記録された当該の行だけを読む（圧縮原本自体の展開は必要）。旧候補欄への非掲載と当時の母集団外を区別し、無関係な候補や順位を表示しない。保有台帳を読むのは `--scope review_positions` のときだけで、未導入と実際の保有0社を区別する。保有の個別指定は当該時点の保有との共通分が調査対象で、非保有の比較相手は `--compare-ticker` で別に加えられる。
+
 旧レーンの `--screening-lane` と `--screening-excluded [technical_matched|financial_unresolved]` は、明示した旧 `--screening-selection-id` でのみ使える。診断は保存された非充足や不足を当時のまま返し、通常レーンへ復帰させない。旧 `candidate_tickers` は表示ページ、`summary` は全stock planの分母。
 
 問いが広過ぎるときは先頭の会社を指名しない。例えば「資本異動で持続利益の取り分が変わったか」なら、同じ公表物で対抗候補の座標（経路・variant・価格側の比較基準・数値）を読み、`--discovery-question capital_change --price-coordinate-min <PATH> <VARIANT> <PRICE_GROUP> <対抗候補の観測値>` で同じ測定だけを照合できる。「以上／未満／同基準の値なし」を分け、比較不能な会社を経済的に棄却しない。絞った後も、確認すべきなのは資本異動が新取得者の取り分を変えたかという原典である。座標値そのものを期待利回りとせず、理由がなければ数値条件は使わない。
