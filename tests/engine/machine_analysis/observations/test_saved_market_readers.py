@@ -33,7 +33,6 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
     fin_summaries_readable_from,
     read_fin_summaries,
 )
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_daily_bars
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
@@ -148,12 +147,18 @@ class ReadDailyBarsTests(unittest.TestCase):
     def test_sparse_bars_from_a_successful_range_are_read_as_observed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_daily_bars(
-                db,
-                [{"Code": "13010", "Date": "2024-03-19", "C": 3790.0}],
-                requested_start=date(2024, 3, 19),
-                requested_end=date(2024, 4, 18),
-            )
+            with closing(open_connection(db)) as conn, conn:
+                conn.execute(
+                    "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES (?,?,?)",
+                    ("1301", "2024-03-19", 3790.0),
+                )
+                add_source_coverage(
+                    conn,
+                    source="jquants_daily_bars",
+                    coverage_key="get_eq_bars_daily_range:2024-03-19..2024-04-18",
+                    min_date="2024-03-19",
+                    max_date="2024-04-18",
+                )
             bars = read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18))
             self.assertIsNotNone(bars)
             self.assertEqual(

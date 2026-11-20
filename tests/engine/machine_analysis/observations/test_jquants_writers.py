@@ -23,6 +23,7 @@ from tests.helpers.jquants_receipts import (
 )
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.master_calendar_native import seed_calendar
+from tests.helpers.price_native import project_price_records
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.http import (
@@ -36,7 +37,6 @@ from baibai_engine.machine_analysis.observations.financials.reader import read_f
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
-    store_jquants_daily_bars,
     store_jquants_fin_summaries,
     store_jquants_margin_alerts,
     store_jquants_short_sale_reports,
@@ -303,50 +303,6 @@ def test_complete_empty_receipt_projects_identically_with_or_without_old_rows(
     assert target_coverage[0] == target_coverage[1]
 
 
-def test_daily_bar_correction_and_same_receipt_replay_are_stable(db_path):
-    write = partial(
-        store_jquants_daily_bars,
-        db_path,
-        requested_start=date.fromisoformat(DAY),
-        requested_end=date.fromisoformat(DAY),
-    )
-    first_body = body([{"Code": "13010", "Date": DAY, "C": 100.0, "Unknown": "raw"}])
-    correction_body = body([{"Code": "13010", "Date": DAY, "C": 111.0}])
-    first_id = receive(db_path, "daily_bars", {"date": DAY}, first_body, FIRST_AT)
-    correction_id = receive(db_path, "daily_bars", {"date": DAY}, correction_body, CORRECTION_AT)
-
-    assert write(retained_records(db_path, first_id), fetched_at_utc=FIRST_CLOCK) == 1
-    assert write(retained_records(db_path, correction_id), fetched_at_utc=CORRECTION_CLOCK) == 1
-    with sqlite3.connect(db_path) as conn:
-        corrected_rows = conn.execute(
-            "SELECT ticker, traded_at, close FROM jquants_daily_bars ORDER BY ticker"
-        ).fetchall()
-    corrected_coverage = coverage(db_path, "jquants_daily_bars")
-    assert corrected_rows == [("1301", DAY, 111.0)]
-    assert corrected_coverage == [
-        (
-            f"get_eq_bars_daily_range:{DAY}..{DAY}",
-            DAY,
-            DAY,
-            CORRECTION_CLOCK,
-            1,
-            "ok",
-            None,
-        )
-    ]
-
-    assert write(retained_records(db_path, correction_id), fetched_at_utc=CORRECTION_CLOCK) == 1
-    with sqlite3.connect(db_path) as conn:
-        assert (
-            conn.execute(
-                "SELECT ticker, traded_at, close FROM jquants_daily_bars ORDER BY ticker"
-            ).fetchall()
-            == corrected_rows
-        )
-        assert [page.body for page in read_request_pages(conn, first_id)] == [first_body]
-    assert coverage(db_path, "jquants_daily_bars") == corrected_coverage
-
-
 def test_financial_correction_and_same_receipt_replay_are_stable(db_path):
     write = partial(
         store_jquants_fin_summaries,
@@ -440,26 +396,6 @@ def test_invalid_financial_record_keeps_partial_coverage_after_raw_projection(db
     ]
 
 
-def test_failed_projection_keeps_retained_raw_body(db_path):
-    invalid_body = body([{"Code": "13010", "Date": "2026-10-15", "C": 100.0}])
-    request_id = receive(db_path, "daily_bars", {"date": DAY}, invalid_body, FIRST_AT)
-
-    with pytest.raises(ValueError, match="outside the requested range"):
-        store_jquants_daily_bars(
-            db_path,
-            retained_records(db_path, request_id),
-            requested_start=date.fromisoformat(DAY),
-            requested_end=date.fromisoformat(DAY),
-            fetched_at_utc=FIRST_CLOCK,
-        )
-    with sqlite3.connect(db_path) as conn:
-        assert [page.body for page in read_request_pages(conn, request_id)] == [invalid_body]
-        assert retained_records(db_path, request_id) == [
-            {"Code": "13010", "Date": "2026-10-15", "C": 100.0}
-        ]
-        assert conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
-
-
 def test_offline_readers_report_missing_input_without_store_or_http(tmp_path, monkeypatch):
     database = tmp_path / "absent.sqlite"
     day = date.fromisoformat(DAY)
@@ -481,23 +417,18 @@ def test_offline_readers_report_missing_input_without_store_or_http(tmp_path, mo
 
 def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch):
     day = date.fromisoformat(DAY)
-    bars_id = receive(
+    project_price_records(
         db_path,
-        "daily_bars",
-        {"date": DAY},
-        body(
-            [
-                {"Code": "13010", "Date": DAY, "C": 100.0, "AdjFactor": 1.0},
-                {
-                    **dict.fromkeys(("O", "H", "L", "C", "Vo", "Va")),
-                    "Code": "130A0",
-                    "Date": DAY,
-                    "AdjFactor": 0.5,
-                    "ExRT": "1",
-                },
-            ]
-        ),
-        FIRST_AT,
+        [
+            {"Code": "13010", "Date": DAY, "C": 100.0, "AdjFactor": 1.0},
+            {
+                **dict.fromkeys(("O", "H", "L", "C", "Vo", "Va")),
+                "Code": "130A0",
+                "Date": DAY,
+                "AdjFactor": 0.5,
+                "ExRT": "1",
+            },
+        ],
     )
     financial_id = receive(
         db_path,
@@ -519,18 +450,14 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
         FIRST_AT,
     )
     with sqlite3.connect(db_path) as conn:
-        for request_id, writer in (
-            (bars_id, store_jquants_daily_bars),
-            (financial_id, store_jquants_fin_summaries),
-        ):
-            request = read_complete_request(conn, request_id)
-            writer(
-                db_path,
-                request.records(),
-                requested_start=day,
-                requested_end=day,
-                fetched_at_utc=request.received_at.isoformat(timespec="microseconds"),
-            )
+        request = read_complete_request(conn, financial_id)
+        store_jquants_fin_summaries(
+            db_path,
+            request.records(),
+            requested_start=day,
+            requested_end=day,
+            fetched_at_utc=request.received_at.isoformat(timespec="microseconds"),
+        )
     store = MemoryR2Store()
     calendar_source = seed_calendar(store, db_path, db_path.parent / "native", as_of=day)
     calendar_model_input(
