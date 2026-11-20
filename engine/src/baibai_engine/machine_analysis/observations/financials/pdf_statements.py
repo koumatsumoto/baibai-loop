@@ -392,11 +392,17 @@ def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatemen
             rows[0][0] == interim[1] + role and indexed[1][0] == indexed[0][0] + 1,
             "pdf_headline_period_conflict",
         )
-        actual = _compact("".join(lines[: indexed[0][0]]))
-        period = re.search(
-            r"1\."
-            + re.escape(interim[1])
-            + r"第2四半期\(中間期\)の連結業績\("
+        header_lines = [_compact(line) for line in lines[: indexed[0][0]] if line.strip()]
+        section = f"1.{interim[1]}第2四半期(中間期)の連結業績("
+        starts = [i for i, line in enumerate(header_lines) if line.startswith(section)]
+        _require(
+            len(starts) == 1
+            and starts[0] > 0
+            and header_lines[starts[0] - 1] == "(百万円未満切捨て)",
+            "pdf_precision_unknown",
+        )
+        period = re.fullmatch(
+            re.escape(section)
             + _DATE
             + r"[~〜～]"
             + _DATE
@@ -404,7 +410,7 @@ def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatemen
             + "売上高営業利益経常利益"
             + profit_label
             + r"(?:百万円%){4}$",
-            actual,
+            "".join(header_lines[starts[0] :]),
         )
         _require(period is not None, "pdf_metric_headers_unsupported")
     else:

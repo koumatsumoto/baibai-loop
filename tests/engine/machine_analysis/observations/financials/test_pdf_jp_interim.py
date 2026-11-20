@@ -158,7 +158,7 @@ def test_interim_rows_unit_period_and_note_cannot_borrow_from_elsewhere(old, new
 
 def test_interim_dates_from_another_heading_do_not_authorize_actual_table():
     text = H1.replace("2026年9月30日", "2026年6月30日").replace(
-        "(百万円未満切捨て)", "(百万円未満切捨て)\n別表の連結業績（2026年4月1日～2026年9月30日）"
+        "(百万円未満切捨て)", "別表の連結業績（2026年4月1日～2026年9月30日）\n(百万円未満切捨て)"
     )
     assert interim(text).reason == "pdf_headline_period_conflict"
 
@@ -197,3 +197,15 @@ def test_interim_requires_one_complete_issuer_code(token):
         interim(H1.replace("コード番号 9127", "コード番号 " + token)).reason
         == "pdf_issuer_mismatch"
     )
+
+
+@pytest.mark.parametrize("other_table", [False, True])
+def test_interim_rounding_must_immediately_label_the_actual_headline(other_table):
+    text = H1.replace("(百万円未満切捨て)", "")
+    if other_table:
+        text = text.replace("総資産 純資産", "総資産 純資産\n(百万円未満切捨て)")
+    else:
+        text = text.replace("1．", "別表の丸め条件は(百万円未満切捨て)\n1．", 1)
+    item = interim(text)
+    assert item.reason == "pdf_precision_unknown"
+    assert not item.pairs
