@@ -199,19 +199,46 @@ def test_latest_broken_edition_never_falls_back_to_earlier_v1(tmp_path, damage):
     assert read_discovery_index(path=path, selection_id=old_id).rows == old.result.rows
 
 
-def test_publish_checks_the_same_jst_cutoff_as_readers_before_saving(tmp_path):
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    [
+        ("before_session", "before its JST session"),
+        ("no_receipt_clock", "requires its receipt clock"),
+        ("empty_without_clock", "requires its receipt clock"),
+        ("no_session_date", "requires its exact session"),
+        ("unrecorded_with_clock", "cannot have a receipt clock"),
+    ],
+)
+def test_publish_checks_the_same_session_evidence_as_readers_before_saving(
+    tmp_path, damage, message
+):
     path = tmp_path / "runs"
     meta, old_id, old, key, selection = editions(path)
     store = ScreeningSelectionStore(path)
     assert store.publish(old_id, old)
     pre_session = datetime.combine(meta.as_of, time.min, JST) - timedelta(microseconds=1)
-    price_session = selection.result.price_session.model_copy(update={"recorded_at": pre_session})
-    invalid = replace(selection, result=replace(selection.result, price_session=price_session))
+    updates = {
+        "before_session": {"recorded_at": pre_session},
+        "no_receipt_clock": {"recorded_at": None},
+        "empty_without_clock": {"status": "empty", "recorded_at": None},
+        "no_session_date": {"expected_date": None},
+        "unrecorded_with_clock": {"status": "not_recorded"},
+    }[damage]
+    price_session = selection.result.price_session.model_copy(update=updates)
+    rows = selection.result.rows
+    if damage in {"empty_without_clock", "no_session_date"}:
+        rows = tuple(
+            {**row, "execution_price": {"raw_close_yen": None, "day_state": None}} for row in rows
+        )
+    invalid = replace(
+        selection, result=replace(selection.result, rows=rows, price_session=price_session)
+    )
     before = path.read_bytes()
-    with pytest.raises(ValueError, match="before its JST session"):
+    with pytest.raises(ValueError, match=message):
         store.publish(key, invalid)
     assert path.read_bytes() == before
     assert read_discovery_index(path=path, selection_id=old_id).rows == old.result.rows
+    assert read_discovery_index(path=path).rows == old.result.rows
 
 
 @pytest.mark.parametrize(

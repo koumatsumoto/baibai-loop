@@ -34,15 +34,20 @@ class NativePriceSession(BaseModel):
 
     @model_validator(mode="after")
     def scope_evidence(self) -> Self:
+        self._require_scope_evidence()
+        return self
+
+    def _require_scope_evidence(self) -> None:
         if self.expected_date is None and self.status != "not_recorded":
             raise ValueError("a native price scope requires its exact session")
         if self.status == "not_recorded" and self.recorded_at is not None:
             raise ValueError("absent native price scope cannot have a receipt clock")
         if self.status in {"ok", "empty"} and self.recorded_at is None:
             raise ValueError("confirmed native price scope requires its receipt clock")
-        return self
 
     def validate_cutoff(self, as_of: date, known_at: datetime) -> None:
+        # Typed copies can bypass model validators before publication.
+        self._require_scope_evidence()
         if self.expected_date is not None and self.expected_date > as_of:
             raise ValueError("expected price session is after the generation date")
         if self.recorded_at is not None and self.recorded_at > known_at:
