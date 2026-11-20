@@ -2,6 +2,15 @@ name: cloud-materialize
 
 on:
   workflow_dispatch:
+    inputs:
+      market_release_id:
+        description: "表示だけを復旧する現行市場release ID（manifest SHAと対で指定）"
+        required: false
+        type: string
+      market_manifest_sha256:
+        description: "市場releaseのmanifest SHA-256（release IDと対で指定）"
+        required: false
+        type: string
   workflow_call:
 
 permissions:
@@ -16,6 +25,9 @@ jobs:
   materialize:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      MARKET_RELEASE_ID: ${{ inputs.market_release_id }}
+      MARKET_MANIFEST_SHA256: ${{ inputs.market_manifest_sha256 }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,6 +43,12 @@ jobs:
       - name: Sync Python environment
         run: uv sync --locked
 
+      - name: Validate requested market identity
+        id: target
+        if: ${{ inputs.market_release_id != '' || inputs.market_manifest_sha256 != '' }}
+        run: |
+          uv run python -m baibai_jobs.publication.machine_bundle -- "$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256"
+
       - name: Acquire publication lease
         id: lease-acquire
         env:
@@ -38,6 +56,16 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.publication.lease acquire --purpose materialize --handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      - name: Pin the current published market and runs pair
+        if: ${{ steps.target.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          umask 077
+          uv run python -m baibai_jobs.publication.machine_bundle --capture "$RUNNER_TEMP/materialize-market-pair.json" -- "$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256"
 
       - name: Pull application store
         id: pull-app
@@ -63,7 +91,9 @@ jobs:
 
       - name: Materialize read models
         id: materialize
-        if: ${{ !cancelled() && steps.pull-app.outcome == 'success' }}
+        if: >-
+          ${{ !cancelled() && steps.pull-app.outcome == 'success' &&
+          (steps.market.outcome == 'success' || steps.target.outcome == 'skipped') }}
         env:
           MARKET_OUTCOME: ${{ steps.market.outcome }}
         run: |
@@ -84,6 +114,9 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           umask 077
+          if [[ -n "$MARKET_RELEASE_ID" ]]; then
+            uv run python -m baibai_jobs.publication.machine_bundle --verify "$RUNNER_TEMP/materialize-market-pair.json" -- "$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256"
+          fi
           jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving" > "$RUNNER_TEMP/materialize-upload-private.log" 2>&1
 
       - name: Release publication lease

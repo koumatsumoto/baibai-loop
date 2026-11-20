@@ -70,7 +70,7 @@ from baibai_jobs.publication.jpx_verification import (
     verify_publication as verify_jpx_publication,
 )
 from baibai_jobs.publication.lease import _load_handle, verify_held
-from baibai_jobs.publication.snapshot_publication import _serving_pointer
+from baibai_jobs.publication.machine_bundle import read_published_machine
 from baibai_jobs.publication.tradingview_verification import (
     capture_publication as capture_tradingview_publication,
 )
@@ -313,28 +313,7 @@ def apply(
 
 
 def canonical_generations(store: ObjectStore) -> dict[str, str]:
-    pointer = _serving_pointer(store).pointer
-    if pointer is None:
-        raise ValueError("common integration requires a published lake release")
-    try:
-        manifest = json.loads(store.get_bytes("machine-manifest.json"))
-    except (KeyError, ValueError, UnicodeDecodeError) as error:
-        raise LakePublishError("published machine bundle receipt is unavailable") from error
-    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
-        raise LakePublishError("published machine bundle receipt is invalid")
-    keys = manifest.get("keys")
-    if not isinstance(keys, dict):
-        raise LakePublishError("published machine bundle receipt is invalid")
-    for key in ("market.sqlite", "runs.sqlite"):
-        recorded = keys.get(key)
-        current = store.head(key)
-        if (
-            not isinstance(recorded, str)
-            or not recorded
-            or current is None
-            or current.etag != recorded
-        ):
-            raise LakePublishError("published machine bundle differs from its receipt")
+    pointer, _ = read_published_machine(store)
     return {
         "lake_release_id": pointer.release_id,
         "lake_manifest_sha256": pointer.manifest_sha256,
