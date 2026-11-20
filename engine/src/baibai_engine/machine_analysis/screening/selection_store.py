@@ -11,14 +11,15 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
+from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
+    validate_selection_source,
 )
 from baibai_engine.machine_analysis.screening.discovery_contract import (
-    DISCOVERY_SUFFIX,
     DiscoverySelection,
+    DiscoverySelectionV2,
     require_publishable_rows,
-    validate_discovery_publication,
 )
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_rw, initialize_run_store
@@ -36,16 +37,8 @@ class ScreeningSelectionStore:
         """本DBの運用結果として発行する。比較実験は別の作業DBへ保存する。"""
         if not selection_id:
             raise ValueError("selection_id must not be empty")
-        if isinstance(selection.result, DiscoverySelection):
-            require_publishable_rows(selection.result.rows)
-            validate_discovery_publication(
-                selection_id=selection_id,
-                generation_id=selection.generation_id,
-                result=selection.result,
-                universe_tickers=selection.universe_tickers,
-            )
-        elif selection_id.endswith(DISCOVERY_SUFFIX):
-            raise ValueError("discovery publication identity differs from its format")
+        if isinstance(selection.result, (DiscoverySelection, DiscoverySelectionV2)):
+            require_publishable_rows(selection.result)
         # model_copyは制約を迂回する。全社snapshotを再構築せず政策設定だけ再検証する。
         policy = selection.result.policy
         type(policy).model_validate(policy.model_dump(mode="python"))
@@ -56,6 +49,20 @@ class ScreeningSelectionStore:
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                metadata = None
+                if isinstance(selection.result, DiscoverySelectionV2):
+                    header = connection.execute(
+                        "SELECT header FROM model_generation WHERE generation_id=?",
+                        (selection.generation_id,),
+                    ).fetchone()
+                    if header is not None:
+                        metadata = GenerationMetadata.model_validate_json(header[0])
+                validate_selection_source(
+                    selection,
+                    selection_id=selection_id,
+                    generation_id=selection.generation_id,
+                    metadata=metadata,
+                )
                 existing = connection.execute(
                     "SELECT payload_gzip FROM screening_selection WHERE selection_id=?",
                     (selection_id,),

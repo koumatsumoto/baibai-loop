@@ -36,6 +36,10 @@ from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningResult,
     ScreeningSelection,
 )
+from baibai_engine.machine_analysis.screening.discovery_contract import (
+    DiscoverySelectionV2,
+    is_session_row,
+)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     ResearchLane,
@@ -155,7 +159,15 @@ def load_generated_selection_context(
                     maximum=reported_pbr_max,
                     path=runs_path,
                     listings={
-                        r["ticker"]: (r["sector"], r["price_date"], r["expected_price_date"])
+                        r["ticker"]: (
+                            r["sector"],
+                            None,
+                            index.price_session.expected_date.isoformat()
+                            if index.price_session and index.price_session.expected_date
+                            else None,
+                        )
+                        if is_session_row(r)
+                        else (r["sector"], r["price_date"], r["expected_price_date"])
                         for r in index.rows
                     },
                 )
@@ -208,7 +220,7 @@ def load_generated_selection_context(
         screening = publication.selection
         if screening.generation_id != generation_id:
             raise ValueError("screening selection differs from the chosen generation")
-        if isinstance(screening.result, DiscoverySelection):
+        if isinstance(screening.result, (DiscoverySelection, DiscoverySelectionV2)):
             raise ValueError("discovery publication identity differs from its format")
     if generation_id is None:
         raise ValueError("an explicit generation is required")

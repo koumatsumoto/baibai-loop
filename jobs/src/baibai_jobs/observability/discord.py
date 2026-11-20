@@ -231,7 +231,10 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
         "technical-financial-discovery-v25",
         "technical-financial-discovery-v26",
     }
-    discovery_index = notice.get("selection_method") == "opportunity-discovery-v1"
+    discovery_index = notice.get("selection_method") in (
+        "opportunity-discovery-v1",
+        "opportunity-discovery-v2",
+    )
     pool_label = (
         "探索母集団" if discovery_index else "探索閲覧（予備・代替含む）" if integrated else "候補"
     )

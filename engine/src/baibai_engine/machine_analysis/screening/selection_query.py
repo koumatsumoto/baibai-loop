@@ -16,7 +16,9 @@ from pydantic import TypeAdapter
 from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
+    validate_selection_source,
 )
+from baibai_engine.machine_analysis.screening.discovery_contract import DiscoverySelectionV2
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 _CODEC = TypeAdapter(ScreeningSelection)
@@ -30,9 +32,22 @@ def _decode_selection(payload: bytes) -> ScreeningSelection:
 def read_selection(selection_id: str, *, path: Path | None = None) -> ScreeningSelection | None:
     with closing(connect_read_only(path)) as connection:
         row = connection.execute(
-            "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (selection_id,)
+            "SELECT s.payload_gzip,s.generation_id,g.header FROM screening_selection s "
+            "JOIN model_generation g USING(generation_id) WHERE s.selection_id=?",
+            (selection_id,),
         ).fetchone()
-        return None if row is None else _decode_selection(row[0])
+        if row is None:
+            return None
+        selection = _decode_selection(row[0])
+        validate_selection_source(
+            selection,
+            selection_id=selection_id,
+            generation_id=row[1],
+            metadata=GenerationMetadata.model_validate_json(row[2])
+            if isinstance(selection.result, DiscoverySelectionV2)
+            else None,
+        )
+        return selection
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,24 +67,47 @@ def read_publication(
     known_at: datetime | None = None,
 ) -> ScreeningPublication | None:
     """基準日の新しさを優先し、同日は実際の発行時刻で選ぶ。再発行は不変。"""
-    row = _publication_data(
-        path=path,
-        selection_id=selection_id,
-        before_as_of=before_as_of,
-        as_of=as_of,
-        known_at=known_at,
-    )
+    if not path.is_file():
+        return None
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        row = _publication_data(
+            connection,
+            selection_id=selection_id,
+            before_as_of=before_as_of,
+            as_of=as_of,
+            known_at=known_at,
+        )
     if row is None:
         return None
     identity, published_at, generation, compressed = row
-    return ScreeningPublication(identity, published_at, generation, _decode_selection(compressed))
+    selection = _decode_selection(compressed)
+    validate_selection_source(
+        selection,
+        selection_id=identity,
+        generation_id=generation.generation_id,
+        metadata=generation,
+    )
+    return ScreeningPublication(identity, published_at, generation, selection)
 
 
 def read_case_publication(
     *, path: Path, selection_id: str, known_at: datetime
 ) -> tuple[datetime, str, ScreeningSelection] | None:
     """有限Caseを固定する原本の時計・保存JSONの指紋・同一本文を一回の読取から返す。"""
-    row = _publication_data(path=path, selection_id=selection_id, known_at=known_at)
+    if not path.is_file():
+        return None
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        return read_case_publication_from_connection(
+            connection, selection_id=selection_id, known_at=known_at
+        )
+
+
+def read_case_publication_from_connection(
+    connection: sqlite3.Connection, *, selection_id: str, known_at: datetime
+) -> tuple[datetime, str, ScreeningSelection] | None:
+    row = _publication_data(connection, selection_id=selection_id, known_at=known_at)
     if row is None:
         return None
     _, actual_time, generation, compressed = row
@@ -78,44 +116,47 @@ def read_case_publication(
     parsed = json.loads(wire)
     del wire
     selection = _CODEC.validate_python(parsed)
-    if selection.generation_id != generation.generation_id:
-        raise ValueError("screening selection differs from the chosen generation")
+    validate_selection_source(
+        selection,
+        selection_id=selection_id,
+        generation_id=generation.generation_id,
+        metadata=generation,
+    )
     return actual_time, digest, selection
 
 
 def _publication_data(
+    connection: sqlite3.Connection,
     *,
-    path: Path,
     selection_id: str | None = None,
     before_as_of: date | None = None,
     as_of: date | None = None,
     known_at: datetime | None = None,
 ) -> tuple[str, datetime, GenerationMetadata, bytes] | None:
-    if not path.is_file():
+    header = find_publication_header(
+        connection,
+        selection_id=selection_id,
+        before_as_of=before_as_of,
+        as_of=as_of,
+        known_at=known_at,
+    )
+    if header is None:
         return None
-    with closing(connect_read_only(path)) as connection:
-        connection.execute("BEGIN")
-        header = find_publication_header(
-            connection,
-            selection_id=selection_id,
-            before_as_of=before_as_of,
-            as_of=as_of,
-            known_at=known_at,
-        )
-        if header is None:
-            return None
-        identity, published, _, _, _ = header
-        metadata, payload = connection.execute(
-            "SELECT g.header,s.payload_gzip FROM screening_selection s "
-            "JOIN model_generation g USING(generation_id) WHERE s.selection_id=?",
-            (identity,),
-        ).fetchone()
-        return (
-            identity,
-            datetime.fromisoformat(published),
-            GenerationMetadata.model_validate_json(metadata),
-            payload,
-        )
+    identity, published, generation, _, _ = header
+    metadata, payload = connection.execute(
+        "SELECT g.header,s.payload_gzip FROM screening_selection s "
+        "JOIN model_generation g USING(generation_id) WHERE s.selection_id=?",
+        (identity,),
+    ).fetchone()
+    saved_header = GenerationMetadata.model_validate_json(metadata)
+    if saved_header.generation_id != generation:
+        raise ValueError("publication differs from the chosen generation header")
+    return (
+        identity,
+        datetime.fromisoformat(published),
+        saved_header,
+        payload,
+    )
 
 
 def find_publication_header(
