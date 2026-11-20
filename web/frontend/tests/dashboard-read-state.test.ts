@@ -161,6 +161,52 @@ it.each([null, '旧表示の市場評価エラー'])(
   },
 )
 
+it.each(['unresolved-reentry', 'legacy', 'quote-missing', 'normal'])(
+  'labels a nonempty holding table and its download by quantity status (%s)', state => {
+    const uncertain = state === 'unresolved-reentry' || state === 'legacy'
+    const hasQuote = state === 'normal' || state === 'legacy'
+    const data: Partial<DashboardView> = {
+      ...dashboard(), holding_quantity_unresolved: state === 'unresolved-reentry',
+      valuation_error: state === 'unresolved-reentry' ? '2331: 保有中の株数変更を照合できません。' : null,
+      holdings: [{
+        ticker: '2331', company_name: '表示中の例', sector: 'サービス業', quantity: 125,
+        deployed_cost_yen: 125_000, market_price_yen: hasQuote ? '1200' : null,
+        market_price_as_of: hasQuote ? '2026-10-15' : null,
+        market_value_yen: hasQuote ? 150_000 : null,
+        unrealized_pnl_yen: hasQuote ? 25_000 : null, unrealized_pnl_pct: hasQuote ? 20 : null,
+      }],
+    }
+    if (state === 'legacy') delete data.holding_quantity_unresolved
+    hooks.values.set(0, data)
+    const html = render()
+    expect(html).toContain('2331')
+    expect(html).toMatch(/data-slot="table-cell"[^>]*>125<\/td>/)
+    if (uncertain) {
+      expect(html).toMatch(/role="heading"[^>]*>台帳上の保有記録<\/div>/)
+      expect(html).toMatch(/data-slot="badge"[^>]*>表示 1 行<\/span>/)
+      expect(html).toMatch(/data-slot="table-head"[^>]*>記録株数<\/th>/)
+      expect(html).toContain('実際の保有銘柄・株数を確定した一覧ではありません。')
+      expect(html).toContain('記録行の評価損益')
+      expect(html).toContain('表示中の銘柄のみをTradingView用TXTに出力')
+      expect(html).not.toMatch(/role="heading"[^>]*>保有銘柄<\/div>/)
+      expect(html).not.toMatch(/data-slot="badge"[^>]*>1 銘柄<\/span>/)
+      expect(html).not.toContain('評価損益 合計')
+      expect(html).not.toContain('保有銘柄をTradingView用TXTに出力')
+      expect(html).toContain(state === 'legacy'
+        ? '保有株数の確認状況はこの表示データに記録されていません'
+        : '保有株数は未照合')
+    } else {
+      expect(html).toMatch(/role="heading"[^>]*>保有銘柄<\/div>/)
+      expect(html).toMatch(/data-slot="badge"[^>]*>1 銘柄<\/span>/)
+      expect(html).toMatch(/data-slot="table-head"[^>]*>数量<\/th>/)
+      expect(html).toContain('評価損益 合計')
+      expect(html).toContain('保有銘柄をTradingView用TXTに出力')
+      expect(html).not.toContain('記録株数')
+      if (state === 'quote-missing') expect(html).toContain('未評価: 2331')
+    }
+  },
+)
+
 it('keeps portfolio information visible when the independent outcomes request fails', () => {
   hooks.values.set(0, dashboard())
   hooks.values.set(2, 'outcomes unavailable')

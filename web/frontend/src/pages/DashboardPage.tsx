@@ -31,9 +31,9 @@ import { cn } from '../lib/utils'
 type DashboardPayload = Omit<DashboardView, 'holding_quantity_unresolved'>
   & Partial<Pick<DashboardView, 'holding_quantity_unresolved'>>
 
-function holdingQuantityNotice(data: DashboardPayload): string | null {
-  if (data.holding_quantity_unresolved === true) return '保有株数は未照合です。'
-  if (data.holding_quantity_unresolved === false) return null
+function holdingQuantityNotice(unresolved: DashboardPayload['holding_quantity_unresolved']): string | null {
+  if (unresolved === true) return '保有株数は未照合です。'
+  if (unresolved === false) return null
   return '保有株数の確認状況はこの表示データに記録されていません。'
 }
 
@@ -83,7 +83,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardPayload }) {
   const pnl = totalUnrealizedPnl(data.holdings)
   const hasPnl = data.holdings.length > 0
   const holdingDetail = data.ledger_exists
-    ? holdingQuantityNotice(data) ?? `${data.holdings.length} 銘柄を保有`
+    ? holdingQuantityNotice(data.holding_quantity_unresolved) ?? `${data.holdings.length} 銘柄を保有`
     : '台帳なし'
 
   return (
@@ -222,7 +222,14 @@ function PortfolioWarnings({ warnings }: { warnings: WarningView[] }) {
   )
 }
 
-export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdings: HoldingView[]; warnings: WarningView[]; ledgerAsOf?: string | null }) {
+export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityUnresolved }: {
+  holdings: HoldingView[]
+  warnings: WarningView[]
+  ledgerAsOf?: string | null
+  quantityUnresolved: DashboardPayload['holding_quantity_unresolved']
+}) {
+  const quantityNotice = holdingQuantityNotice(quantityUnresolved)
+  const recordedOnly = quantityNotice !== null
   const marketPriceAsOf = useMemo(() => {
     const values = Array.from(new Set(holdings.map((holding) => holding.market_price_as_of)))
     return values.length === 1 ? values[0] : null
@@ -232,12 +239,13 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
   return (
     // The asset card states the shared valuation basis. Per-row dates show a mixed basis.
     <SectionCard
-      hint={HINT.holdings}
+      description={quantityNotice === null ? undefined : `${quantityNotice} 実際の保有銘柄・株数を確定した一覧ではありません。`}
+      hint={recordedOnly ? undefined : HINT.holdings}
       meta={(
         <div className="flex flex-wrap items-center justify-end gap-3">
           <div className="flex flex-wrap items-baseline justify-end gap-x-2 text-xs">
-            <Badge variant="secondary">{holdings.length} 銘柄</Badge>
-            <span className="text-muted-foreground">評価損益 合計</span>
+            <Badge variant="secondary">{recordedOnly ? `表示 ${holdings.length} 行` : `${holdings.length} 銘柄`}</Badge>
+            <span className="text-muted-foreground">{recordedOnly ? '記録行の評価損益' : '評価損益 合計'}</span>
             {unrealizedPnl.yen === null && holdings.some((holding) => holding.market_value_yen === null)
               ? <span className="font-semibold text-muted-foreground">未評価</span>
               : <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />}
@@ -245,22 +253,22 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
           </div>
           <div className="flex flex-col items-end gap-1">
             <TradingViewWatchlistExportButton
-              filename={`holdings${ledgerAsOf ? `-${ledgerAsOf.slice(0, 10)}` : ''}-tradingview.txt`}
-              label="保有銘柄をTradingView用TXTに出力"
+              filename={`${recordedOnly ? 'recorded-holdings' : 'holdings'}${ledgerAsOf ? `-${ledgerAsOf.slice(0, 10)}` : ''}-tradingview.txt`}
+              label={recordedOnly ? '表示中の銘柄のみをTradingView用TXTに出力' : '保有銘柄をTradingView用TXTに出力'}
               tickers={holdings.map((holding) => holding.ticker)}
             />
             <a className="text-xs text-muted-foreground underline" href="https://www.tradingview.com/support/solutions/43000487233-how-to-import-or-export-a-watchlist/" rel="noopener noreferrer" target="_blank">TradingViewでの取り込み方法</a>
           </div>
         </div>
       )}
-      title="保有銘柄"
+      title={recordedOnly ? '台帳上の保有記録' : '保有銘柄'}
     >
       <Table>
         <TableHeader className="bg-muted/60">
           <TableRow className="hover:bg-transparent">
             <TableHead className="pl-5 sm:pl-6">銘柄</TableHead>
             <TableHead>sector</TableHead>
-            <TableHead className="text-right">数量</TableHead>
+            <TableHead className="text-right">{recordedOnly ? '記録株数' : '数量'}</TableHead>
             <TableHead className="text-right">取得 / 保存終値</TableHead>
             <TableHead className="text-right">評価額 / 損益</TableHead>
             <TableHead className="w-12 pr-5 text-right sm:pr-6"><span className="sr-only">チャート</span></TableHead>
@@ -416,11 +424,11 @@ export function DashboardPage() {
       {data !== null && data.ledger_error === null && (!data.ledger_exists ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
       ) : data.holdings.length > 0 ? (
-        <HoldingsTable holdings={data.holdings} ledgerAsOf={data.ledger_as_of} warnings={data.warnings} />
+        <HoldingsTable holdings={data.holdings} ledgerAsOf={data.ledger_as_of} quantityUnresolved={data.holding_quantity_unresolved} warnings={data.warnings} />
       ) : (
         <Card className="gap-0 overflow-hidden border-dashed py-0 shadow-none">
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            {holdingQuantityNotice(data) ?? '保有銘柄はありません。'}
+            {holdingQuantityNotice(data.holding_quantity_unresolved) ?? '保有銘柄はありません。'}
           </CardContent>
           <PortfolioWarnings warnings={data.warnings} />
         </Card>

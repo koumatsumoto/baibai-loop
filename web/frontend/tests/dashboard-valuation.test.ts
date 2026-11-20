@@ -120,6 +120,7 @@ describe('Dashboard valuation display', () => {
   it('describes ticker concentration as a holding risk without suggesting an additional purchase', () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
+        quantityUnresolved: false,
         holdings: [holding('1234')],
         warnings: [{ code: 'portfolio.ticker-concentration', scope: 'ticker', key: '1234',
           actual_pct: 30, warning_pct: 20, overridden: false }],
@@ -161,6 +162,7 @@ describe('Dashboard valuation display', () => {
   it('keeps each holding and its own price date when valuation bases differ', () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
+        quantityUnresolved: false,
         holdings: [
           holding('1234'),
           { ...holding('8255'), market_price_yen: null, market_price_as_of: null,
@@ -187,6 +189,7 @@ it('preserves fractional holding prices and order guards while notionals remain 
   const html = renderToStaticMarkup(createElement(TooltipProvider, null,
     createElement(MemoryRouter, null,
       createElement(HoldingsTable, {
+        quantityUnresolved: false,
         holdings: [{ ...holding('1234'), quantity: 200, deployed_cost_yen: 210_500,
           market_price_yen: '1052.5', market_value_yen: 210_500,
           unrealized_pnl_yen: 0, unrealized_pnl_pct: 0 }], warnings: [],
