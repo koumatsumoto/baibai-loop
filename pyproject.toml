@@ -341,7 +341,6 @@ forbidden_modules = [
   "baibai_engine.cli.portfolio",
   "baibai_engine.cli.stock_assessment",
   "baibai_engine.cli.investment_judgment",
-  "baibai_engine.cli.historical_evaluation",
 ]
 
 [[tool.importlinter.contracts]]
@@ -479,18 +478,6 @@ forbidden_modules = [
 
 
 [[tool.importlinter.contracts]]
-name = "candidate contracts do not load calculation, storage, or writers"
-type = "forbidden"
-source_modules = ["baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts"]
-forbidden_modules = [
-  "baibai_engine.storage", "baibai_engine.machine_analysis.observations",
-  "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context", "baibai_engine.machine_analysis.models.technical_analysis", "baibai_engine.machine_analysis.models.company_growth", "baibai_engine.machine_analysis.models.external_assessment",
-  "baibai_engine.portfolio",
-  "baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store", "baibai_engine.cli.historical_evaluation",
-  "baibai_engine.investment_judgment.workflow.workspace", "baibai_engine.investment_judgment.workflow.operation", "baibai_engine.investment_judgment.stock_assessment.store",
-]
-
-[[tool.importlinter.contracts]]
 name = "shared storage uses only pure domain contracts and technical helpers"
 type = "forbidden"
 source_modules = ["baibai_engine.storage"]
@@ -582,7 +569,7 @@ source_modules = ["baibai_engine.investment_judgment.workflow.selection", "baiba
 forbidden_modules = [
   "baibai_engine.investment_judgment.workflow.operation", "baibai_engine.investment_judgment.workflow.workspace",
   "baibai_engine.investment_judgment.workflow.selection_query", "baibai_engine.storage.sqlite.application.read",
-  "baibai_engine.storage.sqlite.application.write", "baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store",
+  "baibai_engine.storage.sqlite.application.write",
 ]
 allow_indirect_imports = true
 
@@ -592,7 +579,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.investment_judgment.workflow.selection_query"]
 forbidden_modules = [
   "baibai_engine.storage.sqlite.application.write", "baibai_engine.investment_judgment.workflow.workspace",
-  "baibai_engine.investment_judgment.workflow.operation", "baibai_engine.cli.historical_evaluation",
+  "baibai_engine.investment_judgment.workflow.operation",
 ]
 allow_indirect_imports = true
 

@@ -109,9 +109,6 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
     from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
-        ScreeningRunReader,
-    )
     from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
         machine_valuation_from_analysis,
     )
@@ -162,10 +159,7 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
         runs=runs,
         rows=[row, stock_analysis("5678", metrics=unrecorded)],
     )
-    stored = ScreeningRunReader(runs).get_run(value.inputs.analysis.run_revision_id)
-    machine = machine_valuation_from_analysis(
-        next(row for row in stored.stock_analyses if row["ticker"] == "1234")
-    )
+    machine = machine_valuation_from_analysis(row)
     assert machine is not None
     original_run = runs.read_bytes()
     prepared = resume_historical(tmp_path, value)
@@ -752,13 +746,15 @@ def test_malformed_yaml_is_a_cli_data_error_without_writes(tmp_path, capsys, com
 
 
 def test_previous_analysis_day_current_research_and_formal_assessment_are_separate(tmp_path):
-    from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
+    from tests.helpers.screening_run import (
+        read_seeded_analysis,
+        screening_run_payload,
+        seed_saved_run,
+        stock_analysis,
+    )
 
     from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
     from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
-        ScreeningRunReader,
-    )
 
     runs = tmp_path / "runs"
     row = stock_analysis("1234", name="合成会社", metrics={"er_annual": 0.13})
@@ -766,15 +762,16 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
         as_of="2026-09-06", run_at="2026-09-06T18:00:00+09:00", stock_analyses=[row]
     )
     payload.pop("er_model_version")
-    seed_saved_run(runs, payload, run_revision_id="run-revision-" + "a" * 32)
-    run = ScreeningRunReader(runs).get_run("run-revision-" + "a" * 32)
+    revision = "run-revision-" + "a" * 32
+    seed_saved_run(runs, payload, run_revision_id=revision)
+    header, stored_rows = read_seeded_analysis(runs, revision)
     analysis = AnalysisInputSnapshot(
-        run_revision_id=run.run_revision_id,
-        analysis_as_of=datetime.fromisoformat(run.as_of_date).date(),
-        run_at=datetime.fromisoformat(run.run_at),
-        screening_rules_hash=run.payload.get("screening_rules_hash"),
-        er_model_version=run.payload.get("er_model_version"),
-        analyses={row["ticker"]: row for row in run.stock_analyses},
+        run_revision_id=revision,
+        analysis_as_of=datetime.fromisoformat(header["asof_date"]).date(),
+        run_at=datetime.fromisoformat(header["run_at"]),
+        screening_rules_hash=header.get("screening_rules_hash"),
+        er_model_version=header.get("er_model_version"),
+        analyses={row["ticker"]: row for row in stored_rows},
     )
     value = selection(now=NOW, tickers=("1234",))
     value = value.model_copy(

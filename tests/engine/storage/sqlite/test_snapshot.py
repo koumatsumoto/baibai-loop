@@ -233,9 +233,6 @@ def test_compact_transfer_copy_keeps_runs_readers_payloads_and_wal(tmp_path):
     from tests.helpers.screening_run import screening_run_payload, seed_saved_run
 
     from baibai_engine.machine_analysis.generation.query import read_generation
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store.read import (
-        ScreeningRunReader,
-    )
     from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
     source, output = tmp_path / "runs.sqlite", tmp_path / "transfer.sqlite"
@@ -244,7 +241,6 @@ def test_compact_transfer_copy_keeps_runs_readers_payloads_and_wal(tmp_path):
     selection = empty_selection(original.generation_id)
     ScreeningSelectionStore(source).publish("saved-selection", selection)
     seed_saved_run(source, screening_run_payload(), run_revision_id="legacy-run")
-    legacy = ScreeningRunReader(source).get_run("legacy-run")
     with closing(sqlite3.connect(source)) as connection:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA wal_autocheckpoint=0")
@@ -279,14 +275,12 @@ def test_compact_transfer_copy_keeps_runs_readers_payloads_and_wal(tmp_path):
             assert {
                 table: captured.execute(f"SELECT * FROM {table}").fetchall() for table in tables
             } == rows
-            # Prove current and historical readers do not depend on implicit rowids,
-            # even if SQLite changes them when rewriting pages.
-            for table in ("model_generation", "screening_selection", "screening_run"):
+            # Current readers must not depend on rowids rewritten by SQLite.
+            for table in ("model_generation", "screening_selection"):
                 captured.execute(f"UPDATE {table} SET rowid=42")
             captured.commit()
         assert read_generation(original.generation_id, path=output) == original
         assert ScreeningSelectionStore(output).read("saved-selection") == selection
-        assert ScreeningRunReader(output).get_run("legacy-run") == legacy
         assert database_schema_version(output) == database_schema_version(source)
         assert not publish_generation(original, path=output)
         assert not ScreeningSelectionStore(output).publish("saved-selection", selection)
