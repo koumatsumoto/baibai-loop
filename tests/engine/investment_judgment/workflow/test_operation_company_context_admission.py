@@ -1,6 +1,5 @@
 """保存済み企業材料の型を、正本refを残したまま差し替えない。"""
 
-import json
 from contextlib import closing
 from datetime import datetime, timedelta
 
@@ -8,7 +7,6 @@ import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.generated_selection import seed_generated_selection
 
-from baibai_engine.cli.operation import main
 from baibai_engine.investment_judgment.company_research.document import ResearchDraft
 from baibai_engine.investment_judgment.company_research.store import (
     ResearchStoreService,
@@ -63,31 +61,19 @@ def _inputs(tmp_path, value=0):
     return app, runs, selected, record, pair
 
 
-def _start(tmp_path, app, runs, raw):
-    payload = tmp_path / "payload.json"
-    payload.write_text(OperationPayload(checkpoint="start", artifacts=(raw,)).model_dump_json())
-    return main(
-        [
-            "--db",
-            str(app),
-            "--runs-path",
-            str(runs),
-            "--format",
-            "json",
-            "start",
-            "--kind",
-            "capital-allocation",
-            "--as-of",
-            NOW.date().isoformat(),
-            "--payload",
-            str(payload),
-        ],
-        now=NOW,
+def _start(app, runs, raw):
+    # The CLI no longer accepts caller-side materialization. Keep checking the
+    # existing App admission validator used by the typed prepare implementation.
+    return OperationService(app, runs_path=runs).start(
+        session_kind="capital-allocation",
+        as_of=NOW.date(),
+        started_at=NOW,
+        payload=OperationPayload(checkpoint="start", artifacts=(raw,)),
     )
 
 
 @pytest.mark.parametrize(("original", "replacement"), [(0, False), (1, 1.0)])
-def test_start_rejects_assessment_fact_type_change(tmp_path, capsys, original, replacement):
+def test_start_rejects_assessment_fact_type_change(tmp_path, original, replacement):
     app, runs, selected, _, pair = _inputs(tmp_path, original)
     raw = selected.model_dump(mode="json")
     assessment = raw["inputs"]["saved_company_context"]["1234"]["assessment"]
@@ -101,8 +87,8 @@ def test_start_rejects_assessment_fact_type_change(tmp_path, capsys, original, r
     assert selection_sha256(incoming) != selection_sha256(selected)
     before = app.read_bytes(), runs.read_bytes()
 
-    assert _start(tmp_path, app, runs, raw) == 1
-    assert "saved company context differs from the selected cutoff" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="saved company context differs from the selected cutoff"):
+        _start(app, runs, raw)
     assert OperationService(app).active() is None
     assert (app.read_bytes(), runs.read_bytes()) == before
     with closing(connect_read_only(app)) as connection:
@@ -115,7 +101,7 @@ def test_start_rejects_assessment_fact_type_change(tmp_path, capsys, original, r
 
 
 @pytest.mark.parametrize(("original", "replacement"), [(0, False), (1, 1.0)])
-def test_start_retains_research_record_digest_guard(tmp_path, capsys, original, replacement):
+def test_start_retains_research_record_digest_guard(tmp_path, original, replacement):
     app, runs, selected, record, _ = _inputs(tmp_path, original)
     raw = selected.model_dump(mode="json")
     research = raw["inputs"]["saved_company_context"]["1234"]["research"]["record"]
@@ -123,8 +109,8 @@ def test_start_retains_research_record_digest_guard(tmp_path, capsys, original, 
     assert research["reference"] == record.reference.model_dump(mode="json")
     before = app.read_bytes(), runs.read_bytes()
 
-    assert _start(tmp_path, app, runs, raw) == 1
-    assert "Research payload digest mismatch" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="Research payload digest mismatch"):
+        _start(app, runs, raw)
     assert OperationService(app).active() is None
     assert (app.read_bytes(), runs.read_bytes()) == before
     with closing(connect_read_only(app)) as connection:
@@ -135,7 +121,7 @@ def test_start_retains_research_record_digest_guard(tmp_path, capsys, original, 
 
 
 @pytest.mark.parametrize("shape", ["canonical", "reordered", "defaults_omitted"])
-def test_start_accepts_typed_canonical_context_and_resume(tmp_path, capsys, monkeypatch, shape):
+def test_start_accepts_typed_canonical_context_and_resume(tmp_path, monkeypatch, shape):
     app, runs, selected, record, pair = _inputs(tmp_path)
     raw = selected.model_dump(mode="json")
     context = raw["inputs"]["saved_company_context"]["1234"]
@@ -155,8 +141,7 @@ def test_start_accepts_typed_canonical_context_and_resume(tmp_path, capsys, monk
     assert selection_sha256(parse_selection(raw)) == expected_digest
     source_before = runs.read_bytes()
 
-    assert _start(tmp_path, app, runs, raw) == 0
-    identity = json.loads(capsys.readouterr().out)["operation_id"]
+    identity = _start(app, runs, raw).operation_id
     saved = selection_binding(OperationService(app).get(identity).payload)
     assert selection_sha256(saved) == expected_digest
     assert canonical_json(saved.model_dump(mode="json")) == canonical_json(

@@ -244,24 +244,6 @@ def test_selection_immutable_and_missing_outcomes_cannot_drop_targets(case, part
             next="次の明示依頼",
             completed_at=PUBLISHED,
         )
-    selected = selection_binding(operation.payload)
-    changed = selected.model_copy(update={"selection_summary": "別の選定"})
-    with pytest.raises(OperationConflictError, match="immutable"):
-        service.checkpoint(
-            operation.operation_id,
-            operation.payload.model_copy(
-                update={
-                    "artifacts": (
-                        changed.model_dump(mode="json"),
-                        *(
-                            artifact
-                            for artifact in operation.payload.artifacts
-                            if artifact.get("kind") != "research_selection"
-                        ),
-                    )
-                }
-            ),
-        )
     assert service.get(operation.operation_id) == operation
     assert ledger_rows(db) == []
 
@@ -297,9 +279,7 @@ def test_checkpoint_cannot_propagate_a_corrupt_persisted_outcome(case, change):
             (corrupt.model_dump_json(), operation.operation_id),
         )
     with pytest.raises(ValueError, match=r"differs|unselected|outside"):
-        service.checkpoint(
-            operation.operation_id, corrupt.model_copy(update={"checkpoint": "new note"}), now=NOW
-        )
+        service.checkpoint(operation.operation_id, note="new note", now=NOW)
     assert service.get(operation.operation_id).payload == corrupt
 
 
@@ -391,19 +371,30 @@ def test_late_outcome_survives_stale_checkpoint_and_requires_current_proposal(
     assert progress_binding(operation.payload).outcomes[1].assessment_ref.assessment_id == later
     stale_file = tmp_path / "stale-checkpoint.json"
     stale_file.write_text(stale_payload.model_dump_json(), encoding="utf-8")
-    assert (
+    with pytest.raises(SystemExit) as rejected:
         operation_main(
-            ["--db", str(db), "checkpoint", operation.operation_id, "--payload", str(stale_file)],
+            [
+                "--db",
+                str(db),
+                "checkpoint",
+                operation.operation_id,
+                "--note",
+                "keep scoped",
+                "--payload",
+                str(stale_file),
+            ],
             now=PUBLISHED,
         )
-        == 1
-    )
-    assert "cannot change research_progress" in capsys.readouterr().err
+    assert rejected.value.code == 2
+    assert "unrecognized arguments: --payload" in capsys.readouterr().err
     assert service.get(operation.operation_id) == operation
+    note = "後着評価を保存し、提案を更新する"
     current_payload = operation.payload.model_copy(
-        update={"checkpoint": "後着評価を保存し、提案を更新する", **notes}
+        update={"checkpoint": note, "next": notes["next"]}
     )
-    operation = service.checkpoint(operation.operation_id, current_payload, now=PUBLISHED)
+    operation = service.checkpoint(
+        operation.operation_id, note=note, next=notes["next"], now=PUBLISHED
+    )
     assert operation.payload == current_payload
     with closing(connect_read_only(db)) as reader:
         assert load_investment_proposal(reader, proposal.proposal_id) == proposal
@@ -749,7 +740,7 @@ def test_concurrent_writes_cannot_overwrite_an_outcome_recorded_after_their_read
         with pytest.raises(OperationConflictError, match="progress changed"):
             service.checkpoint(
                 operation.operation_id,
-                operation.payload.model_copy(update={"checkpoint": "調査メモを保存する"}),
+                note="調査メモを保存する",
                 now=PUBLISHED,
             )
     elif command == "record-unfinished":

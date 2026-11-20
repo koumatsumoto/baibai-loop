@@ -58,8 +58,10 @@ def test_start_revalidates_notes_before_initialization(tmp_path, monkeypatch, ca
     assert runs.read_bytes() == source
 
 
-@pytest.mark.parametrize("case", INVALID_CASES)
-def test_checkpoint_revalidates_notes_without_changing_saved_operation(tmp_path, monkeypatch, case):
+@pytest.mark.parametrize(("note", "next_action"), [("", None), (" ", None), ("valid", "")])
+def test_checkpoint_rejects_blank_notes_without_changing_saved_operation(
+    tmp_path, monkeypatch, note, next_action
+):
     app = tmp_path / "app"
     selected = selection(now=NOW)
     operation = historical_operation(selected)
@@ -71,8 +73,8 @@ def test_checkpoint_revalidates_notes_without_changing_saved_operation(tmp_path,
         "initialize_database",
         lambda _: pytest.fail("invalid metadata must not initialize or open the writer"),
     )
-    with pytest.raises(ValidationError):
-        service.checkpoint(operation.operation_id, _invalid(operation.payload, case), now=NOW)
+    with pytest.raises(ValueError, match="must not be blank"):
+        service.checkpoint(operation.operation_id, note=note, next=next_action, now=NOW)
     assert app.read_bytes() == before
     assert service.get(operation.operation_id) == operation
     assert service.active() == operation
@@ -94,12 +96,17 @@ def test_valid_copied_notes_keep_saved_selection_and_retry_without_runs(tmp_path
     selected = parse_selection(raw)
     operation = historical_operation(selected)
     app = tmp_path / "app"
+    operation = operation.model_copy(
+        update={"payload": operation.payload.model_copy(update={"canonical_refs": ("source-a",)})}
+    )
     seed_historical_operation(app, operation)
     service = OperationService(app, runs_path=tmp_path / "absent-runs")
     payload = operation.payload.model_copy(
-        update={"checkpoint": "rechecked source", "canonical_refs": ("source-a",), "next": "review"}
+        update={"checkpoint": "rechecked source", "next": "review"}
     )
-    updated = service.checkpoint(operation.operation_id, payload, now=NOW)
+    updated = service.checkpoint(
+        operation.operation_id, note="rechecked source", next="review", now=NOW
+    )
     assert updated.payload == payload
     assert selection_sha256(selection_binding(updated.payload)) == selection_sha256(selected)
     with closing(sqlite3.connect(app)) as connection:
@@ -108,7 +115,7 @@ def test_valid_copied_notes_keep_saved_selection_and_retry_without_runs(tmp_path
     assert json.loads(saved)["artifacts"] == [raw]
     with closing(sqlite3.connect(app)) as connection:
         before_retry = connection.execute("SELECT * FROM operation_session").fetchall()
-    assert service.checkpoint(operation.operation_id, payload, now=NOW) == updated
+    assert service.checkpoint(operation.operation_id, note="rechecked source", now=NOW) == updated
     with closing(sqlite3.connect(app)) as connection:
         assert connection.execute("SELECT * FROM operation_session").fetchall() == before_retry
     assert service.get(operation.operation_id) == updated

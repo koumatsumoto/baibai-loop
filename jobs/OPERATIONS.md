@@ -560,6 +560,8 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 
 日足の冷再構成は同じ正規化結果からParquetへ書き、`input.json` がある新しい出力だけを完了として扱う。中断でマーカーのない出力が残った場合は、新しい出力先で再実行する。保存入力だけが固定暦で休場を証明でき、価格headのみの再構成では未試行日を補わない。
 
+`--saved-input` を渡さない日足CLIは、開始時に現在のL1 headを一度固定する。`--work-directory` に置いた旧 `head.json` や過去のattemptは入力にならない。元の失敗attemptに結び付く保存InputSnapshotがなければ、元attemptの再現としてはそこで止める。現行headを診断する場合は別の新しい出力先を使い、同じ日付でも過去の選択に付け替えない。
+
 日次の空の転送DBが同じ固定releaseを指す場合、次にnative L1から再生成する旧日足だけは最初にhydrateしない。原本の欠損・訂正を旧株価では埋めない。旧releaseの日足そのものを再現・検査するには通常の `hydrate-market` を使う。
 
 <a id="financial-native-l1"></a>

@@ -35,6 +35,7 @@ from baibai_engine.primitives.time import JST
 
 if TYPE_CHECKING:
     from baibai_engine.investment_judgment.stock_assessment.store import ReviewedAssessment
+    from baibai_engine.portfolio.holdings.market_observations import OrderSessionBounds
 
 
 def proposal_quote(inputs: ProposalInputs, ticker: str) -> QuoteInput | None:
@@ -74,6 +75,7 @@ def no_action_blocker(
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
+    order_sessions: Callable[[], OrderSessionBounds],
 ) -> GateReason | None:
     """新規見送りの根拠を確認。資本代替の内容は提案の独立Reviewに委ねる。"""
     assessment = pair.document
@@ -88,26 +90,43 @@ def no_action_blocker(
     ):
         return None  # 確認済みの事業反証は、株価や数値評価を必要としない。
     finding = assessment.price_value_case
-    if (
-        finding is not None
-        and finding.status == "supported_at_quote"
-        and assessment.conclusion.stance != "uncertain"
+    settled = assessment.conclusion.stance != "uncertain"
+    if finding is not None and (
+        finding.status == "not_supported_at_quote"
+        or (
+            finding.status == "supported_at_quote"
+            and (settled or pair.review.primary_source_check == "verified")
+        )
     ):
-        return None  # 価格の支持は同じ資本の用途まで決めない。
-    if finding is not None and finding.status == "not_supported_at_quote":
+        limit = finding.acquisition_limit
+        earliest = (
+            order_sessions().earliest_possible_day
+            if limit is not None and limit.last_eligible_trade_date is not None
+            else None
+        )
+        if issue := acquisition_blocker(assessment, earliest):
+            return GateReason(
+                code="no_action_reviewed_quote_mismatch",
+                message=(
+                    "この取得権の期限までに利用できる立会がありません。"
+                    if issue.code == "right_acquisition_expired"
+                    else "この取得権を得られる最終立会が未確認です。"
+                )
+                + "再評価するかdeferを使ってください。",
+            )
+        if finding.status == "supported_at_quote" and settled:
+            return None  # 確認した取得権を失わない限り、現金・代替の選択に現在quoteは不要。
         quote = proposal_quote(inputs, assessment.input_snapshot.ticker)
         observed = referenced_price_fact(assessment)
-        day = now.astimezone(JST).date()
         if (
             quote is not None
             and observed is not None
             and not isinstance(observed.value, bool | str)
-            and assessment.input_snapshot.as_of == day
+            and assessment.input_snapshot.as_of == now.astimezone(JST).date()
             and observed.as_of == quote.price_as_of
             and observed.price_basis == quote.price_basis
             and finite_decimal(observed.value) == quote.price_yen
             and (observed.observed_at is None or observed.observed_at <= inputs.checked_at)
-            and acquisition_blocker(assessment, day) is None
             and assessment_quote_basis(
                 assessment,
                 quote,

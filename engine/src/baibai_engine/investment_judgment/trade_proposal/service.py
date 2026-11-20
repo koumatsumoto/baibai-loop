@@ -8,6 +8,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from functools import cache
 from pathlib import Path
 
 from baibai_engine.investment_judgment.stock_assessment.store import (
@@ -55,7 +56,10 @@ from baibai_engine.investment_judgment.workflow.operation.research_binding impor
 )
 from baibai_engine.investment_judgment.workflow.selection import saved_market_assessment
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
-from baibai_engine.portfolio.holdings.market_observations import next_order_session
+from baibai_engine.portfolio.holdings.market_observations import (
+    OrderSessionBounds,
+    read_order_session_bounds,
+)
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
@@ -80,13 +84,14 @@ def _validate_action(
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
+    order_sessions: Callable[[], OrderSessionBounds],
 ) -> tuple[tuple[GateReason, ...], dict[str, object]]:
     latest = latest_assessment_id(connection, item.ticker) == pair.assessment_id
     inputs = proposal.inputs
     blockers: list[GateReason] = []
     calculation: dict[str, object] = {}
     session = (
-        next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
+        order_sessions().confirmed_session
         if item.action == "buy" or (item.action == "sell" and item.conditional_recovery is None)
         else None
     )
@@ -351,6 +356,13 @@ def _check_proposal(
                 message="保存終値の対象日は、入力収集時点で利用できる取引日以前である必要があります。",
             )
         )
+
+    @cache
+    def order_sessions() -> OrderSessionBounds:
+        return read_order_session_bounds(
+            sqlite_path=sqlite_path, now=now, connection=market_connection
+        )
+
     for item in proposal.items:
         if item.assessment_ref is None:
             continue
@@ -379,6 +391,7 @@ def _check_proposal(
                 sqlite_path=sqlite_path,
                 now=now,
                 market_connection=market_connection,
+                order_sessions=order_sessions,
             )
             if reason is not None:
                 blockers.append(reason)
@@ -391,6 +404,7 @@ def _check_proposal(
                 sqlite_path=sqlite_path,
                 now=now,
                 market_connection=market_connection,
+                order_sessions=order_sessions,
             )
             blockers.extend(action_blockers)
             calculations[item.ticker] = calculation

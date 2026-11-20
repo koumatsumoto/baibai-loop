@@ -1,6 +1,5 @@
 """固定生成の数値型と保存Selectionを、実CLIの書込境界で保つ。"""
 
-import json
 from datetime import datetime
 
 import pytest
@@ -14,6 +13,7 @@ from baibai_engine.investment_judgment.workflow.operation.progress import select
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import parse_selection, selection_sha256
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.primitives.json import encode_json
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
@@ -35,39 +35,29 @@ def _generated(tmp_path):
 
 
 @pytest.mark.parametrize("value", [False, 0.0, None, 0])
-def test_start_preserves_exact_generated_payload_type(tmp_path, capsys, value):
+def test_start_preserves_exact_generated_payload_type(tmp_path, value):
     selected = _generated(tmp_path)
     raw = selected.model_dump(mode="json")
     raw["inputs"]["generation"]["models"][0]["payload"]["sample"] = value
-    payload = tmp_path / "payload.json"
-    payload.write_text(OperationPayload(checkpoint="start", artifacts=(raw,)).model_dump_json())
     app, runs = tmp_path / "app", tmp_path / "runs"
+
+    def admit():
+        return OperationService(app, runs_path=runs).start(
+            session_kind="capital-allocation",
+            as_of=NOW.date(),
+            started_at=NOW,
+            payload=OperationPayload(checkpoint="start", artifacts=(raw,)),
+        )
+
     source_before = runs.read_bytes()
-    result = main(
-        [
-            "--db",
-            str(app),
-            "--runs-path",
-            str(runs),
-            "--format",
-            "json",
-            "start",
-            "--kind",
-            "capital-allocation",
-            "--as-of",
-            NOW.date().isoformat(),
-            "--payload",
-            str(payload),
-        ],
-        now=NOW,
-    )
     if type(value) is not int:
-        assert result == 1
-        assert "model input slice differs from its canonical generation" in capsys.readouterr().err
+        with pytest.raises(
+            ValueError, match="model input slice differs from its canonical generation"
+        ):
+            admit()
         assert not app.exists()
     else:
-        assert result == 0
-        saved = selection_binding(OperationService(app).active().payload)
+        saved = selection_binding(admit().payload)
         actual = saved.inputs.generation.models[0].payload["sample"]
         assert type(actual) is int
         assert actual == 0
@@ -75,8 +65,7 @@ def test_start_preserves_exact_generated_payload_type(tmp_path, capsys, value):
 
 
 @pytest.mark.parametrize("version", [2, 3, 4, 5])
-@pytest.mark.parametrize("change", ["false", "float", "null", "reordered", "same"])
-def test_checkpoint_preserves_saved_selection_json_and_hash(tmp_path, capsys, version, change):
+def test_checkpoint_preserves_saved_selection_progress_and_extra_opaque_bytes(tmp_path, version):
     if version == 2:
         raw = selection(now=NOW, tickers=("1234",)).model_dump(mode="json")
         raw["inputs"]["market_context"]["sample"] = 0
@@ -90,43 +79,55 @@ def test_checkpoint_preserves_saved_selection_json_and_hash(tmp_path, capsys, ve
             else legacy_selection_payload(selected, tmp_path / "runs", version=version)
         )
     selected = parse_selection(raw)
-    operation = historical_operation(selected)
-    app = tmp_path / "app"
-    seed_historical_operation(app, operation)
-    service = OperationService(app)
-    operation = service.get(operation.operation_id)
-    payload = operation.payload.model_dump(mode="json")
-    target = (
-        payload["artifacts"][0]["inputs"]["market_context"]
-        if version == 2
-        else payload["artifacts"][0]["inputs"]["generation"]["models"][0]["payload"]
+    original = historical_operation(selected)
+    original = original.model_copy(
+        update={
+            "payload": original.payload.model_copy(
+                update={
+                    "canonical_refs": ("fixed-original",),
+                    "result": "old working result",
+                    "next": "keep original next action",
+                    "artifacts": (
+                        raw,
+                        {
+                            "kind": "research_progress",
+                            # Older serialized shape: no proposal_ref key, and not the last artifact.
+                            "outcomes": [
+                                {
+                                    "status": "unfinished",
+                                    "ticker": "1234",
+                                    "purpose": "new",
+                                    "unfinished_reason": "evidence missing",
+                                    "references": ["original"],
+                                }
+                            ],
+                        },
+                        {"kind": "opaque", "future": [False, 0, 0.0, None]},
+                    ),
+                }
+            )
+        }
     )
-    if change in {"false", "float", "null"}:
-        target["sample"] = {"false": False, "float": 0.0, "null": None}[change]
-    if change == "reordered":
-        payload["artifacts"][0] = dict(reversed(tuple(payload["artifacts"][0].items())))
-    path = tmp_path / "checkpoint.json"
-    path.write_text(json.dumps(payload))
-    before = app.read_bytes()
-    result = main(
+    app = tmp_path / "app"
+    seed_historical_operation(app, original)
+    before = original.payload.model_dump(mode="json")
+    code = main(
         [
             "--db",
             str(app),
             "--format",
             "json",
             "checkpoint",
-            operation.operation_id,
-            "--payload",
-            str(path),
+            original.operation_id,
+            "--note",
+            "a separate new note",
         ],
         now=NOW,
     )
-    if change in {"false", "float", "null"}:
-        assert result == 1
-        assert "Research selection is immutable" in capsys.readouterr().err
-        assert app.read_bytes() == before
-    else:
-        assert result == 0
-    after = service.get(operation.operation_id)
-    assert after.payload == operation.payload
+    assert code == 0
+    after = OperationService(app).get(original.operation_id)
+    assert encode_json(after.payload.model_dump(mode="json")) == encode_json(
+        {**before, "checkpoint": "a separate new note"}
+    )
+    assert "proposal_ref" not in after.payload.artifacts[1]
     assert selection_sha256(selection_binding(after.payload)) == selection_sha256(selected)
