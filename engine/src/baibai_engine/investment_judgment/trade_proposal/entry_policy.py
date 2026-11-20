@@ -70,22 +70,27 @@ def _selected_board_lot_quantity(value: object, board_lot: int) -> int:
 
 
 def acquisition_blocker(
-    assessment: StockAssessmentDocument, target_session: date | None
+    assessment: StockAssessmentDocument,
+    target_session: date | None,
+    *,
+    earliest_possible_day: date | None = None,
 ) -> GateReason | None:
     case = assessment.price_value_case
     eligibility = None if case is None else case.acquisition_limit
     if eligibility is None:
         return None
     deadline = eligibility.last_eligible_trade_date
+    # The lower bound can prove expiry, never a session at which the right can be obtained.
+    first = target_session or earliest_possible_day
+    if first is not None and deadline is not None and first > deadline:
+        return GateReason(
+            code="right_acquisition_expired",
+            message="提案の対象立会では、評価に含めた権利を新たに取得できません。",
+        )
     if target_session is None or deadline is None:
         return GateReason(
             code="right_acquisition_unconfirmed",
             message="取得期限のある権利が提案の対象立会で買い手に帰属するか未確認です。",
-        )
-    if target_session > deadline:
-        return GateReason(
-            code="right_acquisition_expired",
-            message="提案の対象立会では、評価に含めた権利を新たに取得できません。",
         )
     return None
 
