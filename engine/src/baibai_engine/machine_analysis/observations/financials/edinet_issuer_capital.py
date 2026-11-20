@@ -99,6 +99,31 @@ def _count(text: str) -> int:
     return int(text.replace(",", ""))
 
 
+def _issued_remarks(middle: list[tuple[int, ET.Element, str]], increase: str) -> bool:
+    if not middle:
+        return True
+    # Only the observed explanations of this table's increase may intervene.
+    # An unclassified paragraph can change period or switch to a correction.
+    if any(local_name(node.tag) != "p" for _, node, _ in middle):
+        return False
+    number = _count(increase)
+    if number <= 0:
+        return False
+    notes = [wording for _, _, wording in middle]
+    return notes in (
+        [
+            "(変動事由の概要)",
+            f"普通株式の株式数の増加{increase}株は、新株予約権の行使による増加であります。",
+        ],
+        [
+            (
+                "(注)発行済株式の総数の増加は、"
+                f"譲渡制限付株式報酬としての新株式発行{increase}株による増加分であります。"
+            )
+        ],
+    )
+
+
 def _separate_treasury_section(
     html: ET.Element, table: ET.Element, rows: list[list[str]], label: str
 ) -> tuple[int, str]:
@@ -109,6 +134,24 @@ def _separate_treasury_section(
         or rows[1][0] != "普通株式(株)"
     ):
         raise SourceFormatError("capital_note_headers_unsupported")
+    structural_tags = {
+        "root",
+        "p",
+        "h4",
+        "h5",
+        "div",
+        "table",
+        "colgroup",
+        "col",
+        "thead",
+        "tbody",
+        "tr",
+        "td",
+        "th",
+        "caption",
+    }
+    if any(local_name(node.tag) not in structural_tags for node in html.iter()):
+        raise SourceFormatError("capital_note_sections_ambiguous")
     children = list(html)
     parts = [(node, _normalized("".join(node.itertext()))) for node in children]
     content = [(i, node, value) for i, (node, value) in enumerate(parts) if value]
@@ -130,7 +173,7 @@ def _separate_treasury_section(
         != _normalized("".join(table.itertext()))
         or not re.fullmatch(r"2[.]?自己株式に関する事項", treasury_title)
         or local_name(treasury_heading.tag) not in {"p", "h4", "h5"}
-        or any("自己株式" in text for _, _, text in content[2:-2])
+        or not _issued_remarks(content[2:-2], rows[1][2])
         or local_name(paragraph.tag) != "p"
         or statement != "該当事項はありません。"
     ):

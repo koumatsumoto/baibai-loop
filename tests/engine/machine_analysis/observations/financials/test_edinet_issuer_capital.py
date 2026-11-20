@@ -173,7 +173,10 @@ def test_custom_namespace_and_nil_do_not_masquerade_as_supported_facts():
     assert not result.observations
 
 
-def separate_sections(label="当連結会計年度", heading="p"):
+_ISSUED_REMARK = "(注)発行済株式の総数の増加は、譲渡制限付株式報酬としての新株式発行100株による増加分であります。"
+
+
+def separate_sections(label="当連結会計年度", heading="p", remark=_ISSUED_REMARK):
     rows = [
         ["株式の種類", f"{label}期首", "増加", "減少", f"{label}末"],
         ["普通株式（株）", "900", "100", "－", "1,000"],
@@ -181,7 +184,7 @@ def separate_sections(label="当連結会計年度", heading="p"):
     cells = "".join("<tr>" + "".join(f"<td>{v}</td>" for v in row) + "</tr>" for row in rows)
     return (
         f"<{heading}>１．発行済株式に関する事項</{heading}>"
-        f"<div><table>{cells}</table></div><p>新株予約権の行使による増加。</p>"
+        f"<div><table>{cells}</table></div><p>{remark}</p>"
         f"<{heading}>２．自己株式に関する事項</{heading}><p>該当事項はありません。</p>"
     )
 
@@ -204,12 +207,19 @@ def test_labeled_treasury_section_is_not_a_count_even_if_issued_shares_are_numer
     [
         ("２．自己株式に関する事項", "２．議決権の状況"),
         ("該当事項はありません。", "－"),
+        (
+            "該当事項はありません。</p>",
+            '該当事項はありません。</p><p><img alt="保有状況の補足" src="note.png"/></p>',
+        ),
         ("該当事項はありません。", "自己株式の処分による減少。"),
         ("</p>", "</p>自己株式を保有。"),
         ("普通株式（株）", "種類株式（株）"),
         ("</table></div>", "</table><p>自己株式は次のとおり。</p></div>"),
         ("当連結会計年度末", "前連結会計年度末"),
-        ("新株予約権の行使による増加。", "自己株式の取得は次のとおり。"),
+        (_ISSUED_REMARK, "自己株式の取得は次のとおり。"),
+        (_ISSUED_REMARK, "翌事業年度（自2026年4月1日至2027年3月31日）"),
+        (_ISSUED_REMARK, "（訂正後）"),
+        (_ISSUED_REMARK, _ISSUED_REMARK.replace("100株", "10株", 1)),
         ("２．自己株式に関する事項", "２．自己株式に関する事項</p><p>別の注記"),
     ],
 )
@@ -231,3 +241,17 @@ def test_separate_sections_nonconsolidated_requires_the_same_duration_and_issuer
         context(dimensions=dimensions, issuer="E99999-000"),
     ):
         assert not extract(contexts=ctx, blocks=block(html)).observations
+
+
+@pytest.mark.parametrize(
+    "remark",
+    [
+        "",
+        "(変動事由の概要）</p><p>普通株式の株式数の増加100株は、新株予約権の行使による増加であります。",
+    ],
+)
+def test_no_remarks_and_the_matching_issued_increase_do_not_change_treasury_scope(remark):
+    (note,) = extract(blocks=block(separate_sections(remark=remark))).observations
+    assert note.issued_display_count == 1000
+    assert note.treasury_display_count is None
+    assert note.treasury_evidence == "section_not_applicable"
