@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
+from tests.helpers.proposal import evaluate_buy_terms
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
@@ -15,7 +16,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     QuoteInput,
     RemainingReward,
 )
-from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 from baibai_engine.investment_judgment.trade_proposal.holding_policy import (
     evaluate_holding_proposal,
 )

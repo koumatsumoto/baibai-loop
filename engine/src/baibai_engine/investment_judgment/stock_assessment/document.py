@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+from functools import cached_property
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -298,66 +299,109 @@ def current_price_projection(
     price_basis: str = "last_close_unadjusted",
 ) -> dict[str, object] | None:
     """現在価格の見返りを見せる。原評価・期間・将来分配を変更せず、売買判定にしない。"""
-    valuation = document.valuation
-    if (
-        not basis_confirmed
-        or price_basis not in {"realtime", "last_close_unadjusted"}
-        or document.input_snapshot.as_of != as_of
-        or valuation.status != "resolved"
-        or valuation.horizon_months is None
-        or valuation.base is None
-        or valuation.downside is None
-        or price_yen is None
-        or price_as_of is None
-        or not 0 <= (as_of - price_as_of).days <= max_quote_age_days
-        or current_derived_metric_errors(document)
-    ):
+    if price_yen is None:
         return None
-    result: dict[str, object] = {
-        "valuation_as_of": document.input_snapshot.as_of.isoformat(),
-        "price_as_of": price_as_of.isoformat(),
-        "price_basis": price_basis,
-        "price_yen": decimal_to_number(price_yen),
-        "horizon_months": valuation.horizon_months,
-        "return_basis": "conditional_pretax_without_reinvestment",
-    }
-    delay: dict[str, object] = {
-        "additional_months": FIXED_VALUE_DELAY_MONTHS,
-        "horizon_months": valuation.horizon_months + FIXED_VALUE_DELAY_MONTHS,
-        "assumption": "terminal_and_cumulative_cash_unchanged",
-    }
-    for name, projection in (("base", valuation.base), ("downside", valuation.downside)):
-        returns = project_return(
-            projection, price_yen=price_yen, horizon_months=valuation.horizon_months
-        )
-        # 観測quote/作者指値の各計算価格を保ち、遅延を新しい評価期間へ採択しない。
-        delayed = project_return(
-            projection,
-            price_yen=price_yen,
-            horizon_months=valuation.horizon_months + FIXED_VALUE_DELAY_MONTHS,
-        )
-        delay[f"{name}_annualized_return_pct"] = float(round(delayed.annualized_return_pct, 4))
-        result[name] = {
-            "terminal_value_per_share_yen": decimal_to_number(
-                projection.terminal_value_per_share_yen
-            ),
-            "cash_distribution_per_share_yen": decimal_to_number(
-                projection.cash_distribution_per_share_yen
-            ),
-            "total_value_yen": decimal_to_number(returns.total_value_yen),
-            "total_return_pct": float(round(returns.total_return_pct, 4)),
-            "annualized_return_pct": float(round(returns.annualized_return_pct, 4)),
-        }
-    result["fixed_value_delay"] = delay
-    assert valuation.required_annual_return_pct is not None
-    result["two_case_balance"] = two_case_balance(
-        valuation.base,
-        valuation.downside,
-        price_yen=price_yen,
-        horizon_months=valuation.horizon_months,
-        required_annual_return_pct=valuation.required_annual_return_pct,
+    project = CurrentPriceProjectionInputs(document).for_quote(
+        price_as_of=price_as_of,
+        as_of=as_of,
+        basis_confirmed=basis_confirmed,
+        max_quote_age_days=max_quote_age_days,
+        price_basis=price_basis,
     )
-    return result
+    return None if project is None else project(price_yen)
+
+
+@dataclass(frozen=True)
+class CurrentPriceProjectionInputs:
+    """同じ固定評価の派生入力を一度照合し、確認したquote条件で価格だけを替える。"""
+
+    document: StockAssessmentDocument
+
+    @cached_property
+    def derived_metric_errors(self) -> tuple[str, ...]:
+        return current_derived_metric_errors(self.document)
+
+    def for_quote(
+        self,
+        *,
+        price_as_of: date | None,
+        as_of: date,
+        basis_confirmed: bool,
+        max_quote_age_days: int,
+        price_basis: str,
+    ) -> Callable[[Decimal], dict[str, object]] | None:
+        valuation = self.document.valuation
+        valuation_as_of = self.document.input_snapshot.as_of
+        horizon_months, base, downside = (
+            valuation.horizon_months,
+            valuation.base,
+            valuation.downside,
+        )
+        if (
+            not basis_confirmed
+            or price_basis not in {"realtime", "last_close_unadjusted"}
+            or valuation_as_of != as_of
+            or valuation.status != "resolved"
+            or horizon_months is None
+            or base is None
+            or downside is None
+            or price_as_of is None
+            or not 0 <= (as_of - price_as_of).days <= max_quote_age_days
+            or self.derived_metric_errors
+        ):
+            return None
+        required_annual_return_pct = valuation.required_annual_return_pct
+
+        def project(price_yen: Decimal) -> dict[str, object]:
+            result: dict[str, object] = {
+                "valuation_as_of": valuation_as_of.isoformat(),
+                "price_as_of": price_as_of.isoformat(),
+                "price_basis": price_basis,
+                "price_yen": decimal_to_number(price_yen),
+                "horizon_months": horizon_months,
+                "return_basis": "conditional_pretax_without_reinvestment",
+            }
+            delay: dict[str, object] = {
+                "additional_months": FIXED_VALUE_DELAY_MONTHS,
+                "horizon_months": horizon_months + FIXED_VALUE_DELAY_MONTHS,
+                "assumption": "terminal_and_cumulative_cash_unchanged",
+            }
+            for name, projection in (("base", base), ("downside", downside)):
+                returns = project_return(
+                    projection, price_yen=price_yen, horizon_months=horizon_months
+                )
+                # 観測quote/作者指値の各計算価格を保ち、遅延を新しい評価期間へ採択しない。
+                delayed = project_return(
+                    projection,
+                    price_yen=price_yen,
+                    horizon_months=horizon_months + FIXED_VALUE_DELAY_MONTHS,
+                )
+                delay[f"{name}_annualized_return_pct"] = float(
+                    round(delayed.annualized_return_pct, 4)
+                )
+                result[name] = {
+                    "terminal_value_per_share_yen": decimal_to_number(
+                        projection.terminal_value_per_share_yen
+                    ),
+                    "cash_distribution_per_share_yen": decimal_to_number(
+                        projection.cash_distribution_per_share_yen
+                    ),
+                    "total_value_yen": decimal_to_number(returns.total_value_yen),
+                    "total_return_pct": float(round(returns.total_return_pct, 4)),
+                    "annualized_return_pct": float(round(returns.annualized_return_pct, 4)),
+                }
+            result["fixed_value_delay"] = delay
+            assert required_annual_return_pct is not None
+            result["two_case_balance"] = two_case_balance(
+                base,
+                downside,
+                price_yen=price_yen,
+                horizon_months=horizon_months,
+                required_annual_return_pct=required_annual_return_pct,
+            )
+            return result
+
+        return project
 
 
 class UnpublishedAssessment(Enum):

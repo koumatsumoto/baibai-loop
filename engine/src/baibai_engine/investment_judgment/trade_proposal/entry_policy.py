@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Literal
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
+    CurrentPriceProjectionInputs,
     StockAssessmentDocument,
-    current_derived_metric_errors,
-    current_price_projection,
 )
 from baibai_engine.investment_judgment.stock_assessment.price_value import referenced_price_fact
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
@@ -89,14 +90,13 @@ def acquisition_blocker(
     return None
 
 
-def evaluate_buy_terms(
+def prepare_buy_terms(
     assessment: StockAssessmentDocument,
     *,
     reviewed: bool,
     latest: bool,
     as_of: date,
     quote: QuoteInput | None,
-    proposed_limit_yen: Decimal,
     basis_confirmed: bool,
     market_price_max_age_days: int,
     held_quantity: int,
@@ -105,19 +105,15 @@ def evaluate_buy_terms(
     available_cash_yen: Decimal,
     budget_max_yen: Decimal,
     board_lot: int,
-    selected_quantity: int | None = None,
     target_session: date | None = None,
-) -> BuyTermsEvaluation:
-    """実quoteでgateを確認し、作者limitで上限と選択数量を分ける。"""
+) -> Callable[[Decimal, int | None], BuyTermsEvaluation]:
+    """同じ査読済み評価・実quote・資金に対し、指値だけを変えて比較できる。"""
     if quote is not None and quote.ticker != assessment.input_snapshot.ticker:
         raise ValueError("quote and assessment ticker differ")
-    limit = finite_decimal(proposed_limit_yen)
     cash, guide = finite_decimal(available_cash_yen), finite_decimal(budget_max_yen)
     board_lot = _positive_board_lot(board_lot)
     if guide <= 0:
         raise ValueError("positive board_lot and budget guide required")
-    if selected_quantity is not None:
-        selected_quantity = _selected_board_lot_quantity(selected_quantity, board_lot)
     blockers: list[GateReason] = []
 
     def block(code: BuyGateCode, message: str) -> None:
@@ -131,7 +127,8 @@ def evaluate_buy_terms(
         block("assessment_not_supported", "supported かつ intact の評価が必要です。")
     if assessment.input_snapshot.as_of != as_of:
         block("valuation_basis_requires_refresh", "期間と今後分配を本日起点で再確認してください。")
-    if input_errors := current_derived_metric_errors(assessment):
+    projection_inputs = CurrentPriceProjectionInputs(assessment)
+    if input_errors := projection_inputs.derived_metric_errors:
         block(
             "valuation_inputs_require_refresh",
             "現在の価値適用には派生計算の入力を再確認してください: " + "; ".join(input_errors),
@@ -175,7 +172,7 @@ def evaluate_buy_terms(
     if acquisition_issue is not None:
         blockers.append(acquisition_issue)
     valuation = assessment.valuation
-    maximum = None
+    maximum = base_ceiling = None
     if (
         valuation.status != "resolved"
         or valuation.base is None
@@ -192,96 +189,115 @@ def evaluate_buy_terms(
         )
         assert condition_ceiling is not None
         maximum = min(base_ceiling, condition_ceiling)
-        if limit > condition_ceiling:
-            block(
-                "limit_above_reviewed_price_condition",
-                "指値が独立Review済みの同一権利の価格条件を超えています。",
-            )
-        if limit > base_ceiling:
-            block("limit_above_pmax", "提案 limit が Base による購入上限を超えています。")
+    prerequisites = tuple(blockers)
+    blockers.clear()
     if held_quantity > 0:
         block("already_held", "既保有銘柄の新規買付は初期 policy の対象外です。")
     if active_reservation:
         block("active_reservation_exists", "既存の active 予約を確認してください。")
     if proposal_executed:
         block("proposal_already_executed", "この提案に対する買付は既に記録されています。")
-    maximum_quantity = 0
-    if limit <= 0:
-        block("positive_limit_required", "提案 limit は正の価格で指定してください。")
-    else:
-        lot_cost = limit * board_lot
-        cash_lots = max(0, int(cash // lot_cost))
-        # guideは絶対上限ではないため、cashで賄える1単元まで除外しない。
-        guide_lots = max(1, int(guide // lot_cost))
-        maximum_quantity = min(cash_lots, guide_lots) * board_lot
-        if maximum_quantity == 0:
-            block(
-                "available_cash_below_board_lot",
-                "提案 limit で最低一単元を買う cash が不足しています。",
-            )
-    quantity = maximum_quantity if selected_quantity is None else selected_quantity
-    if selected_quantity is not None and selected_quantity > maximum_quantity:
-        block(
-            "selected_quantity_above_maximum",
-            "選択数量が提案limit・確認済みcash・guideによる数量上限を超えています。",
-        )
-    projection_basis = reviewed and latest and confirmed_basis and acquisition_issue is None
-
-    def projection_at(value: Decimal | None) -> dict[str, object] | None:
-        if value is None or value <= 0 or price is None or price <= 0:
-            return None
-        return current_price_projection(
-            assessment,
-            price_yen=value,
+    portfolio_blockers = tuple(blockers)
+    project = (
+        projection_inputs.for_quote(
             price_as_of=price_as_of,
             as_of=as_of,
-            basis_confirmed=projection_basis,
+            basis_confirmed=reviewed and latest and confirmed_basis and acquisition_issue is None,
             max_quote_age_days=market_price_max_age_days,
-            price_basis="last_close_unadjusted" if quote is None else quote.price_basis,
+            price_basis=quote.price_basis,
         )
+        if quote is not None and price is not None and price > 0
+        else None
+    )
+
+    def projection_at(value: Decimal | None) -> dict[str, object] | None:
+        return None if project is None or value is None or value <= 0 else project(value)
 
     current_projection = projection_at(price)
-    limit_projection = projection_at(limit)
-    if limit_projection is not None:
-        # 指値は計算条件。鮮度/basisを確かめた実quoteの観測日・終値へ置換しない。
-        limit_projection = {
-            key: value
-            for key, value in limit_projection.items()
-            if key not in {"price_yen", "price_as_of", "price_basis"}
-        }
-        limit_projection.update(
-            price_context="buy_limit_ceiling",
-            calculation_price_yen=str(limit),
-            observed_quote=None if quote is None else quote.model_dump(mode="json"),
+
+    def at_limit(proposed_limit_yen: Decimal, selected_quantity: int | None) -> BuyTermsEvaluation:
+        limit = finite_decimal(proposed_limit_yen)
+        if selected_quantity is not None:
+            selected_quantity = _selected_board_lot_quantity(selected_quantity, board_lot)
+        blockers = list(prerequisites)
+
+        def block(code: BuyGateCode, message: str) -> None:
+            blockers.append(GateReason(code=code, message=message))
+
+        if maximum is not None:
+            assert condition_ceiling is not None
+            assert base_ceiling is not None
+            if limit > condition_ceiling:
+                block(
+                    "limit_above_reviewed_price_condition",
+                    "指値が独立Review済みの同一権利の価格条件を超えています。",
+                )
+            if limit > base_ceiling:
+                block("limit_above_pmax", "提案 limit が Base による購入上限を超えています。")
+        blockers.extend(portfolio_blockers)
+        maximum_quantity = 0
+        if limit <= 0:
+            block("positive_limit_required", "提案 limit は正の価格で指定してください。")
+        else:
+            lot_cost = limit * board_lot
+            cash_lots = max(0, int(cash // lot_cost))
+            # guideは絶対上限ではないため、cashで賄える1単元まで除外しない。
+            guide_lots = max(1, int(guide // lot_cost))
+            maximum_quantity = min(cash_lots, guide_lots) * board_lot
+            if maximum_quantity == 0:
+                block(
+                    "available_cash_below_board_lot",
+                    "提案 limit で最低一単元を買う cash が不足しています。",
+                )
+        quantity = maximum_quantity if selected_quantity is None else selected_quantity
+        if selected_quantity is not None and selected_quantity > maximum_quantity:
+            block(
+                "selected_quantity_above_maximum",
+                "選択数量が提案limit・確認済みcash・guideによる数量上限を超えています。",
+            )
+        limit_projection = projection_at(limit)
+        if limit_projection is not None:
+            # 指値は計算条件。鮮度/basisを確かめた実quoteの観測日・終値へ置換しない。
+            limit_projection = {
+                key: value
+                for key, value in limit_projection.items()
+                if key not in {"price_yen", "price_as_of", "price_basis"}
+            }
+            limit_projection.update(
+                price_context="buy_limit_ceiling",
+                calculation_price_yen=str(limit),
+                observed_quote=None if quote is None else quote.model_dump(mode="json"),
+            )
+        capital_comparison = None
+        if not blockers:
+            assert valuation.horizon_months is not None
+            assert valuation.base is not None
+            assert valuation.downside is not None
+            capital_comparison = project_buy_capital(
+                valuation.base,
+                valuation.downside,
+                horizon_months=valuation.horizon_months,
+                limit=limit,
+                cash=cash,
+                quantity=quantity,
+                author_selected=selected_quantity is not None,
+            )
+        return BuyTermsEvaluation(
+            tuple(blockers),
+            maximum,
+            0 if blockers else quantity,
+            # 現金から買える単元数を、保有・残注文・執行済みの提案で使える数量にしない。
+            None
+            if maximum is None
+            or limit > maximum
+            or held_quantity > 0
+            or active_reservation
+            or proposal_executed
+            else maximum_quantity,
+            None if maximum is None or price is None else price > maximum,
+            deepcopy(current_projection),
+            limit_projection,
+            capital_comparison,
         )
-    capital_comparison = None
-    if not blockers:
-        assert valuation.horizon_months is not None
-        assert valuation.base is not None
-        assert valuation.downside is not None
-        capital_comparison = project_buy_capital(
-            valuation.base,
-            valuation.downside,
-            horizon_months=valuation.horizon_months,
-            limit=limit,
-            cash=cash,
-            quantity=quantity,
-            author_selected=selected_quantity is not None,
-        )
-    return BuyTermsEvaluation(
-        tuple(blockers),
-        maximum,
-        0 if blockers else quantity,
-        # 現金から買える単元数を、保有・残注文・執行済みの提案で使える数量にしない。
-        None
-        if maximum is None
-        or limit > maximum
-        or held_quantity > 0
-        or active_reservation
-        or proposal_executed
-        else maximum_quantity,
-        None if maximum is None or price is None else price > maximum,
-        current_projection,
-        limit_projection,
-        capital_comparison,
-    )
+
+    return at_limit

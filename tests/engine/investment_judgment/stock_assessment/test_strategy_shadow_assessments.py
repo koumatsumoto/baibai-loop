@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from tests.helpers.proposal import evaluate_buy_terms
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
@@ -14,7 +15,6 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
 )
 from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
-from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 
 FIXTURES = Path(__file__).resolve().parents[3] / "fixtures/research/strategy-shadow"
 

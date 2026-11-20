@@ -41,24 +41,53 @@ def delay_at(document, price):
     }
 
 
-def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gate(tmp_path):
+def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gate(
+    tmp_path, monkeypatch
+):
+    from baibai_engine.investment_judgment.stock_assessment import document as assessment_document
+    from baibai_engine.investment_judgment.trade_proposal import conditions
+
     case = backend_case(tmp_path)
     draft = reviewed_proposal(case)
+    calls = []
+    old_basis = conditions.assessment_quote_basis
+    old_check_derived = assessment_document._check_derived_metrics
+
+    def basis(*args, **kwargs):
+        calls.append("basis")
+        return old_basis(*args, **kwargs)
+
+    def check_derived(document, errors, *, check_new_inputs):
+        # 保存済み評価の同一性確認ではなく、現在の価格適用に対する指標照合を全呼出で数える。
+        if check_new_inputs:
+            calls.append("economic_inputs")
+        old_check_derived(document, errors, check_new_inputs=check_new_inputs)
+
+    monkeypatch.setattr(conditions, "assessment_quote_basis", basis)
+    monkeypatch.setattr(assessment_document, "_check_derived_metrics", check_derived)
     context = build_proposal_context(
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,
         now=PREPARED,
     )
+    assert calls == ["basis", "economic_inputs"]
     row = context.calculations["1234"]
     actual = row["buy_at_actual_quote"]["current_price_projection"]
     assert actual["fixed_value_delay"] == delay_at(case.pair.document, "1100")
     at_maximum = row["calculation_at_maximum_price"]["limit_price_projection"]
     assert at_maximum["fixed_value_delay"] == delay_at(case.pair.document, "1000")
     assert actual["fixed_value_delay"] != at_maximum["fixed_value_delay"]
+    assert row["buy_at_actual_quote"]["capital_comparison"] is None
+    assert (
+        row["calculation_at_maximum_price"]["capital_comparison"]["cash_only_terminal_value_yen"]
+        == "300000"
+    )
 
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    calls.clear()
     checked = service.check(draft)
+    assert calls == ["basis", "economic_inputs"]
     assert checked.valid
     comparison = checked.calculations["1234"]["limit_price_projection"]
     assert comparison["horizon_months"] == 12
@@ -71,14 +100,18 @@ def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gat
     assert comparison["calculation_price_yen"] == "1000"
     assert not {"price_yen", "price_as_of", "price_basis"} & comparison.keys()
 
+    calls.clear()
     saved = service.publish(draft)
+    assert calls == ["basis", "economic_inputs"]
     before = case.app.read_bytes()
+    calls.clear()
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=1),
     )
+    assert calls == ["basis", "economic_inputs"]
     assert preview.status == "unchanged"
     result = preview.items[0]["saved_limit_revalidation"]
     assert result["limit_price_projection"] == comparison
