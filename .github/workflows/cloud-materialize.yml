@@ -4,11 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       market_release_id:
-        description: "表示だけを復旧する現行市場release ID（manifest SHAと対で指定）"
+        description: "元の日次runの公開市場release ID（復旧時は3項目すべて必須）"
         required: false
         type: string
       market_manifest_sha256:
-        description: "市場releaseのmanifest SHA-256（release IDと対で指定）"
+        description: "同じrunの市場release manifest SHA-256"
+        required: false
+        type: string
+      machine_receipt_sha256:
+        description: "同じrunのcore upload成功ログにあるmachine_receipt_sha256"
         required: false
         type: string
   workflow_call:
@@ -28,6 +32,7 @@ jobs:
     env:
       MARKET_RELEASE_ID: ${{ inputs.market_release_id }}
       MARKET_MANIFEST_SHA256: ${{ inputs.market_manifest_sha256 }}
+      MACHINE_RECEIPT_SHA256: ${{ inputs.machine_receipt_sha256 }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,9 +50,9 @@ jobs:
 
       - name: Validate requested market identity
         id: target
-        if: ${{ inputs.market_release_id != '' || inputs.market_manifest_sha256 != '' }}
+        if: ${{ inputs.market_release_id != '' || inputs.market_manifest_sha256 != '' || inputs.machine_receipt_sha256 != '' }}
         run: |
-          uv run python -m baibai_jobs.publication.machine_bundle -- "$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256"
+          uv run python -m baibai_jobs.publication.machine_bundle -- "$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256" "$MACHINE_RECEIPT_SHA256"
 
       - name: Acquire publication lease
         id: lease-acquire
@@ -65,7 +70,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           umask 077
-          uv run python -m baibai_jobs.publication.machine_bundle --capture "$RUNNER_TEMP/materialize-market-pair.json" -- "$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256"
+          uv run python -m baibai_jobs.publication.machine_bundle --capture "$RUNNER_TEMP/materialize-market-pair.json" -- "$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256" "$MACHINE_RECEIPT_SHA256"
 
       - name: Pull application store
         id: pull-app
@@ -115,7 +120,7 @@ jobs:
         run: |
           umask 077
           if [[ -n "$MARKET_RELEASE_ID" ]]; then
-            uv run python -m baibai_jobs.publication.machine_bundle --verify "$RUNNER_TEMP/materialize-market-pair.json" -- "$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256"
+            uv run python -m baibai_jobs.publication.machine_bundle --verify "$RUNNER_TEMP/materialize-market-pair.json" -- "$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256" "$MACHINE_RECEIPT_SHA256"
           fi
           jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving" > "$RUNNER_TEMP/materialize-upload-private.log" 2>&1
 

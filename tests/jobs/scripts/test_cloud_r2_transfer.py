@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -500,7 +501,10 @@ def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
         )
 
     # A complete push, then the pull that records what it wrote: the steady state.
-    assert run("push-machine", GITHUB_ACTIONS="true").returncode == 0
+    complete = run("push-machine", GITHUB_ACTIONS="true")
+    assert complete.returncode == 0
+    receipt_sha = hashlib.sha256((state / "put-machine-manifest.json").read_bytes()).hexdigest()
+    assert f"machine_receipt_sha256={receipt_sha}" in complete.stdout
     settled_pull = run("pull-machine")
     assert settled_pull.returncode == 0
     # The accepting line, not just the exit code: a pull that found no receipt also
@@ -515,6 +519,7 @@ def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
         path.write_bytes(b"new-store")
     partial = run("push-machine", GITHUB_ACTIONS="true", AWS_FAKE_FAIL_PUT_KEY="runs.sqlite")
     assert partial.returncode != 0
+    assert "machine_receipt_sha256=" not in partial.stdout
     assert (state / "put-market.sqlite").read_bytes() == b"new-store"
     assert (state / "put-runs.sqlite").read_bytes() == b"old-store"
     assert (state / "generation-runs.sqlite").read_bytes() == b"x"
@@ -562,6 +567,13 @@ def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
     verified = run("pull-machine")
     assert verified.returncode == 0
     assert "machine bundle receipt matches" in verified.stdout
+
+    # The last PUT itself can fail after both bodies landed: no original-run proof then, either.
+    no_receipt = run(
+        "push-machine", GITHUB_ACTIONS="true", AWS_FAKE_FAIL_PUT_KEY="machine-manifest.json"
+    )
+    assert no_receipt.returncode != 0
+    assert "machine_receipt_sha256=" not in no_receipt.stdout
 
 
 def test_machine_store_push_rejects_a_generation_replaced_by_manual_publish(

@@ -381,7 +381,7 @@ write_machine_manifest() {
   # statement about what the bucket holds now, so a write landing after this read leaves
   # it merely stale — which the next bundle pull refuses. Values carried forward from
   # the pushes would instead let it claim a generation nobody ever observed together.
-  local key version file first=1
+  local key version file receipt_sha256 first=1
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   file="${transfer_staging}/machine-manifest.json"
   {
@@ -400,6 +400,9 @@ write_machine_manifest() {
     printf '\n  }\n}\n'
   } > "${file}"
   transfer_evidence snapshot_ready "${machine_manifest_key}"
+  # Pin the small receipt bytes actually being offered, not the SQLite bodies.
+  # Print only after a successful PUT so a failed attempt supplies no target.
+  receipt_sha256="$(sha256sum < "$(transfer_body "${machine_manifest_key}")")"
   verify_publication_lease
   if [[ -n "${evidence_dir}" ]]; then
     put_with_evidence "${machine_manifest_key}" ""
@@ -413,7 +416,8 @@ write_machine_manifest() {
   fi
   cleanup_staging
   transfer_staging=""
-  printf 'machine bundle receipt written: %s\n' "${machine_manifest_key}"
+  printf 'machine bundle receipt written: %s machine_receipt_sha256=%s\n' \
+    "${machine_manifest_key}" "${receipt_sha256%% *}"
 }
 
 manifest_recorded_version() {

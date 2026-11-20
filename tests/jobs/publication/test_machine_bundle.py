@@ -1,5 +1,6 @@
 """Scoped inputs and a display-only recovery share one published machine proof."""
 
+import hashlib
 import json
 from contextlib import closing
 
@@ -132,8 +133,55 @@ def test_invalid_recovery_fails_without_opening_a_store(monkeypatch, release, di
     monkeypatch.setattr(
         machine_bundle, "Boto3R2Store", lambda **_: pytest.fail("unexpected access")
     )
-    assert machine_bundle.main(["--", release, digest]) == 1
-    assert machine_bundle.main(["--", "valid-1", "a" * 64]) == 0
+    assert machine_bundle.main(["--", release, digest, "b" * 64]) == 1
+
+
+@pytest.mark.parametrize("receipt", ["", "b" * 63, "B" * 64, "b" * 64 + "\n", "--help"])
+def test_receipt_is_required_and_validated_before_opening_a_store(monkeypatch, receipt):
+    monkeypatch.setattr(
+        machine_bundle, "Boto3R2Store", lambda **_: pytest.fail("unexpected access")
+    )
+    assert machine_bundle.main(["--", "valid-1", "a" * 64, receipt]) == 1
+    assert machine_bundle.main(["--", "valid-1", "a" * 64, "b" * 64]) == 0
+
+
+@pytest.mark.parametrize("replacement", ["market.sqlite", "runs.sqlite", "receipt-bytes"])
+def test_original_receipt_rejects_a_coherent_reseal_before_capture(
+    tmp_path, monkeypatch, replacement
+):
+    remote = _remote_bundle()
+    original = remote.values["machine-manifest.json"].body
+    digest = hashlib.sha256(original).hexdigest()
+    if replacement == "receipt-bytes":
+        remote.store_object("machine-manifest.json", original + b"\n")
+    else:
+        remote.store_object(replacement, b"later bytes under the same lake")
+        _publish_receipt(remote)
+    # Both store heads still agree with the new receipt, as in a later successful push.
+    machine_bundle.read_published_machine(remote)
+    remote.get_keys.clear()
+    remote.head_keys.clear()
+    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
+    monkeypatch.setattr(machine_bundle, "Boto3R2Store", lambda **_: remote)
+    proof = tmp_path / "pair.json"
+    assert machine_bundle.main(["--capture", str(proof), "--", "published", "a" * 64, digest]) == 1
+    assert not proof.exists()
+    assert remote.put_keys == []
+    assert remote.get_keys.count("machine-manifest.json") == 1
+    assert not {"market.sqlite", "runs.sqlite"} & set(remote.get_keys + remote.head_keys)
+
+
+def test_matching_original_receipt_adds_no_remote_calls():
+    remote = _remote_bundle()
+    digest = hashlib.sha256(remote.values["machine-manifest.json"].body).hexdigest()
+    original = machine_bundle.read_published_machine(remote)
+    calls = (remote.get_keys[:], remote.head_keys[:])
+    remote.get_keys.clear()
+    remote.head_keys.clear()
+    assert machine_bundle.read_published_machine(remote, expected_receipt_sha256=digest) == original
+    assert (remote.get_keys, remote.head_keys) == calls
+    assert remote.get_keys.count("machine-manifest.json") == 1
+    assert remote.put_keys == []
 
 
 @pytest.mark.parametrize(
@@ -161,7 +209,12 @@ def test_display_guard_accepts_only_the_same_published_pair_and_local_origin(
     market = tmp_path / "market.sqlite"
     monkeypatch.setattr(machine_bundle, "MARKET_DB_PATH", market)
     proof = str(tmp_path / "pair.json")
-    target = ["--", "published", "a" * 64]
+    target = [
+        "--",
+        "published",
+        "a" * 64,
+        hashlib.sha256(remote.values["machine-manifest.json"].body).hexdigest(),
+    ]
     assert machine_bundle.main(["--capture", proof, *target]) == 0
     with closing(open_connection(market)) as conn, conn:
         if change != "missing-origin":

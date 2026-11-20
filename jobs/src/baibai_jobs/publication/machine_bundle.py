@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import sys
 from contextlib import closing
 from pathlib import Path
@@ -20,12 +22,20 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 from baibai_jobs.publication.snapshot_release import read_pointer_snapshot
 
 
-def read_published_machine(store: ObjectStore) -> tuple[LakeReleasePointer, dict[str, str]]:
+def read_published_machine(
+    store: ObjectStore, *, expected_receipt_sha256: str | None = None
+) -> tuple[LakeReleasePointer, dict[str, str]]:
     pointer = read_pointer_snapshot(store).pointer
     if pointer is None:
         raise ValueError("a published lake release is required")
     try:
-        manifest = json.loads(store.get_bytes("machine-manifest.json"))
+        receipt = store.get_bytes("machine-manifest.json")
+        if (
+            expected_receipt_sha256 is not None
+            and hashlib.sha256(receipt).hexdigest() != expected_receipt_sha256
+        ):
+            raise LakePublishError("published machine receipt differs from the requested run")
+        manifest = json.loads(receipt)
     except (KeyError, ValueError, UnicodeDecodeError) as error:
         raise LakePublishError("published machine bundle receipt is unavailable") from error
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
@@ -54,18 +64,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("release_id")
     parser.add_argument("manifest_sha256")
+    parser.add_argument(
+        "machine_receipt_sha256", help="receipt SHA-256 from the original core upload"
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--capture", type=Path, help="save the verified ETag pair before pulling")
     mode.add_argument("--verify", type=Path, help="recheck the saved pair and local market origin")
     args = parser.parse_args(argv)
     try:
         expected = LakeStoreOrigin(args.release_id, args.manifest_sha256)
+        if re.fullmatch(r"[0-9a-f]{64}", args.machine_receipt_sha256) is None:
+            raise ValueError("invalid machine receipt SHA-256 from the original run")
         if args.capture is None and args.verify is None:
             return 0  # Syntax only, before credentials or a lease.
         with closing(
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET", "baibai-stores"))
         ) as store:
-            pointer, versions = read_published_machine(store)
+            pointer, versions = read_published_machine(
+                store, expected_receipt_sha256=args.machine_receipt_sha256
+            )
         if (pointer.release_id, pointer.manifest_sha256) != (
             expected.release_id,
             expected.release_manifest_sha256,

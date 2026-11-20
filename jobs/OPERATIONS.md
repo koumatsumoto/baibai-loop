@@ -729,17 +729,18 @@ TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な�
 
 mainのcloud-materializeは検証済applicationと固定releaseを使う。単独表示更新は同じmarket originの価格・calendar・masterだけをhydrateし、無関係な原本cacheを取得・消去しない。別releaseへの部分更新はせず、originが合わなければmarketを未検証として扱う。通常dailyの実行用復元とは別である。market失敗は赤いrunに残し、未検証値を読ませず時価等を未評価にしてledger fact/保存成績/提案を配信する。market復旧と表示公開を別確認する。
 
-**日次の表示だけを復旧する前提**は、対象runの `Generate models and candidates, then publish the same fixed release` と `Upload the core machine stores` の両方が成功したこと。どちらかを確認できない場合は、正本のrunsから対象のModelGenerationとそれに属するScreeningSelectionをIDで読戻せるまで、この手順を使わない。machine receipt v1は現行のmarket/runsのETag対を証明するが、`push-market`でも既存のrunsと新しいmarketの対を再確定できるため、その日次の生成・選定が公開された証明にはならない。
+**日次の表示だけを復旧する前提**は、対象runの同一attemptで `Generate models and candidates, then publish the same fixed release` と `Upload the core machine stores` の両方が成功したこと。片方が不明なら、この復旧は使わず、対象のModelGenerationとそれに属するScreeningSelectionを正本のrunsからIDで読戻して状態を調べる。読戻しは元runのreceiptの代わりにはならない。`push-market`でも既存のrunsと新しいmarketの対を再確定できるため、現在のmachine receiptだけでは、その日次の生成・選定が公開された証明にならない。
 
-上記を確認した同じrunの公開結果にある`release_id`と`release_manifest_sha256`を対で渡す。空の手動実行・application更新からの呼出しは従来の縮退動作のままである。
+同じrun・attemptのモデル公開結果から`release_id`と`release_manifest_sha256`、成功したcore uploadの `machine bundle receipt written:` 行から`machine_receipt_sha256`を取り、3つを一緒に渡す。古いrunなどで証拠が欠ける場合はここで止める。現在のR2や別attemptから値を補わない。空の手動実行・application更新からの呼出しは現在の表示を生成する従来の縮退動作で、過去runの復旧の代用にはしない。
 
 ```bash
 gh workflow run cloud-materialize.yml --ref main \
   -f market_release_id="${RELEASE_ID:?公開release IDを指定}" \
-  -f market_manifest_sha256="${MANIFEST_SHA256:?同じ公開結果のmanifest SHAを指定}"
+  -f market_manifest_sha256="${MANIFEST_SHA256:?同じ公開結果のmanifest SHAを指定}" \
+  -f machine_receipt_sha256="${MACHINE_RECEIPT_SHA256:?同じrunのcore upload成功行のSHAを指定}"
 ```
 
-指定時は新しいlease内で現行pointer・machine receiptとmarket/runs両ETagを確認し、同じoriginのmarketで価格・calendar・masterのみを復元する。公開直前にも世代・ETag対・手元のoriginを照合する。片方だけの指定、現行でないrelease、receipt/ETagの不一致、market取得・照合失敗では縮退表示も公開しない。再取得・モデル生成・正本の再公開はせず、現在のapplicationと実行時計で4表示を作り直すため、以前の表示bytesの再現ではない。4件の転送は順次で一括commitではない。転送途中の失敗時は公開済みの範囲を確認してから同じ現行市場世代で表示だけを再実行する。
+指定時は新しいlease内で現行pointer、元runと同じmachine receiptの実bytes、market/runs両ETagを確認し、同じoriginのmarketで価格・calendar・masterのみを復元する。表示公開直前にもreceipt・世代・ETag対・手元のoriginを照合する。同じlakeでもreceiptのbytesが変わった場合（時刻だけが違う再発行も含む）、3項目の一部だけの指定、market取得・照合失敗では縮退表示も公開しない。再取得・モデル生成・正本の再公開はせず、現在のapplicationと実行時計で4表示を作り直すため、以前の表示bytesの再現ではない。4件の転送は順次で一括commitではない。転送途中の失敗時は公開済みの範囲を確認してから同じ3項目で表示だけを再実行する。
 
 日次の使い捨てrunnerだけ、受領済みの公開Web原本（`equity_web.source_responses`）を同じローカルmirrorで公開まで一時再利用する。追加取得せず、大きな原本の保持は最大3 GiBかつ開始時空き容量の1/16以内。手動hydrate・portfolio・他の巨大原本の既定の退避は変えない。すでに手元にある未改版の日別形式L1バイナリ原本は手動exportでも同じ全値検証後に再利用できる。前回とSHA/全列（gzip本文含む）/順序が一致した日は再圧縮せず、公開前の全件照合とR2の閉鎖・pointer確認は通常どおり。古い月刊が手元になければSQLiteから同じ月形状を再生する。実採用数とbyteはjobの `lake snapshot: verified reuse` で確認する。値は一時再生成を省いたバイトで、請求や通信の削減量ではない。
 
