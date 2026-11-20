@@ -14,7 +14,7 @@ def test_article_slots_use_bounded_host_groups_without_model_generation():
     assert declared_schedule(raw) == [{"cron": "13 1,5,9,13,17,21 * * *"}]
     job = workflow["jobs"]["acquire"]
     assert job["strategy"]["matrix"]["group"] == (
-        "${{ fromJSON(github.event_name == 'schedule' && "
+        "${{ fromJSON((github.event_name == 'schedule' || inputs.group == 'scheduled') && "
         '\'["scheduled"]\' || \'["public","world","rakuten"]\') }}'
     )
     assert workflow["on"]["workflow_dispatch"]["inputs"]["group"]["options"] == [
@@ -22,6 +22,7 @@ def test_article_slots_use_bounded_host_groups_without_model_generation():
         "public",
         "world",
         "rakuten",
+        "scheduled",
     ]
     assert job["strategy"]["fail-fast"] == "false"
     assert job["concurrency"]["group"] == (
@@ -57,6 +58,9 @@ def test_manual_and_scheduled_article_dispatch_share_one_acquisition_contract():
     ("requested", "group", "selected"),
     [
         ("all", "scheduled", True),
+        ("scheduled", "scheduled", True),
+        ("scheduled", "public", False),
+        ("public", "scheduled", False),
         ("all", "public", True),
         ("public", "public", True),
         ("public", "world", False),

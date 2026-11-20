@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       group:
-        description: '取得group（保存済みindexと未処理本文を確認。同slot重複・cooldownは維持）'
+        description: '取得group（scheduledは定期と同じTSR・日銀のみ。重複・cooldownは維持）'
         type: choice
         default: all
-        options: [all, public, world, rakuten]
+        options: [all, public, world, rakuten, scheduled]
 
 permissions:
   contents: read
@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ${{ fromJSON(github.event_name == 'schedule' && '["scheduled"]' || '["public","world","rakuten"]') }}
+        group: ${{ fromJSON((github.event_name == 'schedule' || inputs.group == 'scheduled') && '["scheduled"]' || '["public","world","rakuten"]') }}
     # Scheduled and manual public share one queue; manual Toushiru keeps its own.
     # No global provider barrier, publication lease, or model calculation here.
     concurrency:
@@ -42,7 +42,7 @@ jobs:
           REQUESTED_GROUP: ${{ inputs.group || 'all' }}
           GROUP: ${{ matrix.group }}
         run: |
-          case "$REQUESTED_GROUP" in all|public|world|rakuten) ;; *) exit 2 ;; esac
+          case "$REQUESTED_GROUP" in all|public|world|rakuten|scheduled) ;; *) exit 2 ;; esac
           if [ "$REQUESTED_GROUP" = all ] || [ "$REQUESTED_GROUP" = "$GROUP" ]; then
             echo 'selected=true' >> "$GITHUB_OUTPUT"
           fi
