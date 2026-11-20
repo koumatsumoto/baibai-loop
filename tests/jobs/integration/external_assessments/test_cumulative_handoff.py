@@ -2,6 +2,10 @@
 
 import hashlib
 import json
+import multiprocessing
+import os
+import shelve
+import signal
 from dataclasses import replace
 from datetime import timedelta
 
@@ -14,6 +18,7 @@ from tests.helpers.external_assessment_publication import (
     prepare_plan,
 )
 from tests.helpers.external_assessment_publication import publication as publication
+from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.acquisition.external_assessments.staging as staging
 import baibai_jobs.publication.snapshot_publication as publisher
@@ -30,11 +35,11 @@ from baibai_jobs.integration.external_assessment_ready import (
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 
 
-def make_partial(publication):
+def make_partial(publication, *, run_id="cumulative-monex"):
     store, previous, *_ = publication
     plan = _plan(
         previous,
-        run_id="cumulative-monex",
+        run_id=run_id,
         sources=("monex",),
         tickers=("6758", "7203"),
         cohort_size=1,
@@ -249,6 +254,89 @@ def test_cumulative_inspect_freezes_reported_stages_and_later_reads_progress(
     assert set(progressed[0].stages) == {0, 1}
     second = save_ready(store, progressed[0])
     assert available_ready(store) == ([second], [])
+
+
+def _kill_handoff_at_write(remote, args, phase):
+    import baibai_jobs.acquisition.external_assessments.sources as sources
+
+    # Only service bytes survive this process. Do not simulate kill by throwing
+    # inside main: that would still allow error handling and reporting to finish.
+    with shelve.open(str(remote), flag="w") as objects:
+        store = MemoryR2Store()
+        store.values = objects
+        put = store.put_file
+
+        def stop():
+            objects.sync()
+            os.kill(os.getpid(), signal.SIGKILL)
+
+        def interrupt(key, *args, **kwargs):
+            if phase == "before_freeze" and "/confirmed-stages/" in key:
+                stop()
+            result = put(key, *args, **kwargs)
+            if (phase == "stage_only" and "/confirmed-stages/" in key) or (
+                phase == "lost_ready_response" and "/ready-" in key
+            ):
+                stop()
+            return result
+
+        store.put_file = interrupt
+        sources.Boto3R2Store = lambda **_: store
+        raise SystemExit(sources.main(args))
+
+
+@pytest.mark.parametrize("phase", ["before_freeze", "stage_only", "lost_ready_response"])
+def test_killed_ready_worker_cannot_substitute_later_mutable_stages(
+    publication, tmp_path, phase, monkeypatch
+):
+    import baibai_jobs.acquisition.external_assessments.sources as sources
+
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    store, plan = make_partial(publication, run_id="monex-kill")
+    remote, report = tmp_path / "synthetic-store", tmp_path / "worker-report.json"
+    with shelve.open(str(remote)) as objects:
+        objects.update(store.values)
+    exact = json.dumps([{"source": "monex", "run_id": plan.run_id}])
+    args = ["ready", "--selection-json", exact, "--cumulative", "--report-output"]
+    ctx = multiprocessing.get_context("spawn")
+    worker = ctx.Process(target=_kill_handoff_at_write, args=(remote, [*args, str(report)], phase))
+    worker.start()
+    try:
+        worker.join(30)
+        assert worker.exitcode == -signal.SIGKILL
+    finally:
+        if worker.is_alive():
+            worker.kill()
+            worker.join(5)
+    assert not report.exists()
+
+    # dbm.sqlite3's read-only mode opens immutable=1, omitting a killed
+    # writer's committed WAL; use the normal existing-store view.
+    with shelve.open(str(remote), flag="w") as objects:
+        store.values = dict(objects)
+    confirmed = [key for key in store.values if "/confirmed-stages/" in key]
+    assert len(confirmed) == int(phase != "before_freeze")
+    add_cohort(store, plan, 1, seconds=1)
+    store.put_keys.clear()
+    refs, bad = available_ready(store)
+    assert not bad
+    if phase == "lost_ready_response":
+        (fixed,) = refs
+        frozen = load_ready(store, fixed)
+        assert frozen.plan == plan
+        assert set(frozen.stages) == {0}
+        assert save_ready(store, frozen) == fixed  # same exact body, no extra PUT
+    else:
+        assert not refs  # even a confirmed stage is not a ready selection
+    assert store.put_keys == []
+    # The old separate runner could announce this larger set. It is not the
+    # killed worker's result, even though source and resolved run ID both match.
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
+    legacy_report = tmp_path / "separate-runner.json"
+    assert sources.main([*args, str(legacy_report)]) == 0
+    (later,) = json.loads(legacy_report.read_bytes())["ready_handoffs"]
+    assert later not in refs
+    assert set(load_ready(store, later).stages) == {0, 1}
 
 
 def test_invalid_ack_cannot_silently_remove_ready(publication):

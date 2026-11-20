@@ -47,6 +47,12 @@ def test_acquire_workflow_timeout_can_start_a_harmless_command():
     ]
     assert len(commands) == 1
     command = commands[0]
+    assert command[: command.index("uv")] == [
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=30s",
+        "270m",
+    ]
     # Exercise GNU timeout's actual duration parser without provider or R2 I/O.
     result = subprocess.run(
         [*command[: command.index("uv")], "true"],
@@ -176,10 +182,14 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     )
     assert child["concurrency"]["group"] == "external-assessment-acquire-${{ inputs.source }}"
     assert "include" in acquire_job["strategy"]["matrix"]
-    assert int(child["jobs"]["acquire"]["timeout-minutes"]) < 360
+    assert int(child["jobs"]["acquire"]["timeout-minutes"]) == 300 + 15
+    ready_step = next(
+        step for step in child["jobs"]["acquire"]["steps"] if step.get("id") == "ready"
+    )
+    assert int(ready_step["timeout-minutes"]) == 15
     assert "publish" not in child["jobs"]
     handoff = child["jobs"]["handoff"]
-    assert "always()" in handoff["if"]
+    assert "!cancelled()" in handoff["if"]
     runs = [step.get("run", "") for step in handoff["steps"]]
     assert any("acquisition.external_assessments.sources ready" in text for text in runs)
     assert any("--confirmed-partial" in text for text in runs)

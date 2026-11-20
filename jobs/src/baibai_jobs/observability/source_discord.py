@@ -21,6 +21,9 @@ def main() -> int:
     asof = sanitize_one_line(os.environ.get("ASOF", "unknown"))
     acquired = os.environ.get("ACQUIRE_RESULT", "unknown")
     staged = os.environ.get("STAGE_RESULT", "unknown")
+    # Setup, job expiry or runner loss can fail without a verified step outcome.
+    job_result = os.environ.get("SOURCE_JOB_RESULT", "")
+    outcomes = {acquired, staged, job_result}
     expected_unavailable = (
         source in EXPECTED_PMI_SOURCES
         and os.environ.get("EXPECTED_UNAVAILABLE") == "true"
@@ -29,9 +32,9 @@ def main() -> int:
     )
     if expected_unavailable:
         label = "[UNAVAILABLE]"
-    elif "failure" in {acquired, staged}:
+    elif "failure" in outcomes:
         label = "[FAILED]"
-    elif "cancelled" in {acquired, staged}:
+    elif "cancelled" in outcomes:
         label = "[CANCELLED]"
     elif acquired == staged == "success":
         label = "[OK]"
@@ -44,6 +47,11 @@ def main() -> int:
         details=[
             f"取得ジョブ: {step_label(acquired)} / private受領: {step_label(staged)}",
             *(
+                [f"実行ジョブ: {step_label(job_result)}"]
+                if job_result in {"failure", "cancelled"} and job_result not in {acquired, staged}
+                else []
+            ),
+            *(
                 ["既知のPMI HTTP 403。取得不達を保持し、繰返し通知のみ省略"]
                 if expected_unavailable
                 else []
@@ -53,9 +61,7 @@ def main() -> int:
         url=run_url(os.environ),
     )
     print(message, flush=True)
-    if not expected_unavailable and (
-        acquired in {"failure", "cancelled"} or staged in {"failure", "cancelled"}
-    ):
+    if not expected_unavailable and outcomes & {"failure", "cancelled"}:
         failure = deliver(
             os.environ.get("DISCORD_WEBHOOK_URL", ""), message, timeout=DEFAULT_TIMEOUT_SECONDS
         )

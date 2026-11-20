@@ -130,35 +130,57 @@ def test_one_source_shares_session_limiter_and_remaining_budget_across_cohorts(
         assert report["state_counts"]["unattempted"] == 1
 
 
-@pytest.mark.parametrize("status", [401, 403])
-def test_one_source_refusal_stops_its_unattempted_pairs_while_other_source_acquires(
-    monkeypatch, status
+@pytest.mark.parametrize("status", [401, 403, 429])
+def test_one_source_refusal_keeps_nonzero_acquire_and_independent_private_ready(
+    monkeypatch, tmp_path, status
 ):
     timer = Clock()
     monkeypatch.setattr(sources.time, "monotonic", timer.monotonic)
     monkeypatch.setattr(sources.time, "sleep", timer.sleep)
-    denied = Session(timer, [(status, "synthetic denial", {})])
+    denied = Session(timer, [(status, "synthetic denial", {"Retry-After": "86400"})])
     available = Session(
         timer, [(200, kabumap_html("7203"), {"Content-Type": "text/html; charset=utf-8"})]
     )
     clients = iter((denied, available))
     monkeypatch.setattr(sources.requests, "Session", lambda: next(clients))
     store = FakeObjectStore()
-    failed = sources.acquire_source(
-        store,
-        replace(plan(tickers=("7203", "9432")), run_id="monex-blocked-acquire"),
-        source="monex",
-    )
-    successful = sources.acquire_source(
-        store, replace(plan(sources=("kabumap",)), run_id="kabumap-ready-acquire"), source="kabumap"
-    )
-    assert failed["status"] == "blocked"
-    assert failed["state_counts"]["failure"] == 1
-    assert failed["state_counts"]["unattempted"] == 1
-    assert len(denied.calls) == 1
-    assert successful["status"] == "acquired"
-    assert successful["state_counts"]["success"] == 1
-    assert len(available.calls) == 1
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
+    report = tmp_path / "report.json"
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    common = ["--master-asof", "2026-10-11", "--report-output", str(report)]
+
+    for source, own, expected in (
+        ("monex", plan(tickers=("7203", "9432")), "blocked"),
+        ("kabumap", plan(sources=("kabumap",)), "acquired"),
+    ):
+        own = replace(own, run_id=f"{source}-independent")
+        staging.save_new_plan(store, own)
+        assert sources.main(
+            [
+                "acquire",
+                "--source",
+                source,
+                "--run-id",
+                own.run_id,
+                "--directory",
+                str(tmp_path),
+                *common,
+            ]
+        ) == (1 if expected == "blocked" else 0)
+        result = json.loads(report.read_bytes())
+        assert result["status"] == expected
+        counts = result["state_counts"]
+        assert (counts["failure"], counts["unattempted"], counts["success"]) == (
+            (1, 1, 0) if expected == "blocked" else (0, 0, 1)
+        )
+        selection = json.dumps([{"source": source, "run_id": own.run_id}])
+        assert sources.main(["ready", "--selection-json", selection, "--cumulative", *common]) == 0
+        staged = json.loads(report.read_bytes())
+        assert staged["sources"][0]["status"] == "ready_for_integration"
+        assert staged["sources"][0]["state_counts"] == counts
+        assert len(staged["ready_handoffs"]) == 1
+        assert staging.read_terminal(store, own) is None
+    assert len(denied.calls) == len(available.calls) == 1
 
 
 @pytest.mark.parametrize("http_status", [200, 404])
@@ -306,10 +328,23 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
     assert "inputs.operation == 'collect'" in acquire["if"]
     assert "cloud-publish" not in str(acquire)
     assert "publish" not in child["jobs"]
-    cycle = next(step for step in acquire["steps"] if step.get("id") == "cycle")
+    cycle, collect, ready = [step for step in acquire["steps"] if "id" in step]
+    assert [step["id"] for step in (cycle, collect, ready)] == ["cycle", "collect", "ready"]
     assert "sources resolve" in cycle["run"]
     assert "R2_ACCESS_KEY_ID" not in str(cycle)
-    assert acquire["outputs"]["run_id"] == "${{ steps.cycle.outputs.run_id }}"
+    assert collect["env"]["SOURCE_RUN_ID"] == "${{ steps.cycle.outputs.run_id }}"
+    assert " ".join(ready["if"].split()) == (
+        "${{ !cancelled() && steps.cycle.outcome == 'success' && steps.cycle.outputs.run_id != '' "
+        "&& (steps.collect.outcome == 'success' || steps.collect.outcome == 'failure') }}"
+    )
+    assert all("continue-on-error" not in step for step in (cycle, collect, ready))
+    assert "steps.cycle.outputs.run_id" in ready["env"]["SOURCE_RUNS"]
+    assert "inputs.run_id" not in ready["env"]["SOURCE_RUNS"]
+    assert "--cumulative" in ready["run"]
+    assert "--confirmed-partial" not in ready["run"]
+    assert '--master-asof "$MASTER_ASOF"' in ready["run"]
+    assert acquire["outputs"]["collect_result"] == "${{ steps.collect.outcome }}"
+    assert acquire["outputs"]["ready_result"] == "${{ steps.ready.outcome }}"
     assert acquire["outputs"]["observation_date"] == "${{ steps.cycle.outputs.observation_date }}"
     notify = child["jobs"]["notify"]
     assert notify["needs"] == ["acquire", "handoff"]
@@ -317,18 +352,19 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
         "${{ always() && github.ref == 'refs/heads/main' && "
         "(contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}"
     )
-    notification = notify["steps"][-1]
-    assert "needs.acquire.outputs.observation_date" in notification["env"]["ASOF"]
+    notice = notify["steps"][-1]["env"]
+    assert "needs.acquire.outputs.observation_date" in notice["ASOF"]
+    assert "inputs.observation_date" not in notice["ASOF"]
+    assert "needs.acquire.outputs.collect_result" in notice["ACQUIRE_RESULT"]
+    assert "needs.acquire.outputs.ready_result" in notice["STAGE_RESULT"]
+    assert "needs.handoff.outputs.ready_result" in notice["STAGE_RESULT"]
     handoff = child["jobs"]["handoff"]
-    assert handoff["needs"] == "acquire"
-    assert "always()" in handoff["if"]
-    assert "needs.acquire.result" not in handoff["if"]
-    ready = next(step for step in handoff["steps"] if step.get("id") == "ready")
-    assert "acquisition.external_assessments.sources ready" in ready["run"]
-    assert '--selection-json "$SOURCE_RUNS"' in ready["run"]
-    assert "needs.acquire.outputs.run_id || inputs.run_id" in ready["env"]["SOURCE_RUNS"]
-    assert '--master-asof "$MASTER_ASOF"' in ready["run"]
-    assert "--confirmed-partial" in ready["run"]
+    assert "needs" not in handoff
+    assert handoff["if"] == "${{ !cancelled() && inputs.operation == 'stage_confirmed_partial' }}"
+    partial = next(step for step in handoff["steps"] if step.get("id") == "ready")
+    assert "inputs.run_id" in partial["env"]["SOURCE_RUNS"]
+    assert "--confirmed-partial" in partial["run"]
+    assert "--cumulative" not in partial["run"]
     for forbidden in (
         "cloud-publish",
         "publication_lease",

@@ -492,6 +492,8 @@ uv run python -m baibai_jobs.acquisition.external_assessments.raw --preserve-run
 
 lease外でacquire→inspect→ready --cumulative、共通統合で固定集合を公開/readbackしてackする。通常の探索は、同じplanにreadyが一つだけでその本文SHAへ正式ackがあるとき、採用済みstageを再監査しない。別のreadyがあれば固定集合の包含を確認し、後着小集合で後退させない。確定分で明示終了するときだけworkflowの-f operation=stage_confirmed_partialを使う。401/403/429/未完を自動closeしない。pointer後terminal失敗は現状態を読み、未sealならfresh hydrateから再適用する。hard kill前の未保存試行・期限切れ原本の復元は保証しない。history_digestsは保存後baselineで、更新前の全履歴保全を証明しない。
 
+取得の非zero終了（プロセスのTERMを含む）とrunner自体の喪失は分ける。runnerが生き、queue後の対象IDが確定していれば取得の失敗を残したまま同じsourceの確定分をreadyにする。runner取消・喪失時は別runnerから再凍結しない。報告が無いときは当該実行の受領は未確認。共通統合は保存済みの真正なreadyを独立して読めるが、同じplanの後着stageや既存readyを失われた実行の結果と見なさない。凍結前に失われた確定分の早期引渡しは保証しない。
+
 #### EDINET 財務cash内訳
 
 schema 52・EDINET lake v3への切替は完了し、一回移行・有限回復toolは撤去したため、旧schema 51 copyで現行の正本を上書きしない。旧固定release readerは保持し、切替・受入の履歴は[#2262](https://github.com/koumatsumoto/baibai-loop/issues/2262)に残す。

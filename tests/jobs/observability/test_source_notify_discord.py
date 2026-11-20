@@ -36,6 +36,33 @@ def test_source_notice_reports_receipts_not_publication(
     assert "正本・表示への反映は別スケジュールの共通統合で実施" in text
 
 
+@pytest.mark.parametrize(
+    ("job", "collected", "ready", "label"),
+    [
+        ("failure", "skipped", "skipped", "FAILED"),  # setup/resolve failed
+        ("failure", "success", "unknown", "FAILED"),  # job ended before reporting ready
+        ("cancelled", "unknown", "unknown", "CANCELLED"),  # runner returned no outputs
+    ],
+)
+def test_source_job_failure_notifies_without_inventing_step_results(
+    monkeypatch, mocker, job, collected, ready, label
+):
+    monkeypatch.setenv("SOURCE_GROUP", "external-monex")
+    monkeypatch.setenv("SOURCE_JOB_RESULT", job)
+    monkeypatch.setenv("ACQUIRE_RESULT", collected)
+    monkeypatch.setenv("STAGE_RESULT", ready)
+    deliver = mocker.patch.object(source_discord, "deliver", return_value=None)
+    assert source_discord.main() == 0
+    deliver.assert_called_once()
+    notice = deliver.call_args.args[1]
+    assert f"[{label}]" in notice
+    assert f"実行ジョブ: {source_discord.step_label(job)}" in notice
+    assert (
+        f"取得ジョブ: {source_discord.step_label(collected)} / private受領: {source_discord.step_label(ready)}"
+        in notice
+    )
+
+
 def test_notification_failure_is_visible_but_does_not_replace_acquisition_result(
     monkeypatch, mocker, capsys
 ):
