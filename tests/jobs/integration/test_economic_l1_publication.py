@@ -497,7 +497,7 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(
         ("none", "navigation returned no response"),
     ],
 )
-def test_browser_download_failure_keeps_only_safe_diagnostic_through_l1(
+def test_historical_browser_download_failure_keeps_only_safe_diagnostic_through_l1(
     tmp_path, setup, monkeypatch, capsys, navigation, expected
 ):
     from unittest.mock import MagicMock
@@ -505,14 +505,28 @@ def test_browser_download_failure_keeps_only_safe_diagnostic_through_l1(
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-    import baibai_engine.data_collection.providers.federal_reserve.h15 as h15
+    import baibai_engine.data_collection.acquisition.refresh as acquisition
     from baibai_engine.data_collection.transport.browser import BrowserFetcher
+    from baibai_engine.data_collection.transport.context import (
+        BrowserDownloadTimeoutError,
+        IndicatorsProviderError,
+    )
     from baibai_jobs.integration.economic_handoff import acquire as acquire_source
 
     secret = "SYNTHETIC_SECRET_MARKER"
     private_url = f"https://redirect.example.test/{secret}?token={secret}"
-    plain = MagicMock(return_value=f"<html>private response {secret}</html>")
-    monkeypatch.setattr(h15, "fetch_text", plain)
+
+    # Replay the former native provider at the acquisition seam, not in today's
+    # H.15 transport. Use the real navigation/error/diagnostic path below.
+    def legacy_download(_source, *, start, end, context):
+        try:
+            context.browser_fetcher().fetch_download(private_url, max_bytes=1000)
+        except BrowserDownloadTimeoutError as error:
+            raise IndicatorsProviderError(f"private response {secret}") from error
+        pytest.fail("expected a synthetic browser timeout")
+
+    native = MagicMock(side_effect=legacy_download)
+    monkeypatch.setattr(acquisition, "fetch_native_records", native)
     context = MagicMock()
     page = context.new_page.return_value
     response = page.goto.return_value
@@ -542,7 +556,7 @@ def test_browser_download_failure_keeps_only_safe_diagnostic_through_l1(
         "browser_download_diagnostic": diagnostic,
     }
     assert source_report["sources"] == [{**failure, "history_recovery_required": False}]
-    plain.assert_called_once()
+    native.assert_called_once()
     page.goto.assert_called_once()
     page.expect_download.assert_called_once_with(timeout=60000)
     page.close.assert_called_once_with()
