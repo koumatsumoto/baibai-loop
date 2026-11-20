@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from collections.abc import Callable
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,13 +19,10 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.entry_policy import (
     BuyTermsEvaluation,
-    evaluate_buy_terms,
+    prepare_buy_terms,
 )
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
-from baibai_engine.portfolio.holdings.market_observations import (
-    market_basis_is_confirmed,
-    next_order_session,
-)
+from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.portfolio.holdings.price_grid import (
     PRICE_GRID_CONFIRMED_AT,
     PRICE_GRID_VALID_UNTIL,
@@ -73,33 +71,25 @@ def assessment_quote_basis(
     )
 
 
-def buy_evaluation(
+def buy_evaluator(
     pair: ReviewedAssessment,
     *,
     inputs: ProposalInputs,
-    proposed_limit_yen: Decimal,
+    target_session: date | None,
     latest: bool,
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
-    selected_quantity: int | None = None,
-) -> BuyTermsEvaluation:
+) -> Callable[[Decimal, int | None], BuyTermsEvaluation]:
     quote = proposal_quote(inputs, pair.document.input_snapshot.ticker)
     ticker = pair.document.input_snapshot.ticker
-    return evaluate_buy_terms(
+    return prepare_buy_terms(
         pair.document,
         reviewed=True,
         latest=latest,
         as_of=now.astimezone(JST).date(),
         quote=quote,
-        proposed_limit_yen=proposed_limit_yen,
-        selected_quantity=selected_quantity,
-        target_session=next_order_session(
-            sqlite_path=sqlite_path, now=now, connection=market_connection
-        )
-        if pair.document.price_value_case is not None
-        and pair.document.price_value_case.acquisition_limit is not None
-        else None,
+        target_session=target_session,
         basis_confirmed=assessment_quote_basis(
             pair.document,
             quote,
@@ -144,9 +134,8 @@ def terms_unavailable_reasons(
     item: BuyItem | SellItem,
     inputs: ProposalInputs,
     *,
-    sqlite_path: Path,
     now: datetime,
-    market_connection: sqlite3.Connection | None = None,
+    session: date | None,
 ) -> tuple[GateReason, ...]:
     """経済判断と独立した、具体注文条件の不足を現在入力から列挙する。"""
     if item.action == "sell" and item.conditional_recovery is not None:
@@ -203,7 +192,6 @@ def terms_unavailable_reasons(
                 message="原本の商品区分・銘柄コード・市場から東証普通株と確認できません。",
             )
         )
-    session = next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
     if session is None:
         reasons.append(
             GateReason(

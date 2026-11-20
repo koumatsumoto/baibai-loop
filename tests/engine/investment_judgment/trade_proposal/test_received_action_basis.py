@@ -7,14 +7,19 @@ from decimal import Decimal
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
-from tests.helpers.proposal import backend_case, bind_review, read_saved_proposal, reviewed_proposal
+from tests.helpers.proposal import (
+    backend_case,
+    bind_review,
+    evaluate_buy_terms,
+    read_saved_proposal,
+    reviewed_proposal,
+)
 from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.conditions import assessment_quote_basis
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
-from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal

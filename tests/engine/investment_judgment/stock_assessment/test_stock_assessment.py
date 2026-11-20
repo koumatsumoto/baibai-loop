@@ -16,6 +16,7 @@ from tests.helpers.assessment_v1 import (
     undetermined_case,
     update_review_hash,
 )
+from tests.helpers.proposal import evaluate_buy_terms
 
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
@@ -38,7 +39,6 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
-from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.schema import SCHEMA_SQL
 

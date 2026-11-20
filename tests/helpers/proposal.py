@@ -36,6 +36,12 @@ PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
 PROPOSAL_ID = "investment-proposal-00000000-0000-4000-8000-000000000003"
 
 
+def evaluate_buy_terms(assessment, *, proposed_limit_yen, selected_quantity=None, **fixed):
+    from baibai_engine.investment_judgment.trade_proposal.entry_policy import prepare_buy_terms
+
+    return prepare_buy_terms(assessment, **fixed)(proposed_limit_yen, selected_quantity)
+
+
 def read_saved_proposal(*, proposal_id: str, db_path: Path) -> TradeProposal:
     with closing(connect_read_only(db_path)) as connection:
         connection.execute("BEGIN")

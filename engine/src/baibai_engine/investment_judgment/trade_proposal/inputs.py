@@ -557,8 +557,8 @@ def _context_calculations(
     from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
     from baibai_engine.investment_judgment.trade_proposal.conditions import (
         assessment_quote_basis,
-        buy_evaluation,
         buy_evaluation_payload,
+        buy_evaluator,
     )
     from baibai_engine.portfolio.holdings.price_grid import floor_common_stock_limit
 
@@ -589,30 +589,23 @@ def _context_calculations(
                 max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
             )
         elif quote is not None:
-            at_quote = buy_evaluation(
+            evaluate = buy_evaluator(
                 pair,
                 inputs=inputs,
-                proposed_limit_yen=quote.price_yen,
+                target_session=session,
                 latest=latest[outcome.ticker] == pair.assessment_id,
                 sqlite_path=sqlite_path,
                 now=now,
                 market_connection=market_connection,
             )
+            at_quote = evaluate(quote.price_yen, None)
             # 次の立会で新たに取得できない給付を終価に入れない。元評価の値はそのまま。
             row["current_quote_projection"] = at_quote.current_price_projection
             row["buy_at_actual_quote"] = buy_evaluation_payload(at_quote)
             maximum = at_quote.maximum_price_yen
             if maximum is not None and maximum > 0:
                 row["calculation_at_maximum_price"] = buy_evaluation_payload(
-                    buy_evaluation(
-                        pair,
-                        inputs=inputs,
-                        proposed_limit_yen=maximum,
-                        latest=latest[outcome.ticker] == pair.assessment_id,
-                        sqlite_path=sqlite_path,
-                        now=now,
-                        market_connection=market_connection,
-                    )
+                    evaluate(maximum, None)
                 )
                 classification = next(
                     (row for row in inputs.security_classification if row.ticker == outcome.ticker),

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -22,8 +22,8 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
 from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
 from baibai_engine.investment_judgment.trade_proposal.conditions import (
     assessment_quote_basis,
-    buy_evaluation,
     buy_evaluation_payload,
+    buy_evaluator,
     terms_unavailable_reasons,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -109,6 +109,7 @@ def _preview_buy(
     *,
     latest: bool,
     order_blockers: tuple[GateReason, ...],
+    session: date | None,
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
@@ -116,16 +117,16 @@ def _preview_buy(
     ceiling = item.terms.limit_price_yen if item.terms is not None else item.proposed_limit_yen
     assert ceiling is not None
     # 保存数量を現在の数量上限へ置換せず、作者が選んだ同じ案を再検証する。
-    result = buy_evaluation(
+    evaluate = buy_evaluator(
         pair,
         inputs=inputs,
-        proposed_limit_yen=ceiling,
-        selected_quantity=None if item.terms is None else item.terms.quantity,
+        target_session=session,
         latest=latest,
         sqlite_path=sqlite_path,
         now=now,
         market_connection=market_connection,
     )
+    result = evaluate(ceiling, None if item.terms is None else item.terms.quantity)
     blockers = list(result.hard_blockers)
     quote = next((quote for quote in inputs.quotes if quote.ticker == item.ticker), None)
     trial: dict[str, object] | None = None
@@ -133,7 +134,6 @@ def _preview_buy(
         classification = next(
             (row for row in inputs.security_classification if row.ticker == item.ticker), None
         )
-        session = next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
         grid = (
             None
             if classification is None or session is None
@@ -144,15 +144,7 @@ def _preview_buy(
                 is_common_stock=classification.is_common_stock,
             )
         )
-        current = buy_evaluation(
-            pair,
-            inputs=inputs,
-            proposed_limit_yen=quote.price_yen if grid is None else grid,
-            latest=latest,
-            sqlite_path=sqlite_path,
-            now=now,
-            market_connection=market_connection,
-        )
+        current = evaluate(quote.price_yen if grid is None else grid, None)
         trial = {
             **buy_evaluation_payload(current, order_blockers=order_blockers),
             "calculation_price_yen": str(quote.price_yen if grid is None else grid),
@@ -349,14 +341,13 @@ def preview_current_terms(
                 "current_terms_warnings": [],
             }
             order_blockers: tuple[GateReason, ...] = ()
+            session = None
             if item.action in {"buy", "sell"}:
-                order_blockers = terms_unavailable_reasons(
-                    item,
-                    inputs,
-                    sqlite_path=sqlite_path,
-                    now=now,
-                    market_connection=market_connection,
-                )
+                if item.action == "buy" or item.conditional_recovery is None:
+                    session = next_order_session(
+                        sqlite_path=sqlite_path, now=now, connection=market_connection
+                    )
+                order_blockers = terms_unavailable_reasons(item, inputs, now=now, session=session)
                 if item.terms is None:
                     order_blockers += (
                         GateReason(
@@ -387,6 +378,7 @@ def preview_current_terms(
                         inputs,
                         latest=latest,
                         order_blockers=order_blockers,
+                        session=session,
                         sqlite_path=sqlite_path,
                         now=now,
                         market_connection=market_connection,
