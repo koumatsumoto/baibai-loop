@@ -411,20 +411,24 @@ def test_active_completion_validates_exact_correction_as_of_and_never_redirects(
         k: v for k, v in after.items() if k != "operation_session"
     }
     trace.clear()
-    for retry_at in (instant, correction_time + timedelta(days=1)):
+    earlier = instant - timedelta(microseconds=1)
+    for retry_at in (earlier, instant, correction_time + timedelta(days=1)):
         assert (
             case.operations.complete(
                 op_id, proposal_id=exact.proposal_id, completed_at=retry_at, **notes
             )
             == complete
         )
-    with pytest.raises(op_owner.OperationConflictError, match="immutable"):
-        case.operations.complete(
-            op_id,
-            proposal_id=(wrong if already_corrected else first).proposal_id,
-            completed_at=correction_time,
-            **notes,
-        )
-    assert not any(sql.startswith("UPDATE") or "FROM investment_proposal" in sql for sql in trace)
+    retry = {"proposal_id": exact.proposal_id, **notes}
+    for changed in (
+        {"proposal_id": (wrong if already_corrected else first).proposal_id},
+        {"proposal_id": None},
+        {"result": "異なる結果"},
+        {"next": "異なる次手"},
+    ):
+        with pytest.raises(op_owner.OperationConflictError, match="immutable"):
+            case.operations.complete(op_id, **(retry | changed), completed_at=earlier)
+    assert all("FROM operation_session" in sql for sql in trace if sql.startswith("SELECT"))
+    assert not any(sql.startswith(("INSERT", "UPDATE", "DELETE")) for sql in trace)
     assert snapshot(case.app) == after
-    assert committed_rows == [1, 0, 0]
+    assert committed_rows == [1, 0, 0, 0]
