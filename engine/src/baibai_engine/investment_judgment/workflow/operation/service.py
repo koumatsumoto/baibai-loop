@@ -49,7 +49,6 @@ from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionV5,
     ResearchSelectionRecord,
     SelectedTarget,
-    selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
@@ -219,32 +218,29 @@ class OperationService:
         return operation
 
     def checkpoint(
-        self, operation_id: str, payload: OperationPayload, *, now: datetime | None = None
+        self,
+        operation_id: str,
+        *,
+        note: str,
+        next: str | None = None,
+        now: datetime | None = None,
     ) -> OperationSession:
-        payload.validate_metadata()
-
-        def replace_notes(
+        def update_notes(
             _connection: sqlite3.Connection,
-            _before: OperationSession,
-            selection: ResearchSelectionRecord,
-            previous: ResearchProgress,
-        ) -> OperationPayload:
-            if progress_binding(payload) != previous:
-                raise OperationConflictError(
-                    "checkpoint cannot change research_progress; reload and use record-* commands"
-                )
-            # Only checkpoint accepts replacement artifacts from the caller.
-            try:
-                incoming = selection_binding(payload)
-            except ValueError as error:
-                raise OperationConflictError(str(error)) from error
-            if incoming is None or selection_sha256(incoming) != selection_sha256(selection):
-                raise OperationConflictError(
-                    "Research selection is immutable; no replacement targets"
-                )
-            return payload
+            before: OperationSession,
+            _selection: ResearchSelectionRecord,
+            _previous: ResearchProgress,
+        ) -> OperationPayload | None:
+            if not note.strip() or (next is not None and not next.strip()):
+                raise ValueError("checkpoint note and optional next action must not be blank")
+            updates = {"checkpoint": note}
+            if next is not None:
+                updates["next"] = next
+            if all(getattr(before.payload, key) == value for key, value in updates.items()):
+                return None
+            return before.payload.model_copy(update=updates)
 
-        return self._edit_active(operation_id, replace_notes, now=now)
+        return self._edit_active(operation_id, update_notes, now=now)
 
     def complete(
         self,
@@ -482,8 +478,6 @@ class OperationService:
                 complete=False,
                 previous=previous,
             )
-            if progress.outcomes:
-                payload = with_progress(payload, progress)
             if (previous_ref := progress.proposal_ref) is not None:
                 # 旧activeの公開参照は保持する。後着outcomeの再評価は明示completeの責務。
                 proposal = load_investment_proposal(connection, previous_ref.proposal_id)
