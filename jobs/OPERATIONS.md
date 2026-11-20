@@ -352,7 +352,7 @@ ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手�
 
 [workflow](../.github/workflows/cloud-economic-sources.yml)は休場日もgroup別に取得し、部分受領をprivate stageへ保存する。限定再実行は所属groupとsource IDを指定する。
 
-取得summaryのfailedはHTTP試行件数ではない。group停止後の未試行sourceはblocked_by_source_idで最初の失敗を参照し、自身のHTTP statusを持たない。error_typesは例外の型だけで、詳細本文はprivate受領に残す。browser_download_diagnosticはdownload待機終了時の許可済みHTTP/MIME・navigation分類のみで、URL・応答本文・生エラーを含めない。欠落した旧summaryからその分類を補完しない。旧summaryは区別できないため、4系列の失敗を4回の拒否と数えたり、経過時間だけでtimeoutと断定しない。型やHTTP statusが得られても、拒否原因・別経路の許諾や回復成功の証明ではない。
+取得summaryのfailedはHTTP試行件数ではない。group停止後の未試行sourceはblocked_by_source_idで最初の失敗を参照し、自身のHTTP statusを持たない。error_typesは例外の型だけで、詳細本文はprivate受領に残す。旧summaryの`browser_download_diagnostic`は許可済みHTTP/MIME・navigation分類だけを保持し、欠落時は補完しない。旧summaryは区別できないため、4系列の失敗を4回の拒否と数えたり、経過時間だけでtimeoutと断定しない。型やHTTP statusが得られても、拒否原因・別経路の許諾や回復成功の証明ではない。
 
 ```bash
 uv run baibai-jobs acquire-economic groups

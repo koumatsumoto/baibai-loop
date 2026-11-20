@@ -17,7 +17,6 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from baibai_engine.data_collection.transport.context import (
-    BrowserDownloadTimeoutError,
     BrowserUnavailableError,
     IndicatorsProviderError,
 )
@@ -32,7 +31,6 @@ _USER_AGENT = (
 )
 _NAV_TIMEOUT_MS = 60_000
 _NAV_ATTEMPTS = 3
-_MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
 
 # Playwright otherwise passes the entire Python environment to Chromium. The browser
 # executes JavaScript from external origins, so its process receives only OS/runtime
@@ -78,47 +76,8 @@ def _browser_environment(
     return {name: value for name, value in environment.items() if name in _BROWSER_ENV_ALLOWLIST}
 
 
-def _download_content_type(value: str) -> str:
-    media_type = value.partition(";")[0].strip().lower()
-    if not media_type:
-        return "missing"
-    if media_type in {
-        "text/html",
-        "text/plain",
-        "text/csv",
-        "application/csv",
-        "application/pdf",
-        "application/octet-stream",
-    }:
-        return media_type
-    return "other"
-
-
-def _navigation_error_description(error: PlaywrightError) -> str:
-    if isinstance(error, PlaywrightTimeoutError):
-        return "PlaywrightTimeoutError"
-    # Playwright messages include navigation URLs and call logs. Only a known
-    # leading Chromium error code belongs in this additional diagnostic.
-    words = str(error).removeprefix("Page.goto: ").split(maxsplit=1)
-    if words and words[0] in {
-        "net::ERR_NAME_NOT_RESOLVED",
-        "net::ERR_CONNECTION_REFUSED",
-        "net::ERR_CONNECTION_RESET",
-        "net::ERR_CONNECTION_CLOSED",
-        "net::ERR_CONNECTION_TIMED_OUT",
-        "net::ERR_INTERNET_DISCONNECTED",
-        "net::ERR_ABORTED",
-    }:
-        return f"PlaywrightError ({words[0]})"
-    return "PlaywrightError"
-
-
 class BrowserFetcher:
-    """Shared browser for public downloads and rendered HTML.
-
-    Callers choose whether browser transport is permitted and validate content.
-    The PMI receiver uses direct HTTP, not this browser.
-    """
+    """Render public HTML when explicitly selected; source documents use HTTP."""
 
     def __init__(self) -> None:
         self._playwright: Playwright | None = None
@@ -132,8 +91,7 @@ class BrowserFetcher:
             self._profile = tempfile.TemporaryDirectory(prefix="baibai-indicators-browser-")
             preferences = Path(self._profile.name) / "Default" / "Preferences"
             preferences.parent.mkdir(parents=True, exist_ok=True)
-            # Force PDFs to download rather than open in the viewer so the bytes
-            # are reachable via expect_download.
+            # Do not turn a PDF navigation into HTML from Chromium's PDF viewer.
             preferences.write_text(
                 json.dumps(
                     {
@@ -160,79 +118,6 @@ class BrowserFetcher:
             self.close()
             raise BrowserUnavailableError(f"failed to launch headless browser: {exc}") from exc
         return self._context
-
-    def fetch_download(self, url: str, *, max_bytes: int = _MAX_DOWNLOAD_BYTES) -> bytes:
-        """Navigate to ``url`` and return the downloaded file's bytes.
-
-        For a source that answers with ``Content-Disposition: attachment`` and a
-        format carrying no magic bytes of its own (a CSV). Validating what came
-        back is the caller's job: only it knows what the file should contain.
-        ``max_bytes`` is the caller's own ceiling so one resource does not have
-        two different limits depending on which route reached it.
-
-        One navigation, not several. A download either starts as the navigation
-        commits or the edge served something else instead, and repeating the
-        navigation waits out the timeout again for each retry. The caller keeps
-        source refusals separate from a browser that could not start.
-        """
-
-        try:
-            return self._fetch_download(url, max_bytes=min(max_bytes, _MAX_DOWNLOAD_BYTES))
-        except PlaywrightError as exc:
-            # A browser that died mid-navigation reports on itself, not on the
-            # source, so it is the same kind of failure as one that never started
-            # and must not be quoted as evidence of how a source behaved. The dead
-            # context goes with it; the next caller launches a fresh one.
-            self.close()
-            raise BrowserUnavailableError(f"browser failed downloading from {url}: {exc}") from exc
-
-    def _fetch_download(self, url: str, *, max_bytes: int) -> bytes:
-        context = self._ensure_context()
-        page = context.new_page()
-        navigation_outcome = "navigation returned no response"
-        try:
-            try:
-                with page.expect_download(timeout=_NAV_TIMEOUT_MS) as download_info:
-                    try:
-                        response = page.goto(
-                            url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS
-                        )
-                        if response is not None:
-                            content_type = _download_content_type(
-                                response.headers.get("content-type", "")
-                            )
-                            navigation_outcome = (
-                                f"navigation returned HTTP {response.status} "
-                                f"(content-type {content_type!r})"
-                            )
-                    except PlaywrightError as exc:
-                        # A download can abort navigation successfully. If none
-                        # starts, retain a bounded navigation outcome instead of
-                        # misreporting every outcome as a navigation timeout.
-                        navigation_outcome = (
-                            f"navigation failed: {_navigation_error_description(exc)}"
-                        )
-                download = download_info.value
-            except PlaywrightTimeoutError as exc:
-                diagnostic = (
-                    f"no download started within {_NAV_TIMEOUT_MS} ms; {navigation_outcome}"
-                )
-                raise BrowserDownloadTimeoutError(
-                    f"browser could not download from {url}: {diagnostic}",
-                    diagnostic=diagnostic,
-                ) from exc
-            path = download.path()
-            size = Path(path).stat().st_size
-            if size > max_bytes:
-                # Playwright writes the whole file before handing it over, so the
-                # only thing still worth doing is not leaving it on a runner disk
-                # the rest of the batch has to share.
-                with suppress(PlaywrightError):
-                    download.delete()
-                raise IndicatorsProviderError(f"browser download exceeds {max_bytes} bytes: {size}")
-            return Path(path).read_bytes()
-        finally:
-            page.close()
 
     def fetch_html(self, url: str) -> str:
         """Navigate to ``url`` and return the fully rendered HTML."""

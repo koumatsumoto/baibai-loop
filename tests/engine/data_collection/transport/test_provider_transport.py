@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from functools import partial
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import cast
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -11,12 +9,10 @@ import requests
 from tests.helpers.provider_fixtures import (
     _FakeResponse,
     _ForbiddenResponse,
-    _RaisingSession,
     _StaticSession,
 )
 
 from baibai_engine.data_collection.transport.context import (
-    BrowserDownloadTimeoutError,
     BrowserUnavailableError,
     FetchContext,
     HttpSession,
@@ -24,7 +20,6 @@ from baibai_engine.data_collection.transport.context import (
     SourceWithheldError,
     fetch_bytes,
     fetch_text,
-    store_fetched_bytes,
 )
 
 
@@ -132,32 +127,6 @@ class IndicatorsProviderParserTests(TestCase):
                 max_bytes=1000,
             )
 
-    def test_store_fetched_bytes_applies_the_guards_the_plain_path_applies(self) -> None:
-        with FetchContext() as context:
-            # A cache entry is read without any guard in front of it, so bytes
-            # reaching the cache by another route owe the same checks.
-            with self.assertRaises(SourceWithheldError):
-                store_fetched_bytes(context, "https://example.test/data", None, b"", max_bytes=1000)
-            with self.assertRaisesRegex(IndicatorsProviderError, r"response too large"):
-                store_fetched_bytes(
-                    context, "https://example.test/data", None, b"x" * 1001, max_bytes=1000
-                )
-
-            self.assertEqual(context.bytes_cache, {})
-
-            store_fetched_bytes(context, "https://example.test/data", None, b"ok", max_bytes=1000)
-
-            self.assertEqual(
-                fetch_bytes(
-                    cast(HttpSession, _RaisingSession()),
-                    "https://example.test/data",
-                    params=None,
-                    max_bytes=1000,
-                    context=context,
-                ),
-                b"ok",
-            )
-
     def test_redirect_policies_do_not_share_a_receipt_in_either_order(self) -> None:
         url = "https://example.test/package"
         for first in (True, False):
@@ -203,10 +172,15 @@ class IndicatorsProviderParserTests(TestCase):
 
     def test_discard_cached_bytes_keeps_other_responses_and_browser_evidence(self) -> None:
         with FetchContext() as context:
-            store_fetched_bytes(context, "https://example.test/data", None, b"bad", max_bytes=1000)
-            store_fetched_bytes(
-                context, "https://example.test/data", {"month": "1"}, b"ok", max_bytes=1000
+            read = partial(
+                fetch_bytes,
+                cast(HttpSession, _StaticSession(_FakeResponse(b"ok"))),
+                "https://example.test/data",
+                max_bytes=1000,
+                context=context,
             )
+            read(params=None)
+            read(params={"month": "1"})
             context.blocked_browser_urls["https://example.test/data"] = "turned away"
 
             context.discard_cached_bytes("https://example.test/data", None)
@@ -234,7 +208,7 @@ class IndicatorsProviderParserTests(TestCase):
             ),
             self.assertRaisesRegex(BrowserUnavailableError, r"failed to launch headless browser"),
         ):
-            BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
+            BrowserFetcher().fetch_html("https://example.test/data")
 
     def test_browser_launch_failure_on_a_full_disk_is_still_a_provider_failure(self) -> None:
         from baibai_engine.data_collection.transport.browser import BrowserFetcher
@@ -247,7 +221,7 @@ class IndicatorsProviderParserTests(TestCase):
             # A launch failure must not be mistaken for a refusal by the source.
             self.assertRaisesRegex(BrowserUnavailableError, r"failed to launch headless browser"),
         ):
-            BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
+            BrowserFetcher().fetch_html("https://example.test/data")
 
     def test_browser_launch_receives_only_allowlisted_runtime_environment(self) -> None:
         from baibai_engine.data_collection.transport.browser import BrowserFetcher
@@ -290,127 +264,23 @@ class IndicatorsProviderParserTests(TestCase):
             "PLAYWRIGHT_BROWSERS_PATH": "/home/runner/.cache/ms-playwright",
         }
 
-
-class BrowserDownloadTests(TestCase):
-    def test_download_timeout_reports_only_a_known_navigation_content_type(self) -> None:
+    def test_browser_fetch_html_retries_navigation_and_closes_each_page(self) -> None:
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-
-        from baibai_engine.data_collection.transport.browser import BrowserFetcher
-
-        secret = "SYNTHETIC_SECRET_MARKER"
-        for content_type, expected in (
-            ("text/html", "text/html"),
-            (f"TEXT/HTML; charset=utf-8; token={secret}", "text/html"),
-            (f"text/csv; source=https://redirect.example.test/?token={secret}", "text/csv"),
-            (f"application/x-{secret}", "other"),
-            (f"text/html\r\nX-Token: {secret}", "other"),
-            ("", "missing"),
-        ):
-            with self.subTest(content_type=content_type):
-                context = MagicMock()
-                page = context.new_page.return_value
-                response = page.goto.return_value
-                response.status = 200
-                response.headers = {"content-type": content_type}
-                page.expect_download.return_value.__exit__.side_effect = PlaywrightTimeoutError(
-                    "Timeout 60000ms exceeded while waiting for event download"
-                )
-
-                with (
-                    patch.object(BrowserFetcher, "_ensure_context", return_value=context),
-                    self.assertRaises(BrowserDownloadTimeoutError) as caught,
-                ):
-                    BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
-
-                self.assertIn(
-                    "no download started within 60000 ms; "
-                    f"navigation returned HTTP 200 (content-type {expected!r})",
-                    str(caught.exception),
-                )
-                self.assertEqual(
-                    caught.exception.diagnostic,
-                    str(caught.exception).partition("https://example.test/data: ")[2],
-                )
-                self.assertNotIn("https://", caught.exception.diagnostic)
-                self.assertNotIn(secret, str(caught.exception))
-                self.assertNotIn("redirect.example.test", str(caught.exception))
-                page.goto.assert_called_once()
-                page.close.assert_called_once_with()
-                response.body.assert_not_called()
-
-    def test_download_timeout_reports_only_a_bounded_navigation_error(self) -> None:
-        from playwright.sync_api import Error as PlaywrightError
-        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-
-        from baibai_engine.data_collection.transport.browser import BrowserFetcher
-
-        secret = "SYNTHETIC_SECRET_MARKER"
-        reflected_url = f"https://redirect.example.test/{secret}?token={secret}"
-        for error, expected in (
-            (
-                PlaywrightError("net::ERR_NAME_NOT_RESOLVED"),
-                "PlaywrightError (net::ERR_NAME_NOT_RESOLVED)",
-            ),
-            (
-                PlaywrightError(f"Page.goto: net::ERR_NAME_NOT_RESOLVED at {reflected_url}"),
-                "PlaywrightError (net::ERR_NAME_NOT_RESOLVED)",
-            ),
-            (
-                PlaywrightTimeoutError(
-                    f"Page.goto: Timeout 60000ms exceeded\nCall log: navigating to {reflected_url}"
-                ),
-                "PlaywrightTimeoutError",
-            ),
-            (PlaywrightError(f"Page.goto: token={secret} at {reflected_url}"), "PlaywrightError"),
-            (PlaywrightError(f"net::ERR_{secret} at {reflected_url}"), "PlaywrightError"),
-            (
-                PlaywrightError(f"net::ERR_NAME_NOT_RESOLVED_{secret} at {reflected_url}"),
-                "PlaywrightError",
-            ),
-        ):
-            with self.subTest(error=error):
-                context = MagicMock()
-                page = context.new_page.return_value
-                page.goto.side_effect = error
-                page.expect_download.return_value.__exit__.side_effect = PlaywrightTimeoutError(
-                    "Timeout 60000ms exceeded while waiting for event download"
-                )
-
-                with (
-                    patch.object(BrowserFetcher, "_ensure_context", return_value=context),
-                    self.assertRaises(BrowserDownloadTimeoutError) as caught,
-                ):
-                    BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
-
-                self.assertTrue(str(caught.exception).endswith(f"navigation failed: {expected}"))
-                self.assertEqual(
-                    caught.exception.diagnostic,
-                    str(caught.exception).partition("https://example.test/data: ")[2],
-                )
-                self.assertNotIn("https://", caught.exception.diagnostic)
-                self.assertNotIn(secret, str(caught.exception))
-                self.assertNotIn("redirect.example.test", str(caught.exception))
-                page.goto.assert_called_once()
-                page.close.assert_called_once_with()
-
-    def test_navigation_abort_does_not_discard_a_started_download(self) -> None:
-        from playwright.sync_api import Error as PlaywrightError
 
         from baibai_engine.data_collection.transport.browser import BrowserFetcher
 
         context = MagicMock()
-        page = context.new_page.return_value
-        page.goto.side_effect = PlaywrightError("Page.goto: Download is starting")
-        download_info = page.expect_download.return_value.__enter__.return_value
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "download.csv"
-            path.write_bytes(b'"Time Period",value\n2026-05-01,4.39\n')
-            download_info.value.path.return_value = path
-            with patch.object(BrowserFetcher, "_ensure_context", return_value=context):
-                content = BrowserFetcher().fetch_download(
-                    "https://example.test/data", max_bytes=1000
-                )
-            self.assertEqual(content, path.read_bytes())
+        timed_out, rendered = MagicMock(), MagicMock()
+        context.new_page.side_effect = [timed_out, rendered]
+        timed_out.goto.side_effect = PlaywrightTimeoutError("navigation timed out")
+        rendered.content.return_value = "<html>rendered index</html>"
+        url = "https://example.test/index"
 
-        page.goto.assert_called_once()
-        page.close.assert_called_once_with()
+        with patch.object(BrowserFetcher, "_ensure_context", return_value=context):
+            assert BrowserFetcher().fetch_html(url) == "<html>rendered index</html>"
+
+        assert context.new_page.call_count == 2
+        timed_out.content.assert_not_called()
+        for page in (timed_out, rendered):
+            page.goto.assert_called_once_with(url, wait_until="networkidle", timeout=60_000)
+            page.close.assert_called_once_with()

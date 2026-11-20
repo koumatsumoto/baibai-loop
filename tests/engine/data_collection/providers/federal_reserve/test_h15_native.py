@@ -10,8 +10,6 @@ from urllib.parse import urlencode
 
 import requests
 from tests.helpers.provider_fixtures import (
-    _context_with_browser,
-    _FakeBrowserFetcher,
     _FakeResponse,
     _ForbiddenResponse,
     _StaticSession,
@@ -198,11 +196,10 @@ class NativeParserTests(TestCase):
 
     def test_h15_keeps_a_forbidden_response_without_a_browser_route(self) -> None:
         series = require_source("fed-h15")
-        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
-
-        with _context_with_browser(browser) as context:
+        with FetchContext() as context:
             with (
                 patch.object(context, "discard_cached_bytes") as discard,
+                patch.object(context, "browser_fetcher") as browser,
                 self.assertRaises(SourceWithheldError) as caught,
             ):
                 FrbH15Source().fetch_records(
@@ -218,7 +215,7 @@ class NativeParserTests(TestCase):
         self.assertEqual(caught.exception.status_code, 403)
         self.assertIsInstance(caught.exception.__cause__, requests.HTTPError)
         self.assertEqual(str(caught.exception.__cause__), "403 Client Error: Forbidden")
-        self.assertEqual(browser.urls, [])
+        browser.assert_not_called()
 
     def test_h15_http_and_decode_failures_do_not_select_a_browser_route(self) -> None:
         class _HttpErrorResponse(_FakeResponse):
@@ -232,10 +229,10 @@ class NativeParserTests(TestCase):
             _FakeResponse(b"\xff"),
         ]
         for response in responses:
-            browser = _FakeBrowserFetcher(AssertionError("failure must not select a browser"))
             with (
                 self.subTest(status=response.status_code, body=response.content),
-                _context_with_browser(browser) as context,
+                FetchContext() as context,
+                patch.object(context, "browser_fetcher") as browser,
                 patch(
                     "baibai_engine.data_collection.transport.context.wait_for_read_retry"
                 ) as retry,
@@ -258,7 +255,7 @@ class NativeParserTests(TestCase):
             else:
                 discard.assert_not_called()
             self.assertEqual(context.bytes_cache, {})
-            self.assertEqual(browser.urls, [])
+            browser.assert_not_called()
 
     def test_h15_explicit_denial_in_a_successful_response_never_selects_another_route(self) -> None:
         for body in (
@@ -268,9 +265,7 @@ class NativeParserTests(TestCase):
         ):
             with (
                 self.subTest(body=body),
-                _context_with_browser(
-                    _FakeBrowserFetcher(AssertionError("explicit denial must not use a browser"))
-                ) as context,
+                FetchContext() as context,
             ):
                 response = _FakeResponse(body)
                 session = _StaticSession(response)

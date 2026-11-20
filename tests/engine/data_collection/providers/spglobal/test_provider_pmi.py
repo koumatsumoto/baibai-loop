@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import cast
 from unittest import TestCase
+from unittest.mock import patch
 
 from tests.helpers.provider_fixtures import (
-    _context_with_browser,
-    _FakeBrowserFetcher,
     _FakeResponse,
     _ForbiddenResponse,
     _StaticSession,
@@ -20,6 +19,7 @@ from baibai_engine.data_collection.providers.spglobal.pmi import (
     load_manifest,
 )
 from baibai_engine.data_collection.transport.context import (
+    FetchContext,
     HttpSession,
     IndicatorsProviderError,
 )
@@ -27,9 +27,9 @@ from baibai_engine.data_collection.transport.context import (
 
 class PmiSourceTests(TestCase):
     def test_spglobal_pmi_does_not_bypass_a_source_refusal(self) -> None:
-        browser = _FakeBrowserFetcher(b"%PDF unused")
         with (
-            _context_with_browser(browser) as context,
+            FetchContext() as context,
+            patch.object(context, "browser_fetcher") as browser,
             self.assertRaisesRegex(IndicatorsProviderError, "source withheld"),
         ):
             fetch_pdf_bytes(
@@ -37,14 +37,14 @@ class PmiSourceTests(TestCase):
                 session=cast(HttpSession, _StaticSession(_ForbiddenResponse())),
                 context=context,
             )
-        self.assertEqual(browser.urls, [])
+        browser.assert_not_called()
 
     def test_spglobal_pmi_does_not_fall_back_for_a_failure_that_is_not_a_block(self) -> None:
-        browser = _FakeBrowserFetcher(b"%PDF-1.4 unused")
         oversized = _FakeResponse(b"x" * 32, headers={"Content-Length": "9000000"})
 
         with (
-            _context_with_browser(browser) as context,
+            FetchContext() as context,
+            patch.object(context, "browser_fetcher") as browser,
             self.assertRaisesRegex(IndicatorsProviderError, r"response too large"),
         ):
             fetch_pdf_bytes(
@@ -55,7 +55,7 @@ class PmiSourceTests(TestCase):
 
         # A known size-limit failure is not a reason to repeat the GET through
         # another transport.
-        self.assertEqual(browser.urls, [])
+        browser.assert_not_called()
 
     def test_spglobal_pmi_manifest_parses_jp_manufacturing_stream(self) -> None:
         streams = load_manifest(MANIFEST_PATH)

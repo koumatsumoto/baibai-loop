@@ -83,9 +83,8 @@ class FetchContext:
 
     One context serves a whole refresh pass. The bytes cache lets bulk-file
     providers (FRB H.15, ECB FX) download one shared file once and reuse it
-    across every series that maps to it. The browser is launched only when a
-    WAF-gated provider first asks for it and is reused for the rest of the pass,
-    so a pass pays at most one browser launch.
+    across every series that maps to it. The browser starts lazily for callers
+    that explicitly need rendered HTML.
 
     ``purpose`` distinguishes a selected-range refresh from full-history
     reacquisition for providers that need it (see :data:`FetchPurpose`).
@@ -192,28 +191,6 @@ def _bytes_cache_key(
     # A response reached by following redirects cannot prove that the initial
     # URL served the bytes. Strict callers need their own direct receipt.
     return (url, tuple(sorted((params or {}).items())), allow_redirects)
-
-
-def store_fetched_bytes(
-    context: FetchContext,
-    url: str,
-    params: Mapping[str, str] | None,
-    content: bytes,
-    *,
-    max_bytes: int,
-) -> None:
-    """Share bytes obtained outside :func:`fetch_bytes` with the rest of the pass.
-
-    For a provider that reaches the same URL by another route — a browser
-    navigation after the plain client is turned away — so every series mapped to
-    that URL reads the one copy. The guards are the ones the plain path applies,
-    because a cache entry is read without them: whoever fills it owes the same
-    checks, or an empty or oversized body enters through the side door and every
-    later series inherits it.
-    """
-
-    _guard_response(content, url=url, max_bytes=max_bytes)
-    context.bytes_cache[_bytes_cache_key(url, params)] = content
 
 
 def _guard_response(content: bytes, *, url: str, max_bytes: int, detail: str = "") -> None:
