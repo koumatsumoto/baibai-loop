@@ -110,6 +110,15 @@ class TestRestatedFilingReplay(unittest.TestCase):
             self.assertIsNone(study.replay(key, failed, prior=bad))
             failed.assert_called_once_with()
             self.assertEqual(decode.call_count, 2)
+            for invalid in (None, tuple(map(str, AMOUNTS)), (True, *AMOUNTS[1:]), list(AMOUNTS)):
+                with self.subTest(invalid=invalid):
+                    fresh = Mock(return_value=body)
+                    repaired = study.replay(key, fresh, prior=replace(original, operands=invalid))
+                    assert repaired is not None
+                    self.assertEqual(
+                        (repaired.operands, repaired.profit_yen), (AMOUNTS, 1_171_739_000)
+                    )
+                    fresh.assert_called_once_with()
 
     def test_original_position_and_accounting_scope(self) -> None:
         for tag, ctx, key, value in (

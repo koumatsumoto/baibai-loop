@@ -66,7 +66,9 @@ def _digest(body: bytes) -> str:
     return hashlib.sha256(body).hexdigest()
 
 
-def _valid_amounts(values: Operands) -> bool:
+def _valid_amounts(values: object) -> bool:
+    if type(values) is not tuple or len(values) != 3 or any(type(n) is not int for n in values):
+        return False
     return _digest("\t".join(str(n) for n in values).encode()) == OPERANDS_DIGEST
 
 
