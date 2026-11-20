@@ -41,6 +41,7 @@ def test_explicit_zero_and_thousands_keep_display_precision(unit):
     (note,) = extract(blocks=block(table(unit=unit, issued="8,888", treasury="0"))).observations
     assert note.issued_display_count == 8888
     assert note.treasury_display_count == 0
+    assert note.treasury_evidence == "numeric_cell"
     assert note.display_unit == unit
 
 
@@ -170,3 +171,63 @@ def test_custom_namespace_and_nil_do_not_masquerade_as_supported_facts():
     assert extract(blocks=block(attributes='xsi:nil="true"')).reasons == ("capital_note_nil",)
     result = extract(blocks=block().replace(BLOCK, "TreasurySharesEtcTextBlock"))
     assert not result.observations
+
+
+def separate_sections(label="当連結会計年度", heading="p"):
+    rows = [
+        ["株式の種類", f"{label}期首", "増加", "減少", f"{label}末"],
+        ["普通株式（株）", "900", "100", "－", "1,000"],
+    ]
+    cells = "".join("<tr>" + "".join(f"<td>{v}</td>" for v in row) + "</tr>" for row in rows)
+    return (
+        f"<{heading}>１．発行済株式に関する事項</{heading}>"
+        f"<div><table>{cells}</table></div><p>新株予約権の行使による増加。</p>"
+        f"<{heading}>２．自己株式に関する事項</{heading}><p>該当事項はありません。</p>"
+    )
+
+
+@pytest.mark.parametrize("heading", ["h4", "p"])
+def test_labeled_treasury_section_is_not_a_count_even_if_issued_shares_are_numeric(heading):
+    result = extract(blocks=block(separate_sections(heading=heading)))
+    assert result.reasons == ()
+    (note,) = result.observations
+    assert note.issued_display_count == 1000
+    assert note.treasury_display_count is None
+    assert note.treasury_evidence == "section_not_applicable"
+    assert note.issued_source_locator.endswith("/table[0]/row[1]/cell[4]")
+    assert note.treasury_source_locator.endswith("/block_child[4]")
+    assert note.basis.endswith("not_reconciled_to_price_denominator")
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("２．自己株式に関する事項", "２．議決権の状況"),
+        ("該当事項はありません。", "－"),
+        ("該当事項はありません。", "自己株式の処分による減少。"),
+        ("</p>", "</p>自己株式を保有。"),
+        ("普通株式（株）", "種類株式（株）"),
+        ("</table></div>", "</table><p>自己株式は次のとおり。</p></div>"),
+        ("当連結会計年度末", "前連結会計年度末"),
+        ("新株予約権の行使による増加。", "自己株式の取得は次のとおり。"),
+        ("２．自己株式に関する事項", "２．自己株式に関する事項</p><p>別の注記"),
+    ],
+)
+def test_ambiguous_or_unrelated_section_does_not_supply_capital_evidence(before, after):
+    assert not extract(blocks=block(separate_sections().replace(before, after))).observations
+
+
+def test_separate_sections_nonconsolidated_requires_the_same_duration_and_issuer():
+    dimensions = (
+        '<x:scenario><d:explicitMember dimension="p:ConsolidatedOrNonConsolidatedAxis">'
+        "p:NonConsolidatedMember</d:explicitMember></x:scenario>"
+    )
+    html = separate_sections(label="当事業年度")
+    (note,) = extract(contexts=context(dimensions=dimensions), blocks=block(html)).observations
+    assert note.consolidation_basis == "non_consolidated"
+    for ctx in (
+        context(),
+        context(dimensions=dimensions, start="2024-04-01", end="2025-03-31"),
+        context(dimensions=dimensions, issuer="E99999-000"),
+    ):
+        assert not extract(contexts=ctx, blocks=block(html)).observations

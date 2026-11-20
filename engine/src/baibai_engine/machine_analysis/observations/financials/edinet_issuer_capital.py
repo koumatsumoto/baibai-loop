@@ -38,13 +38,14 @@ class IssuerCapitalNote:
     consolidation_basis: str
     display_unit: Literal["株", "千株"]
     issued_display_count: int
-    treasury_display_count: int
+    treasury_display_count: int | None
     source_element: str
     source_context: str
     source_locator: str
     issued_source_locator: str
     treasury_source_locator: str
     basis: str = "reported_note_display_not_reconciled_to_price_denominator"
+    treasury_evidence: Literal["numeric_cell", "section_not_applicable"] = "numeric_cell"
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +99,45 @@ def _count(text: str) -> int:
     return int(text.replace(",", ""))
 
 
+def _separate_treasury_section(
+    html: ET.Element, table: ET.Element, rows: list[list[str]], label: str
+) -> tuple[int, str]:
+    """Read the issued cell and the treasury section's wording, never an inferred zero."""
+    if (
+        len(rows) != 2
+        or rows[0] != ["株式の種類", f"{label}期首", "増加", "減少", f"{label}末"]
+        or rows[1][0] != "普通株式(株)"
+    ):
+        raise SourceFormatError("capital_note_headers_unsupported")
+    children = list(html)
+    parts = [(node, _normalized("".join(node.itertext()))) for node in children]
+    content = [(i, node, value) for i, (node, value) in enumerate(parts) if value]
+    if (
+        len(content) < 4
+        or _normalized(html.text or "")
+        or any(_normalized(node.tail or "") for node in children)
+    ):
+        raise SourceFormatError("capital_note_sections_ambiguous")
+    _, issued_heading, issued_title = content[0]
+    _, table_container, _ = content[1]
+    _, treasury_heading, treasury_title = content[-2]
+    index, paragraph, statement = content[-1]
+    if (
+        local_name(issued_heading.tag) not in {"p", "h4", "h5"}
+        or not re.fullmatch(r"1[.]?発行済株式に関する事項", issued_title)
+        or table not in table_container.iter()
+        or _normalized("".join(table_container.itertext()))
+        != _normalized("".join(table.itertext()))
+        or not re.fullmatch(r"2[.]?自己株式に関する事項", treasury_title)
+        or local_name(treasury_heading.tag) not in {"p", "h4", "h5"}
+        or any("自己株式" in text for _, _, text in content[2:-2])
+        or local_name(paragraph.tag) != "p"
+        or statement != "該当事項はありません。"
+    ):
+        raise SourceFormatError("capital_note_sections_ambiguous")
+    return _count(rows[1][4]), f"/block_child[{index}]"
+
+
 def _extract_block(
     instance: Instance, element: ET.Element, context: Context, basis: tuple[str, str]
 ) -> IssuerCapitalNote:
@@ -145,27 +185,33 @@ def _extract_block(
         ),
         None,
     )
+    treasury: int | None
     if unit is None:
-        raise SourceFormatError("capital_note_headers_unsupported")
-    section: str | None = None
-    seen_sections: set[str] = set()
-    values: dict[str, tuple[int, int]] = {}
-    for index, row in enumerate(rows[1:], 1):
-        if row[0] in {"発行済株式", "自己株式"}:
-            section = row[0]
-            if section in seen_sections or any(row[1:]):
-                raise SourceFormatError("capital_note_sections_ambiguous")
-            seen_sections.add(section)
-        elif re.fullmatch(r"普通株式(?:\(注[0-9,、]*\)[0-9,、]*)?", row[0]):
-            if section is None or section in values:
-                raise SourceFormatError("capital_note_ordinary_rows_ambiguous")
-            values[section] = _count(row[4]), index
-        elif row[0] != "合計" or section is None:
-            raise SourceFormatError("capital_note_rows_unsupported")
-    if set(values) != {"発行済株式", "自己株式"}:
-        raise SourceFormatError("capital_note_pair_unavailable")
-    issued, issued_row = values["発行済株式"]
-    treasury, treasury_row = values["自己株式"]
+        issued, treasury_path = _separate_treasury_section(html, tables[0], rows, label)
+        unit = "株"
+        issued_row = 1
+        treasury = None
+    else:
+        section: str | None = None
+        seen_sections: set[str] = set()
+        values: dict[str, tuple[int, int]] = {}
+        for index, row in enumerate(rows[1:], 1):
+            if row[0] in {"発行済株式", "自己株式"}:
+                section = row[0]
+                if section in seen_sections or any(row[1:]):
+                    raise SourceFormatError("capital_note_sections_ambiguous")
+                seen_sections.add(section)
+            elif re.fullmatch(r"普通株式(?:\(注[0-9,、]*\)[0-9,、]*)?", row[0]):
+                if section is None or section in values:
+                    raise SourceFormatError("capital_note_ordinary_rows_ambiguous")
+                values[section] = _count(row[4]), index
+            elif row[0] != "合計" or section is None:
+                raise SourceFormatError("capital_note_rows_unsupported")
+        if set(values) != {"発行済株式", "自己株式"}:
+            raise SourceFormatError("capital_note_pair_unavailable")
+        issued, issued_row = values["発行済株式"]
+        treasury, treasury_row = values["自己株式"]
+        treasury_path = f"/table[0]/row[{treasury_row}]/cell[4]"
     locator = f"{instance.filename}#{element.tag}[contextRef={context.context_id}]"
     assert context.period_start is not None
     return IssuerCapitalNote(
@@ -180,7 +226,8 @@ def _extract_block(
         source_context=context.context_id,
         source_locator=locator,
         issued_source_locator=f"{locator}/table[0]/row[{issued_row}]/cell[4]",
-        treasury_source_locator=f"{locator}/table[0]/row[{treasury_row}]/cell[4]",
+        treasury_source_locator=f"{locator}{treasury_path}",
+        treasury_evidence="section_not_applicable" if treasury is None else "numeric_cell",
     )
 
 
