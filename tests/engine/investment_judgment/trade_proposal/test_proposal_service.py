@@ -334,6 +334,21 @@ def test_known_scaffold_instruction_is_not_authored_even_with_a_matching_review(
     assert case.app.read_bytes() == before
 
 
+def test_author_can_retain_a_source_caution_without_using_a_scaffold_as_the_decision(case):
+    raw = reviewed_proposal(case).payload()
+    # This observation used to be conditionally supplied by the scaffold. Citing
+    # a source caution is legitimate; it is not an instruction to write a reason.
+    source = (
+        "EDINETの保存一覧に起点SFICT001の合成届出を確認。株式移転と対価の支払期日は別に照合した。"
+        "結果報告書の存在は成立や新規取得者への入金の証明ではない。"
+    )
+    raw["items"][0]["review_conditions"] = [source]
+    bound = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    assert service.check(bound).valid
+    assert service.publish(bound).items[0].review_conditions == (source,)
+
+
 @pytest.mark.parametrize("legacy_publication_time", [False, True])
 def test_one_context_authored_unsigned_check_later_review_publish_and_exact_retry(
     case, tmp_path, capsys, legacy_publication_time
