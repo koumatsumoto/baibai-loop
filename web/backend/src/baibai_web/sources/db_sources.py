@@ -56,7 +56,7 @@ class DbLedgerSource:
                 estimated_exit_tax_yen=None,
                 warnings=(),
             )
-            return PortfolioRead(snapshot, str(error))
+            return PortfolioRead(snapshot, str(error), holding_quantity_unresolved=True)
         except (SQLiteSchemaError, sqlite3.Error, ValueError):
             # Only this presentation boundary may retain unvalued ledger facts on a
             # market read failure. Judgment readers still reject the broken store.

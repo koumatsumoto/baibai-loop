@@ -49,6 +49,9 @@ class DashboardView(BaseModel):
     valuation_error: str | None = Field(
         description="市場評価の読取失敗。台帳事実は保持し、株価等の欠測だけの場合はnull。"
     )
+    holding_quantity_unresolved: bool = Field(
+        description="保有中の株数変更を照合できず、全売却報告から残高を確定できない。"
+    )
     valuation_as_of: date | None
     total_capital_yen: int | None
     available_cash_yen: int | None = Field(

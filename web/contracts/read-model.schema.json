@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 14,
+  "schemaVersion": 15,
   "roots": {
     "views/latest-proposal.json": "#/$defs/LatestProposalView",
     "views/outcomes.json": "#/$defs/OutcomesView",
@@ -111,6 +111,11 @@
           ],
           "description": "市場評価の読取失敗。台帳事実は保持し、株価等の欠測だけの場合はnull。",
           "title": "Valuation Error"
+        },
+        "holding_quantity_unresolved": {
+          "description": "保有中の株数変更を照合できず、全売却報告から残高を確定できない。",
+          "title": "Holding Quantity Unresolved",
+          "type": "boolean"
         },
         "valuation_as_of": {
           "anyOf": [
@@ -252,6 +257,7 @@
         "ledger_error",
         "ledger_as_of",
         "valuation_error",
+        "holding_quantity_unresolved",
         "valuation_as_of",
         "total_capital_yen",
         "available_cash_yen",

@@ -198,6 +198,7 @@ def test_dashboard_read_errors_do_not_publish_internal_diagnostics(
     assert dashboard["valuation_error"] == (
         "市場評価を読み取れません。" if boundary == "valuation" else None
     )
+    assert dashboard["holding_quantity_unresolved"] is False
     assert dashboard["total_capital_yen"] is None
     if boundary == "valuation":
         assert dashboard["available_cash_yen"] is not None

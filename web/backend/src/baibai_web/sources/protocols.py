@@ -13,6 +13,7 @@ from baibai_web.readmodel.proposal_models import SavedProposalView
 class PortfolioRead:
     snapshot: PortfolioSnapshot
     valuation_error: str | None = None
+    holding_quantity_unresolved: bool = False
 
 
 class LedgerSource(Protocol):
