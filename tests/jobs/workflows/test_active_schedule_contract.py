@@ -14,7 +14,12 @@ SCHEDULES = {
     "cloud-external-assessment": ["13 10,14,22 * * *"],
     "cloud-market-sources": ["43 7 * * *", "43 8 * * *", "13 9 * * *"],
     "cloud-tradingview-market-daily": ["30 21 * * *"],
-    "cloud-tradingview-snapshot": ["37 6,8,10,12,14 * * 1-5", "37 0,4,8 * * 0,6"],
+    "cloud-tradingview-snapshot": [
+        *(f"37 {hour} * * 1-5" for hour in (6, 8, 10, 12, 14)),
+        *(f"37 {hour} * * 0,6" for hour in (0, 4, 8)),
+        "27 9 * * *",
+        "23 11 * * *",
+    ],
 }
 
 
