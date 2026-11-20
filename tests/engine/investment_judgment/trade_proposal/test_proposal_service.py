@@ -331,17 +331,28 @@ def test_context_and_work_file_keep_one_app_market_and_reviewed_pair_snapshot(
         ),
         ("review_conditions", "買付では未約定・部分約定・新情報の後に何を再確認するかを記す。"),
         ("resume_conditions", "不足を確認して行動と理由を記述し、独立検証を行う。"),
+        (
+            "review_conditions",
+            (
+                "前回の指値・対象日を今回へ流用せず、元提案全体への本人報告があっても約定・現保有や"
+                "今後の一律見送りと決めず、企業の根拠・観測価格・取引条件のどれが今回の"
+                "「買う・待つ・見送る」を変えたか（変化なしも含む）を記す。"
+            ),
+        ),
+        ("blocker_message", "行動・具体条件・比較理由の執筆と独立検証が未了です。"),
         ("reviewer_identity", "独立Reviewerのidentityを記述してください。"),
     ],
 )
 def test_known_scaffold_instruction_is_not_authored_even_with_a_matching_review(case, field, seed):
     raw = reviewed_proposal(
-        case, action="defer" if field == "resume_conditions" else "buy"
+        case, action="defer" if field in {"resume_conditions", "blocker_message"} else "buy"
     ).payload()
     if field == "reviewer_identity":
         raw["review"][field] = seed
     elif field in {"review_conditions", "resume_conditions"}:
         raw["items"][0][field] = [seed]
+    elif field == "blocker_message":
+        raw["items"][0]["blockers"] = [{"code": "primary_source_pending", "message": seed}]
     elif field == "rationale":
         raw["items"][0][field] = seed
     else:
