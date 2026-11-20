@@ -72,7 +72,7 @@ def generate_company_growth(
             "pdf_supplement": pdf,
             "pdf_selection": selected_pdf,
             "pdf_input_reason": pdf_input_reason,
-            "calculation_method": "company_growth_retrospective_v22-pdf-period-basis"
+            "calculation_method": "company_growth_retrospective_v23-pdf-jp-interim"
             if pdf is not None
             else "company_growth_retrospective_v22",
             "input_release": input_release,

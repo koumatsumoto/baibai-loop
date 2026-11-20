@@ -160,7 +160,7 @@ def generate_financial_and_price_models(
             model_id="company_financials",
             subject=ticker,
             calculation_revision=(
-                f"{VALUATION_CALCULATION_REVISION}-observations-v17-pdf-period-basis"
+                f"{VALUATION_CALCULATION_REVISION}-observations-v18-pdf-jp-interim"
                 if pdf_supplement is not None
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v9-edinet-comparisons"
                 if reported

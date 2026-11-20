@@ -31,12 +31,13 @@ from baibai_engine.machine_analysis.observations.financials.pdf_statements impor
     PdfSupplement,
     build_pdf_supplement,
 )
+from baibai_engine.primitives.dates import add_months_clamped
 
 type AnnualRevisionBasis = Literal[
     "same_disclosure", "latest_reconfirmed_unchanged_amounts", "same_day_restated_reference_actual"
 ]
 
-REVISION = "retained-pdf-restatement-selection-v5"
+REVISION = "retained-pdf-restatement-selection-v6-jp-interim-comparison"
 _FIELDS: dict[Metric, str] = {
     "sales": "sales",
     "operating_profit": "operating_profit",
@@ -373,6 +374,19 @@ def select_pdf_financials(
             period_start=current.current_start,
             period_end=current.current_end,
             amounts_yen={pair.metric: pair.current * 1_000_000 for pair in current.pairs},
+        )
+    if current.accounting_standard == "JP" and (
+        current.current_end == add_months_clamped(current.current_start, 6) - timedelta(days=1)
+    ):
+        # Its own comparative is explicit; even a same-day annual reference can
+        # refer to a different policy change. It cannot establish this TTM basis.
+        return PdfFinancialSelection(
+            status="unavailable",
+            reason="jp_interim_annual_restatement_basis_unverified",
+            blocks_legacy_ttm=True,
+            current=current,
+            period_start=current.current_start,
+            period_end=current.current_end,
         )
     annual_row = _latest(
         [
