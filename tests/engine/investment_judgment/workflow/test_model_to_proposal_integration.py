@@ -1573,23 +1573,30 @@ def test_cash_choice_uses_verified_finite_right_not_issuer_stance(tmp_path, monk
             ("unknown_right", "no_action_reviewed_quote_mismatch"),
             ("different_session", "no_action_reviewed_quote_mismatch"),
             ("partial_primary_review", "no_action_comparison_incomplete"),
+            ("settled_expired_right", "no_action_reviewed_quote_mismatch"),
+            ("settled_unknown_right", "no_action_reviewed_quote_mismatch"),
         )
     ):
         now = PREPARED + timedelta(minutes=index * 5)
         if index:
             revised, checked = deepcopy(document), deepcopy(review)
-            revised["conclusion"].update(
-                stance="uncertain", assessed_at=(now - timedelta(minutes=3)).isoformat()
-            )
-            revised["investment_case"].update(
-                status="uncertain",
-                status_reason="消却後の存続事業の契約更新は不明。既に預託した分配と終期の残価は不変。",
-            )
-            if scenario == "unknown_right":
+            revised["conclusion"]["assessed_at"] = (now - timedelta(minutes=3)).isoformat()
+            if not scenario.startswith("settled_"):
+                revised["conclusion"]["stance"] = "uncertain"
+                revised["investment_case"].update(
+                    status="uncertain",
+                    status_reason="消却後の存続事業の契約更新は不明。既に預託した分配と終期の残価は不変。",
+                )
+            if scenario.endswith("unknown_right"):
                 revised["input_snapshot"]["facts"][-1].update(
                     fact_kind="other", value="後発公告で新取得者の資格を再確認中。", unit="notice"
                 )
                 revised["price_value_case"]["acquisition_limit"]["last_eligible_trade_date"] = None
+            if scenario == "settled_expired_right":
+                revised["input_snapshot"]["facts"][-1]["value"] = "2026-10-14"
+                revised["price_value_case"]["acquisition_limit"]["last_eligible_trade_date"] = (
+                    "2026-10-14"
+                )
             if scenario == "different_session":
                 revised["input_snapshot"]["facts"][0].update(
                     as_of="2026-10-13", observed_at="2026-10-13T15:30:00+09:00"

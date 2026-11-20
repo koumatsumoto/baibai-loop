@@ -781,13 +781,23 @@ def test_missing_economic_comparison_is_not_concluded_by_stance(tmp_path, stance
         ("unsupported", True, True),
     ],
 )
-def test_concluded_no_action_does_not_require_supported_or_numeric_value(
+def test_concluded_no_action_does_not_require_all_buy_inputs(
     tmp_path, stance, broken, valuation_unresolved
 ):
     case = backend_case(
         tmp_path, stance=stance, broken=broken, valuation_unresolved=valuation_unresolved
     )
+    if stance == "supported":
+        case.market.rename(tmp_path / "unavailable-current-market.sqlite")
     proposal = reviewed_proposal(case, action="no_action")
+    if stance == "supported":
+        assert proposal.inputs.quotes == ()
+        raw = proposal.payload()
+        raw.update(
+            comparison="期中の支払に同じ元手を残すため、取得時の資金拘束を選ばない。",
+            forgone="足元の価格や取引条件は確認し直さず、現在の買付提案はしない。",
+        )
+        proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     ledger_before = _ledger_snapshot(case.app)
     assert service.check(proposal).valid
@@ -930,8 +940,17 @@ def test_new_no_action_matches_the_authored_economic_finding(
     assert _ledger_snapshot(case.app) == ledger
 
 
-@pytest.mark.parametrize("price_finding", ["not_supported_at_quote", "supported_at_quote"])
-def test_exact_price_rejection_cannot_reuse_a_right_at_its_final_close(tmp_path, price_finding):
+@pytest.mark.parametrize(
+    ("price_finding", "stance"),
+    [
+        ("not_supported_at_quote", "uncertain"),
+        ("supported_at_quote", "uncertain"),
+        ("supported_at_quote", "supported"),
+    ],
+)
+def test_exact_price_comparison_cannot_reuse_a_right_at_its_final_close(
+    tmp_path, price_finding, stance
+):
     case = backend_case(tmp_path, assessment_as_of="2026-10-13")
     final_close = PREPARED.replace(hour=15, minute=30)
     document, review = pair_payload(
@@ -955,7 +974,7 @@ def test_exact_price_rejection_cannot_reuse_a_right_at_its_final_close(tmp_path,
     observed = final_close - timedelta(minutes=10)
     for source in document["input_snapshot"]["sources"]:
         source["retrieved_at"] = observed.isoformat()
-    document["conclusion"].update(stance="uncertain", assessed_at=observed.isoformat())
+    document["conclusion"].update(stance=stance, assessed_at=observed.isoformat())
     review["reviewed_at"] = (observed + timedelta(minutes=1)).isoformat()
     update_review_hash(document, review)
     pair = AssessmentStoreService(

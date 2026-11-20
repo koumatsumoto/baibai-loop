@@ -89,43 +89,39 @@ def no_action_blocker(
     ):
         return None  # 確認済みの事業反証は、株価や数値評価を必要としない。
     finding = assessment.price_value_case
-    if (
-        finding is not None
-        and finding.status == "supported_at_quote"
-        and assessment.conclusion.stance != "uncertain"
-    ):
-        return None  # 価格の支持は同じ資本の用途まで決めない。
+    settled = assessment.conclusion.stance != "uncertain"
     if finding is not None and (
         finding.status == "not_supported_at_quote"
         or (
             finding.status == "supported_at_quote"
-            and pair.review.primary_source_check == "verified"
+            and (settled or pair.review.primary_source_check == "verified")
         )
     ):
-        quote = proposal_quote(inputs, assessment.input_snapshot.ticker)
-        observed = referenced_price_fact(assessment)
-        day = now.astimezone(JST).date()
         # 実際の次立会が不明でも、当日引け以降にその立会で取得できないことは分かる。
         earliest_possible_trade = latest_eligible_close_date(now) + timedelta(days=1)
-        if (
-            quote is not None
-            and observed is not None
-            and not isinstance(observed.value, bool | str)
-            and assessment.input_snapshot.as_of == day
-            and observed.as_of == quote.price_as_of
-            and observed.price_basis == quote.price_basis
-            and finite_decimal(observed.value) == quote.price_yen
-            and (observed.observed_at is None or observed.observed_at <= inputs.checked_at)
-            and acquisition_blocker(assessment, earliest_possible_trade) is None
-            and assessment_quote_basis(
-                assessment,
-                quote,
-                sqlite_path=sqlite_path,
-                now=now,
-                market_connection=market_connection,
-            )
-        ):
-            return None
+        if acquisition_blocker(assessment, earliest_possible_trade) is None:
+            if finding.status == "supported_at_quote" and settled:
+                return None  # 確認した取得権を失わない限り、現金・代替の選択に現在quoteは不要。
+            quote = proposal_quote(inputs, assessment.input_snapshot.ticker)
+            observed = referenced_price_fact(assessment)
+            if (
+                quote is not None
+                and observed is not None
+                and not isinstance(observed.value, bool | str)
+                and assessment.input_snapshot.as_of == now.astimezone(JST).date()
+                and observed.as_of == quote.price_as_of
+                and observed.price_basis == quote.price_basis
+                and finite_decimal(observed.value) == quote.price_yen
+                and (observed.observed_at is None or observed.observed_at <= inputs.checked_at)
+                and assessment_quote_basis(
+                    assessment,
+                    quote,
+                    sqlite_path=sqlite_path,
+                    now=now,
+                    market_connection=market_connection,
+                )
+            ):
+                return None
         return GateReason(
             code="no_action_reviewed_quote_mismatch",
             message="査読した終値・日付・株式単位・取得権を今回の比較と照合できません。再評価するかdeferを使ってください。",
