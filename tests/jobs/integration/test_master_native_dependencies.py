@@ -3,6 +3,7 @@
 import gzip
 import json
 import sqlite3
+from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -17,6 +18,9 @@ from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOU
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.master_native import HEAD_KEY, MasterAttempt
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.master_inputs import (
+    INPUT_PREFIX as MASTER_INPUT_PREFIX,
+)
 from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import LakePublishError
@@ -25,6 +29,7 @@ from baibai_jobs.acquisition.master_dependencies import (
     prepare_tradingview_master,
     saved_master_dependency,
 )
+from baibai_jobs.integration.master_native import fixed_input, materialize_saved_input
 from baibai_jobs.integration.source_handoff import _replay
 from baibai_jobs.integration.tradingview_handoff import export_handoff
 
@@ -170,6 +175,9 @@ def test_tradingview_native_stage_uses_saved_reference_and_cold_replays_without_
     with sqlite3.connect(target) as conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
     del store.values[HEAD_KEY]
+    store.get_keys.clear()
+    store.head_keys.clear()
+    store.put_keys.clear()
     result = _replay(
         "tradingview",
         target,
@@ -182,6 +190,11 @@ def test_tradingview_native_stage_uses_saved_reference_and_cold_replays_without_
     )
     assert result.complete
     assert result.report["rows_added"] == 1
+    master_reads = Counter(key for key in store.get_keys if key.startswith(MASTER_INPUT_PREFIX))
+    assert len(master_reads) == 2  # One selection root plus its only selected month.
+    assert set(master_reads.values()) == {2}  # One projection read and one separate packet check.
+    assert not store.put_keys
+    assert HEAD_KEY not in store.get_keys + store.head_keys
     with sqlite3.connect(target) as conn:
         assert (
             conn.execute(
@@ -192,6 +205,38 @@ def test_tradingview_native_stage_uses_saved_reference_and_cold_replays_without_
         assert conn.execute("SELECT ticker FROM tradingview_forecast_snapshots").fetchall() == [
             ("1301",)
         ]
+
+
+@pytest.mark.parametrize("state", ["unadopted", "failed", "held"])
+def test_master_replay_rejects_unresolved_fixed_scope_before_writing(tmp_path, state):
+    attempts = [] if state == "unadopted" else [attempt("clean", day=DAY, at=AT)]
+    changed = records(DAY)
+    changed[0]["CoName"] = "未採用の訂正"
+    attempts.append(
+        attempt(
+            "unresolved",
+            day=DAY,
+            at=AT if state == "held" else AT + timedelta(minutes=1),
+            rows=changed,
+            partial=state != "held",
+        )
+    )
+    store, owner, market = setup_native(tmp_path, attempts)
+    head = owner.fixed()
+    scope = head.value()["scopes"][DAY.isoformat()]
+    assert bool(scope.get("adopted")) == (state != "unadopted")
+    assert bool(scope.get("held")) == (state == "held")
+    assert scope.get("failure") or scope.get("held")
+    saved = fixed_input(store, head, as_of=DAY, evaluated_at=NOW, days=[DAY])
+    with sqlite3.connect(market) as conn:
+        before = list(conn.iterdump())
+    store.get_keys.clear()
+    with pytest.raises(ValueError, match="native master replay acquisition is unresolved"):
+        materialize_saved_input(store, saved, market=market, days=[DAY], require_resolved=True)
+    assert len(store.get_keys) == 2
+    assert all(key.startswith(MASTER_INPUT_PREFIX) for key in store.get_keys)
+    with sqlite3.connect(market) as conn:
+        assert list(conn.iterdump()) == before
 
 
 def test_unresolved_native_master_clears_only_exact_stale_preflight_projection(tmp_path):
