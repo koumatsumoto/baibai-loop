@@ -70,18 +70,18 @@ def _qname(raw: str | None, ns: Mapping[str, str]) -> str | None:
     return "{" + uri + "}" + parts[1]
 
 
-def consolidated_note_at(
+def annual_segment_note_at(
     parts: Mapping[str, tuple[ET.Element, Scopes]],
     locator: tuple[str, tuple[int, ...]] | None,
     *,
     concept: str,
     context_id: str,
-) -> Literal["consolidated"] | None:
+) -> Basis | None:
     """Check a single occurrence in an already pinned filing, not a matching value.
 
     The caller supplies a known (archive member, child-index path); do not choose
-    among equal facts. Only the directly enclosing note observed in the 2025-11-01
-    example is supported. This does not read a ZIP or match normalized amounts.
+    among equal facts. Only the two directly enclosing annual notes verified with
+    2025-11-01 filings are supported. This does not read a ZIP or match normalized amounts.
     """
     if locator is None or not context_id or _FACTS.get(concept) != ("2025-11-01", "segment"):
         return None
@@ -93,31 +93,29 @@ def consolidated_note_at(
     xhtml = "{http://www.w3.org/1999/xhtml}"
     if node.tag != xhtml + "html":
         return None
-    note = (
-        _ns("jpcrp", "2025-11-01")
-        + "NotesSegmentInformationEtcConsolidatedFinancialStatementsTextBlock"
-    )
-    inside = False
+    crp = _ns("jpcrp", "2025-11-01")
+    notes: dict[str, Basis] = {
+        crp + "NotesSegmentInformationEtcConsolidatedFinancialStatementsTextBlock": "consolidated",
+        crp + "NotesSegmentInformationEtcFinancialStatementsTextBlock": "non_consolidated",
+    }
+    basis = None
     for index in path:
         if not node.tag.startswith(xhtml):
-            if (
-                inside
-                or node.tag != ix + "nonNumeric"
-                or not node.get("contextRef")
-                or _qname(node.get("name"), scopes.get(node, {})) != note
-            ):
+            if basis is not None or node.tag != ix + "nonNumeric" or not node.get("contextRef"):
                 return None
-            inside = True
+            name = _qname(node.get("name"), scopes.get(node, {}))
+            if name is None or (basis := notes.get(name)) is None:
+                return None
         if not 0 <= index < len(node):
             return None
         node = node[index]
     if (
-        inside
+        basis is not None
         and node.tag == ix + "nonFraction"
         and node.get("contextRef") == context_id
         and _qname(node.get("name"), scopes.get(node, {})) == concept
     ):
-        return "consolidated"
+        return basis
     return None
 
 

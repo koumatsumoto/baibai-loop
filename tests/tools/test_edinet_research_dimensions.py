@@ -15,8 +15,8 @@ from tools.experiments.edinet_research_dimensions import (
     ContextEvidence,
     IssuerDeclaration,
     Segment,
+    annual_segment_note_at,
     classify,
-    consolidated_note_at,
     issuer_declarations,
     observe_context,
 )
@@ -467,13 +467,20 @@ def test_issuer_declaration_scopes_do_not_leak_to_a_sibling_or_turn_an_axis_into
 
 
 @pytest.mark.parametrize("same_file", [False, True], ids=["different-files", "same-file-siblings"])
-def test_equal_inline_facts_do_not_share_their_parent_note(same_file):
-    # Four synthetic pairs only. No filing, original amounts, list or external I/O.
+@pytest.mark.parametrize("basis", ["consolidated", "non_consolidated"])
+def test_equal_inline_facts_do_not_share_their_parent_note(same_file, basis):
+    # Synthetic mirrors of the four consolidated and six individual in/out pairs.
+    # The real duplicate tuples have no segment axis; they are not additional segment facts.
     base = "http://disclosure.edinet-fsa.go.jp/taxonomy/"
     pfs = base + "jppfs/2025-11-01/jppfs_cor"
     crp = base + "jpcrp/2025-11-01/jpcrp_cor"
-    note = "NotesSegmentInformationEtcConsolidatedFinancialStatementsTextBlock"
-    keys = [(item, ctx) for ctx in ("A", "B") for item in ("NetSales", "OperatingIncome")]
+    if basis == "consolidated":
+        note = "NotesSegmentInformationEtcConsolidatedFinancialStatementsTextBlock"
+        items = ("NetSales", "OperatingIncome")
+    else:
+        note = "NotesSegmentInformationEtcFinancialStatementsTextBlock"
+        items = ("Assets", "NetSales", "OrdinaryIncome")
+    keys = [(item, ctx) for ctx in ("A", "B") for item in items]
     cells = "".join(
         f'<i:nonFraction name="p:{item}" contextRef="{ctx}" unitRef="JPY" decimals="0">'
         f"{100 + index}</i:nonFraction>"
@@ -497,8 +504,9 @@ def test_equal_inline_facts_do_not_share_their_parent_note(same_file):
     else:
         parts = {"b.htm": page(inside), "a.htm": page(outside)}
         outer_file, outer_branch = "a.htm", 0
-    occurrences = (("b.htm", 0, "consolidated"), (outer_file, outer_branch, None))
+    occurrences = (("b.htm", 0, basis), (outer_file, outer_branch, None))
     synthetic_axis = (f"{{{crp}}}OperatingSegmentsAxis", f"{{{crp}}}ReportableSegmentsMember")
+    individual = (f"{{{pfs}}}ConsolidatedOrNonConsolidatedAxis", f"{{{pfs}}}NonConsolidatedMember")
     for i, (item, ctx) in enumerate(keys):
         inner, outer = (parts[file][0][0][branch][0][i] for file, branch, _ in occurrences)
         assert inner.attrib == outer.attrib
@@ -506,7 +514,7 @@ def test_equal_inline_facts_do_not_share_their_parent_note(same_file):
         concept = f"{{{pfs}}}{item}"
         for filename, branch, expected in occurrences:
             path = (0, branch, 0, i)
-            scope = consolidated_note_at(parts, (filename, path), concept=concept, context_id=ctx)
+            scope = annual_segment_note_at(parts, (filename, path), concept=concept, context_id=ctx)
             assert scope == expected
             # The real duplicate pattern has NO segment axis. Even a true note is insufficient.
             assert classify(
@@ -520,13 +528,39 @@ def test_equal_inline_facts_do_not_share_their_parent_note(same_file):
                 issuer_members={},
                 verified_annual_segment_note=scope,
             )
-            assert candidate.basis == expected
+            if expected == "non_consolidated":
+                assert candidate.basis is None
+                assert candidate.evidence_or_reason == "explicit_non_consolidated_missing"
+            elif expected is None:
+                assert candidate.basis is None
+                assert candidate.evidence_or_reason == "segment_note_scope_unverified"
+            else:
+                assert candidate.basis == "consolidated"
+            if basis == "non_consolidated":
+                assert (
+                    classify(
+                        concept,
+                        ContextEvidence(ctx, (individual,)),
+                        issuer_members={},
+                        verified_annual_segment_note=scope,
+                    ).evidence_or_reason
+                    == "no_explicit_segment"
+                )
+                assert (
+                    classify(
+                        concept,
+                        ContextEvidence(ctx, (synthetic_axis, individual)),
+                        issuer_members={},
+                        verified_annual_segment_note=scope,
+                    ).basis
+                    == "non_consolidated"
+                )
 
-    sample = f"{{{pfs}}}NetSales"
+    sample = f"{{{pfs}}}{items[0]}"
     positive = ("b.htm", (0, 0, 0, 0))
-    assert consolidated_note_at(parts, None, concept=sample, context_id="A") is None
+    assert annual_segment_note_at(parts, None, concept=sample, context_id="A") is None
     for ambiguous in (("missing.htm", positive[1]), ("b.htm", (0, 0, 0, -1)), ("b.htm", (0, 0))):
-        assert consolidated_note_at(parts, ambiguous, concept=sample, context_id="A") is None
-    assert consolidated_note_at(parts, positive, concept=sample, context_id="B") is None
+        assert annual_segment_note_at(parts, ambiguous, concept=sample, context_id="A") is None
+    assert annual_segment_note_at(parts, positive, concept=sample, context_id="B") is None
     parts["b.htm"] = page(inside, "urn:homonym")
-    assert consolidated_note_at(parts, positive, concept=sample, context_id="A") is None
+    assert annual_segment_note_at(parts, positive, concept=sample, context_id="A") is None
