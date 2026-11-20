@@ -184,7 +184,10 @@ def test_materialize_keeps_verified_application_independent_of_market_failure():
         "jobs/scripts/r2_transfer.sh hydrate-portfolio",
     ]
     assert "continue-on-error" not in market
-    assert materialize["if"] == "${{ !cancelled() && steps.pull-app.outcome == 'success' }}"
+    assert materialize["if"] == (
+        "${{ !cancelled() && steps.pull-app.outcome == 'success' && "
+        "(steps.market.outcome == 'success' || steps.target.outcome == 'skipped') }}"
+    )
     assert materialize["env"]["MARKET_OUTCOME"] == "${{ steps.market.outcome }}"
     assert upload["if"] == "${{ !cancelled() && steps.materialize.outcome == 'success' }}"
 
@@ -237,3 +240,63 @@ def test_materialize_excludes_unverified_market_copies_but_keeps_application(
     if market_present:
         retained = market if verified else tmp_path / "unverified-market/market.sqlite"
         assert retained.read_bytes() == b"downloaded market"
+
+
+@pytest.mark.parametrize(
+    ("target", "guard_exit", "upload_expected"),
+    [("", 31, True), ("published", 31, False), ("published", 0, True)],
+)
+def test_manual_display_guard_precedes_any_serving_write(
+    tmp_path, target, guard_exit, upload_expected
+):
+    workflow = _workflow("cloud-materialize.yml")
+    assert set(workflow["on"]) == {"workflow_dispatch", "workflow_call"}
+    assert not workflow["on"]["workflow_call"]
+    assert set(workflow["on"]["workflow_dispatch"]["inputs"]) == {
+        "market_release_id",
+        "market_manifest_sha256",
+    }
+    steps = _steps(workflow, "materialize")
+    by_id = {step.get("id", step.get("name")): step for step in steps}
+    validate = by_id["target"]
+    capture = next(step for step in steps if "--capture" in step.get("run", ""))
+    assert (
+        steps.index(validate)
+        < steps.index(by_id["lease-acquire"])
+        < steps.index(capture)
+        < steps.index(by_id["pull-app"])
+    )
+    assert "env" not in validate
+    assert (
+        validate["if"]
+        == "${{ inputs.market_release_id != '' || inputs.market_manifest_sha256 != '' }}"
+    )
+    assert capture["if"] == "${{ steps.target.outcome == 'success' }}"
+    upload = by_id["Upload serving objects"]
+    scripts = tmp_path / "jobs/scripts"
+    scripts.mkdir(parents=True)
+    uv = tmp_path / "uv"
+    uv.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" > guard-ran\nexit {guard_exit}\n')
+    uv.chmod(0o755)
+    uploader = scripts / "r2_transfer.sh"
+    uploader.write_text('#!/bin/sh\nprintf "%s\\n" "$1" > upload-ran\n')
+    uploader.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", upload["run"]],
+        cwd=tmp_path,
+        check=False,
+        env={
+            **os.environ,
+            "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+            "RUNNER_TEMP": str(tmp_path),
+            "MARKET_RELEASE_ID": target,
+            "MARKET_MANIFEST_SHA256": "a" * 64 if target else "",
+        },
+    )
+    assert (result.returncode == 0) is upload_expected
+    guard = tmp_path / "guard-ran"
+    if target:
+        assert "--verify" in guard.read_text()
+    else:
+        assert not guard.exists()
+    assert (tmp_path / "upload-ran").exists() is upload_expected

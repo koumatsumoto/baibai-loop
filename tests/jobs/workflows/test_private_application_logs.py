@@ -78,6 +78,9 @@ def _portfolio_commands(tmp_path, *, real_materialize=False):
         "RUNNER_TEMP": str(tmp_path),
         "TEST_PYTHON": sys.executable,
         "MARKET_OUTCOME": "success",
+        # These fragments exercise the ordinary call: Actions supplies empty input strings.
+        "MARKET_RELEASE_ID": "",
+        "MARKET_MANIFEST_SHA256": "",
         "PYTHONPATH": os.pathsep.join(
             str(ROOT / path) for path in ("engine/src", "jobs/src", "web/backend/src")
         ),

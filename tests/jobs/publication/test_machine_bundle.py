@@ -1,0 +1,202 @@
+"""Scoped inputs and a display-only recovery share one published machine proof."""
+
+import json
+from contextlib import closing
+
+import pytest
+from tests.helpers.r2_store import MemoryR2Store
+
+from baibai_engine.storage.objects.r2 import LakePublishError
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key, release_manifest_key
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration import sources
+from baibai_jobs.publication import machine_bundle
+
+MACHINE_KEYS = ("market.sqlite", "runs.sqlite", "indicators.sqlite")
+
+
+def _remote_bundle() -> MemoryR2Store:
+    remote = MemoryR2Store()
+    remote.store_object(
+        current_release_pointer_key(),
+        json.dumps(
+            {
+                "release_id": "published",
+                "manifest_key": release_manifest_key(release_id="published"),
+                "manifest_sha256": "a" * 64,
+            }
+        ).encode(),
+    )
+    for key in MACHINE_KEYS:
+        remote.store_object(key, f"initial {key}".encode())
+    _publish_receipt(remote)
+    return remote
+
+
+def _publish_receipt(remote: MemoryR2Store) -> None:
+    receipt = {
+        "schema_version": 1,
+        "keys": {key: remote.values[key].etag for key in MACHINE_KEYS},
+    }
+    remote.store_object("machine-manifest.json", json.dumps(receipt).encode())
+
+
+@pytest.mark.parametrize("changed_key", ["market.sqlite", "runs.sqlite"])
+def test_published_generation_refuses_any_partial_machine_push(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, changed_key: str
+) -> None:
+    remote = _remote_bundle()
+    old_economic = remote.values["indicators.sqlite"].etag
+    generation_dir = tmp_path / "pulled-generations"
+    generation_dir.mkdir()
+    sidecar = generation_dir / "indicators.sqlite.etag"
+    sidecar.write_text(old_economic)
+    monkeypatch.setenv("R2_GENERATION_DIR", str(generation_dir))
+
+    # The bytes of a no-op SQLite snapshot can move independently of its rows.
+    remote.store_object(changed_key, f"new snapshot bytes for {changed_key}".encode())
+    with pytest.raises(LakePublishError, match="differs from its receipt"):
+        sources.canonical_generations(remote)
+    _publish_receipt(remote)
+    generations = sources.canonical_generations(remote)
+    assert generations == {
+        "lake_release_id": "published",
+        "lake_manifest_sha256": "a" * 64,
+    }
+    assert sidecar.read_text() == old_economic
+
+
+def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    remote = _remote_bundle()
+    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
+    monkeypatch.setattr(sources, "_load_handle", lambda _: object())
+    monkeypatch.setattr(sources, "verify_held", lambda *_: None)
+    published = []
+
+    def publish(*_args, **kwargs):
+        published.append(kwargs["generations"])
+        return {"updated": ["tradingview"], "failed": []}
+
+    monkeypatch.setattr(sources, "publish_inputs", publish)
+    remote.store_object("indicators.sqlite", b"same logical economic rows, resealed bytes")
+    _publish_receipt(remote)
+    command = [
+        "inputs",
+        "--directory",
+        str(tmp_path / "integration"),
+        "--lease-handle",
+        str(tmp_path / "lease.json"),
+        "--asof",
+        "2026-10-30",
+        "--identity",
+        "synthetic",
+        "--group",
+        "tradingview",
+    ]
+    assert sources.main(command) == 0
+    assert "economic_etag" not in published[0]
+
+    remote.store_object("runs.sqlite", b"partial machine upload")
+    assert sources.main(command) == 1
+    assert len(published) == 1
+
+
+def test_economic_change_does_not_invalidate_market_bundle():
+    remote = _remote_bundle()
+    before = sources.canonical_generations(remote)
+    remote.store_object("indicators.sqlite", b"new independently confirmed economic L1")
+    assert sources.canonical_generations(remote) == before
+    assert "economic_etag" not in before
+
+
+@pytest.mark.parametrize(
+    ("release", "digest"),
+    [
+        ("", "a" * 64),
+        ("published", ""),
+        ("../other", "a" * 64),
+        ("--help", "a" * 64),
+        ("published", "A" * 64),
+        ("published", "a" * 63),
+        ("published\n", "a" * 64),
+    ],
+)
+def test_invalid_recovery_fails_without_opening_a_store(monkeypatch, release, digest):
+    monkeypatch.setattr(
+        machine_bundle, "Boto3R2Store", lambda **_: pytest.fail("unexpected access")
+    )
+    assert machine_bundle.main(["--", release, digest]) == 1
+    assert machine_bundle.main(["--", "valid-1", "a" * 64]) == 0
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "none",
+        "missing-pointer",
+        "new-release",
+        "new-digest",
+        "missing-receipt",
+        "missing-runs",
+        "partial-market",
+        "partial-runs",
+        "resealed-pair",
+        "missing-origin",
+        "other-origin",
+    ],
+)
+def test_display_guard_accepts_only_the_same_published_pair_and_local_origin(
+    tmp_path, monkeypatch, change
+):
+    remote = _remote_bundle()
+    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
+    monkeypatch.setattr(machine_bundle, "Boto3R2Store", lambda **_: remote)
+    market = tmp_path / "market.sqlite"
+    monkeypatch.setattr(machine_bundle, "MARKET_DB_PATH", market)
+    proof = str(tmp_path / "pair.json")
+    target = ["--", "published", "a" * 64]
+    assert machine_bundle.main(["--capture", proof, *target]) == 0
+    with closing(open_connection(market)) as conn, conn:
+        if change != "missing-origin":
+            write_lake_store_origin(
+                conn,
+                LakeStoreOrigin("older" if change == "other-origin" else "published", "a" * 64),
+            )
+    pointer = current_release_pointer_key()
+    if change in {"new-release", "new-digest"}:
+        release = "new" if change == "new-release" else "published"
+        remote.store_object(
+            pointer,
+            json.dumps(
+                {
+                    "release_id": release,
+                    "manifest_key": release_manifest_key(release_id=release),
+                    "manifest_sha256": ("b" if change == "new-digest" else "a") * 64,
+                }
+            ).encode(),
+        )
+    elif change.startswith("missing-") and change != "missing-origin":
+        del remote.values[
+            {
+                "missing-pointer": pointer,
+                "missing-receipt": "machine-manifest.json",
+                "missing-runs": "runs.sqlite",
+            }[change]
+        ]
+    elif change in {"partial-market", "partial-runs", "resealed-pair"}:
+        remote.store_object(
+            "market.sqlite" if change == "partial-market" else "runs.sqlite", b"changed"
+        )
+        if change == "resealed-pair":
+            _publish_receipt(remote)
+    assert machine_bundle.main(["--verify", proof, *target]) == (0 if change == "none" else 1)
+    assert remote.put_keys == []
+    assert set(remote.get_keys) <= {pointer, "machine-manifest.json"}
+    assert set(remote.head_keys) <= {pointer, "market.sqlite", "runs.sqlite"}
