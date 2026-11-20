@@ -2,9 +2,10 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import type { SavedModelPerspectiveView, SavedAssessmentView } from '../src/api/types'
+import type { EstimatedPerspectiveView, SavedModelPerspectiveView, SavedAssessmentView } from '../src/api/types'
 import { ModelPerspectives } from '../src/components/ModelPerspectives'
-import { assessmentFixture } from './fixtures/proposals'
+import { ProposalItemCard } from '../src/pages/ProposalPage'
+import { assessmentFixture, unassessedDeferFixture } from './fixtures/proposals'
 
 function render(assessment: SavedAssessmentView) {
   return renderToStaticMarkup(createElement(ModelPerspectives, { assessment }))
@@ -96,9 +97,10 @@ it('分類チャートには一観点につき一判断を置き、説明と出�
   const html = render(assessment)
   const chart = html.slice(0, html.indexOf('<details'))
   const financialRow = chart.split('data-model="company_financials"')[1].split('</tr>')[0]
-  expect(financialRow.match(/sr-only/g)).toHaveLength(1)
-  expect(financialRow).toContain('>支持<')
-  expect(chart).toContain('colSpan="4"')
+  expect(financialRow).toMatch(/data-evidence="author"[^>]*>.*>支持<\/span>/)
+  expect(financialRow).not.toContain('data-evidence="observation"')
+  expect(chart).toContain('当時の作者判断')
+  expect(chart).toContain('固定資料の観測')
   expect(chart).toContain('>情報不足<')
   expect(chart).not.toContain(assessment.model_perspectives[0].summary)
   expect(html.slice(html.indexOf('<details'))).toContain(assessment.model_perspectives[0].summary)
@@ -127,14 +129,70 @@ it('当時の資料による見立てを区別し、元の不足判断を推定�
   expect(html).toContain('元資料を開く')
   const rows = html.split('<tbody>')[1].split('</tbody>')[0]
   expect(rows.split('data-model="social_trends"')[1].split('</tr>')[0]).toContain('観測あり・個社への影響未判定')
-  expect(rows.split('data-model="company_growth"')[1].split('</tr>')[0]).not.toContain('資料からの推定')
-  expect(rows.split('data-model="market_context"')[1].split('</tr>')[0]).toContain('両方向')
+  const growth = rows.split('data-model="company_growth"')[1].split('</tr>')[0]
+  expect(growth).toContain('data-evidence="author"')
+  expect(growth).not.toContain('data-evidence="observation"')
+  const market = rows.split('data-model="market_context"')[1].split('</tr>')[0]
+  expect(market).toMatch(/data-perspective="author"[^>]*>.*>未記録<.*<\/td>/)
+  expect(market).toMatch(/data-evidence="observation"[^>]*>両方向<\/span>/)
+  expect(market).not.toContain('>支持')
+  expect(html).toContain('dateTime="2026-10-23"')
+  expect(html).toContain('dateTime="2026-10-26T03:00:00Z"')
   expect(html.slice(0, html.indexOf('<table'))).toContain('投資仮説への支持・反証を意味しません')
   a.model_perspectives = []
-  const estimatedOnly = render(a).split('<thead')[1].split('</thead>')[0]
-  expect(estimatedOnly).toContain('プラス側')
-  expect(estimatedOnly).not.toContain('支持')
+  const estimatedOnly = render(a).split('<tbody>')[1].split('</tbody>')[0]
+  expect(estimatedOnly).toMatch(/data-evidence="observation"[^>]*>プラス側<\/span>/)
+  expect(estimatedOnly).not.toContain('data-evidence="author"')
 })
+
+it('合成対照で49明細の作者105・固定観測238を保ち、評価なし2を作らない', () => {
+  const models: SavedModelPerspectiveView['model'][] = [
+    'company_financials', 'company_growth', 'market_context', 'external_assessment',
+    'technical_analysis', 'industry_trends', 'social_trends',
+  ]
+  let observation = 0
+  const charts = Array.from({ length: 49 }, (_, index) => {
+    const a = assessmentFixture(`coverage-${index}`)
+    const part = models.slice(0, index < 15 ? 7 : 0)
+    a.model_perspectives = part.map(model => ({
+      model, assessment: 'insufficient', summary: '合成の作者原記録', source_ids: [],
+    }))
+    a.estimated_model_chart = {
+      selection_sha256: 'a'.repeat(64), input_known_at: '2026-10-26T03:00:00Z',
+      research_as_of: '2026-10-26', generation_id: 'synthetic-coverage', monex_fiscal_eps: null,
+      rows: models.slice(part.length).map(model => {
+        const index = observation++
+        const assessment: EstimatedPerspectiveView['assessment'] = index === 232
+          ? 'insufficient' : index < 131 ? 'adverse' : 'context_only'
+        return {
+          model, assessment, summary: index === 232 ? '会計基準不一致で前年と比較できない。' : `合成の固定観測 ${index}`,
+          evidence: '合成の同じ資料',
+          observed_on: '2026-10-23', source_url: null,
+        }
+      }),
+    }
+    const html = render(a)
+    expect(html.match(/scope="row"/g)).toHaveLength(7)
+    return html
+  }).join('')
+  expect(charts.match(/data-evidence="author"/g)).toHaveLength(105)
+  expect(charts.match(/data-evidence="observation"/g)).toHaveLength(238)
+  expect(charts.match(/data-evidence="observation"[^>]*>マイナス側<\/span>/g)).toHaveLength(131)
+  expect(charts.match(/data-evidence="observation"[^>]*>観測あり・個社への影響未判定<\/span>/g)).toHaveLength(106)
+  expect(charts.match(/data-evidence="observation"[^>]*>情報不足<\/span>/g)).toHaveLength(1)
+  expect(charts).toContain('会計基準不一致で前年と比較できない。')
+  assertNoAssessment('1001')
+  assertNoAssessment('1002')
+})
+
+function assertNoAssessment(ticker: string) {
+  const html = renderToStaticMarkup(createElement(ProposalItemCard, {
+    item: { ...unassessedDeferFixture, ticker },
+  }))
+  expect(html).toContain(ticker)
+  expect(html).not.toContain('7モデルの観点')
+  expect(html).not.toContain('data-evidence="observation"')
+}
 
 it('外部評価の当初判断は変えず、今期・来期EPSだけを受領時刻付きで併記する', () => {
   const a = assessmentFixture('fiscal-eps')
