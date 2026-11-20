@@ -246,7 +246,9 @@ def test_damaged_fixed_selection_is_not_an_absent_id(tmp_path: Path) -> None:
     selection_id = "fixed-selection"
     ScreeningSelectionStore(path).publish(selection_id, empty_selection(fixed.generation_id))
     known_at = max(datetime.now(UTC), fixed.evaluation_time)
-    assert read_case_publication(path=path, selection_id=selection_id, known_at=known_at) is not None
+    assert (
+        read_case_publication(path=path, selection_id=selection_id, known_at=known_at) is not None
+    )
     assert read_case_publication(path=path, selection_id="absent", known_at=known_at) is None
     with closing(sqlite3.connect(path)) as connection, connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
