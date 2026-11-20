@@ -23,9 +23,6 @@ from baibai_engine.data_collection.receipts.native_sources.handoff import (
     export_receipts as export_economic_receipts,
 )
 from baibai_engine.data_collection.receipts.native_sources.planning_inputs import export_day_input
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
-    observations as observations_owner,
-)
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import (
@@ -116,7 +113,7 @@ def publish_inputs(
                 generations=generations,
                 group=group,
             )
-        except (ValueError, observations_owner.FetchError) as error:
+        except ValueError as error:
             failed.append({"group": group, "reason": type(error).__name__})
         else:
             if stage == f"{group}-{identity}":
