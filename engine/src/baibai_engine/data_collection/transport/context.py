@@ -75,7 +75,7 @@ class BrowserUnavailableError(IndicatorsProviderError):
     """
 
 
-type BytesCacheKey = tuple[str, tuple[tuple[str, str], ...]]
+type BytesCacheKey = tuple[str, tuple[tuple[str, str], ...], bool]
 
 
 class FetchContext:
@@ -102,9 +102,11 @@ class FetchContext:
         self.purpose = purpose
         self._browser: BrowserFetcher | None = None
 
-    def discard_cached_bytes(self, url: str, params: Mapping[str, str] | None) -> None:
+    def discard_cached_bytes(
+        self, url: str, params: Mapping[str, str] | None, *, allow_redirects: bool = True
+    ) -> None:
         """Drop only this unusable response, keeping other receipts and browser evidence."""
-        self.bytes_cache.pop(_bytes_cache_key(url, params), None)
+        self.bytes_cache.pop(_bytes_cache_key(url, params, allow_redirects=allow_redirects), None)
 
     def browser_fetcher(self) -> BrowserFetcher:
         self.check_deadline()
@@ -180,12 +182,16 @@ def fetch_text(
         # Decoding is not a transport retry. Do not poison later reads of this
         # resource, but retain other successfully received responses in the pass.
         if context is not None:
-            context.discard_cached_bytes(url, params)
+            context.discard_cached_bytes(url, params, allow_redirects=allow_redirects)
         raise IndicatorsProviderError(f"response from {url} is not UTF-8: {exc}") from exc
 
 
-def _bytes_cache_key(url: str, params: Mapping[str, str] | None) -> BytesCacheKey:
-    return (url, tuple(sorted((params or {}).items())))
+def _bytes_cache_key(
+    url: str, params: Mapping[str, str] | None, *, allow_redirects: bool = True
+) -> BytesCacheKey:
+    # A response reached by following redirects cannot prove that the initial
+    # URL served the bytes. Strict callers need their own direct receipt.
+    return (url, tuple(sorted((params or {}).items())), allow_redirects)
 
 
 def store_fetched_bytes(
@@ -235,7 +241,7 @@ def fetch_bytes(
     """
     if context is not None:
         context.check_deadline()
-    key = _bytes_cache_key(url, params)
+    key = _bytes_cache_key(url, params, allow_redirects=allow_redirects)
     if context is not None and key in context.bytes_cache:
         return context.bytes_cache[key]
     for attempt in range(2 if retry_transient else 1):
