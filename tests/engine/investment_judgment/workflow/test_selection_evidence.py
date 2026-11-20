@@ -146,9 +146,6 @@ def evidence_case(tmp_path, monkeypatch, *, generation_version=1, selection_vers
     wrong = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
     ).publish(reviewed_proposal(case, action="no_action", proposal_id=WRONG))
-    case.operations.record_proposal(
-        case.operation.operation_id, wrong.proposal_id, now=PUBLISHED + timedelta(minutes=2)
-    )
     records = ProposalRecordService(case.app, clock=lambda: PUBLISHED + timedelta(hours=1))
     records.correct(
         ProposalCorrectionDraft(
@@ -188,7 +185,23 @@ def evidence_case(tmp_path, monkeypatch, *, generation_version=1, selection_vers
     operational = parse_selection(raw)
     operation = case.operations.get(case.operation.operation_id)
     assert operation.status == "active"
-    payload = operation.payload.model_dump(mode="json")
+    from baibai_engine.investment_judgment.workflow.operation.progress import (
+        ProposalRef,
+        progress_binding,
+        with_progress,
+    )
+
+    bound = with_progress(
+        operation.payload,
+        progress_binding(operation.payload).model_copy(
+            update={
+                "proposal_ref": ProposalRef(
+                    proposal_id=wrong.proposal_id, draft_sha256=wrong.review.draft_sha256
+                )
+            }
+        ),
+    )
+    payload = bound.model_dump(mode="json")
     payload["result"] = "架空の有限判断完了"
     payload["next"] = "本人の判断は別記録"
     for index, artifact in enumerate(payload["artifacts"]):

@@ -666,11 +666,9 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
             update={"published_at": NOW + timedelta(seconds=1)}
         )
         seed_proposal(db, proposal)
-        service.record_proposal(
-            prepared.operation_id, proposal.proposal_id, now=NOW + timedelta(seconds=1)
-        )
         service.complete(
             prepared.operation_id,
+            proposal_id=proposal.proposal_id,
             result="保有評価と提案を保存した",
             next="人間の採否を待つ",
             completed_at=NOW + timedelta(seconds=2),

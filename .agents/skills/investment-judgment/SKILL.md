@@ -196,13 +196,12 @@ as_ofは元発行日以降のJST情報境界で保存時計ではない。後日
 ## 完了と再開
 
 ```bash
-uv run baibai-engine operation --db <APP_DB> --format json record-proposal <OPERATION_ID> --proposal-id <ID>
-uv run baibai-engine operation --db <APP_DB> --format json complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'
+uv run baibai-engine operation --db <APP_DB> --format json complete <OPERATION_ID> --proposal-id <ID> --result '<RESULT>' --next '<NEXT>'
 uv run baibai-engine investment-judgment prepare \
   --operation-id <OPERATION_ID> --db <APP_DB> --workspace .cache/research/<ASOF> --force
 ```
 
-record-proposalは公開済み提案の束縛。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> --format json show <ID>`で読み、workspaceのincompleteと区別する。
+完了時は現在の全対象・成果に一致する正式提案IDを明示する。既に訂正されたIDは使わず、最新への自動置換もしない。空選定または未発行で全対象未完の場合だけIDを省き、理由と次手を記す。同じID・結果・次手での再試行は元の完了を返す。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> --format json show <ID>`で読み、workspaceのincompleteと区別する。
 
 Operationに保存された[Research Selection](../../../docs/architecture.md#store-authority)から再開し、selection-contextで選び直さない。forceは表示を再投影し執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
 

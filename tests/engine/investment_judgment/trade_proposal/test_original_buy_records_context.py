@@ -41,11 +41,9 @@ def _setup(tmp_path, *, scope="review_positions", linked="erroneous", before_pro
     b = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
     ).publish(reviewed_proposal(case, proposal_id=B))
-    case.operations.record_proposal(
-        case.operation.operation_id, b.proposal_id, now=PUBLISHED + timedelta(minutes=2)
-    )
     case.operations.complete(
         case.operation.operation_id,
+        proposal_id=b.proposal_id,
         result="合成の初回提案を保存",
         next="報告された保有の再検討は別Operation",
         completed_at=PUBLISHED + timedelta(minutes=2),
