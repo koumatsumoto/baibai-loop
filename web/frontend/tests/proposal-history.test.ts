@@ -105,6 +105,27 @@ describe('stock report list and selection', () => {
     expect(detail).not.toMatch(/期限切れ|失効済み|注文可能/)
   })
 
+  it('keeps the later economic buy distinct from the earlier order terms of the same company', () => {
+    const conditional = {
+      ...partialBuyFixture, ticker: buyFixture.ticker,
+      terms_unavailable_reasons: [{ code: 'order_session_unknown', message: '保存時には翌立会を確認できなかった。' }],
+    }
+    const a = { ...older, items: [buyFixture] }
+    const b = { ...newer, items: [conditional] }
+    const data = view([b, a])
+    const list = render(data)
+    const card = (id: string) => list.split(`href="/proposal?proposal=${id}&amp;ticker=${buyFixture.ticker}"`)[1]?.split('</a>')[0]
+    expect(card(b.proposal_id)).toContain('価格条件付きの買付方針（注文条件未確認）')
+    expect(card(b.proposal_id)).not.toContain('対象取引日')
+    expect(card(a.proposal_id)).toContain('保存時の買付（指値）')
+    expect(card(a.proposal_id)).toContain(buyFixture.terms!.target_session)
+    const detail = render(data, b.proposal_id, buyFixture.ticker)
+    expect(detail).toContain(conditional.terms_unavailable_reasons[0].message)
+    expect(detail).toContain(conditional.proposed_limit_yen)
+    expect(detail).not.toContain('保存時の指値区分')
+    expect(detail).not.toContain('保存時の対象取引日')
+  })
+
   it('does not replace missing/failed selections with a different report', () => {
     const data = view([newer], ['unreadable'])
     const missing = render(data, older.proposal_id, '1111')
@@ -156,7 +177,7 @@ describe('stock report list and selection', () => {
       proposal: { ...older, headline: long }, item: { ...item, rationale: long },
     })
     expect(summary(buyFixture)).toBe('保存時の指値で待つ案：100株。')
-    expect(summary(partialBuyFixture)).toBe('買い指値案。作者の上限は1400.1000000000000001円。具体的な指値・数量は未確定。')
+    expect(summary(partialBuyFixture)).toBe('作者が示した価格上限は1400.1000000000000001円。注文の指値・数量は未確定。')
     const noAction = { ...reviewedDeferFixture, action: 'no_action' as const, assessment: null }
     expect(summary(noAction)).toContain('新規購入を見送った')
     expect(summary(holdFixture)).toContain('今回の保有仮説')

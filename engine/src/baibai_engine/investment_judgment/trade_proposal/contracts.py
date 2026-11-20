@@ -303,9 +303,6 @@ class BuyItem(_ProposalItem):
             self.terms.limit_price_yen,
         ):
             raise ValueError("proposed limit ceiling must match any confirmed buy terms")
-        allowed = {"price_grid_rule_unavailable", "security_classification_unavailable"}
-        if any(reason.code not in allowed for reason in self.terms_unavailable_reasons):
-            raise ValueError("buy terms may be unavailable only for price grid or classification")
         return self
 
 
