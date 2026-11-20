@@ -12,19 +12,11 @@
 
 旧形式の全社カード・経路巡回順を再発行する機能はない。過去の表示順は原本の `display_order` を読み、新しい一覧をさかのぼって作らない。通常の読取りが「旧発行物で索引なし」を返す時は、必要な旧情報を同じIDで明示的に読む。今の世代の根拠で補わない。
 
-## 旧レーンの発行物を固定して読む
+## 発行物を固定して問いと個社を読む
 
-初回`selection-context`のSelection ID、`research_as_of`、`input_known_at`を保存する。続きも同じ依頼scopeで、それぞれ`--screening-selection-id`、`--research-asof`、timezone付き`--known-at`へ渡す。`--known-at`省略は実行時刻なので、固定した続きには使わない。
+初回`selection-context`のSelection ID・基準日・timezone付きcutoffを、出力の `repeat_command_args` で引き継ぐ。`--discovery-question <KEY>` を付け、続きは `next_args`、個社の完全モデルは `detail_args` の `--compare-ticker`。候補への追加やResearch開始は行わない。入力不足なら `input_gap`、旧表示の外なら `outside_display`。後者と入力不足は重なり、先頭・数・相対騰落は割安の順位ではない。
 
-| 読みたいもの | 同じ`selection-context`へ追加する引数 |
-| --- | --- |
-| 通常の新規探索 | オプションなしで全社の分母と問い・反対説明・観測範囲を確認し、`--discovery-question <KEY>` でその問いに対応する銘柄ページへ進む。出力の `repeat_command_args` に `append_args`・`next_args`・`detail_args` のいずれかを付ける。別々の問いは重複し、件数は割安認定でない。 |
-| 過去の保存レーンの続き | `--screening-lane <LANE> --screening-page <next>`。ページ番号は0始まりで、返されたnextを使う。 |
-| 候補外を含む個社の完全モデル | `--compare-ticker <TICKER>`。候補へ追加したりResearchを開始したりしない。 |
-| T合致でも現在の調査仮説がない行 | `--screening-excluded`。保存T合致かつ`no_current_hypothesis`を読む。 |
-| T合致を前提にせず比較不足を探す | `--screening-excluded financial_unresolved`。保存G未確定かつ`no_current_hypothesis`を読む。 |
-
-旧レーンの `candidate_tickers` は表示中のページ、`summary`は全stock planの分母。除外診断は通常レーンへ復帰させず、元の非充足・不足理由を保つ。条件ごとの件数は同じ会社が重なるため加算できず、失った投資機会や棄却の正しさの測定ではない。0件も入力の完全性を意味しない。
+旧レーンの `--screening-lane` と `--screening-excluded [technical_matched|financial_unresolved]` は、明示した旧 `--screening-selection-id` でのみ使える。診断は保存された非充足や不足を当時のまま返し、通常レーンへ復帰させない。旧 `candidate_tickers` は表示ページ、`summary` は全stock planの分母。
 
 問いが広過ぎるときは先頭の会社を指名しない。例えば「資本異動で持続利益の取り分が変わったか」なら、同じ公表物で対抗候補の座標（経路・variant・価格側の比較基準・数値）を読み、`--discovery-question capital_change --price-coordinate-min <PATH> <VARIANT> <PRICE_GROUP> <対抗候補の観測値>` で同じ測定だけを照合できる。「以上／未満／同基準の値なし」を分け、比較不能な会社を経済的に棄却しない。絞った後も、確認すべきなのは資本異動が新取得者の取り分を変えたかという原典である。座標値そのものを期待利回りとせず、理由がなければ数値条件は使わない。
 
@@ -32,7 +24,7 @@
 
 通常の調査対象は口座から決めない。保有状況を調べていないことと、未保有確認済みを区別する。報告簿価や資本異動の存在は、新たに買った一株の回収可能額・受給資格の証明でない。元の対象外や索引行のない会社を「割安でない」としない。全市場のTOB・権利者一覧はこの索引にはない。
 
-軽量索引のない旧公表物は `unindexed_legacy_publication`。0社や現行世代に読み替えず、必要なときだけ明示した旧レーンや個社照合へ進む。旧の単一圧縮原本では、明示した有限の出力であっても全社本文の展開が必要になる。
+軽量索引のない旧公表物は `unindexed_legacy_publication`。0社や現行世代に読み替えず、必要なときだけ元IDを明示して旧レーンや個社照合へ進む。旧の単一圧縮原本では、明示した有限の出力であっても全社本文の展開が必要になる。
 
 Research・市場判断は保存/公開時刻をcutoffと照合する。一方、保有は現在台帳を事実時刻でreplayするため、過去の注文/約定の後追記で同じcutoffの対象が変わり得る。この読取を、[保存Operationの固定入力からの再開](../../.agents/skills/investment-judgment/SKILL.md#完了と再開)や当時既知の情報集合と同一視しない。
 
@@ -48,7 +40,7 @@ Research・市場判断は保存/公開時刻をcutoffと照合する。一方�
 
 所属条件と保存版の読取は[policy owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/technical_financial.py)、価格入力確認は[座標のowner](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_path_inputs.py)が持つ。株数不足・資本異動後の自己株未確認・明示的な古い価格は、必要な事業根拠と他operandがある場合だけ確認理由になる。未知一般・モデル未生成を候補へ戻す仕組みではなく、元の赤字・非適格・価格座標nullも保つ。古い価格を現在価格へ繰り上げず、取引停止・流動性・現在の注文可否は別に調べる。
 
-表示は企業重複を除く決定的な経路巡回。現行はレーン内で会社共通の固定hashを使い、コード番号を調査価値の代理にしない。経路は独立票でなく、小群・経路重複による露出差と先頭ページ反復の偏りは残る。ページ容量は候補足切り・投資順位・調査枠ではなく、枠消化や合致数の加点もしない。旧版の順を現在hashで並べ直さない。
+旧レーン表示は企業重複を除く決定的な経路巡回。新しい旧レーン順を生成せず、コード番号を調査価値の代理にしない。経路は独立票でなく、小群・経路重複による露出差と先頭ページ反復の偏りは残る。ページ容量は候補足切り・投資順位・調査枠ではなく、枠消化や合致数の加点もしない。旧版の順を現在hashで並べ直さない。
 
 三レーンの分離は、T必須の見落としと全経路ORの無差別な拡大を比べる設計仮説で、閾値・表示順の最適性や利益優位は未検証。L3は支持/反証、必要な候補外対照、答えが得られ判断を変える問いから対象を選ぶ。未確定なら先に答える問い、既知非充足の例外なら根拠を示し、資金耐久・価値・買値・待機・最強反証をAssessment/Review/Proposalへつなぐ。
 

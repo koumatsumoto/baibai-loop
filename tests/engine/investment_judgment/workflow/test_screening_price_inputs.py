@@ -88,7 +88,7 @@ def test_zero_candidate_price_inputs_reach_initial_and_fixed_research(tmp_path, 
         screening_lane="growth_research",  # 保存済み旧政策の価格契約。
         request=request,
         generation_id=None,
-        screening_selection_id=None,
+        screening_selection_id="policy",
         research_as_of=None,
         known_at=known,
         runs_path=runs,
@@ -170,7 +170,7 @@ def test_legacy_selection_keeps_hash_payload_and_resume_without_price_summary(tm
         screening_lane="growth_research",  # 保存済み旧政策の価格契約。
         request=original.request,
         generation_id=None,
-        screening_selection_id=None,
+        screening_selection_id=identity,
         research_as_of=None,
         known_at=now,
         runs_path=runs,
