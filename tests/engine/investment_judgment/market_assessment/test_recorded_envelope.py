@@ -112,3 +112,34 @@ def test_damaged_writer_receipt_fails_without_fallback(tmp_path):
     envelope(db, item, C - TICK)
     with pytest.raises(ValueError, match="receipt differs"):
         strict(db)
+
+
+@pytest.mark.parametrize("shape", ["only", "successor", "independent", "future_stamp"])
+def test_strict_refuses_unknown_envelope_without_borrowing_its_clock(tmp_path, shape):
+    db = tmp_path / "app"
+    prior = authored("verified", C - TICK)
+    if shape != "only":
+        envelope(db, prior, prior.published_at)
+    unknown = authored("unknown-edition", C - TICK).payload()
+    unknown["schema_version"] = 98
+    if shape == "future_stamp":
+        unknown["published_at"] = (C + TICK).isoformat()
+    seed_history(db, unknown, supersedes=prior.context_id if shape == "successor" else None)
+    with pytest.raises(
+        ValueError, match=r"unsupported market publication envelope 98: .*unknown-edition"
+    ):
+        strict(db)
+    ordinary = latest_assessment(db, as_of=C.date(), known_at=C)
+    assert (ordinary.context_id if ordinary else None) == (
+        None if shape == "only" else prior.context_id
+    )
+    assert assessment_by_id(db, context_id=unknown["context_id"]).document == unknown
+
+
+def test_strict_does_not_inspect_unknown_edition_for_a_future_business_date(tmp_path):
+    db = tmp_path / "app"
+    future = authored("future-edition", C).payload()
+    future.update(schema_version=98, as_of=(C.date() + timedelta(days=1)).isoformat())
+    seed_history(db, future)
+    assert strict(db) is None
+    assert assessment_by_id(db, context_id=future["context_id"]).document == future

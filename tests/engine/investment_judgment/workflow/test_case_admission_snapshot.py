@@ -407,3 +407,84 @@ def test_legacy_market_unknown_is_not_pinned_or_treated_as_absent(tmp_path):
     assert OperationService(app).active() is None
     assert app.read_bytes() == before
     assert not ws.exists()
+
+
+@pytest.mark.parametrize("delta", [-1, 0])
+def test_real_market_cli_refuses_nonadvancing_receipt_before_case_snapshot(
+    tmp_path, monkeypatch, capsys, delta
+):
+    from baibai_engine.cli.investment_judgment import main
+
+    app, runs, ws = tmp_path / "app", tmp_path / "runs", tmp_path / "ws"
+    draft = generated_draft_for(seed_generated_selection(runs=runs, now=C, tickers=("1234",)))
+    earlier = MarketContextAssessment(
+        context_id="market-context-assessment-2026-10-14-prior",
+        as_of=C.date(),
+        known_at=C - timedelta(minutes=4),
+        published_at=C - timedelta(minutes=2),
+        summary="on time",
+        inputs=(),
+    )
+    successor = earlier.model_copy(
+        update={"context_id": "market-context-assessment-2026-10-14-next"}
+    )
+
+    def command(doc):
+        path = tmp_path / (doc.context_id + ".json")
+        path.write_text(doc.model_dump_json())
+        return ["market-context", "--db", str(app), "publish", str(path)]
+
+    assert main(command(earlier), now=C) == 0
+    before = app.read_bytes()
+
+    def try_publish():
+        assert (
+            main(
+                [*command(successor), "--expected-head", earlier.context_id],
+                now=C + timedelta(microseconds=delta),
+            )
+            == 1
+        )
+        assert "receipt did not advance" in capsys.readouterr().err
+        assert app.read_bytes() == before
+        assert AssessmentService(app).head_id() == earlier.context_id
+
+    _after_freeze(monkeypatch, try_publish)
+    first = prepare(app, runs, ws, draft)
+    case = selection_binding(OperationService(app).get(first.operation_id).payload)
+    assert case.inputs.saved_market_context_assessment["context_id"] == earlier.context_id
+    assert datetime.fromisoformat(case.inputs.saved_market_context_assessment["recorded_at"]) == C
+    before = app.read_bytes(), (ws / "domain-inputs.yaml").read_bytes()
+    assert prepare(app, runs, ws, draft).selection_sha256 == first.selection_sha256
+    assert (app.read_bytes(), (ws / "domain-inputs.yaml").read_bytes()) == before
+
+
+@pytest.mark.parametrize("previous_case", [False, True])
+def test_unsupported_market_edition_blocks_only_new_scope_not_saved_case(tmp_path, previous_case):
+    from tests.helpers.assessment_history import seed_history
+
+    app, runs, ws = tmp_path / "app", tmp_path / "runs", tmp_path / "ws"
+    draft = generated_draft_for(seed_generated_selection(runs=runs, now=C, tickers=("1234",)))
+    first = prepare(app, runs, ws, draft) if previous_case else None
+    opaque = {
+        "schema_version": 98,
+        "as_of": C.date().isoformat(),
+        "published_at": (C + timedelta(minutes=1)).isoformat(),
+        "context_id": "market-context-assessment-2026-10-14-opaque",
+        "summary": "unsupported receipt header semantics",
+    }
+    seed_history(app, opaque)
+    before = app.read_bytes()
+    if first:
+        runs.rename(tmp_path / "runs-offline")
+        work_before = (ws / "domain-inputs.yaml").read_bytes()
+        assert prepare(app, runs, ws, draft).selection_sha256 == first.selection_sha256
+        assert (ws / "domain-inputs.yaml").read_bytes() == work_before
+    else:
+        with pytest.raises(
+            ValueError, match=r"unsupported market publication envelope 98: .*opaque"
+        ):
+            prepare(app, runs, ws, draft)
+        assert OperationService(app).active() is None
+        assert not ws.exists()
+    assert app.read_bytes() == before

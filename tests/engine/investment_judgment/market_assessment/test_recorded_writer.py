@@ -81,3 +81,30 @@ def test_future_authored_stamp_is_not_a_receipt_or_new_head(tmp_path):
         writer.publish(authored("future", C + TICK), expected_head=prior.context_id)
     assert db.read_bytes() == before
     assert writer.head_id() == prior.context_id
+
+
+@pytest.mark.parametrize("delta", [-1, 0, 1])
+@pytest.mark.parametrize("legacy_bridge", [False, True])
+def test_distinct_cas_must_advance_verified_receipt_even_through_old_writer(
+    tmp_path, delta, legacy_bridge
+):
+    db = tmp_path / "app"
+    first = authored("first", C - timedelta(minutes=2))
+    AssessmentService(db, clock=lambda: C).publish(first, expected_head=None)
+    previous = first.context_id
+    if legacy_bridge:
+        legacy = authored("bridge", C - timedelta(minutes=1))
+        seed_history(db, legacy.payload(), supersedes=previous)
+        previous = legacy.context_id
+    second = authored("second", C - timedelta(seconds=3))
+    writer = AssessmentService(db, clock=lambda: C.astimezone(UTC) + delta * TICK)
+    before = db.read_bytes()
+    if delta <= 0:
+        with pytest.raises(ValueError, match="receipt did not advance"):
+            writer.publish(second, expected_head=previous)
+        assert db.read_bytes() == before
+        assert writer.head_id() == previous
+    else:
+        assert writer.publish(second, expected_head=previous) == second
+        assert strict(db, C + TICK).context_id == second.context_id
+    assert assessment_by_id(db, context_id=first.context_id).recorded_at == C
