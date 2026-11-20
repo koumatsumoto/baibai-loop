@@ -114,6 +114,51 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
     assert not any("economic-" in key for key in remote.put_keys)
 
 
+@pytest.mark.parametrize("command", ["plan", "apply", "seal", "check"])
+def test_group_cannot_turn_a_scoped_retry_into_an_unscoped_command(
+    tmp_path, monkeypatch, capsys, command
+):
+    def unexpected_store(**_):
+        pytest.fail("a rejected scope must not access the remote store")
+
+    monkeypatch.setattr(sources, "Boto3R2Store", unexpected_store)
+    work = tmp_path / "untouched"
+    assert sources.main([command, "--directory", str(work), "--group", "tradingview"]) == 1
+    assert "--group is only valid with inputs" in capsys.readouterr().err
+    assert not work.exists()
+
+
+def test_reissue_only_failed_article_input_without_touching_other_plans(tmp_path, monkeypatch):
+    remote, _, command = _input_cli(tmp_path, monkeypatch)
+    failed = "boj_news"
+    publish = sources.publish_planning_input
+
+    def fail_boj(store, source, generations):
+        if source == failed:
+            raise ValueError("simulated planning failure")
+        publish(store, source, generations)
+
+    monkeypatch.setattr(sources, "publish_planning_input", fail_boj)
+    assert sources.main(command) == 1
+    assert source_key(failed) not in remote.values
+    assert input_key("tradingview") in remote.values
+    before = dict(remote.values)
+    monkeypatch.setattr(sources, "publish_planning_input", publish)
+    remote.get_keys.clear()
+    remote.head_keys.clear()
+    remote.put_keys.clear()
+    assert sources.main([*command, "--group", failed]) == 0
+    assert remote.put_keys == [source_key(failed)]
+    assert {key: remote.values[key] for key in before} == before
+    assert not {
+        key
+        for key in remote.get_keys + remote.head_keys
+        if key.startswith(("coordination/article-planning/", "coordination/source-inputs/"))
+        and key != source_key(failed)
+    }
+    assert load_planning(remote, failed)[0].generations == GENERATIONS
+
+
 @pytest.mark.parametrize("group", ["edinet-list", "edinet-metrics", "edinet-facts"])
 def test_explicit_edinet_input_is_rejected(tmp_path, monkeypatch, capsys, group):
     remote, _, command = _input_cli(tmp_path, monkeypatch)

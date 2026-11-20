@@ -476,6 +476,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.group is not None and args.command != "inputs":
+        print("--group is only valid with inputs", file=sys.stderr)
+        return 1
     try:
         if args.recover_jpx_stage and args.command != "plan":
             raise ValueError("--recover-jpx-stage is only valid with plan")
