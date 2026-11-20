@@ -391,7 +391,8 @@ def _tv_quality_day(report: dict[str, Any]) -> str | None:
         "native_lists",
         "native_archives",
     } or any(
-        type(item.get("exit_code")) is not int
+        not isinstance(item, dict)
+        or type(item.get("exit_code")) is not int
         or item["exit_code"] != 0
         or item.get("status") != "completed"
         or item.get("deferred_inputs")
@@ -418,9 +419,10 @@ def _tv_quality_day(report: dict[str, Any]) -> str | None:
             continue
         if rejected_stage or entry.get("source") != "tradingview" or entry.get("asof") != day:
             return None
-        result = outcome["result"]
+        result = outcome.get("result")
         if (
-            "reason" in result
+            not isinstance(result, dict)
+            or "reason" in result
             or result.get("snapshot_date") != day
             or any(
                 type(result.get(key)) is not int or result[key] != 0
@@ -437,12 +439,14 @@ def _tv_quality_day(report: dict[str, Any]) -> str | None:
         if not all(isinstance(ident, str) and ident for ident in fixed):
             return None
         # All of the fixed originals must be accounted for once, not just a nonempty reason list.
-        ids = [item["receipt_id"] for item in rejected if item.get("reason") == "provider_response"]
-        if (
-            len(set(fixed)) != len(fixed)
-            or len(ids) != len(rejected)
-            or sorted(ids) != sorted(fixed)
-        ):
+        ids = []
+        for item in rejected:
+            match item:
+                case {"receipt_id": str(identity), "reason": "provider_response"}:
+                    ids.append(identity)
+                case _:
+                    return None
+        if len(set(fixed)) != len(fixed) or sorted(ids) != sorted(fixed):
             return None
         rejected_stage = True
     return day if rejected_stage else None

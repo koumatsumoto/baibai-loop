@@ -138,3 +138,22 @@ def test_neither_success_nor_multiple_failed_stages_are_the_one_known_quality_fa
     path.write_text(json.dumps(report))
     assert main(args) == 0
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "bad_receipt",
+    [None, {"reason": "provider_response"}, {"receipt_id": 1, "reason": "provider_response"}],
+)
+def test_malformed_optional_rejection_preserves_existing_check_diagnostics(
+    tmp_path, capsys, bad_receipt
+):
+    report = _report("2026-11-19", 3, None)
+    report["handoffs"][0]["result"]["rejected_receipts"][1] = bad_receipt
+    (tmp_path / "applied.json").write_text(json.dumps(report))
+    args = ["check", "--directory", str(tmp_path)]
+    assert main(args) == 1
+    before = capsys.readouterr()
+    output = tmp_path / "output"
+    assert main([*args, "--quality-output", str(output)]) == 1
+    assert capsys.readouterr() == before
+    assert not output.exists()

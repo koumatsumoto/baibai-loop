@@ -21,6 +21,8 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
+from functools import partial
+from itertools import islice
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -108,6 +110,7 @@ class WorkflowRun:
     target_date: date | None
     run_id: int
     run_attempt: int
+    display_title: str = ""
 
     @property
     def succeeded(self) -> bool:
@@ -134,6 +137,7 @@ STATE_PUBLISHED_QUALITY = "published_source_quality"
 
 TV_QUALITY_SUFFIX = " [fixed TradingView receipt quality]"
 SOURCE_CHECK_STEP = "Report integration failures and deferred source inputs"
+CANCELLATION_STEP = "Record cancellation"
 PUBLISHED_STEPS = {
     "Acquire publication lease",
     "Apply fixed original receipts and common offline extraction",
@@ -204,6 +208,7 @@ def parse_runs(payload: object) -> tuple[WorkflowRun, ...]:
         created_at = _parse_instant(entry.get("created_at"), field="created_at")
         updated_at = _parse_instant(entry.get("updated_at"), field="updated_at")
         status = str(entry.get("status", "unknown"))
+        display_title = str(entry.get("display_title") or "")
         target = None
         actual = entry.get("batch_asof")
         if actual is not None:
@@ -218,7 +223,7 @@ def parse_runs(payload: object) -> tuple[WorkflowRun, ...]:
         elif status != "completed":
             target = run_target_date(
                 event=event,
-                display_title=str(entry.get("display_title") or ""),
+                display_title=display_title,
                 created_at=created_at,
             )
         run_id, attempt = entry.get("id"), entry.get("run_attempt")
@@ -235,6 +240,7 @@ def parse_runs(payload: object) -> tuple[WorkflowRun, ...]:
                 target_date=target,
                 run_id=run_id,
                 run_attempt=attempt,
+                display_title=display_title,
             )
         )
     return tuple(runs)
@@ -243,7 +249,9 @@ def parse_runs(payload: object) -> tuple[WorkflowRun, ...]:
 JobsReader = Callable[[str, int, int], object]
 
 
-def _read_attempt_jobs(repository: str, run_id: int, attempt: int) -> object:
+def _read_attempt_jobs(
+    repository: str, run_id: int, attempt: int, *, timeout: float = 30
+) -> object:
     """Read step results from the listed attempt, never from another rerun."""
     try:
         # fixed gh read with validated integer ids
@@ -256,11 +264,14 @@ def _read_attempt_jobs(repository: str, run_id: int, attempt: int) -> object:
             capture_output=True,
             text=True,
             check=True,
-            timeout=30,
+            timeout=timeout,
         )
         return json.loads(result.stdout)
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         raise WatchdogInputError("cannot read daily attempt results") from exc
+
+
+_read_quality_attempt_jobs: JobsReader = partial(_read_attempt_jobs, timeout=5)
 
 
 def resolve_run_results(
@@ -362,16 +373,24 @@ def evaluate(
     )
 
 
-def _has_published_quality_result(run: WorkflowRun, day: date, payload: object) -> bool:
-    """Positive evidence from one complete job in this exact failed attempt only."""
+def _iso_day(value: str) -> date | None:
+    try:
+        day = date.fromisoformat(value)
+    except ValueError:
+        return None
+    return day if day.isoformat() == value else None
+
+
+def _failed_daily_result(run: WorkflowRun, payload: object) -> tuple[date, bool] | None:
+    """Return the reported date and whether this exact attempt proves a quality-only failure."""
     if not isinstance(payload, Mapping) or not isinstance(payload.get("jobs"), list):
-        raise WatchdogInputError("attempt results must carry a jobs array")
+        return None
     jobs = payload["jobs"]
     if len(jobs) != 1 or type(payload.get("total_count")) is not int or payload["total_count"] != 1:
-        return False
+        return None
     job = jobs[0]
     if not isinstance(job, Mapping) or not isinstance(job.get("steps"), list):
-        raise WatchdogInputError("attempt job must carry a steps array")
+        return None
     if (
         type(job.get("run_id")) is not int
         or job["run_id"] != run.run_id
@@ -381,11 +400,11 @@ def _has_published_quality_result(run: WorkflowRun, day: date, payload: object) 
         or job.get("status") != "completed"
         or job.get("conclusion") != "failure"
     ):
-        return False
+        return None
     results = {}
     for step in job["steps"]:
         if not isinstance(step, Mapping):
-            raise WatchdogInputError("attempt step must be an object")
+            return None
         name, conclusion = step.get("name"), step.get("conclusion")
         if (
             not isinstance(name, str)
@@ -393,23 +412,59 @@ def _has_published_quality_result(run: WorkflowRun, day: date, payload: object) 
             or step.get("status") != "completed"
             or conclusion not in ("success", "skipped", "failure")
         ):
-            return False
+            return None
         results[name] = conclusion
-    notice = RESULT_STEP_PREFIX + day.isoformat() + TV_QUALITY_SUFFIX
-    return (
-        [name for name in results if name.startswith(RESULT_STEP_PREFIX)] == [notice]
-        and all(results.get(name) == "success" for name in PUBLISHED_STEPS | {notice})
+    notices = [name for name in results if name.startswith(RESULT_STEP_PREFIX)]
+    if (
+        len(notices) != 1
+        or results[notices[0]] != "success"
+        or results.get(CANCELLATION_STEP) != "skipped"
+    ):
+        return None
+    value = notices[0][len(RESULT_STEP_PREFIX) :]
+    day = _iso_day(value.removesuffix(TV_QUALITY_SUFFIX))
+    if day is None:
+        return None
+    return day, (
+        value.endswith(TV_QUALITY_SUFFIX)
+        and all(results.get(name) == "success" for name in PUBLISHED_STEPS)
         and [name for name, status in results.items() if status == "failure"] == [SOURCE_CHECK_STEP]
     )
 
 
+def _pins_another_daily_date(run: WorkflowRun, target: date) -> bool:
+    match run.event, run.display_title.split():
+        case "workflow_dispatch", ["daily", value]:
+            pinned = _iso_day(value)
+            return pinned is not None and pinned != target
+    return False
+
+
 def _resolve_missing_daily(verdict: Verdict, repository: str, read_jobs: JobsReader) -> Verdict:
-    # Healthy, delayed and in-flight verdicts need no additional GitHub reads.
-    for run in reversed(verdict.runs_in_window):
-        if run.status == "completed" and run.conclusion == "failure":
-            jobs = read_jobs(repository, run.run_id, run.run_attempt)
-            if _has_published_quality_result(run, verdict.check_date, jobs):
-                return replace(verdict, state=STATE_PUBLISHED_QUALITY, quality_run=run)
+    candidates = (
+        run
+        for run in reversed(verdict.runs_in_window)
+        if not (run.succeeded or run.in_flight or _pins_another_daily_date(run, verdict.check_date))
+    )
+    inspected = 0
+    for run in islice(candidates, 2):
+        inspected += 1
+        if run.conclusion != "failure":
+            break  # A newer cancellation/unknown terminal may already have written.
+        try:
+            evidence = _failed_daily_result(run, read_jobs(repository, run.run_id, run.run_attempt))
+        except WatchdogInputError:
+            evidence = None
+        if evidence == (verdict.check_date, True):
+            return replace(verdict, state=STATE_PUBLISHED_QUALITY, quality_run=run)
+        if evidence is None or evidence[0] == verdict.check_date:
+            break  # Only a positively different date can make an older attempt relevant.
+    if inspected:
+        print(
+            f"watchdog: no conclusive daily quality evidence in {inspected} "
+            "terminal attempt(s); keeping MISSING",
+            file=sys.stderr,
+        )
     return verdict
 
 
@@ -523,6 +578,7 @@ def main(
     *,
     transport: Transport = _urllib_transport,
     read_jobs: JobsReader = _read_attempt_jobs,
+    read_quality_jobs: JobsReader = _read_quality_attempt_jobs,
 ) -> int:
     args = build_parser().parse_args(argv)
     env = os.environ
@@ -603,15 +659,15 @@ def main(
                 if any(item.state == STATE_IN_FLIGHT for item in verdicts)
                 else STATE_HEALTHY,
             )
+        if args.check_date and verdict.alerting:
+            # Use the unfiltered page: source selection is not history coverage.
+            _require_historical_window(history, window_start=verdict.window_start)
         if (
             args.read_run_results
             and not (args.economic or args.market)
             and verdict.state == STATE_MISSING
         ):
-            verdict = _resolve_missing_daily(verdict, env["GITHUB_REPOSITORY"], read_jobs)
-        if args.check_date and verdict.alerting:
-            # Use the unfiltered page: source selection is not history coverage.
-            _require_historical_window(history, window_start=verdict.window_start)
+            verdict = _resolve_missing_daily(verdict, env["GITHUB_REPOSITORY"], read_quality_jobs)
     except (OSError, json.JSONDecodeError, WatchdogInputError) as exc:
         print(f"error: cannot evaluate the batch window: {exc}", file=sys.stderr)
         return 1

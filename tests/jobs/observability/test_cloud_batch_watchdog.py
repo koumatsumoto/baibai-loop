@@ -1259,7 +1259,7 @@ def test_scheduled_check_keeps_its_existing_missing_notice_with_truncated_histor
     assert "[MISSING]" in _delivered_message(transport)
 
 
-def _quality_job():
+def _quality_job(*, number=71, day="2026-08-03"):
     from baibai_jobs.observability.watchdog import (
         PUBLISHED_STEPS,
         SOURCE_CHECK_STEP,
@@ -1269,14 +1269,14 @@ def _quality_job():
     statuses = {
         **dict.fromkeys(sorted(PUBLISHED_STEPS), "success"),
         SOURCE_CHECK_STEP: "failure",
-        RESULT_STEP_PREFIX + "2026-08-03" + TV_QUALITY_SUFFIX: "success",
+        RESULT_STEP_PREFIX + day + TV_QUALITY_SUFFIX: "success",
         "Record cancellation": "skipped",
     }
     return {
         "total_count": 1,
         "jobs": [
             {
-                "run_id": 71,
+                "run_id": number,
                 "run_attempt": 2,
                 "name": "daily",
                 "status": "completed",
@@ -1348,7 +1348,7 @@ def test_only_an_attempt_and_date_bound_quality_marker_replaces_the_missing_aler
         main(
             ["--runs-json", str(path), "--check-date", "2026-08-03", "--read-run-results"],
             transport=transport,
-            read_jobs=read_jobs,
+            read_quality_jobs=read_jobs,
         )
         == 0
     )
@@ -1377,13 +1377,15 @@ def test_only_an_attempt_and_date_bound_quality_marker_replaces_the_missing_aler
         ("notice", "status", "in_progress"),
         ("source check", "conclusion", "skipped"),
         ("other", "conclusion", "failure"),
+        ("other", "conclusion", "success"),
+        ("other", "name", "cancellation result missing"),
         ("other", "conclusion", "cancelled"),
         ("other", "name", RESULT_STEP_PREFIX + "2026-08-02"),
         ("other", "name", "Release publication lease"),
     ],
 )
 def test_unproven_failed_attempt_is_not_reclassified(target, key, bad):
-    from baibai_jobs.observability.watchdog import SOURCE_CHECK_STEP, _has_published_quality_result
+    from baibai_jobs.observability.watchdog import SOURCE_CHECK_STEP, _failed_daily_result
 
     payload = _quality_job()
     job = payload["jobs"][0]
@@ -1399,11 +1401,11 @@ def test_unproven_failed_attempt_is_not_reclassified(target, key, bad):
     (run,) = parse_runs(
         _listing(_run(number=71, attempt=2, created_at=FIRED_AT, conclusion="failure"))
     )
-    assert not _has_published_quality_result(run, FIRED_AT.date(), payload)
+    assert _failed_daily_result(run, payload) != (FIRED_AT.date(), True)
 
 
 def test_every_required_publication_step_must_explicitly_succeed():
-    from baibai_jobs.observability.watchdog import PUBLISHED_STEPS, _has_published_quality_result
+    from baibai_jobs.observability.watchdog import PUBLISHED_STEPS, _failed_daily_result
 
     payload = _quality_job()
     (run,) = parse_runs(
@@ -1413,5 +1415,103 @@ def test_every_required_publication_step_must_explicitly_succeed():
         if step["name"] in PUBLISHED_STEPS:
             for outcome in ("skipped", "failure"):
                 step["conclusion"] = outcome
-                assert not _has_published_quality_result(run, FIRED_AT.date(), payload), step
+                assert _failed_daily_result(run, payload) != (FIRED_AT.date(), True), step
             step["conclusion"] = "success"
+
+
+def _watch_failed_daily(tmp_path, monkeypatch, rows, **readers):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", WEBHOOK)
+    transport = FakeTransport()
+    path = _write_listing(tmp_path, _listing(*rows))
+    assert (
+        main(
+            ["--runs-json", str(path), "--check-date", "2026-08-03", "--read-run-results"],
+            transport=transport,
+            **readers,
+        )
+        == 0
+    )
+    return _delivered_message(transport)
+
+
+def _failed_row(id, *, title=None, conclusion="failure"):
+    return _run(
+        number=id,
+        attempt=2,
+        created_at=FIRED_AT - timedelta(minutes=100 - id),
+        conclusion=conclusion,
+        event="workflow_dispatch" if title is not None else "schedule",
+        display_title=title,
+        batch_asof=None,
+    )
+
+
+@pytest.mark.parametrize("verify_second", [True, False])
+def test_daily_probe_skips_proven_other_dates_but_never_exceeds_two_reads(
+    tmp_path, monkeypatch, capsys, verify_second
+):
+    rows = [*(_failed_row(i) for i in range(70, 75)), _failed_row(75, title="daily 2026-08-02")]
+    calls = []
+
+    def read_jobs(repo, run_id, attempt):
+        calls.append((repo, run_id, attempt))
+        day = "2026-08-03" if verify_second and run_id == 73 else "2026-08-02"
+        return _quality_job(number=run_id, day=day)
+
+    notice = _watch_failed_daily(tmp_path, monkeypatch, rows, read_quality_jobs=read_jobs)
+    assert calls == [("owner/repo", 74, 2), ("owner/repo", 73, 2)]
+    assert ("[SOURCE QUALITY]" if verify_second else "[MISSING]") in notice
+    if not verify_second:
+        assert "keeping MISSING" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("latest", ["mixed", "unknown date", "unmarked", "bad API", "cancelled"])
+def test_newer_ambiguous_terminal_attempt_cannot_be_covered_by_older_quality(
+    tmp_path, monkeypatch, capsys, latest
+):
+    from baibai_jobs.observability.watchdog import TV_QUALITY_SUFFIX
+
+    calls = []
+
+    def read_jobs(repo, run_id, attempt):
+        calls.append(run_id)
+        data = _quality_job(number=run_id)
+        if run_id == 71:
+            return data  # This older valid marker must never be read.
+        if latest == "bad API":
+            return {"jobs": None}
+        steps = data["jobs"][0]["steps"]
+        notice = next(step for step in steps if step["name"].startswith(RESULT_STEP_PREFIX))
+        if latest == "mixed":
+            steps.append({"name": "Other failure", "status": "completed", "conclusion": "failure"})
+        if latest == "unknown date":
+            notice["name"] = RESULT_STEP_PREFIX + "unknown"
+        if latest == "unmarked":
+            notice["name"] = notice["name"].removesuffix(TV_QUALITY_SUFFIX)
+        return data
+
+    rows = [
+        _failed_row(71),
+        _failed_row(72, conclusion="cancelled" if latest == "cancelled" else "failure"),
+    ]
+    notice = _watch_failed_daily(tmp_path, monkeypatch, rows, read_quality_jobs=read_jobs)
+    assert calls == ([] if latest == "cancelled" else [72])
+    assert "[MISSING]" in notice
+    assert "keeping MISSING" in capsys.readouterr().err
+
+
+def test_daily_probe_timeout_never_blocks_legacy_missing_alert(tmp_path, monkeypatch, capsys):
+    import subprocess
+
+    calls = []
+
+    def timeout(argv, **kwargs):
+        calls.append(kwargs["timeout"])
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", timeout)
+    notice = _watch_failed_daily(tmp_path, monkeypatch, [_failed_row(71)])
+    assert calls == [5]
+    assert "[MISSING]" in notice
+    assert "keeping MISSING" in capsys.readouterr().err
