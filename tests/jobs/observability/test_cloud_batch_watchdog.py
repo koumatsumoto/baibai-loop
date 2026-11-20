@@ -1257,3 +1257,161 @@ def test_scheduled_check_keeps_its_existing_missing_notice_with_truncated_histor
     code, transport = _run_main(tmp_path, monkeypatch, payload)
     assert code == 0
     assert "[MISSING]" in _delivered_message(transport)
+
+
+def _quality_job():
+    from baibai_jobs.observability.watchdog import (
+        PUBLISHED_STEPS,
+        SOURCE_CHECK_STEP,
+        TV_QUALITY_SUFFIX,
+    )
+
+    statuses = {
+        **dict.fromkeys(sorted(PUBLISHED_STEPS), "success"),
+        SOURCE_CHECK_STEP: "failure",
+        RESULT_STEP_PREFIX + "2026-08-03" + TV_QUALITY_SUFFIX: "success",
+        "Record cancellation": "skipped",
+    }
+    return {
+        "total_count": 1,
+        "jobs": [
+            {
+                "run_id": 71,
+                "run_attempt": 2,
+                "name": "daily",
+                "status": "completed",
+                "conclusion": "failure",
+                "steps": [
+                    {"name": n, "status": "completed", "conclusion": c} for n, c in statuses.items()
+                ],
+            }
+        ],
+    }
+
+
+def test_quality_proof_is_wired_only_to_the_existing_post_seal_check_and_notice():
+    from baibai_jobs.observability.watchdog import (
+        PUBLISHED_STEPS,
+        SOURCE_CHECK_STEP,
+        TV_QUALITY_SUFFIX,
+    )
+
+    raw = (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+    workflow = yaml.load(raw, Loader=yaml.BaseLoader)
+    assert list(workflow["jobs"]) == ["daily"]
+    steps = {s["id"]: s for s in workflow["jobs"]["daily"]["steps"] if "id" in s}
+    assert {
+        steps[key]["name"]
+        for key in (
+            "lease-acquire",
+            "source-integration",
+            "batch",
+            "upload-stores",
+            "source-seal",
+            "source-inputs",
+            "economic-check",
+            "portfolio-views",
+            "lease-release",
+        )
+    } == PUBLISHED_STEPS
+    check = steps["source-check"]
+    assert check["name"] == SOURCE_CHECK_STEP
+    assert "steps.source-seal.outcome == 'success'" in check["if"]
+    assert '--quality-output "$GITHUB_OUTPUT"' in check["run"]
+    assert sum("--quality-output" in step.get("run", "") for step in steps.values()) == 1
+    assert "continue-on-error" not in check
+    notice = steps["notify"]["name"]
+    assert notice.startswith(RESULT_STEP_PREFIX)
+    assert "steps.source-check.outputs.tv_quality_asof != ''" in notice
+    assert "steps.source-check.outputs.tv_quality_asof == steps.batch.outputs.asof" in notice
+    assert f"&& '{TV_QUALITY_SUFFIX}' || ''" in notice
+
+
+def test_only_an_attempt_and_date_bound_quality_marker_replaces_the_missing_alert(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", WEBHOOK)
+    transport, calls = FakeTransport(), []
+    path = _write_listing(
+        tmp_path,
+        _listing(
+            _run(number=71, attempt=2, created_at=FIRED_AT, conclusion="failure", batch_asof=None)
+        ),
+    )
+
+    def read_jobs(repo, run_id, attempt):
+        calls.append((repo, run_id, attempt))
+        return _quality_job()
+
+    assert (
+        main(
+            ["--runs-json", str(path), "--check-date", "2026-08-03", "--read-run-results"],
+            transport=transport,
+            read_jobs=read_jobs,
+        )
+        == 0
+    )
+    assert calls == [("owner/repo", 71, 2)]
+    message = _delivered_message(transport)
+    assert "[SOURCE QUALITY]" in message
+    assert "[MISSING]" not in message
+    assert "2026-08-03" in message
+    assert "公開済み" in message
+    assert "https://github.com/owner/repo/actions/runs/71/attempts/2" in message
+
+
+@pytest.mark.parametrize(
+    ("target", "key", "bad"),
+    [
+        ("listing", "total_count", 2),
+        ("job", "name", "unrelated"),
+        ("job", "run_id", 70),
+        ("job", "run_attempt", 1),
+        ("job", "run_attempt", None),
+        ("job", "status", "in_progress"),
+        ("job", "conclusion", "cancelled"),
+        ("notice", "name", RESULT_STEP_PREFIX + "2026-08-03"),
+        ("notice", "name", RESULT_STEP_PREFIX + "2026-08-02 [fixed TradingView receipt quality]"),
+        ("notice", "conclusion", "skipped"),
+        ("notice", "status", "in_progress"),
+        ("source check", "conclusion", "skipped"),
+        ("other", "conclusion", "failure"),
+        ("other", "conclusion", "cancelled"),
+        ("other", "name", RESULT_STEP_PREFIX + "2026-08-02"),
+        ("other", "name", "Release publication lease"),
+    ],
+)
+def test_unproven_failed_attempt_is_not_reclassified(target, key, bad):
+    from baibai_jobs.observability.watchdog import SOURCE_CHECK_STEP, _has_published_quality_result
+
+    payload = _quality_job()
+    job = payload["jobs"][0]
+    steps = job["steps"]
+    obj = {
+        "listing": payload,
+        "job": job,
+        "notice": next(s for s in steps if s["name"].startswith(RESULT_STEP_PREFIX)),
+        "source check": next(s for s in steps if s["name"] == SOURCE_CHECK_STEP),
+        "other": steps[-1],
+    }[target]
+    obj[key] = bad
+    (run,) = parse_runs(
+        _listing(_run(number=71, attempt=2, created_at=FIRED_AT, conclusion="failure"))
+    )
+    assert not _has_published_quality_result(run, FIRED_AT.date(), payload)
+
+
+def test_every_required_publication_step_must_explicitly_succeed():
+    from baibai_jobs.observability.watchdog import PUBLISHED_STEPS, _has_published_quality_result
+
+    payload = _quality_job()
+    (run,) = parse_runs(
+        _listing(_run(number=71, attempt=2, created_at=FIRED_AT, conclusion="failure"))
+    )
+    for step in payload["jobs"][0]["steps"]:
+        if step["name"] in PUBLISHED_STEPS:
+            for outcome in ("skipped", "failure"):
+                step["conclusion"] = outcome
+                assert not _has_published_quality_result(run, FIRED_AT.date(), payload), step
+            step["conclusion"] = "success"

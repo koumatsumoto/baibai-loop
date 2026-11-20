@@ -130,6 +130,21 @@ STATE_HEALTHY = "healthy"
 STATE_IN_FLIGHT = "in_flight"
 STATE_MISSING = "missing"
 STATE_DELAYED = "delayed"
+STATE_PUBLISHED_QUALITY = "published_source_quality"
+
+TV_QUALITY_SUFFIX = " [fixed TradingView receipt quality]"
+SOURCE_CHECK_STEP = "Report integration failures and deferred source inputs"
+PUBLISHED_STEPS = {
+    "Acquire publication lease",
+    "Apply fixed original receipts and common offline extraction",
+    "Generate models and candidates, then publish the same fixed release",
+    "Upload the core machine stores",
+    "Seal canonical market handoffs",
+    "Refresh source-scoped inputs from this canonical generation",
+    "Report retained economic source failures",
+    "Publish retained portfolio views",
+    "Release publication lease",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,10 +164,11 @@ class Verdict:
     window_end: datetime
     runs_in_window: tuple[WorkflowRun, ...]
     delayed_runs: tuple[WorkflowRun, ...] = ()
+    quality_run: WorkflowRun | None = None
 
     @property
     def alerting(self) -> bool:
-        return self.state in {STATE_MISSING, STATE_DELAYED}
+        return self.state in {STATE_MISSING, STATE_DELAYED, STATE_PUBLISHED_QUALITY}
 
 
 def _parse_instant(value: object, *, field: str) -> datetime:
@@ -346,6 +362,57 @@ def evaluate(
     )
 
 
+def _has_published_quality_result(run: WorkflowRun, day: date, payload: object) -> bool:
+    """Positive evidence from one complete job in this exact failed attempt only."""
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("jobs"), list):
+        raise WatchdogInputError("attempt results must carry a jobs array")
+    jobs = payload["jobs"]
+    if len(jobs) != 1 or type(payload.get("total_count")) is not int or payload["total_count"] != 1:
+        return False
+    job = jobs[0]
+    if not isinstance(job, Mapping) or not isinstance(job.get("steps"), list):
+        raise WatchdogInputError("attempt job must carry a steps array")
+    if (
+        type(job.get("run_id")) is not int
+        or job["run_id"] != run.run_id
+        or type(job.get("run_attempt")) is not int
+        or job["run_attempt"] != run.run_attempt
+        or job.get("name") != "daily"
+        or job.get("status") != "completed"
+        or job.get("conclusion") != "failure"
+    ):
+        return False
+    results = {}
+    for step in job["steps"]:
+        if not isinstance(step, Mapping):
+            raise WatchdogInputError("attempt step must be an object")
+        name, conclusion = step.get("name"), step.get("conclusion")
+        if (
+            not isinstance(name, str)
+            or name in results
+            or step.get("status") != "completed"
+            or conclusion not in ("success", "skipped", "failure")
+        ):
+            return False
+        results[name] = conclusion
+    notice = RESULT_STEP_PREFIX + day.isoformat() + TV_QUALITY_SUFFIX
+    return (
+        [name for name in results if name.startswith(RESULT_STEP_PREFIX)] == [notice]
+        and all(results.get(name) == "success" for name in PUBLISHED_STEPS | {notice})
+        and [name for name, status in results.items() if status == "failure"] == [SOURCE_CHECK_STEP]
+    )
+
+
+def _resolve_missing_daily(verdict: Verdict, repository: str, read_jobs: JobsReader) -> Verdict:
+    # Healthy, delayed and in-flight verdicts need no additional GitHub reads.
+    for run in reversed(verdict.runs_in_window):
+        if run.status == "completed" and run.conclusion == "failure":
+            jobs = read_jobs(repository, run.run_id, run.run_attempt)
+            if _has_published_quality_result(run, verdict.check_date, jobs):
+                return replace(verdict, state=STATE_PUBLISHED_QUALITY, quality_run=run)
+    return verdict
+
+
 def render_alert(
     verdict: Verdict,
     *,
@@ -354,6 +421,22 @@ def render_alert(
     workflow: str = WATCHED_WORKFLOW,
 ) -> str:
     """Render the bounded alert message for a window with no successful run."""
+    if verdict.quality_run is not None:
+        run = verdict.quality_run
+        return render_run_notice(
+            label="[SOURCE QUALITY]",
+            batch="実行監視（cloud-batch-watchdog）",
+            asof=verdict.check_date.isoformat(),
+            details=[
+                "日次本体は公開済み。失敗したのは個社TradingViewの固定受領品質チェックのみ。",
+                "この受領失敗だけを理由に日次全体は再実行しない。他の取得の完全性は未確認。",
+                (
+                    f"対象attempt: https://github.com/{sanitize_one_line(repository)}"
+                    f"/actions/runs/{run.run_id}/attempts/{run.run_attempt}"
+                ),
+            ],
+            url=watchdog_run_url,
+        )
     window_hours = int((verdict.window_end - verdict.window_start).total_seconds() // 3600)
     lines = [
         f"監視対象: {sanitize_one_line(workflow)}",
@@ -520,6 +603,12 @@ def main(
                 if any(item.state == STATE_IN_FLIGHT for item in verdicts)
                 else STATE_HEALTHY,
             )
+        if (
+            args.read_run_results
+            and not (args.economic or args.market)
+            and verdict.state == STATE_MISSING
+        ):
+            verdict = _resolve_missing_daily(verdict, env["GITHUB_REPOSITORY"], read_jobs)
         if args.check_date and verdict.alerting:
             # Use the unfiltered page: source selection is not history coverage.
             _require_historical_window(history, window_start=verdict.window_start)
@@ -551,9 +640,9 @@ def main(
     if failure is not None:
         print(f"error: watchdog alert failed: {failure}", file=sys.stderr)
         return 1
+    reason = verdict.state if verdict.quality_run else "no successful run"
     print(
-        f"watchdog: alert delivered; no successful run for "
-        f"{verdict.check_date.isoformat()} inside {window}"
+        f"watchdog: alert delivered; {reason} for {verdict.check_date.isoformat()} inside {window}"
     )
     return 0
 

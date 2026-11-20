@@ -72,6 +72,8 @@ lake hydrateの先読みは接続障害なら逐次読取へ戻るが、adapter�
 
 [watchdog](../.github/workflows/cloud-batch-watchdog.yml)のMISSINGは対象日を固定して調べる。取得履歴は各workflowの最新100runまで。成功/進行中を確認できず履歴が過去日の確認窓へ届かなければ、履歴不足で停止しMISSING通知を送らない。古いrunの再試行・削除前の状態までは復元せず、過去の診断には対象日を含む保存履歴を使う。
 
+dailyの `[SOURCE QUALITY]` はMISSINGでも成功でもない。通知に示す日付・attemptで本体、machine、seal、入力更新、表示、lease解放が成功し、失敗は個社TradingViewの固定受領の応答拒否だけ。元runの赤と既存の取得gapは残る。受領品質は日次全体をやり直しても直らないため対象attemptを確認する。提供元の障害原因、他sourceの完全性、その後の最新世代を保証せず、状態値導入前の赤はstep名だけで推定しない。
+
 dailyだけは、対象日が明確な初回attemptで同日の成功がなく、queuedの待機が210分を超えると既存通知先へDELAYEDを送る。210分は既存job上限を参照したqueue ageで、実行時間の制限・停止や原因の断定ではない。再実行attemptは今回のqueue開始を確定できないためin_flightのままにし、長時間in_progressと対象日不明の手動runには適用せず、自動cancel/再dispatchもしない。監視は既存scheduleの実行時点だけで、超過直後の通知を保証しない。
 
 ```bash
