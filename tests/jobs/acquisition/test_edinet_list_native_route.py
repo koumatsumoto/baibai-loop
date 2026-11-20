@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import sqlite3
 from contextlib import closing
@@ -9,6 +10,7 @@ import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.list_native import (
+    HEAD_KEY,
     EdinetListL1,
     NativeListReceipt,
 )
@@ -19,7 +21,10 @@ from baibai_engine.data_collection.providers.edinet.models import (
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.edinet_list_native import acquire_lists
-from baibai_jobs.integration.edinet_list_native import materialize_lists
+from baibai_jobs.integration.edinet_list_native import (
+    materialize_lists,
+    project_execution_lists,
+)
 from baibai_jobs.integration.source_handoff import main as handoff_main
 
 DAY = date(2026, 11, 2)
@@ -152,6 +157,14 @@ def test_cold_and_warm_rebuild_preserve_same_eligible_prior_and_report_failure(t
     assert warm_result == cold_result
     assert warm_result["failed_days"] == [DAY.isoformat()]
     assert contents(warm) == contents(cold)
+    execution = tmp_path / "execution.sqlite"
+    execution_result, evidence = project_execution_lists(fixed, execution)
+    assert execution_result == cold_result
+    assert evidence.failed_days == (DAY.isoformat(),)
+    assert {item.receipt_id for item in evidence.receipts} == {
+        item.receipt_id for item in (first, *additions)
+    }
+    assert contents(execution) == {**contents(cold), "edinet_list_responses": []}
     with closing(sqlite3.connect(cold)) as conn:
         assert conn.execute(
             "SELECT selected_receipt_id,latest_received_at_utc FROM edinet_document_lists"
@@ -178,7 +191,10 @@ def test_receipt_set_not_max_clock_drives_rebuild_and_fixed_head_is_stable(tmp_p
         assert conn.execute("SELECT sec_code FROM edinet_documents").fetchone() == (None,)
 
 
-def test_unknown_legacy_receipt_blocks_materialization_without_dropping_anything(tmp_path):
+@pytest.mark.parametrize("apply_lists", [materialize_lists, project_execution_lists])
+def test_unknown_legacy_receipt_blocks_materialization_without_dropping_anything(
+    tmp_path, apply_lists
+):
     _, owner = owner_at(tmp_path, [receipt()])
     database = tmp_path / "market.sqlite"
     unknown = receipt(at=AT + timedelta(seconds=1))
@@ -194,7 +210,26 @@ def test_unknown_legacy_receipt_blocks_materialization_without_dropping_anything
         )
     before = database.read_bytes()
     with pytest.raises(ValueError, match="outside the fixed"):
-        materialize_lists(owner.freeze(), database)
+        apply_lists(owner.freeze(), database)
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("tamper", ["missing", "body"])
+def test_unavailable_fixed_body_stops_before_changing_working_projection(tmp_path, tamper):
+    store, owner = owner_at(tmp_path, [receipt()])
+    fixed = owner.freeze()
+    database = tmp_path / "market.sqlite"
+    report, _ = project_execution_lists(fixed, database)
+    assert report["status"] == "completed"
+    assert not contents(database)["edinet_documents"]
+    before = database.read_bytes()
+    key = next(key for key in store.values if key != HEAD_KEY)
+    if tamper == "missing":
+        del store.values[key]
+    else:
+        store.store_object(key, gzip.compress(b"changed", mtime=0))
+    with pytest.raises(LakePublishError, match="body"):
+        project_execution_lists(fixed, database)
     assert database.read_bytes() == before
 
 

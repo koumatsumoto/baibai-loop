@@ -183,10 +183,10 @@ def apply(
     with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_market_schema(conn)
     from baibai_jobs.integration.edinet_archive_native import project_archive_execution
-    from baibai_jobs.integration.edinet_list_native import materialize_lists
+    from baibai_jobs.integration.edinet_list_native import project_execution_lists
 
     native_archives = project_archive_execution(edinet_input.archives, market)
-    native_lists = materialize_lists(edinet_input.lists, market)
+    native_lists, list_evidence = project_execution_lists(edinet_input.lists, market)
     outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):
         packet = directory / f"receipt-{index:05d}"
@@ -268,6 +268,7 @@ def apply(
         asof=asof,
         metric_archives=edinet_input.archives,
         fact_archives=edinet_input.archives,
+        fixed_list_evidence=list_evidence,
     )
     extractions["native_lists"] = native_lists
     extractions["native_archives"] = native_archives

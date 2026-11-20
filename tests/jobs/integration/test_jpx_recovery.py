@@ -232,8 +232,10 @@ def test_jpx_recovery_keeps_full_fixed_edinet_withdrawal_projection(tmp_path, fa
         rows = conn.execute(
             "SELECT receipt_id,received_at_utc,body_gzip FROM edinet_list_responses ORDER BY received_at_utc"
         ).fetchall()
-        assert rows == [
-            (item.receipt_id, item.received_at.isoformat(timespec="microseconds"), item.body_gzip)
-            for item in (original, withdrawal)
-        ]
+        assert rows == (
+            [(original.receipt_id, STAMP.isoformat(timespec="microseconds"), original.body_gzip)]
+            if warm
+            else []
+        )
         assert conn.execute("SELECT COUNT(*) FROM jpx_source_bundles").fetchone()[0] == 2
+    assert tuple(corrected.iter_receipts()) == (original, withdrawal)
