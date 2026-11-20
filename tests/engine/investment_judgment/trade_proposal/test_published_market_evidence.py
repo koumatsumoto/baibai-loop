@@ -21,7 +21,7 @@ from baibai_engine.investment_judgment.market_assessment.service import Assessme
 from baibai_engine.investment_judgment.trade_proposal.query import saved_proposal_market_context
 from baibai_engine.investment_judgment.workflow.selection_evidence import read_selection_evidence
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 def _case(tmp_path, monkeypatch, *, market=True, legacy_clock=False, **kwargs):
@@ -103,7 +103,7 @@ def test_published_market_fragment_is_retained_without_reinterpreting_old_models
     }
     view = next(
         row
-        for row in DbProposalSource(case.app).history().proposals
+        for row in read_proposal_views(case.app).history.proposals
         if row.proposal_id == proposal.proposal_id
     )
     assert view.saved_market_context.assessment == expected
