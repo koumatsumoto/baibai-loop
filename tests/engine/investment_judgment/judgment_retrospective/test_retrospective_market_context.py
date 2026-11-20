@@ -11,6 +11,7 @@ from tests.engine.investment_judgment.trade_proposal.test_saved_market_context i
     _market_document,
     _prepare,
 )
+from tests.helpers.assessment_history import publish_at_declared_time
 from tests.helpers.assessment_v1 import assessment_id
 from tests.helpers.proposal import PREPARED, PUBLISHED, reviewed_proposal
 
@@ -21,7 +22,6 @@ from baibai_engine.investment_judgment.judgment_retrospective.query import (
 )
 from baibai_engine.investment_judgment.judgment_retrospective.store import RetrospectiveStoreService
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
-from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.progress import (
@@ -83,7 +83,7 @@ def test_scaffold_and_revisit_use_exact_market_after_operation_completion(
         completed_at=PUBLISHED + timedelta(minutes=1),
     )
     later = _market_document(suffix="later", published_at=PUBLISHED + timedelta(minutes=2))
-    AssessmentService(case.app).publish(later, expected_head=original.context_id)
+    publish_at_declared_time(case.app, later, expected_head=original.context_id)
     runs.rename(tmp_path / "retained-runs.sqlite")
 
     def forbidden(*_args, **_kwargs):
@@ -137,7 +137,7 @@ def test_scaffold_and_revisit_use_exact_market_after_operation_completion(
 
 def test_missing_at_selection_is_not_backfilled(tmp_path):
     case, proposal, _runs, _original = _case(tmp_path, market=False)
-    AssessmentService(case.app).publish(_market_document(published_at=PREPARED), expected_head=None)
+    publish_at_declared_time(case.app, _market_document(published_at=PREPARED), expected_head=None)
     before = case.app.read_bytes()
     market = _scaffold(case.app, proposal)["context"]["origin"]["market_context"]
     assert market["status"] == "not_recorded"

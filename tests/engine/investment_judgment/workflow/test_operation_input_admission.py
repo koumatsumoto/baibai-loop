@@ -3,10 +3,12 @@
 import json
 from contextlib import closing
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import pytest
 from tests.engine.investment_judgment.workflow.test_growth_projection_copy import growth_payload
+from tests.helpers.assessment_history import publish_at_declared_time
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
 from baibai_engine.cli.operation import main
@@ -15,7 +17,6 @@ from baibai_engine.investment_judgment.market_assessment.models import (
     StoredAssessment,
 )
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
-from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
@@ -137,10 +138,13 @@ def test_start_requires_exact_market_judgment_at_selection_cutoff(tmp_path, caps
         inputs=(),
     )
     if change != "absent":
-        AssessmentService(app).publish(document, expected_head=None)
+        publish_at_declared_time(app, document, expected_head=None)
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",), db=app)
     canonical = assessment_projection(
-        StoredAssessment.from_payload(document.payload()), as_of=NOW.date()
+        replace(
+            StoredAssessment.from_payload(document.payload()), recorded_at=document.published_at
+        ),
+        as_of=NOW.date(),
     )
     supplied = None if change == "omitted" else dict(canonical)
     if change == "summary":
@@ -215,7 +219,6 @@ def test_start_requires_exact_market_judgment_at_selection_cutoff(tmp_path, caps
 @pytest.mark.parametrize("has_prior", [False, True])
 def test_prepare_and_resume_keep_cutoff_context_after_later_publication(tmp_path, has_prior):
     app, runs, workspace = tmp_path / "app", tmp_path / "runs", tmp_path / "workspace"
-    writer = AssessmentService(app)
     prior = MarketContextAssessment(
         context_id="market-context-assessment-2026-10-14-prior",
         as_of=NOW.date(),
@@ -225,7 +228,7 @@ def test_prepare_and_resume_keep_cutoff_context_after_later_publication(tmp_path
         inputs=(),
     )
     if has_prior:
-        writer.publish(prior, expected_head=None)
+        publish_at_declared_time(app, prior, expected_head=None)
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",), db=app)
     later = prior.model_copy(
         update={
@@ -234,7 +237,7 @@ def test_prepare_and_resume_keep_cutoff_context_after_later_publication(tmp_path
             "summary": "選定後に公開された判断。",
         }
     )
-    writer.publish(later, expected_head=prior.context_id if has_prior else None)
+    publish_at_declared_time(app, later, expected_head=prior.context_id if has_prior else None)
     prepared = prepare_selected_workspace(
         draft=generated_draft_for(selected),
         db_path=app,
@@ -245,7 +248,10 @@ def test_prepare_and_resume_keep_cutoff_context_after_later_publication(tmp_path
     operation = OperationService(app).get(prepared.operation_id)
     saved = selection_binding(operation.payload)
     assert saved.inputs.saved_market_context_assessment == (
-        assessment_projection(StoredAssessment.from_payload(prior.payload()), as_of=NOW.date())
+        assessment_projection(
+            replace(StoredAssessment.from_payload(prior.payload()), recorded_at=prior.published_at),
+            as_of=NOW.date(),
+        )
         if has_prior
         else None
     )

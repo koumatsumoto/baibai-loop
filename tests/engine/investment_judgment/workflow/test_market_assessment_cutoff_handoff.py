@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 import yaml
 from pydantic import ValidationError
-from tests.helpers.assessment_history import historical_context_payload
+from tests.helpers.assessment_history import historical_context_payload, publish_at_declared_time
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
 from baibai_engine.investment_judgment.market_assessment.models import (
@@ -16,7 +16,6 @@ from baibai_engine.investment_judgment.market_assessment.projection import asses
 from baibai_engine.investment_judgment.market_assessment.query import assessment_by_id
 from baibai_engine.investment_judgment.market_assessment.service import (
     AssessmentConflictError,
-    AssessmentService,
 )
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
@@ -60,7 +59,7 @@ def _document():
 def _prepare(tmp_path):
     app, runs = tmp_path / "app.sqlite", tmp_path / "runs.sqlite"
     prior = _document()
-    AssessmentService(app).publish(prior, expected_head=None)
+    publish_at_declared_time(app, prior, expected_head=None)
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",), db=app)
     prepared = prepare_selected_workspace(
         draft=generated_draft_for(selected),
@@ -85,7 +84,7 @@ def test_market_cutoff_survives_normal_selection_and_resume(tmp_path, monkeypatc
     input_path = prepared.workspace / "domain-inputs.yaml"
     assert yaml.safe_load(input_path.read_text())["saved_market_context_assessment"] == projected
     before_retry = app.read_bytes()
-    assert AssessmentService(app).publish(prior, expected_head=None) == prior
+    assert publish_at_declared_time(app, prior, expected_head=None) == prior
     assert app.read_bytes() == before_retry
 
     later = prior.model_copy(
@@ -96,10 +95,10 @@ def test_market_cutoff_survives_normal_selection_and_resume(tmp_path, monkeypatc
             "summary": "選定後の別判断。旧入力を置き換えない。",
         }
     )
-    AssessmentService(app).publish(later, expected_head=prior.context_id)
+    publish_at_declared_time(app, later, expected_head=prior.context_id)
     before = app.read_bytes(), input_path.read_bytes()
     with pytest.raises(AssessmentConflictError, match="different publication state"):
-        AssessmentService(app).publish(prior, expected_head=None)
+        publish_at_declared_time(app, prior, expected_head=None)
     assert assessment_by_id(app, context_id=prior.context_id).document == prior.payload()
     assert app.read_bytes() == before[0]
     monkeypatch.setattr(
@@ -146,7 +145,7 @@ def test_missing_judgment_does_not_invent_a_cutoff():
 def test_later_publication_is_not_included_at_the_selection_cutoff(tmp_path):
     app, runs = tmp_path / "app.sqlite", tmp_path / "runs.sqlite"
     later = _document().model_copy(update={"published_at": NOW + timedelta(minutes=1)})
-    AssessmentService(app).publish(later, expected_head=None)
+    publish_at_declared_time(app, later, expected_head=None)
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",), db=app)
     prepared = prepare_selected_workspace(
         draft=generated_draft_for(selected),

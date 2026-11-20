@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 import pytest
+from tests.helpers.assessment_history import publish_at_declared_time
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
@@ -11,7 +12,6 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.investment_judgment.market_assessment.models import MarketContextAssessment
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
-from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
@@ -77,7 +77,7 @@ def _prepare(tmp_path, *, market_document=None):
         ),
     )
     if market_document is not None:
-        AssessmentService(app).publish(market_document, expected_head=None)
+        publish_at_declared_time(app, market_document, expected_head=None)
     selected = seed_generated_selection(runs=runs, now=START, tickers=("1234",), db=app)
     prepared = prepare_selected_workspace(
         draft=generated_draft_for(selected),
@@ -126,7 +126,7 @@ def test_final_context_keeps_frozen_market_evidence_and_ignores_later_head(tmp_p
     assert app.read_bytes() == before
 
     later = _market_document(suffix="later", published_at=PREPARED)
-    AssessmentService(app).publish(later, expected_head=document.context_id)
+    publish_at_declared_time(app, later, expected_head=document.context_id)
     runs.rename(tmp_path / "retained-runs.sqlite")
     monkeypatch.setattr(
         "baibai_engine.investment_judgment.market_assessment.query.latest_assessment",
@@ -145,7 +145,7 @@ def test_absent_at_selection_is_not_backfilled_for_final_comparison(tmp_path, fu
     later = _market_document(suffix="later", published_at=PREPARED)
     app, market, _runs, operation = _prepare(tmp_path, market_document=later if future else None)
     if not future:
-        AssessmentService(app).publish(later, expected_head=None)
+        publish_at_declared_time(app, later, expected_head=None)
     before = app.read_bytes()
     payload = _context(app, market, operation).payload()
     assert payload["saved_market_context_assessment"] is None

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
+from datetime import datetime
 from pathlib import Path
 
-from baibai_engine.investment_judgment.market_assessment.models import MarketContextAssessment
+from baibai_engine.investment_judgment.market_assessment.models import (
+    RECEIPTED_ENVELOPE_VERSION,
+    MarketContextAssessment,
+    require_aware,
+)
+from baibai_engine.investment_judgment.market_assessment.query import stored_assessment_from_row
 from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
@@ -17,8 +25,11 @@ class AssessmentConflictError(ValueError):
 
 
 class AssessmentService:
-    def __init__(self, db_path: Path | None = None) -> None:
+    def __init__(
+        self, db_path: Path | None = None, *, clock: Callable[[], datetime] | None = None
+    ) -> None:
         self._db_path = db_path
+        self._clock = clock if clock is not None else lambda: datetime.now(JST)
 
     def head_id(self) -> str | None:
         path = database_path(self._db_path)
@@ -47,16 +58,18 @@ class AssessmentService:
                 ).fetchone()
                 current = None if row is None else str(row[0])
                 saved = connection.execute(
-                    "SELECT payload, supersedes_id FROM market_context_assessment "
+                    "SELECT context_id,schema_version,as_of,published_at,payload,supersedes_id "
+                    "FROM market_context_assessment "
                     "WHERE context_id=?",
                     (document.context_id,),
                 ).fetchone()
                 if saved is not None:
                     if (
-                        str(saved[0]) == payload
-                        and saved[1] == expected_head
+                        str(saved["payload"]) == payload
+                        and saved["supersedes_id"] == expected_head
                         and current == document.context_id
                     ):
+                        stored_assessment_from_row(saved)
                         connection.rollback()
                         return document
                     raise AssessmentConflictError(
@@ -66,6 +79,11 @@ class AssessmentService:
                     raise AssessmentConflictError(
                         f"assessment head changed: expected={expected_head!r}, actual={current!r}"
                     )
+                # Sample under the writer lock, only after CAS/retry checks. This is
+                # receipt by this transaction, not proof of external visibility at COMMIT.
+                recorded_at = require_aware(self._clock())
+                if document.published_at > recorded_at:
+                    raise ValueError("declared market publication follows its actual receipt")
                 connection.execute(
                     (
                         "INSERT INTO market_context_assessment("
@@ -74,9 +92,9 @@ class AssessmentService:
                     ),
                     (
                         document.context_id,
-                        document.schema_version,
+                        RECEIPTED_ENVELOPE_VERSION,
                         document.as_of.isoformat(),
-                        document.published_at.isoformat(),
+                        recorded_at.isoformat(),
                         current,
                         payload,
                     ),

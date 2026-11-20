@@ -34,7 +34,7 @@ def assessment_history(path: Path | None) -> list[StoredAssessment]:
             if is_unwritten_store(error, resolved):
                 return []
             raise
-        records = [_stored_assessment(row) for row in rows]
+        records = [stored_assessment_from_row(row) for row in rows]
         return sorted(
             records,
             key=lambda r: (
@@ -67,12 +67,12 @@ def assessment_by_id(path: Path | None, *, context_id: str) -> StoredAssessment:
             raise
         if row is None:
             raise FileNotFoundError(f"unknown context_id: {context_id}")
-        return _stored_assessment(row)
+        return stored_assessment_from_row(row)
     finally:
         connection.close()
 
 
-def _stored_assessment(row: sqlite3.Row) -> StoredAssessment:
+def stored_assessment_from_row(row: sqlite3.Row) -> StoredAssessment:
     payload = json.loads(str(row["payload"]))
     if not isinstance(payload, dict):
         raise ValueError("assessment payload must be an object")
@@ -172,4 +172,4 @@ def latest_assessment_from_connection(
         (selected_id,),
     ).fetchone()
     assert selected is not None  # The metadata and body share one read snapshot.
-    return _stored_assessment(selected)
+    return stored_assessment_from_row(selected)

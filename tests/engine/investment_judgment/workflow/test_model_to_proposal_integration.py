@@ -20,6 +20,7 @@ from unittest.mock import Mock
 
 import pytest
 import yaml
+from tests.helpers.assessment_history import publish_at_declared_time
 from tests.helpers.assessment_v1 import (
     assessment_id,
     pair_payload,
@@ -46,7 +47,6 @@ from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
 from baibai_engine.investment_judgment.market_assessment.models import MarketContextAssessment
-from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     assessment_core_hash,
@@ -366,7 +366,8 @@ def _prepare_case(
         save_observations(
             market, _external_observations(START - timedelta(minutes=1), missing=scenario == "gaps")
         )
-    AssessmentService(app).publish(
+    publish_at_declared_time(
+        app,
         MarketContextAssessment.model_validate(
             {
                 "context_id": CONTEXT_ID,
