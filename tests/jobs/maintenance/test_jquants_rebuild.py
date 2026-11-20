@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.observations.financials.from_l1 import (
     rebuild_financial_days,
 )
 from baibai_engine.machine_analysis.observations.prices.from_l1 import (
-    materialize_price_days,
+    price_bars_to_arrow,
     rebuild_price_days,
 )
 from baibai_engine.storage.snapshots.duck import lake_session
@@ -141,9 +141,8 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
         materialize_financial_days(
             session.connection, financial.values(), l1_coverage_status=coverage
         )
-        materialize_price_days(session.connection, prices.values(), l1_coverage_status=coverage)
-        assert session.connection.execute("SELECT ticker, close FROM daily_bars").fetchall() == [
-            ("1301", 100.0)
+        assert price_bars_to_arrow(prices.values()).select(["ticker", "close"]).to_pylist() == [
+            {"ticker": "1301", "close": 100.0}
         ]
         rows = session.connection.execute(
             "SELECT ticker, disclosed_at, disclosure_number FROM financial_summaries"

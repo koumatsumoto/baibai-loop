@@ -74,6 +74,7 @@ export const buyFixture: SavedBuyItemView = {
   terms: termsFixture,
   proposed_limit_yen: null,
   terms_unavailable_reasons: [],
+  economic_decision: null,
   saved_buy_comparison: null,
 }
 

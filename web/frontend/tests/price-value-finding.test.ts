@@ -19,7 +19,7 @@ function render(f: SavedPriceValueView | null) {
 describe('評価時の一株の割安と元手の行動', () => {
   it('買いの行動でも元価格は不支持・75円の価格条件待ち。現在値や指値に付け替えない', () => {
     const html = render(finding)
-    expect(html).toContain('資金の判断：買付（指値）')
+    expect(html).toContain('資金の判断：保存時の買付（指値）')
     expect(html).toContain('この価格では支持せず、価格条件を待つ')
     expect(html).toContain('条件上限 75 円／株。注文指値ではありません')
     expect(html).toContain('確定した受取の権利')

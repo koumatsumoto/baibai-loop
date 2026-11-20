@@ -38,7 +38,6 @@ def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
         "stock-assessment-evaluate",
         "stock-assessment-promote",
         "trade-proposal-context",
-        "trade-proposal-scaffold",
         "trade-proposal-check",
         "trade-proposal-publish",
         "trade-proposal-preview",

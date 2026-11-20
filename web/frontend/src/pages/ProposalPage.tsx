@@ -508,7 +508,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
               <Field label="保存株価（未調整終値）">{item.saved_quote.price_yen} 円</Field>
               <Field label="保存株価の基準日"><time dateTime={item.saved_quote.price_as_of}>{item.saved_quote.price_as_of}</time></Field>
             </dl>}
-            {item.action === 'buy' && <p className="text-sm text-muted-foreground">保存時の指値区分：{TIMING_LABEL[item.timing]}（{item.timing}）</p>}
+            {item.action === 'buy' && item.terms !== null && <p className="text-sm text-muted-foreground">保存時の指値区分：{TIMING_LABEL[item.timing]}（{item.timing}）</p>}
             {(item.action === 'buy' || item.action === 'sell') && (item.terms !== null ? <SavedTerms terms={item.terms} withPriceFinding={item.assessment?.price_value_case != null} /> : <div className="grid gap-3">
               <p className="text-sm font-medium">{item.action === 'sell' && item.reason_code.startsWith('consider_') ? '保有配分の条件案（注文対象外）' : '具体条件未確定'}</p>
               {item.action === 'buy' && item.proposed_limit_yen !== null && <dl><Field label="作者指定の上限（具体条件未確定）">{item.proposed_limit_yen} 円</Field></dl>}

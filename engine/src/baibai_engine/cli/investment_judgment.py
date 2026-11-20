@@ -218,20 +218,15 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--ticker", required=True)
     promote_parser.add_argument("--db", type=Path)
 
-    for command, help_text in (
-        (
-            "trade-proposal-context",
-            "read fixed Investment Judgment scope and current proposal inputs",
-        ),
-        ("trade-proposal-scaffold", "scaffold a Trade Proposal with a fixed input snapshot"),
-    ):
-        child = subparsers.add_parser(command, help=help_text)
-        child.add_argument("--operation-id", required=True)
-        child.add_argument("--db", type=Path)
-        child.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
-        if command == "trade-proposal-scaffold":
-            child.add_argument("--proposal-id", required=True)
-            child.add_argument("--out", required=True, type=Path)
+    context = subparsers.add_parser(
+        "trade-proposal-context",
+        help="read one fixed authoring snapshot and optionally export a work file",
+    )
+    context.add_argument("--operation-id", required=True)
+    context.add_argument("--proposal-id", required=True)
+    context.add_argument("--db", type=Path)
+    context.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    context.add_argument("--out", type=Path)
     allocation = subparsers.add_parser(
         "trade-proposal-compare-holdings",
         help="compare explicit gross recovery scenarios without writes",
@@ -406,42 +401,31 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 from baibai_engine.investment_judgment.trade_proposal.inputs import (
                     build_proposal_context,
                 )
-
-                context = build_proposal_context(
-                    operation_id=args.operation_id,
-                    db_path=args.db,
-                    sqlite_path=args.sqlite_path,
-                    now=resolved_now,
-                )
-                out.write(json.dumps(context.payload(), ensure_ascii=False) + "\n")
-            case "trade-proposal-scaffold":
                 from baibai_engine.investment_judgment.trade_proposal.scaffold import (
                     scaffold_proposal,
                 )
                 from baibai_engine.storage.filesystem import write_text_new
 
-                if args.out.exists() or args.out.is_symlink():
+                if args.out is not None and (args.out.exists() or args.out.is_symlink()):
                     raise ResearchWorkspaceConflictError("proposal output already exists")
-                draft = scaffold_proposal(
+                context = build_proposal_context(
                     operation_id=args.operation_id,
                     proposal_id=args.proposal_id,
                     db_path=args.db,
                     sqlite_path=args.sqlite_path,
                     now=resolved_now,
                 )
-                content = yaml.safe_dump(
-                    draft,
-                    sort_keys=False,
-                    allow_unicode=True,
-                    default_flow_style=False,
-                )
-                try:
-                    write_text_new(args.out, content)
-                except FileExistsError as error:
-                    raise ResearchWorkspaceConflictError(
-                        "proposal output already exists"
-                    ) from error
-                _emit({"proposal_draft": str(args.out), "proposal_id": args.proposal_id}, out)
+                if args.out is not None:
+                    content = yaml.safe_dump(
+                        scaffold_proposal(context), sort_keys=False, allow_unicode=True
+                    )
+                    try:
+                        write_text_new(args.out, content)
+                    except FileExistsError as error:
+                        raise ResearchWorkspaceConflictError(
+                            "proposal output already exists"
+                        ) from error
+                out.write(json.dumps(context.payload(), ensure_ascii=False) + "\n")
             case "trade-proposal-compare-holdings":
                 from contextlib import closing
 
@@ -491,7 +475,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             case "trade-proposal-check" | "trade-proposal-publish":
                 from baibai_engine.investment_judgment.trade_proposal.contracts import (
                     load_proposal_draft,
-                    proposal_draft_sha256,
                 )
                 from baibai_engine.investment_judgment.trade_proposal.service import (
                     TradeProposalService,
@@ -509,15 +492,20 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 )
                 if args.command == "trade-proposal-check":
                     validation = service.check(proposal, require_review=False)
-                    expected = proposal_draft_sha256(proposal)
+                    expected = validation.draft_sha256
+                    binding = (
+                        "unreviewed"
+                        if proposal.review is None
+                        else "match"
+                        if proposal.review.draft_sha256 == expected
+                        else "stale"
+                    )
                     _emit(
                         {
                             **validation.payload(),
                             "proposal_id": proposal.proposal_id,
-                            "draft_sha256": expected,
-                            "review_binding": "match"
-                            if proposal.review.draft_sha256 == expected
-                            else "stale",
+                            "check_scope": "authored_draft_precheck",
+                            "review_binding": binding,
                         },
                         out,
                     )

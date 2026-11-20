@@ -13,6 +13,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     load_proposal_draft,
     proposal_draft_sha256,
 )
+from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
@@ -231,8 +232,46 @@ def backend_case(
     )
 
 
+def authored_defer_fixture(**context_args):
+    """テスト作者の明示的な保留。製品の未執筆work fileとは区別する。"""
+    context = build_proposal_context(**context_args)
+    raw = scaffold_proposal(context)
+    raw.update(
+        headline="合成の条件待ち",
+        comparison="借換の条件を今は確定できず、現金維持を選んだ。",
+        forgone="返済資金の裏付けが出る前の資金配分は採らない。",
+    )
+    for item, outcome in zip(raw["items"], context.research_scope.outcomes, strict=True):
+        unfinished = outcome.status == "unfinished"
+        reason = outcome.unfinished_reason if unfinished else "合成：借換の成立条件が未確認。"
+        item.update(
+            action="defer",
+            rationale=reason,
+            review_conditions=["借換条件の開示を確認。"],
+            blockers=[
+                {
+                    "code": "research_unfinished" if unfinished else "refinancing_unknown",
+                    "message": reason,
+                }
+            ],
+            resume_conditions=["借換枠の金額・期日を新しい開示で照合する。"],
+        )
+    return raw
+
+
+def fixture_review(digest, *, reviewed_at, reviewer_identity="synthetic-independent-reviewer"):
+    return {
+        "review_id": "proposal-review-00000000-0000-4000-8000-000000000004",
+        "attempt": 1,
+        "reviewer_identity": reviewer_identity,
+        "reviewed_at": reviewed_at,
+        "conclusion": "pass",
+        "draft_sha256": digest,
+    }
+
+
 def reviewed_proposal(case, *, action="buy", proposal_id=PROPOSAL_ID):
-    raw = scaffold_proposal(
+    raw = authored_defer_fixture(
         operation_id=case.operation.operation_id,
         proposal_id=proposal_id,
         db_path=case.app,
@@ -284,13 +323,18 @@ def reviewed_proposal(case, *, action="buy", proposal_id=PROPOSAL_ID):
                 {"code": "quantity_basis_unconfirmed", "message": "数量basisを確認できない"},
             ],
         )
-    raw["review"].update(
-        reviewer_identity="synthetic-independent-reviewer", reviewed_at="2026-10-14T16:15:00+09:00"
+    return bind_review(
+        raw, {case.pair.assessment_id: case.pair.document}, reviewed_at="2026-10-14T16:15:00+09:00"
     )
-    return bind_review(raw, {case.pair.assessment_id: case.pair.document})
 
 
-def bind_review(raw, assessments: dict[str, StockAssessmentDocument]):
+def bind_review(
+    raw,
+    assessments: dict[str, StockAssessmentDocument],
+    *,
+    reviewed_at=None,
+    reviewer_identity="synthetic-independent-reviewer",
+):
     proposal = load_proposal_draft(raw)
     warnings = build_proposal_warnings(
         proposal.inputs, proposal.items, proposal.liquidity_context, assessments=assessments
@@ -301,5 +345,13 @@ def bind_review(raw, assessments: dict[str, StockAssessmentDocument]):
         if item["action"] in {"buy", "sell"} and item["terms"] is not None:
             item["terms"]["warnings"] = list(warnings.terms_warnings.get(item["ticker"], ()))
     proposal = load_proposal_draft(raw)
-    raw["review"]["draft_sha256"] = proposal_draft_sha256(proposal)
+    digest = proposal_draft_sha256(proposal)
+    if raw.get("review") is None:
+        raw["review"] = fixture_review(
+            digest,
+            reviewed_at=reviewed_at or raw["prepared_at"],
+            reviewer_identity=reviewer_identity,
+        )
+    else:
+        raw["review"]["draft_sha256"] = digest
     return load_proposal_draft(raw)

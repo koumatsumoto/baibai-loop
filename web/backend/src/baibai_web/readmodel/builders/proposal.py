@@ -492,6 +492,7 @@ def _item(
                 "proposed_limit_yen": (
                     None if item.proposed_limit_yen is None else str(item.proposed_limit_yen)
                 ),
+                "economic_decision": item.economic_decision,
                 "saved_buy_comparison": comparison,
             }
         )

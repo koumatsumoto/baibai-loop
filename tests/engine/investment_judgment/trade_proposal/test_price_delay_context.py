@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 from tests.helpers.proposal import (
     PREPARED,
+    PROPOSAL_ID,
     PUBLISHED,
     backend_case,
     bind_review,
@@ -66,6 +67,7 @@ def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gat
     monkeypatch.setattr(conditions, "assessment_quote_basis", basis)
     monkeypatch.setattr(assessment_document, "_check_derived_metrics", check_derived)
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,

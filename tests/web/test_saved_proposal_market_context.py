@@ -26,11 +26,9 @@ def test_saved_final_comparison_retains_market_countercase_and_original_clocks(t
     case, proposal, runs, original = _case(tmp_path, action=action, unfinished=action == "defer")
     expected = saved_market_assessment(selection_binding(case.operation.payload))
     operations = OperationService(case.app)
-    bound = operations.record_proposal(
-        case.operation.operation_id, proposal.proposal_id, now=PUBLISHED
-    )
     operations.complete(
-        bound.operation_id,
+        case.operation.operation_id,
+        proposal_id=proposal.proposal_id,
         result="合成保存",
         next="後日比較",
         completed_at=PUBLISHED + timedelta(minutes=1),

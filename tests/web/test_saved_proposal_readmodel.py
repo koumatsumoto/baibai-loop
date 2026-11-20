@@ -513,24 +513,82 @@ def test_saved_generated_liquidity_keeps_window_end_separate_from_analysis_date(
 
 
 @pytest.mark.parametrize("timing", ["wait_limit", "place_limit"])
-def test_terms_absent_buy_keeps_exact_author_limit_without_invented_order_terms(payload, timing):
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        ("price_grid_rule_unavailable", "呼値未確認のため具体条件未確定"),
+        ("order_session_unknown", "次の対象立会を保存時に確認できない。"),
+    ],
+)
+def test_terms_absent_buy_keeps_exact_author_limit_without_invented_order_terms(
+    payload, timing, code, message
+):
     pair = _pair()
     _current(payload, pair)
     payload["items"][0].update(
         timing=timing,
+        economic_decision="price_conditional_allocation"
+        if code == "order_session_unknown"
+        else None,
         terms=None,
         proposed_limit_yen="999.1234567890123456789",
-        terms_unavailable_reasons=[
-            {"code": "price_grid_rule_unavailable", "message": "呼値未確認のため具体条件未確定"}
-        ],
+        terms_unavailable_reasons=[{"code": code, "message": message}],
     )
     view = project_saved_proposal(TradeProposal.model_validate(payload), {pair.assessment_id: pair})
     item = view.items[0]
     assert item.action == "buy"
+    assert item.economic_decision == payload["items"][0]["economic_decision"]
     assert item.timing == timing
     assert item.terms is None
     assert item.proposed_limit_yen == "999.1234567890123456789"
-    assert item.terms_unavailable_reasons[0].message == "呼値未確認のため具体条件未確定"
+    assert item.terms_unavailable_reasons[0].model_dump() == {"code": code, "message": message}
+    assert item.saved_buy_comparison is None
+
+
+def test_unconfirmed_session_exact_read_and_retry_do_not_need_a_current_market(tmp_path):
+    from tests.helpers.operation_proposal import seed_proposal
+    from tests.helpers.proposal import (
+        backend_case,
+        bind_review,
+        read_saved_proposal,
+        reviewed_proposal,
+    )
+
+    from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+
+    case = backend_case(tmp_path)
+    raw = reviewed_proposal(case).payload()
+    raw["items"][0].update(
+        terms=None,
+        proposed_limit_yen="1000",
+        economic_decision="price_conditional_allocation",
+        terms_unavailable_reasons=[
+            {"code": "order_session_unknown", "message": "当時の注文対象立会は未確認。"}
+        ],
+    )
+    signed = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    saved = TradeProposal.model_validate({**signed.payload(), "published_at": PUBLISHED})
+    # Synthetic future writer record, not evidence that any such production record exists.
+    seed_proposal(case.app, saved)
+    before = case.app.read_bytes()
+    market = tmp_path / "unavailable.sqlite"
+    assert read_saved_proposal(db_path=case.app, proposal_id=saved.proposal_id) == saved
+    assert (
+        TradeProposalService(
+            case.app, sqlite_path=market, clock=lambda: PUBLISHED + timedelta(days=1)
+        ).publish(signed)
+        == saved
+    )
+    views = read_proposal_views(case.app)
+    assert views.history.proposals == [views.latest.proposal]
+    item = views.latest.proposal.items[0]
+    assert item.terms is None
+    assert item.saved_buy_comparison is None
+    assert item.proposed_limit_yen == "1000"
+    assert item.economic_decision == "price_conditional_allocation"
+    assert item.terms_unavailable_reasons[0].code == "order_session_unknown"
+    assert not market.exists()
+    assert case.app.read_bytes() == before
 
 
 @pytest.mark.parametrize("action", ["hold", "sell"])

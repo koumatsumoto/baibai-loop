@@ -5,7 +5,7 @@ from datetime import timedelta
 import pytest
 from tests.helpers.db_seed import seed_historical_operation, seed_ledger
 from tests.helpers.model_generation import publish_generation
-from tests.helpers.proposal import PREPARED
+from tests.helpers.proposal import PREPARED, PROPOSAL_ID
 from tests.helpers.research_selection import historical_operation, selected_target, selection
 
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
@@ -270,7 +270,11 @@ def test_final_context_keeps_saved_environment_without_source_or_latest_head(
     )
     before = app.read_bytes()
     context = build_proposal_context(
-        operation_id=operation.operation_id, db_path=app, sqlite_path=market, now=PREPARED
+        proposal_id=PROPOSAL_ID,
+        operation_id=operation.operation_id,
+        db_path=app,
+        sqlite_path=market,
+        now=PREPARED,
     )
     payload = context.payload()
     assert "saved_analysis_context" in payload
@@ -337,6 +341,7 @@ def test_retained_pre_generation_selection_is_not_filled_with_current_models(tmp
     )
     before = app.read_bytes()
     payload = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=operation.operation_id,
         db_path=app,
         sqlite_path=tmp_path / "absent",

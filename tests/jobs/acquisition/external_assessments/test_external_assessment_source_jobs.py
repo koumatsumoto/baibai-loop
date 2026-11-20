@@ -311,7 +311,13 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
     assert "R2_ACCESS_KEY_ID" not in str(cycle)
     assert acquire["outputs"]["run_id"] == "${{ steps.cycle.outputs.run_id }}"
     assert acquire["outputs"]["observation_date"] == "${{ steps.cycle.outputs.observation_date }}"
-    notification = child["jobs"]["notify"]["steps"][-1]
+    notify = child["jobs"]["notify"]
+    assert notify["needs"] == ["acquire", "handoff"]
+    assert " ".join(notify["if"].split()) == (
+        "${{ always() && github.ref == 'refs/heads/main' && "
+        "(contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}"
+    )
+    notification = notify["steps"][-1]
     assert "needs.acquire.outputs.observation_date" in notification["env"]["ASOF"]
     handoff = child["jobs"]["handoff"]
     assert handoff["needs"] == "acquire"

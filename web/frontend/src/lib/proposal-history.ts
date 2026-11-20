@@ -1,7 +1,7 @@
 import type { SavedProposalView } from '../api/types'
 
 export const ACTION_LABEL: Record<SavedProposalView['items'][number]['action'], string> = {
-  buy: '買付（指値）',
+  buy: '保存時の買付（指値）',
   hold: '保有継続',
   sell: '全量売却',
   no_action: '経済的見送り',
@@ -9,6 +9,11 @@ export const ACTION_LABEL: Record<SavedProposalView['items'][number]['action'], 
 }
 
 export function proposalActionLabel(item: SavedProposalView['items'][number]) {
+  if (item.action === 'buy' && item.terms === null) {
+    return item.economic_decision === 'price_conditional_allocation'
+      ? '価格条件付きの買付方針（注文条件未確認）'
+      : '買付案（保存時の具体条件なし）'
+  }
   if (item.action === 'sell' && item.reason_code === 'consider_full_recovery') return '全量回収の条件案'
   if (item.action === 'sell' && item.reason_code === 'consider_partial_recovery') return '一部回収の条件案'
   return ACTION_LABEL[item.action]
@@ -56,7 +61,7 @@ export function reportListSummary({ proposal, item }: ReportEntry): string {
     case 'buy': {
       const action = item.timing === 'wait_limit' ? '指値で待つ案' : '買い指値案'
       if (item.terms != null) return `保存時の${action}：${item.terms.quantity}株。`
-      return shortWhole(item.proposed_limit_yen && `${action}。作者の上限は${item.proposed_limit_yen}円。具体的な指値・数量は未確定。`) ?? `${action}。具体的な指値・数量は未確定。`
+      return item.proposed_limit_yen == null ? '注文の具体条件は未確定。' : `作者が示した価格上限は${item.proposed_limit_yen}円。注文の指値・数量は未確定。`
     }
     case 'no_action': {
       const valuation = item.assessment?.valuation

@@ -12,6 +12,8 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 )
 from baibai_engine.machine_analysis.observations.external_assessments.models import ConsensusEPS
 
+type EconomicBuyDecision = Literal["price_conditional_allocation"]
+
 PerspectiveModel = Literal[
     "company_financials",
     "company_growth",
@@ -356,6 +358,7 @@ class SavedBuyItemView(_SavedProposalItemView):
     terms: SavedLimitTermsView | None
     proposed_limit_yen: str | None
     terms_unavailable_reasons: list[SavedReasonView]
+    economic_decision: EconomicBuyDecision | None = None
     saved_buy_comparison: SavedBuyCapitalComparisonView | None = None
 
 

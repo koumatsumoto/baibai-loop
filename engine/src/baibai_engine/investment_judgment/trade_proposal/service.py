@@ -299,13 +299,24 @@ def _check_proposal(
             "proposal input facts changed; resnapshot and independently review"
         )
     draft_hash = proposal_draft_sha256(proposal)
-    if require_review and proposal.review.draft_sha256 != draft_hash:
-        raise ProposalConflictError(
-            f"proposal content review binds a different draft; expected {draft_hash}"
-        )
+    review = proposal.review
+    if require_review:
+        if review is None:
+            raise ProposalConflictError("independent proposal content review is required")
+        if review.draft_sha256 != draft_hash:
+            raise ProposalConflictError(
+                f"proposal content review binds a different draft; expected {draft_hash}"
+            )
     pairs: dict[str, ReviewedAssessment] = {}
     calculations: dict[str, dict[str, object]] = {}
     blockers: list[GateReason] = []
+    if not require_review and review is not None and review.draft_sha256 != draft_hash:
+        blockers.append(
+            GateReason(
+                code="proposal_content_review_stale",
+                message="内容Reviewは変更前の本文を指しています。",
+            )
+        )
     if proposal.as_of != now.astimezone(JST).date():
         blockers.append(
             GateReason(
@@ -314,8 +325,9 @@ def _check_proposal(
             )
         )
     if (
-        not proposal.prepared_at <= proposal.review.reviewed_at <= now
+        proposal.prepared_at > now
         or proposal.inputs.checked_at > now
+        or (review is not None and review.reviewed_at > now)
     ):
         blockers.append(
             GateReason(
@@ -323,7 +335,7 @@ def _check_proposal(
                 message="準備・入力収集・独立Reviewの時刻を現在発行時刻までに揃えてください。",
             )
         )
-    if proposal.inputs.checked_at > proposal.review.reviewed_at:
+    if review is not None and proposal.inputs.checked_at > review.reviewed_at:
         blockers.append(
             GateReason(
                 code="proposal_inputs_after_review",
@@ -352,7 +364,7 @@ def _check_proposal(
                     message="参照評価の公開が今回提案時刻より後です。",
                 )
             )
-        if pair.review.reviewed_at > proposal.review.reviewed_at:
+        if review is not None and pair.review.reviewed_at > review.reviewed_at:
             blockers.append(
                 GateReason(
                     code="assessment_after_review",

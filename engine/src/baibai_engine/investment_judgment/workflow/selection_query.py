@@ -32,7 +32,6 @@ from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.machine_analysis.screening.contracts import (
-    DiscoverySelection,
     ScreeningResult,
     ScreeningSelection,
 )
@@ -154,10 +153,7 @@ def load_generated_selection_context(
                     as_of=index.as_of,
                     maximum=reported_pbr_max,
                     path=runs_path,
-                    listings={
-                        r["ticker"]: (r["sector"], r["price_date"], r["expected_price_date"])
-                        for r in index.rows
-                    },
+                    listings=index.listing_dates(),
                 )
             indexed = discovery_context(
                 index,
@@ -208,8 +204,6 @@ def load_generated_selection_context(
         screening = publication.selection
         if screening.generation_id != generation_id:
             raise ValueError("screening selection differs from the chosen generation")
-        if isinstance(screening.result, DiscoverySelection):
-            raise ValueError("discovery publication identity differs from its format")
     if generation_id is None:
         raise ValueError("an explicit generation is required")
     app_path = database_path(db_path)

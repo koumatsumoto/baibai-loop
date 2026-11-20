@@ -109,7 +109,9 @@ jobs:
 
   notify:
     needs: [acquire, handoff]
-    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    if: >-
+      ${{ always() && github.ref == 'refs/heads/main' &&
+          (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

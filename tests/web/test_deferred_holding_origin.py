@@ -11,6 +11,7 @@ from tests.engine.investment_judgment.trade_proposal.test_original_buy_records_c
 )
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.proposal import (
+    authored_defer_fixture,
     backend_case,
     bind_review,
     read_saved_proposal,
@@ -19,7 +20,6 @@ from tests.web.test_saved_deferred_holding import _saved
 
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
-from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
 from baibai_web.readmodel.proposal_models import SavedDeferItemView
@@ -62,7 +62,7 @@ def _published_defer(tmp_path, *, unreviewed=False):
         case.operations.record_assessment(
             fixture.operation.operation_id, current.assessment_id, now=NOW
         )
-    raw = scaffold_proposal(
+    raw = authored_defer_fixture(
         operation_id=fixture.operation.operation_id,
         proposal_id=DEFER_ID,
         db_path=case.app,
@@ -77,9 +77,6 @@ def _published_defer(tmp_path, *, unreviewed=False):
     raw["items"][0].update(
         rationale="当初の借換仮説と今回の確認結果を区別する。",
         resume_conditions=["当初仮説の反証条件と後発資料を照合する。"],
-    )
-    raw["review"].update(
-        reviewer_identity="synthetic-independent-reviewer", reviewed_at=NOW.isoformat()
     )
     draft = bind_review(raw, {current.assessment_id: current.document})
     service = TradeProposalService(

@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import sqlite3
+from collections import Counter
 from contextlib import closing
 from datetime import UTC, timedelta
 from decimal import Decimal
 
 import pytest
 import yaml
+from pydantic import ValidationError
 from tests.helpers.proposal import (
     PREPARED,
     PROPOSAL_ID,
     PUBLISHED,
     backend_case,
     bind_review,
+    fixture_review,
     read_saved_proposal,
     reviewed_proposal,
 )
@@ -86,11 +89,9 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
         ).fetchone()
     assert binding == ("1234", "proposal", published.review.draft_sha256)
     assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
-    recorded = case.operations.record_proposal(
-        case.operation.operation_id, published.proposal_id, now=PUBLISHED
-    )
     completed = case.operations.complete(
-        recorded.operation_id,
+        case.operation.operation_id,
+        proposal_id=published.proposal_id,
         result="合成提案を発行した。",
         next="本人が採否と証券画面の条件を確認する。",
         completed_at=PUBLISHED,
@@ -145,14 +146,18 @@ def test_published_unbound_unfinished_proposal_cannot_be_skipped(case, monkeypat
     }
     if publication == "changed_reason":
         with pytest.raises(OperationCompletionError, match="fixed coverage"):
-            case.operations.record_proposal(
-                operation.operation_id, proposal.proposal_id, now=PUBLISHED
+            case.operations.complete(
+                operation.operation_id,
+                proposal_id=proposal.proposal_id,
+                result="理由変更",
+                next="再確認",
+                completed_at=PUBLISHED,
             )
         assert case.operations.get(operation.operation_id) == operation
     else:
-        case.operations.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
         completed = case.operations.complete(
             operation.operation_id,
+            proposal_id=proposal.proposal_id,
             result="未完了を明示した提案を保存し作業を終了",
             next="不足する資料を確認する",
             completed_at=PUBLISHED,
@@ -172,10 +177,12 @@ def test_reviewed_defer_still_requires_a_bound_published_proposal(tmp_path):
     published = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
     ).publish(proposal)
-    case.operations.record_proposal(
-        case.operation.operation_id, published.proposal_id, now=PUBLISHED
+    assert (
+        case.operations.complete(
+            case.operation.operation_id, proposal_id=published.proposal_id, **notes
+        ).status
+        == "completed"
     )
-    assert case.operations.complete(case.operation.operation_id, **notes).status == "completed"
 
 
 def test_unfinished_completion_prevents_later_new_proposal_publication(case):
@@ -231,8 +238,123 @@ def test_cli_yaml_output_failure_preserves_successful_publication(
     assert stored.published_at == PUBLISHED
 
 
+def test_context_and_work_file_keep_one_app_market_and_reviewed_pair_snapshot(
+    case, tmp_path, monkeypatch, capsys
+):
+    from baibai_engine.investment_judgment.trade_proposal import inputs, scaffold
+
+    draft = tmp_path / "work.yaml"
+    counts = Counter()
+
+    def count(owner):
+        original = getattr(inputs, owner)
+
+        def observed(*args, **kwargs):
+            counts[owner] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(inputs, owner, observed)
+
+    for owner in ("connect_read_only", "connect_market_read_only", "require_assessment_ref"):
+        count(owner)
+    project = scaffold.scaffold_proposal
+
+    def intervening_correction(context):
+        with closing(sqlite3.connect(case.market)) as market, market:
+            market.execute("UPDATE jquants_daily_bars SET close=900 WHERE ticker='1234'")
+        return project(context)
+
+    monkeypatch.setattr(scaffold, "scaffold_proposal", intervening_correction)
+    before = case.app.read_bytes()
+    assert (
+        main(
+            [
+                "trade-proposal-context",
+                "--operation-id",
+                case.operation.operation_id,
+                "--proposal-id",
+                PROPOSAL_ID,
+                "--db",
+                str(case.app),
+                "--sqlite-path",
+                str(case.market),
+                "--out",
+                str(draft),
+            ],
+            now=PREPARED,
+        )
+        == 0
+    )
+    context = yaml.safe_load(capsys.readouterr().out)
+    work = yaml.safe_load(draft.read_text())
+    assert counts == dict.fromkeys(
+        ("connect_read_only", "connect_market_read_only", "require_assessment_ref"), 1
+    )
+    assert context["inputs"] == work["inputs"]
+    assert float(work["inputs"]["quotes"][0]["price_yen"]) == 1100
+    with closing(sqlite3.connect(case.market)) as market:
+        assert market.execute(
+            "SELECT close FROM jquants_daily_bars WHERE ticker='1234'"
+        ).fetchone() == (900,)
+    assert case.app.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("field", "seed"),
+    [
+        ("headline", "提案の要点を記述してください。"),
+        ("forgone", "採らなかった行動とその理由を記述してください。"),
+        (
+            "comparison",
+            "docs/reference/trade-proposal.md#limit-selectionに従い、指値と数量、残cash、no-addで増量できない代償を、現金維持で逃す反発・回避できる損失と比べる。 選んだ行動と、それを変える次の価格または企業事実を記す。",
+        ),
+        (
+            "rationale",
+            "観測価格で割安と判断したかと、同じ資金で今買う・指値で待つ・別案や現金を選ぶかを分ける。価格だけを待つ場合と、不足があり調査を保留する場合を区別する。 モデル観測・一次資料によって企業の利益・普通株に帰属する資金の見通し、価格条件、または次に確かめる事実の何が変わったかを記す。変わらない場合も区別する。",
+        ),
+        ("review_conditions", "買付では未約定・部分約定・新情報の後に何を再確認するかを記す。"),
+        ("reviewer_identity", "独立Reviewerのidentityを記述してください。"),
+    ],
+)
+def test_known_scaffold_instruction_is_not_authored_even_with_a_matching_review(case, field, seed):
+    raw = reviewed_proposal(case).payload()
+    if field == "reviewer_identity":
+        raw["review"][field] = seed
+    elif field == "review_conditions":
+        raw["items"][0][field] = [seed]
+    elif field == "rationale":
+        raw["items"][0][field] = seed
+    else:
+        raw[field] = seed
+    bound = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    assert proposal_draft_sha256(bound) == bound.review.draft_sha256
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    before = case.app.read_bytes()
+    for require_review in (False, True):
+        with pytest.raises(ProposalError, match="reserved authoring"):
+            service.check(bound, require_review=require_review)
+    with pytest.raises(ProposalError, match="reserved authoring"):
+        service.publish(bound)
+    assert case.app.read_bytes() == before
+
+
+def test_author_can_retain_a_source_caution_without_using_a_scaffold_as_the_decision(case):
+    raw = reviewed_proposal(case).payload()
+    # This observation used to be conditionally supplied by the scaffold. Citing
+    # a source caution is legitimate; it is not an instruction to write a reason.
+    source = (
+        "EDINETの保存一覧に起点SFICT001の合成届出を確認。株式移転と対価の支払期日は別に照合した。"
+        "結果報告書の存在は成立や新規取得者への入金の証明ではない。"
+    )
+    raw["items"][0]["review_conditions"] = [source]
+    bound = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    assert service.check(bound).valid
+    assert service.publish(bound).items[0].review_conditions == (source,)
+
+
 @pytest.mark.parametrize("legacy_publication_time", [False, True])
-def test_cli_scaffold_later_review_check_publish_and_retry_own_the_publication_clock(
+def test_one_context_authored_unsigned_check_later_review_publish_and_exact_retry(
     case, tmp_path, capsys, legacy_publication_time
 ):
     draft = tmp_path / "proposal.yaml"
@@ -240,7 +362,7 @@ def test_cli_scaffold_later_review_check_publish_and_retry_own_the_publication_c
     assert (
         main(
             [
-                "trade-proposal-scaffold",
+                "trade-proposal-context",
                 "--operation-id",
                 case.operation.operation_id,
                 "--proposal-id",
@@ -253,26 +375,42 @@ def test_cli_scaffold_later_review_check_publish_and_retry_own_the_publication_c
         )
         == 0
     )
-    capsys.readouterr()
+    context = yaml.safe_load(capsys.readouterr().out)
     raw = yaml.safe_load(draft.read_text())
     assert "published_at" not in raw
-    raw.update(headline="合成見送り", comparison="現金維持との比較", forgone="買付を見送る")
+    assert raw["review"] is None
+    for field in ("proposal_id", "research_scope", "inputs", "liquidity_context"):
+        assert raw[field] == context[field]
+    untouched = case.app.read_bytes()
+    for command in ("trade-proposal-check", "trade-proposal-publish"):
+        assert main([command, str(draft), *common], now=PREPARED) == 3
+        capsys.readouterr()
     raw["items"][0]["action"] = "no_action"
-    raw["items"][0].pop("blockers")
-    raw["items"][0].pop("resume_conditions")
+    draft.write_text(yaml.safe_dump(raw))
+    assert main(["trade-proposal-check", str(draft), *common], now=PREPARED) == 3
+    capsys.readouterr()
+    raw.update(headline="合成見送り", comparison="現金維持との比較", forgone="買付を見送る")
+    raw["items"][0].update(
+        rationale="観測終値では利益に対して割高なため現金を維持する。",
+        review_conditions=["次回の決算で反復利益を確認する。"],
+    )
     if legacy_publication_time:
         raw["published_at"] = PREPARED.isoformat()
     draft.write_text(yaml.safe_dump(raw))
     assert main(["trade-proposal-check", str(draft), *common], now=PREPARED) == 0
     checked = yaml.safe_load(capsys.readouterr().out)
-    assert checked["review_binding"] == "stale"
+    assert checked["review_binding"] == "unreviewed"
+    assert checked["valid"]
+    assert checked["check_scope"] == "authored_draft_precheck"
+    for unsigned in (raw, {key: value for key, value in raw.items() if key != "review"}):
+        with pytest.raises(ValidationError, match="review"):
+            TradeProposal.model_validate({**unsigned, "published_at": PUBLISHED.isoformat()})
+    assert main(["trade-proposal-publish", str(draft), *common], now=PREPARED) == 4
+    assert "review is required" in capsys.readouterr().err
+    assert case.app.read_bytes() == untouched
 
     reviewed_at = PREPARED + timedelta(minutes=5)
-    raw["review"].update(
-        reviewer_identity="synthetic-independent-reviewer",
-        reviewed_at=reviewed_at.isoformat(),
-        draft_sha256=checked["draft_sha256"],
-    )
+    raw["review"] = fixture_review(checked["draft_sha256"], reviewed_at=reviewed_at.isoformat())
     draft.write_text(yaml.safe_dump(raw))
     draft_bytes = draft.read_bytes()
     assert main(["trade-proposal-check", str(draft), *common], now=PUBLISHED) == 0
@@ -319,7 +457,14 @@ def test_cli_context_check_and_preview_keep_limit_arithmetic_separate_from_the_c
     common = ["--db", str(case.app), "--sqlite-path", str(case.market)]
     assert (
         main(
-            ["trade-proposal-context", "--operation-id", case.operation.operation_id, *common],
+            [
+                "trade-proposal-context",
+                "--operation-id",
+                case.operation.operation_id,
+                "--proposal-id",
+                PROPOSAL_ID,
+                *common,
+            ],
             now=PREPARED,
         )
         == 0
@@ -530,7 +675,9 @@ def test_review_binds_conditions_cash_scope_and_projection(case):
     raw["items"][0]["terms"]["conditions"].append("別の実前提")
     changed = load_proposal_draft(raw)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
-    assert service.check(changed, require_review=False).valid
+    stale = service.check(changed, require_review=False)
+    assert [b.code for b in stale.blockers] == ["proposal_content_review_stale"]
+    assert service.check(changed.model_copy(update={"review": None}), require_review=False).valid
     with pytest.raises(ProposalConflictError, match="content review"):
         service.publish(changed)
 

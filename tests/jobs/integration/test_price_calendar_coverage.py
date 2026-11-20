@@ -7,6 +7,7 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
@@ -29,7 +30,7 @@ from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration.calendar_native import fixed_input
-from baibai_jobs.integration.price_native import model_input, rebuild_saved_input
+from baibai_jobs.integration.price_native import model_input, rebuild, rebuild_saved_input
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_price_export import export_prices_from_native_input
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -172,6 +173,73 @@ def test_known_closed_unrequested_days_publish_and_rebuild_without_mutable_input
         )
 
 
+def test_closed_only_subset_keeps_empty_schema_and_raw_receipts_in_both_cold_modes(tmp_path):
+    store, price, calendar, market = source_fixture(tmp_path)
+    _, saved = build(store, price, calendar, market)
+    fixed = price.fixed()
+    for key in list(store.values):
+        if key.endswith("/head.json"):
+            del store.values[key]
+    market.unlink()
+    cold, direct = tmp_path / "saved", tmp_path / "direct"
+    cold_result = rebuild_saved_input(store, saved, start=SATURDAY, end=SUNDAY, output=cold)
+    store.get_keys.clear()
+    direct_result = rebuild(store, fixed, start=SATURDAY, end=SUNDAY, output=direct)
+    assert store.get_keys == []  # The price-only head has neither a price attempt nor a proof.
+    assert cold_result["coverage_status"] == "complete"
+    assert cold_result["raw_coverage_status"] == direct_result["coverage_status"] == "partial"
+    assert "raw_coverage_status" not in direct_result
+    assert cold_result["closed_unrequested"] == direct_result["unavailable"] == 2
+    assert cold_result["rows"] == direct_result["rows"] == 0
+    text, real = pa.string(), pa.float64()
+    bars_schema = pa.schema(
+        [
+            ("ticker", text),
+            ("traded_at", text),
+            ("open", real),
+            ("high", real),
+            ("low", real),
+            ("close", real),
+            ("volume", real),
+            ("turnover_value", real),
+            ("adjustment_factor", real),
+            ("upper_limit", text),
+            ("lower_limit", text),
+            ("ex_right_type", text),
+            ("market_cap_million_yen", real),
+        ]
+    )
+    counts = pa.int64()
+    receipt_schema = pa.schema(
+        [
+            ("day", pa.date32()),
+            ("request_id", text),
+            ("projection_status", text),
+            ("l1_coverage_status", text),
+            ("rejected_count", counts),
+            ("excluded_count", counts),
+            ("incomplete_requests", counts),
+        ]
+    )
+    for output in (cold, direct):
+        assert pq.read_table(output / "daily_bars.parquet").equals(bars_schema.empty_table())
+        statuses = pq.read_table(output / "price_receipt_status.parquet")
+        assert statuses.schema == receipt_schema
+        assert statuses.to_pylist() == [
+            {
+                "day": day,
+                "request_id": None,
+                "projection_status": "unavailable",
+                "l1_coverage_status": "partial",
+                "rejected_count": 0,
+                "excluded_count": 0,
+                "incomplete_requests": 0,
+            }
+            for day in (SATURDAY, SUNDAY)
+        ]
+        assert (output / "input.json").is_file()
+
+
 def test_unrelated_calendar_month_does_not_retain_old_price_months_again(tmp_path):
     start, end = date(2020, 10, 30), date(2020, 11, 2)
     days = tuple(start + timedelta(days=i) for i in range(4))
@@ -270,6 +338,7 @@ def test_cold_price_closure_requires_intact_calendar_original_pack(tmp_path, pro
         store.values[pack].body = b"corrupt"
     with pytest.raises(LakePublishError, match=r"calendar pack|failed integrity"):
         rebuild_saved_input(store, saved, start=FIRST, end=LAST, output=tmp_path / "cold")
+    assert not (tmp_path / "cold").exists()
 
 
 @pytest.mark.parametrize(

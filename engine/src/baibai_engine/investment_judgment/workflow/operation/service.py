@@ -13,13 +13,11 @@ from uuid import uuid4
 
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
-from baibai_engine.investment_judgment.trade_proposal.contracts import (
-    TradeProposal,
-    proposal_draft_sha256,
-)
 from baibai_engine.investment_judgment.trade_proposal.query import (
     has_published_proposal_for_operation,
+    is_erroneous_proposal_as_of,
     load_investment_proposal,
+    load_proposal_with_assessments,
 )
 from baibai_engine.investment_judgment.workflow.case_screening import (
     read_case_screening,
@@ -255,19 +253,89 @@ class OperationService:
         result: str,
         next: str,
         completed_at: datetime,
+        proposal_id: str | None = None,
     ) -> OperationSession:
+        if not database_path(self._db_path).is_file():
+            raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
         try:
-            return self._edit_active(
-                operation_id,
-                lambda _conn, before, _selection, _previous: before.payload.model_copy(
-                    update={"result": result, "next": next}
-                ),
-                now=completed_at,
-                complete=True,
-            )
-        except (OperationCompletionError, OperationConflictError):
+            with closing(connect_existing(self._db_path)) as connection, connection:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
+                ).fetchone()
+                if row is None:
+                    raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
+                before = _from_row(row)
+                if completed_at.utcoffset() is None:
+                    raise OperationCompletionError("completion instant must include a UTC offset")
+                progress = progress_binding(before.payload)
+                reference = progress.proposal_ref
+                if before.status == "completed":
+                    if (
+                        before.payload.result == result
+                        and before.payload.next == next
+                        and (None if reference is None else reference.proposal_id) == proposal_id
+                        and before.completed_at is not None
+                        and completed_at >= before.completed_at
+                    ):
+                        # 応答喪失後も当時の参照・時計を返す。後日訂正で完了を書き換えない。
+                        return before
+                    raise OperationConflictError(
+                        f"completed operation session is immutable: {operation_id}"
+                    )
+                selection = selection_binding(before.payload)
+                if selection is None:
+                    raise OperationCompletionError("fixed research_selection is required")
+                payload = before.payload.model_copy(update={"result": result, "next": next})
+                payload.validate_metadata()
+                _validate_complete(before.session_kind, payload)
+                if proposal_id is None:
+                    validate_progress(
+                        connection, selection, progress, now=completed_at, complete=True
+                    )
+                    if (
+                        reference is not None
+                        or any(outcome.status == "reviewed" for outcome in progress.outcomes)
+                        or has_published_proposal_for_operation(connection, operation_id)
+                    ):
+                        raise OperationCompletionError(
+                            "completion requires one published Trade Proposal reference "
+                            "(--proposal-id)"
+                        )
+                else:
+                    exact = _completion_reference(
+                        connection,
+                        before,
+                        selection,
+                        progress,
+                        proposal_id=proposal_id,
+                        completed_at=completed_at,
+                    )
+                    if reference != exact:
+                        payload = with_progress(
+                            payload, progress.model_copy(update={"proposal_ref": exact})
+                        )
+                operation = OperationSession.model_validate(
+                    {
+                        **before.model_dump(mode="json", exclude={"payload"}),
+                        "status": "completed",
+                        "completed_at": completed_at,
+                        "payload": payload,
+                    }
+                )
+                connection.execute(
+                    "UPDATE operation_session SET status='completed', completed_at=?, payload=? "
+                    "WHERE operation_id=?",
+                    (
+                        completed_at.isoformat(),
+                        encode_json(payload.model_dump(mode="json")),
+                        operation_id,
+                    ),
+                )
+                return operation
+        except (OperationCompletionError, OperationConflictError, OperationNotFoundError):
             raise
-        except ValueError as error:
+        except (ValueError, FileNotFoundError) as error:
             raise OperationCompletionError(str(error)) from error
 
     def record_assessment(
@@ -294,27 +362,6 @@ class OperationService:
                         review_id=pair.review.review_id,
                     ),
                 ),
-            )
-
-        return self._edit_active(operation_id, bind, now=now)
-
-    def record_proposal(
-        self, operation_id: str, proposal_id: str, *, now: datetime
-    ) -> OperationSession:
-        def bind(
-            connection: sqlite3.Connection,
-            before: OperationSession,
-            _selection: ResearchSelectionRecord,
-            previous: ResearchProgress,
-        ) -> OperationPayload:
-            proposal = load_investment_proposal(connection, proposal_id)
-            if proposal.research_scope.operation_id != operation_id:
-                raise OperationConflictError("Proposal belongs to another Research Operation")
-            reference = ProposalRef(
-                proposal_id=proposal.proposal_id, draft_sha256=proposal_draft_sha256(proposal)
-            )
-            return with_progress(
-                before.payload, previous.model_copy(update={"proposal_ref": reference})
             )
 
         return self._edit_active(operation_id, bind, now=now)
@@ -393,7 +440,7 @@ class OperationService:
         return None if row is None else _from_row(row)
 
     def _edit_active(
-        self, operation_id: str, edit: _Edit, *, now: datetime | None, complete: bool = False
+        self, operation_id: str, edit: _Edit, *, now: datetime | None
     ) -> OperationSession:
         with self._snapshot(operation_id) as (reader, row):
             before = _from_row(row)
@@ -410,8 +457,6 @@ class OperationService:
                 return before
             expected_payload = row["payload"]
         del row
-        if complete:
-            payload.validate_metadata()
         with closing(connect_existing(self._db_path)) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             # Compare the original serialized snapshot under the writer lock. No second
@@ -434,58 +479,26 @@ class OperationService:
                 selection,
                 progress_binding(payload),
                 now=checked_at,
-                complete=complete,
+                complete=False,
                 previous=previous,
             )
-            # Completion adds notes, not a new representation of stored artifacts.
-            if progress.outcomes and not complete:
+            if progress.outcomes:
                 payload = with_progress(payload, progress)
-            if progress.proposal_ref is not None:
-                _require_published_proposal(
-                    connection,
-                    before,
-                    selection,
-                    progress,
-                    now=checked_at,
-                    completing=complete,
-                    # Late outcomes keep the old publication; binding/closing checks current scope.
-                    check_scope=complete or progress.proposal_ref != previous.proposal_ref,
-                )
-            if complete:
+            if (previous_ref := progress.proposal_ref) is not None:
+                # 旧activeの公開参照は保持する。後着outcomeの再評価は明示completeの責務。
+                proposal = load_investment_proposal(connection, previous_ref.proposal_id)
                 if (
-                    selection.targets
-                    and progress.proposal_ref is None
-                    and (
-                        not all(outcome.status == "unfinished" for outcome in progress.outcomes)
-                        or has_published_proposal_for_operation(connection, operation_id)
-                    )
+                    proposal.review.draft_sha256 != previous_ref.draft_sha256
+                    or proposal.research_scope.operation_id != operation_id
+                    or proposal.published_at > checked_at
                 ):
-                    raise OperationCompletionError(
-                        "completion requires one published Trade Proposal reference"
+                    raise OperationConflictError(
+                        "saved Proposal reference, Operation or publication time differs"
                     )
-                if not selection.targets and progress.proposal_ref is not None:
-                    raise OperationCompletionError(
-                        "empty selection ends with a reason; do not fabricate a Proposal"
-                    )
-                _validate_complete(before.session_kind, payload)
-            del selection
-            operation = OperationSession.model_validate(
-                {
-                    **before.model_dump(mode="json", exclude={"payload"}),
-                    "status": "completed" if complete else "active",
-                    "completed_at": now if complete else None,
-                    "payload": payload,
-                }
-            )
+            operation = before.model_copy(update={"payload": payload})
             connection.execute(
-                "UPDATE operation_session SET status=?, completed_at=?, payload=? "
-                "WHERE operation_id=?",
-                (
-                    operation.status,
-                    operation.completed_at.isoformat() if operation.completed_at else None,
-                    encode_json(payload.model_dump(mode="json")),
-                    operation_id,
-                ),
+                "UPDATE operation_session SET payload=? WHERE operation_id=?",
+                (encode_json(payload.model_dump(mode="json")), operation_id),
             )
             return operation
 
@@ -517,45 +530,44 @@ def _outcome_payload(
     )
 
 
-def _require_published_proposal(
+def _completion_reference(
     connection: sqlite3.Connection,
     operation: OperationSession,
     selection: ResearchSelectionRecord,
     progress: ResearchProgress,
     *,
-    now: datetime,
-    completing: bool,
-    check_scope: bool,
-) -> TradeProposal:
+    proposal_id: str,
+    completed_at: datetime,
+) -> ProposalRef:
     reference = progress.proposal_ref
-    assert reference is not None
-    try:
-        proposal = load_investment_proposal(connection, reference.proposal_id)
-        if proposal_draft_sha256(proposal) != reference.draft_sha256:
-            raise ValueError("Proposal reference differs from its saved draft hash")
-        if proposal.research_scope.operation_id != operation.operation_id:
-            raise ValueError("Proposal belongs to another Research Operation")
-        if proposal.published_at > now:
-            raise ValueError("research progress precedes Proposal publication")
-        if check_scope:
-            # The incoming progress is not persisted yet. Compare its exact scope
-            # here; the publication service independently checks persisted progress.
-            if (
-                fixed_proposal_scope(operation.operation_id, selection, progress)
-                != proposal.research_scope
-            ):
-                raise ValueError("Proposal scope differs from the Operation's fixed coverage")
-            if proposal.request_scope != selection.request.scope:
-                raise ValueError("Proposal request scope differs from the Research selection")
-            if proposal.published_at < operation.started_at:
-                raise ValueError("Proposal publication precedes the active Research Operation")
-        if completing and any(
-            item.action == "buy" and item.terms is None for item in proposal.items
-        ):
-            raise ValueError("buy proposal completion requires concrete order terms")
-    except (ValueError, FileNotFoundError) as error:
-        raise OperationCompletionError(str(error)) from error
-    return proposal
+    if not selection.targets:
+        raise OperationCompletionError(
+            "empty selection ends with a reason; do not fabricate a Proposal"
+        )
+    if is_erroneous_proposal_as_of(connection, proposal_id, completed_at):
+        raise OperationCompletionError("Proposal was corrected before completion")
+    # 正式readerが本文・査読hash・indexと評価参照を照合する。最新には乗り換えない。
+    proposal, pairs = load_proposal_with_assessments(connection, proposal_id)
+    if proposal.research_scope.operation_id != operation.operation_id:
+        raise OperationCompletionError("Proposal belongs to another Research Operation")
+    if proposal.published_at > completed_at:
+        raise OperationCompletionError("research progress precedes Proposal publication")
+    if proposal.published_at < operation.started_at:
+        raise OperationCompletionError(
+            "Proposal publication precedes the active Research Operation"
+        )
+    if selection.request.scope != proposal.request_scope:
+        raise OperationCompletionError("Proposal request scope differs from the Research selection")
+    if fixed_proposal_scope(operation.operation_id, selection, progress) != proposal.research_scope:
+        raise OperationCompletionError("Proposal scope differs from the Operation's fixed coverage")
+    if any(pair.published_at > proposal.published_at for pair in pairs.values()):
+        raise OperationCompletionError("Assessment is later than Proposal publication")
+    if any(item.action == "buy" and item.terms is None for item in proposal.items):
+        raise OperationCompletionError("buy proposal completion requires concrete order terms")
+    exact = ProposalRef(proposal_id=proposal_id, draft_sha256=proposal.review.draft_sha256)
+    if reference is not None and reference.proposal_id == proposal_id and reference != exact:
+        raise OperationCompletionError("Proposal reference differs from its saved draft hash")
+    return exact
 
 
 def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> None:

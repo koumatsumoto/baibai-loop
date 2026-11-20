@@ -5,7 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 from tests.helpers.generated_selection import seed_generated_selection
-from tests.helpers.proposal import PUBLISHED, backend_case, read_saved_proposal, reviewed_proposal
+from tests.helpers.proposal import (
+    PROPOSAL_ID,
+    PUBLISHED,
+    backend_case,
+    read_saved_proposal,
+    reviewed_proposal,
+)
 
 from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
 from baibai_engine.investment_judgment.trade_proposal.contracts import proposal_draft_sha256
@@ -41,11 +47,9 @@ def _setup(tmp_path, *, scope="review_positions", linked="erroneous", before_pro
     b = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
     ).publish(reviewed_proposal(case, proposal_id=B))
-    case.operations.record_proposal(
-        case.operation.operation_id, b.proposal_id, now=PUBLISHED + timedelta(minutes=2)
-    )
     case.operations.complete(
         case.operation.operation_id,
+        proposal_id=b.proposal_id,
         result="合成の初回提案を保存",
         next="報告された保有の再検討は別Operation",
         completed_at=PUBLISHED + timedelta(minutes=2),
@@ -127,6 +131,7 @@ def _setup(tmp_path, *, scope="review_positions", linked="erroneous", before_pro
 
 def _context(fixture, *, now=NOW):
     return input_reader.build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=fixture.operation.operation_id,
         db_path=fixture.case.app,
         sqlite_path=fixture.case.market,
