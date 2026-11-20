@@ -41,6 +41,8 @@ export interface DashboardView {
   warnings: WarningView[]
 }
 
+export type EconomicBuyDecision = 'price_conditional_allocation'
+
 export interface EstimatedModelChartView {
   selection_sha256: string
   input_known_at: string
@@ -268,6 +270,7 @@ export interface SavedBuyItemView {
   terms: SavedLimitTermsView | null
   proposed_limit_yen: string | null
   terms_unavailable_reasons: SavedReasonView[]
+  economic_decision: EconomicBuyDecision | null
   saved_buy_comparison: SavedBuyCapitalComparisonView | null
 }
 

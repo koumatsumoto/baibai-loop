@@ -268,6 +268,7 @@ def test_price_conditional_buy_is_exactly_readable_before_writer_cutover(payload
     item = payload["items"][0]
     item.update(
         terms=None,
+        economic_decision="price_conditional_allocation",
         proposed_limit_yen="1000",
         terms_unavailable_reasons=[
             {"code": "order_session_unknown", "message": "次の注文対象立会を確認できない。"}
@@ -278,8 +279,29 @@ def test_price_conditional_buy_is_exactly_readable_before_writer_cutover(payload
     assert saved.payload() == payload
     assert proposal_draft_sha256(saved) == saved.review.draft_sha256
     assert order_readiness(saved.items[0]) == "needs_terms"
-    with pytest.raises(ProposalError, match="only for price grid or classification"):
+    with pytest.raises(ProposalError, match="not enabled"):
         validate_proposal_policy(load_proposal_draft(payload))
+
+
+@pytest.mark.parametrize("incompatible", ["concrete", "unmarked", "wrong_gap", "two_gaps"])
+def test_a_signed_price_conditional_allocation_is_distinct_from_legacy_and_concrete_buys(
+    payload, incompatible
+):
+    item = payload["items"][0]
+    item["economic_decision"] = "price_conditional_allocation"
+    if incompatible != "concrete":
+        reasons = [{"code": "order_session_unknown", "message": "立会未確認。"}]
+        item.update(terms=None, proposed_limit_yen="1000", terms_unavailable_reasons=reasons)
+        if incompatible == "unmarked":
+            del item["economic_decision"]
+        elif incompatible == "wrong_gap":
+            reasons[0]["code"] = "security_classification_unavailable"
+        else:
+            reasons.append(
+                {"code": "security_classification_unavailable", "message": "分類も未確認。"}
+            )
+    with pytest.raises(ValidationError):
+        TradeProposal.model_validate(payload)
 
 
 def test_terms_missing_buy_requires_an_explicit_price_ceiling(payload):

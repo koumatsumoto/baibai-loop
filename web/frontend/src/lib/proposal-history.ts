@@ -9,7 +9,11 @@ export const ACTION_LABEL: Record<SavedProposalView['items'][number]['action'], 
 }
 
 export function proposalActionLabel(item: SavedProposalView['items'][number]) {
-  if (item.action === 'buy' && item.terms === null) return '価格条件付きの買付方針（注文条件未確認）'
+  if (item.action === 'buy' && item.terms === null) {
+    return item.economic_decision === 'price_conditional_allocation'
+      ? '価格条件付きの買付方針（注文条件未確認）'
+      : '買付案（保存時の具体条件なし）'
+  }
   if (item.action === 'sell' && item.reason_code === 'consider_full_recovery') return '全量回収の条件案'
   if (item.action === 'sell' && item.reason_code === 'consider_partial_recovery') return '一部回収の条件案'
   return ACTION_LABEL[item.action]
