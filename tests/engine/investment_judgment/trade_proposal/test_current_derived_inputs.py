@@ -2,6 +2,7 @@
 
 import sqlite3
 from contextlib import closing
+from decimal import Decimal
 
 import pytest
 from tests.engine.investment_judgment.stock_assessment.test_stock_assessment import ratio_pair
@@ -19,6 +20,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     UnpublishedAssessment,
     assessment_core_hash,
+    current_price_projection,
     evaluate_assessment,
 )
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
@@ -153,6 +155,17 @@ def test_old_inconsistent_inputs_cannot_be_used_for_a_new_buy(tmp_path, fault):
     assert evaluate_assessment(
         pair.document, review=pair.review, identity=UnpublishedAssessment.DRAFT, now=PUBLISHED
     ).errors
+    assert (
+        current_price_projection(
+            pair.document,
+            price_yen=Decimal("1000.00"),
+            price_as_of=PUBLISHED.date(),
+            as_of=PUBLISHED.date(),
+            basis_confirmed=True,
+            max_quote_age_days=3,
+        )
+        is None
+    )
     draft = reviewed_proposal(case)
     before = case.app.read_bytes()
     checked = _service(case).check(draft)

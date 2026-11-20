@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
+from tests.helpers.proposal import evaluate_buy_terms
 
 from baibai_engine.investment_judgment.stock_assessment.calculation import (
     CalculationInput,
@@ -10,7 +11,6 @@ from baibai_engine.investment_judgment.stock_assessment.calculation import (
 )
 from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
-from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 
 AS_OF = date(2026, 10, 14)
 
@@ -70,6 +70,15 @@ def test_real_close_above_pmax_keeps_limit_proposal_and_separate_returns():
     assert result.limit_price_projection["calculation_price_yen"] == "1000"
     assert result.limit_price_projection["base"]["total_return_pct"] == 10
     assert result.limit_price_projection["downside"]["total_return_pct"] == -30
+
+
+def test_equal_price_does_not_cross_copy_the_observation_decimal_precision():
+    result = evaluate(quote=quote("1000.00"), proposed_limit_yen=Decimal("1000"))
+    actual = result.current_price_projection["two_case_balance"]
+    trial = result.limit_price_projection["two_case_balance"]
+    assert actual["nominal_cash"]["comparator_total_value_yen"] == "1000.00"
+    assert trial["nominal_cash"]["comparator_total_value_yen"] == "1000"
+    assert result.capital_comparison["cash_only_terminal_value_yen"] == "300000"
 
 
 @pytest.mark.parametrize("limit", [Decimal(900), Decimal(1000), Decimal(1200)])

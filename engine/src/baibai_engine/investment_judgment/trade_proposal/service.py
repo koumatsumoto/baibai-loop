@@ -17,8 +17,8 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
 )
 from baibai_engine.investment_judgment.trade_proposal.conditions import (
     assessment_quote_basis,
-    buy_evaluation,
     buy_evaluation_payload,
+    buy_evaluator,
     proposal_quote,
     terms_unavailable_reasons,
 )
@@ -54,6 +54,7 @@ from baibai_engine.investment_judgment.workflow.operation.research_binding impor
 )
 from baibai_engine.investment_judgment.workflow.selection import saved_market_assessment
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
+from baibai_engine.portfolio.holdings.market_observations import next_order_session
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
@@ -83,23 +84,28 @@ def _validate_action(
     inputs = proposal.inputs
     blockers: list[GateReason] = []
     calculation: dict[str, object] = {}
+    session = (
+        next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
+        if item.action == "buy" or (item.action == "sell" and item.conditional_recovery is None)
+        else None
+    )
     unavailable = (
-        terms_unavailable_reasons(
-            item, inputs, sqlite_path=sqlite_path, now=now, market_connection=market_connection
-        )
+        terms_unavailable_reasons(item, inputs, now=now, session=session)
         if item.action in {"buy", "sell"}
         else ()
     )
     if item.action == "buy":
-        result = buy_evaluation(
+        evaluate = buy_evaluator(
             pair,
             inputs=inputs,
-            proposed_limit_yen=_limit_for_partial_buy(item),
-            selected_quantity=None if item.terms is None else item.terms.quantity,
+            target_session=session,
             latest=latest,
             sqlite_path=sqlite_path,
             now=now,
             market_connection=market_connection,
+        )
+        result = evaluate(
+            _limit_for_partial_buy(item), None if item.terms is None else item.terms.quantity
         )
         blockers.extend(result.hard_blockers)
         calculation = buy_evaluation_payload(result, order_blockers=unavailable)

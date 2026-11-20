@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
+from datetime import date
 from decimal import Decimal
+from functools import cache
 
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
     FIXED_VALUE_DELAY_MONTHS,
@@ -66,9 +68,13 @@ from baibai_web.readmodel.proposal_models import (
     UnfinishedResearchView,
 )
 
+_SourceViews = Callable[[Iterable[str]], list[SavedAssessmentSourceView]]
+
 
 def _holding_origin(
-    position: PositionInput, pairs: Mapping[str, ReviewedAssessment]
+    position: PositionInput,
+    pairs: Mapping[str, ReviewedAssessment],
+    assessment: Callable[[str], SavedAssessmentView],
 ) -> SavedHoldingOriginView:
     reference = position.original_assessment_ref
     pair = None if reference is None else pairs.get(reference.assessment_id)
@@ -85,9 +91,9 @@ def _holding_origin(
         assessment_ref=(
             None
             if reference is None
-            else SavedAssessmentRefView.model_validate(reference.model_dump(mode="json"))
+            else SavedAssessmentRefView.model_validate(reference, from_attributes=True)
         ),
-        assessment=_assessment(pair) if exact and pair is not None else None,
+        assessment=assessment(pair.assessment_id) if exact and pair is not None else None,
         investment_reason=position.original_investment_reason,
         reason_unavailable=position.original_reason_unavailable_reason,
     )
@@ -96,7 +102,11 @@ def _holding_origin(
 def project_saved_proposal(
     proposal: TradeProposal, pairs: Mapping[str, ReviewedAssessment]
 ) -> SavedProposalView:
-    """Caller supplies the exact current/original pairs from one saved read transaction."""
+    """Project each original Assessment/Review pair once for this saved publication."""
+
+    @cache
+    def assessment(assessment_id: str) -> SavedAssessmentView:
+        return _assessment(pairs[assessment_id])
 
     exposure = proposal.portfolio_exposure
     return SavedProposalView(
@@ -114,7 +124,7 @@ def project_saved_proposal(
             inputs_checked_at=proposal.inputs.checked_at,
             ledger_as_of=proposal.inputs.ledger_as_of,
         ),
-        items=[_item(item, proposal, pairs) for item in proposal.items],
+        items=[_item(item, proposal, pairs, assessment) for item in proposal.items],
         portfolio_exposure=SavedPortfolioExposureView(
             total_capital_yen=(
                 None if exposure.total_capital_yen is None else str(exposure.total_capital_yen)
@@ -133,6 +143,30 @@ def _conditional_return(value: ReturnProjection) -> SavedConditionalReturnView:
         total_return_pct=str(round(value.total_return_pct, 4)),
         annualized_return_pct=str(round(value.annualized_return_pct, 4)),
     )
+
+
+def _remaining_returns(
+    pair: ReviewedAssessment | None, *, as_of: date, price_yen: Decimal
+) -> tuple[int, SavedConditionalReturnView, SavedConditionalReturnView] | None:
+    if pair is None:
+        return None
+    document = pair.document
+    valuation = document.valuation
+    if (
+        document.investment_case.status != "intact"
+        or valuation.status != "resolved"
+        or document.input_snapshot.as_of != as_of
+    ):
+        return None
+    assert valuation.base is not None
+    assert valuation.downside is not None
+    horizon = valuation.horizon_months
+    assert horizon is not None
+    base, downside = (
+        _conditional_return(project_return(projection, price_yen=price_yen, horizon_months=horizon))
+        for projection in (valuation.base, valuation.downside)
+    )
+    return horizon, base, downside
 
 
 def _buy_time_sensitivity(
@@ -174,115 +208,102 @@ def _exposure(row: ExposureRow) -> SavedExposureRowView:
     )
 
 
-def _saved_price_value(pair: ReviewedAssessment) -> SavedPriceValueView | None:
+def _saved_price_value(
+    pair: ReviewedAssessment, sources: _SourceViews
+) -> SavedPriceValueView | None:
     finding = pair.recorded_price_value()
     if finding is None:
         return None
-    snapshot = pair.document.input_snapshot
-    case = pair.document.price_value_case
+    document = pair.document
+    case = document.price_value_case
     assert case is not None
-    price_id = pair.document.valuation.market_price_fact_id
-    evidence = [fact for fact in snapshot.facts if fact.fact_id in case.value_fact_ids]
-    used_sources = {
-        source_id
-        for fact in snapshot.facts
-        if fact.fact_id == price_id or fact.fact_id in case.value_fact_ids
-        for source_id in fact.source_ids
-    }
+    price_id = document.valuation.market_price_fact_id
+    used_sources: set[str] = set()
+    evidence = []
+    for fact in document.input_snapshot.facts:
+        if fact.fact_id in case.value_fact_ids:
+            evidence.append(
+                {
+                    **fact.model_dump(include={"fact_id", "unit", "as_of", "source_ids"}),
+                    "value": str(fact.value),
+                }
+            )
+        elif fact.fact_id != price_id:
+            continue
+        used_sources.update(fact.source_ids)
     return SavedPriceValueView.model_validate(
-        {
-            **finding,
-            # 口座の現在値を参照せず、その仮説で実際に引用された値と権利だけを表示する。
-            "value_facts": [
-                {**fact.model_dump(mode="json"), "value": str(fact.value)} for fact in evidence
-            ],
-            "sources": [
-                source.model_dump(mode="json")
-                for source in snapshot.sources
-                if source.source_id in used_sources
-            ],
-        }
+        {**finding, "value_facts": evidence, "sources": sources(used_sources)}
     )
 
 
 def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
     document, review = pair.document, pair.review
     case = document.investment_case
-    perspective_sources = {
-        source_id for item in document.model_perspectives for source_id in item.source_ids
-    }
-    risk_sources = {
-        source_id for item in document.permanent_loss_risks for source_id in item.source_ids
-    }
-    hypothesis_sources = {
-        source_id for item in document.findings.hypotheses for source_id in item.source_ids
-    }
+    original_sources = document.input_snapshot.sources
+    positions = {source.source_id: index for index, source in enumerate(original_sources)}
+
+    @cache
+    def source_view(index: int) -> SavedAssessmentSourceView:
+        return SavedAssessmentSourceView.model_validate(
+            original_sources[index], from_attributes=True
+        )
+
+    def sources(source_ids: Iterable[str]) -> list[SavedAssessmentSourceView]:
+        indexes = sorted(positions[s] for s in positions.keys() & set(source_ids))
+        return [source_view(index) for index in indexes]
+
     return SavedAssessmentView(
         assessment_id=pair.assessment_id,
         core_sha256=pair.core_sha256,
         review_id=review.review_id,
         as_of=document.input_snapshot.as_of,
         stance=document.conclusion.stance,
-        price_value_case=_saved_price_value(pair),
+        price_value_case=_saved_price_value(pair, sources),
         investment_case_explanation=case.explanation,
         investment_case_status=case.status,
         investment_case_status_reason=case.status_reason,
         invalidation_conditions=list(case.invalidation_conditions),
         investment_case_source_ids=list(case.source_ids),
-        investment_case_sources=[
-            SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
-            for source in document.input_snapshot.sources
-            if source.source_id in case.source_ids
-        ],
+        investment_case_sources=sources(case.source_ids),
         hypothesis_checks=[
-            SavedHypothesisCheckView.model_validate(item.model_dump(mode="json"))
+            SavedHypothesisCheckView.model_validate(item, from_attributes=True)
             for item in document.findings.hypotheses
         ],
-        hypothesis_sources=[
-            SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
-            for source in document.input_snapshot.sources
-            if source.source_id in hypothesis_sources
-        ],
+        hypothesis_sources=sources(
+            source_id for item in document.findings.hypotheses for source_id in item.source_ids
+        ),
         refresh=(
             None
             if document.refresh is None
-            else SavedAssessmentRefreshView.model_validate(document.refresh.model_dump(mode="json"))
+            else SavedAssessmentRefreshView.model_validate(document.refresh, from_attributes=True)
         ),
         strongest_countercase=document.conclusion.strongest_countercase,
         realization=SavedValueRealizationView.model_validate(
-            document.findings.realization.model_dump(mode="json")
+            document.findings.realization, from_attributes=True
         ),
         value_gap=SavedValueGapView(
             explanation=document.findings.value_gap_explanation,
             findings_source_ids=list(document.findings.source_ids),
-            findings_sources=[
-                SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
-                for source in document.input_snapshot.sources
-                if source.source_id in document.findings.source_ids
-            ],
+            findings_sources=sources(document.findings.source_ids),
         ),
         model_perspectives=[
-            SavedModelPerspectiveView.model_validate(item.model_dump(mode="json"))
+            SavedModelPerspectiveView.model_validate(item, from_attributes=True)
             for item in document.model_perspectives
         ],
-        model_perspective_sources=[
-            SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
-            for source in document.input_snapshot.sources
-            if source.source_id in perspective_sources
-        ],
+        model_perspective_sources=sources(
+            source_id for item in document.model_perspectives for source_id in item.source_ids
+        ),
         risk_analysis=SavedAssessmentRisksView(
             risks=[
-                SavedPermanentLossRiskView.model_validate(risk.model_dump(mode="json"))
+                SavedPermanentLossRiskView.model_validate(risk, from_attributes=True)
                 for risk in document.permanent_loss_risks
             ],
             unresolved_questions=list(document.findings.unresolved_questions),
-            sources=[
-                SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
-                for source in document.input_snapshot.sources
-                if source.source_id in risk_sources
-            ],
+            sources=sources(
+                source_id for item in document.permanent_loss_risks for source_id in item.source_ids
+            ),
         ),
-        valuation=_valuation(pair),
+        valuation=_valuation(pair, sources),
         review=SavedAssessmentReviewView(
             reviewed_at=review.reviewed_at,
             primary_source_check=review.primary_source_check,
@@ -290,17 +311,13 @@ def _assessment(pair: ReviewedAssessment) -> SavedAssessmentView:
             strongest_countercase=review.strongest_countercase,
             uncertainty_acceptance_reason=review.uncertainty_acceptance_reason,
             checked_source_ids=list(review.checked_source_ids),
-            checked_sources=[
-                SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
-                for source in document.input_snapshot.sources
-                if source.source_id in review.checked_source_ids
-            ],
+            checked_sources=sources(review.checked_source_ids),
         ),
     )
 
 
 def _valuation(
-    pair: ReviewedAssessment,
+    pair: ReviewedAssessment, sources: _SourceViews
 ) -> SavedResolvedValuationView | SavedUnresolvedValuationView:
     valuation = pair.document.valuation
     if valuation.status == "unresolved":
@@ -329,11 +346,7 @@ def _valuation(
                 annualized_return_pct=str(round(returns.annualized_return_pct, 4)),
                 calculation=projection.calculation,
                 source_ids=list(projection.source_ids),
-                sources=[
-                    SavedAssessmentSourceView.model_validate(source.model_dump(mode="json"))
-                    for source in pair.document.input_snapshot.sources
-                    if source.source_id in projection.source_ids
-                ],
+                sources=sources(projection.source_ids),
             )
         )
     return SavedResolvedValuationView(
@@ -376,7 +389,10 @@ def _saved_position(position: PositionInput, proposal: TradeProposal) -> SavedHo
 
 
 def _item(
-    item: ProposalItem, proposal: TradeProposal, pairs: Mapping[str, ReviewedAssessment]
+    item: ProposalItem,
+    proposal: TradeProposal,
+    pairs: Mapping[str, ReviewedAssessment],
+    assessment: Callable[[str], SavedAssessmentView],
 ) -> SavedProposalItemView:
     quote = next((row for row in proposal.inputs.quotes if row.ticker == item.ticker), None)
     outcome = next(row for row in proposal.research_scope.outcomes if row.ticker == item.ticker)
@@ -390,11 +406,7 @@ def _item(
         "sector": None if snapshot is None else snapshot.sector,
         "rationale": item.rationale,
         "review_conditions": list(item.review_conditions),
-        "assessment": (
-            None
-            if item.assessment_ref is None
-            else _assessment(pairs[item.assessment_ref.assessment_id])
-        ),
+        "assessment": None if current is None else assessment(current.assessment_id),
         "saved_quote": (
             None
             if quote is None
@@ -488,9 +500,7 @@ def _item(
         original = position.original_assessment_ref
         common.update(
             saved_position=_saved_position(position, proposal),
-            original_assessment=(
-                None if original is None else _assessment(pairs[original.assessment_id])
-            ),
+            original_assessment=(None if original is None else assessment(original.assessment_id)),
             original_investment_reason=position.original_investment_reason,
             original_reason_unavailable_reason=position.original_reason_unavailable_reason,
             case_reassessment_reason=item.case_reassessment_reason,
@@ -504,38 +514,27 @@ def _item(
         )
         if item.action == "hold":
             hold_comparison = None
-            # intact-only保存は価格basis確認を保証しないため、十分性確認を補作しない。
+            # An intact case alone does not confirm the share basis or the reward at this quote.
             if (
                 item.holding_basis == "sufficient_remaining_reward"
                 and item.return_calculation_unavailable_reason is None
                 and position.quantity_basis_confirmed
                 and quote is not None
-                and current is not None
-                and current.document.investment_case.status == "intact"
-                and current.document.valuation.status == "resolved"
-                and current.document.input_snapshot.as_of == proposal.as_of
-            ):
-                valuation = current.document.valuation
-                assert valuation.base is not None
-                assert valuation.downside is not None
-                assert valuation.horizon_months is not None
-                hold_returns = [
-                    _conditional_return(
-                        project_return(
-                            projection,
-                            price_yen=quote.price_yen,
-                            horizon_months=valuation.horizon_months,
-                        )
+                and (
+                    returns := _remaining_returns(
+                        current, as_of=proposal.as_of, price_yen=quote.price_yen
                     )
-                    for projection in (valuation.base, valuation.downside)
-                ]
+                )
+                is not None
+            ):
+                horizon, base, downside = returns
                 hold_comparison = SavedHoldQuoteComparisonView(
                     calculation_price_yen=str(quote.price_yen),
                     price_as_of=quote.price_as_of,
                     price_basis=quote.price_basis,
-                    horizon_months=valuation.horizon_months,
-                    base=hold_returns[0],
-                    downside=hold_returns[1],
+                    horizon_months=horizon,
+                    base=base,
+                    downside=downside,
                 )
             return SavedHoldItemView.model_validate(
                 {
@@ -550,30 +549,20 @@ def _item(
         sell_comparison = None
         if (
             item.reason_code == "insufficient_remaining_reward"
-            and current is not None
-            and current.document.investment_case.status == "intact"
             and item.terms is not None
-            and current.document.valuation.status == "resolved"
-            and current.document.input_snapshot.as_of == proposal.as_of
-        ):
-            valuation = current.document.valuation
-            assert valuation.base is not None
-            assert valuation.downside is not None
-            assert valuation.horizon_months is not None
-            returns = [
-                project_return(
-                    projection,
-                    price_yen=item.terms.limit_price_yen,
-                    horizon_months=valuation.horizon_months,
+            and (
+                returns := _remaining_returns(
+                    current, as_of=proposal.as_of, price_yen=item.terms.limit_price_yen
                 )
-                for projection in (valuation.base, valuation.downside)
-            ]
-            projected = [_conditional_return(value) for value in returns]
+            )
+            is not None
+        ):
+            horizon, base, downside = returns
             sell_comparison = SavedSellLimitComparisonView(
                 calculation_price_yen=str(item.terms.limit_price_yen),
-                horizon_months=valuation.horizon_months,
-                base=projected[0],
-                downside=projected[1],
+                horizon_months=horizon,
+                base=base,
+                downside=downside,
             )
         return SavedSellItemView.model_validate(
             {
@@ -596,7 +585,7 @@ def _item(
                 else None
             ),
             "saved_holding_origin": (
-                _holding_origin(deferred_position, pairs)
+                _holding_origin(deferred_position, pairs, assessment)
                 if outcome.purpose == "holding" and deferred_position is not None
                 else None
             ),

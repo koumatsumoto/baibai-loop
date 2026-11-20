@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
+from tests.helpers.proposal import evaluate_buy_terms
 
 from baibai_engine.investment_judgment.stock_assessment.calculation import (
     CalculationInput,
@@ -17,7 +18,6 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     current_price_projection,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
-from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 
 
 def document_payload(*, base=1200, downside=800, cash=0, months=12, rate=12):

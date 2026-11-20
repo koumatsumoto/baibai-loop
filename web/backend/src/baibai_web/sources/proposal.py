@@ -134,7 +134,11 @@ def _project(
             item.company_name, item.sector = context.issuer_names[item.ticker]
         assessment = item.assessment
         if assessment is not None and assessment.assessment_id in context.charts:
-            assessment.estimated_model_chart = EstimatedModelChartView.model_validate(
-                context.charts[assessment.assessment_id]
+            item.assessment = assessment.model_copy(
+                update={
+                    "estimated_model_chart": EstimatedModelChartView.model_validate(
+                        context.charts[assessment.assessment_id]
+                    ),
+                }
             )
     return view

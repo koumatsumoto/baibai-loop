@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
@@ -60,6 +60,8 @@ class EstimatedModelChartView(BaseModel):
 
 
 class SavedAssessmentSourceView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     source_id: str
     source_tier: Literal["primary", "secondary", "local_data"]
     ref: str | None

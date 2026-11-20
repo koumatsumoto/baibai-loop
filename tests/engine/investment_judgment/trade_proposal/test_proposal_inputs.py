@@ -657,7 +657,10 @@ def test_known_intraday_action_without_new_fill_reaches_sell_quantity_gate(
     assert inputs.positions[0].quantity_basis_confirmed is unchanged
     assert inputs.available_cash_yen == Decimal(210000)
     assert inputs.total_capital_yen == (Decimal(320000) if unchanged else None)
-    reasons = terms_unavailable_reasons(proposal.items[0], inputs, sqlite_path=case.market, now=now)
+    from baibai_engine.portfolio.holdings.market_observations import next_order_session
+
+    session = next_order_session(sqlite_path=case.market, now=now)
+    reasons = terms_unavailable_reasons(proposal.items[0], inputs, now=now, session=session)
     assert {reason.code for reason in reasons} == (
         set() if unchanged else {"quantity_basis_unconfirmed"}
     )
