@@ -16,7 +16,7 @@ from baibai_engine.investment_judgment.trade_proposal.warnings import build_prop
 from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
 from baibai_engine.portfolio.ledger.drafts import apply_draft, build_broker_fact_draft
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 WARNING = "hold_active_reservation_requires_confirmation:1234"
 
@@ -71,7 +71,7 @@ def test_normal_hold_keeps_same_ticker_zero_cash_reservation_visible_without_blo
     assert saved.inputs.available_cash_yen == 210000
     assert LedgerStoreService(case.app).load_with_head() == ledger_before
     before = case.app.read_bytes()
-    assert DbProposalSource(case.app).latest().warnings == [WARNING]
+    assert read_proposal_views(case.app).latest.proposal.warnings == [WARNING]
     assert helper.read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
     assert service.publish(draft) == saved
     assert case.app.read_bytes() == before
@@ -150,7 +150,7 @@ def test_reported_cancellation_changes_current_warning_not_saved_hold(tmp_path):
     assert preview.items[0]["saved_action"] == "hold"
     assert preview.items[0]["blockers"] == []
     assert service.publish(saved) == saved
-    assert DbProposalSource(case.app).latest().warnings == [WARNING]
+    assert read_proposal_views(case.app).latest.proposal.warnings == [WARNING]
     assert store.load_with_head() == ledger_before
     assert case.app.read_bytes() == before
 
@@ -174,7 +174,7 @@ def test_later_order_is_current_warning_not_retroactive_saved_warning(tmp_path):
     assert preview.items[0]["blockers"] == []
     assert preview.items[0]["current_quote_calculation"]["action"] == "hold"
     assert service.publish(saved) == saved
-    assert DbProposalSource(case.app).latest().warnings == []
+    assert read_proposal_views(case.app).latest.proposal.warnings == []
     assert store.load_with_head() == ledger_before
     assert case.app.read_bytes() == before
 
@@ -202,7 +202,7 @@ def test_legacy_warningless_hold_read_retry_are_immutable_but_new_draft_is_reche
     before = case.app.read_bytes()
     assert saved.warnings == ()
     assert service.publish(draft) == saved
-    assert DbProposalSource(case.app).latest().warnings == []
+    assert read_proposal_views(case.app).latest.proposal.warnings == []
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,

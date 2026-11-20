@@ -18,6 +18,7 @@ from baibai_engine.data_collection.providers.edinet.archive_native import FixedE
 from baibai_engine.data_collection.providers.edinet.archives import archive_keys
 from baibai_engine.data_collection.providers.edinet.facts_scope import read_scope
 from baibai_engine.data_collection.providers.edinet.list_projection import (
+    FixedEdinetListEvidence,
     project_document_list,
 )
 from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
@@ -66,6 +67,7 @@ def extract_saved_edinet(
     lookback_days: int = 540,
     metric_archives: FixedEdinetArchives | None = None,
     fact_archives: FixedEdinetArchives | None = None,
+    fixed_list_evidence: FixedEdinetListEvidence | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Use saved source dates; never turn missing acquisition into extraction failure.
 
@@ -75,16 +77,21 @@ def extract_saved_edinet(
     An explicit fixed metric archive input reads selected ZIPs without copying
     them into SQLite. It does not alter the existing warm baseline contract.
     A separate fixed facts reader does not initialize the SQL acquisition scope.
+    If a fixed list projection was just applied, use its failure days and any
+    required historical receipt evidence rather than a raw SQL copy.
     """
     baseline = read_edinet_metric_baseline(database, asof)
     with closing(connect_read_only(database)) as conn:
         conn.execute("BEGIN")
         documents = read_observed_documents(conn, through=asof)
         failed_list_days: list[str] = []
-        for day in pending_edinet_document_dates(conn, through=asof):
-            projection = project_document_list(read_list_responses(conn, doc_date=day))
-            if projection.error is not None:
-                failed_list_days.append(day.isoformat())
+        if fixed_list_evidence is None:
+            for day in pending_edinet_document_dates(conn, through=asof):
+                if project_document_list(read_list_responses(conn, doc_date=day)).error is not None:
+                    failed_list_days.append(day.isoformat())
+        else:
+            cutoff = asof.isoformat()
+            failed_list_days = [day for day in fixed_list_evidence.failed_days if day <= cutoff]
         row = conn.execute(
             "SELECT MAX(coverage_end) FROM source_coverage "
             "WHERE source = 'edinet_documents' AND status = 'ok' AND coverage_end <= ?",
@@ -128,7 +135,10 @@ def extract_saved_edinet(
             baseline=baseline,
             extractor_revision=EDINET_METRIC_REVISION,
             retained_tickers_by_doc=read_retained_metric_document_tickers(
-                database, selection=selection, through=available
+                database,
+                selection=selection,
+                through=available,
+                fixed_list_evidence=fixed_list_evidence,
             ),
         )
         if selection.quarantined_events:

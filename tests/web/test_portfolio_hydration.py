@@ -33,8 +33,8 @@ from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_cli import main
 from baibai_web.materialize import export_read_models
-from baibai_web.readmodel.builders import dashboard, proposal
-from baibai_web.sources import db_sources
+from baibai_web.readmodel.builders import dashboard
+from baibai_web.sources import db_sources, proposal
 
 DISPLAY_DATASETS = (
     "jquants.daily_bars",

@@ -361,14 +361,18 @@ def _market(m: Row, limit: date) -> Reading | None:
     vs = [v for d, v in points if d == day]
     if len(vs) != 1:
         return None
-    pairs = [
-        (v, f"市場代理{m['benchmark_ticker']}の終値・{n}本前比 {v:+.1%}")
+    values = [
+        f"市場代理{m['benchmark_ticker']}の終値・{n}本前比 {v:+.1%}"
         for n in (20, 60)
         if (v := _num(vs[0].get(f"benchmark_return_{n}d"))) is not None
     ]
-    return _signals(
-        pairs,
-        "この代理の価格変化です。他の指数や個社が同じ方向・幅で動くとは限りません。",
+    if not values:
+        return None
+    # ETFの価格観測を、個社への合成方向判定にしない。
+    return Reading(
+        "context_only",
+        "、".join(values)
+        + "。この代理の価格変化です。他の指数や個社が同じ方向・幅で動くとは限りません。",
         "市場環境：market.points / benchmark_return_20d・60d",
         day,
     )

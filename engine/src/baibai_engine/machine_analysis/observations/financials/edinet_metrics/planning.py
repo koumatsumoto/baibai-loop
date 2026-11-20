@@ -2,20 +2,28 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date
 from itertools import groupby
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from baibai_engine.data_collection.providers.edinet.document_events import (
     QuarantinedDocumentEvent,
 )
 from baibai_engine.data_collection.providers.edinet.fields import parse_sec_code, text_or_none
-from baibai_engine.data_collection.providers.edinet.list_projection import project_document_list
+from baibai_engine.data_collection.providers.edinet.list_projection import (
+    FixedEdinetListEvidence,
+    project_document_list,
+)
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
-from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
+from baibai_engine.data_collection.providers.edinet.receipts import (
+    EdinetListReceipt,
+    read_list_responses,
+)
 from baibai_engine.data_collection.providers.edinet.selection import (
     TARGET_DOC_TYPE_CODES,
     DocumentSelection,
@@ -29,6 +37,9 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
     EDINETMetricBaselineRow,
 )
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
+
+if TYPE_CHECKING:
+    from baibai_engine.data_collection.providers.edinet.list_native import NativeListReceipt
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +65,11 @@ class MetricExtractionPlan:
 
 
 def read_retained_metric_document_tickers(
-    sqlite_path: Path, *, selection: DocumentSelection, through: date
+    sqlite_path: Path,
+    *,
+    selection: DocumentSelection,
+    through: date,
+    fixed_list_evidence: FixedEdinetListEvidence | None = None,
 ) -> dict[str, frozenset[str]]:
     """Identify unresolved targets from original receipts, never revive omitted filings.
 
@@ -62,15 +77,25 @@ def read_retained_metric_document_tickers(
     names only its docID. Its old receipt still establishes the affected ticker,
     not present eligibility, financial values or a past extraction timestamp.
     Read history only for unresolved targets; the normal no-event path is free.
+    A fixed daily input uses already verified bodies, not a second L1 or SQL read.
     """
     targets = {
         event.target_doc_id
         for event in selection.quarantined_events
         if event.target_doc_id is not None
     }
-    if not targets or not sqlite_path.is_file():
+    if not targets:
         return {}
-    tickers: dict[str, set[str]] = {}
+    if fixed_list_evidence is not None:
+        by_date: dict[date, list[NativeListReceipt]] = defaultdict(list)
+        for receipt in fixed_list_evidence.receipts:
+            if receipt.doc_date <= through:
+                by_date[receipt.doc_date].append(receipt)
+        return _retained_metric_document_tickers(
+            targets, ([receipt.decoded() for receipt in day] for day in by_date.values())
+        )
+    if not sqlite_path.is_file():
+        return {}
     with closing(connect_read_only(sqlite_path)) as connection:
         connection.execute("BEGIN")
         days = connection.execute(
@@ -78,28 +103,37 @@ def read_retained_metric_document_tickers(
             "WHERE doc_date <= ? ORDER BY doc_date",
             (through.isoformat(),),
         ).fetchall()
-        for (day,) in days:
-            receipts = read_list_responses(connection, doc_date=date.fromisoformat(day))
-            ordered = sorted(receipts, key=lambda receipt: receipt.received_at)
-            for _, group in groupby(ordered, key=lambda receipt: receipt.received_at):
-                same_time = tuple(group)
-                # Match the source projection: a conflicting same-time group
-                # makes later ordering unknowable, rather than ordering by UUID.
-                if len({receipt.body for receipt in same_time}) != 1:
-                    break
-                projection = project_document_list(same_time)
-                for document in projection.documents:
-                    doc_id = str(document["docID"])
-                    if (
-                        doc_id not in targets
-                        or text_or_none(document.get("docTypeCode")) not in TARGET_DOC_TYPE_CODES
-                    ):
-                        continue
-                    try:
-                        ticker = parse_sec_code(document.get("secCode"))
-                    except EDINETProviderError:
-                        continue
-                    tickers.setdefault(doc_id, set()).add(ticker)
+        return _retained_metric_document_tickers(
+            targets,
+            (read_list_responses(connection, doc_date=date.fromisoformat(day)) for (day,) in days),
+        )
+
+
+def _retained_metric_document_tickers(
+    targets: set[str], receipts_by_day: Iterable[Sequence[EdinetListReceipt]]
+) -> dict[str, frozenset[str]]:
+    tickers: dict[str, set[str]] = {}
+    for receipts in receipts_by_day:
+        ordered = sorted(receipts, key=lambda receipt: receipt.received_at)
+        for _, group in groupby(ordered, key=lambda receipt: receipt.received_at):
+            same_time = tuple(group)
+            # Match the source projection: a conflicting same-time group
+            # makes later ordering unknowable, rather than ordering by UUID.
+            if len({receipt.body for receipt in same_time}) != 1:
+                break
+            projection = project_document_list(same_time)
+            for document in projection.documents:
+                doc_id = str(document["docID"])
+                if (
+                    doc_id not in targets
+                    or text_or_none(document.get("docTypeCode")) not in TARGET_DOC_TYPE_CODES
+                ):
+                    continue
+                try:
+                    ticker = parse_sec_code(document.get("secCode"))
+                except EDINETProviderError:
+                    continue
+                tickers.setdefault(doc_id, set()).add(ticker)
     return {doc_id: frozenset(values) for doc_id, values in tickers.items()}
 
 

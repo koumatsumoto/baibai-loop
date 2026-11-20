@@ -6,7 +6,6 @@ from datetime import date
 from typing import Protocol
 
 from baibai_engine.portfolio.ledger.events import PortfolioSnapshot
-from baibai_web.readmodel.proposal_models import SavedProposalView
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,21 +23,3 @@ class LedgerSource(Protocol):
 
 class MarketSource(Protocol):
     def security_names(self, *, as_of: date, tickers: tuple[str, ...]) -> Mapping[str, str]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ProposalHistoryRead:
-    proposals: tuple[SavedProposalView, ...]
-    unavailable_proposal_ids: tuple[str, ...]
-
-
-class ProposalSource(Protocol):
-    def latest(self) -> SavedProposalView | None:
-        """Return None only for a valid store with no saved proposal; read failures raise."""
-        ...
-
-
-class ProposalHistorySource(Protocol):
-    def history(self) -> ProposalHistoryRead:
-        """Read each saved publication independently; no ticker-based replacement."""
-        ...

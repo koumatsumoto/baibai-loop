@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Sequence
-from contextlib import ExitStack, closing
+from contextlib import ExitStack, closing, suppress
 from pathlib import Path
 from typing import Any
 
@@ -51,9 +51,16 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.keys import release_manifest_key as lake_release_manifest_key
-from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.models import LakeObject
+from baibai_engine.storage.snapshots.objects import (
+    LakeObjectCache,
+    LakeObjectError,
+    LocalMirrorSource,
+    mirror_path,
+)
 from baibai_engine.storage.snapshots.reader import FixedRelease as LakeFixedRelease
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
+from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.sqlite.source_cache.equity_web_import import (
     import_responses as equity_web_import_responses,
 )
@@ -313,12 +320,51 @@ def merge_ready(
     }
 
 
+def _local_readback_matches(path: Path, lake_object: LakeObject) -> bool:
+    with suppress(OSError):
+        return path.stat().st_size == lake_object.bytes and sha256_file(path) == lake_object.sha256
+    return False
+
+
+class _SealReadback(LakeObjectCache):
+    """Use optional published bytes without putting any in the independent readback tree."""
+
+    def __init__(self, store: ObjectStore, directory: Path, retained: Path | None) -> None:
+        super().__init__(root=directory, source=LocalMirrorSource(directory))
+        self.store = store
+        self.retained = retained
+        self._matched: dict[str, Path] = {}
+
+    def _fetch(self, lake_object: LakeObject) -> None:
+        _fetch(self.store, self.root, lake_object.key, expected_sha256=lake_object.sha256)
+
+    def prepare(self, lake_object: LakeObject) -> None:
+        if self.retained is not None:
+            with suppress(LakeObjectError):
+                path = mirror_path(self.retained, lake_object.key)
+                if _local_readback_matches(path, lake_object):
+                    self._matched[lake_object.key] = path
+                    return
+        self._fetch(lake_object)
+
+    def materialize(self, lake_object: LakeObject) -> Path:
+        if (path := self._matched.get(lake_object.key)) is not None:
+            if _local_readback_matches(path, lake_object):
+                self.transfers.reused_objects += 1
+                self.transfers.reused_bytes += lake_object.bytes
+                return path
+            self._fetch(lake_object)
+            self._matched.pop(lake_object.key)
+        return super().materialize(lake_object)
+
+
 def verify_and_seal(
     store: ObjectStore,
     state: dict[str, Any],
     *,
     handle: PublicationLeaseHandle,
     directory: Path,
+    same_run_readback: Path | None = None,
 ) -> list[dict[str, object]]:
     """Read back typed/source history without changing SQLite, then seal each plan."""
     verify_held(store, handle)
@@ -363,6 +409,12 @@ def verify_and_seal(
             for stage, _ in item.stages.values()
             for observation in stage.result.observations
         )
+    retained = (
+        same_run_readback
+        if same_run_readback is not None and same_run_readback.name == pointer.manifest_sha256
+        else None
+    )
+    cache = _SealReadback(store, directory, retained)
     readback_datasets = {name for name, _, _ in changed}
     for name, manifest in after.dataset_manifests.items():
         if name not in readback_datasets:
@@ -370,9 +422,8 @@ def verify_and_seal(
         for part in manifest.partitions:
             if (name, part.values["year"], part.values["month"]) in changed:
                 for obj in part.objects:
-                    _fetch(store, directory, obj.key, expected_sha256=obj.sha256)
+                    cache.prepare(obj)
     with lake_session() as session:
-        cache = LakeObjectCache(root=directory, source=LocalMirrorSource(directory))
         equity_web_verify_release_history(
             session,
             release=after,

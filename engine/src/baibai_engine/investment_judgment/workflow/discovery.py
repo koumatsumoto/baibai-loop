@@ -109,8 +109,6 @@ def discovery_context(
     question: str | None,
     page: int,
     comparisons: tuple[str, ...] | None,
-    lane: str | None,
-    excluded: str | None,
     minimum: PriceCoordinateMinimum | None,
     book_prices: BookPriceComparison | None = None,
 ) -> dict[str, Any]:
@@ -176,12 +174,6 @@ def discovery_context(
                 "rows": [rows[t] for t in comparisons if t in rows],
                 "outside_universe": sorted(requested.difference(data.universe_tickers)),
             },
-        }
-    if lane is not None or excluded is not None:
-        return {
-            **result,
-            "status": "ready",
-            "discovery": _explicit_index_view(data.rows, lane, excluded, page),
         }
     return {
         **result,
@@ -333,34 +325,6 @@ def _explore(
         "order": "銘柄コード順の閲覧用。先頭・所属経路の数・相対騰落を魅力度にしない。",
         **comparison,
         **result_page,
-    }
-
-
-def _explicit_index_view(
-    rows: Sequence[DiscoveryRow], lane: str | None, excluded: str | None, page: int
-) -> dict[str, Any]:
-    if excluded is not None:
-        field, value = (
-            ("technical_state", "matched")
-            if excluded == "technical_matched"
-            else ("financial_state", "input_unresolved")
-        )
-        selected = [
-            row
-            for row in rows
-            if row["screening_lane"] == "no_current_hypothesis" and row.get(field) == value
-        ]
-        args = ["--screening-excluded", excluded]
-    else:
-        assert lane is not None
-        selected = [row for row in rows if row["screening_lane"] == lane]
-        args = ["--screening-lane", lane]
-    return {
-        "view": "explicit_index_membership",
-        "lane": lane,
-        "excluded_scope": excluded,
-        "basis": "この公表物に保存された所属・状態。旧政策の全カードや旧表示順は保存していない。",
-        **_page(selected, args, page),
     }
 
 

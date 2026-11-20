@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import sqlite3
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from tests.helpers.model_generation import empty_selection, generation, publish_generation
 from tests.helpers.proposal import PUBLISHED, backend_case, read_saved_proposal, reviewed_proposal
-from tests.helpers.screening_run import seed_saved_run
 
 from baibai_engine.data_collection.receipts.native_sources.store import (
     initialize_database as initialize_indicator_database,
@@ -19,9 +20,6 @@ from baibai_engine.investment_judgment.stock_assessment.store import load_review
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
-    ScreeningRunReader,
-)
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     read_next_earnings_dates,
 )
@@ -31,6 +29,8 @@ from baibai_engine.machine_analysis.observations.economic_indicators.service imp
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     market_calendar_business_day,
 )
+from baibai_engine.machine_analysis.screening.selection_query import read_case_publication
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.sqlite.application.read import (
     connect_read_only as connect_application_read_only,
 )
@@ -73,7 +73,12 @@ def test_screening_read_helpers_accept_the_current_run_store(tmp_path: Path) -> 
     current = tmp_path / "runs.sqlite"
     initialize_run_store(current)
 
-    assert ScreeningRunReader(current).get_run("absent") is None
+    assert (
+        read_case_publication(
+            path=current, selection_id="absent", known_at=datetime(2027, 1, 1, tzinfo=UTC)
+        )
+        is None
+    )
 
 
 def test_screening_reader_rejects_an_obsolete_run_store(tmp_path: Path) -> None:
@@ -86,7 +91,9 @@ def test_screening_reader_rejects_an_obsolete_run_store(tmp_path: Path) -> None:
         RuntimeError,
         match=rf"found {RUN_STORE_SCHEMA_VERSION - 1}, expected {RUN_STORE_SCHEMA_VERSION}",
     ):
-        ScreeningRunReader(obsolete).get_run("absent")
+        read_case_publication(
+            path=obsolete, selection_id="absent", known_at=datetime(2027, 1, 1, tzinfo=UTC)
+        )
 
 
 def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:
@@ -232,23 +239,26 @@ def test_indicator_partial_store_is_not_unpublished(
         assert connection.execute("PRAGMA user_version").fetchone()[0] == version
 
 
-def test_run_payload_partial_store_is_not_an_absent_id(tmp_path: Path) -> None:
-    from tests.helpers.screening_run import screening_run_payload, stock_analysis
-
+def test_damaged_fixed_selection_is_not_an_absent_id(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
-    seed_saved_run(
-        path,
-        screening_run_payload(stock_analyses=(stock_analysis(),)),
-        run_revision_id="run-test",
+    fixed = generation()
+    publish_generation(fixed, path=path)
+    selection_id = "fixed-selection"
+    ScreeningSelectionStore(path).publish(selection_id, empty_selection(fixed.generation_id))
+    known_at = max(datetime.now(UTC), fixed.evaluation_time)
+    assert (
+        read_case_publication(path=path, selection_id=selection_id, known_at=known_at) is not None
     )
-    assert ScreeningRunReader(path).get_run("run-test") is not None
-    assert ScreeningRunReader(path).get_run("absent") is None
+    assert read_case_publication(path=path, selection_id="absent", known_at=known_at) is None
     with closing(sqlite3.connect(path)) as connection, connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        connection.execute("DROP TABLE stock_analysis")
+        connection.execute(
+            "UPDATE screening_selection SET payload_gzip = ? WHERE selection_id = ?",
+            (b"not gzip", selection_id),
+        )
     original = path.read_bytes()
-    with pytest.raises(sqlite3.OperationalError, match="no such table: stock_analysis"):
-        ScreeningRunReader(path).get_run("run-test")
+    with pytest.raises(gzip.BadGzipFile):
+        read_case_publication(path=path, selection_id=selection_id, known_at=known_at)
     assert path.read_bytes() == original
     with closing(sqlite3.connect(path)) as connection, connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == version

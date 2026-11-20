@@ -16,7 +16,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import load_investme
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.readmodel.proposal_models import SavedAssessmentView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.mark.parametrize("action", ["buy", "no_action", "defer"])
@@ -60,7 +60,7 @@ def test_normal_saved_proposal_keeps_author_countercase_and_realization(tmp_path
     )
 
     before = case.app.read_bytes()
-    item = DbProposalSource(case.app).latest().items[0]
+    item = read_proposal_views(case.app).latest.proposal.items[0]
     projected = item.assessment
     assert projected.strongest_countercase == countercase
     assert projected.realization.model_dump(mode="json") == realization

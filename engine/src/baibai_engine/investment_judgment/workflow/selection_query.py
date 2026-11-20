@@ -17,7 +17,10 @@ from baibai_engine.investment_judgment.judgment_retrospective.holdings import ho
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.book_prices import read_book_prices
-from baibai_engine.investment_judgment.workflow.discovery import PriceCoordinateMinimum
+from baibai_engine.investment_judgment.workflow.discovery import (
+    PriceCoordinateMinimum,
+    discovery_context,
+)
 from baibai_engine.investment_judgment.workflow.screening_brief import (
     SCREENING_EXCLUSION_SCOPES,
     ScreeningExclusionScope,
@@ -28,7 +31,11 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
-from baibai_engine.machine_analysis.screening.contracts import ScreeningResult, ScreeningSelection
+from baibai_engine.machine_analysis.screening.contracts import (
+    DiscoverySelection,
+    ScreeningResult,
+    ScreeningSelection,
+)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     ResearchLane,
@@ -79,10 +86,13 @@ def load_generated_selection_context(
         raise ValueError("excluded diagnostic scope requires an explicit valid diagnostic")
     if screening_excluded and (request.scope != "discover_new" or screening_lane is not None):
         raise ValueError("excluded diagnostic requires discovery and no lane override")
+    archived_view = screening_lane is not None or screening_excluded
+    if archived_view and screening_selection_id is None:
+        raise ValueError("archived screening requires an explicit legacy screening selection")
     as_of = research_as_of or known_at.astimezone(JST).date()
     if as_of > known_at.astimezone(JST).date():
         raise ValueError("Research date/cutoff is invalid")
-    overview = request.scope == "discover_new" and screening_lane is None and not screening_excluded
+    overview = request.scope == "discover_new" and not archived_view
     if reported_pbr_max is not None and (
         discovery_question != "reported_assets"
         or price_coordinate_min is not None
@@ -105,11 +115,9 @@ def load_generated_selection_context(
         and screening_selection_id is None
     ):
         raise ValueError("discovery requires an explicit saved screening selection")
-    # 固定IDなしのlatestも同じ発行物に止める。旧世代の巨大blobは明示された時だけ。
+    # 最新は一度だけ解決する。旧本文を読む権限を暗黙の最新IDに引き継がない。
     legacy_targeted_read = False
     if screening_selection_id is not None or generation_id is None:
-        from baibai_engine.investment_judgment.workflow.discovery import discovery_context
-
         index = read_discovery_index(
             path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
         )
@@ -117,11 +125,17 @@ def load_generated_selection_context(
             raise ValueError("unknown or not yet published screening selection")
         if generation_id is not None and index.generation_id != generation_id:
             raise ValueError("screening selection differs from the chosen generation")
-        if index.status == "indexed" or (overview and not comparison_tickers):
+        if index.status == "indexed" and archived_view:
+            raise ValueError(
+                "archived screening requires a legacy publication; use --discovery-question"
+            )
+        if index.status != "unindexed_legacy" or (
+            overview and (not comparison_tickers or screening_selection_id is None)
+        ):
             app = database_path(db_path)
             held, history = (
                 _ledger_positions(app, known_at, as_of, request.requested_tickers)
-                if request.scope == "review_positions"
+                if index.status == "indexed" and request.scope == "review_positions"
                 else (None, None)
             )
             requested = request.requested_tickers or held or ()
@@ -129,8 +143,8 @@ def load_generated_selection_context(
                 sorted(set(requested) | {normalize_ticker(t) for t in comparison_tickers})
             )
             detail = bool(comparison_tickers) or request.scope != "discover_new"
-            if detail and (screening_lane is not None or screening_excluded or screening_page):
-                raise ValueError("choose explicit company detail or one indexed membership page")
+            if detail and screening_page:
+                raise ValueError("choose explicit company detail or one discovery question page")
             book_prices = None
             if index.status == "indexed" and reported_pbr_max is not None:
                 assert index.generation_id is not None
@@ -157,8 +171,6 @@ def load_generated_selection_context(
                 question=discovery_question,
                 page=screening_page,
                 comparisons=comparisons if detail else None,
-                lane=screening_lane,
-                excluded=screening_excluded_scope if screening_excluded else None,
             )
             if indexed["status"] != "ready" or not detail:
                 return indexed
@@ -182,40 +194,22 @@ def load_generated_selection_context(
                     "no_ledger_record" if held is None else "current_ledger_replayed_to_fact_cutoff"
                 )
             return indexed
-        if index.status == "unindexed_legacy":
-            generation_id = index.generation_id
-            screening_selection_id = index.selection_id
-            legacy_targeted_read = overview and bool(comparison_tickers)
+        generation_id = index.generation_id
+        legacy_targeted_read = overview and bool(comparison_tickers)
     lane = screening_lane or "growth_research"
     publication = None
-    if generation_id is None and screening_selection_id is None:
-        publication = read_publication(path=runs_path, as_of=as_of, known_at=known_at)
-        if publication is None:
-            return {
-                "schema_version": 3,
-                "status": "inputs_required",
-                "request": request.model_dump(mode="json"),
-                "research_as_of": as_of.isoformat(),
-                "input_known_at": known_at.isoformat(),
-                "missing_inputs": [{"code": "no_model_publication"}],
-            }
-        generation_id = publication.generation.generation_id
-        screening_selection_id = publication.selection_id
-    if request.scope == "discover_new" and screening_selection_id is None:
-        raise ValueError("discovery requires an explicit saved screening selection")
     screening = None
     if screening_selection_id is not None:
-        # latestも既に同じcutoffで固定済み。同一の全社結果を再展開しない。
-        if publication is None:
-            publication = read_publication(
-                path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
-            )
+        publication = read_publication(
+            path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
+        )
         if publication is None:
             raise ValueError("unknown or not yet published screening selection")
         screening = publication.selection
-        if generation_id is not None and generation_id != screening.generation_id:
+        if screening.generation_id != generation_id:
             raise ValueError("screening selection differs from the chosen generation")
-        generation_id = screening.generation_id
+        if isinstance(screening.result, DiscoverySelection):
+            raise ValueError("discovery publication identity differs from its format")
     if generation_id is None:
         raise ValueError("an explicit generation is required")
     app_path = database_path(db_path)

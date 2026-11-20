@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Mapping, Sequence
 from contextlib import closing
+from pathlib import Path
 from typing import Any
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
-    APPROACH_IDS,
-)
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.sqlite.machine_analysis import initialize_run_store
+from baibai_engine.storage.sqlite.machine_analysis import connect_read_only, initialize_run_store
 
 
 class _Omitted:
@@ -22,6 +21,12 @@ OMIT = _Omitted()
 
 RULES_HASH = "b95d85a60bbd7a83"
 MODEL_ID = "expected-return-v1"
+APPROACH_IDS = (
+    "current-earnings-power",
+    "normalized-earnings-power",
+    "asset-value",
+    "reinvestment-value",
+)
 
 
 def stock_analysis(
@@ -179,3 +184,20 @@ def seed_saved_run(path, payload, *, run_revision_id):
                 ),
             )
     return run_revision_id
+
+
+def read_seeded_analysis(
+    path: Path, revision: str
+) -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
+    """Read just the raw fixture rows that a saved Research snapshot embeds."""
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        header = connection.execute(
+            "SELECT payload FROM screening_run WHERE run_revision_id = ?", (revision,)
+        ).fetchone()
+        assert header is not None
+        rows = connection.execute(
+            "SELECT payload FROM stock_analysis WHERE run_revision_id = ? ORDER BY ordinal",
+            (revision,),
+        ).fetchall()
+    return json.loads(header[0]), tuple(json.loads(raw) for (raw,) in rows)

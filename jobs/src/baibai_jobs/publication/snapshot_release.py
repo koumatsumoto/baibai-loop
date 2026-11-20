@@ -10,7 +10,7 @@ import tempfile
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -132,6 +132,7 @@ class _RemotePublication:
 
     store: ObjectStore
     verified_readback_root: Path | None = None
+    retain_verified_readback: Callable[[str, Path], None] | None = None
     uploaded_objects: int = 0
     reused_objects: int = 0
     uploaded_bytes: int = 0
@@ -267,6 +268,11 @@ class _RemotePublication:
                 raise LakePublishError(f"remote object bytes postcondition failed: {key}")
             if destination is not None:
                 temporary_path.replace(destination)
+            elif self.retain_verified_readback is not None:
+                # Mandatory GET and validation used the original scratch location.
+                # This alternative is best effort, unlike verified_readback_root.
+                with suppress(OSError):
+                    self.retain_verified_readback(key, temporary_path)
         finally:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
@@ -281,9 +287,14 @@ def publish_release(
     expected_release_sha256: str | None = None,
     before_pointer_switch: Callable[[], None] | None = None,
     verified_readback_root: Path | None = None,
+    retain_verified_readback: Callable[[str, Path], None] | None = None,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
-    publication = _RemotePublication(store=store, verified_readback_root=verified_readback_root)
+    publication = _RemotePublication(
+        store=store,
+        verified_readback_root=verified_readback_root,
+        retain_verified_readback=retain_verified_readback,
+    )
     pointer_key = lake_current_release_pointer_key()
     if pointer_precondition is None:
         initial = publication.head(pointer_key)

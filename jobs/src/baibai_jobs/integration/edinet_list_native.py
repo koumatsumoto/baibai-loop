@@ -14,6 +14,7 @@ from baibai_engine.data_collection.providers.edinet.list_native import (
     FixedEdinetLists,
 )
 from baibai_engine.data_collection.providers.edinet.list_projection import (
+    FixedEdinetListEvidence,
     document_list_rechecked_asof,
     project_document_list,
 )
@@ -28,7 +29,21 @@ _JST = ZoneInfo("Asia/Tokyo")
 
 
 def materialize_lists(fixed: FixedEdinetLists, database: Path) -> dict[str, object]:
-    """No live head or former L2 success participates in current source interpretation."""
+    """Rebuild a standalone source database, including its explicit raw receipt cache."""
+    report, _ = _project_lists(fixed, database, retain_receipts=True)
+    return report
+
+
+def project_execution_lists(
+    fixed: FixedEdinetLists, database: Path
+) -> tuple[dict[str, object], FixedEdinetListEvidence]:
+    """Project one fixed input without copying raw bodies into daily working SQLite."""
+    return _project_lists(fixed, database, retain_receipts=False)
+
+
+def _project_lists(
+    fixed: FixedEdinetLists, database: Path, *, retain_receipts: bool
+) -> tuple[dict[str, object], FixedEdinetListEvidence]:
     originals = tuple(fixed.iter_receipts())
     rows = {
         item.receipt_id: (
@@ -61,9 +76,10 @@ def materialize_lists(fixed: FixedEdinetLists, database: Path) -> dict[str, obje
             raise ValueError(
                 "EDINET legacy list dates lack original receipts in the fixed native head"
             )
-        conn.executemany(
-            "INSERT OR IGNORE INTO edinet_list_responses VALUES (?, ?, ?, ?)", rows.values()
-        )
+        if retain_receipts:
+            conn.executemany(
+                "INSERT OR IGNORE INTO edinet_list_responses VALUES (?, ?, ?, ?)", rows.values()
+            )
         failed = []
         for day in sorted(receipts):
             projection = project_document_list(receipts[day])
@@ -71,7 +87,7 @@ def materialize_lists(fixed: FixedEdinetLists, database: Path) -> dict[str, obje
                 failed.append(day.isoformat())
                 if projection.selected_receipt is not None:
                     # Reproduce the same eligible prior on a cold or warm store.
-                    # The malformed receipt remains raw and remains a reported failure.
+                    # The malformed original stays in L1 and remains a reported failure.
                     projection = replace(
                         projection,
                         latest_received_at=projection.selected_receipt.received_at,
@@ -96,7 +112,7 @@ def materialize_lists(fixed: FixedEdinetLists, database: Path) -> dict[str, obje
         "receipt_count": len(originals),
         "days": len(receipts),
         "failed_days": failed,
-    }
+    }, FixedEdinetListEvidence(receipts=originals, failed_days=tuple(failed))
 
 
 def clear_verified_receipt_cache(fixed: FixedEdinetLists, database: Path) -> int:

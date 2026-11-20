@@ -10,7 +10,7 @@ from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
 from baibai_web.readmodel.proposal_models import SavedProposalView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 def _publish(case, *, action="no_action"):
@@ -35,7 +35,7 @@ def test_normal_saved_cash_is_independent_of_action_and_never_refreshed(
     case = backend_case(tmp_path, holding=action == "hold", valuation_unresolved=action == "defer")
     service, draft, saved = _publish(case, action=action)
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     _assert_cash(view, saved)
     assert view.items[0].action == action
     assert view.comparison == saved.comparison
@@ -58,7 +58,7 @@ def test_normal_saved_cash_is_independent_of_action_and_never_refreshed(
         "baibai_engine.investment_judgment.trade_proposal.inputs.collect_proposal_inputs", forbidden
     )
     case.market.rename(tmp_path / "unused-market.sqlite")
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -72,7 +72,7 @@ def test_unreviewed_defer_retains_cash_without_inventing_value_or_buy(tmp_path):
         now=PREPARED,
     )
     _service, _draft, saved = _publish(case, action="defer")
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     _assert_cash(view, saved)
     assert view.items[0].assessment is None
     assert view.items[0].action == "defer"
@@ -83,7 +83,7 @@ def test_unknown_nav_does_not_erase_known_cash_or_value_holdings_at_cost(tmp_pat
     case = backend_case(tmp_path, holding=True, valuation_unresolved=True)
     case.market.rename(tmp_path / "missing-market.sqlite")
     _service, _draft, saved = _publish(case, action="defer")
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assert saved.inputs.total_capital_yen is None
     assert view.portfolio_exposure.total_capital_yen is None
     assert saved.inputs.available_cash_yen == Decimal(210000)
@@ -111,7 +111,7 @@ def test_saved_zero_cash_and_positive_cash_are_not_missing(tmp_path, cash):
             replacement=PortfolioLedgerDocument.model_validate(payload),
         )
     _service, _draft, saved = _publish(case)
-    _assert_cash(DbProposalSource(case.app).latest(), saved)
+    _assert_cash(read_proposal_views(case.app).latest.proposal, saved)
     assert saved.inputs.available_cash_yen == Decimal(cash)
 
 
@@ -143,7 +143,7 @@ def test_active_commitment_is_already_deducted_and_later_deposit_does_not_rewrit
         replacement=PortfolioLedgerDocument.model_validate(payload),
     )
     service, draft, saved = _publish(case)
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     _assert_cash(view, saved)
     assert saved.inputs.available_cash_yen == Decimal(200000)
     assert saved.inputs.active_reservations[0].reserved_yen == Decimal(100000)
@@ -165,7 +165,7 @@ def test_active_commitment_is_already_deducted_and_later_deposit_does_not_rewrit
         replacement=PortfolioLedgerDocument.model_validate(payload),
     )
     after_deposit = case.app.read_bytes()
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert service.publish(draft) == saved
     assert case.app.read_bytes() == after_deposit
 
@@ -174,7 +174,7 @@ def test_active_commitment_is_already_deducted_and_later_deposit_does_not_rewrit
 def test_old_cash_display_is_unrecorded_not_zero_or_nav(tmp_path, mode):
     case = backend_case(tmp_path)
     _publish(case)
-    raw = DbProposalSource(case.app).latest().model_dump(mode="json")
+    raw = read_proposal_views(case.app).latest.proposal.model_dump(mode="json")
     raw["saved_cash"] = None
     if mode == "absent":
         raw.pop("saved_cash")

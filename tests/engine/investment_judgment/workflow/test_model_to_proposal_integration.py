@@ -106,7 +106,7 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 START = datetime.fromisoformat("2026-10-14T15:45:00+09:00")
 PROMOTED = datetime.fromisoformat("2026-10-14T16:06:00+09:00")
@@ -1268,7 +1268,7 @@ def test_sealed_monex_eps_reaches_formal_web_without_bodies_in_authoring_copy(
     ).publish(draft)
     assert published.proposal_id == PROPOSAL_ID
     case.market.rename(tmp_path / "removed-market.sqlite")
-    item = DbProposalSource(case.app).latest().items[0]
+    item = read_proposal_views(case.app).latest.proposal.items[0]
     view = item.assessment.estimated_model_chart.monex_fiscal_eps
     assert view.current_fy.fiscal_end_label == "2027/03"
     assert view.next_fy.fiscal_end_label == "2028/03"

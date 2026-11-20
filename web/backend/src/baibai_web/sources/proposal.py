@@ -1,8 +1,13 @@
-"""正式保存提案を単一read-only transactionで読む。市場・台帳の現在値は取得しない。"""
+"""One read-only App snapshot for both saved proposal views."""
+
+from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from contextlib import closing
+from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 from baibai_engine.investment_judgment.trade_proposal.query import (
     ProposalRecordReader,
@@ -10,48 +15,110 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     published_proposal_ids,
     saved_proposal_report_context,
 )
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
 from baibai_web.readmodel.proposal_models import (
     EstimatedModelChartView,
+    LatestProposalView,
+    ProposalHistoryView,
     SavedMarketContextView,
     SavedProposalView,
 )
-from baibai_web.sources.protocols import ProposalHistoryRead
+
+_READ_ERRORS = (OSError, ValueError, RuntimeError, sqlite3.Error)
 
 
-class DbProposalSource:
-    def __init__(self, db_path: Path) -> None:
-        self._path = db_path
+class ProposalViews(NamedTuple):
+    latest: LatestProposalView
+    history: ProposalHistoryView
 
-    def latest(self) -> SavedProposalView | None:
-        with closing(connect_read_only(self._path)) as connection:
+
+def read_proposal_views(db_path: Path, *, generated_at: datetime | None = None) -> ProposalViews:
+    """Project a verified publication once; latest and history keep distinct status and order."""
+    now = generated_at if generated_at is not None else datetime.now(JST)
+    try:
+        with closing(connect_read_only(db_path)) as connection:
             connection.execute("BEGIN")
-            records = ProposalRecordReader(connection)
-            proposal_id = records.latest_id()
-            return None if proposal_id is None else _project(connection, proposal_id, records)
+            return _read_snapshot(connection, now)
+    except _READ_ERRORS:
+        return _views(now)
 
-    def history(self) -> ProposalHistoryRead:
-        with closing(connect_read_only(self._path)) as connection:
-            connection.execute("BEGIN")
-            proposals = []
-            unavailable = []
-            ids = published_proposal_ids(connection)
-            if not ids:
-                return ProposalHistoryRead((), ())
-            try:
-                records = ProposalRecordReader(connection)
-            except (OSError, ValueError, RuntimeError, sqlite3.Error):
-                # Broken shared corrections leave every publication unreadable, not absent.
-                return ProposalHistoryRead((), ids)
-            for proposal_id in ids:
-                try:
-                    proposals.append(_project(connection, proposal_id, records))
-                except (OSError, ValueError, RuntimeError, sqlite3.Error):
-                    # One unreadable publication must stay visible as missing, not erase its peers.
-                    unavailable.append(proposal_id)
-            proposals.sort(key=lambda row: (row.published_at, row.proposal_id), reverse=True)
-            return ProposalHistoryRead(tuple(proposals), tuple(unavailable))
+
+def _read_snapshot(connection: sqlite3.Connection, now: datetime) -> ProposalViews:
+    history_ids: tuple[str, ...] | None
+    try:
+        history_ids = published_proposal_ids(connection)
+    except _READ_ERRORS:
+        history_ids = None
+    try:
+        records = ProposalRecordReader(connection)
+    except _READ_ERRORS:
+        # Even when the shared corrections are unreadable, retain the known history IDs.
+        return _views(now, missing=history_ids)
+    latest_unavailable = False
+    try:
+        latest_id = records.latest_id()
+    except _READ_ERRORS:
+        latest_id = None
+        latest_unavailable = True
+
+    # The official latest is not the first row of history. If only the history
+    # listing failed, read the selected publication without inventing a history.
+    ids = history_ids if history_ids is not None else (() if latest_id is None else (latest_id,))
+    projected: dict[str, SavedProposalView] = {}
+    for proposal_id in ids:
+        try:
+            projected[proposal_id] = _project(connection, proposal_id, records)
+        except _READ_ERRORS:
+            continue
+
+    latest = None if latest_id is None else projected.get(latest_id)
+    missing = None if history_ids is None else [key for key in history_ids if key not in projected]
+    return _views(
+        now,
+        latest=latest,
+        latest_unavailable=latest_unavailable or (latest_id is not None and latest is None),
+        history=sorted(
+            projected.values(), key=lambda row: (row.published_at, row.proposal_id), reverse=True
+        )
+        if history_ids is not None
+        else (),
+        missing=missing,
+    )
+
+
+def _views(
+    now: datetime,
+    *,
+    latest: SavedProposalView | None = None,
+    latest_unavailable: bool = True,
+    history: Sequence[SavedProposalView] = (),
+    missing: Sequence[str] | None = None,
+) -> ProposalViews:
+    return ProposalViews(
+        LatestProposalView(
+            generated_at=now,
+            status="unavailable" if latest_unavailable else "empty" if latest is None else "ready",
+            error="保存済み提案を読み取れません。" if latest_unavailable else None,
+            proposal=latest,
+        ),
+        ProposalHistoryView(
+            generated_at=now,
+            status="unavailable"
+            if missing is None
+            else ("partial" if history else "unavailable")
+            if missing
+            else ("ready" if history else "empty"),
+            error="保存済み提案の履歴を読み取れません。"
+            if missing is None
+            else "一部の保存済み提案を読み取れません。"
+            if missing
+            else None,
+            proposals=list(history),
+            unavailable_proposal_ids=list(missing or ()),
+        ),
+    )
 
 
 def _project(

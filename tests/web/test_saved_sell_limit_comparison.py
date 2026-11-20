@@ -9,9 +9,9 @@ from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewe
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_web.readmodel.builders.proposal import build_latest_proposal, project_saved_proposal
+from baibai_web.readmodel.builders.proposal import project_saved_proposal
 from baibai_web.readmodel.proposal_models import SavedSellItemView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 def _draft(case, *, limit="900", broken=False):
@@ -48,7 +48,7 @@ def test_normal_saved_sell_keeps_floor_comparison_separate_from_observed_quote(t
     assert check.valid
     saved = service.publish(draft)
     before = case.app.read_bytes()
-    view = build_latest_proposal(DbProposalSource(case.app)).proposal
+    view = read_proposal_views(case.app).latest.proposal
     item = view.items[0]
     comparison = item.model_dump(mode="json").get("saved_sell_limit_comparison")
     assert comparison is not None
@@ -72,7 +72,7 @@ def test_normal_saved_sell_keeps_floor_comparison_separate_from_observed_quote(t
     assert service.publish(draft) == saved
     assert case.app.read_bytes() == before
     case.market.rename(tmp_path / "unused-market.sqlite")
-    assert build_latest_proposal(DbProposalSource(case.app)).proposal == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -114,7 +114,7 @@ def test_saved_floor_stays_on_exact_pair_after_a_later_assessment(tmp_path):
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         _draft(case)
     )
-    first = build_latest_proposal(DbProposalSource(case.app)).proposal
+    first = read_proposal_views(case.app).latest.proposal
     document, review = pair_payload(review_number=3)
     AssessmentStoreService(
         case.app, clock=lambda: PUBLISHED + timedelta(minutes=1)
@@ -122,7 +122,7 @@ def test_saved_floor_stays_on_exact_pair_after_a_later_assessment(tmp_path):
         assessment_id(2), document, review, supersedes_id=case.pair.assessment_id
     )
     before = case.app.read_bytes()
-    after = build_latest_proposal(DbProposalSource(case.app)).proposal
+    after = read_proposal_views(case.app).latest.proposal
     assert after == first
     assert after.items[0].saved_sell_limit_comparison is not None
     assert after.items[0].assessment.assessment_id == case.pair.assessment_id

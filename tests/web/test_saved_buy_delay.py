@@ -10,7 +10,7 @@ from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, bind_revie
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.readmodel.proposal_models import SavedBuyCapitalComparisonView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.mark.parametrize("limit", ["900", "1000"])
@@ -35,7 +35,7 @@ def test_normal_saved_buy_keeps_limit_specific_time_sensitivity(tmp_path, limit)
         assessment_id(20), later_document, later_review, supersedes_id=case.pair.assessment_id
     )
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     item = view.items[0]
     comparison = item.saved_buy_comparison
     sensitivity = comparison.model_dump(mode="json").get("time_sensitivity")
@@ -70,7 +70,7 @@ def test_normal_saved_buy_keeps_limit_specific_time_sensitivity(tmp_path, limit)
     assert service.publish(draft) == saved
     assert case.app.read_bytes() == before
     case.market.rename(tmp_path / "unused-market.sqlite")
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -95,7 +95,7 @@ def test_zero_downside_stays_total_loss_at_both_horizons(tmp_path):
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         reviewed_proposal(case)
     )
-    comparison = DbProposalSource(case.app).latest().items[0].saved_buy_comparison
+    comparison = read_proposal_views(case.app).latest.proposal.items[0].saved_buy_comparison
     sensitivity = comparison.model_dump(mode="json").get("time_sensitivity")
     assert sensitivity is not None
     assert Decimal(sensitivity["downside"]["annualized_return_pct"]) == -100
@@ -109,7 +109,8 @@ def test_old_comparison_does_not_infer_time_sensitivity(tmp_path, mode):
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         reviewed_proposal(case)
     )
-    raw = DbProposalSource(case.app).latest().items[0].saved_buy_comparison.model_dump(mode="json")
+    view = read_proposal_views(case.app).latest.proposal
+    raw = view.items[0].saved_buy_comparison.model_dump(mode="json")
     raw["time_sensitivity"] = None
     if mode == "absent":
         del raw["time_sensitivity"]

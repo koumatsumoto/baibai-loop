@@ -17,11 +17,13 @@ from baibai_engine.investment_judgment.workflow.selection import (
     SelectedTarget,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
-    ScreeningRunReader,
-)
 from baibai_engine.primitives.time import JST
-from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
+from tests.helpers.screening_run import (
+    read_seeded_analysis,
+    screening_run_payload,
+    seed_saved_run,
+    stock_analysis,
+)
 
 
 def selected_target(ticker="1234", purpose="new"):
@@ -55,15 +57,14 @@ def selection(
             as_of=as_of.isoformat(), run_at=now.isoformat(), stock_analyses=rows
         )
         seed_saved_run(runs, payload, run_revision_id="run-synthetic")
-        saved = ScreeningRunReader(runs).get_run("run-synthetic")
-        assert saved is not None
+        _, stored_rows = read_seeded_analysis(runs, "run-synthetic")
         snapshot = AnalysisInputSnapshot(
             run_revision_id="run-synthetic",
             analysis_as_of=as_of,
             run_at=now,
             screening_rules_hash=payload["screening_rules_hash"],
             er_model_version=payload["er_model_version"],
-            analyses={row["ticker"]: row for row in saved.stock_analyses},
+            analyses={row["ticker"]: row for row in stored_rows},
         )
     else:
         snapshot = AnalysisInputSnapshot(

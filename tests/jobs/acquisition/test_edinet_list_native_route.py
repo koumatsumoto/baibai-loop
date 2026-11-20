@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import sqlite3
 from contextlib import closing
@@ -9,6 +10,7 @@ import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.list_native import (
+    HEAD_KEY,
     EdinetListL1,
     NativeListReceipt,
 )
@@ -19,7 +21,10 @@ from baibai_engine.data_collection.providers.edinet.models import (
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.edinet_list_native import acquire_lists
-from baibai_jobs.integration.edinet_list_native import materialize_lists
+from baibai_jobs.integration.edinet_list_native import (
+    materialize_lists,
+    project_execution_lists,
+)
 from baibai_jobs.integration.source_handoff import main as handoff_main
 
 DAY = date(2026, 11, 2)
@@ -82,13 +87,32 @@ def test_source_only_plan_retains_out_of_window_rechecks_and_real_today_order(tm
     assert client.calls == [today, DAY]
 
 
-def test_default_540_day_scope_is_not_shortened_by_missing_l2(tmp_path):
+def test_default_540_day_scope_is_not_shortened_by_missing_l2(tmp_path, monkeypatch):
     _, owner = owner_at(tmp_path)
     client = Client()
+    publish = owner.publish
+    published_days = []
+    first = None
+
+    def publish_first(receipts):
+        nonlocal first
+        (item,) = receipts
+        published_days.append(item.doc_date)
+        if first is None:
+            first = publish(receipts)
+        return first
+
+    # Keep the first real empty-head transition and observe every later publish
+    # call. The populated-head test below runs the entire 541-day storage loop.
+    monkeypatch.setattr(owner, "publish", publish_first)
     report = acquire_lists(owner, client, start=DAY - timedelta(days=540), end=DAY, today=DAY)
     assert len(client.calls) == 541
+    assert client.calls[0] == DAY
     assert set(client.calls) == {DAY - timedelta(days=i) for i in range(541)}
+    assert published_days == client.calls
     assert report["received_count"] == 541
+    assert [item.doc_date for item in owner.freeze().iter_receipts()] == [DAY]
+    assert not (tmp_path / "market.sqlite").exists()
 
 
 @pytest.mark.parametrize("failure", [b"invalid JSON \xff", EdinetRateLimitError("quota")])
@@ -152,6 +176,14 @@ def test_cold_and_warm_rebuild_preserve_same_eligible_prior_and_report_failure(t
     assert warm_result == cold_result
     assert warm_result["failed_days"] == [DAY.isoformat()]
     assert contents(warm) == contents(cold)
+    execution = tmp_path / "execution.sqlite"
+    execution_result, evidence = project_execution_lists(fixed, execution)
+    assert execution_result == cold_result
+    assert evidence.failed_days == (DAY.isoformat(),)
+    assert {item.receipt_id for item in evidence.receipts} == {
+        item.receipt_id for item in (first, *additions)
+    }
+    assert contents(execution) == {**contents(cold), "edinet_list_responses": []}
     with closing(sqlite3.connect(cold)) as conn:
         assert conn.execute(
             "SELECT selected_receipt_id,latest_received_at_utc FROM edinet_document_lists"
@@ -178,7 +210,10 @@ def test_receipt_set_not_max_clock_drives_rebuild_and_fixed_head_is_stable(tmp_p
         assert conn.execute("SELECT sec_code FROM edinet_documents").fetchone() == (None,)
 
 
-def test_unknown_legacy_receipt_blocks_materialization_without_dropping_anything(tmp_path):
+@pytest.mark.parametrize("apply_lists", [materialize_lists, project_execution_lists])
+def test_unknown_legacy_receipt_blocks_materialization_without_dropping_anything(
+    tmp_path, apply_lists
+):
     _, owner = owner_at(tmp_path, [receipt()])
     database = tmp_path / "market.sqlite"
     unknown = receipt(at=AT + timedelta(seconds=1))
@@ -194,7 +229,26 @@ def test_unknown_legacy_receipt_blocks_materialization_without_dropping_anything
         )
     before = database.read_bytes()
     with pytest.raises(ValueError, match="outside the fixed"):
-        materialize_lists(owner.freeze(), database)
+        apply_lists(owner.freeze(), database)
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("tamper", ["missing", "body"])
+def test_unavailable_fixed_body_stops_before_changing_working_projection(tmp_path, tamper):
+    store, owner = owner_at(tmp_path, [receipt()])
+    fixed = owner.freeze()
+    database = tmp_path / "market.sqlite"
+    report, _ = project_execution_lists(fixed, database)
+    assert report["status"] == "completed"
+    assert not contents(database)["edinet_documents"]
+    before = database.read_bytes()
+    key = next(key for key in store.values if key != HEAD_KEY)
+    if tamper == "missing":
+        del store.values[key]
+    else:
+        store.store_object(key, gzip.compress(b"changed", mtime=0))
+    with pytest.raises(LakePublishError, match="body"):
+        project_execution_lists(fixed, database)
     assert database.read_bytes() == before
 
 
@@ -289,7 +343,9 @@ def test_bootstrap_store_requests_do_not_multiply_old_history(tmp_path):
     report = acquire_lists(owner, client, start=DAY - timedelta(days=540), end=DAY, today=DAY)
     assert report["received_count"] == 541
     assert len(client.calls) == 541
+    assert set(client.calls) == {DAY - timedelta(days=i) for i in range(541)}
     assert store.put_keys.count(HEAD_KEY) == 541
+    assert not (tmp_path / "market.sqlite").exists()
     # Each prior immutable body is checked once at entry; each new one once at publication.
     body_heads = [key for key in store.head_keys if key != HEAD_KEY]
     assert len(body_heads) <= 100 + 541 * 4

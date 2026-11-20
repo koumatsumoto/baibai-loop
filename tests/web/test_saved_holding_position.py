@@ -10,7 +10,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProp
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
 from baibai_web.readmodel.proposal_models import SavedHoldItemView, SavedSellItemView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.mark.parametrize("action", ["hold", "sell"])
@@ -27,7 +27,7 @@ def test_normal_saved_holding_position_preserves_quantity_basis_cost_and_input_c
     assert service.check(draft).valid
     saved = service.publish(draft)
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     item = view.items[0]
     position = item.model_dump(mode="json").get("saved_position")
     assert position == {
@@ -42,7 +42,7 @@ def test_normal_saved_holding_position_preserves_quantity_basis_cost_and_input_c
     assert service.publish(draft) == saved
     assert case.app.read_bytes() == before
     case.market.rename(tmp_path / "unused-market.sqlite")
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -64,7 +64,7 @@ def test_broken_sell_keeps_unconfirmed_recorded_quantity_without_inventing_terms
     assert service.check(draft).valid
     saved = service.publish(draft)
     before = case.app.read_bytes()
-    item = DbProposalSource(case.app).latest().items[0]
+    item = read_proposal_views(case.app).latest.proposal.items[0]
     position = item.model_dump(mode="json").get("saved_position")
     assert position is not None
     assert position["quantity"] == 100
@@ -108,7 +108,7 @@ def test_old_display_omission_is_unknown_not_zero_or_confirmed(tmp_path, action,
         else sell_draft(case, broken=True)
     )
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(draft)
-    raw = DbProposalSource(case.app).latest().items[0].model_dump(mode="json")
+    raw = read_proposal_views(case.app).latest.proposal.items[0].model_dump(mode="json")
     raw["saved_position"] = None
     if mode == "absent":
         raw.pop("saved_position")
@@ -126,7 +126,7 @@ def test_saved_position_does_not_consult_current_inputs(tmp_path, mocker):
         side_effect=AssertionError("must not substitute current holdings"),
     )
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assert view.items[0].model_dump(mode="json").get("saved_position") is not None
     current_inputs.assert_not_called()
     assert case.app.read_bytes() == before

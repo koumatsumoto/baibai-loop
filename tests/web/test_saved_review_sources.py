@@ -10,7 +10,7 @@ from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, reviewed_p
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.readmodel.proposal_models import SavedAssessmentReviewView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.mark.parametrize("action", ["buy", "no_action", "defer"])
@@ -54,7 +54,7 @@ def test_saved_review_keeps_its_checked_sources_not_all_snapshot_or_later_pair(t
     )
 
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assessment = view.items[0].assessment
     raw = assessment.review.model_dump(mode="json")
     assert raw.get("checked_source_ids") == review["checked_source_ids"]
@@ -87,7 +87,7 @@ def test_saved_review_keeps_its_checked_sources_not_all_snapshot_or_later_pair(t
     assert service.publish(draft) == published
     assert case.app.read_bytes() == before
     case.market.rename(tmp_path / "unused-market.sqlite")
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -97,7 +97,7 @@ def test_old_display_review_does_not_infer_checked_sources_from_author_sections(
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         reviewed_proposal(case)
     )
-    assessment = DbProposalSource(case.app).latest().items[0].assessment
+    assessment = read_proposal_views(case.app).latest.proposal.items[0].assessment
     raw = assessment.review.model_dump(mode="json")
     raw["checked_source_ids"] = None
     raw["checked_sources"] = None

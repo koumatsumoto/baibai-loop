@@ -671,18 +671,14 @@ uv run baibai-jobs rebuild-edinet-metrics --saved-input <INPUT.json> --output <N
 
 TOBは`maintain-market build-tender-offer-exits --saved-input <INPUT.json>`で保存pairと必要type=5だけを使う。別の一覧/SQL ZIP/最新headで補わず、原本欠損/破損/decode失敗なら既存退出値を保つ。--asofは提出日/上場廃止日のcutoffで受領時点PITではない。引数なし旧SQL readerと明示refreshは別経路として残す。
 
-publisherは旧SQL原本を固定pairのkey/hash/size/stored_on/scopeと照合した後だけdisposable raw表を空にする。head外の原本/scopeやnativeより早いSQL受領日は消さず停止する。原本clearのため全ZIPを再GETしない。原受領cacheが残る旧releaseのhydrateは照合用--bucketが必要で、初回full hydrate/BLOB hash/必要なcompactは残る。新releaseでは通常のraw SQL copy/Parquet再exportをしない。移行後に旧ZIPが空なら、sealに十分な空きがありDBの空きページが全体の1/8未満のときは、他の市場表の細かな空きを詰めるためだけにDB全体をVACUUMしない。その後の処理でseal直前の容量が不足した場合だけ、見送った圧縮を実行してから通常の容量検査に進む。旧releaseからの移行・再開では引き続きcompactする。単独publisherで保存pairを使うときは--saved-edinet-inputを明示する。
+publisherは旧SQL原本を固定pairのkey/hash/size/stored_on/scopeと照合した後だけdisposable raw表を空にする。head外の原本/scopeやnativeより早いSQL受領日は消さず停止する。原本clearのため全ZIPを再GETしない。通常日次は一覧の固定原受領を一度読んで投影・失敗日を作り、作業SQLiteに原受領を複写しない。匿名の取下げ・書類情報修正で過去の発行体同定が必要なときは、同じ日次処理内の検証済み受領参照で補う。原受領cacheが残る旧releaseのhydrateは照合用--bucketが必要で、初回full hydrate/BLOB hash/必要なcompactは残る。新releaseでは通常のraw SQL copy/Parquet再exportをしない。移行後に旧ZIPが空なら、sealに十分な空きがありDBの空きページが全体の1/8未満のときは、他の市場表の細かな空きを詰めるためだけにDB全体をVACUUMしない。その後の処理でseal直前の容量が不足した場合だけ、見送った圧縮を実行してから通常の容量検査に進む。旧releaseからの移行・再開では引き続きcompactする。単独publisherで保存pairを使うときは--saved-edinet-inputを明示する。
 
 旧一覧に匿名取消/編集対象のidentityがなければ、L1だけで旧ticker/採用順を復元できない。旧baselineによる安全側隔離、良好metricの出所/revision/時計、facts成功0行/status/reasonsを保つ。原受領cacheなしの単独hydrate/汎用readerで同じ確認をする場合は、保存pairの一覧を既存ownerで明示materializeする。暗黙R2補完や現在時計で欠落を埋めず、cold出力を旧抽出metadata/warm履歴/PITの完全再現としない。原本・旧canonical/release/stageと移送証拠は保持する。
 
-## 保存済み旧runを読む
+<a id="保存済み旧runを読む"></a>
+## 保存済み旧run
 
-旧ER/FV・四Approachはexact runで読む。旧E[r]の較正帯は[凍結資料](../docs/reference/estimate-calibration.md)だけを残し、再計算・CLIでの再割当てをしない。旧Selection/L3/Review/台帳は保持する。 全文・候補のみのどちらも保存値をJSONで出力する（`--format json` も可）。旧 `--format yaml` は提供しない。
-
-```bash
-uv run baibai-engine historical-evaluation run-show --run-revision-id <RUN_REVISION_ID> --runs-db <PRIVATE_RUNS_COPY>
-uv run baibai-engine historical-evaluation candidates show --run-revision-id <RUN_REVISION_ID> --runs-db <PRIVATE_RUNS_COPY>
-```
+旧Stock Analysisの専用閲覧CLIは終了。旧run・候補行と[旧E[r]の凍結資料](../docs/reference/estimate-calibration.md)は変更しない。現行の探索・固定Caseは[探索運用](../docs/reference/screening-runtime.md)、既発行の正式提案は保存済み提案を参照。現行出力で旧runを作り直さない。
 
 <a id="financials-identity-cutover"></a>
 <a id="company-financialsの保存idと公開時入力の読取"></a>

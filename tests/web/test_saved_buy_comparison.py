@@ -8,7 +8,7 @@ from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewe
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
 from baibai_web.readmodel.proposal_models import SavedProposalView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.mark.parametrize("limit", ["900", "1000"])
@@ -23,7 +23,7 @@ def test_selected_limit_quantity_and_cash_survive_normal_save_and_read(tmp_path,
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
     ).publish(proposal)
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     item = view.model_dump(mode="json")["items"][0]
     comparison = item["saved_buy_comparison"]
     assert comparison["quantity"] == 100
@@ -54,7 +54,7 @@ def test_selected_limit_quantity_and_cash_survive_normal_save_and_read(tmp_path,
 
     # This read is not a fresh quote, ledger, or readiness check.
     case.market.rename(tmp_path / "retained-market.sqlite")
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -98,7 +98,7 @@ def test_old_serving_payload_and_nonbuy_remain_readable(tmp_path):
     case = backend_case(tmp_path)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     saved = service.publish(reviewed_proposal(case))
-    raw = DbProposalSource(case.app).latest().model_dump(mode="json")
+    raw = read_proposal_views(case.app).latest.proposal.model_dump(mode="json")
     raw["items"][0].pop("saved_buy_comparison")
     assert SavedProposalView.model_validate(raw).items[0].saved_buy_comparison is None
     no_action = saved.items[0].model_dump(mode="json")

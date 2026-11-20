@@ -7,17 +7,22 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.edinet_metrics import _edinet_csv_zip
 from tests.helpers.edinet_receipts import seed_list_response
 from tests.helpers.jquants_receipts import calendar
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
+from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.list_native import (
     EdinetListL1,
     NativeListReceipt,
 )
-from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
+from baibai_engine.data_collection.providers.edinet.models import (
+    EDINETProviderError,
+    EdinetResponse,
+)
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.generation.edinet_inputs import retain_edinet_input
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
@@ -28,6 +33,11 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_sto
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
+from baibai_engine.machine_analysis.observations.financials import edinet_integration
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics import planning
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    read_edinet_metric_baseline,
+)
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -37,6 +47,11 @@ from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, seal
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
+from baibai_jobs.integration.edinet_list_native import (
+    clear_verified_receipt_cache,
+    materialize_lists,
+    project_execution_lists,
+)
 from baibai_jobs.integration.source_handoff import _export
 from baibai_jobs.integration.sources import apply, main
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -116,6 +131,8 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
                 for identity, day, at, body in conn.execute("SELECT * FROM edinet_list_responses")
             )
     fixed_lists = lists.publish(originals)
+    # Start with the same projection and empty raw cache a normal hydrated daily sees.
+    assert clear_verified_receipt_cache(fixed_lists, market) == 1
     archives = EdinetArchiveL1(store, tmp_path / "native-archives")
     archives.initialize()
     saved_edinet = retain_edinet_input(
@@ -173,9 +190,12 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     else:
         assert expected == prior
     with closing(open_connection(market)) as conn:
-        assert conn.execute(
-            "SELECT receipt_id FROM edinet_list_responses WHERE receipt_id = ?", (bad_receipt,)
-        ).fetchone() == (bad_receipt,)
+        assert conn.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (0,)
+    assert report["extractions"]["edinet-list"]["failed_days"] == [bad_day.isoformat()]
+    assert report["edinet_input"] == saved_edinet
+    assert {item.receipt_id: item.decoded().body for item in fixed_lists.iter_receipts([bad_day])}[
+        bad_receipt
+    ] == b"{invalid JSON"
     assert main(["check", "--directory", str(work)]) == 1
 
     # This test exports directly; normal publication prepares its own calendar.
@@ -196,7 +216,6 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     names = (
         "edinet.documents",
         "edinet.document_lists",
-        "edinet.list_responses",
         "jquants.market_calendar",
     )
     narrow_release_policy(monkeypatch, datasets=names, carries_history=None)
@@ -275,6 +294,8 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
             catalog=LAKE_DATASETS,
         )
     assert projection_state(restored) == expected
+    with closing(open_connection(restored)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (0,)
     if new_day:
         assert read_edinet_documents(restored, bad_day) is None
         assert [item["docID"] for item in read_edinet_documents(restored, asof)] == ["S100GOOD"]
@@ -303,3 +324,89 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
         == (asof if new_day else DAY).isoformat()
     )
     assert main(["check", "--directory", str(resume)]) == 1
+
+
+@pytest.mark.parametrize("event", ["edit", "withdrawal"])
+def test_omitted_origin_still_isolates_its_ticker_without_raw_sql(tmp_path, monkeypatch, event):
+    # The last old-day response is confirmed empty. Only an earlier receipt
+    # identifies the ticker; neither the surviving projection nor a baseline can.
+    old = DAY - timedelta(days=1000)
+    earlier = STAMP - timedelta(days=1000)
+    future = DAY + timedelta(days=1)
+    target = "S100LOST"
+    origin = {
+        "seqNumber": 1,
+        "docID": target,
+        "secCode": "72030",
+        "docTypeCode": "120",
+    }
+    ready = {
+        "seqNumber": 1,
+        "docID": "S100NEXT",
+        "secCode": "83060",
+        "docTypeCode": "120",
+        "csvFlag": "1",
+        "xbrlFlag": "1",
+        "legalStatus": "1",
+        "disclosureStatus": "0",
+        "withdrawalStatus": "0",
+        "periodStart": "2025-04-01",
+        "periodEnd": "2026-03-31",
+        "submitDateTime": f"{DAY} 12:00",
+    }
+    operation = {"seqNumber": 2, "opeDateTime": f"{DAY} 15:00"}
+    if event == "edit":
+        operation.update(docID=target, docInfoEditStatus="1")
+    else:
+        operation.update(docID="S100WITH", withdrawalStatus="1", parentDocID=target)
+
+    def source(day, stamp, rows):
+        body = json.dumps(
+            {"metadata": {"resultset": {"count": len(rows)}}, "results": rows}
+        ).encode()
+        return NativeListReceipt.from_response(day, EdinetResponse(stamp, body))
+
+    owner = EdinetListL1(MemoryR2Store(), tmp_path / "fixed-lists")
+    owner.freeze(False)
+    fixed = owner.publish(
+        [
+            source(old, earlier, [origin]),
+            source(old, earlier + timedelta(seconds=1), []),
+            source(DAY, STAMP, [ready, operation]),
+            NativeListReceipt.from_response(
+                future, EdinetResponse(STAMP + timedelta(days=1), b"{")
+            ),
+        ]
+    )
+    legacy = tmp_path / "legacy.sqlite"
+    execution = tmp_path / "execution.sqlite"
+    old_report = materialize_lists(fixed, legacy)
+    report, evidence = project_execution_lists(fixed, execution)
+    assert report == old_report
+    assert evidence.failed_days == (future.isoformat(),)
+    assert read_edinet_documents(execution, old) == []
+    for path in (legacy, execution):
+        with closing(open_connection(path)) as conn:
+            retain_source_archive(conn, "S100NEXT", 5, _edinet_csv_zip(), stored_on=DAY)
+    expected = edinet_integration.extract_saved_edinet(legacy, asof=DAY, lookback_days=0)
+
+    def unexpected_read(*args, **kwargs):
+        pytest.fail("daily integration must reuse fixed list evidence")
+
+    monkeypatch.setattr(planning, "read_list_responses", unexpected_read)
+    monkeypatch.setattr(edinet_integration, "read_list_responses", unexpected_read)
+    monkeypatch.setattr(edinet_integration, "pending_edinet_document_dates", unexpected_read)
+    result = edinet_integration.extract_saved_edinet(
+        execution, asof=DAY, lookback_days=0, fixed_list_evidence=evidence
+    )
+    assert result == expected
+    assert "edinet-list" not in result
+    assert result["edinet-metrics"]["status"] == "completed"
+    baseline = read_edinet_metric_baseline(execution, DAY)
+    assert baseline is not None
+    assert baseline.rows["7203"].record.failure_reasons == (
+        f"document_event_quarantined:{event}:{operation['docID']}",
+    )
+    assert baseline.rows["8306"].record.cash == 1000.0
+    with closing(open_connection(execution)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (0,)
