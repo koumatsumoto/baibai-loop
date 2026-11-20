@@ -46,7 +46,10 @@ def _has_reserved_instruction(proposal: TradeProposalDraft) -> bool:
         or not _RESERVED_CONDITIONS.isdisjoint(item.review_conditions)
         or (
             item.action == "defer"
-            and any(r.code == "proposal_content_requires_review" for r in item.blockers)
+            and (
+                "不足を確認して行動と理由を記述し、独立検証を行う。" in item.resume_conditions
+                or any(r.code == "proposal_content_requires_review" for r in item.blockers)
+            )
         )
         for item in proposal.items
     )

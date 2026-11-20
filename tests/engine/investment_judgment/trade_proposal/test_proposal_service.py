@@ -330,14 +330,17 @@ def test_context_and_work_file_keep_one_app_market_and_reviewed_pair_snapshot(
             "観測価格で割安と判断したかと、同じ資金で今買う・指値で待つ・別案や現金を選ぶかを分ける。価格だけを待つ場合と、不足があり調査を保留する場合を区別する。 モデル観測・一次資料によって企業の利益・普通株に帰属する資金の見通し、価格条件、または次に確かめる事実の何が変わったかを記す。変わらない場合も区別する。",
         ),
         ("review_conditions", "買付では未約定・部分約定・新情報の後に何を再確認するかを記す。"),
+        ("resume_conditions", "不足を確認して行動と理由を記述し、独立検証を行う。"),
         ("reviewer_identity", "独立Reviewerのidentityを記述してください。"),
     ],
 )
 def test_known_scaffold_instruction_is_not_authored_even_with_a_matching_review(case, field, seed):
-    raw = reviewed_proposal(case).payload()
+    raw = reviewed_proposal(
+        case, action="defer" if field == "resume_conditions" else "buy"
+    ).payload()
     if field == "reviewer_identity":
         raw["review"][field] = seed
-    elif field == "review_conditions":
+    elif field in {"review_conditions", "resume_conditions"}:
         raw["items"][0][field] = [seed]
     elif field == "rationale":
         raw["items"][0][field] = seed
