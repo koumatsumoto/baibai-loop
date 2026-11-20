@@ -4,7 +4,7 @@ import gzip
 import json
 import sqlite3
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from hashlib import sha256
 
 import pytest
@@ -22,6 +22,7 @@ from baibai_engine.machine_analysis.screening.discovery_index import read_discov
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import encode_json
+from baibai_engine.primitives.time import JST
 
 
 def editions(path):
@@ -129,10 +130,20 @@ def test_v2_writer_and_all_exact_readers_compare_against_independent_stock_plan(
     assert store.read(old_id) == old
 
 
-@pytest.mark.parametrize("damage", ["unknown_id", "wrong_body", "future_receipt"])
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "unknown_id",
+        "wrong_body",
+        "future_receipt",
+        "pre_session",
+        "pre_empty",
+        "no_clock",
+    ],
+)
 def test_latest_broken_edition_never_falls_back_to_earlier_v1(tmp_path, damage):
     path = tmp_path / "runs"
-    _, old_id, old, identity, new = editions(path)
+    meta, old_id, old, identity, new = editions(path)
     store = ScreeningSelectionStore(path)
     assert store.publish(old_id, old)
     assert store.publish(identity, new)
@@ -143,6 +154,7 @@ def test_latest_broken_edition_never_falls_back_to_earlier_v1(tmp_path, damage):
                 "update screening_selection set selection_id=? where selection_id=?",
                 (bad_id, identity),
             )
+            identity = bad_id
         elif damage == "wrong_body":
             conn.execute(
                 "update screening_selection set payload_gzip=(select payload_gzip from screening_selection where selection_id=?) where selection_id=?",
@@ -157,13 +169,83 @@ def test_latest_broken_edition_never_falls_back_to_earlier_v1(tmp_path, damage):
                     ).fetchone()[0]
                 )
             )
-            doc["result"]["price_session"]["recorded_at"] = "2035-06-26T00:00:00Z"
+            session = doc["result"]["price_session"]
+            midnight = datetime.combine(meta.as_of, time.min, JST)
+            if damage in {"pre_session", "pre_empty"}:
+                session["recorded_at"] = (midnight - timedelta(microseconds=1)).isoformat()
+                if damage == "pre_empty":
+                    session["status"] = "empty"
+                    for row in doc["result"]["rows"]:
+                        row["execution_price"] = {"raw_close_yen": None, "day_state": None}
+            elif damage == "no_clock":
+                session["recorded_at"] = None
+            else:
+                session["recorded_at"] = "2035-06-26T00:00:00Z"
             conn.execute(
                 "update screening_selection set payload_gzip=? where selection_id=?",
                 (gzip.compress(encode_json(doc).encode()), identity),
             )
-    with pytest.raises(ValueError, match=r"version|identity|validation|cutoff"):
-        read_discovery_index(path=path)
-    with pytest.raises(ValueError, match=r"version|identity|validation|cutoff"):
-        read_publication(path=path)
+    cutoff = datetime(2030, 1, 1, tzinfo=UTC)
+    for read in (
+        lambda: read_discovery_index(path=path),
+        lambda: read_discovery_index(path=path, selection_id=identity),
+        lambda: read_publication(path=path),
+        lambda: read_case_screening(identity, subjects=("5678",), known_at=cutoff, path=path),
+    ):
+        with pytest.raises(
+            ValueError, match=r"version|identity|validation|cutoff|before its JST session"
+        ):
+            read()
     assert read_discovery_index(path=path, selection_id=old_id).rows == old.result.rows
+
+
+def test_publish_checks_the_same_jst_cutoff_as_readers_before_saving(tmp_path):
+    path = tmp_path / "runs"
+    meta, old_id, old, key, selection = editions(path)
+    store = ScreeningSelectionStore(path)
+    assert store.publish(old_id, old)
+    pre_session = datetime.combine(meta.as_of, time.min, JST) - timedelta(microseconds=1)
+    price_session = selection.result.price_session.model_copy(update={"recorded_at": pre_session})
+    invalid = replace(selection, result=replace(selection.result, price_session=price_session))
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="before its JST session"):
+        store.publish(key, invalid)
+    assert path.read_bytes() == before
+    assert read_discovery_index(path=path, selection_id=old_id).rows == old.result.rows
+
+
+@pytest.mark.parametrize(
+    ("status", "days_after", "observed"),
+    [
+        ("ok", 0, True),
+        ("ok", 1, True),
+        ("partial", -1, False),
+        ("unconfirmed", None, False),
+    ],
+)
+def test_v2_finite_case_observes_jst_session_even_without_ta(
+    tmp_path, status, days_after, observed
+):
+    path = tmp_path / "runs"
+    meta, _, _, key, selection = editions(path)
+    expected = meta.as_of - timedelta(days=1)
+    midnight = datetime.combine(expected, time.min, JST).astimezone(UTC)
+    assert midnight.date() < expected
+    receipt = None if days_after is None else midnight + timedelta(days=days_after)
+    session = NativePriceSession(expected_date=expected, status=status, recorded_at=receipt)
+    selection = replace(selection, result=replace(selection.result, price_session=session))
+    assert ScreeningSelectionStore(path).publish(key, selection)
+    with sqlite3.connect(path) as conn:
+        (payload,) = conn.execute(
+            "select payload_gzip from screening_selection where selection_id=?", (key,)
+        ).fetchone()
+    clock = json.loads(gzip.decompress(payload))["result"]["price_session"]["recorded_at"]
+    assert (datetime.fromisoformat(clock) if clock is not None else None) == receipt
+    _, case = read_case_screening(
+        key, subjects=("5678",), known_at=datetime(2030, 1, 1, tzinfo=UTC), path=path
+    )
+    (row,) = case.result.rows
+    assert row["technical_state"] == "unavailable"
+    assert row["execution_price"] == {"day_state": "mixed", "raw_close_yen": 510.0}
+    assert case.result.price_session == session
+    assert session.observed(row["execution_price"]) is observed

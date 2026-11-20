@@ -10,6 +10,8 @@ from typing import Annotated, Literal, Self, TypedDict
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator, with_config
 
+from baibai_engine.primitives.time import JST
+
 PriceDayState = Literal["priced", "no_trade", "mixed", "invalid"]
 PRICE_PATH_DIFFERENCES = (1, 20, 60, 252)
 
@@ -45,6 +47,13 @@ class NativePriceSession(BaseModel):
             raise ValueError("expected price session is after the generation date")
         if self.recorded_at is not None and self.recorded_at > known_at:
             raise ValueError("native price receipt is after the generation cutoff")
+        if (
+            self.status in {"ok", "empty"}
+            and self.expected_date is not None
+            and self.recorded_at is not None
+            and self.recorded_at.astimezone(JST).date() < self.expected_date
+        ):
+            raise ValueError("confirmed native price receipt is before its JST session")
 
     def observed(self, bar: ExpectedPriceBar) -> bool:
         price = bar["raw_close_yen"]
