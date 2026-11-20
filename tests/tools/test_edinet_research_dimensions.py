@@ -6,6 +6,7 @@ import json
 import zipfile
 from collections import Counter
 from dataclasses import replace
+from datetime import date
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -20,7 +21,10 @@ from tools.experiments.edinet_research_dimensions import (
     issuer_declarations,
     observe_context,
 )
-from tools.experiments.edinet_segment_occurrences import annual_segment_amount_occurrences
+from tools.experiments.edinet_segment_occurrences import (
+    AnnualReport,
+    annual_segment_amount_occurrences,
+)
 
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.debt import debt_facts
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import (
@@ -567,23 +571,34 @@ def test_equal_inline_facts_do_not_share_their_parent_note(same_file, basis):
     assert annual_segment_note_at(parts, positive, concept=sample, context_id="A") is None
 
 
+_ANNUAL = AnnualReport("E12345-000", date(2025, 4, 1), date(2026, 3, 31))
+
+
 def _amount_sources(changes=(), omit=None):
     # PublicDoc manifest is needed: a caller-selected subset can hide a duplicate.
     pfs = "http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor"
     crp = "http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor"
     ns = (
         f'xmlns:i="http://www.xbrl.org/2008/inlineXBRL" xmlns:p="{pfs}" xmlns:c="{crp}" '
-        f'xmlns:x="{_I}" xmlns:yen="http://www.xbrl.org/2003/iso4217" '
+        f'xmlns:d="{_DI}" xmlns:x="{_I}" xmlns:yen="http://www.xbrl.org/2003/iso4217" '
         'xmlns:amount="http://www.xbrl.org/inlineXBRL/transformation/2011-07-31" '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
     )
     unit = '<x:unit id="money"><x:measure>yen:JPY</x:measure></x:unit>'
 
     def context(name, year):
+        axes = (
+            '<x:scenario><d:explicitMember dimension="c:OperatingSegmentsAxis">'
+            "c:ReportableSegmentsMember</d:explicitMember>"
+            '<d:explicitMember dimension="p:ConsolidatedOrNonConsolidatedAxis">'
+            "p:NonConsolidatedMember</d:explicitMember></x:scenario>"
+            if name == "Prior"
+            else ""
+        )
         return (
-            f'<x:context id="{name}"><x:entity><x:identifier scheme="urn:test">X</x:identifier>'
+            f'<x:context id="{name}"><x:entity><x:identifier scheme="http://disclosure.edinet-fsa.go.jp">E12345-000</x:identifier>'
             f"</x:entity><x:period><x:startDate>{year}-04-01</x:startDate>"
-            f"<x:endDate>{year + 1}-03-31</x:endDate></x:period></x:context>"
+            f"<x:endDate>{year + 1}-03-31</x:endDate></x:period>{axes}</x:context>"
         )
 
     defs = unit + "".join(
@@ -647,7 +662,7 @@ def _amount_sources(changes=(), omit=None):
 
 def test_manifest_wide_unique_amount_matches_both_forms_without_equating_nil_and_zero():
     manifest, docs, keys = _amount_sources()
-    matched = annual_segment_amount_occurrences(manifest, docs, keys)
+    matched = annual_segment_amount_occurrences(manifest, docs, keys, report=_ANNUAL)
     assert {k[1]: (v.note, v.yen) for k, v in matched.items()} == {
         "Prior": ("non_consolidated", -1234000),  # legitimately inside current note
         "Missing": ("non_consolidated", None),
@@ -662,7 +677,7 @@ def test_manifest_wide_unique_amount_matches_both_forms_without_equating_nil_and
     assert (
         annual_segment_note_at(docs, old, concept=key[0], context_id=key[1]) == "non_consolidated"
     )
-    assert key not in annual_segment_amount_occurrences(manifest, docs, keys)
+    assert key not in annual_segment_amount_occurrences(manifest, docs, keys, report=_ANNUAL)
 
 
 @pytest.mark.parametrize(
@@ -702,7 +717,9 @@ def test_manifest_wide_unique_amount_matches_both_forms_without_equating_nil_and
 )
 def test_amount_inconsistency_does_not_hide_unrelated_observations(part, old, new):
     manifest, docs, keys = _amount_sources([(part, old, new)])
-    assert {k[1] for k in annual_segment_amount_occurrences(manifest, docs, keys)} == {
+    assert {
+        k[1] for k in annual_segment_amount_occurrences(manifest, docs, keys, report=_ANNUAL)
+    } == {
         "Missing",
         "Zero",
     }
@@ -728,12 +745,12 @@ def test_amount_inconsistency_does_not_hide_unrelated_observations(part, old, ne
 )
 def test_incomplete_or_ambiguous_bundle_or_currency_provides_no_amount_witness(part, old, new):
     manifest, docs, keys = _amount_sources([(part, old, new)])
-    assert not annual_segment_amount_occurrences(manifest, docs, keys)
+    assert not annual_segment_amount_occurrences(manifest, docs, keys, report=_ANNUAL)
 
 
 def test_dropping_the_declared_other_file_cannot_make_an_ambiguous_match_unique():
     manifest, docs, keys = _amount_sources(omit="other.htm")
-    assert not annual_segment_amount_occurrences(manifest, docs, keys)
+    assert not annual_segment_amount_occurrences(manifest, docs, keys, report=_ANNUAL)
 
 
 def test_nil_with_lexical_zero_and_negative_zero_are_not_verified_yen():
@@ -747,4 +764,136 @@ def test_nil_with_lexical_zero_and_negative_zero_are_not_verified_yen():
             ),
         ]
     )
-    assert {k[1] for k in annual_segment_amount_occurrences(manifest, docs, keys)} == {"Prior"}
+    assert {
+        k[1] for k in annual_segment_amount_occurrences(manifest, docs, keys, report=_ANNUAL)
+    } == {"Prior"}
+
+
+def _test_ctx(docs, name, key):
+    return next(c for c in docs[name][0].iter("{" + _I + "}context") if c.get("id") == key)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "issuer",
+        "scheme",
+        "start",
+        "end",
+        "instant",
+        "member-uri",
+        "axis-uri",
+        "duplicate-axis",
+        "placement",
+        "bad-date",
+    ],
+)
+def test_same_id_with_different_entity_period_or_scoped_dimensions_does_not_bind(mutation):
+    m, docs, keys = _amount_sources()
+    ctx = _test_ctx(docs, "other.htm", "Prior")
+    entity, period, scenario = ctx
+    scopes = docs["other.htm"][1]
+    if mutation == "issuer":
+        entity[0].text = "E12346-000"
+    elif mutation == "scheme":
+        entity[0].set("scheme", "urn:not-edinet")
+    elif mutation in {"start", "end", "bad-date"}:
+        period[0 if mutation == "start" else 1].text = (
+            "not-a-date" if mutation == "bad-date" else "2024-08-01"
+        )
+    elif mutation == "instant":
+        period.remove(period[0])
+        period[0].tag = "{" + _I + "}instant"
+    elif mutation in {"member-uri", "axis-uri"}:
+        member = scenario[0]
+        scopes[member] = {**scopes[member], "shadow": "urn:other"}
+        if mutation == "member-uri":
+            member.text = "shadow:ReportableSegmentsMember"
+        else:
+            member.set("dimension", "shadow:OperatingSegmentsAxis")
+    elif mutation == "duplicate-axis":
+        scenario.append(scenario[0])
+    else:
+        ctx.remove(scenario)
+        scenario.tag = "{" + _I + "}segment"
+        entity.append(scenario)
+    result = annual_segment_amount_occurrences(m, docs, keys, report=_ANNUAL)
+    assert {k[1] for k in result} == {"Missing", "Zero"}
+
+
+def test_context_is_supplied_by_source_and_semantically_equal_aliases_or_axis_order_bind():
+    m, docs, keys = _amount_sources()
+    ctx = _test_ctx(docs, "other.htm", "Prior")
+    scenario = ctx[2]
+    member = scenario[0]
+    scopes = docs["other.htm"][1]
+    scopes[member] = {**scopes[member], "alias": scopes[member]["c"]}
+    member.set("dimension", "alias:OperatingSegmentsAxis")
+    member.text = "alias:ReportableSegmentsMember"
+    scenario[:] = list(reversed(scenario))
+    matched = annual_segment_amount_occurrences(m, docs, keys, report=_ANNUAL)
+    fact = next(v for k, v in matched.items() if k[1] == "Prior")
+    assert (fact.context.issuer_id, fact.context.start, fact.context.end) == (
+        "E12345-000",
+        date(2024, 4, 1),
+        date(2025, 3, 31),
+    )
+    assert len(fact.context.dimensions.pairs) == 2
+    assert fact.context.dimensions.context_id == "Prior"
+    assert (fact.note_context.start, fact.note_context.end) == (_ANNUAL.start, _ANNUAL.end)
+    assert fact.note_context.dimensions == ContextEvidence("CurrentNote")
+
+
+def test_consistent_but_wrong_note_or_wrong_report_and_mixed_inline_version_fail_closed():
+    m, docs, keys = _amount_sources()
+    assert not annual_segment_amount_occurrences(
+        m, docs, keys, report=replace(_ANNUAL, issuer_id="E99999-000")
+    )
+    assert not annual_segment_amount_occurrences(
+        m, docs, keys, report=replace(_ANNUAL, end=date(2027, 3, 31))
+    )
+    for filename in ("report.xbrl", "other.htm"):
+        _test_ctx(docs, filename, "CurrentNote")[1][0].text = "2024-04-01"
+    assert not annual_segment_amount_occurrences(m, docs, keys, report=_ANNUAL)
+    m, docs, keys = _amount_sources(
+        [
+            (
+                "other.htm",
+                "</body>",
+                '<v:nonFraction xmlns:v="http://www.xbrl.org/2013/inlineXBRL" name="p:NetSales" contextRef="Prior">1,234</v:nonFraction></body>',
+            )
+        ]
+    )
+    assert not annual_segment_amount_occurrences(m, docs, keys, report=_ANNUAL)
+
+
+def test_instant_and_duration_cannot_be_substituted_even_when_both_sources_agree():
+    m, docs, keys = _amount_sources()
+    for filename in ("report.xbrl", "other.htm"):
+        period = _test_ctx(docs, filename, "Prior")[1]
+        period.remove(period[0])
+        period[0].tag = "{" + _I + "}instant"
+    result = annual_segment_amount_occurrences(m, docs, keys, report=_ANNUAL)
+    assert {k[1] for k in result} == {"Missing", "Zero"}  # NetSales is a duration concept.
+
+
+def test_depth_and_node_and_candidate_bounds_apply_before_making_path_tuples():
+    m, docs, keys = _amount_sources()
+    tree = docs["other.htm"][0]
+    child = tree
+    for _ in range(31):
+        child = ET.SubElement(child, "span")
+    assert annual_segment_amount_occurrences(m, docs, keys, report=_ANNUAL)
+    ET.SubElement(child, "span")
+    assert not annual_segment_amount_occurrences(m, docs, keys, report=_ANNUAL)
+    m, docs, keys = _amount_sources()
+    count = sum(1 for root in (m, *(p[0] for p in docs.values())) for _ in root.iter())
+    for _ in range(50_000 - count):
+        ET.SubElement(docs["other.htm"][0], "span")
+    assert annual_segment_amount_occurrences(m, docs, keys, report=_ANNUAL)
+    ET.SubElement(docs["other.htm"][0], "span")
+    assert not annual_segment_amount_occurrences(m, docs, keys, report=_ANNUAL)
+    m, docs, keys = _amount_sources()
+    assert not annual_segment_amount_occurrences(
+        m, docs, keys | {("unknown", str(i)) for i in range(129)}, report=_ANNUAL
+    )
