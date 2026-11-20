@@ -148,6 +148,15 @@ class DiscoverySelectionV2:
     def tickers(self) -> tuple[str, ...]:
         return tuple(row["ticker"] for row in self.rows)
 
+    def price_coverage(self) -> dict[str, JsonValue]:
+        return {
+            "basis": "expected_session_confirmed_native_unadjusted_close_not_an_order_quote",
+            "universe_count": len(self.rows),
+            "valid_count": sum(
+                self.price_session.observed(row["execution_price"]) for row in self.rows
+            ),
+        }
+
 
 type IndexedSelection = DiscoverySelection | DiscoverySelectionV2
 
@@ -167,12 +176,17 @@ def discovery_method_for_id(selection_id: str, generation_id: str) -> DiscoveryM
     return None
 
 
-_ROW_CODECS = (TypeAdapter(tuple[DiscoveryRow, ...]), TypeAdapter(tuple[DiscoveryRowV2, ...]))
+_V1_ROWS = TypeAdapter(tuple[DiscoveryRow, ...])
+_V2_ROWS = TypeAdapter(tuple[DiscoveryRowV2, ...])
 
 
 def require_publishable_rows(result: IndexedSelection) -> None:
     # TypedDict values can change between projection and publication.
-    _ROW_CODECS[isinstance(result, DiscoverySelectionV2)].validate_python(result.rows, strict=True)
+    if isinstance(result, DiscoverySelectionV2):
+        _V2_ROWS.validate_python(result.rows, strict=True)
+        NativePriceSession.model_validate(result.price_session)
+    else:
+        _V1_ROWS.validate_python(result.rows, strict=True)
 
 
 def planned_stock_tickers(metadata: GenerationMetadata) -> tuple[str, ...]:

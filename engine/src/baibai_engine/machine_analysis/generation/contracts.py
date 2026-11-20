@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 
+from baibai_engine.machine_analysis.observations.prices.price_observation import SealedSessionPrices
 from baibai_engine.primitives.json import canonical_json
 
 type Identifier = Annotated[str, Field(min_length=1)]
@@ -210,3 +211,4 @@ class ModelGenerationStream:
     metadata: GenerationMetadata
     subjects: tuple[str, ...]
     models: Iterator[GeneratedModel]
+    session_prices: SealedSessionPrices | None = None

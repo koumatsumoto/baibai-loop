@@ -8,7 +8,18 @@ from datetime import date, datetime
 from math import isfinite
 from typing import Annotated, Literal, Self, TypedDict
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator, with_config
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+    with_config,
+)
+
+from baibai_engine.primitives.time import JST
 
 PriceDayState = Literal["priced", "no_trade", "mixed", "invalid"]
 PRICE_PATH_DIFFERENCES = (1, 20, 60, 252)
@@ -25,10 +36,23 @@ class ExpectedPriceBar(TypedDict):
 class NativePriceSession(BaseModel):
     """Exact native scope of the expected session, shared by every stock in a seal."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
     expected_date: date | None
     status: Literal["ok", "empty", "partial", "unavailable", "not_recorded", "unconfirmed"]
     recorded_at: AwareDatetime | None
+
+    @field_validator("expected_date", "recorded_at", mode="before")
+    @classmethod
+    def iso_clock(cls, value: object, info: ValidationInfo) -> object:
+        if isinstance(value, str):
+            return (
+                date.fromisoformat(value)
+                if info.field_name == "expected_date"
+                else datetime.fromisoformat(value)
+            )
+        if value is None or isinstance(value, date):
+            return value
+        raise ValueError("native price evidence requires an ISO date or timestamp")
 
     @model_validator(mode="after")
     def scope_evidence(self) -> Self:
@@ -36,8 +60,14 @@ class NativePriceSession(BaseModel):
             raise ValueError("a native price scope requires its exact session")
         if self.status == "not_recorded" and self.recorded_at is not None:
             raise ValueError("absent native price scope cannot have a receipt clock")
-        if self.status in {"ok", "empty"} and self.recorded_at is None:
-            raise ValueError("confirmed native price scope requires its receipt clock")
+        if self.status in {"ok", "empty"} and (
+            self.recorded_at is None
+            or self.expected_date is None
+            or self.recorded_at.astimezone(JST).date() < self.expected_date
+        ):
+            raise ValueError(
+                "confirmed native price scope requires a receipt clock on or after its session"
+            )
         return self
 
     def validate_cutoff(self, as_of: date, known_at: datetime) -> None:
@@ -49,6 +79,17 @@ class NativePriceSession(BaseModel):
     def observed(self, bar: ExpectedPriceBar) -> bool:
         price = bar["raw_close_yen"]
         return self.status == "ok" and price is not None and price > 0
+
+
+@dataclass(frozen=True, slots=True)
+class SealedSessionPrices:
+    """Transient join input, not a second saved model or a new Generation header."""
+
+    session: NativePriceSession
+    bars: Mapping[str, ExpectedPriceBar]
+
+    def for_stock(self, ticker: str) -> ExpectedPriceBar:
+        return self.bars.get(ticker, {"raw_close_yen": None, "day_state": None})
 
 
 @dataclass(frozen=True, slots=True)

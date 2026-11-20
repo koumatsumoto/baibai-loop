@@ -158,7 +158,8 @@ def integration(tmp_path, monkeypatch):
     def publish(received, *, store, before_pointer_switch):
         assert received is prepared
         assert read_publication(path=tmp_path / "runs").selection_id == (
-            "selection-models-new-release-opportunity-discovery-v1"
+            "selection-models-new-release-"
+            + arguments.get("discovery_method", "opportunity-discovery-v1")
         )
         before_pointer_switch()
         events.append("publish")
@@ -600,3 +601,50 @@ def test_cli_retention_read_precedes_integration_and_failure_never_falls_back(
     else:
         assert integrate.call_args.kwargs["preserve_generation_ids"] == ()
     assert (runs.read_bytes() if runs.exists() else None) == before
+
+
+def test_explicit_v2_uses_raw_session_but_default_cli_remains_v1(integration, monkeypatch):
+    from dataclasses import replace
+
+    from baibai_engine.machine_analysis.observations.prices.price_observation import (
+        NativePriceSession,
+        SealedSessionPrices,
+    )
+    from baibai_engine.machine_analysis.screening.discovery_contract import DISCOVERY_V2
+
+    arguments, _ = integration
+    arguments["discovery_method"] = DISCOVERY_V2
+    generate = job.read_and_generate_models
+
+    def with_seal(**kwargs):
+        stream = generate(**kwargs)
+        return replace(
+            stream,
+            session_prices=SealedSessionPrices(
+                NativePriceSession(
+                    expected_date=stream.metadata.as_of,
+                    status="ok",
+                    recorded_at=stream.metadata.evaluation_time,
+                ),
+                {"1234": {"raw_close_yen": 510.0, "day_state": "mixed"}},
+            ),
+        )
+
+    monkeypatch.setattr(job, "read_and_generate_models", with_seal)
+    notice = job.integrate_models(**arguments)
+    saved = read_publication(path=arguments["runs"])
+    assert saved.selection.result.policy.method == notice["selection_method"] == DISCOVERY_V2
+    assert saved.selection.result.rows[0]["execution_price"]["raw_close_yen"] == 510
+    assert saved.selection.result.rows[1]["models_recorded"] is False
+    assert notice["screening_price_inputs"]["valid_count"] == 1
+    assert notice["candidate_count"] == len(saved.selection.universe_tickers) == 2
+    assert "同日価格観測: 適格1/2社" in render_generation(notice)
+    assert "--discovery-method" not in job.build_parser().format_help()
+
+
+def test_explicit_v2_requires_seal_instead_of_falling_back_to_adjusted_prices(integration):
+    arguments, events = integration
+    with pytest.raises(ValueError, match="price evidence from the generation seal"):
+        job.integrate_models(**arguments, discovery_method="opportunity-discovery-v2")
+    assert "publish" not in events
+    assert not arguments["runs"].exists()

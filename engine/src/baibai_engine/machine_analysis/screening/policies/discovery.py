@@ -3,18 +3,27 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 
 from pydantic import JsonValue
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
+from baibai_engine.machine_analysis.observations.prices.price_observation import (
+    SealedSessionPrices,
+)
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import (
+    DISCOVERY_V2,
     BookEquity,
+    DiscoveryFacts,
     DiscoveryPolicy,
+    DiscoveryPolicyV2,
     DiscoveryRow,
+    DiscoveryRowV2,
     DiscoverySelection,
+    DiscoverySelectionV2,
+    planned_stock_tickers,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
     _project_economic_paths,
@@ -63,16 +72,13 @@ def read_discovery_observations(
     return technical, gate, coordinates, review_reason
 
 
-def project_discovery_row(
+def _company_facts(
     ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
-) -> DiscoveryRow:
+) -> tuple[DiscoveryFacts, TechnicalDiscovery]:
     technical, gate, coordinates, review_reason = read_discovery_observations(
         ticker, models=models, metadata=metadata
     )
     source = {model.model_id: model.payload for model in models}
-    price = _object(source.get("market_context", {}).get("price"))
-    close = price.get("close")
-    amount = close if isinstance(close, (int, float)) and not isinstance(close, bool) else None
     earnings = _object(source.get("company_financials", {}).get("earnings_price"))
     financial = source.get("company_financials", {})
     book = _object(financial.get("financial")).get("book_equity")
@@ -87,9 +93,7 @@ def project_discovery_row(
     missing = {"growth:" + item for item in gate.missing}
     if financial_gap is not None:
         missing.add("financial:" + financial_gap)
-    expected = technical.expected_price_date
-    day = _text(price.get("resolved_date"))
-    return DiscoveryRow(
+    return DiscoveryFacts(
         ticker=ticker,
         models_recorded=bool(models),
         name=coordinates.name,
@@ -115,17 +119,6 @@ def project_discovery_row(
             }
             for path in f_paths
         ],
-        price=amount,
-        price_date=day,
-        expected_price_date=expected,
-        basis=_text(price.get("price_basis")),
-        price_ready=(
-            amount is not None
-            and amount > 0
-            and day is not None
-            and day == expected
-            and technical.price_ready
-        ),
         book_equity=(
             cast(
                 BookEquity,
@@ -154,27 +147,52 @@ def project_discovery_row(
             if "capital_action_evidence" in financial or "share_basis_adjustments" in earnings
             else None
         ),
+    ), technical
+
+
+def project_discovery_row(
+    ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
+) -> DiscoveryRow:
+    """V1 writer only; its adjusted price and TA conditions are part of the old format."""
+    facts, technical = _company_facts(ticker, models=models, metadata=metadata)
+    market = next((model.payload for model in models if model.model_id == "market_context"), {})
+    price = _object(market.get("price"))
+    close = price.get("close")
+    amount = close if isinstance(close, (int, float)) and not isinstance(close, bool) else None
+    expected = technical.expected_price_date
+    day = _text(price.get("resolved_date"))
+    return DiscoveryRow(
+        **facts,
+        price=amount,
+        price_date=day,
+        expected_price_date=expected,
+        basis=_text(price.get("price_basis")),
+        price_ready=(
+            amount is not None
+            and amount > 0
+            and day is not None
+            and day == expected
+            and technical.price_ready
+        ),
     )
+
+
+def project_discovery_facts(
+    ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
+) -> DiscoveryFacts:
+    facts, _ = _company_facts(ticker, models=models, metadata=metadata)
+    return facts
 
 
 def evaluate_discovery_rows(
     metadata: GenerationMetadata, *, tickers: Sequence[str], rows: Mapping[str, DiscoveryRow]
 ) -> ScreeningSelection:
-    subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
-    if len(set(subjects)) != len(subjects) or not rows.keys() <= set(subjects):
-        raise ValueError("discovery requires unique planned companies")
-    if metadata.subject_plan is not None and set(subjects) != {
-        ticker
-        for ticker, definition in metadata.subject_plan.items()
-        if definition.scope == "stock"
-    }:
-        raise ValueError("discovery universe differs from the saved stock plan")
-    complete = tuple(
-        rows[t] if t in rows else project_discovery_row(t, models=(), metadata=metadata)
-        for t in subjects
+    subjects, complete = _population(
+        metadata,
+        tickers,
+        rows,
+        lambda ticker: project_discovery_row(ticker, models=(), metadata=metadata),
     )
-    if any(row["ticker"] != ticker for row, ticker in zip(complete, subjects, strict=True)):
-        raise ValueError("discovery observation differs from its subject")
     days = Counter(row["price_date"] or "missing" for row in complete)
     expected = Counter(row["expected_price_date"] or "missing" for row in complete)
     valid = sum(row["price_ready"] for row in complete)
@@ -198,12 +216,65 @@ def evaluate_discovery_rows(
         DiscoverySelection(
             DiscoveryPolicy(),
             complete,
-            {
-                "planned_stocks": len(complete),
-                "financial_gate": dict(Counter(row["financial_state"] for row in complete)),
-                "technical": dict(Counter(row["technical_state"] for row in complete)),
-                "screening_lanes": dict(Counter(row["screening_lane"] for row in complete)),
-            },
+            _summary(complete),
         ),
         prices,
+    )
+
+
+def _population[R: DiscoveryFacts](
+    metadata: GenerationMetadata,
+    tickers: Sequence[str],
+    rows: Mapping[str, R],
+    missing: Callable[[str], R],
+    *,
+    require_plan: bool = False,
+) -> tuple[tuple[str, ...], tuple[R, ...]]:
+    subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
+    if len(set(subjects)) != len(subjects) or not rows.keys() <= set(subjects):
+        raise ValueError("discovery requires unique planned companies")
+    if (require_plan or metadata.subject_plan is not None) and subjects != planned_stock_tickers(
+        metadata
+    ):
+        raise ValueError("discovery universe differs from the saved stock plan")
+    complete = tuple(rows[t] if t in rows else missing(t) for t in subjects)
+    if any(row["ticker"] != ticker for row, ticker in zip(complete, subjects, strict=True)):
+        raise ValueError("discovery observation differs from its subject")
+    return subjects, complete
+
+
+def _summary(complete: Sequence[DiscoveryFacts]) -> dict[str, JsonValue]:
+    return {
+        "planned_stocks": len(complete),
+        "financial_gate": dict(Counter(row["financial_state"] for row in complete)),
+        "technical": dict(Counter(row["technical_state"] for row in complete)),
+        "screening_lanes": dict(Counter(row["screening_lane"] for row in complete)),
+    }
+
+
+def evaluate_session_discovery(
+    metadata: GenerationMetadata,
+    *,
+    tickers: Sequence[str],
+    rows: Mapping[str, DiscoveryFacts],
+    prices: SealedSessionPrices,
+) -> ScreeningSelection:
+    # Join every planned stock at one boundary, including an observed price with no models.
+    # An arbitrary model row must not supply a cached price from a different session.
+    subjects, facts = _population(
+        metadata,
+        tickers,
+        rows,
+        lambda ticker: project_discovery_facts(ticker, models=(), metadata=metadata),
+        require_plan=True,
+    )
+    complete = tuple(
+        DiscoveryRowV2(**row, execution_price=prices.for_stock(row["ticker"])) for row in facts
+    )
+    return ScreeningSelection(
+        metadata.generation_id,
+        subjects,
+        DiscoverySelectionV2(
+            DiscoveryPolicyV2(method=DISCOVERY_V2), complete, _summary(facts), prices.session
+        ),
     )

@@ -4,7 +4,7 @@ import gzip
 import json
 import sqlite3
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
 import pytest
@@ -167,3 +167,46 @@ def test_latest_broken_edition_never_falls_back_to_earlier_v1(tmp_path, damage):
     with pytest.raises(ValueError, match=r"version|identity|validation|cutoff"):
         read_publication(path=path)
     assert read_discovery_index(path=path, selection_id=old_id).rows == old.result.rows
+
+
+def test_raw_scope_changes_only_input_gap_not_the_financial_question_or_valuation(tmp_path):
+    from tests.engine.machine_analysis.screening.test_full_fy_fallback import documents, generation
+
+    from baibai_engine.investment_judgment.workflow.discovery import _explore
+    from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_facts
+
+    fixed_models = generation(documents())
+    models = tuple(m for m in fixed_models.models if m.subject == "1001")
+    row = project_discovery_facts("1001", models=models, metadata=fixed_models)
+    # The FA quote is 10, not 510. Only the FA price/share basis can recover this yield.
+    earnings = next(p for p in row["coordinates"] if p["path_id"] == "earning_power")
+    assert earnings["price_value"] == pytest.approx(150.0 / 800.0)
+    assert row["technical_state"] == "unavailable"
+
+    _, _, old, _, new = editions(tmp_path / "runs")
+    source_row = next(r for r in new.result.rows if r["ticker"] == "5678")
+    old_row = next(r for r in old.result.rows if r["ticker"] == "5678")
+    assert source_row["missing"] == []
+    assert source_row["technical_state"] == "unavailable"
+    for selected, session, gaps in (
+        (old_row, None, 1),
+        (source_row, new.result.price_session, 0),
+        (source_row, new.result.price_session.model_copy(update={"status": "partial"}), 1),
+    ):
+        menu = _explore((selected,), ("5678",), question=None, page=0, price_session=session)
+        counts = {q["key"]: q["company_count"] for q in menu["questions"]}
+        assert (counts["input_gap"], counts["earning_power"]) == (gaps, 1)
+
+
+def test_v2_session_clock_cannot_be_fabricated_through_model_copy_or_numeric_wire(tmp_path):
+    meta, _, _, key, selection = editions(tmp_path / "runs")
+    session = selection.result.price_session
+    for invalid in (None, meta.evaluation_time - timedelta(days=5), 0, "0"):
+        altered = replace(
+            selection,
+            result=replace(
+                selection.result, price_session=session.model_copy(update={"recorded_at": invalid})
+            ),
+        )
+        with pytest.raises(ValueError, match=r"requires|validation"):
+            ScreeningSelectionStore(tmp_path / "runs").publish(key, altered)

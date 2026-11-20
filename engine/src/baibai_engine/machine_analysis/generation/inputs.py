@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack, closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from functools import partial
 from math import isfinite
@@ -77,10 +77,12 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
 )
 from baibai_engine.machine_analysis.observations.prices.price_observation import (
     PriceCalendar,
+    SealedSessionPrices,
     price_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.price_observation_reader import (
-    read_price_day_states,
+    read_native_price_session,
+    read_price_day_observations,
     read_turnover_values,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
@@ -112,6 +114,7 @@ class FinancialModelInput:
 @dataclass(frozen=True, slots=True)
 class _MarketPriceInputs:
     calendar: PriceCalendar
+    session_prices: SealedSessionPrices
     bars: dict[str, list[PriceBar]]
     adjustment_events: dict[str, list[JQuantsAdjustmentFactorEvent]]
     provider_capital: dict[str, dict[str, object]]
@@ -121,7 +124,12 @@ class _MarketPriceInputs:
 
 
 def _read_market_price_inputs(
-    path: Path, *, as_of: date, subjects: Sequence[str], master: MasterSnapshot | None
+    path: Path,
+    *,
+    as_of: date,
+    known_at: datetime,
+    subjects: Sequence[str],
+    master: MasterSnapshot | None,
 ) -> _MarketPriceInputs:
     events: dict[str, list[JQuantsAdjustmentFactorEvent]] = defaultdict(list)
     with closing(connect_read_only(path)) as connection:
@@ -151,11 +159,15 @@ def _read_market_price_inputs(
                     "close_yen": close,
                     "market_cap_million_yen": market_cap,
                 }
-        day_states = read_price_day_states(
+        day_states, expected_bars = read_price_day_observations(
             connection,
             start=state_start,
             end=as_of,
             tickers=(*subjects, NIKKEI225_ETF_PROXY),
+            expected_date=path_calendar.expected_price_date,
+        )
+        session = read_native_price_session(
+            connection, expected_date=path_calendar.expected_price_date, known_at=known_at
         )
         turnover_values = read_turnover_values(
             connection,
@@ -246,6 +258,7 @@ def _read_market_price_inputs(
             )
     return _MarketPriceInputs(
         calendar=path_calendar,
+        session_prices=SealedSessionPrices(session, expected_bars),
         bars=prices,
         adjustment_events=events,
         provider_capital=provider_capital,
@@ -331,7 +344,12 @@ def read_and_generate_models(
         subjects = tuple(sorted({normalize_ticker(ticker) for ticker in tickers}))
     documents: dict[str, list[JQuantsFinancialSummary]] = defaultdict(list)
     read_prices = partial(
-        _read_market_price_inputs, path, as_of=as_of, subjects=subjects, master=master
+        _read_market_price_inputs,
+        path,
+        as_of=as_of,
+        known_at=min(evaluation_time, market_snapshot.sealed_at),
+        subjects=subjects,
+        master=master,
     )
     with ExitStack() as reads, closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
@@ -426,7 +444,7 @@ def read_and_generate_models(
         )
         for ticker in subjects
     ]
-    return generate_models(
+    generation = generate_models(
         generation_id=generation_id,
         as_of=as_of,
         evaluation_time=evaluation_time,
@@ -494,3 +512,4 @@ def read_and_generate_models(
         growth_start=growth_start,
         trends=trends,
     )
+    return replace(generation, session_prices=price_inputs.session_prices)

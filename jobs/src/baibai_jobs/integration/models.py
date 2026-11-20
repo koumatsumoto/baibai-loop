@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterator
 from contextlib import ExitStack, nullcontext, suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime
+from functools import partial
 from pathlib import Path
 from typing import TypedDict
 
@@ -46,13 +47,21 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import (
     InputRelease as ModelInputRelease,
 )
+from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import (
+    DISCOVERY_METHOD,
+    DISCOVERY_V2,
+    DiscoveryFacts,
+    DiscoveryMethod,
     DiscoveryRow,
     DiscoverySelection,
+    DiscoverySelectionV2,
     discovery_publication_id,
 )
 from baibai_engine.machine_analysis.screening.policies.discovery import (
     evaluate_discovery_rows,
+    evaluate_session_discovery,
+    project_discovery_facts,
     project_discovery_row,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -83,8 +92,10 @@ def _phase_progress(phase: str, started: float | None = None) -> float:
     return now
 
 
-def _project_company_models(
-    generation: ModelGenerationStream, rows: dict[str, DiscoveryRow]
+def _project_company_models[R](
+    generation: ModelGenerationStream,
+    rows: dict[str, R],
+    project_row: Callable[[str, tuple[GeneratedModel, ...]], R],
 ) -> Iterator[GeneratedModel]:
     # 通常assemblyは個社の全モデルを続けて返し、その後に共有subjectを返す。
     # 順序が変わった列を部分判定で選ばず、writerのtransaction内で止める。
@@ -94,9 +105,7 @@ def _project_company_models(
     def project() -> None:
         if models:
             subject = models[0].subject
-            rows[subject] = project_discovery_row(
-                subject, models=tuple(models), metadata=generation.metadata
-            )
+            rows[subject] = project_row(subject, tuple(models))
             models.clear()
 
     for model in generation.models:
@@ -108,6 +117,37 @@ def _project_company_models(
             models.append(model)
         yield model
     project()
+
+
+def _screening_stream(
+    generation: ModelGenerationStream,
+    method: DiscoveryMethod,
+) -> tuple[Iterator[GeneratedModel], Callable[[], ScreeningSelection]]:
+    meta, subjects = generation.metadata, generation.subjects
+    if method == DISCOVERY_V2:
+        prices = generation.session_prices
+        if prices is None:
+            raise ValueError("discovery V2 requires the price evidence from the generation seal")
+        session_rows: dict[str, DiscoveryFacts] = {}
+        return (
+            _project_company_models(
+                generation,
+                session_rows,
+                lambda t, models: project_discovery_facts(t, models=models, metadata=meta),
+            ),
+            partial(
+                evaluate_session_discovery, meta, tickers=subjects, rows=session_rows, prices=prices
+            ),
+        )
+    rows: dict[str, DiscoveryRow] = {}
+    return (
+        _project_company_models(
+            generation,
+            rows,
+            lambda t, models: project_discovery_row(t, models=models, metadata=meta),
+        ),
+        partial(evaluate_discovery_rows, meta, tickers=subjects, rows=rows),
+    )
 
 
 class _ReadbackOptions(TypedDict, total=False):
@@ -162,12 +202,15 @@ def integrate_models(
     as_of: date,
     lease_handle: Path,
     growth_start: date | None,
+    discovery_method: DiscoveryMethod = DISCOVERY_METHOD,
     edinet_input: InputSnapshot | None = None,
     preserve_generation_ids: tuple[str, ...] = (),
     external_readback_dir: Path | None = None,
     external_partitions: frozenset[tuple[str, int, int]] = frozenset(),
 ) -> dict[str, object]:
     """leaseで順序を守り、モデル生成後に別releaseを作らない。"""
+    if discovery_method not in (DISCOVERY_METHOD, DISCOVERY_V2):
+        raise ValueError("unknown discovery method")
     handle = _load_handle(lease_handle)
     verify_held(store, handle)
     mirror.mkdir(parents=True, exist_ok=True)
@@ -253,10 +296,8 @@ def integrate_models(
         _phase_progress("model_inputs", phase_started)
         phase_started = _phase_progress("model_generation")
         generations = ModelGenerationStore(runs)
-        rows: dict[str, DiscoveryRow] = {}
-        saved = generations.publish_stream(
-            replace(generation, models=_project_company_models(generation, rows))
-        )
+        models, select = _screening_stream(generation, discovery_method)
+        saved = generations.publish_stream(replace(generation, models=models))
         try:
             storage_totals = read_generation_storage_totals(
                 generation.metadata.generation_id, path=runs
@@ -275,9 +316,9 @@ def integrate_models(
         _phase_progress("model_generation", phase_started)
         subjects = generation.subjects
         phase_started = _phase_progress("screening")
-        selection = evaluate_discovery_rows(generation.metadata, tickers=subjects, rows=rows)
-        assert isinstance(selection.result, DiscoverySelection)
-        selection_id = discovery_publication_id(generation.metadata.generation_id)
+        selection = select()
+        assert isinstance(selection.result, (DiscoverySelection, DiscoverySelectionV2))
+        selection_id = discovery_publication_id(generation.metadata.generation_id, discovery_method)
         ScreeningSelectionStore(runs).publish(selection_id, selection)
         _phase_progress("screening", phase_started)
         phase_started = _phase_progress("lake_publish")
@@ -318,7 +359,9 @@ def integrate_models(
         "company_count": len(subjects),
         "model_count": saved.model_count,
         "candidate_count": len(selection.result.tickers),
-        "screening_price_inputs": selection.price_inputs,
+        "screening_price_inputs": selection.result.price_coverage()
+        if isinstance(selection.result, DiscoverySelectionV2)
+        else selection.price_inputs,
         "screening_summary": selection.result.summary,
         "growth_start": None if growth_start is None else growth_start.isoformat(),
         "economic_input_sha256": economic_input.identity.sha256,

@@ -300,7 +300,16 @@ def test_full_models_are_released_as_companies_are_consumed(tmp_path):
 
     tracked = replace(stream, models=observed())
     saved = ModelGenerationStore(tmp_path / "runs").publish_stream(
-        replace(tracked, models=job._project_company_models(tracked, coordinates))
+        replace(
+            tracked,
+            models=job._project_company_models(
+                tracked,
+                coordinates,
+                lambda ticker, models: job.project_discovery_row(
+                    ticker, models=models, metadata=tracked.metadata
+                ),
+            ),
+        )
     )
     assert saved.model_count == len(tickers) * 5 + 1
     assert set(coordinates) == set(tickers)

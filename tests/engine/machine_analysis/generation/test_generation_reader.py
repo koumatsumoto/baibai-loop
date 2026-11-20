@@ -44,7 +44,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
             "read_price_bars",
             "read_financial_documents",
             "read_observation_population",
-            "read_price_day_states",
+            "read_price_day_observations",
             "read_trend_inputs",
         )
     ]
@@ -160,7 +160,7 @@ def test_shared_price_path_matches_single_query_and_keeps_old_mc_and_adv(
                 (as_of.isoformat(),),
             )
     before = path.read_bytes()
-    reader = mocker.spy(generation_reader, "read_price_day_states")
+    reader = mocker.spy(generation_reader, "read_price_day_observations")
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
         stream = generation_reader.read_and_generate_models(
             generation_id="price-path-fixture",
@@ -480,3 +480,88 @@ def test_generation_binds_edinet_clock_and_passes_fixed_comparison_archives(tmp_
             assert result.inputs["edinet"] == saved
             assert comparison_read.call_args.kwargs["archives"] is fixed.archives
     assert market.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("scope", "clock", "error", "key", "count", "expected_status"),
+    [
+        ("ok", "2026-11-13T10:00:00+00:00", None, "exact", 3, "ok"),
+        ("partial", "2026-11-13T10:00:00+00:00", "held", "exact", 3, "partial"),
+        ("unavailable", "2026-11-13T10:00:00+00:00", "failed", "exact", 0, "unavailable"),
+        ("ok", "2026-11-13T10:00:00+00:00", "failed", "exact", 3, "unconfirmed"),
+        ("ok", "2026-11-16T10:00:00+00:00", None, "exact", 3, "unconfirmed"),
+        ("ok", "2026-11-13T10:00:00", None, "exact", 3, "unconfirmed"),
+        ("ok", "2026-11-11T10:00:00+00:00", None, "exact", 3, "unconfirmed"),
+        ("ok", "2026-11-13T10:00:00+00:00", None, "old_range", 3, "not_recorded"),
+        ("ok", "2026-11-13T10:00:00+00:00", None, "wrong_bounds", 3, "not_recorded"),
+        ("ok", "2026-11-13T10:00:00+00:00", None, "exact", 0, "empty"),
+    ],
+)
+def test_expected_session_prices_and_native_scope_share_one_stock_scan_and_seal(
+    tmp_path, mocker, scope, clock, error, key, count, expected_status
+):
+    friday, sunday = date(2026, 11, 13), date(2026, 11, 15)
+    tickers = ("1000", "1001", "1002", "1003")
+    market = market_store(
+        tmp_path / "market",
+        daily_bars=(
+            ("1000", "2026-11-12", 999, 0),  # Previous close must not fill Friday.
+            ("1001", friday.isoformat(), 510, None),
+            ("1002", friday.isoformat(), 0, None),
+            ("1003", friday.isoformat(), None, None),
+        ),
+    )
+    with sqlite3.connect(market) as c:
+        c.executemany(
+            "INSERT INTO jquants_market_calendar VALUES (?,?)",
+            [(friday.isoformat(), "1"), ("2026-11-14", "0"), (sunday.isoformat(), "0")],
+        )
+        c.execute(
+            "INSERT INTO source_coverage VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "jquants_daily_bars",
+                "native:" + friday.isoformat() if key != "old_range" else "old",
+                "2026-11-12" if key == "wrong_bounds" else friday.isoformat(),
+                friday.isoformat(),
+                clock,
+                count,
+                scope,
+                error,
+            ),
+        )
+    bars = mocker.spy(generation_reader, "read_price_day_observations")
+    native = mocker.spy(generation_reader, "read_native_price_session")
+    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "seal") as seal:
+        with sqlite3.connect(market) as live:
+            live.execute("UPDATE jquants_daily_bars SET close=9999 WHERE ticker='1001'")
+            live.execute(
+                "UPDATE source_coverage SET status='ok',error=NULL WHERE source='jquants_daily_bars'"
+            )
+        generation = generation_reader.read_and_generate_models(
+            generation_id="fixed-session",
+            market_snapshot=seal,
+            market_release=InputRelease(release_id="fixed", manifest_sha256="1" * 64),
+            economic_input=None,
+            as_of=sunday,
+            evaluation_time=datetime(2026, 11, 15, tzinfo=UTC),
+            ttm_rules=DEFAULT_TTM_RULES,
+            tickers=tickers,
+        )
+    assert bars.call_count == native.call_count == 1
+    assert bars.call_args.args[0] is native.call_args.args[0]
+    assert set(bars.call_args.kwargs["tickers"]) >= set(tickers)
+    prices = generation.session_prices
+    assert (prices.session.expected_date, prices.session.status) == (friday, expected_status)
+    assert [prices.for_stock(t) for t in tickers] == [
+        {"raw_close_yen": None, "day_state": None},
+        {"raw_close_yen": 510.0, "day_state": "mixed"},
+        {"raw_close_yen": 0.0, "day_state": "mixed"},
+        {"raw_close_yen": None, "day_state": "no_trade"},
+    ]
+    assert [prices.session.observed(prices.for_stock(t)) for t in tickers] == [
+        False,
+        expected_status == "ok",
+        False,
+        False,
+    ]
+    assert "session_prices" not in generation.metadata.model_dump()
