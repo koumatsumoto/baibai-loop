@@ -44,24 +44,27 @@ def delay_at(document, price):
 def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gate(
     tmp_path, monkeypatch
 ):
-    from baibai_engine.investment_judgment.trade_proposal import conditions, entry_policy
+    from baibai_engine.investment_judgment.stock_assessment import document as assessment_document
+    from baibai_engine.investment_judgment.trade_proposal import conditions
 
     case = backend_case(tmp_path)
     draft = reviewed_proposal(case)
     calls = []
     old_basis = conditions.assessment_quote_basis
-    old_errors = entry_policy.current_derived_metric_errors
+    old_check_derived = assessment_document._check_derived_metrics
 
     def basis(*args, **kwargs):
         calls.append("basis")
         return old_basis(*args, **kwargs)
 
-    def errors(document):
-        calls.append("economic_inputs")
-        return old_errors(document)
+    def check_derived(document, errors, *, check_new_inputs):
+        # 保存済み評価の同一性確認ではなく、現在の価格適用に対する指標照合を全呼出で数える。
+        if check_new_inputs:
+            calls.append("economic_inputs")
+        old_check_derived(document, errors, check_new_inputs=check_new_inputs)
 
     monkeypatch.setattr(conditions, "assessment_quote_basis", basis)
-    monkeypatch.setattr(entry_policy, "current_derived_metric_errors", errors)
+    monkeypatch.setattr(assessment_document, "_check_derived_metrics", check_derived)
     context = build_proposal_context(
         operation_id=case.operation.operation_id,
         db_path=case.app,
@@ -82,7 +85,9 @@ def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gat
     )
 
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    calls.clear()
     checked = service.check(draft)
+    assert calls == ["basis", "economic_inputs"]
     assert checked.valid
     comparison = checked.calculations["1234"]["limit_price_projection"]
     assert comparison["horizon_months"] == 12
@@ -95,7 +100,9 @@ def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gat
     assert comparison["calculation_price_yen"] == "1000"
     assert not {"price_yen", "price_as_of", "price_basis"} & comparison.keys()
 
+    calls.clear()
     saved = service.publish(draft)
+    assert calls == ["basis", "economic_inputs"]
     before = case.app.read_bytes()
     calls.clear()
     preview = preview_current_terms(

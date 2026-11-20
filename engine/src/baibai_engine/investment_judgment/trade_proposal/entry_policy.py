@@ -10,9 +10,8 @@ from decimal import Decimal
 from typing import Literal
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
+    CurrentPriceProjectionInputs,
     StockAssessmentDocument,
-    current_derived_metric_errors,
-    current_price_projection,
 )
 from baibai_engine.investment_judgment.stock_assessment.price_value import referenced_price_fact
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
@@ -128,7 +127,8 @@ def prepare_buy_terms(
         block("assessment_not_supported", "supported かつ intact の評価が必要です。")
     if assessment.input_snapshot.as_of != as_of:
         block("valuation_basis_requires_refresh", "期間と今後分配を本日起点で再確認してください。")
-    if input_errors := current_derived_metric_errors(assessment):
+    projection_inputs = CurrentPriceProjectionInputs(assessment)
+    if input_errors := projection_inputs.derived_metric_errors:
         block(
             "valuation_inputs_require_refresh",
             "現在の価値適用には派生計算の入力を再確認してください: " + "; ".join(input_errors),
@@ -198,20 +198,20 @@ def prepare_buy_terms(
     if proposal_executed:
         block("proposal_already_executed", "この提案に対する買付は既に記録されています。")
     portfolio_blockers = tuple(blockers)
-    projection_basis = reviewed and latest and confirmed_basis and acquisition_issue is None
-
-    def projection_at(value: Decimal | None) -> dict[str, object] | None:
-        if value is None or value <= 0 or price is None or price <= 0:
-            return None
-        return current_price_projection(
-            assessment,
-            price_yen=value,
+    project = (
+        projection_inputs.for_quote(
             price_as_of=price_as_of,
             as_of=as_of,
-            basis_confirmed=projection_basis,
+            basis_confirmed=reviewed and latest and confirmed_basis and acquisition_issue is None,
             max_quote_age_days=market_price_max_age_days,
-            price_basis="last_close_unadjusted" if quote is None else quote.price_basis,
+            price_basis=quote.price_basis,
         )
+        if quote is not None and price is not None and price > 0
+        else None
+    )
+
+    def projection_at(value: Decimal | None) -> dict[str, object] | None:
+        return None if project is None or value is None or value <= 0 else project(value)
 
     current_projection = projection_at(price)
 

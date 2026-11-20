@@ -694,7 +694,7 @@ def test_retained_buy_reference_does_not_write_or_replay_current_eligibility(
         pytest.fail("historical identity entered current Proposal publication check")
 
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.trade_proposal.entry_policy.prepare_buy_terms",
+        "baibai_engine.investment_judgment.trade_proposal.service._check_proposal",
         reject_current_check,
     )
     assert resolve_buy_reference(RETAINED_BUY_REFERENCE, db_path=db) == "2331"
