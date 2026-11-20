@@ -327,6 +327,26 @@ def _number(text: str) -> int:
     return int(text.replace(",", "").replace("△", "-"))
 
 
+def _jp_interim_basis(tail: str, current: str, prior: str, note: str) -> str | None:
+    # Only the headline footnote may attest its restatement. The JPX cover may
+    # interpose a comprehensive-income note and the same two periods' EPS table.
+    current, prior = re.escape(current), re.escape(prior)
+    number = r"(?:[△−-]?[0-9][0-9,]*(?:\.[0-9]+)?|[―−-])"
+    total = rf"{number}百万円\({number}%\)"
+    comprehensive = rf"\(注\)包括利益{current}{total}{prior}{total}"
+    eps_cell = r"(?:[△−-]?[0-9][0-9,]*\.[0-9]{2}|[―−-])"
+    eps = (
+        "1株当たり中間純利益潜在株式調整後1株当たり中間純利益円銭円銭"
+        rf"{current}{eps_cell}{eps_cell}{prior}{eps_cell}{eps_cell}"
+    )
+    matched = re.fullmatch(
+        rf"(?:{comprehensive})?(?:{eps})?(?P<basis>\(注\){note}しております。)"
+        r"(?:また対前年同?中間期増減率は、?記載しておりません。)?",
+        _compact(tail),
+    )
+    return matched["basis"] if matched else None
+
+
 def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
     # Use the explicitly labelled headline comparison in its published million-yen
     # precision. Do not manufacture unrounded values from sector-specific PL sums.
@@ -345,6 +365,12 @@ def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatemen
     role = "中間期" if interim else "第1四半期"
     profit_label = "親会社株主に帰属する" + ("中間純利益" if interim else "四半期純利益")
     if interim:
+        issuer_header = first.split("(百万円未満切捨て)", 1)[0]
+        _require(
+            re.findall(r"コ[ \t]*ー[ \t]*ド[ \t]*番[ \t]*号[ \t]*([^\s]+)", issuer_header)
+            == [base.ticker],
+            "pdf_issuer_mismatch",
+        )
         # Restrict both the table and its restatement note to reported earnings.
         # A balance/forecast table or note later on the same page is not proof.
         boundary = re.search(r"(?m)^\s*\(2\)\s*連結財政状態", first)
@@ -412,18 +438,21 @@ def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatemen
         and _date((period[4], period[5], period[6])) == current_end,
         "pdf_headline_period_conflict",
     )
-    basis = re.search(
-        r"(?:\(注\))?"
-        + re.escape(rows[1][0])
-        + r"の数値は、会計方針の変更に伴い遡及修正が行われたため、遡及後の数値に変更",
-        compact,
+    note = (
+        re.escape(rows[1][0])
+        + r"の数値は、会計方針の変更に伴い遡及修正が行われたため、遡及後の数値に変更"
     )
-    _require(basis is not None, "pdf_comparative_basis_not_explicit")
+    if interim:
+        tail = "\n".join(first.splitlines()[indexed[1][0] + 1 :])
+        basis_text = _jp_interim_basis(tail, rows[0][0], rows[1][0], note)
+    else:
+        basis = re.search(r"(?:\(注\))?" + note, compact)
+        basis_text = basis[0] if basis else None
+    _require(basis_text is not None, "pdf_comparative_basis_not_explicit")
     _require(
         "売上高営業利益経常利益" + profit_label in compact,
         "pdf_metric_headers_unsupported",
     )
-    assert basis is not None
     pairs = tuple(
         DisplayPair(
             metric=metric,
@@ -467,7 +496,7 @@ def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatemen
             "comparative_end": prior_end,
             "pairs": pairs,
             "comparative_basis_page": 1,
-            "comparative_basis_text": basis[0],
+            "comparative_basis_text": basis_text,
         }
     )
 

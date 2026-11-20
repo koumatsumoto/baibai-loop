@@ -35,7 +35,7 @@ H1 = """2027年3月期 第2四半期（中間期）決算短信〔日本基準�
 百万円 ％ 百万円 ％ 百万円 ％ 百万円 ％
 2027年3月期中間期 2,869 14.0 654 ― 660 ― 440 ―
 2026年3月期中間期 2,473 ― 125 ― 49 ― 71 ―
-(注)包括利益 …
+(注) 包括利益 2027年3月期中間期 511百万円(190.2％) 2026年3月期中間期 165百万円(―％)
 (注)2026年3月期中間期の数値は、会計方針の変更に伴い遡及修正が行われたため、遡及後の数値に変更しております。
 (2)連結財政状態
 総資産 純資産"""
@@ -145,3 +145,39 @@ def test_interim_dates_from_another_heading_do_not_authorize_actual_table():
         "(百万円未満切捨て)", "(百万円未満切捨て)\n別表の連結業績（2026年4月1日～2026年9月30日）"
     )
     assert interim(text).reason == "pdf_headline_period_conflict"
+
+
+def test_interim_note_can_follow_the_same_periods_eps_table():
+    source = H1.replace(
+        "(注)2026年3月期中間期",
+        "1株当たり\n中間純利益\n潜在株式調整後\n1株当たり中間純利益\n円 銭 円 銭\n"
+        "2027年3月期中間期 275.24 ―\n2026年3月期中間期 42.38 ―\n(注)2026年3月期中間期",
+    )
+    assert interim(source).reason is None
+    assert interim(source.replace("2026年3月期中間期 42.38", "2026年3月期第1四半期 42.38")).reason
+
+
+@pytest.mark.parametrize("location", ["preamble", "forecast", "duplicate", "unmarked", "negated"])
+def test_interim_footnote_is_not_a_page_wide_substring(location):
+    note = next(line for line in H1.splitlines() if "遡及修正" in line)
+    if location == "preamble":
+        text = H1.replace(note, "").replace(
+            "(百万円未満切捨て)", "別紙参考：" + note.removeprefix("(注)") + "\n(百万円未満切捨て)"
+        )
+    elif location == "forecast":
+        text = H1.replace(note, "別表・業績予想\n" + note)
+    elif location == "duplicate":
+        text = H1.replace(note, note + "\n" + note)
+    elif location == "unmarked":
+        text = H1.replace(note, note.removeprefix("(注)"))
+    else:
+        text = H1.replace("変更しております。", "変更しておりません。")
+    assert interim(text).reason == "pdf_comparative_basis_not_explicit"
+
+
+@pytest.mark.parametrize("token", ["9127A", "91270", "9127  コード番号 9999"])
+def test_interim_requires_one_complete_issuer_code(token):
+    assert (
+        interim(H1.replace("コード番号 9127", "コード番号 " + token)).reason
+        == "pdf_issuer_mismatch"
+    )
