@@ -5,11 +5,14 @@ from __future__ import annotations
 import sys
 import time
 from collections import defaultdict
-from collections.abc import Sequence
-from contextlib import closing
+from collections.abc import Callable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import ExitStack, closing
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import partial
 from math import isfinite
+from pathlib import Path
 
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.comparison_evidence import SavedComparisonEvidence
@@ -17,6 +20,7 @@ from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, M
 from baibai_engine.machine_analysis.generation.economic_inputs import EconomicModelInput
 from baibai_engine.machine_analysis.generation.edinet_inputs import EdinetModelInput
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
+    PreparedMarketContext,
     build_market_snapshot,
     prepare_market_context_from_bars,
 )
@@ -69,8 +73,12 @@ from baibai_engine.machine_analysis.observations.prices.calendar_context import 
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
+    PriceBar,
 )
-from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
+from baibai_engine.machine_analysis.observations.prices.price_observation import (
+    PriceCalendar,
+    price_calendar,
+)
 from baibai_engine.machine_analysis.observations.prices.price_observation_reader import (
     read_price_day_states,
     read_turnover_values,
@@ -78,9 +86,8 @@ from baibai_engine.machine_analysis.observations.prices.price_observation_reader
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
     _adjustment_events_from_rows,
 )
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_master_snapshot,
-)
+from baibai_engine.machine_analysis.observations.stocks.contracts import MasterSnapshot
+from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot
@@ -102,108 +109,23 @@ class FinancialModelInput:
     documents: Sequence[JQuantsFinancialSummary]
 
 
-def read_and_generate_models(
-    *,
-    generation_id: str,
-    market_snapshot: SealedSQLiteSnapshot,
-    market_release: InputRelease,
-    economic_input: EconomicModelInput | None,
-    as_of: date,
-    evaluation_time: datetime,
-    ttm_rules: TTMRules,
-    tickers: Sequence[str] | None = None,
-    growth_start: date | None = None,
-    financial_input: FinancialModelInput | None = None,
-    edinet_input: EdinetModelInput | None = None,
-    comparison_evidence: SavedComparisonEvidence | None = None,
-    price_identity: InputSnapshot | None = None,
-    master_identity: InputSnapshot | None = None,
-    calendar_identity: InputSnapshot | None = None,
-    margin_alerts_identity: InputSnapshot | None = None,
-    margin_interest_identity: InputSnapshot | None = None,
-    short_sale_reports_identity: InputSnapshot | None = None,
-) -> ModelGenerationStream:
-    """callerは同じmarket sealと保存した経済selectionから入力を固定する。
+@dataclass(frozen=True, slots=True)
+class _MarketPriceInputs:
+    calendar: PriceCalendar
+    bars: dict[str, list[PriceBar]]
+    adjustment_events: dict[str, list[JQuantsAdjustmentFactorEvent]]
+    provider_capital: dict[str, dict[str, object]]
+    paths: dict[str, dict[str, object]]
+    prepared: PreparedMarketContext
+    contexts: dict[str, dict[str, object]]
 
-    seal内に残る旧originでなく、今回exportしたreleaseを入力identityとする。
-    ここでは原本取得・候補選択・公開をせず、業種参照は全masterを維持する。
-    """
-    if economic_input is not None and (
-        economic_input.as_of != as_of or economic_input.evaluation_time != evaluation_time
-    ):
-        raise ValueError("economic input clocks differ from the generation")
-    if edinet_input is not None and (
-        edinet_input.selected_at > market_snapshot.sealed_at
-        or edinet_input.selected_at > evaluation_time
-    ):
-        raise ValueError("EDINET input was selected after the generation seal or clock")
-    path = market_snapshot.path
-    master_as_of: date | None = as_of
-    if master_identity is not None and master_identity.descriptor is not None:
-        summary = master_identity.descriptor.get("summary")
-        basis = summary.get("master_basis_date") if isinstance(summary, dict) else None
-        if isinstance(basis, str):
-            assert isinstance(summary, dict)
-            selected = summary.get("snapshot_date")
-            master_as_of = date.fromisoformat(selected) if isinstance(selected, str) else None
-            if date.fromisoformat(basis) > as_of or (
-                master_as_of is not None and master_as_of > date.fromisoformat(basis)
-            ):
-                raise ValueError("master basis cannot be later than generation as-of")
-    master = None if master_as_of is None else read_master_snapshot(path, as_of=master_as_of)
-    if tickers is None:
-        if master is None:
-            raise ValueError("all-company generation requires a master snapshot")
-        subjects = tuple(
-            sorted(
-                ticker
-                for ticker, security in master.securities.items()
-                if security.is_common_stock and security.market_segment.upper() in ELIGIBLE_MARKETS
-            )
-        )
-        if not subjects:
-            raise ValueError("all-company generation has no eligible common-stock universe")
-    else:
-        subjects = tuple(sorted({normalize_ticker(ticker) for ticker in tickers}))
-    documents: dict[str, list[JQuantsFinancialSummary]] = defaultdict(list)
+
+def _read_market_price_inputs(
+    path: Path, *, as_of: date, subjects: Sequence[str], master: MasterSnapshot | None
+) -> _MarketPriceInputs:
     events: dict[str, list[JQuantsAdjustmentFactorEvent]] = defaultdict(list)
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
-        financial_rows = (
-            financial_input.documents
-            if financial_input is not None
-            else read_financial_documents(connection, start=date.min, end=date.max)
-        )
-        for row in financial_rows:
-            documents[row.ticker].append(row)
-        phase_started = _phase_progress("edinet_comparisons")
-        filing_history = ObservedFilingHistory.read(connection, through=as_of)
-        comparisons = read_comparison_population(
-            connection,
-            filing_history=filing_history,
-            as_of=as_of,
-            tickers=subjects,
-            known_at=evaluation_time,
-            archives=edinet_input.archives if edinet_input is not None else None,
-            prior_observations=comparison_evidence.observations(
-                tickers=subjects, as_of=as_of, known_at=evaluation_time
-            )
-            if comparison_evidence is not None
-            else (),
-            diagnostics=sys.stderr,
-        )
-        _phase_progress("edinet_comparisons", phase_started)
-        edinet = EDINETReader(path).load_metric_records(as_of, filing_history=filing_history)
-        # Keep the results, not the full filing graph, through price/model assembly.
-        del filing_history
-        phase_started = _phase_progress("pdf_financials")
-        pdf_statements = read_pdf_statements(
-            connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
-        )
-        capital_actions = read_capital_actions(
-            connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
-        )
-        _phase_progress("pdf_financials", phase_started)
         calendar = read_price_calendar(connection, as_of=as_of)
         path_calendar = price_calendar(calendar, as_of=as_of)
         state_start = min(
@@ -212,7 +134,7 @@ def read_and_generate_models(
         )
         # Keep the provider's own gross market cap as a separate observation.
         # It can lag or use another basis and is never a replacement denominator.
-        provider_capital = {}
+        provider_capital: dict[str, dict[str, object]] = {}
         if path_calendar.expected_price_date is not None:
             for ticker, close, market_cap in connection.execute(
                 "SELECT ticker,close,market_cap_million_yen FROM jquants_daily_bars "
@@ -322,6 +244,137 @@ def read_and_generate_models(
                 turnover=turnover,
                 calendar=path_calendar,
             )
+    return _MarketPriceInputs(
+        calendar=path_calendar,
+        bars=prices,
+        adjustment_events=events,
+        provider_capital=provider_capital,
+        paths=price_paths,
+        prepared=prepared,
+        contexts=contexts,
+    )
+
+
+def _schedule_price_read(
+    reads: ExitStack, read_prices: Callable[[], _MarketPriceInputs]
+) -> Future[_MarketPriceInputs]:
+    # The caller owns the SQLite seal until the worker is joined. Cancel if it has not
+    # started; never let a running read outlive the seal on a disclosure failure.
+    worker = reads.enter_context(ThreadPoolExecutor(max_workers=1))
+    pending = worker.submit(read_prices)
+    reads.callback(pending.cancel)
+    return pending
+
+
+def read_and_generate_models(
+    *,
+    generation_id: str,
+    market_snapshot: SealedSQLiteSnapshot,
+    market_release: InputRelease,
+    economic_input: EconomicModelInput | None,
+    as_of: date,
+    evaluation_time: datetime,
+    ttm_rules: TTMRules,
+    tickers: Sequence[str] | None = None,
+    growth_start: date | None = None,
+    financial_input: FinancialModelInput | None = None,
+    edinet_input: EdinetModelInput | None = None,
+    comparison_evidence: SavedComparisonEvidence | None = None,
+    price_identity: InputSnapshot | None = None,
+    master_identity: InputSnapshot | None = None,
+    calendar_identity: InputSnapshot | None = None,
+    margin_alerts_identity: InputSnapshot | None = None,
+    margin_interest_identity: InputSnapshot | None = None,
+    short_sale_reports_identity: InputSnapshot | None = None,
+) -> ModelGenerationStream:
+    """callerは同じmarket sealと保存した経済selectionから入力を固定する。
+
+    seal内に残る旧originでなく、今回exportしたreleaseを入力identityとする。
+    ここでは原本取得・候補選択・公開をせず、業種参照は全masterを維持する。
+    """
+    if economic_input is not None and (
+        economic_input.as_of != as_of or economic_input.evaluation_time != evaluation_time
+    ):
+        raise ValueError("economic input clocks differ from the generation")
+    if edinet_input is not None and (
+        edinet_input.selected_at > market_snapshot.sealed_at
+        or edinet_input.selected_at > evaluation_time
+    ):
+        raise ValueError("EDINET input was selected after the generation seal or clock")
+    path = market_snapshot.path
+    master_as_of: date | None = as_of
+    if master_identity is not None and master_identity.descriptor is not None:
+        summary = master_identity.descriptor.get("summary")
+        basis = summary.get("master_basis_date") if isinstance(summary, dict) else None
+        if isinstance(basis, str):
+            assert isinstance(summary, dict)
+            selected = summary.get("snapshot_date")
+            master_as_of = date.fromisoformat(selected) if isinstance(selected, str) else None
+            if date.fromisoformat(basis) > as_of or (
+                master_as_of is not None and master_as_of > date.fromisoformat(basis)
+            ):
+                raise ValueError("master basis cannot be later than generation as-of")
+    master = None if master_as_of is None else read_master_snapshot(path, as_of=master_as_of)
+    if tickers is None:
+        if master is None:
+            raise ValueError("all-company generation requires a master snapshot")
+        subjects = tuple(
+            sorted(
+                ticker
+                for ticker, security in master.securities.items()
+                if security.is_common_stock and security.market_segment.upper() in ELIGIBLE_MARKETS
+            )
+        )
+        if not subjects:
+            raise ValueError("all-company generation has no eligible common-stock universe")
+    else:
+        subjects = tuple(sorted({normalize_ticker(ticker) for ticker in tickers}))
+    documents: dict[str, list[JQuantsFinancialSummary]] = defaultdict(list)
+    read_prices = partial(
+        _read_market_price_inputs, path, as_of=as_of, subjects=subjects, master=master
+    )
+    with ExitStack() as reads, closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        financial_rows = (
+            financial_input.documents
+            if financial_input is not None
+            else read_financial_documents(connection, start=date.min, end=date.max)
+        )
+        for row in financial_rows:
+            documents[row.ticker].append(row)
+        # Only fixed native EDINET waits on archives. The other lane reads the same
+        # private seal, with its own read-only connections and no remote requests.
+        price_read = _schedule_price_read(reads, read_prices) if edinet_input is not None else None
+        phase_started = _phase_progress("edinet_comparisons")
+        filing_history = ObservedFilingHistory.read(connection, through=as_of)
+        comparisons = read_comparison_population(
+            connection,
+            filing_history=filing_history,
+            as_of=as_of,
+            tickers=subjects,
+            known_at=evaluation_time,
+            archives=edinet_input.archives if edinet_input is not None else None,
+            prior_observations=comparison_evidence.observations(
+                tickers=subjects, as_of=as_of, known_at=evaluation_time
+            )
+            if comparison_evidence is not None
+            else (),
+            diagnostics=sys.stderr,
+        )
+        _phase_progress("edinet_comparisons", phase_started)
+        edinet = EDINETReader(path).load_metric_records(as_of, filing_history=filing_history)
+        # Keep the results, not the full filing graph, through model assembly.
+        del filing_history
+        phase_started = _phase_progress("pdf_financials")
+        pdf_statements = read_pdf_statements(
+            connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
+        )
+        capital_actions = read_capital_actions(
+            connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
+        )
+        _phase_progress("pdf_financials", phase_started)
+        # Observe the price error only after all preceding disclosures succeeded.
+        price_inputs = read_prices() if price_read is None else price_read.result()
     monex_window = MonexGenerationWindow(
         as_of=as_of, received_through=min(evaluation_time, market_snapshot.sealed_at)
     )
@@ -359,8 +412,8 @@ def read_and_generate_models(
         CompanyModelInputs(
             ticker=ticker,
             financial_documents=documents.get(ticker, ()),
-            adjusted_bars=prices.get(ticker, ()),
-            adjustment_events=events.get(ticker, ()),
+            adjusted_bars=price_inputs.bars.get(ticker, ()),
+            adjustment_events=price_inputs.adjustment_events.get(ticker, ()),
             sector=master.securities[ticker].sector_33
             if master is not None and ticker in master.securities
             else None,
@@ -368,8 +421,8 @@ def read_and_generate_models(
             comparisons=comparisons.get(ticker, ()),
             pdf_statements=pdf_statements.get(ticker, ()),
             capital_actions=capital_actions.get(ticker, ()),
-            provider_capital=provider_capital.get(ticker),
-            price_path=price_paths[ticker],
+            provider_capital=price_inputs.provider_capital.get(ticker),
+            price_path=price_inputs.paths[ticker],
         )
         for ticker in subjects
     ]
@@ -418,23 +471,25 @@ def read_and_generate_models(
             collection_boundary="fixed_source_head",
         ),
         companies=companies,
-        trading_dates=path_calendar.trading_dates,
-        expected_price_date=path_calendar.expected_price_date,
+        trading_dates=price_inputs.calendar.trading_dates,
+        expected_price_date=price_inputs.calendar.expected_price_date,
         ttm_rules=ttm_rules,
         external_observations=histories,
         monex_fiscal_eps=fiscal_eps,
         market_context={
-            "market": build_market_snapshot(sqlite_path=path, asof_date=as_of, prepared=prepared),
+            "market": build_market_snapshot(
+                sqlite_path=path, asof_date=as_of, prepared=price_inputs.prepared
+            ),
             "benchmark_trend": None
-            if prepared.benchmark_trend is None
-            else prepared.benchmark_trend.to_dict(),
+            if price_inputs.prepared.benchmark_trend is None
+            else price_inputs.prepared.benchmark_trend.to_dict(),
             **(
                 {"reading": None, "tradingview_market": None}
                 if economic_input is None
                 else economic_input.context
             ),
         },
-        securities_context=contexts,
+        securities_context=price_inputs.contexts,
         market_context_revision="shared-market-context-v19-no-self-price-rank",
         growth_start=growth_start,
         trends=trends,
