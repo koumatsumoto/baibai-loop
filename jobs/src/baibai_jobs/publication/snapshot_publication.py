@@ -525,7 +525,7 @@ def publish_prepared_market_lake(
     store: ObjectStore,
     before_pointer_switch: Callable[[], None] | None = None,
     verified_readback_root: Path | None = None,
-    verified_readback_keys: frozenset[str] | None = None,
+    retain_verified_readback: Callable[[str, Path], None] | None = None,
 ) -> MarketLakePublishReport:
     """生成に使用したreleaseをそのまま公開する。export/createをやり直さない。"""
     published = publish_release(
@@ -536,7 +536,7 @@ def publish_prepared_market_lake(
         pointer_precondition=prepared.serving.precondition,
         before_pointer_switch=before_pointer_switch,
         verified_readback_root=verified_readback_root,
-        verified_readback_keys=verified_readback_keys,
+        retain_verified_readback=retain_verified_readback,
     )
     target_origin = LakeStoreOrigin(
         release_id=published.release_id,
@@ -705,21 +705,12 @@ def _fetch(
     key: str,
     *,
     expected_sha256: str,
-    expected_size: int | None = None,
 ) -> Path:
     # Through the validating resolver rather than a join: these keys come off a remote
     # pointer, and a join would follow one that escaped the mirror.
     path = lake_mirror_path(mirror_root, key)
-    if path.is_file():
-        try:
-            if (
-                (expected_size is None or path.stat().st_size == expected_size)
-                and sha256_file(path) == expected_sha256
-            ):
-                return path
-        except FileNotFoundError:
-            if expected_size is None:
-                raise
+    if path.is_file() and sha256_file(path) == expected_sha256:
+        return path
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=path.parent, prefix=f".{path.name}.") as directory:
         candidate = Path(directory) / path.name
@@ -730,8 +721,6 @@ def _fetch(
                 f"downloaded lake object digest mismatch: {key}; "
                 f"expected {expected_sha256}, got {actual_sha256}"
             )
-        if expected_size is not None and candidate.stat().st_size != expected_size:
-            raise LakePublishError(f"downloaded lake object size mismatch: {key}")
         candidate.replace(path)
         fsync_directory(path.parent)
     return path

@@ -10,8 +10,8 @@ import shutil
 import sqlite3
 import sys
 import time
-from collections.abc import Iterator
-from contextlib import ExitStack, nullcontext
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, nullcontext, suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -62,6 +62,7 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
 from baibai_engine.storage.snapshots.models import ReleasePolicyError
+from baibai_engine.storage.snapshots.objects import LakeObjectError, mirror_path
 from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
 from baibai_jobs.maintenance.model_cache import prune_model_cache
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -110,8 +111,7 @@ def _project_company_models(
 
 
 class _ReadbackOptions(TypedDict, total=False):
-    verified_readback_root: Path
-    verified_readback_keys: frozenset[str]
+    retain_verified_readback: Callable[[str, Path], None]
 
 
 def _external_readback_options(
@@ -121,11 +121,13 @@ def _external_readback_options(
 ) -> _ReadbackOptions:
     if directory is None or not partitions:
         return {}
-    # The actual GET already runs during publication. Retain only the small,
-    # bounded subset needed by this attempt's downstream semantic verification.
+    # Retain only a bounded subset needed by this attempt's semantic verification.
     root = directory / prepared.release_sha256
-    root.mkdir(mode=0o700, parents=True)
-    remaining = min(256 * 1024**2, shutil.disk_usage(root).free // 16)
+    try:
+        remaining = min(256 * 1024**2, shutil.disk_usage(directory.parent.parent).free // 16)
+        root.mkdir(mode=0o700, parents=True)
+    except OSError:  # Includes a second invocation in the same attempt.
+        return {}
     keys: set[str] = set()
     for name, year, month in sorted(partitions):
         if (dataset := prepared.export.datasets.get(name)) is None:
@@ -139,8 +141,15 @@ def _external_readback_options(
                     remaining -= obj.bytes
     if not keys:
         return {}
-    return {"verified_readback_root": root, "verified_readback_keys": frozenset(keys)}
 
+    def retain(key: str, sealed: Path) -> None:
+        if key in keys:
+            with suppress(LakeObjectError):
+                destination = mirror_path(root, key)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                sealed.replace(destination)
+
+    return {"retain_verified_readback": retain}
 
 def integrate_models(
     *,
@@ -275,11 +284,11 @@ def integrate_models(
         def before_pointer_switch() -> None:
             verify_held(store, handle)
 
+        readback_options = _external_readback_options(
+            prepared, external_readback_dir, external_partitions
+        )
         publication = publish_prepared_market_lake(
-            prepared,
-            store=store,
-            before_pointer_switch=before_pointer_switch,
-            **_external_readback_options(prepared, external_readback_dir, external_partitions),
+            prepared, store=store, before_pointer_switch=before_pointer_switch, **readback_options
         )
         _phase_progress("lake_publish", phase_started)
     phase_started = _phase_progress("model_cache_prune")
@@ -313,6 +322,7 @@ def integrate_models(
         "growth_start": None if growth_start is None else growth_start.isoformat(),
         "economic_input_sha256": economic_input.identity.sha256,
         "lake": publication.as_dict(),
+        **({"daily_external_readback": True} if readback_options else {}),
     }
 
 

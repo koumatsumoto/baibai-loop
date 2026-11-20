@@ -464,7 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--group", help="Reissue only this scoped input group")
     parser.add_argument("--lease-handle", type=Path)
     parser.add_argument(
-        "--daily-origin", action="store_true", help="read this attempt's verified Lake bytes"
+        "--daily-readback-notice", type=Path, help="reuse this attempt's verified Lake bytes"
     )
     parser.add_argument(
         "--quality-output", type=Path, help="Actions step output for the daily check"
@@ -479,6 +479,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _daily_external_readback(
+    notice_path: Path | None, directory: Path, *, bucket: str, generations: dict[str, str]
+) -> Path | None:
+    if notice_path is None:
+        return None
+    try:
+        run = current_daily_run()
+        notice = json.loads(notice_path.read_bytes())
+        if (
+            notice["daily_external_readback"] is not True
+            or notice["models_ready"] is not True
+            or notice["daily_run"] != run
+            or notice["lake"]["release_id"] != generations["lake_release_id"]
+            or notice["lake"]["release_manifest_sha256"] != generations["lake_manifest_sha256"]
+        ):
+            return None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return daily_external_readback_dir(directory, bucket=bucket, run=run) / generations[
+        "lake_manifest_sha256"
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.group is not None and args.command != "inputs":
@@ -489,9 +512,8 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("--recover-jpx-stage is only valid with plan")
         if args.quality_output and args.command != "check":
             raise ValueError("--quality-output is only valid with check")
-        if args.daily_origin and args.command != "seal":
-            raise ValueError("--daily-origin is only valid with seal")
-        publication_run = current_daily_run() if args.daily_origin else None
+        if args.daily_readback_notice is not None and args.command != "seal":
+            raise ValueError("--daily-readback-notice is only valid with seal")
         directory = args.directory
         if args.command == "check":
             report = json.loads((directory / "applied.json").read_text())
@@ -692,10 +714,11 @@ def main(argv: list[str] | None = None) -> int:
                         generations=generations,
                     )
                 if report.get("external"):
-                    readback_directory = (
-                        daily_external_readback_dir(directory, bucket=bucket, run=publication_run)
-                        if publication_run is not None
-                        else None
+                    readback_directory = _daily_external_readback(
+                        args.daily_readback_notice,
+                        directory,
+                        bucket=bucket,
+                        generations=generations,
                     )
                     report["external_results"] = verify_and_seal(
                         store,
