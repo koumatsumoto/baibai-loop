@@ -27,7 +27,10 @@ from math import isfinite
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
+from baibai_engine.machine_analysis.observations.prices.calendar import (
+    JQuantsMarketCalendarDay,
+    cash_equity_open,
+)
 from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
     _read_calendar,
 )
@@ -272,33 +275,49 @@ def has_received_share_action(
     )
 
 
-def next_order_session(
+@dataclass(frozen=True, slots=True)
+class OrderSessionBounds:
+    earliest_possible_day: date
+    confirmed_session: date | None
+
+
+def read_order_session_bounds(
     *, sqlite_path: Path, now: datetime, connection: sqlite3.Connection | None = None
-) -> date | None:
-    """Resolve the next session, sharing the caller's quote snapshot when supplied."""
-    start = latest_eligible_close_date(now) + timedelta(days=1)
+) -> OrderSessionBounds:
+    """Read the next session or a lower bound from a contiguous known closed prefix."""
+    earliest = latest_eligible_close_date(now) + timedelta(days=1)
     conn = connection
     owns_connection = conn is None
     if conn is None:
         if not sqlite_path.exists():
-            return None
+            return OrderSessionBounds(earliest, None)
         conn = connect_read_only(sqlite_path)
     try:
         rows = conn.execute(
-            "SELECT day,holiday_division IN ('1', '2') FROM jquants_market_calendar "
+            "SELECT day,holiday_division FROM jquants_market_calendar "
             "WHERE day>=? ORDER BY day LIMIT 14",
-            (start.isoformat(),),
+            (earliest.isoformat(),),
         ).fetchall()
     finally:
         if owns_connection:
             conn.close()
-    for i, (day, is_business_day) in enumerate(rows):
-        expected = start + timedelta(days=i)
-        if day != expected.isoformat():
-            return None
-        if is_business_day == 1:
-            return expected
-    return None
+    for day, division in rows:
+        is_open = cash_equity_open(division)
+        if day != earliest.isoformat() or is_open is None:
+            break
+        if is_open:
+            return OrderSessionBounds(earliest, earliest)
+        earliest += timedelta(days=1)
+    return OrderSessionBounds(earliest, None)
+
+
+def next_order_session(
+    *, sqlite_path: Path, now: datetime, connection: sqlite3.Connection | None = None
+) -> date | None:
+    """Resolve only a confirmed next session from the caller's quote snapshot."""
+    return read_order_session_bounds(
+        sqlite_path=sqlite_path, now=now, connection=connection
+    ).confirmed_session
 
 
 def read_portfolio_market_inputs(

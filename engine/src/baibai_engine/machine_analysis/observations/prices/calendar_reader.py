@@ -6,7 +6,10 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
+from baibai_engine.machine_analysis.observations.prices.calendar import (
+    JQuantsMarketCalendarDay,
+    cash_equity_open,
+)
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
@@ -42,14 +45,13 @@ def _read_calendar(
         (start.isoformat(), end.isoformat()),
     ).fetchall()
     # An acquisition coverage marker does not certify that all stored rows survived.
-    if len(rows) != (end - start).days + 1 or any(
-        day != (start + timedelta(days=index)).isoformat() or division not in {"0", "1", "2", "3"}
-        for index, (day, division) in enumerate(rows)
-    ):
+    if len(rows) != (end - start).days + 1:
         return None
-    return [
-        JQuantsMarketCalendarDay(
-            day=date.fromisoformat(day), is_business_day=division in {"1", "2"}
-        )
-        for day, division in rows
-    ]
+    calendar: list[JQuantsMarketCalendarDay] = []
+    for index, (day, division) in enumerate(rows):
+        expected = start + timedelta(days=index)
+        is_business_day = cash_equity_open(division)
+        if day != expected.isoformat() or is_business_day is None:
+            return None
+        calendar.append(JQuantsMarketCalendarDay(day=expected, is_business_day=is_business_day))
+    return calendar

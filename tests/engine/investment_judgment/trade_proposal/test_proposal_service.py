@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from collections import Counter
 from contextlib import closing
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -20,9 +20,11 @@ from tests.helpers.proposal import (
     read_saved_proposal,
     reviewed_proposal,
 )
+from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal import service as proposal_service
 from baibai_engine.investment_judgment.trade_proposal.conditions import no_action_blocker
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
@@ -31,17 +33,21 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     load_proposal_draft,
     proposal_draft_sha256,
 )
+from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
 from baibai_engine.investment_judgment.trade_proposal.inputs import (
     DEFAULT_BUDGET_MAX_YEN,
     DEFAULT_BUDGET_MIN_YEN,
+    build_proposal_context,
     collect_proposal_inputs,
     proposal_market_snapshot,
 )
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationCompletionError
 from baibai_engine.investment_judgment.workflow.selection import selection_sha256
+from baibai_engine.portfolio.holdings.market_observations import read_order_session_bounds
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.sources.proposal import read_proposal_views
@@ -1006,11 +1012,130 @@ def test_exact_price_comparison_cannot_reuse_a_right_at_its_final_close(
             )
             assert inputs.quotes[0].price_as_of.isoformat() == "2026-10-13"
             failure = no_action_blocker(
-                pair, inputs=inputs, now=now, sqlite_path=case.market, market_connection=market
+                pair,
+                inputs=inputs,
+                now=now,
+                sqlite_path=case.market,
+                market_connection=market,
+                order_sessions=lambda now=now: read_order_session_bounds(
+                    sqlite_path=case.market, now=now, connection=market
+                ),
             )
             assert (None if failure is None else failure.code) == (
                 None if offset < 0 else "no_action_reviewed_quote_mismatch"
             )
+
+
+def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(tmp_path, mocker):
+    case = backend_case(tmp_path)
+    friday = datetime.fromisoformat("2026-10-16T16:20:00+09:00")
+    saturday, sunday, monday, tuesday = ("2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20")
+    seed_daily_bars(case.market, [("1234", friday.date().isoformat(), 1100.0, 1.0)])
+    weekend = [(saturday, "0"), (sunday, "0")]
+    closed = [*weekend, (monday, "3")]  # Futures-only on the last eligible day.
+    calendars = (
+        ("open_on_deadline", [*weekend, (monday, "2")], monday, None),
+        ("next_tuesday", [*closed, (tuesday, "1")], tuesday, "期限まで"),
+        ("closed_with_no_later_row", closed, None, "期限まで"),
+        ("missing", [], None, None),
+        ("missing_sunday", [weekend[0], (monday, "3"), (tuesday, "1")], None, None),
+        ("invalid_sunday", [weekend[0], (sunday, "?"), (monday, "3"), (tuesday, "1")], None, None),
+    )
+    variants = (
+        ("not_supported_at_quote", "uncertain"),
+        ("supported_at_quote", "uncertain"),
+        ("supported_at_quote", "supported"),
+    )
+    ledger = _ledger_snapshot(case.app)
+    prior = case.pair.assessment_id
+    fingerprints = set()
+    read = mocker.spy(proposal_service, "read_order_session_bounds")
+    writer = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: friday + timedelta(minutes=2)
+    )
+    for index, (finding, stance) in enumerate(variants):
+        document, review = pair_payload(
+            as_of=friday.date().isoformat(), review_number=100 + index, price_case=finding
+        )
+        document["conclusion"]["stance"] = stance
+        document["input_snapshot"]["facts"].append(
+            {
+                "fact_id": "final-session",
+                "fact_kind": "last_eligible_trade_date",
+                "value": monday,
+                "unit": "date",
+                "as_of": friday.date().isoformat(),
+                "source_ids": ["annual"],
+            }
+        )
+        document["price_value_case"]["value_fact_ids"].append("final-session")
+        document["price_value_case"]["acquisition_limit"] = {
+            "value_fact_id": "final-session",
+            "last_eligible_trade_date": monday,
+        }
+        update_review_hash(document, review)
+        pair = AssessmentStoreService(
+            case.app, clock=lambda index=index: friday - timedelta(minutes=11 - index)
+        ).publish_reviewed_assessment(
+            assessment_id(100 + index), document, review, supersedes_id=prior
+        )
+        prior = pair.assessment_id
+        case.operations.record_assessment(case.operation.operation_id, prior, now=friday)
+        saved = saved_draft = None
+        for offset, (name, rows, session, blocker) in enumerate(calendars):
+            with closing(sqlite3.connect(case.market)) as connection, connection:
+                connection.execute("DELETE FROM jquants_market_calendar")
+                connection.executemany("INSERT INTO jquants_market_calendar VALUES (?,?)", rows)
+            context = build_proposal_context(
+                operation_id=case.operation.operation_id,
+                proposal_id=PROPOSAL_ID[:-2] + f"{50 + index * 10 + offset:02x}",
+                db_path=case.app,
+                sqlite_path=case.market,
+                now=friday,
+            )
+            assert context.research_scope.selection_sha256 == selection_sha256(case.selected)
+            assert context.inputs.quotes[0].price_as_of == friday.date()
+            assert (
+                None
+                if context.next_order_session is None
+                else context.next_order_session.isoformat()
+            ) == session
+            fingerprints.add(proposal_inputs_fingerprint(context.inputs))
+            raw = scaffold_proposal(context)
+            raw.update(
+                headline="合成の取得条件と資金比較",
+                comparison="同じ30万円・12か月で、期中支払と分配までの必要資金を比較した。",
+                forgone="期中支払まで現金を残すため、取得できる場合も買付を選ばない。",
+            )
+            raw["items"][0].update(
+                action="no_action",
+                rationale="観測価格・普通株の取得権と同額の現金を比較。",
+                review_conditions=["取得期限または期中の資金用途を再確認する。"],
+            )
+            draft = bind_review(
+                raw,
+                {prior: pair.document},
+                reviewed_at=(friday + timedelta(minutes=1)).isoformat(),
+            )
+            reads_before = read.call_count
+            checked = writer.check(draft)
+            assert read.call_count == reads_before + 1
+            assert checked.valid == (blocker is None), (finding, stance, name)
+            if name == "open_on_deadline":
+                saved_draft, saved = draft, writer.publish(draft)
+                assert saved.items[0].action == "no_action"
+            if blocker is not None:
+                before = case.app.read_bytes()
+                assert [reason.code for reason in checked.blockers] == [
+                    "no_action_reviewed_quote_mismatch"
+                ]
+                with pytest.raises(ProposalError, match=blocker):
+                    writer.publish(draft)
+                assert writer.publish(saved_draft) == saved
+                assert case.app.read_bytes() == before
+    assert len(fingerprints) == 1
+    assert _counts(case.app)["position_decision_reference"] == 0
+    assert _ledger_snapshot(case.app) == ledger
 
 
 def test_old_uncertain_no_action_keeps_exact_read_and_retry(tmp_path):
