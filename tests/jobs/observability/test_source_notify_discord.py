@@ -8,6 +8,8 @@ from baibai_jobs.observability import source_discord
     [
         ("success", "success", 0),
         ("skipped", "success", 0),
+        ("skipped", "failure", 1),
+        ("failure", "failure", 1),
         ("failure", "success", 1),
         ("cancelled", "skipped", 1),
         ("success", "failure", 1),
