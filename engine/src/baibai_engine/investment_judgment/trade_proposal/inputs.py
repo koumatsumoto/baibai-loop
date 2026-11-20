@@ -556,11 +556,11 @@ def _context_calculations(
 ) -> dict[str, dict[str, object]]:
     from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
     from baibai_engine.investment_judgment.trade_proposal.conditions import (
+        OrderMarket,
         assessment_quote_basis,
         buy_evaluation_payload,
         buy_evaluator,
     )
-    from baibai_engine.portfolio.holdings.price_grid import floor_common_stock_limit
 
     result: dict[str, dict[str, object]] = {}
     for outcome in scope.outcomes:
@@ -601,26 +601,15 @@ def _context_calculations(
             at_quote = evaluate(quote.price_yen, None)
             # 次の立会で新たに取得できない給付を終価に入れない。元評価の値はそのまま。
             row["current_quote_projection"] = at_quote.current_price_projection
-            row["buy_at_actual_quote"] = buy_evaluation_payload(at_quote)
+            market = OrderMarket.from_inputs(inputs, outcome.ticker, session)
+            gaps = market.gaps
+            row["buy_at_actual_quote"] = buy_evaluation_payload(at_quote, order_blockers=gaps)
             maximum = at_quote.maximum_price_yen
             if maximum is not None and maximum > 0:
                 row["calculation_at_maximum_price"] = buy_evaluation_payload(
-                    evaluate(maximum, None)
+                    evaluate(maximum, None), order_blockers=gaps
                 )
-                classification = next(
-                    (row for row in inputs.security_classification if row.ticker == outcome.ticker),
-                    None,
-                )
-                grid = (
-                    None
-                    if classification is None or session is None
-                    else floor_common_stock_limit(
-                        maximum,
-                        target_session=session,
-                        market_segment=classification.market_segment,
-                        is_common_stock=classification.is_common_stock,
-                    )
-                )
+                grid = market.floor_limit(maximum)
                 row["maximum_common_grid_price_yen"] = None if grid is None else str(grid)
         result[outcome.ticker] = row
     return result

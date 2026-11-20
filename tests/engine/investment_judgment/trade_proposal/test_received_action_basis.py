@@ -19,7 +19,7 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.conditions import assessment_quote_basis
-from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
+from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalError, QuoteInput
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
@@ -178,6 +178,26 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
         assert row["saved_limit_revalidation"]["maximum_price_yen"] is None
         assert row["saved_limit_revalidation"]["current_price_above_maximum"] is None
         assert row["saved_limit_revalidation"]["quantity"] == 0
+        # Hiding the next-session row cannot turn a real received action into a harmless calendar gap.
+        with closing(sqlite3.connect(case.market)) as connection, connection:
+            connection.execute("DELETE FROM jquants_market_calendar WHERE day='2026-10-15'")
+        raw = draft.payload()
+        raw["proposal_id"] = "investment-proposal-00000000-0000-4000-8000-000000000004"
+        raw["items"][0].update(
+            terms=None,
+            economic_decision="price_conditional_allocation",
+            proposed_limit_yen="1000",
+            terms_unavailable_reasons=[
+                {"code": "order_session_unknown", "message": "立会未確認。"}
+            ],
+        )
+        partial = bind_review(raw, {pair.assessment_id: pair.document})
+        denied = service.check(partial)
+        assert {r.code for r in denied.blockers} == {"corporate_action_unresolved"}
+        assert denied.calculations["1234"]["maximum_price_yen"] is None
+        assert denied.calculations["1234"]["quantity"] == 0
+        with pytest.raises(ProposalError, match="basis"):
+            service.publish(partial)
     elif holding:
         assert row["current_quote_calculation"]["current_price_projection"] is None
     else:

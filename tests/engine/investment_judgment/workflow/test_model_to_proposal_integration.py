@@ -1424,3 +1424,214 @@ def test_monex_fixed_research_uses_the_same_eligible_price_pair_and_eps_original
     assert chart["monex_fiscal_eps"]["current_fy"]["eps_jpy_per_share"] == 10 + latest
     row = next(row for row in chart["rows"] if row["model"] == "external_assessment")
     assert f"{100 + latest}円/株" in row["summary"]
+
+
+@pytest.mark.parametrize(
+    "change", ["calendar_only", "reservation", "limited_right", "stale", "classification"]
+)
+def test_price_condition_is_not_an_order_on_the_same_reviewed_case(tmp_path, monkeypatch, change):
+    from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalError
+    from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
+    from baibai_engine.portfolio.ledger.drafts import apply_draft, build_broker_fact_draft
+
+    case = _prepare_case(tmp_path, monkeypatch)
+    if change == "limited_right":
+        # The same assessed share initially includes a right the buyer can still acquire on 10/15.
+        case.document["input_snapshot"]["facts"].append(
+            dict(
+                fact_id="last-buy",
+                fact_kind="last_eligible_trade_date",
+                value="2026-10-15",
+                unit="date",
+                as_of="2026-10-14",
+                source_ids=["annual"],
+            )
+        )
+        case.document["price_value_case"]["value_fact_ids"].append("last-buy")
+        case.document["price_value_case"]["acquisition_limit"] = {
+            "value_fact_id": "last-buy",
+            "last_eligible_trade_date": "2026-10-15",
+        }
+        update_review_hash(case.document, case.review)
+        directory = case.prepared.workspace / "1234"
+        (directory / "assessment-draft.yaml").write_text(yaml.safe_dump(case.document))
+        (directory / "assessment-review.yaml").write_text(yaml.safe_dump(case.review))
+
+    ctx_a, signed_a = _promote_and_propose(case)
+    now = PUBLISHED
+    svc = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
+    saved_a = svc.publish(signed_a)
+    a = saved_a.items[0]
+    assert a.terms.limit_price_yen == Decimal(1000)
+    assert a.terms.quantity == 300
+    assert resolve_buy_reference(saved_a.proposal_id, db_path=case.app) == "1234"
+    store = LedgerStoreService(case.app)
+    assert store.load() == case.ledger
+    bid = "investment-proposal-00000000-0000-4000-8000-00000000000b"
+    cid = "investment-proposal-00000000-0000-4000-8000-00000000000c"
+    tick = timedelta(microseconds=1)
+
+    def context(identity):
+        return build_proposal_context(
+            operation_id=case.prepared.operation_id,
+            proposal_id=identity,
+            db_path=case.app,
+            sqlite_path=case.market,
+            now=now,
+        )
+
+    def broker_draft(reference):
+        # A reported fact in this temporary App only; never order placement.
+        return build_broker_fact_draft(
+            store,
+            partial(resolve_buy_reference, db_path=case.app),
+            decision_reference=reference,
+            status="open",
+            ticker="1234",
+            quantity=100,
+            price_guard_yen=Decimal(1000),
+            occurred_at=now,
+            now=now,
+            reservation_id="synthetic-only-a",
+            order_id="synthetic-a-order",
+            sector="情報・通信業",
+            common_factors=("domestic-demand",),
+        )
+
+    now += tick
+    if change == "reservation":
+        opened, _ = broker_draft(saved_a.proposal_id)
+        apply_draft(store, opened, human_confirmed=True)
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("DELETE FROM jquants_market_calendar WHERE day='2026-10-15'")
+        if change == "stale":
+            connection.execute("DELETE FROM jquants_daily_bars WHERE traded_at > '2026-10-04'")
+        elif change == "classification":
+            connection.execute("DELETE FROM jquants_master_snapshots")
+
+    now += tick
+    ctx_b = context(bid)
+    assert ctx_b.next_order_session is None
+    assert ctx_b.research_scope == ctx_a.research_scope
+    assert ctx_b.assessments == ctx_a.assessments
+    previous = ctx_b.previous_buy_context["targets"]["1234"]
+    assert previous["proposal_ref"]["proposal_id"] == saved_a.proposal_id
+    assert previous["previous_terms"]["quantity"] == 300
+    differences = ctx_b.calculations["1234"]
+    if change in ("limited_right", "stale"):
+        assert differences["buy_at_actual_quote"]["maximum_price_yen"] is None
+        assert differences["current_quote_projection"] is None
+        assert "calculation_at_maximum_price" not in differences
+    else:
+        candidate = differences["calculation_at_maximum_price"]
+        assert (
+            candidate["maximum_price_yen"]
+            == ctx_a.calculations["1234"]["calculation_at_maximum_price"]["maximum_price_yen"]
+        )
+        assert candidate["quantity"] == 0
+        assert candidate["maximum_quantity"] is None
+        assert candidate["capital_comparison"] is None
+        assert differences["maximum_common_grid_price_yen"] is None
+
+    reason = {"code": "order_session_unknown", "message": "次の対象立会を確認できない。"}
+    raw_b = signed_a.payload()
+    raw_b.update(
+        proposal_id=bid, prepared_at=now.isoformat(), inputs=ctx_b.inputs.model_dump(mode="json")
+    )
+    raw_b["items"][0].update(
+        terms=None,
+        economic_decision="price_conditional_allocation",
+        proposed_limit_yen="1000",
+        terms_unavailable_reasons=[reason],
+        rationale="同じ権利なら1000円以下で買う方針。次の立会が確認できず、注文条件は提示しない。",
+    )
+    raw_b["review"].update(
+        review_id="proposal-review-00000000-0000-4000-8000-00000000000b",
+        reviewed_at=(now + tick).isoformat(),
+    )
+    signed_b = bind_review(raw_b, {assessment_id(): ctx_b.assessments[assessment_id()].document})
+    now += tick + tick
+    check = svc.check(signed_b)
+    before = store.load_with_head()
+    assert check.calculations["1234"]["quantity"] == 0
+    if change != "calendar_only":
+        expected = {
+            "limited_right": "right_acquisition_unconfirmed",
+            "reservation": "active_reservation_exists",
+            "stale": "quote_missing_or_stale",
+            "classification": "terms_unavailable_reasons_differ",
+        }[change]
+        assert expected in {reason.code for reason in check.blockers}
+        with pytest.raises(ProposalError):
+            svc.publish(signed_b)
+        with pytest.raises(FileNotFoundError):
+            read_saved_proposal(proposal_id=bid, db_path=case.app)
+        if change == "reservation":
+            assert [r.reservation_id for r in ctx_b.inputs.active_reservations] == [
+                "synthetic-only-a"
+            ]
+            assert ctx_b.inputs.available_cash_yen == Decimal(200000)
+        if change == "limited_right":
+            with closing(sqlite3.connect(case.market)) as connection, connection:
+                connection.executemany(
+                    "INSERT INTO jquants_market_calendar VALUES (?,?)",
+                    [("2026-10-15", "0"), ("2026-10-16", "1")],
+                )
+            trial = context(bid).calculations["1234"]["buy_at_actual_quote"]
+            assert trial["maximum_price_yen"] is None
+            assert "right_acquisition_expired" in {r["code"] for r in trial["hard_blockers"]}
+    else:
+        assert [r["code"] for r in candidate["hard_blockers"]] == ["order_session_unknown"]
+        assert check.valid
+        assert [r["code"] for r in check.calculations["1234"]["hard_blockers"]] == [
+            "order_session_unknown"
+        ]
+        b = svc.publish(signed_b)
+        assert b.items[0].economic_decision == "price_conditional_allocation"
+        assert a.economic_decision is None
+        assert b.items[0].terms is None
+        assert b.items[0].assessment_ref == a.assessment_ref
+        assert b.items[0].proposed_limit_yen == a.terms.limit_price_yen
+        assert store.load_with_head() == before
+        previous = context(cid).previous_buy_context["targets"]["1234"]
+        assert previous["proposal_ref"]["proposal_id"] == bid
+        assert previous["previous_terms"] is None
+        assert previous["previous_proposed_limit_yen"] == "1000"
+        views = read_proposal_views(case.app)
+        assert views.latest.proposal.proposal_id == bid
+        assert [p.proposal_id for p in views.history.proposals] == [bid, saved_a.proposal_id]
+        assert views.latest.proposal.items[0].economic_decision == "price_conditional_allocation"
+        assert views.history.proposals[0].items[0].terms is None
+        assert views.history.proposals[1].items[0].terms.quantity == 300
+
+        with closing(sqlite3.connect(case.market)) as connection, connection:
+            connection.execute(
+                "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES ('2026-10-15','1')"
+            )
+        verified = svc.check(signed_b)
+        assert not verified.valid
+        assert verified.calculations["1234"]["quantity"] == 0
+        assert svc.publish(signed_b) == b  # Exact retry, not a new publication.
+        row = preview_current_terms(
+            proposal_id=bid, db_path=case.app, sqlite_path=case.market, now=now
+        ).items[0]
+        assert row["saved_terms"] is None
+        assert row["saved_order_readiness"] == "needs_terms"
+        assert [r["code"] for r in row["blockers"]] == ["order_terms_unconfirmed"]
+        assert (
+            row["saved_limit_revalidation"]["quantity"]
+            == row["current_quote_calculation"]["quantity"]
+            == 0
+        )
+        assert read_saved_proposal(proposal_id=bid, db_path=case.app) == b
+        assert store.load_with_head() == before
+        with pytest.raises(ValueError, match="reference is unavailable"):
+            resolve_buy_reference(bid, db_path=case.app)
+        now += tick
+        opened, _ = broker_draft(saved_a.proposal_id)
+        apply_draft(store, opened, human_confirmed=True)
+        before = store.load_with_head()
+        with pytest.raises(ValueError, match="conflicts with the reported broker identity"):
+            broker_draft(bid)
+    assert read_saved_proposal(proposal_id=saved_a.proposal_id, db_path=case.app) == saved_a
+    assert store.load_with_head() == before

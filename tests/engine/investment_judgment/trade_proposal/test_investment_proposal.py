@@ -264,7 +264,7 @@ def test_existing_writer_accepts_classification_or_grid_terms_gap(payload, code)
     validate_proposal_policy(proposal)
 
 
-def test_price_conditional_buy_is_exactly_readable_before_writer_cutover(payload):
+def test_price_conditional_buy_keeps_its_exact_signed_economic_ceiling(payload):
     item = payload["items"][0]
     item.update(
         terms=None,
@@ -279,8 +279,7 @@ def test_price_conditional_buy_is_exactly_readable_before_writer_cutover(payload
     assert saved.payload() == payload
     assert proposal_draft_sha256(saved) == saved.review.draft_sha256
     assert order_readiness(saved.items[0]) == "needs_terms"
-    with pytest.raises(ProposalError, match="not enabled"):
-        validate_proposal_policy(load_proposal_draft(payload))
+    validate_proposal_policy(load_proposal_draft(payload))
 
 
 @pytest.mark.parametrize("incompatible", ["concrete", "unmarked", "wrong_gap", "two_gaps"])

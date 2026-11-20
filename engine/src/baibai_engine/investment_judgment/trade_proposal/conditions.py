@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -15,6 +16,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     GateReason,
     ProposalInputs,
     QuoteInput,
+    SecurityClassification,
     SellItem,
 )
 from baibai_engine.investment_judgment.trade_proposal.entry_policy import (
@@ -26,6 +28,7 @@ from baibai_engine.portfolio.holdings.market_observations import market_basis_is
 from baibai_engine.portfolio.holdings.price_grid import (
     PRICE_GRID_CONFIRMED_AT,
     PRICE_GRID_VALID_UNTIL,
+    floor_common_stock_limit,
 )
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.time import JST
@@ -112,7 +115,7 @@ def buy_evaluator(
 
 
 def buy_evaluation_payload(
-    result: BuyTermsEvaluation, *, order_blockers: tuple[GateReason, ...] = ()
+    result: BuyTermsEvaluation, *, order_blockers: tuple[GateReason, ...]
 ) -> dict[str, object]:
     # 終値・仮の指値での一株価値は、元の注文案を再利用できることとは別。
     reasons = {reason.code: reason for reason in (*order_blockers, *result.hard_blockers)}
@@ -130,12 +133,81 @@ def buy_evaluation_payload(
     }
 
 
+@dataclass(frozen=True, slots=True)
+class OrderMarket:
+    """同じquote断面の対象立会・銘柄分類。価格価値を注文の数量にしない。"""
+
+    session: date | None
+    classification: SecurityClassification | None
+
+    @classmethod
+    def from_inputs(cls, inputs: ProposalInputs, ticker: str, session: date | None) -> OrderMarket:
+        return cls(
+            session,
+            next((row for row in inputs.security_classification if row.ticker == ticker), None),
+        )
+
+    @property
+    def gaps(self) -> tuple[GateReason, ...]:
+        reasons: list[GateReason] = []
+        classification = self.classification
+        if (
+            classification is None
+            or classification.market_segment.strip().upper() not in ELIGIBLE_MARKETS
+            or not classification.is_common_stock
+        ):
+            reasons.append(
+                GateReason(
+                    code="security_classification_unavailable",
+                    message="原本の商品区分・銘柄コード・市場から東証普通株と確認できません。",
+                )
+            )
+        if self.session is None:
+            reasons.append(
+                GateReason(
+                    code="order_session_unknown", message="次の注文可能sessionを確認できません。"
+                )
+            )
+        elif not PRICE_GRID_CONFIRMED_AT <= self.session < PRICE_GRID_VALID_UNTIL:
+            reasons.append(
+                GateReason(
+                    code="price_grid_rule_unavailable",
+                    message="次sessionへ適用できる呼値ruleが未確定です。",
+                )
+            )
+        return tuple(reasons)
+
+    def floor_limit(self, ceiling: Decimal) -> Decimal | None:
+        if self.classification is None or self.session is None:
+            return None
+        return floor_common_stock_limit(
+            ceiling,
+            target_session=self.session,
+            market_segment=self.classification.market_segment,
+            is_common_stock=self.classification.is_common_stock,
+        )
+
+
+def application_order_blockers(
+    item: BuyItem | SellItem, current: tuple[GateReason, ...]
+) -> tuple[GateReason, ...]:
+    # 現在の資料がそろっても、作者の価格上限だけを具体的な注文へ昇格させない。
+    if item.terms is None and not current:
+        return (
+            GateReason(
+                code="order_terms_unconfirmed",
+                message="保存条件は未確定です。条件を確定した新しい提案とReviewが必要です。",
+            ),
+        )
+    return current
+
+
 def terms_unavailable_reasons(
     item: BuyItem | SellItem,
     inputs: ProposalInputs,
     *,
     now: datetime,
-    session: date | None,
+    market: OrderMarket,
 ) -> tuple[GateReason, ...]:
     """経済判断と独立した、具体注文条件の不足を現在入力から列挙する。"""
     if item.action == "sell" and item.conditional_recovery is not None:
@@ -178,34 +250,12 @@ def terms_unavailable_reasons(
                     message="全保有数量・株式単位または端株ルートの確認が必要です。",
                 )
             )
-    classification = next(
-        (row for row in inputs.security_classification if row.ticker == item.ticker), None
-    )
+    reasons.extend(market.gaps)
     if (
-        classification is None
-        or classification.market_segment.strip().upper() not in ELIGIBLE_MARKETS
-        or not classification.is_common_stock
+        market.session is not None
+        and item.terms is not None
+        and item.terms.target_session != market.session
     ):
-        reasons.append(
-            GateReason(
-                code="security_classification_unavailable",
-                message="原本の商品区分・銘柄コード・市場から東証普通株と確認できません。",
-            )
-        )
-    if session is None:
-        reasons.append(
-            GateReason(
-                code="order_session_unknown", message="次の注文可能sessionを確認できません。"
-            )
-        )
-    elif not PRICE_GRID_CONFIRMED_AT <= session < PRICE_GRID_VALID_UNTIL:
-        reasons.append(
-            GateReason(
-                code="price_grid_rule_unavailable",
-                message="次sessionへ適用できる呼値ruleが未確定です。",
-            )
-        )
-    if session is not None and item.terms is not None and item.terms.target_session != session:
         reasons.append(
             GateReason(
                 code="target_session_not_next_available",

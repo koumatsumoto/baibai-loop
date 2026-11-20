@@ -16,6 +16,8 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.conditions import (
+    OrderMarket,
+    application_order_blockers,
     assessment_quote_basis,
     buy_evaluation_payload,
     buy_evaluator,
@@ -89,8 +91,9 @@ def _validate_action(
         if item.action == "buy" or (item.action == "sell" and item.conditional_recovery is None)
         else None
     )
+    market = OrderMarket.from_inputs(inputs, item.ticker, session)
     unavailable = (
-        terms_unavailable_reasons(item, inputs, now=now, session=session)
+        terms_unavailable_reasons(item, inputs, now=now, market=market)
         if item.action in {"buy", "sell"}
         else ()
     )
@@ -108,7 +111,9 @@ def _validate_action(
             _limit_for_partial_buy(item), None if item.terms is None else item.terms.quantity
         )
         blockers.extend(result.hard_blockers)
-        calculation = buy_evaluation_payload(result, order_blockers=unavailable)
+        calculation = buy_evaluation_payload(
+            result, order_blockers=application_order_blockers(item, unavailable)
+        )
         if item.terms is not None and (
             (
                 result.maximum_price_yen is not None
