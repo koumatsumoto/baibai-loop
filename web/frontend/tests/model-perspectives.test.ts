@@ -137,6 +137,7 @@ it('当時の資料による見立てを区別し、元の不足判断を推定�
   expect(market).toMatch(/data-evidence="observation"[^>]*>両方向<\/span>/)
   expect(market).not.toContain('>支持')
   expect(html).toContain('dateTime="2026-10-23"')
+  expect(html).toContain('提案時の固定資料を、後から表示用に読み取った観測です。')
   expect(html).toContain('dateTime="2026-10-26T03:00:00Z"')
   expect(html.slice(0, html.indexOf('<table'))).toContain('投資仮説への支持・反証を意味しません')
   a.model_perspectives = []
@@ -162,8 +163,8 @@ it('合成対照で49明細の作者105・固定観測238を保ち、評価な�
       research_as_of: '2026-10-26', generation_id: 'synthetic-coverage', monex_fiscal_eps: null,
       rows: models.slice(part.length).map(model => {
         const index = observation++
-        const assessment: EstimatedPerspectiveView['assessment'] = index === 232
-          ? 'insufficient' : index < 131 ? 'adverse' : 'context_only'
+        const assessment: EstimatedPerspectiveView['assessment'] = index === 232 ? 'insufficient'
+          : index < 66 ? 'supportive' : index < 95 ? 'mixed' : index < 131 ? 'adverse' : 'context_only'
         return {
           model, assessment, summary: index === 232 ? '会計基準不一致で前年と比較できない。' : `合成の固定観測 ${index}`,
           evidence: '合成の同じ資料',
@@ -177,7 +178,9 @@ it('合成対照で49明細の作者105・固定観測238を保ち、評価な�
   }).join('')
   expect(charts.match(/data-evidence="author"/g)).toHaveLength(105)
   expect(charts.match(/data-evidence="observation"/g)).toHaveLength(238)
-  expect(charts.match(/data-evidence="observation"[^>]*>マイナス側<\/span>/g)).toHaveLength(131)
+  expect(charts.match(/data-evidence="observation"[^>]*>プラス側<\/span>/g)).toHaveLength(66)
+  expect(charts.match(/data-evidence="observation"[^>]*>両方向<\/span>/g)).toHaveLength(29)
+  expect(charts.match(/data-evidence="observation"[^>]*>マイナス側<\/span>/g)).toHaveLength(36)
   expect(charts.match(/data-evidence="observation"[^>]*>観測あり・個社への影響未判定<\/span>/g)).toHaveLength(106)
   expect(charts.match(/data-evidence="observation"[^>]*>情報不足<\/span>/g)).toHaveLength(1)
   expect(charts).toContain('会計基準不一致で前年と比較できない。')

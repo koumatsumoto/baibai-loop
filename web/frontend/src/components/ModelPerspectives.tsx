@@ -102,7 +102,7 @@ export function ModelPerspectives({ assessment }: { assessment: SavedAssessmentV
           </tbody>
         </table>
       </div>
-      <p className="text-xs leading-6 text-muted-foreground">固定資料の観測は作者・査読者の判断を補作するものではありません。各観点を点数や売買の票にしません。</p>
+      <p className="text-xs leading-6 text-muted-foreground">提案時の固定資料を、後から表示用に読み取った観測です。作者・査読者の判断ではなく、点数や売買の票にしません。</p>
       <details className="rounded-lg border p-4">
         <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">7モデルの理由・根拠を読む</summary>
         <div className="mt-5 grid divide-y">
