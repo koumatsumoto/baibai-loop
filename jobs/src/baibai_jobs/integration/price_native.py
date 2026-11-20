@@ -25,6 +25,7 @@ from baibai_engine.data_collection.providers.jquants.full_day_native import full
 from baibai_engine.data_collection.providers.jquants.price_native import (
     FixedPriceL1,
     PriceL1,
+    prefetch_price_packs,
     read_price_requests,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
@@ -45,6 +46,8 @@ from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
+
+_PRICE_PACK_PREFETCH = 3
 
 
 def _days(start: date, end: date) -> tuple[date, ...]:
@@ -182,7 +185,15 @@ def model_input(
     ranges: list[dict[str, str]] = []
     required_unresolved = False
     uri = market.resolve().as_uri() + "?mode=rw"
-    with closing(sqlite3.connect(uri, uri=True)) as connection, connection:
+    batches = _native_batches(days, scopes=head["scopes"], receipts=head["receipts"])
+    pack_reads = prefetch_price_packs(
+        store,
+        scopes=head["scopes"],
+        receipts=head["receipts"],
+        batches=batches,
+        width=_PRICE_PACK_PREFETCH,
+    )
+    with closing(sqlite3.connect(uri, uri=True)) as connection, connection, pack_reads as read_pack:
         connection.text_factory = _retained_sql_text
         # The disposable execution store is the staging area. Readers see the old
         # projection until every native page and the fixed selection have succeeded.
@@ -201,7 +212,7 @@ def model_input(
             )
         connection.execute("DELETE FROM jquants_source_pages WHERE source='daily_bars'")
         connection.execute("DELETE FROM source_coverage WHERE source='jquants_daily_bars'")
-        for batch in _native_batches(days, scopes=head["scopes"], receipts=head["receipts"]):
+        for batch in batches:
             prepared = PriceBatchRows()
             requests = tuple(
                 read_price_requests(
@@ -210,6 +221,7 @@ def model_input(
                     receipts=head["receipts"],
                     days=batch,
                     consume=prepared.consume,
+                    read_pack=read_pack,
                 )
             )
             if any(
