@@ -18,6 +18,7 @@ machine_bundle_keys=(market.sqlite runs.sqlite)
 transfer_staging=""
 evidence_dir=""
 evidence_pending_key=""
+daily_origin=""
 measure_machine_upload=0
 
 cleanup_staging() {
@@ -387,6 +388,9 @@ write_machine_manifest() {
   {
     printf '{\n'
     printf '  "schema_version": 1,\n'
+    if [[ -n "${daily_origin}" ]]; then
+      printf '  "daily_publication": %s,\n' "${daily_origin}"
+    fi
     printf '  "written_at_utc": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '  "keys": {\n'
     for key in "${machine_bundle_keys[@]}"; do
@@ -819,10 +823,15 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR|--daily-notice FILE]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
-if [[ "${1:-}" == "push-machine" && $# -ne 1 ]]; then
+if [[ "${2:-}" == "--daily-notice" ]]; then
+  [[ "${1:-}" == "push-machine" && $# -eq 3 && -n "$3" ]] || { usage; exit 2; }
+  # Check the producer's successful notice and local lake origin before any remote write.
+  daily_origin="$(cd "${repo_root}" && uv run python -m baibai_jobs.publication.machine_origin "$3")"
+  [[ -n "${daily_origin}" ]] || { printf 'daily machine origin is absent\n' >&2; exit 1; }
+elif [[ "${1:-}" == "push-machine" && $# -ne 1 ]]; then
   [[ $# -eq 3 && "$2" == "--evidence-dir" && -n "$3" ]] || { usage; exit 2; }
   evidence_dir="$3"
   umask 077

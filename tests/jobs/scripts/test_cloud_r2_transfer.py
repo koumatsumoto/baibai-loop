@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 import subprocess
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -460,6 +462,70 @@ def test_a_retry_after_a_partial_push_is_refused_by_its_own_precheck(tmp_path: P
         for command in _transfer_commands(log)
         if command.startswith(("s3api put-object ", "s3api copy-object "))
     ]
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["daily", "unmarked", "other-attempt", "other-workflow", "failed-models", "other-local-lake"],
+)
+def test_only_a_matching_daily_success_can_tag_the_machine_receipt(tmp_path: Path, case: str):
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    env = _environment(bin_dir, log)
+    env.update(
+        GITHUB_ACTIONS="true",
+        GITHUB_REPOSITORY="owner/repo",
+        GITHUB_REF="refs/heads/main",
+        GITHUB_WORKFLOW_REF="owner/repo/.github/workflows/cloud-daily-batch.yml@refs/heads/main",
+        GITHUB_RUN_ID="12345",
+        GITHUB_RUN_ATTEMPT="1",
+        SNAPSHOT_FAKE_COPY="1",
+    )
+    if case == "other-workflow":
+        env["GITHUB_WORKFLOW_REF"] = "owner/repo/.github/workflows/other.yml@refs/heads/main"
+    state = Path(env["AWS_FAKE_STATE"])
+    market = root / "stores/market/market.sqlite"
+    market.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(market)) as conn, conn:
+        conn.execute(
+            "CREATE TABLE lake_store_origin(singleton INTEGER, release_id TEXT, release_manifest_sha256 TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO lake_store_origin VALUES(1, ?, ?)",
+            ("other" if case == "other-local-lake" else "published", "a" * 64),
+        )
+    for rel in ("screening/runs.sqlite", "market_context/indicators.sqlite"):
+        path = root / "stores" / rel
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"fixed synthetic store")
+    notice = tmp_path / "notice.json"
+    lake = {"release_id": "published", "release_manifest_sha256": "a" * 64}
+    notice.write_text(
+        json.dumps(
+            {
+                "models_ready": case != "failed-models",
+                "lake": lake,
+                "daily_run": "12345-2" if case == "other-attempt" else "12345-1",
+            }
+        )
+    )
+    command = [root / "jobs/scripts/r2_transfer.sh", "push-machine"]
+    if case != "unmarked":
+        command.extend(["--daily-notice", str(notice)])
+    completed = subprocess.run(
+        command, cwd=root, env=env, check=False, capture_output=True, text=True
+    )
+    if case in {"daily", "unmarked"}:
+        assert completed.returncode == 0, completed.stderr
+        raw = (state / "put-machine-manifest.json").read_bytes()
+        assert f"machine_receipt_sha256={hashlib.sha256(raw).hexdigest()}" in completed.stdout
+        origin = json.loads(raw).get("daily_publication")
+        assert origin == ({"run": "12345-1", **lake} if case == "daily" else None)
+    else:
+        assert completed.returncode != 0
+        assert "machine_receipt_sha256=" not in completed.stdout
+        assert not (state / "put-machine-manifest.json").exists()
+        assert not log.exists() or "s3api put-object" not in log.read_text()
 
 
 def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(

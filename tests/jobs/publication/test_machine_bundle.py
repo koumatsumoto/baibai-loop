@@ -38,11 +38,19 @@ def _remote_bundle() -> MemoryR2Store:
     return remote
 
 
-def _publish_receipt(remote: MemoryR2Store) -> None:
+def _publish_receipt(remote: MemoryR2Store, *, origin=True) -> None:
     receipt = {
         "schema_version": 1,
         "keys": {key: remote.values[key].etag for key in MACHINE_KEYS},
     }
+    if origin is True:
+        receipt["daily_publication"] = {
+            "run": "12345-1",
+            "release_id": "published",
+            "release_manifest_sha256": "a" * 64,
+        }
+    elif isinstance(origin, dict):
+        receipt["daily_publication"] = origin
     remote.store_object("machine-manifest.json", json.dumps(receipt).encode())
 
 
@@ -118,6 +126,48 @@ def test_economic_change_does_not_invalidate_market_bundle():
 
 
 @pytest.mark.parametrize(
+    "other", [None, "wrong-run", "wrong-attempt", "wrong-lake", "wrong-digest"]
+)
+def test_current_receipt_digest_cannot_impersonate_the_original_daily_run(
+    tmp_path, monkeypatch, other
+):
+    remote = _remote_bundle()
+    origin = {"run": "12345-1", "release_id": "published", "release_manifest_sha256": "a" * 64}
+    if other == "wrong-run":
+        origin["run"] = "54321-1"
+    elif other == "wrong-attempt":
+        origin["run"] = "12345-2"
+    elif other == "wrong-lake":
+        origin["release_id"] = "different"
+    elif other == "wrong-digest":
+        origin["release_manifest_sha256"] = "b" * 64
+    remote.store_object("runs.sqlite", b"later coherent pair")
+    _publish_receipt(remote, origin=origin if other else False)
+    # Generic consumers keep reading legacy receipts without a daily origin.
+    machine_bundle.read_published_machine(remote)
+    digest = hashlib.sha256(remote.values["machine-manifest.json"].body).hexdigest()
+    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
+    monkeypatch.setattr(machine_bundle, "Boto3R2Store", lambda **_: remote)
+    proof = tmp_path / "pair.json"
+    assert (
+        machine_bundle.main(
+            ["--capture", str(proof), "--", "published", "a" * 64, "12345-1", digest]
+        )
+        == 1
+    )
+    assert not proof.exists()
+    assert remote.put_keys == []
+
+
+@pytest.mark.parametrize("run", ["", "12345", "12345-0", "12345-1\n", "other/12345-1"])
+def test_invalid_original_attempt_stops_before_credentials(monkeypatch, run):
+    monkeypatch.setattr(
+        machine_bundle, "Boto3R2Store", lambda **_: pytest.fail("unexpected access")
+    )
+    assert machine_bundle.main(["--", "published", "a" * 64, run, "b" * 64]) == 1
+
+
+@pytest.mark.parametrize(
     ("release", "digest"),
     [
         ("", "a" * 64),
@@ -133,7 +183,7 @@ def test_invalid_recovery_fails_without_opening_a_store(monkeypatch, release, di
     monkeypatch.setattr(
         machine_bundle, "Boto3R2Store", lambda **_: pytest.fail("unexpected access")
     )
-    assert machine_bundle.main(["--", release, digest, "b" * 64]) == 1
+    assert machine_bundle.main(["--", release, digest, "12345-1", "b" * 64]) == 1
 
 
 @pytest.mark.parametrize("receipt", ["", "b" * 63, "B" * 64, "b" * 64 + "\n", "--help"])
@@ -141,8 +191,8 @@ def test_receipt_is_required_and_validated_before_opening_a_store(monkeypatch, r
     monkeypatch.setattr(
         machine_bundle, "Boto3R2Store", lambda **_: pytest.fail("unexpected access")
     )
-    assert machine_bundle.main(["--", "valid-1", "a" * 64, receipt]) == 1
-    assert machine_bundle.main(["--", "valid-1", "a" * 64, "b" * 64]) == 0
+    assert machine_bundle.main(["--", "valid-1", "a" * 64, "12345-1", receipt]) == 1
+    assert machine_bundle.main(["--", "valid-1", "a" * 64, "12345-1", "b" * 64]) == 0
 
 
 @pytest.mark.parametrize("replacement", ["market.sqlite", "runs.sqlite", "receipt-bytes"])
@@ -164,7 +214,12 @@ def test_original_receipt_rejects_a_coherent_reseal_before_capture(
     monkeypatch.setattr(remote, "close", lambda: None, raising=False)
     monkeypatch.setattr(machine_bundle, "Boto3R2Store", lambda **_: remote)
     proof = tmp_path / "pair.json"
-    assert machine_bundle.main(["--capture", str(proof), "--", "published", "a" * 64, digest]) == 1
+    assert (
+        machine_bundle.main(
+            ["--capture", str(proof), "--", "published", "a" * 64, "12345-1", digest]
+        )
+        == 1
+    )
     assert not proof.exists()
     assert remote.put_keys == []
     assert remote.get_keys.count("machine-manifest.json") == 1
@@ -213,6 +268,7 @@ def test_display_guard_accepts_only_the_same_published_pair_and_local_origin(
         "--",
         "published",
         "a" * 64,
+        "12345-1",
         hashlib.sha256(remote.values["machine-manifest.json"].body).hexdigest(),
     ]
     assert machine_bundle.main(["--capture", proof, *target]) == 0

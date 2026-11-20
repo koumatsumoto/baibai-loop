@@ -19,11 +19,15 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOriginError,
     read_lake_store_origin,
 )
+from baibai_jobs.publication.machine_origin import origin_fields
 from baibai_jobs.publication.snapshot_release import read_pointer_snapshot
 
 
 def read_published_machine(
-    store: ObjectStore, *, expected_receipt_sha256: str | None = None
+    store: ObjectStore,
+    *,
+    expected_receipt_sha256: str | None = None,
+    expected_origin: dict[str, str] | None = None,
 ) -> tuple[LakeReleasePointer, dict[str, str]]:
     pointer = read_pointer_snapshot(store).pointer
     if pointer is None:
@@ -40,6 +44,8 @@ def read_published_machine(
         raise LakePublishError("published machine bundle receipt is unavailable") from error
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
         raise LakePublishError("published machine bundle receipt is invalid")
+    if expected_origin is not None and manifest.get("daily_publication") != expected_origin:
+        raise LakePublishError("machine receipt is not from the requested daily run and release")
     keys = manifest.get("keys")
     if not isinstance(keys, dict):
         raise LakePublishError("published machine bundle receipt is invalid")
@@ -64,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("release_id")
     parser.add_argument("manifest_sha256")
+    parser.add_argument("original_run", help="original daily run ID and attempt, e.g. 12345-1")
     parser.add_argument(
         "machine_receipt_sha256", help="receipt SHA-256 from the original core upload"
     )
@@ -73,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         expected = LakeStoreOrigin(args.release_id, args.manifest_sha256)
+        origin = origin_fields(args.original_run, expected)
         if re.fullmatch(r"[0-9a-f]{64}", args.machine_receipt_sha256) is None:
             raise ValueError("invalid machine receipt SHA-256 from the original run")
         if args.capture is None and args.verify is None:
@@ -81,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET", "baibai-stores"))
         ) as store:
             pointer, versions = read_published_machine(
-                store, expected_receipt_sha256=args.machine_receipt_sha256
+                store, expected_receipt_sha256=args.machine_receipt_sha256, expected_origin=origin
             )
         if (pointer.release_id, pointer.manifest_sha256) != (
             expected.release_id,

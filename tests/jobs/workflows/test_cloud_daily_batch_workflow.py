@@ -299,13 +299,18 @@ def test_invalid_retention_never_emits_workflow_outputs(tmp_path, steps, by_id):
 def test_machine_push_preserves_its_outcome_and_never_uploads_views(tmp_path, by_id, exit_code):
     script = tmp_path / "jobs/scripts/r2_transfer.sh"
     script.parent.mkdir(parents=True)
-    script.write_text(f'#!/bin/sh\n[ "$1" = "push-machine" ] || exit 99\nexit {exit_code}\n')
+    assert "--daily-origin" in by_id["batch"]["run"]
+    script.write_text(
+        '#!/bin/sh\n[ "$1" = "push-machine" ] && [ "$2" = "--daily-notice" ] && '
+        '[ "$3" = "$RUNNER_TEMP/batch-notice.json" ] || exit 99\n'
+        f"exit {exit_code}\n"
+    )
     script.chmod(0o755)
     output = tmp_path / "outputs"
     result = subprocess.run(
         ["bash", "-euo", "pipefail", "-c", by_id["upload-stores"]["run"]],
         cwd=tmp_path,
-        env={**os.environ, "GITHUB_OUTPUT": str(output)},
+        env={**os.environ, "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(tmp_path)},
         capture_output=True,
         check=False,
     )
