@@ -497,9 +497,10 @@ def _daily_external_readback(
             return None
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    return daily_external_readback_dir(directory, bucket=bucket, run=run) / generations[
-        "lake_manifest_sha256"
-    ]
+    return (
+        daily_external_readback_dir(directory, bucket=bucket, run=run)
+        / generations["lake_manifest_sha256"]
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

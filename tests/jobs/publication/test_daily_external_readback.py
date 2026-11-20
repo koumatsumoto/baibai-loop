@@ -112,7 +112,7 @@ def test_optional_retention_failure_neither_repeats_nor_breaks_the_mandatory_get
     assert remote.downloads == [(item.key, item.bytes)] * 2
 
     strict = _RemotePublication(store=remote, verified_readback_root=denied)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="not-a-directory"):
         strict._require_bytes(key=item.key, expected_sha256=item.sha256, expected_size=item.bytes)
 
 
