@@ -81,9 +81,25 @@ class AssessmentService:
                     )
                 # Sample under the writer lock, only after CAS/retry checks. This is
                 # receipt by this transaction, not proof of external visibility at COMMIT.
+                # Mixed old-writer rows supply no receipt. Follow their actual CAS
+                # parents to the nearest verified receipt; never order by a claim.
+                prior_receipt = connection.execute(
+                    "WITH RECURSIVE lineage(id,parent,version,stamp) AS ("
+                    "SELECT context_id,supersedes_id,schema_version,published_at FROM "
+                    "market_context_assessment WHERE context_id=? UNION SELECT "
+                    "m.context_id,m.supersedes_id,m.schema_version,m.published_at FROM "
+                    "market_context_assessment m JOIN lineage p ON m.context_id=p.parent "
+                    "WHERE p.version<>?) SELECT stamp FROM lineage WHERE version=?",
+                    (current, RECEIPTED_ENVELOPE_VERSION, RECEIPTED_ENVELOPE_VERSION),
+                ).fetchone()
                 recorded_at = require_aware(self._clock())
                 if document.published_at > recorded_at:
                     raise ValueError("declared market publication follows its actual receipt")
+                if prior_receipt is not None and recorded_at <= require_aware(
+                    datetime.fromisoformat(str(prior_receipt[0]))
+                ):
+                    raise AssessmentConflictError("market writer receipt did not advance")
+
                 connection.execute(
                     (
                         "INSERT INTO market_context_assessment("
