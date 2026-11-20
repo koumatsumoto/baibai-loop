@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import closing, suppress
+from functools import partial
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -148,6 +149,7 @@ class HttpSession(Protocol):
         headers: Mapping[str, str] | None = None,
         timeout: int,
         stream: bool = False,
+        allow_redirects: bool = True,
     ) -> requests.Response: ...
 
 
@@ -160,6 +162,7 @@ def fetch_text(
     headers: Mapping[str, str] | None = None,
     context: FetchContext | None = None,
     retry_transient: bool = False,
+    allow_redirects: bool = True,
 ) -> str:
     content = fetch_bytes(
         session,
@@ -169,6 +172,7 @@ def fetch_text(
         headers=headers,
         context=context,
         retry_transient=retry_transient,
+        allow_redirects=allow_redirects,
     )
     try:
         return content.decode("utf-8-sig")
@@ -222,6 +226,7 @@ def fetch_bytes(
     headers: Mapping[str, str] | None = None,
     context: FetchContext | None = None,
     retry_transient: bool = False,
+    allow_redirects: bool = True,
 ) -> bytes:
     """Receive one resource; native bulk readers may retry its transient failures once.
 
@@ -236,7 +241,13 @@ def fetch_bytes(
     for attempt in range(2 if retry_transient else 1):
         try:
             content = _fetch_bytes_once(
-                session, url, params=params, max_bytes=max_bytes, headers=headers, context=context
+                session,
+                url,
+                params=params,
+                max_bytes=max_bytes,
+                headers=headers,
+                context=context,
+                allow_redirects=allow_redirects,
             )
         except requests.RequestException as exc:
             response = exc.response
@@ -276,13 +287,19 @@ def _fetch_bytes_once(
     max_bytes: int,
     headers: Mapping[str, str] | None,
     context: FetchContext | None,
+    allow_redirects: bool,
 ) -> bytes:
     try:
         check_acquisition_deadline()
-        response = session.get(
+        get = session.get if allow_redirects else partial(session.get, allow_redirects=False)
+        response = get(
             url, params=params, headers=headers, timeout=HTTP_TIMEOUT_SECONDS, stream=True
         )
         with closing(response):
+            if not allow_redirects and 300 <= response.status_code < 400:
+                raise ProviderFetchStoppedError(
+                    f"source returned HTTP {response.status_code} for {url}; not following redirect"
+                )
             _raise_for_response(response, url)
             content_length = response.headers.get("Content-Length")
             if content_length is not None:
@@ -306,12 +323,8 @@ def _fetch_bytes_once(
                     raise IndicatorsProviderError(f"indicator response too large: {total} bytes")
                 chunks.append(chunk)
             content = b"".join(chunks)
-            # A source can answer 2xx with no body at all: federalreserve.gov's edge
-            # does this to datacenter IPs instead of serving the CSV. No parser has a
-            # reading for zero bytes, so failing here keeps a blocked fetch from being
-            # reported as a format change and keeps the empty body out of the cache.
-            # H.15 owns its explicit alternative transport selection. The status
-            # and content type name what the source actually answered with.
+            # No parser has a reading for zero bytes. Keep the empty body out of
+            # the cache and record the actual response without guessing its cause.
             _guard_response(
                 content,
                 url=url,

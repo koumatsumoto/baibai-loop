@@ -4,37 +4,31 @@ import csv
 import io
 from datetime import date
 from html.parser import HTMLParser
-from http import HTTPStatus
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from baibai_engine.data_collection.catalog import SourceDefinition
 from baibai_engine.data_collection.provider_contracts import ProviderSpec
 from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
 from baibai_engine.data_collection.transport.context import (
     MAX_CSV_RESPONSE_BYTES,
-    BrowserUnavailableError,
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
-    SourceWithheldError,
     fetch_text,
-    store_fetched_bytes,
 )
 
-# Single H.15 package that carries every Treasury constant-maturity series; one
-# download via FetchContext.bytes_cache serves all frb_h15 series in a run.
-_H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
-# An empty body or generic HTML may need rendering. An explicit denial is not
-# a reason to try another transport.
-_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
-_BROWSER_HEADERS = {
-    "User-Agent": _USER_AGENT,
-    "Accept": "text/csv,text/plain,text/html;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
+# The Board publishes one fixed download URL for this preformatted package.
+# The receipt window is local; changing URL parameters requests a different resource.
+_H15_AUTOMATED_PACKAGE = {
+    "filetype": "csv",
+    "from": "",
+    "label": "include",
+    "lastobs": "",
+    "layout": "seriescolumn",
+    "rel": "H15",
+    "series": "bf17364827e38702b42a58cf8eaa3f78",
+    "to": "",
+    "type": "package",
 }
 _HEADER_PREFIXES = ('"Time Period"', "Time Period,")
 
@@ -53,130 +47,15 @@ class FrbH15Source:
         session: HttpSession,
         context: FetchContext | None = None,
     ) -> NativeRecords:
-        params = {
-            "rel": "H15",
-            "series": _H15_PACKAGE_SERIES,
-            "lastObs": "",
-            "from": start.strftime("%m/%d/%Y"),
-            "to": end.strftime("%m/%d/%Y"),
-            "filetype": "csv",
-            "label": "include",
-            "layout": "seriescolumn",
-            "type": "package",
-        }
-        text = _fetch_h15_csv(series.source_url, params, session=session, context=context)
-        return parse_h15_csv(text, start=start, end=end)
-
-
-def _fetch_h15_csv(
-    url: str,
-    params: dict[str, str],
-    *,
-    session: HttpSession,
-    context: FetchContext | None,
-) -> str:
-    """Try the configured public transport routes and validate the CSV header.
-
-    An empty successful response or missing CSV header can select the browser
-    route. HTTP failures and an explicit access-denied title never do.
-    """
-
-    plain_failure: str | None = None
-    try:
         text = fetch_text(
             session,
-            url,
-            params=params,
+            series.source_url,
+            params=_H15_AUTOMATED_PACKAGE,
             max_bytes=MAX_CSV_RESPONSE_BYTES,
-            headers=_BROWSER_HEADERS,
             context=context,
-            retry_transient=True,
+            allow_redirects=False,
         )
-    except SourceWithheldError as exc:
-        if exc.status_code == HTTPStatus.FORBIDDEN or context is None:
-            raise
-        plain_failure = str(exc)
-        text = ""
-    if _has_header(text):
-        return text
-    title = _ResponseTitle()
-    title.feed(text)
-    if " ".join("".join(title.parts).split()).casefold() == "access denied":
-        raise ProviderFetchStoppedError(
-            f"FRB H.15 successful response explicitly denies access: {snippet(text)!r}"
-        )
-    if context is None:
-        return text
-    if plain_failure is None:
-        plain_failure = f"response without the CSV header: {snippet(text)!r}"
-    context.discard_cached_bytes(url, params)
-    return _fetch_h15_csv_via_browser(url, params, context=context, plain_failure=plain_failure)
-
-
-def _fetch_h15_csv_via_browser(
-    url: str,
-    params: dict[str, str],
-    *,
-    context: FetchContext,
-    plain_failure: str,
-) -> str:
-    """The CSV read through a browser after a successful plain response lacked data.
-
-    Keep both transport outcomes in the error reported by the batch. A missing
-    CSV header alone does not identify the cause or prove an access policy.
-    """
-
-    navigation_url = _navigation_url(url, params)
-    blocked = context.blocked_browser_urls.get(navigation_url)
-    if blocked is not None:
-        raise IndicatorsProviderError(
-            f"{blocked} (already seen earlier in this pass); "
-            f"the plain client reported: {plain_failure}"
-        )
-    try:
-        content = context.browser_fetcher().fetch_download(
-            navigation_url, max_bytes=MAX_CSV_RESPONSE_BYTES
-        )
-        text = content.decode("utf-8-sig")
-        if not _has_header(text):
-            raise IndicatorsProviderError(
-                f"browser response without the CSV header: {snippet(text)!r}"
-            )
-    except ProviderFetchStoppedError:
-        # A job cutoff says nothing about the source or whether a browser ran.
-        raise
-    except (IndicatorsProviderError, UnicodeDecodeError) as exc:
-        # Reuse this navigation failure only within the current pass, rather than
-        # spending another timeout for each reading of the same resource. It is
-        # not a permanent source rejection. A browser that never started provides
-        # no source evidence, and a non-UTF-8 body is not a transport retry.
-        if not isinstance(exc, BrowserUnavailableError):
-            context.blocked_browser_urls[navigation_url] = str(exc)
-        raise IndicatorsProviderError(
-            f"{exc}; the plain client first failed with: {plain_failure}"
-        ) from exc
-    # Every frb_h15 series in the pass shares this one download, so the browser
-    # result enters the same cache the plain client fills, under the same guards.
-    # Skipping this would cost one browser navigation per series.
-    store_fetched_bytes(context, url, params, content, max_bytes=MAX_CSV_RESPONSE_BYTES)
-    return text
-
-
-def _navigation_url(url: str, params: dict[str, str]) -> str:
-    """``url`` with ``params`` in its query, preserving any query it already has.
-
-    A browser navigation carries its parameters in the URL while the plain client
-    passes them beside it, so this is the one place the two routes could address
-    different resources.
-    """
-
-    parts = urlsplit(url)
-    query = urlencode([*parse_qsl(parts.query), *params.items()])
-    return urlunsplit(parts._replace(query=query))
-
-
-def _has_header(text: str) -> bool:
-    return any(line.startswith(_HEADER_PREFIXES) for line in text.splitlines())
+        return parse_h15_csv(text, start=start, end=end)
 
 
 class _ResponseTitle(HTMLParser):
@@ -213,6 +92,12 @@ def parse_h15_csv(text: str, *, start: date, end: date) -> NativeRecords:
         None,
     )
     if header_index is None:
+        title = _ResponseTitle()
+        title.feed(text)
+        if " ".join("".join(title.parts).split()).casefold() == "access denied":
+            raise ProviderFetchStoppedError(
+                f"FRB H.15 successful response explicitly denies access: {snippet(text)!r}"
+            )
         # Surface what the server actually returned (block page, error HTML, or a
         # changed layout) so a remote-only failure is diagnosable from batch logs.
         raise IndicatorsProviderError(
@@ -226,6 +111,7 @@ def parse_h15_csv(text: str, *, start: date, end: date) -> NativeRecords:
     # Preamble lines are literal source metadata, not an inferred schema/unit.
     preamble = [line.rstrip("\r\n") for line in lines[:header_index]]
     records: dict[date, list[dict[str, object]]] = {}
+    has_observations = False
     for row in reader:
         if None in row or any(value is None for value in row.values()):
             raise IndicatorsProviderError("FRB H.15 CSV row does not match its columns")
@@ -233,6 +119,11 @@ def parse_h15_csv(text: str, *, start: date, end: date) -> NativeRecords:
         if not observed_at_raw:
             raise IndicatorsProviderError("FRB H.15 CSV row has no Time Period")
         observed_at = date.fromisoformat(observed_at_raw)
+        has_observations = True
         if start <= observed_at <= end:
             records.setdefault(observed_at, []).append({"row": row, "preamble": preamble})
+    # This URL serves the entire history. A header alone is not evidence that
+    # every day in the local receipt window was absent.
+    if not has_observations:
+        raise ProviderFetchStoppedError("FRB H.15 full package contains no observations")
     return records
