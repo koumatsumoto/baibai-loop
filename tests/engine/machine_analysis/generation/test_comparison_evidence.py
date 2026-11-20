@@ -335,7 +335,12 @@ def test_pending_local_price_read_is_cancelled_on_disclosure_failure(monkeypatch
             return queued
 
     monkeypatch.setattr(inputs, "ThreadPoolExecutor", QueuedWorker)
-    with pytest.raises(ValueError, match="invalid disclosure"), ExitStack() as readers:
-        inputs._schedule_price_read(readers, lambda: pytest.fail("queued work ran"))
-        raise ValueError("invalid disclosure")
+
+    def fail_disclosure():
+        with ExitStack() as readers:
+            inputs._schedule_price_read(readers, lambda: pytest.fail("queued work ran"))
+            raise ValueError("invalid disclosure")
+
+    with pytest.raises(ValueError, match="invalid disclosure"):
+        fail_disclosure()
     assert drained.is_set()
