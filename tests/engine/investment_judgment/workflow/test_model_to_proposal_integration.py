@@ -47,16 +47,25 @@ from baibai_engine.investment_judgment.independent_review.contracts import (
 )
 from baibai_engine.investment_judgment.market_assessment.models import MarketContextAssessment
 from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
+from baibai_engine.investment_judgment.stock_assessment.calculation import (
+    CalculationInput,
+    calculate,
+)
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     assessment_core_hash,
 )
-from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
+from baibai_engine.investment_judgment.stock_assessment.store import (
+    AssessmentStoreService,
+    load_reviewed_assessment,
+)
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
+    ProposalError,
     load_proposal_draft,
     proposal_draft_sha256,
 )
+from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.report_perspectives import (
@@ -1501,3 +1510,218 @@ def test_monex_fixed_research_uses_the_same_eligible_price_pair_and_eps_original
     assert chart["monex_fiscal_eps"]["current_fy"]["eps_jpy_per_share"] == 10 + latest
     row = next(row for row in chart["rows"] if row["model"] == "external_assessment")
     assert f"{100 + latest}円/株" in row["summary"]
+
+
+def test_cash_choice_uses_verified_finite_right_not_issuer_stance(tmp_path, monkeypatch):
+    case = _prepare_case(tmp_path, monkeypatch, discover=True)
+    document, review = case.document, case.review
+    source = next(s for s in document["input_snapshot"]["sources"] if s["source_id"] == "annual")
+    source["used_for"] = "合成の信託預託・清算決議。確定分配後に当該普通株を消却する。"
+    facts = document["input_snapshot"]["facts"]
+    next(f for f in facts if f["fact_id"] == "owner_receipt")["value"] = 1300
+    facts.append(
+        dict(
+            fact_id="last-eligible",
+            fact_kind="last_eligible_trade_date",
+            value="2026-10-15",
+            unit="date",
+            as_of="2026-10-14",
+            source_ids=["annual"],
+        )
+    )
+    document["investment_case"].update(
+        explanation="新取得者への預託現金1300円と普通株消却だけ。存続事業への残余請求はない。",
+        invalidation_conditions=["新取得者の資格または預託による分配が不成立。"],
+    )
+    document["price_value_case"].update(
+        price_compatible_conditions="観測終値1100円を預託済みの終期内分配1300円が支える。",
+        value_fact_ids=["owner_receipt", "last-eligible"],
+        acquisition_limit={
+            "value_fact_id": "last-eligible",
+            "last_eligible_trade_date": "2026-10-15",
+        },
+    )
+    for name in ("base", "downside"):
+        document["valuation"][name].update(
+            terminal_value_per_share_yen="0",
+            cash_distribution_per_share_yen="1300",
+            calculation="合成：期中支払の後、比較の終期前に預託分配1300円、消却で残価0。",
+        )
+    review["recalculated_projections"] = [
+        {
+            "name": name,
+            "terminal_value_per_share_yen": "0",
+            "cash_distribution_per_share_yen": "1300",
+        }
+        for name in ("base", "downside")
+    ]
+    update_review_hash(document, review)
+    for name, data in (("assessment-draft.yaml", document), ("assessment-review.yaml", review)):
+        (case.prepared.workspace / "1234" / name).write_text(
+            yaml.safe_dump(data, allow_unicode=True)
+        )
+    promote(workspace=case.prepared.workspace, ticker="1234", db_path=case.app, now=PROMOTED)
+
+    operation_id = case.prepared.operation_id
+    prior = assessment_id()
+    saved = []
+    fingerprints = set()
+    for index, (scenario, blocker) in enumerate(
+        (
+            ("concluded", None),
+            ("uncertain_issuer", None),
+            ("unknown_right", "no_action_reviewed_quote_mismatch"),
+            ("different_session", "no_action_reviewed_quote_mismatch"),
+            ("partial_primary_review", "no_action_comparison_incomplete"),
+            ("settled_expired_right", "no_action_reviewed_quote_mismatch"),
+            ("settled_unknown_right", "no_action_reviewed_quote_mismatch"),
+        )
+    ):
+        now = PREPARED + timedelta(minutes=index * 5)
+        if index:
+            revised, checked = deepcopy(document), deepcopy(review)
+            revised["conclusion"]["assessed_at"] = (now - timedelta(minutes=3)).isoformat()
+            if not scenario.startswith("settled_"):
+                revised["conclusion"]["stance"] = "uncertain"
+                revised["investment_case"].update(
+                    status="uncertain",
+                    status_reason="消却後の存続事業の契約更新は不明。既に預託した分配と終期の残価は不変。",
+                )
+            if scenario.endswith("unknown_right"):
+                revised["input_snapshot"]["facts"][-1].update(
+                    fact_kind="other", value="後発公告で新取得者の資格を再確認中。", unit="notice"
+                )
+                revised["price_value_case"]["acquisition_limit"]["last_eligible_trade_date"] = None
+            if scenario == "settled_expired_right":
+                revised["input_snapshot"]["facts"][-1]["value"] = "2026-10-14"
+                revised["price_value_case"]["acquisition_limit"]["last_eligible_trade_date"] = (
+                    "2026-10-14"
+                )
+            if scenario == "different_session":
+                revised["input_snapshot"]["facts"][0].update(
+                    as_of="2026-10-13", observed_at="2026-10-13T15:30:00+09:00"
+                )
+            if scenario == "partial_primary_review":
+                checked.update(
+                    primary_source_check="partially_verified",
+                    uncertainty_acceptance_reason="合成：一次資料の確認は一部で、取得者への適用照合が残る。",
+                )
+            checked.update(
+                review_id=review["review_id"][:-2] + f"{50 + index:02x}",
+                reviewed_at=(now - timedelta(minutes=2)).isoformat(),
+            )
+            update_review_hash(revised, checked)
+            pair = AssessmentStoreService(
+                case.app, clock=lambda now=now: now - timedelta(minutes=1)
+            ).publish_reviewed_assessment(
+                assessment_id(50 + index), revised, checked, supersedes_id=prior
+            )
+            prior = pair.assessment_id
+            case.operations.record_assessment(operation_id, prior, now=now)
+
+        context = build_proposal_context(
+            operation_id=operation_id,
+            proposal_id=PROPOSAL_ID[:-2] + f"{index + 3:02x}",
+            db_path=case.app,
+            sqlite_path=case.market,
+            now=now,
+        )
+        assert context.research_scope.selection_sha256 == selection_sha256(case.selected)
+        fingerprints.add(proposal_inputs_fingerprint(context.inputs))
+        pair = context.assessments[prior]
+        assert pair.document.price_value_case.status == "supported_at_quote"
+        [quote] = context.inputs.quotes
+        assert (quote.ticker, quote.price_yen, quote.price_as_of, quote.price_basis) == (
+            "1234",
+            Decimal("1100"),
+            PREPARED.date(),
+            "last_close_unadjusted",
+        )
+        assert context.inputs.available_cash_yen == 300_000
+        # 同じ正本素材から計算する。比較の数値だけでは取得権の確認にならない。
+        exact = pair.document.model_dump(mode="json")
+        paths = calculate(
+            CalculationInput.model_validate(
+                {
+                    "input_snapshot": exact["input_snapshot"],
+                    "valuation": exact["valuation"],
+                    "price_comparison": {
+                        "price_yen": "1000",
+                        "hypothetical_quantity": 200,
+                        "waiting_terms": {
+                            "initial_cash_yen": str(context.inputs.available_cash_yen),
+                            "deadline": "2026-10-15",
+                            "fixed_terminal_date": "2027-10-14",
+                            "lot_size": context.inputs.board_lot,
+                            "entry_fee_bps": 0,
+                            "terminal_sale_fee_bps": 0,
+                            "base_missed_distribution_per_share_yen": 0,
+                            "downside_missed_distribution_per_share_yen": 0,
+                        },
+                    },
+                }
+            )
+        )["waiting_paths"]
+        assert (paths["cash_only_terminal_wealth_yen"], paths["terminal_date"]) == (
+            "300000",
+            "2027-10-14",
+        )
+        assert paths["buy_now_unspent_cash_yen"] == "80000"
+        assert paths["cases"]["base"]["buy_now_terminal_wealth_yen"] == "340000"
+        full_wait = paths["cases"]["base"]["wait_paths"][-1]
+        assert (full_wait["cash_after_deadline_yen"], full_wait["terminal_wealth_yen"]) == (
+            "100000",
+            "360000",
+        )
+        raw = scaffold_proposal(context)
+        raw.update(
+            headline="一株の価格は支持、同じ資金は現金で維持",
+            comparison="30万円、翌年10月14日終期。今買う34万円、1000円待機全成立36万円、現金30万円。"
+            "分配より前の30万円の期中支払に対し、買付後の自由現金8万/10万円では足りない。",
+            forgone="不確定な中途換金に頼らず、終期の増分4万/6万円を見送る。",
+        )
+        raw["items"][0].update(
+            action="no_action",
+            rationale="普通株の価格支持とは別に、同額・同終期で今必要な流動性を選ぶ。",
+            review_conditions=["期中支払または分配資格・時期が変われば再比較する。"],
+        )
+        draft = bind_review(
+            raw,
+            {pair.assessment_id: pair.document},
+            reviewed_at=(now + timedelta(minutes=1)).isoformat(),
+        )
+        service = TradeProposalService(
+            case.app, sqlite_path=case.market, clock=lambda now=now: now + timedelta(minutes=2)
+        )
+        checked_proposal = service.check(draft)
+        assert checked_proposal.valid == (blocker is None), scenario
+        assert [reason.code for reason in checked_proposal.blockers] == (
+            [] if blocker is None else [blocker]
+        )
+        if blocker is not None:
+            before = case.app.read_bytes()
+            with pytest.raises(ProposalError, match="defer"):
+                service.publish(draft)
+            assert case.app.read_bytes() == before
+            continue
+        published = service.publish(draft)
+        saved.append(published)
+        [item] = published.items
+        assert "terms" not in item.model_dump(mode="json")
+        shown = read_proposal_views(
+            case.app, generated_at=now + timedelta(minutes=2)
+        ).latest.proposal
+        [view] = shown.items
+        assert (view.action, view.rationale) == (item.action, item.rationale)
+        assert view.assessment.investment_case_status == pair.document.investment_case.status
+        assert view.assessment.price_value_case.status == "supported_at_quote"
+
+    assert len(fingerprints) == 1
+    assert len(saved) == 2
+    for published in saved:
+        assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
+    with closing(sqlite3.connect(case.app)) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM position_decision_reference"
+        ).fetchone() == (0,)
+    assert LedgerStoreService(case.app).load() == case.ledger
