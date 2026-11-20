@@ -157,18 +157,11 @@ def _replay(
         )
         if master_input is None:
             raise ValueError("native TradingView replay requires its fixed master context")
-        from baibai_engine.machine_analysis.generation.master_inputs import read_master_input
         from baibai_jobs.integration.master_native import materialize_saved_input
 
-        if master_input.descriptor is None:
-            raise ValueError("native master replay requires a fixed descriptor")
-        selected_master = read_master_input(
-            store, master_input.descriptor, days=[handoff.master_asof]
+        materialize_saved_input(
+            store, master_input, market=database, days=[handoff.master_asof], require_resolved=True
         )
-        scope = selected_master["scopes"].get(handoff.master_asof.isoformat(), {})
-        if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
-            raise ValueError("native master replay acquisition is unresolved")
-        materialize_saved_input(store, master_input, market=database, days=[handoff.master_asof])
         return import_tradingview_handoff(
             path,
             database,
