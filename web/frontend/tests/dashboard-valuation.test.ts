@@ -21,6 +21,7 @@ function dashboard(overrides: Partial<DashboardView> = {}): DashboardView {
   return {
     generated_at: '2026-09-24T20:00:00+09:00', ledger_exists: true,
     ledger_error: null, ledger_as_of: '2026-09-24', valuation_error: null,
+    holding_quantity_unresolved: false,
     valuation_as_of: '2026-09-24',
     total_capital_yen: 210_000, holdings_market_value_yen: 110_000,
     available_cash_yen: 100_000, reserved_cash_yen: 0,
@@ -97,6 +98,8 @@ describe('Dashboard valuation display', () => {
       cash_pct: null, deployed_pct: null,
     }))
     expect(html).toContain('未評価: 8255')
+    expect(html).toContain('9 銘柄を保有')
+    expect(html).not.toContain('保有株数は未照合')
     expect(html).toContain('総資産・評価損益・資産配分を表示できません')
     expect(html).toContain('配分データなし')
     expect(html).toContain('￥3,507,000')
@@ -117,6 +120,7 @@ describe('Dashboard valuation display', () => {
   it('describes ticker concentration as a holding risk without suggesting an additional purchase', () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
+        quantityUnresolved: false,
         holdings: [holding('1234')],
         warnings: [{ code: 'portfolio.ticker-concentration', scope: 'ticker', key: '1234',
           actual_pct: 30, warning_pct: 20, overridden: false }],
@@ -158,6 +162,7 @@ describe('Dashboard valuation display', () => {
   it('keeps each holding and its own price date when valuation bases differ', () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
+        quantityUnresolved: false,
         holdings: [
           holding('1234'),
           { ...holding('8255'), market_price_yen: null, market_price_as_of: null,
@@ -184,6 +189,7 @@ it('preserves fractional holding prices and order guards while notionals remain 
   const html = renderToStaticMarkup(createElement(TooltipProvider, null,
     createElement(MemoryRouter, null,
       createElement(HoldingsTable, {
+        quantityUnresolved: false,
         holdings: [{ ...holding('1234'), quantity: 200, deployed_cost_yen: 210_500,
           market_price_yen: '1052.5', market_value_yen: 210_500,
           unrealized_pnl_yen: 0, unrealized_pnl_pct: 0 }], warnings: [],

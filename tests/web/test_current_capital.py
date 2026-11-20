@@ -1,5 +1,6 @@
 """Reported quantities remain visible without ledger price transcriptions."""
 
+import json
 import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timedelta
@@ -102,6 +103,7 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
     )
     assert view.ledger_error is None
     assert view.valuation_error is None
+    assert view.holding_quantity_unresolved is False
     assert view.ledger_as_of == ledger.as_of
     assert view.generated_at == NOW
     assert view.available_cash_yen == 10080500
@@ -204,6 +206,7 @@ def test_reported_full_sale_does_not_turn_unresolved_share_units_into_cash_only_
     assert view.available_cash_yen == 10190500
     assert view.reserved_cash_yen == 119000
     assert view.ledger_as_of == NOW
+    assert json.loads(view.model_dump_json())["holding_quantity_unresolved"] is action
     if action:
         assert view.valuation_error is not None
         assert "2331" in view.valuation_error

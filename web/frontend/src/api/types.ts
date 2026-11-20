@@ -19,6 +19,10 @@ export interface DashboardView {
    * 市場評価の読取失敗。台帳事実は保持し、株価等の欠測だけの場合はnull。
    */
   valuation_error: string | null
+  /**
+   * 保有中の株数変更を照合できず、全売却報告から残高を確定できない。
+   */
+  holding_quantity_unresolved: boolean
   valuation_as_of: string | null
   total_capital_yen: number | null
   /**
