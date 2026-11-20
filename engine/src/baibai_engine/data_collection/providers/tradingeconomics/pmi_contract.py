@@ -7,15 +7,8 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
-from urllib.parse import urljoin
 
 BASE_URL = "https://tradingeconomics.com"
-STREAM_PATHS = {
-    "jp_manufacturing": "/japan/manufacturing-pmi",
-    "jp_services": "/japan/services-pmi",
-    "us_manufacturing": "/united-states/manufacturing-pmi",
-    "us_services": "/united-states/services-pmi",
-}
 STREAM_NAMES = {
     "jp_manufacturing": r"S&P Global Japan Manufacturing PMI",
     "jp_services": r"Japan[’']s S&P Global Services PMI Business Activity Index",
@@ -59,12 +52,9 @@ class _ArticleHtml(HTMLParser):
         self.json_script = False
         self.json_parts: list[str] = []
         self.articles: list[dict[str, object]] = []
-        self.links: set[str] = set()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
-        if tag == "a" and attributes.get("href"):
-            self.links.add(str(attributes["href"]))
         if tag == "script" and attributes.get("type") == "application/ld+json":
             self.json_script = True
             self.json_parts = []
@@ -167,20 +157,6 @@ def parse_article(body: bytes, *, stream: str, url: str) -> PmiArticle:
     ):
         raise ValueError("TE PMI article month/phase conflicts with its publication date")
     return PmiArticle(lead, observed, phase, published, modified)
-
-
-def article_urls(body: bytes, *, stream: str) -> tuple[str, ...]:
-    path = STREAM_PATHS[stream]
-    pattern = re.compile(re.escape(BASE_URL + path) + r"/news/\d+\Z")
-    return tuple(
-        sorted(
-            {
-                urljoin(BASE_URL, link)
-                for link in _html(body).links
-                if pattern.fullmatch(urljoin(BASE_URL, link))
-            }
-        )
-    )
 
 
 def request_key(url: str) -> str:
