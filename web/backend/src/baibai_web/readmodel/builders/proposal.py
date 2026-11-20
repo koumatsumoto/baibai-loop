@@ -500,9 +500,7 @@ def _item(
         original = position.original_assessment_ref
         common.update(
             saved_position=_saved_position(position, proposal),
-            original_assessment=(
-                None if original is None else assessment(original.assessment_id)
-            ),
+            original_assessment=(None if original is None else assessment(original.assessment_id)),
             original_investment_reason=position.original_investment_reason,
             original_reason_unavailable_reason=position.original_reason_unavailable_reason,
             case_reassessment_reason=item.case_reassessment_reason,
