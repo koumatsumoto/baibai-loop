@@ -26,6 +26,7 @@ from baibai_engine.machine_analysis.observations.prices.adjusted_prices import r
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.stocks.contracts import MasterSnapshot
 from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
+from baibai_engine.primitives.stocks import sector_33_peer_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,8 +75,11 @@ def prepare_market_context_from_bars(
     sectors: dict[str, list[str]] = {}
     if master is not None:
         for ticker, security in master.securities.items():
-            if security.is_common_stock:
-                sectors.setdefault(security.sector_33, []).append(ticker)
+            if (
+                security.is_common_stock
+                and (sector := sector_33_peer_key(security.sector_33)) is not None
+            ):
+                sectors.setdefault(sector, []).append(ticker)
     benchmark_rows = [
         (bar.traded_at, bar.price)
         for bar in bars_by_ticker.get(benchmark_ticker, ())

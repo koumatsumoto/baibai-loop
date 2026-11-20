@@ -19,6 +19,7 @@ from baibai_engine.machine_analysis.models.market_context.history import trailin
 from baibai_engine.machine_analysis.observations.stocks.contracts import (
     MasterSnapshot,
 )
+from baibai_engine.primitives.stocks import sector_33_peer_key
 
 DEFAULT_HISTORY_WEEKS = 12
 SECURITY_LOOKBACK_CALENDAR_DAYS = 1130
@@ -133,8 +134,8 @@ def _sector_table(
     for ticker, series in series_by_ticker.items():
         if ticker == benchmark_ticker or series.last_date_on(asof_date) != observation_date:
             continue
-        sector = sector_by_ticker.get(ticker)
-        if sector:
+        sector = sector_33_peer_key(sector_by_ticker.get(ticker))
+        if sector is not None:
             grouped.setdefault(sector, []).append(series)
     table: list[dict[str, object]] = []
     for sector, members in grouped.items():
