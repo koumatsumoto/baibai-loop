@@ -5,7 +5,6 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date
-from typing import TYPE_CHECKING, cast
 
 import openpyxl
 import requests
@@ -14,9 +13,6 @@ from baibai_engine.data_collection.catalog import SourceDefinition
 from baibai_engine.data_collection.providers.estat.api import parse_estat_json
 from baibai_engine.data_collection.providers.estat.dashboard import (
     parse_dashboard_json,
-)
-from baibai_engine.data_collection.transport.context import (
-    FetchContext,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
@@ -32,11 +28,6 @@ from tests.helpers.indicator_store import (
     SOURCE_URL,
     series_definition,
 )
-
-if TYPE_CHECKING:
-    # Only the annotation is needed; importing it for real would pull Playwright
-    # onto the import path of the whole suite, which the lazy launch avoids.
-    from baibai_engine.data_collection.transport.browser import BrowserFetcher
 
 
 def _multpl_monthly_table(*, floor: date, latest: date, omit: date | None = None) -> str:
@@ -280,37 +271,6 @@ class _ForbiddenResponse:
 
     def iter_content(self, *, chunk_size: int) -> list[bytes]:
         return [b"<!DOCTYPE html><html><title>Just a moment...</title></html>"]
-
-
-class _FakeBrowserFetcher:
-    """Stands in for the headless browser so a fallback is testable without Playwright.
-
-    Returns whatever bytes it is given rather than only well-formed CSV, so a
-    caller that skips validating the browser's answer is visible in a test.
-    """
-
-    def __init__(self, result: bytes | Exception) -> None:
-        self.result = result
-        self.urls: list[str] = []
-        self.max_bytes: list[int] = []
-
-    def fetch_download(self, url: str, *, max_bytes: int) -> bytes:
-        self.urls.append(url)
-        self.max_bytes.append(max_bytes)
-        if isinstance(self.result, Exception):
-            raise self.result
-        return self.result
-
-    def close(self) -> None:
-        return None
-
-
-def _context_with_browser(browser: _FakeBrowserFetcher) -> FetchContext:
-    """A fetch context whose browser is already the fake, so none is ever launched."""
-
-    context = FetchContext()
-    context._browser = cast("BrowserFetcher", browser)
-    return context
 
 
 class _RecordingSession:
