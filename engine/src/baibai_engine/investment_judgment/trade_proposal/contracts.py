@@ -64,6 +64,7 @@ type PositiveInt = Annotated[int, Field(gt=0)]
 type JsonTuple[T] = Annotated[tuple[T, ...], BeforeValidator(_tuple)]
 type SHA256 = Annotated[NonEmptyStr, Field(pattern=r"^[0-9a-f]{64}$")]
 type RequestScope = Literal["discover_new", "specified_stocks", "review_positions"]
+type EconomicBuyDecision = Literal["price_conditional_allocation"]
 type ProposalAction = Literal["buy", "hold", "sell", "no_action", "defer"]
 type HoldingBasis = Literal["investment_case_intact", "sufficient_remaining_reward"]
 type ConditionalRecovery = Literal["consider_full_recovery", "consider_partial_recovery"]
@@ -291,6 +292,10 @@ class BuyItem(_ProposalItem):
     proposed_limit_yen: PositiveMoney | None = None
     terms_unavailable_reasons: JsonTuple[GateReason] = ()
 
+    economic_decision: EconomicBuyDecision | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+
     @model_validator(mode="after")
     def _terms(self) -> Self:
         _validate_terms_availability(self.terms, self.terms_unavailable_reasons)
@@ -303,6 +308,20 @@ class BuyItem(_ProposalItem):
             self.terms.limit_price_yen,
         ):
             raise ValueError("proposed limit ceiling must match any confirmed buy terms")
+        reasons = tuple(reason.code for reason in self.terms_unavailable_reasons)
+        if self.economic_decision is not None:
+            if self.terms is not None or reasons != ("order_session_unknown",):
+                raise ValueError(
+                    "price-conditional allocation requires only an unconfirmed session"
+                )
+        elif any(
+            code not in {"price_grid_rule_unavailable", "security_classification_unavailable"}
+            for code in reasons
+        ):
+            # 旧署名に新しい経済結論を補わない。当時の形式で保存できた二つの理由だけを読む。
+            raise ValueError(
+                "unmarked buy terms may be unavailable only for price grid or classification"
+            )
         return self
 
 

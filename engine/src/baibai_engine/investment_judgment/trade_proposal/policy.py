@@ -16,12 +16,5 @@ def validate_proposal_policy(proposal: TradeProposalDraft) -> None:
     if sum(item.action == "buy" for item in proposal.items) > MAX_NEW_BUYS:
         raise ProposalError(f"current proposal policy permits at most {MAX_NEW_BUYS} new buy")
     # 初回の新形式を発行する前に、現在稼働中のexact reader・Web・Case完了を確認する。
-    for item in proposal.items:
-        if item.action == "buy" and any(
-            reason.code
-            not in {"price_grid_rule_unavailable", "security_classification_unavailable"}
-            for reason in item.terms_unavailable_reasons
-        ):
-            raise ProposalError(
-                "buy terms may be unavailable only for price grid or classification"
-            )
+    if any(item.action == "buy" and item.economic_decision is not None for item in proposal.items):
+        raise ProposalError("price-conditional allocation publication is not enabled")

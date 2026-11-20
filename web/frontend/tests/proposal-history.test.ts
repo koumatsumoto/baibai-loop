@@ -91,6 +91,7 @@ describe('stock report list and selection', () => {
     expect(buyCard).toContain('提案基準日 2026-11-18')
     expect(card(laterDefer.proposal_id, buy.ticker)).not.toContain('対象取引日')
     expect(card(olderBuy.proposal_id, partialBuyFixture.ticker)).not.toContain('対象取引日')
+    expect(card(olderBuy.proposal_id, partialBuyFixture.ticker)).toContain('買付案（保存時の具体条件なし）')
     expect(card(olderBuy.proposal_id, noAction.ticker)).not.toContain('対象取引日')
     expect(card(holding.proposal_id, sell.ticker)).not.toContain('対象取引日')
     expect(html).not.toContain('1801.0000')
@@ -108,8 +109,12 @@ describe('stock report list and selection', () => {
   it('keeps the later economic buy distinct from the earlier order terms of the same company', () => {
     const conditional = {
       ...partialBuyFixture, ticker: buyFixture.ticker,
+      economic_decision: 'price_conditional_allocation' as const,
       terms_unavailable_reasons: [{ code: 'order_session_unknown', message: '保存時には翌立会を確認できなかった。' }],
     }
+    const legacy = JSON.parse(JSON.stringify(partialBuyFixture))
+    delete legacy.economic_decision
+    expect(proposalActionLabel(legacy)).toBe('買付案（保存時の具体条件なし）')
     const a = { ...older, items: [buyFixture] }
     const b = { ...newer, items: [conditional] }
     const data = view([b, a])

@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from baibai_engine.investment_judgment.trade_proposal.contracts import EconomicBuyDecision
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
     ProposalCorrection,
@@ -356,6 +357,7 @@ class SavedBuyItemView(_SavedProposalItemView):
     terms: SavedLimitTermsView | None
     proposed_limit_yen: str | None
     terms_unavailable_reasons: list[SavedReasonView]
+    economic_decision: EconomicBuyDecision | None = None
     saved_buy_comparison: SavedBuyCapitalComparisonView | None = None
 
 

@@ -527,6 +527,9 @@ def test_terms_absent_buy_keeps_exact_author_limit_without_invented_order_terms(
     _current(payload, pair)
     payload["items"][0].update(
         timing=timing,
+        economic_decision="price_conditional_allocation"
+        if code == "order_session_unknown"
+        else None,
         terms=None,
         proposed_limit_yen="999.1234567890123456789",
         terms_unavailable_reasons=[{"code": code, "message": message}],
@@ -534,6 +537,7 @@ def test_terms_absent_buy_keeps_exact_author_limit_without_invented_order_terms(
     view = project_saved_proposal(TradeProposal.model_validate(payload), {pair.assessment_id: pair})
     item = view.items[0]
     assert item.action == "buy"
+    assert item.economic_decision == payload["items"][0]["economic_decision"]
     assert item.timing == timing
     assert item.terms is None
     assert item.proposed_limit_yen == "999.1234567890123456789"
@@ -557,13 +561,14 @@ def test_unconfirmed_session_exact_read_and_retry_do_not_need_a_current_market(t
     raw["items"][0].update(
         terms=None,
         proposed_limit_yen="1000",
+        economic_decision="price_conditional_allocation",
         terms_unavailable_reasons=[
             {"code": "order_session_unknown", "message": "当時の注文対象立会は未確認。"}
         ],
     )
     signed = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     saved = TradeProposal.model_validate({**signed.payload(), "published_at": PUBLISHED})
-    # Reader-first deployment and writer rollback must both understand the saved newer body.
+    # Synthetic future writer record, not evidence that any such production record exists.
     seed_proposal(case.app, saved)
     before = case.app.read_bytes()
     market = tmp_path / "unavailable.sqlite"
@@ -580,6 +585,7 @@ def test_unconfirmed_session_exact_read_and_retry_do_not_need_a_current_market(t
     assert item.terms is None
     assert item.saved_buy_comparison is None
     assert item.proposed_limit_yen == "1000"
+    assert item.economic_decision == "price_conditional_allocation"
     assert item.terms_unavailable_reasons[0].code == "order_session_unknown"
     assert not market.exists()
     assert case.app.read_bytes() == before
