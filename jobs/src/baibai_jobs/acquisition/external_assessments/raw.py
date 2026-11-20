@@ -29,6 +29,7 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectMetadataReader,
     ObjectStore,
+    R2Error,
 )
 from baibai_jobs.acquisition.external_assessments.identity import (
     RAW_BUNDLE_FORMAT,
@@ -219,7 +220,13 @@ def _read_bundle_bytes(store: ObjectStore, key: str) -> bytes | None:
     retained = retained_key(key)
     if retained == key and isinstance(store, ObjectMetadataReader):
         saved = store.get_bytes_with_metadata(key)
-        return saved[0] if saved is not None else None
+        if saved is not None:
+            return saved[0]
+        # A missing reference is source-local; contradictory/unavailable storage
+        # must abort common integration. Do not retry GET or choose another key.
+        if store.head(key) is not None:
+            raise R2Error("retained external original GET missing despite present HEAD")
+        return None
     # A legacy reference has two locations. Once HEAD chooses one, a failed
     # body read must not silently switch locations.
     if store.head(retained) is not None:
