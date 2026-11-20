@@ -33,6 +33,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ReservationInput,
     SecurityClassification,
     TradeProposal,
+    order_readiness,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
@@ -459,7 +460,9 @@ def _previous_buy_context(
             "as_of": proposal.as_of.isoformat(),
             "published_at": proposal.published_at.isoformat(),
             "assessment_ref": item.assessment_ref.model_dump(mode="json"),
-            "previous_timing": item.timing,
+            "previous_economic_decision": item.economic_decision,
+            "previous_order_readiness": order_readiness(item),
+            "previous_timing": item.timing if item.terms is not None else None,
             "previous_terms": None
             if item.terms is None
             else item.terms.model_dump(
