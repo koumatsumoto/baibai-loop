@@ -71,6 +71,8 @@ from baibai_jobs.publication.jpx_verification import (
 )
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.machine_bundle import read_published_machine
+from baibai_jobs.publication.machine_origin import current_daily_run
+from baibai_jobs.publication.snapshot_publication import daily_external_readback_dir
 from baibai_jobs.publication.tradingview_verification import (
     capture_publication as capture_tradingview_publication,
 )
@@ -463,6 +465,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--group", help="Reissue only this scoped input group")
     parser.add_argument("--lease-handle", type=Path)
     parser.add_argument(
+        "--daily-readback-notice", type=Path, help="reuse this attempt's verified Lake bytes"
+    )
+    parser.add_argument(
         "--quality-output", type=Path, help="Actions step output for the daily check"
     )
     parser.add_argument(
@@ -475,6 +480,30 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _daily_external_readback(
+    notice_path: Path | None, directory: Path, *, bucket: str, generations: dict[str, str]
+) -> Path | None:
+    if notice_path is None:
+        return None
+    try:
+        run = current_daily_run()
+        notice = json.loads(notice_path.read_bytes())
+        if (
+            notice["daily_external_readback"] is not True
+            or notice["models_ready"] is not True
+            or notice["daily_run"] != run
+            or notice["lake"]["release_id"] != generations["lake_release_id"]
+            or notice["lake"]["release_manifest_sha256"] != generations["lake_manifest_sha256"]
+        ):
+            return None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return (
+        daily_external_readback_dir(directory, bucket=bucket, run=run)
+        / generations["lake_manifest_sha256"]
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.group is not None and args.command != "inputs":
@@ -485,6 +514,8 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("--recover-jpx-stage is only valid with plan")
         if args.quality_output and args.command != "check":
             raise ValueError("--quality-output is only valid with check")
+        if args.daily_readback_notice is not None and args.command != "seal":
+            raise ValueError("--daily-readback-notice is only valid with seal")
         directory = args.directory
         if args.command == "check":
             report = json.loads((directory / "applied.json").read_text())
@@ -548,9 +579,8 @@ def main(argv: list[str] | None = None) -> int:
                 with args.quality_output.open("a", encoding="utf-8") as output:
                     print(f"tv_quality_asof={day}", file=output)
             return int(integration_failed)
-        with closing(
-            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-        ) as store:
+        bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+        with closing(Boto3R2Store(bucket=bucket)) as store:
             directory.mkdir(parents=True, exist_ok=True)
             if args.command == "plan":
                 if (directory / "plan.json").exists():
@@ -686,11 +716,18 @@ def main(argv: list[str] | None = None) -> int:
                         generations=generations,
                     )
                 if report.get("external"):
+                    readback_directory = _daily_external_readback(
+                        args.daily_readback_notice,
+                        directory,
+                        bucket=bucket,
+                        generations=generations,
+                    )
                     report["external_results"] = verify_and_seal(
                         store,
                         report["external"],
                         handle=handle,
                         directory=directory / "external-readback",
+                        same_run_readback=readback_directory,
                     )
                 if any(
                     item["entry"]["source"] == "tradingview" and item["applied"]

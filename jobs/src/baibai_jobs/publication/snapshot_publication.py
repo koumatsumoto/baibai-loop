@@ -514,12 +514,18 @@ def prepare_market_lake(
             )
 
 
+def daily_external_readback_dir(directory: Path, *, bucket: str, run: str) -> Path:
+    scope = hashlib.sha256(f"{bucket}\0{run}".encode()).hexdigest()
+    return directory / "external-readback" / scope
+
+
 def publish_prepared_market_lake(
     prepared: PreparedMarketLake,
     *,
     store: ObjectStore,
     before_pointer_switch: Callable[[], None] | None = None,
     verified_readback_root: Path | None = None,
+    retain_verified_readback: Callable[[str, Path], None] | None = None,
 ) -> MarketLakePublishReport:
     """生成に使用したreleaseをそのまま公開する。export/createをやり直さない。"""
     published = publish_release(
@@ -530,6 +536,7 @@ def publish_prepared_market_lake(
         pointer_precondition=prepared.serving.precondition,
         before_pointer_switch=before_pointer_switch,
         verified_readback_root=verified_readback_root,
+        retain_verified_readback=retain_verified_readback,
     )
     target_origin = LakeStoreOrigin(
         release_id=published.release_id,
