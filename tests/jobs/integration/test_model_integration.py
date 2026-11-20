@@ -302,6 +302,44 @@ def test_cli_does_not_implicitly_truncate_growth_history(tmp_path, monkeypatch, 
     assert received == [None if start is None else date.fromisoformat(start)]
 
 
+@pytest.mark.parametrize("ok", [False, True])
+def test_daily_attempt_is_stamped_only_on_a_successful_model_notice(tmp_path, monkeypatch, ok):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv(
+        "GITHUB_WORKFLOW_REF", "owner/repo/.github/workflows/cloud-daily-batch.yml@refs/heads/main"
+    )
+    monkeypatch.setenv("GITHUB_RUN_ID", "12345")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    monkeypatch.setattr(job, "Boto3R2Store", lambda **_: object())
+
+    def integrated(**kwargs):
+        if not ok:
+            raise ValueError("synthetic model failure")
+        return {
+            "models_ready": True,
+            "lake": {"release_id": "fixed", "release_manifest_sha256": "b" * 64},
+        }
+
+    monkeypatch.setattr(job, "integrate_models", integrated)
+    notice = tmp_path / "notice.json"
+    status = job.main(
+        [
+            "--asof",
+            "2026-11-19",
+            "--lease-handle",
+            str(tmp_path / "lease"),
+            "--notice-output",
+            str(notice),
+            "--daily-origin",
+        ]
+    )
+    saved = json.loads(notice.read_bytes())
+    assert (status == 0) is ok
+    assert saved["models_ready"] is ok
+    assert saved.get("daily_run") == ("12345-2" if ok else None)
+
+
 def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, monkeypatch):
     arguments, events = integration
     generate = job.read_and_generate_models

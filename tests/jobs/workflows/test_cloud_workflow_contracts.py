@@ -255,6 +255,8 @@ def test_manual_display_guard_precedes_any_serving_write(
     assert set(workflow["on"]["workflow_dispatch"]["inputs"]) == {
         "market_release_id",
         "market_manifest_sha256",
+        "machine_receipt_sha256",
+        "original_daily_run",
     }
     steps = _steps(workflow, "materialize")
     by_id = {step.get("id", step.get("name")): step for step in steps}
@@ -269,10 +271,15 @@ def test_manual_display_guard_precedes_any_serving_write(
     assert "env" not in validate
     assert (
         validate["if"]
-        == "${{ inputs.market_release_id != '' || inputs.market_manifest_sha256 != '' }}"
+        == "${{ inputs.market_release_id != '' || inputs.market_manifest_sha256 != '' || inputs.original_daily_run != '' || inputs.machine_receipt_sha256 != '' }}"
     )
     assert capture["if"] == "${{ steps.target.outcome == 'success' }}"
     upload = by_id["Upload serving objects"]
+    for step in (validate, capture, upload):
+        assert (
+            '"$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256" "$ORIGINAL_DAILY_RUN" "$MACHINE_RECEIPT_SHA256"'
+            in step["run"]
+        )
     scripts = tmp_path / "jobs/scripts"
     scripts.mkdir(parents=True)
     uv = tmp_path / "uv"
@@ -291,12 +298,16 @@ def test_manual_display_guard_precedes_any_serving_write(
             "RUNNER_TEMP": str(tmp_path),
             "MARKET_RELEASE_ID": target,
             "MARKET_MANIFEST_SHA256": "a" * 64 if target else "",
+            "ORIGINAL_DAILY_RUN": "12345-1" if target else "",
+            "MACHINE_RECEIPT_SHA256": "b" * 64 if target else "",
         },
     )
     assert (result.returncode == 0) is upload_expected
     guard = tmp_path / "guard-ran"
     if target:
         assert "--verify" in guard.read_text()
+        assert "b" * 64 in guard.read_text()
+        assert "12345-1" in guard.read_text()
     else:
         assert not guard.exists()
     assert (tmp_path / "upload-ran").exists() is upload_expected

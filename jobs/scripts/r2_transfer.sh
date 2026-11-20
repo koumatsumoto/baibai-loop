@@ -18,6 +18,7 @@ machine_bundle_keys=(market.sqlite runs.sqlite)
 transfer_staging=""
 evidence_dir=""
 evidence_pending_key=""
+daily_origin=""
 measure_machine_upload=0
 
 cleanup_staging() {
@@ -381,12 +382,15 @@ write_machine_manifest() {
   # statement about what the bucket holds now, so a write landing after this read leaves
   # it merely stale — which the next bundle pull refuses. Values carried forward from
   # the pushes would instead let it claim a generation nobody ever observed together.
-  local key version file first=1
+  local key version file receipt_sha256 first=1
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   file="${transfer_staging}/machine-manifest.json"
   {
     printf '{\n'
     printf '  "schema_version": 1,\n'
+    if [[ -n "${daily_origin}" ]]; then
+      printf '  "daily_publication": %s,\n' "${daily_origin}"
+    fi
     printf '  "written_at_utc": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '  "keys": {\n'
     for key in "${machine_bundle_keys[@]}"; do
@@ -400,6 +404,9 @@ write_machine_manifest() {
     printf '\n  }\n}\n'
   } > "${file}"
   transfer_evidence snapshot_ready "${machine_manifest_key}"
+  # Pin the small receipt bytes actually being offered, not the SQLite bodies.
+  # Print only after a successful PUT so a failed attempt supplies no target.
+  receipt_sha256="$(sha256sum < "$(transfer_body "${machine_manifest_key}")")"
   verify_publication_lease
   if [[ -n "${evidence_dir}" ]]; then
     put_with_evidence "${machine_manifest_key}" ""
@@ -413,7 +420,8 @@ write_machine_manifest() {
   fi
   cleanup_staging
   transfer_staging=""
-  printf 'machine bundle receipt written: %s\n' "${machine_manifest_key}"
+  printf 'machine bundle receipt written: %s machine_receipt_sha256=%s\n' \
+    "${machine_manifest_key}" "${receipt_sha256%% *}"
 }
 
 manifest_recorded_version() {
@@ -815,10 +823,15 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR|--daily-notice FILE]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
-if [[ "${1:-}" == "push-machine" && $# -ne 1 ]]; then
+if [[ "${2:-}" == "--daily-notice" ]]; then
+  [[ "${1:-}" == "push-machine" && $# -eq 3 && -n "$3" ]] || { usage; exit 2; }
+  # Check the producer's successful notice and local lake origin before any remote write.
+  daily_origin="$(cd "${repo_root}" && uv run python -m baibai_jobs.publication.machine_origin "$3")"
+  [[ -n "${daily_origin}" ]] || { printf 'daily machine origin is absent\n' >&2; exit 1; }
+elif [[ "${1:-}" == "push-machine" && $# -ne 1 ]]; then
   [[ $# -eq 3 && "$2" == "--evidence-dir" && -n "$3" ]] || { usage; exit 2; }
   evidence_dir="$3"
   umask 077

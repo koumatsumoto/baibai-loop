@@ -64,6 +64,7 @@ from baibai_jobs.integration.financial_native import model_input as native_finan
 from baibai_jobs.maintenance.model_cache import prune_model_cache
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _load_handle, verify_held
+from baibai_jobs.publication.machine_origin import current_daily_run
 from baibai_jobs.publication.snapshot_publication import (
     prepare_market_lake,
     publish_prepared_market_lake,
@@ -283,6 +284,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lease-handle", type=Path, required=True)
     parser.add_argument("--notice-output", type=Path, required=True)
     parser.add_argument(
+        "--daily-origin",
+        action="store_true",
+        help="bind a successful notice to the current Actions run/attempt",
+    )
+    parser.add_argument(
         "--growth-start",
         type=date.fromisoformat,
         help="optional accounting-period start; omitted retains all available periods",
@@ -299,6 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        publication_run = current_daily_run() if args.daily_origin else None
         edinet_input = None
         if args.integration_report is not None:
             report = json.loads(args.integration_report.read_bytes())
@@ -338,6 +345,8 @@ def main(argv: list[str] | None = None) -> int:
         write_json_atomic(args.notice_output, notice)
         print(f"model integration failed: {type(error).__name__}", file=sys.stderr)
         return 1
+    if publication_run is not None:
+        result["daily_run"] = publication_run
     write_json_atomic(args.notice_output, result)
     print(json.dumps(result, ensure_ascii=False))
     return 0

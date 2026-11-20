@@ -234,6 +234,10 @@ if [[ "$1 $2 $3" == "run python -c" ]]; then
   shift
   exec "$@"
 fi
+if [[ "$1 $2 $3 $4" == "run python -m baibai_jobs.publication.machine_origin" ]]; then
+  shift 3
+  exec python3 -m "$@"
+fi
 if [[ "$*" == *"baibai-jobs snapshots dehydrate"* ]]; then
   printf 'dehydrate %s\\n' "$*" >> "$AWS_LOG"
   while [[ $# -gt 0 ]]; do

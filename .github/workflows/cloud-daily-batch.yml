@@ -203,7 +203,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          args=(--asof "$INTEGRATION_ASOF" --integration-report "$RUNNER_TEMP/integration/applied.json" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" --notice-output "$RUNNER_TEMP/batch-notice.json")
+          args=(--asof "$INTEGRATION_ASOF" --integration-report "$RUNNER_TEMP/integration/applied.json" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" --notice-output "$RUNNER_TEMP/batch-notice.json" --daily-origin)
           if [[ "$PRESERVE_EXISTING_GENERATIONS" == 'true' ]]; then args+=(--preserve-existing-generations); fi
           set +e
           uv run baibai-jobs model-integration "${args[@]}"
@@ -229,7 +229,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           code=0
-          jobs/scripts/r2_transfer.sh push-machine || code=$?
+          jobs/scripts/r2_transfer.sh push-machine --daily-notice "$RUNNER_TEMP/batch-notice.json" || code=$?
           if [[ $code -eq 0 ]]; then
             echo "machine=success" >> "$GITHUB_OUTPUT"
           else
