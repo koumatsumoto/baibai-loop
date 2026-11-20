@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import time
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, replace
 from datetime import (
@@ -12,8 +13,9 @@ from datetime import (
     date,
     datetime,
 )
+from itertools import batched, zip_longest
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from mcp.types import CallToolResult
 
@@ -61,26 +63,32 @@ from baibai_jobs.observability.tradingview import (
 from baibai_jobs.schedule import tradingview_cycle_date, tradingview_observation_window
 
 SOFT_BUDGET_SECONDS = 25 * 60
+FIELD_RETRY_BATCH_SIZE = 25
+RECOVERY_REQUEST_CAP = 6
 BatchFetch = Callable[[list[str], list[str]], Awaitable[CallToolResult]]
 
 
 ProgressHook = Callable[[CollectionProgress], None]
 
 
-def _complete_native_answer(result_json: str, symbols: list[str] | tuple[str, ...]) -> bool:
+def _native_answer(
+    result_json: str, symbols: list[str] | tuple[str, ...]
+) -> Literal["complete", "missing_fields", "unanswered"]:
     try:
         data, _ = account_batch(decode_tool_result(result_json), symbols)
     except (observations_owner.FetchError, BatchAccountingError):
-        return False
-    return all(
+        return "unanswered"
+    if all(
         isinstance(row, dict) and set(observations_owner.COLUMNS) <= row.keys()
         for row in data.values()
-    )
+    ):
+        return "complete"
+    return "missing_fields"
 
 
 def _retained_coverage(
     conn: sqlite3.Connection, day: date, basis: date, expected: set[str], *, business: bool
-) -> set[str]:
+) -> tuple[set[str], Counter[str]]:
     """A complete native answer survives a failed numeric projection.
 
     This checks the actual request and response, not just receipt existence.
@@ -95,6 +103,7 @@ def _retained_coverage(
         )
     ]
     covered: set[str] = set()
+    field_failures: Counter[str] = Counter()
     for receipt in read_tool_results(conn, identities):
         requested = receipt.requested_symbols
         if (
@@ -110,9 +119,33 @@ def _retained_coverage(
             validate_time(day, receipt.received_at_utc, is_business_day=business)
         except observations_owner.FetchError:
             continue
-        if _complete_native_answer(receipt.result_json, requested):
+        answer = _native_answer(receipt.result_json, requested)
+        if answer == "complete":
             covered.update(requested)
-    return covered
+        elif answer == "missing_fields":
+            # The whole receipt is rejected. Its shape can change a future request,
+            # but even apparently valid rows are not coverage until received again.
+            field_failures.update(requested)
+    return covered, field_failures
+
+
+def _request_batches(
+    remaining: list[str], field_failures: Counter[str], batch_size: int
+) -> list[list[str]]:
+    # Split only positive, accounted provider replies with missing fields, never
+    # HTTP/auth or tool errors. Do not recursively bisect into single-symbol retries.
+    retries = sorted((s for s in remaining if s in field_failures), key=field_failures.__getitem__)
+    retry_chunks = batched(retries, min(batch_size, FIELD_RETRY_BATCH_SIZE), strict=False)
+    ordinary_chunks = batched(
+        (s for s in remaining if s not in field_failures), batch_size, strict=False
+    )
+    # A few bad batches at the head of the universe must not monopolize every slot.
+    return [
+        list(chunk)
+        for pair in zip_longest(retry_chunks, ordinary_chunks)
+        for chunk in pair
+        if chunk is not None
+    ]
 
 
 def _snapshot_state(
@@ -122,7 +155,8 @@ def _snapshot_state(
     master_asof: date | None = None,
     now: datetime | None = None,
     master_unavailable: bool = False,
-) -> tuple[list[str] | None, dict[str, object]]:
+    batch_size: int = 50,
+) -> tuple[list[list[str]] | None, dict[str, object]]:
     basis, business = calendar_context(conn, day)
     if master_asof is not None and master_asof != basis:
         raise SourceDataError("Observation master differs from calendar-required exact date")
@@ -178,11 +212,11 @@ def _snapshot_state(
     expected = {symbol.removeprefix("TSE:") for symbol in symbols}
     if not stored <= expected:
         raise SourceDataError("Stored TradingView ticker is outside exact-date universe")
-    native = _retained_coverage(conn, day, basis, set(symbols), business=business)
+    native, field_failures = _retained_coverage(conn, day, basis, set(symbols), business=business)
     missing_projection = {symbol for symbol in symbols if symbol.removeprefix("TSE:") not in stored}
     # L2 rows are not proof of a received request, including legacy partial copies.
     remaining = [symbol for symbol in symbols if symbol not in native]
-    return remaining, {
+    return _request_batches(remaining, field_failures, batch_size), {
         **context,
         **stored_quality(conn, day),
         "status": "needs_fetch"
@@ -238,6 +272,7 @@ async def collect(
     *,
     interval: float = 15.0,
     batch_size: int = 50,
+    recovery_slot: bool = False,
     master_asof: date | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     progress: ProgressHook | None = None,
@@ -249,7 +284,9 @@ async def collect(
     if not 1 <= batch_size <= 50:
         raise ValueError("batch_size must be between 1 and 50")
     if master_asof is not None and (batch_size != 50 or interval < 15):
-        raise ValueError("Manual observations require batches of 50 and at least 15 seconds")
+        raise ValueError(
+            "Manual observations require the standard batch policy and at least 15 seconds"
+        )
     conn = open_connection(path)
     started = timer()
     current: CollectionProgress | None = None
@@ -270,12 +307,12 @@ async def collect(
         return current
 
     try:
-        symbols, prior = _snapshot_state(conn, day, master_asof=master_asof)
+        batches, prior = _snapshot_state(conn, day, master_asof=master_asof, batch_size=batch_size)
         business = bool(prior["is_business_day"])
         validate_time(day, clock(), is_business_day=business)
         if prior["status"] != "needs_fetch":
             return prior
-        if symbols is None:
+        if batches is None:
             raise SourceDataError("Exact-date J-Quants master is unavailable")
         prior_tickers = {
             row[0]
@@ -293,7 +330,7 @@ async def collect(
             day.isoformat(),
             "prepare",
             expected_universe,
-            (len(symbols) + batch_size - 1) // batch_size,
+            len(batches),
             interval_seconds=round(interval, 3),
             master_asof=str(prior["master_asof"]),
         )
@@ -302,8 +339,11 @@ async def collect(
         request_columns = list(observations_owner.COLUMNS)
         basis = date.fromisoformat(str(prior["master_asof"]))
         sql = f"INSERT INTO {TABLE} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})"  # nosec B608
-        for offset in range(0, len(symbols), batch_size):
-            if offset:
+        for index, chunk in enumerate(batches, 1):
+            if recovery_slot and index > RECOVERY_REQUEST_CAP:
+                stop_reason = "recovery_request_cap"
+                break
+            if index > 1:
                 if timer() - started + interval >= SOFT_BUDGET_SECONDS:
                     stop_reason = "soft_budget"
                     break
@@ -317,11 +357,10 @@ async def collect(
                 last_error = exc
                 stop_reason = "time_guard"
                 break
-            chunk = symbols[offset : offset + batch_size]
             current = replace(
                 current,
                 phase="fetch",
-                chunk_index=offset // batch_size + 1,
+                chunk_index=index,
                 chunk_size=len(chunk),
                 requests_attempted=current.requests_attempted + 1,
                 symbols_requested=current.symbols_requested + len(chunk),
@@ -381,7 +420,7 @@ async def collect(
             except observations_owner.ProviderPayloadError as exc:
                 last_error = exc
                 stop_reason = failure_category(exc)
-                if not _complete_native_answer(result_json, chunk):
+                if _native_answer(result_json, chunk) != "complete":
                     consecutive_bad += 1
                     if consecutive_bad >= 3:
                         break

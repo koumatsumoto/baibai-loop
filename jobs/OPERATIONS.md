@@ -511,6 +511,10 @@ schema 51への切替は[#2093](https://github.com/koumatsumoto/baibai-loop/pull
 
 [日次](../.github/workflows/cloud-tradingview-snapshot.yml)は未取得原応答だけを再開する。originals_savedは再GETせずrebuildし、L2だけのcopyでは不足原本を受領して既存L2を保つ。後受領を旧L2の生成元にせず、過去cycleを現在応答で埋めない。cycleは09:00 JST切替、営業日15:30/休日09:00から翌09:00未満。休日の前営業日basisは[master/calendar](#master-native-l1)に従う。
 
+通常枠を時刻別に登録し、共通統合前に少数callの追加枠を置く。cronは実行時刻/回数の保証でなく、遅着も実時計のcycle・観測窓と同じ共有lock・cooldownに従う。追加枠も完了済みなら照会せず、上限到達は部分進捗であって充足ではない。日次全体を再起動しない。
+
+要求銘柄の対応は取れたが必要fieldの欠けた原応答だけは、同cycleの次枠で未充足銘柄を小さいbatchにまとめ直す。拒否の少ない銘柄から未試行等の通常batchと交互に進め、同じ先頭だけで枠を使い切らない。元応答の一部採用や欠落fieldのnull補完はしない。全体に同じ欠落が続けば連続不備で停止し、そのcycleの未取得を残す。原因・受領形の確認が先で、分割はprovider仕様の修正ではない。
+
 必要銘柄/fieldの揃った原応答はL2検証失敗でも保持し後続batchを進める。不足はpartial/診断へ残し、無効応答連続・HTTP/認証・時刻/予算・保存失敗の停止境界を維持する。
 
 receiveはHTTPなしでSDK応答全体/失敗を保存する。同IDは全内容一致の再送だけ、別呼出しは別ID。新受領は共通統合へ渡し、取得copy全体をpushしない。exportには受領時のmaster/calendarを固定したsource-input directoryを渡し、復旧時に最新inputで作り直さない。

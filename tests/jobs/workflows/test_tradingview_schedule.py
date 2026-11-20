@@ -9,8 +9,8 @@ def test_scheduled_slot_uses_actual_jst_day():
     assert resolve_tradingview_target(
         datetime(2026, 9, 28, 12, tzinfo=UTC),
         event_name="schedule",
-        schedule="37 6,8,10,12,14 * * 1-5",
-    ) == (date(2026, 9, 28), "post-close-2h")
+        schedule="37 6 * * 1-5",
+    ) == (date(2026, 9, 28), "post-close")
 
 
 @pytest.mark.parametrize("hour", [0, 1, 7])
@@ -18,8 +18,8 @@ def test_delayed_prior_day_firing_uses_current_day(hour):
     assert resolve_tradingview_target(
         datetime(2026, 9, 29, hour, tzinfo=UTC),
         event_name="schedule",
-        schedule="37 6,8,10,12,14 * * 1-5",
-    ) == (date(2026, 9, 29), "post-close-2h")
+        schedule="37 6 * * 1-5",
+    ) == (date(2026, 9, 29), "post-close")
 
 
 def test_manual_uses_current_day_and_defers_market_close_check_to_preflight():
@@ -39,7 +39,7 @@ def test_explicit_manual_observation_uses_actual_weekend_date_before_close():
         resolve_tradingview_target(
             datetime(2026, 10, 11, 1, tzinfo=UTC),
             event_name="schedule",
-            schedule="37 6,8,10,12,14 * * 1-5",
+            schedule="37 6 * * 1-5",
             manual_observation=True,
         )
 
@@ -47,7 +47,7 @@ def test_explicit_manual_observation_uses_actual_weekend_date_before_close():
 @pytest.mark.parametrize(
     ("now", "event", "cron"),
     [
-        (datetime(2026, 9, 28, 7), "schedule", "37 6,8,10,12,14 * * 1-5"),  # noqa: DTZ001
+        (datetime(2026, 9, 28, 7), "schedule", "37 6 * * 1-5"),  # noqa: DTZ001
         (datetime(2026, 9, 28, 7, tzinfo=UTC), "schedule", "unknown"),
         (datetime(2026, 9, 28, 7, tzinfo=UTC), "push", ""),
     ],
@@ -62,8 +62,8 @@ def test_weekend_candidate_slots_use_actual_day(hour):
     assert resolve_tradingview_target(
         datetime(2026, 10, 11, hour, 37, tzinfo=UTC),
         event_name="schedule",
-        schedule="37 0,4,8 * * 0,6",
-    ) == (date(2026, 10, 11), "rest-day-4h")
+        schedule=f"37 {hour} * * 0,6",
+    ) == (date(2026, 10, 11), "rest-day")
 
 
 def test_before_nine_resumes_previous_cycle_without_backdating_receipt():
@@ -84,14 +84,31 @@ def test_before_nine_resumes_previous_cycle_without_backdating_receipt():
     ],
 )
 def test_late_weekday_slot_retains_unfinished_cycle(instant):
-    assert resolve_tradingview_target(
-        instant, event_name="schedule", schedule="37 6,8,10,12,14 * * 1-5"
-    ) == (date(2026, 11, 2), "post-close-2h")
+    assert resolve_tradingview_target(instant, event_name="schedule", schedule="37 6 * * 1-5") == (
+        date(2026, 11, 2),
+        "post-close",
+    )
 
 
 def test_next_nine_starts_next_cycle_even_if_old_job_wakes_late():
     assert resolve_tradingview_target(
         datetime(2026, 11, 3, 0, 0, tzinfo=UTC),
         event_name="schedule",
-        schedule="37 6,8,10,12,14 * * 1-5",
-    ) == (date(2026, 11, 3), "post-close-2h")
+        schedule="37 6 * * 1-5",
+    ) == (date(2026, 11, 3), "post-close")
+
+
+@pytest.mark.parametrize("cron", ["27 9 * * *", "23 11 * * *"])
+@pytest.mark.parametrize(
+    ("instant", "day"),
+    [
+        (datetime(2026, 11, 2, 11, 45, tzinfo=UTC), date(2026, 11, 2)),
+        (datetime(2026, 11, 2, 23, 59, tzinfo=UTC), date(2026, 11, 2)),
+        (datetime(2026, 11, 3, 0, 1, tzinfo=UTC), date(2026, 11, 3)),
+    ],
+)
+def test_recovery_slot_keeps_small_cap_and_uses_actual_cycle_even_when_delayed(cron, instant, day):
+    assert resolve_tradingview_target(instant, event_name="schedule", schedule=cron) == (
+        day,
+        "gap-recovery",
+    )
