@@ -17,7 +17,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import load_investme
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.readmodel.proposal_models import SavedAssessmentView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.mark.parametrize("action", ["buy", "no_action", "defer"])
@@ -73,7 +73,7 @@ def test_saved_refresh_keeps_remaining_period_distribution_and_exact_prior(tmp_p
     )
 
     before = case.app.read_bytes()
-    item = DbProposalSource(case.app).latest().items[0]
+    item = read_proposal_views(case.app).latest.proposal.items[0]
     view = item.assessment
     assert view.refresh.model_dump(mode="json") == saved.document.refresh.model_dump(mode="json")
     assert view.valuation.horizon_months == 9
@@ -104,7 +104,7 @@ def test_absent_refresh_is_not_filled_from_review_or_valuation(tmp_path, legacy)
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         reviewed_proposal(case, action="no_action")
     )
-    view = DbProposalSource(case.app).latest().items[0].assessment
+    view = read_proposal_views(case.app).latest.proposal.items[0].assessment
     payload = view.model_dump(mode="json")
     if legacy:
         payload.pop("refresh", None)

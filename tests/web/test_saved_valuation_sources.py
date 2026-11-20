@@ -10,7 +10,7 @@ from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, reviewed_p
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.readmodel.proposal_models import SavedValuationProjectionView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.mark.parametrize("action", ["buy", "no_action", "defer"])
@@ -55,7 +55,7 @@ def test_scenario_citations_survive_normal_save_and_exact_read(tmp_path, action)
     )
 
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assessment = view.items[0].assessment
     assert assessment.core_sha256 == saved.core_sha256
     assert assessment.valuation.price_yen == "1100"
@@ -75,7 +75,7 @@ def test_scenario_citations_survive_normal_save_and_exact_read(tmp_path, action)
     assert service.publish(draft) == published
     assert case.app.read_bytes() == before
     case.market.rename(tmp_path / "retained-market.sqlite")
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 

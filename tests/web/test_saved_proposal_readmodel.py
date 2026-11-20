@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
-from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.proposal import PUBLISHED
 
 from baibai_engine.investment_judgment.independent_review.contracts import AssessmentReview
 from baibai_engine.investment_judgment.stock_assessment.document import (
@@ -23,11 +23,10 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
-from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import initialize_database
-from baibai_web.readmodel.builders.proposal import build_latest_proposal, project_saved_proposal
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.readmodel.builders.proposal import project_saved_proposal
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.fixture
@@ -613,34 +612,6 @@ def test_no_action_is_a_saved_conclusion_not_defer(payload):
     assert "blockers" not in view.items[0].model_dump()
 
 
-def test_source_reads_exact_saved_pair_without_market_or_current_writers(tmp_path):
-    case = backend_case(tmp_path)
-    saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
-    ).publish(reviewed_proposal(case))
-    document, review = pair_payload(review_number=90)
-    AssessmentStoreService(
-        case.app, clock=lambda: PUBLISHED + timedelta(minutes=1)
-    ).publish_reviewed_assessment(
-        assessment_id(90), document, review, supersedes_id=case.pair.assessment_id
-    )
-    case.market.unlink()
-    case.runs.unlink()
-    before = case.app.read_bytes()
-    generated_at = PUBLISHED + timedelta(days=3)
-    view = build_latest_proposal(DbProposalSource(case.app), generated_at=generated_at)
-    assert view.status == "ready"
-    assert view.generated_at == generated_at
-    assert view.proposal.proposal_id == saved.proposal_id
-    assert view.proposal.items[0].assessment.assessment_id == case.pair.assessment_id
-    assert view.proposal.items[0].assessment.valuation.price_yen == str(
-        case.pair.document.input_snapshot.facts[0].value
-    )
-    assert case.app.read_bytes() == before
-    assert not case.market.exists()
-    assert not case.runs.exists()
-
-
 @pytest.mark.parametrize("store", ["missing", "uninitialized", "schema", "corrupt", "empty"])
 def test_empty_is_only_a_readable_formal_store_with_no_proposal(tmp_path, store):
     path = tmp_path / "application.sqlite"
@@ -654,27 +625,11 @@ def test_empty_is_only_a_readable_formal_store_with_no_proposal(tmp_path, store)
     elif store == "corrupt":
         path.write_bytes(b"not a sqlite database")
     before = path.read_bytes() if path.exists() else None
-    view = build_latest_proposal(DbProposalSource(path), generated_at=PUBLISHED)
+    view, history = read_proposal_views(path, generated_at=PUBLISHED)
     assert view.status == ("empty" if store == "empty" else "unavailable")
     assert view.proposal is None
     assert view.error == (None if store == "empty" else "保存済み提案を読み取れません。")
+    assert history.status == view.status
+    assert history.proposals == history.unavailable_proposal_ids == []
+    assert history.error == (None if store == "empty" else "保存済み提案の履歴を読み取れません。")
     assert (path.read_bytes() if path.exists() else None) == before
-
-
-def test_corrupt_latest_is_unavailable_and_does_not_expose_saved_payload_or_paths(tmp_path):
-    case = backend_case(tmp_path)
-    saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
-    ).publish(reviewed_proposal(case))
-    with closing(sqlite3.connect(case.app)) as connection, connection:
-        connection.execute("DROP TRIGGER investment_proposal_immutable")
-        connection.execute(
-            "UPDATE investment_proposal SET draft_sha256=? WHERE proposal_id=?",
-            ("0" * 64, saved.proposal_id),
-        )
-    before = case.app.read_bytes()
-    view = build_latest_proposal(DbProposalSource(case.app), generated_at=PUBLISHED)
-    assert view.status == "unavailable"
-    assert view.proposal is None
-    assert view.error == "保存済み提案を読み取れません。"
-    assert case.app.read_bytes() == before

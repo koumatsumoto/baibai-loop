@@ -13,9 +13,8 @@ from baibai_engine.storage.paths import (
 )
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.outcomes import build_outcomes
-from baibai_web.readmodel.builders.proposal import build_latest_proposal, build_proposal_history
 from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 def export_read_models(root: Path, output_dir: Path) -> list[Path]:
@@ -25,11 +24,14 @@ def export_read_models(root: Path, output_dir: Path) -> list[Path]:
     market = DbMarketSource(market_path)
     # Build every view before replacing artifacts. Optional display sources may be
     # unavailable; builders retain the independent facts and expose missing sections.
+    dashboard = build_dashboard(ledger, market)
+    outcomes = build_outcomes(app)
+    latest, history = read_proposal_views(app)
     views = {
-        "portfolio-dashboard": build_dashboard(ledger, market),
-        "outcomes": build_outcomes(app),
-        "latest-proposal": build_latest_proposal(DbProposalSource(app)),
-        "proposal-history": build_proposal_history(DbProposalSource(app)),
+        "portfolio-dashboard": dashboard,
+        "outcomes": outcomes,
+        "latest-proposal": latest,
+        "proposal-history": history,
     }
     directory = output_dir / "views"
     directory.mkdir(parents=True, exist_ok=True)
