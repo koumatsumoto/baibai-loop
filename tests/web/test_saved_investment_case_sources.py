@@ -10,7 +10,7 @@ from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, reviewed_p
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.readmodel.proposal_models import SavedAssessmentView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.mark.parametrize("action", ["buy", "no_action", "defer"])
@@ -53,7 +53,7 @@ def test_normal_saved_case_keeps_dedicated_sources_and_clocks_without_current_re
     )
 
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assessment = view.items[0].assessment
     raw = assessment.model_dump(mode="json")
     assert raw.get("investment_case_source_ids") == ["case-only", "annual"]
@@ -86,7 +86,7 @@ def test_normal_saved_case_keeps_dedicated_sources_and_clocks_without_current_re
     assert service.publish(draft) == published
     assert case.app.read_bytes() == before
     case.market.rename(tmp_path / "unused-market.sqlite")
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -96,7 +96,7 @@ def test_old_display_does_not_infer_case_sources_from_other_sections(tmp_path, m
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         reviewed_proposal(case)
     )
-    raw = DbProposalSource(case.app).latest().items[0].assessment.model_dump(mode="json")
+    raw = read_proposal_views(case.app).latest.proposal.items[0].assessment.model_dump(mode="json")
     raw["investment_case_source_ids"] = None
     raw["investment_case_sources"] = None
     if mode == "absent":

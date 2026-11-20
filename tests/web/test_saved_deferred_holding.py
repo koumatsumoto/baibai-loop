@@ -7,7 +7,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProp
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
 from baibai_web.readmodel.proposal_models import SavedDeferItemView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 def _saved(case, *, unreviewed=False):
@@ -35,7 +35,7 @@ def test_normal_holding_defer_keeps_saved_position_without_becoming_hold_or_orde
         case.market.rename(tmp_path / "removed-market.sqlite")
     service, draft, saved = _saved(case, unreviewed=unreviewed)
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     item = view.items[0]
     position = item.model_dump(mode="json").get("saved_position")
     assert position == {
@@ -63,7 +63,7 @@ def test_normal_holding_defer_keeps_saved_position_without_becoming_hold_or_orde
     )
     if case.market.exists():
         case.market.rename(tmp_path / "removed-market.sqlite")
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -88,7 +88,7 @@ def test_holding_defer_does_not_invent_missing_position_or_borrow_another_ticker
 def test_new_research_defer_does_not_infer_holding_from_price_or_valuation(tmp_path):
     case = backend_case(tmp_path, valuation_unresolved=True)
     _service, _draft, saved = _saved(case)
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assert saved.research_scope.targets[0].purpose == "new"
     assert view.items[0].model_dump(mode="json").get("saved_position") is None
     assert view.items[0].saved_quote is not None
@@ -114,7 +114,7 @@ def test_new_research_defer_does_not_infer_holding_from_price_or_valuation(tmp_p
 def test_old_defer_display_remains_unrecorded_not_zero_or_confirmed(tmp_path, mode):
     case = backend_case(tmp_path, holding=True, valuation_unresolved=True)
     _saved(case)
-    raw = DbProposalSource(case.app).latest().items[0].model_dump(mode="json")
+    raw = read_proposal_views(case.app).latest.proposal.items[0].model_dump(mode="json")
     raw["saved_position"] = None
     if mode == "absent":
         raw.pop("saved_position")

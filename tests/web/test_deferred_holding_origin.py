@@ -21,13 +21,9 @@ from baibai_engine.investment_judgment.stock_assessment.store import AssessmentS
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_web.readmodel.builders.proposal import (
-    build_latest_proposal,
-    build_proposal_history,
-    project_saved_proposal,
-)
+from baibai_web.readmodel.builders.proposal import project_saved_proposal
 from baibai_web.readmodel.proposal_models import SavedDeferItemView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 DEFER_ID = "investment-proposal-00000000-0000-4000-8000-000000000021"
 
@@ -110,7 +106,7 @@ def test_normal_saved_defer_keeps_exact_original_thesis_separate_from_current(
         assessment_id(30), document, review, supersedes_id=current.assessment_id
     )
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     item = view.items[0]
     origin = item.model_dump(mode="json").get("saved_holding_origin")
     assert origin is not None
@@ -144,7 +140,7 @@ def test_normal_saved_defer_keeps_exact_original_thesis_separate_from_current(
         "baibai_engine.investment_judgment.trade_proposal.inputs.collect_proposal_inputs",
         lambda *_a, **_k: pytest.fail("not a current input read"),
     )
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -175,11 +171,10 @@ def test_broken_stored_origin_is_unavailable_not_an_optional_display_gap(
                 (original.assessment_id,),
             )
     before = case.app.read_bytes()
-    latest = build_latest_proposal(DbProposalSource(case.app), generated_at=NOW)
+    latest, history = read_proposal_views(case.app, generated_at=NOW)
     assert latest.status == "unavailable"
     assert latest.proposal is None
     assert latest.error == "保存済み提案を読み取れません。"
-    history = build_proposal_history(DbProposalSource(case.app), generated_at=NOW)
     assert saved.proposal_id in history.unavailable_proposal_ids
     assert all(row.proposal_id != saved.proposal_id for row in history.proposals)
     for view in (latest, history):
@@ -191,13 +186,8 @@ def test_normal_unlinked_holding_defer_preserves_recorded_reason_unavailability(
     case = backend_case(tmp_path, holding=True, valuation_unresolved=True)
     _service, _draft, saved = _saved(case, unreviewed=True)
     before = case.app.read_bytes()
-    origin = (
-        DbProposalSource(case.app)
-        .latest()
-        .items[0]
-        .model_dump(mode="json")
-        .get("saved_holding_origin")
-    )
+    view = read_proposal_views(case.app).latest.proposal
+    origin = view.items[0].model_dump(mode="json").get("saved_holding_origin")
     assert origin == {
         "assessment_ref": None,
         "assessment": None,
@@ -259,7 +249,7 @@ def test_origin_is_only_the_same_saved_holding_not_another_ticker_or_scope(tmp_p
 def test_old_defer_payload_does_not_backfill_original_reason(tmp_path, mode):
     case = backend_case(tmp_path, holding=True, valuation_unresolved=True)
     _saved(case)
-    raw = DbProposalSource(case.app).latest().items[0].model_dump(mode="json")
+    raw = read_proposal_views(case.app).latest.proposal.items[0].model_dump(mode="json")
     raw["saved_holding_origin"] = None
     if mode == "absent":
         raw.pop("saved_holding_origin")

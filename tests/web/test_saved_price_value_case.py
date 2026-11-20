@@ -11,7 +11,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalE
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 def bind_finding(case, status, *, condition=None, last_acquisition="not_time_limited"):
@@ -106,7 +106,7 @@ def test_price_only_bound_is_not_a_text_hint_or_automatic_order(tmp_path):
         service(case).publish(invalid)
     saved = service(case).publish(buy_at(case, 750, 750))
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest().items[0]
+    view = read_proposal_views(case.app).latest.proposal.items[0]
     finding = view.assessment.price_value_case
     assert view.action == "buy"
     assert view.terms.limit_price_yen == "750"
@@ -150,7 +150,7 @@ def test_missing_research_or_a_text_only_price_never_becomes_an_order(
     assert buy["maximum_price_yen"] is None
     assert reason in {b["code"] for b in buy["hard_blockers"]}
     service(case).publish(reviewed_proposal(case, action="defer"))
-    view = DbProposalSource(case.app).latest().items[0]
+    view = read_proposal_views(case.app).latest.proposal.items[0]
     assert view.assessment.price_value_case.status == status
     assert view.action == "defer"
 
@@ -179,7 +179,7 @@ def test_inadequate_cash_changes_allocation_not_the_reviewed_per_share_finding(t
     assert row["quantity"] == 0
     assert "available_cash_below_board_lot" in {b["code"] for b in row["hard_blockers"]}
     service(case).publish(reviewed_proposal(case, action="no_action"))
-    view = DbProposalSource(case.app).latest().items[0]
+    view = read_proposal_views(case.app).latest.proposal.items[0]
     assert view.action == "no_action"
     assert view.assessment.price_value_case.status == "supported_at_quote"
 
@@ -212,7 +212,7 @@ def test_next_order_session_controls_entitlement_not_unchanged_quote_or_payment_
     preview = preview_current_terms(
         proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
     ).payload()["items"][0]
-    record = DbProposalSource(case.app).latest().items[0].assessment.price_value_case
+    record = read_proposal_views(case.app).latest.proposal.items[0].assessment.price_value_case
     assert record.status == "supported_at_quote"
     assert (
         record.acquisition_limit.model_dump(mode="json")["last_eligible_trade_date"]

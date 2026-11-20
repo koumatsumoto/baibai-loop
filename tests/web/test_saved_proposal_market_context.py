@@ -18,7 +18,7 @@ from baibai_engine.investment_judgment.workflow.operation.progress import select
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import saved_market_assessment
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.mark.parametrize("action", ["no_action", "defer"])
@@ -42,7 +42,9 @@ def test_saved_final_comparison_retains_market_countercase_and_original_clocks(t
     runs.rename(tmp_path / "unused-runs.sqlite")
     case.market.rename(tmp_path / "unused-market.sqlite")
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    latest, history = read_proposal_views(case.app)
+    view = latest.proposal
+    assert view is not None
     market = view.model_dump(mode="json").get("saved_market_context")
     assert market == {
         "source": "proposal_fixed_selection",
@@ -56,7 +58,7 @@ def test_saved_final_comparison_retains_market_countercase_and_original_clocks(t
     assert view.items[0].action == action
     if action == "defer":
         assert view.items[0].assessment is None
-    assert DbProposalSource(case.app).history().proposals == (view,)
+    assert history.proposals == [view]
     with closing(connect_read_only(case.app)) as connection:
         assert load_investment_proposal(connection, proposal.proposal_id) == proposal
     assert case.app.read_bytes() == before
@@ -66,7 +68,7 @@ def test_not_recorded_at_selection_is_not_replaced_by_later_market_head(tmp_path
     case, proposal, _runs, _ = _case(tmp_path, market=False)
     AssessmentService(case.app).publish(_market_document(), expected_head=None)
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assert view.saved_market_context.status == "not_recorded"
     assert view.saved_market_context.assessment is None
     assert view.items[0].assessment.assessment_id == proposal.items[0].assessment_ref.assessment_id
@@ -99,7 +101,7 @@ def test_optional_fixed_market_failure_does_not_erase_the_saved_judgment(tmp_pat
                 (json.dumps(payload), case.operation.operation_id),
             )
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assert view.items[0].assessment.estimated_model_chart is None
     assert view.saved_market_context.status == "unavailable"
     assert (
@@ -132,12 +134,12 @@ def test_old_market_clock_is_not_backfilled_and_returned_value_is_detached(tmp_p
             )
         case, proposal, _runs, _ = _case(tmp_path)
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     expected = saved_market_assessment(selection_binding(case.operation.payload))
     assert view.saved_market_context.assessment == expected
     assert "known_at" not in view.saved_market_context.assessment
     view.saved_market_context.assessment["counter_evidence"].clear()
-    assert DbProposalSource(case.app).latest().saved_market_context.assessment == expected
+    assert read_proposal_views(case.app).latest.proposal.saved_market_context.assessment == expected
     with closing(connect_read_only(case.app)) as connection:
         assert load_investment_proposal(connection, proposal.proposal_id) == proposal
     assert case.app.read_bytes() == before
@@ -148,7 +150,7 @@ def test_older_readmodel_payload_does_not_invent_market_evidence(tmp_path, old):
     from baibai_web.readmodel.proposal_models import SavedProposalView
 
     case, _proposal, _runs, _ = _case(tmp_path)
-    payload = DbProposalSource(case.app).latest().model_dump(mode="json")
+    payload = read_proposal_views(case.app).latest.proposal.model_dump(mode="json")
     if old == "absent":
         del payload["saved_market_context"]
     else:
@@ -190,7 +192,7 @@ def test_only_fixed_artifact_identity_not_current_checkpoint_controls_market_rea
             (json.dumps(payload), case.operation.operation_id),
         )
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     if duplicate:
         assert view.saved_market_context.status == "unavailable"
         assert view.saved_market_context.reason == "selection_unreadable"
@@ -233,9 +235,10 @@ def test_issuer_label_survives_without_live_master_and_does_not_create_an_assess
     )
     runs.rename(tmp_path / "unused-runs.sqlite")
     case.market.rename(tmp_path / "unused-market.sqlite")
-    source = DbProposalSource(case.app)
-    viewed = source.latest().items[0]
-    assert source.history().proposals[0].items[0] == viewed
+    latest, history = read_proposal_views(case.app)
+    assert latest.proposal is not None
+    viewed = latest.proposal.items[0]
+    assert history.proposals[0].items[0] == viewed
     if unfinished:
         assert (viewed.company_name, viewed.sector) == ("当時の親会社", "合成業種")
         assert viewed.unfinished is not None

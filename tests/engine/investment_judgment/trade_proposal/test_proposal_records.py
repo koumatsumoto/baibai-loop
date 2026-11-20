@@ -24,7 +24,7 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 B = "investment-proposal-00000000-0000-4000-8000-000000000004"
 C = "investment-proposal-00000000-0000-4000-8000-000000000005"
@@ -99,7 +99,7 @@ def test_correction_report_serving_and_preview_preserve_originals_and_ledger(rec
     assert snapshot(case.app) == before
     with closing(connect_read_only(case.app)) as c:
         assert load_latest_investment_proposal(c).proposal_id == a.proposal_id
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assert view.proposal_id == a.proposal_id
     assert view.published_at == a.published_at
     assert view.items[0].terms.limit_price_yen == "1000"
@@ -159,7 +159,7 @@ def test_human_report_reads_order_by_receipt_instant_without_changing_saved_reco
     assert records["corrections"] == [corrected.model_dump(mode="json")]
     # A retry after later receipts retains its original receipt, even with an older clock.
     assert service.report(drafts["report-late"]) == saved["report-late"]
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     assert view.proposal_id == a.proposal_id
     assert view.human_reports == [saved[report_id] for report_id in expected]
     assert view.corrections == [corrected]
@@ -231,7 +231,7 @@ def test_later_unrelated_proposal_remains_latest(records_case):
     with pytest.raises(ProposalConflictError, match="latest changed"):
         service.correct(draft, expected_latest_ref=ref(b))
     service.correct(draft, expected_latest_ref=ref(p))
-    assert DbProposalSource(case.app).latest().proposal_id == C
+    assert read_proposal_views(case.app).latest.proposal.proposal_id == C
 
 
 def test_exact_refs_duplicates_cycles_chains_and_immutable(records_case):

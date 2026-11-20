@@ -5,8 +5,10 @@ from contextlib import closing
 from datetime import UTC, timedelta
 
 import pytest
+from tests.helpers.assessment_v1 import assessment_id, pair_payload
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 
+from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.contracts import proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     ProposalCorrectionDraft,
@@ -14,9 +16,8 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_engine.storage.sqlite.application.write import initialize_database
-from baibai_web.readmodel.builders.proposal import build_proposal_history
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources import proposal as proposal_source
+from baibai_web.sources.proposal import read_proposal_views
 
 SECOND = "investment-proposal-00000000-0000-4000-8000-000000000004"
 
@@ -34,12 +35,34 @@ def _two_publications(tmp_path):
     return case, first, second
 
 
-def test_history_preserves_each_publication_exact_pair_and_saved_identity(tmp_path):
+def test_history_preserves_each_publication_exact_pair_and_saved_identity(tmp_path, mocker):
     case, first, second = _two_publications(tmp_path)
+    document, review = pair_payload(review_number=90)
+    AssessmentStoreService(
+        case.app, clock=lambda: PUBLISHED + timedelta(hours=2)
+    ).publish_reviewed_assessment(
+        assessment_id(90), document, review, supersedes_id=case.pair.assessment_id
+    )
     before = case.app.read_bytes()
-    # No current market data, recreated judgment or ticker-level overwrite is necessary.
+    # Re-read the published pair, not the later review, even without live stores.
     case.market.unlink()
-    view = build_proposal_history(DbProposalSource(case.app), generated_at=PUBLISHED)
+    case.runs.unlink()
+    connect = mocker.spy(proposal_source, "connect_read_only")
+    records = mocker.spy(proposal_source, "ProposalRecordReader")
+    project = mocker.spy(proposal_source, "_project")
+    latest, view = read_proposal_views(case.app, generated_at=PUBLISHED)
+    assert connect.call_count == records.call_count == 1
+    assert [call.args[1] for call in project.call_args_list] == sorted(
+        [first.proposal_id, second.proposal_id]
+    )
+    assert project.call_args_list[0].args[0] is project.call_args_list[1].args[0]
+    assert latest.status == "ready"
+    assert latest.proposal == view.proposals[0]
+    assert latest.generated_at == view.generated_at == PUBLISHED
+    assert latest.proposal is not None
+    assert latest.proposal.items[0].assessment.valuation.price_yen == str(
+        case.pair.document.input_snapshot.facts[0].value
+    )
     assert view.status == "ready"
     assert [row.proposal_id for row in view.proposals] == [second.proposal_id, first.proposal_id]
     assert [row.items[0].ticker for row in view.proposals] == ["1234", "1234"]
@@ -52,6 +75,7 @@ def test_history_preserves_each_publication_exact_pair_and_saved_identity(tmp_pa
     assert view.proposals[1].items[0].terms.limit_price_yen == "1000"
     assert case.app.read_bytes() == before
     assert not case.market.exists()
+    assert not case.runs.exists()
 
 
 def test_history_keeps_corrected_original_visible_with_its_correction(tmp_path):
@@ -71,9 +95,10 @@ def test_history_keeps_corrected_original_visible_with_its_correction(tmp_path):
         ),
         expected_latest_ref=ref(second),
     )
-    source = DbProposalSource(case.app)
-    assert source.latest().proposal_id == first.proposal_id
-    view = build_proposal_history(source)
+    latest, view = read_proposal_views(case.app)
+    assert latest.status == "ready"
+    assert latest.proposal is not None
+    assert latest.proposal.proposal_id == first.proposal_id
     assert [row.proposal_id for row in view.proposals] == [second.proposal_id, first.proposal_id]
     assert all(row.corrections == [record] for row in view.proposals)
 
@@ -85,8 +110,9 @@ def test_broken_shared_correction_does_not_lose_the_unreadable_ids(tmp_path):
             "INSERT INTO proposal_correction VALUES (?,?,?,?,?)",
             ("broken", second.proposal_id, first.proposal_id, PUBLISHED.isoformat(), "{}"),
         )
-    history = build_proposal_history(DbProposalSource(case.app))
-    assert history.status == "unavailable"
+    latest, history = read_proposal_views(case.app)
+    assert latest.status == history.status == "unavailable"
+    assert latest.proposal is None
     assert history.proposals == []
     assert history.unavailable_proposal_ids == sorted([first.proposal_id, second.proposal_id])
 
@@ -106,7 +132,11 @@ def test_damaged_publication_does_not_hide_other_reports_or_claim_full_history(
                 ("0" * 64, proposal_id),
             )
     before = case.app.read_bytes()
-    view = build_proposal_history(DbProposalSource(case.app))
+    latest, view = read_proposal_views(case.app)
+    assert latest.status == "unavailable"
+    assert latest.proposal is None
+    assert latest.error == "保存済み提案を読み取れません。"
+    assert str(case.app) not in latest.model_dump_json()
     assert view.status == ("unavailable" if damage_all else "partial")
     assert [row.proposal_id for row in view.proposals] == (
         [] if damage_all else [first.proposal_id]
@@ -119,15 +149,17 @@ def test_damaged_publication_does_not_hide_other_reports_or_claim_full_history(
     assert case.app.read_bytes() == before
 
 
-@pytest.mark.parametrize("state", ["empty", "missing", "broken"])
-def test_empty_history_is_not_read_failure(tmp_path, state):
-    app = tmp_path / "app.sqlite"
-    if state == "empty":
-        initialize_database(app)
-    elif state == "broken":
-        app.write_bytes(b"not a sqlite database")
-    view = build_proposal_history(DbProposalSource(app))
-    assert view.status == ("empty" if state == "empty" else "unavailable")
-    assert not view.proposals
-    assert not view.unavailable_proposal_ids
-    assert (view.error is None) == (state == "empty")
+def test_history_index_failure_still_projects_the_selected_publication_once(tmp_path, mocker):
+    case, _, second = _two_publications(tmp_path)
+    mocker.patch.object(
+        proposal_source, "published_proposal_ids", side_effect=sqlite3.OperationalError("private")
+    )
+    project = mocker.spy(proposal_source, "_project")
+    latest, history = read_proposal_views(case.app, generated_at=PUBLISHED)
+    assert latest.status == "ready"
+    assert latest.proposal is not None
+    assert latest.proposal.proposal_id == second.proposal_id
+    assert project.call_count == 1
+    assert history.status == "unavailable"
+    assert history.proposals == history.unavailable_proposal_ids == []
+    assert "private" not in history.model_dump_json()

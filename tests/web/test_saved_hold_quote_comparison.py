@@ -13,7 +13,7 @@ from baibai_engine.investment_judgment.stock_assessment.store import AssessmentS
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
 from baibai_web.readmodel.proposal_models import SavedHoldItemView
-from baibai_web.sources.proposal import DbProposalSource
+from baibai_web.sources.proposal import read_proposal_views
 
 
 def _draft(case, *, sufficient=True):
@@ -39,7 +39,7 @@ def test_normal_hold_quote_return_differs_from_original_assessment_price(tmp_pat
     assert check.valid
     saved = service.publish(draft)
     before = case.app.read_bytes()
-    view = DbProposalSource(case.app).latest()
+    view = read_proposal_views(case.app).latest.proposal
     item = view.items[0]
     comparison = item.model_dump(mode="json").get("saved_hold_quote_comparison")
     assert comparison is not None
@@ -64,7 +64,7 @@ def test_normal_hold_quote_return_differs_from_original_assessment_price(tmp_pat
     assert service.publish(draft) == saved
     assert case.app.read_bytes() == before
     case.market.rename(tmp_path / "unused-market.sqlite")
-    assert DbProposalSource(case.app).latest() == view
+    assert read_proposal_views(case.app).latest.proposal == view
     assert case.app.read_bytes() == before
 
 
@@ -72,7 +72,7 @@ def test_intact_only_hold_does_not_upgrade_to_sufficient(tmp_path):
     case = backend_case(tmp_path, holding=True)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     service.publish(_draft(case, sufficient=False))
-    item = DbProposalSource(case.app).latest().items[0]
+    item = read_proposal_views(case.app).latest.proposal.items[0]
     assert item.model_dump(mode="json")["saved_hold_quote_comparison"] is None
     assert item.holding_basis == "investment_case_intact"
     assert item.remaining_reward is None
@@ -94,7 +94,7 @@ def test_normal_hold_with_unavailable_calculation_stays_unknown(tmp_path, unavai
     raw["items"][0]["return_calculation_unavailable_reason"] = unavailable
     draft = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(draft)
-    item = DbProposalSource(case.app).latest().items[0]
+    item = read_proposal_views(case.app).latest.proposal.items[0]
     assert item.model_dump(mode="json")["saved_hold_quote_comparison"] is None
     assert item.return_calculation_unavailable_reason == unavailable
     assert item.holding_basis == "investment_case_intact"
@@ -139,7 +139,7 @@ def test_old_json_and_later_assessment_do_not_replace_saved_hold(tmp_path):
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         _draft(case)
     )
-    first = DbProposalSource(case.app).latest()
+    first = read_proposal_views(case.app).latest.proposal
     raw = first.items[0].model_dump(mode="json")
     raw.pop("saved_hold_quote_comparison", None)
     assert SavedHoldItemView.model_validate(raw).saved_hold_quote_comparison is None
@@ -150,6 +150,6 @@ def test_old_json_and_later_assessment_do_not_replace_saved_hold(tmp_path):
         assessment_id(2), document, review, supersedes_id=case.pair.assessment_id
     )
     before = case.app.read_bytes()
-    assert DbProposalSource(case.app).latest() == first
+    assert read_proposal_views(case.app).latest.proposal == first
     assert first.items[0].assessment.assessment_id == case.pair.assessment_id
     assert case.app.read_bytes() == before

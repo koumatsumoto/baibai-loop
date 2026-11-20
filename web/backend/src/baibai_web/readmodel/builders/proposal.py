@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Mapping
-from datetime import datetime
 from decimal import Decimal
 
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
@@ -25,10 +23,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
 )
 from baibai_engine.primitives.numbers import finite_decimal
-from baibai_engine.primitives.time import JST
 from baibai_web.readmodel.proposal_models import (
-    LatestProposalView,
-    ProposalHistoryView,
     SavedAssessmentRefreshView,
     SavedAssessmentRefView,
     SavedAssessmentReviewView,
@@ -70,56 +65,6 @@ from baibai_web.readmodel.proposal_models import (
     SavedValueRealizationView,
     UnfinishedResearchView,
 )
-from baibai_web.sources.protocols import ProposalHistorySource, ProposalSource
-
-
-def build_latest_proposal(
-    source: ProposalSource, *, generated_at: datetime | None = None
-) -> LatestProposalView:
-    now = generated_at if generated_at is not None else datetime.now(JST)
-    try:
-        proposal = source.latest()
-    except (OSError, ValueError, RuntimeError, sqlite3.Error):
-        # A damaged or missing store is not an empty publication set. Do not
-        # expose paths, SQL or saved payload fragments from reader exceptions.
-        return LatestProposalView(
-            generated_at=now,
-            status="unavailable",
-            error="保存済み提案を読み取れません。",
-            proposal=None,
-        )
-    return LatestProposalView(
-        generated_at=now,
-        status="empty" if proposal is None else "ready",
-        error=None,
-        proposal=proposal,
-    )
-
-
-def build_proposal_history(
-    source: ProposalHistorySource, *, generated_at: datetime | None = None
-) -> ProposalHistoryView:
-    now = generated_at if generated_at is not None else datetime.now(JST)
-    try:
-        history = source.history()
-    except (OSError, ValueError, RuntimeError, sqlite3.Error):
-        return ProposalHistoryView(
-            generated_at=now,
-            status="unavailable",
-            error="保存済み提案の履歴を読み取れません。",
-            proposals=[],
-            unavailable_proposal_ids=[],
-        )
-    missing = history.unavailable_proposal_ids
-    return ProposalHistoryView(
-        generated_at=now,
-        status=("partial" if history.proposals else "unavailable")
-        if missing
-        else ("ready" if history.proposals else "empty"),
-        error="一部の保存済み提案を読み取れません。" if missing else None,
-        proposals=list(history.proposals),
-        unavailable_proposal_ids=list(missing),
-    )
 
 
 def _holding_origin(
