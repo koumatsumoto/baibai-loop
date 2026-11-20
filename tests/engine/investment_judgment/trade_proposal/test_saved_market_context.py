@@ -100,7 +100,11 @@ def _prepare(tmp_path, *, market_document=None):
 
 def _context(app, market, operation):
     return build_proposal_context(
-        operation_id=operation.operation_id, db_path=app, sqlite_path=market, now=PREPARED
+        proposal_id=PROPOSAL_ID,
+        operation_id=operation.operation_id,
+        db_path=app,
+        sqlite_path=market,
+        now=PREPARED,
     )
 
 
@@ -167,15 +171,9 @@ def test_legacy_projection_keeps_unrecorded_cutoff_and_draft_unchanged(tmp_path,
     context = _context(app, market, operation)
     assert context.payload()["saved_market_context_assessment"] == expected
     assert "known_at" not in context.payload()["saved_market_context_assessment"]
-    draft = scaffold_proposal(
-        operation_id=operation.operation_id,
-        proposal_id=PROPOSAL_ID,
-        db_path=app,
-        sqlite_path=market,
-        now=PREPARED,
-    )
+    draft = scaffold_proposal(context)
     assert "saved_market_context_assessment" not in draft
     assert draft["market_context_assessment_id"] == expected["context_id"]
-    assert draft["items"][0]["action"] == "defer"
-    assert draft["review"]["draft_sha256"] == "0" * 64
+    assert draft["items"][0]["action"] is None
+    assert draft["review"] is None
     assert app.read_bytes() == before

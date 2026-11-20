@@ -8,6 +8,7 @@ import pytest
 from tests.engine.investment_judgment.stock_assessment.test_stock_assessment import ratio_pair
 from tests.helpers.assessment_v1 import assessment_id, review_id, update_review_hash
 from tests.helpers.proposal import (
+    PROPOSAL_ID,
     PUBLISHED,
     backend_case,
     bind_review,
@@ -194,6 +195,7 @@ def test_legacy_exact_retry_survives_but_context_and_preview_do_not_reapply_arit
     assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
     assert _service(case).publish(draft) == saved
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,

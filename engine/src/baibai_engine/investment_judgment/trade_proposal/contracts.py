@@ -63,6 +63,7 @@ type NonnegativeMoney = Annotated[Money, Field(ge=0)]
 type PositiveInt = Annotated[int, Field(gt=0)]
 type JsonTuple[T] = Annotated[tuple[T, ...], BeforeValidator(_tuple)]
 type SHA256 = Annotated[NonEmptyStr, Field(pattern=r"^[0-9a-f]{64}$")]
+type ProposalId = Annotated[NonEmptyStr, Field(pattern=rf"^investment-proposal-{_UUID_PATTERN}$")]
 type RequestScope = Literal["discover_new", "specified_stocks", "review_positions"]
 type EconomicBuyDecision = Literal["price_conditional_allocation"]
 type ProposalAction = Literal["buy", "hold", "sell", "no_action", "defer"]
@@ -501,7 +502,7 @@ class TradeProposalDraft(_ProposalValue):
 
     kind: Literal["investment_proposal"] = "investment_proposal"
     schema_version: Literal[3] = 3
-    proposal_id: Annotated[NonEmptyStr, Field(pattern=rf"^investment-proposal-{_UUID_PATTERN}$")]
+    proposal_id: ProposalId
     as_of: ISODate
     prepared_at: Instant
     request_scope: RequestScope
@@ -512,7 +513,7 @@ class TradeProposalDraft(_ProposalValue):
     market_context_assessment_id: NonEmptyStr | None = None
     inputs: ProposalInputs
     items: Annotated[JsonTuple[ProposalItem], Field(min_length=1)]
-    review: ProposalContentReview
+    review: ProposalContentReview | None = None
     liquidity_context: JsonTuple[LiquidityContext | GeneratedLiquidityContext] = ()
     warnings: JsonTuple[NonEmptyStr] = ()
     portfolio_exposure: PortfolioExposure
@@ -526,7 +527,7 @@ class TradeProposalDraft(_ProposalValue):
 
     @model_validator(mode="after")
     def _scope_and_terms(self) -> Self:
-        if self.prepared_at > self.review.reviewed_at:
+        if self.review is not None and self.prepared_at > self.review.reviewed_at:
             raise ValueError("proposal requires prepared_at <= reviewed_at")
         purpose = "holding" if self.request_scope == "review_positions" else "new"
         if any(target.purpose != purpose for target in self.research_scope.targets):
@@ -633,6 +634,7 @@ class TradeProposalDraft(_ProposalValue):
 class TradeProposal(TradeProposalDraft):
     """不変の保存済み提案。読取時も当時の発行時計とReview順序を検証する。"""
 
+    review: ProposalContentReview
     published_at: Instant
 
     @model_validator(mode="after")

@@ -8,6 +8,7 @@ import pytest
 from tests.helpers.archived_technical_financial import stored_publication, stored_row
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.model_generation import publish_generation
+from tests.helpers.proposal import PROPOSAL_ID
 from tests.helpers.research_selection import selected_target
 
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
@@ -183,6 +184,7 @@ def _prepare(tmp_path, models, *, screening=True):
     saved = selection_binding(operation.payload)
     runs.rename(tmp_path / "retained-runs.sqlite")
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=operation.operation_id,
         db_path=app,
         sqlite_path=tmp_path / "absent-market.sqlite",

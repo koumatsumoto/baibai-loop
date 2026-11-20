@@ -9,6 +9,7 @@ import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.proposal import (
     PREPARED,
+    PROPOSAL_ID,
     PUBLISHED,
     backend_case,
     bind_review,
@@ -390,6 +391,7 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
     with closing(connect_read_only(case.app)) as connection:
         original_pair = load_reviewed_assessment(connection, case.pair.assessment_id)
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,

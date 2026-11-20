@@ -8,6 +8,7 @@ from functools import partial
 
 import pytest
 from tests.helpers.proposal import (
+    PROPOSAL_ID,
     PUBLISHED,
     backend_case,
     bind_review,
@@ -271,6 +272,7 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     with pytest.raises(ProposalConflictError, match="input facts changed"):
         current_service.check(concrete)
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,

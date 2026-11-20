@@ -8,6 +8,7 @@ from tests.helpers.proposal import (
     PREPARED,
     PROPOSAL_ID,
     PUBLISHED,
+    authored_defer_fixture,
     backend_case,
     bind_review,
     reviewed_proposal,
@@ -19,11 +20,12 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     ProposalReference,
 )
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
-from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 
 
-def _context(case, *, now=PUBLISHED, proposal_id=None):
+def _context(
+    case, *, now=PUBLISHED, proposal_id="investment-proposal-00000000-0000-4000-8000-000000000009"
+):
     return build_proposal_context(
         operation_id=case.operation.operation_id,
         proposal_id=proposal_id,
@@ -103,14 +105,13 @@ def test_latest_incomplete_previous_buy_is_not_a_concrete_limit_or_session(tmp_p
     case = backend_case(tmp_path)
     with closing(sqlite3.connect(case.market)) as con, con:
         con.execute("DELETE FROM jquants_master_snapshots")
-    raw = scaffold_proposal(
+    raw = authored_defer_fixture(
         operation_id=case.operation.operation_id,
         proposal_id=PROPOSAL_ID,
         db_path=case.app,
         sqlite_path=case.market,
         now=PREPARED,
     )
-    raw["review"]["reviewer_identity"] = "synthetic-independent-reviewer"
     item = raw["items"][0]
     item.pop("blockers")
     item.pop("resume_conditions")
