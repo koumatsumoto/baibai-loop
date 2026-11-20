@@ -14,7 +14,10 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
     PriceAttempt,
     PriceL1,
 )
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration.price_native import model_input
 from baibai_jobs.publication import snapshot_publication as publication
+from tests.helpers.r2_store import MemoryR2Store
 
 
 def seed_prices(store, market: Path, directory: Path, *, as_of: date | None = None) -> date:
@@ -32,6 +35,10 @@ def seed_prices(store, market: Path, directory: Path, *, as_of: date | None = No
         grouped.setdefault(day, []).append(
             {"Code": ticker + "0", "Date": day, **dict(zip(fields, values, strict=True))}
         )
+    return _commit_price_groups(owner, grouped, as_of=as_of)
+
+
+def _commit_price_groups(owner: PriceL1, grouped, *, as_of: date | None) -> date:
     first = date.fromisoformat(min(grouped)) if grouped else (as_of or date(2026, 1, 5))
     last = max(date.fromisoformat(max(grouped)), as_of or first) if grouped else first
     attempts = []
@@ -46,6 +53,24 @@ def seed_prices(store, market: Path, directory: Path, *, as_of: date | None = No
     owner.initialize()
     owner.commit(attempts)
     return last
+
+
+def project_price_records(market: Path, records) -> None:
+    """Project synthetic provider records through PriceL1 and the actual market writer."""
+    store = MemoryR2Store()
+    owner = PriceL1(store, market.with_suffix(".native-prices"))
+    grouped = {}
+    for record in records:
+        grouped.setdefault(record["Date"][:10], []).append(record)
+    last = _commit_price_groups(owner, grouped, as_of=None)
+    open_connection(market).close()
+    model_input(
+        store,
+        owner.fixed(),
+        as_of=last,
+        evaluated_at=datetime.combine(last, datetime.min.time(), tzinfo=UTC),
+        market=market,
+    )
 
 
 def configure_price_publication(monkeypatch):

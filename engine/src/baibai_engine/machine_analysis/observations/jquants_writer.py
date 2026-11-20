@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from math import isfinite
 from pathlib import Path
@@ -19,9 +19,6 @@ from baibai_engine.machine_analysis.observations.normalization import (
     distinct_source_rows,
     to_float,
     to_str_or_none,
-)
-from baibai_engine.machine_analysis.observations.prices.jquants_normalization import (
-    normalize_daily_bars,
 )
 from baibai_engine.machine_analysis.observations.trading_activity.jquants_contract import (
     ALL_ISSUES_DAILY_MARGIN_SOURCE,
@@ -610,67 +607,3 @@ def _all_issues_daily_margin_rows_with_quality(
         rejected_count=rejected_count,
         excluded_count=excluded_count,
     )
-
-
-def store_jquants_daily_bars(
-    db_path: Path,
-    records: Iterable[Mapping[str, Any]],
-    *,
-    requested_start: date,
-    requested_end: date,
-    fetched_at_utc: str | None = None,
-    connection: sqlite3.Connection | None = None,
-) -> int:
-    normalized = normalize_daily_bars(records)
-    rows = normalized.rows
-    _validate_request_dates(rows, date_index=1, start=requested_start, end=requested_end)
-    conn = connection if connection is not None else open_connection(db_path)
-    try:
-        delete_date_range(
-            conn,
-            "jquants_daily_bars",
-            "traded_at",
-            requested_start,
-            requested_end,
-        )
-        if rows:
-            conn.executemany(
-                """
-                INSERT OR REPLACE INTO jquants_daily_bars(
-                  ticker, traded_at, open, high, low, close, volume, turnover_value,
-                  adjustment_factor, upper_limit, lower_limit, ex_right_type,
-                  market_cap_million_yen
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                rows,
-            )
-        persisted_count = record_range_source_coverage(
-            conn,
-            source="jquants_daily_bars",
-            operation="get_eq_bars_daily_range",
-            table="jquants_daily_bars",
-            date_column="traded_at",
-            requested_start=requested_start,
-            requested_end=requested_end,
-            status=normalized.status,
-            error=normalized.error,
-            fetched_at_utc=fetched_at_utc,
-        )
-        if connection is None:
-            conn.commit()
-        return persisted_count
-    finally:
-        if connection is None:
-            conn.close()
-
-
-def _validate_request_dates(
-    rows: Sequence[tuple[Any, ...]], *, date_index: int, start: date, end: date
-) -> None:
-    """A range replacement may not write observations outside its requested partition."""
-    if start > end:
-        raise ValueError("request start must not follow end")
-    for row in rows:
-        observed = date.fromisoformat(str(row[date_index]))
-        if not start <= observed <= end:
-            raise ValueError("observation date is outside the requested range")

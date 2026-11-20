@@ -125,6 +125,10 @@ def test_rebuild_preserves_matching_days_and_repairs_other_days(tmp_path, fixed_
                     "INSERT INTO jquants_daily_bars(ticker,traded_at) VALUES('1301','1990-01-01')"
                 )
                 conn.execute(
+                    "INSERT INTO jquants_daily_bars(ticker,traded_at) VALUES('9999',?)",
+                    ((DAY + timedelta(days=2)).isoformat(),),
+                )
+                conn.execute(
                     "UPDATE jquants_daily_bars SET ex_right_type=CAST(X'80' AS TEXT) "
                     "WHERE traded_at=? AND ticker='1301'",
                     ((DAY + timedelta(days=2)).isoformat(),),
@@ -221,6 +225,29 @@ def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
         )
     assert rows_at(market) == before
     assert not store.put_keys
+
+
+def test_wrong_date_in_native_price_keeps_original_and_prior_projection(tmp_path, fixed_prices):
+    store, fixed = fixed_prices
+    market = market_store(tmp_path / "market.sqlite")
+    last = DAY + timedelta(days=2)
+    price_native.model_input(
+        store, fixed, as_of=last, evaluated_at=AT + timedelta(hours=1), market=market
+    )
+    before = rows_at(market)
+    at = AT + timedelta(hours=2)
+    body = json.dumps({"data": [{"Code": "13010", "Date": DAY.isoformat(), "C": 777}]}).encode()
+    page = JQuantsPage("daily_bars", {"date": last.isoformat()}, at, body)
+    owner = PriceL1(store, tmp_path / "native")
+    owner.commit([PriceAttempt("wrong-date", last, at, (page,))])
+    corrected = owner.fixed()
+    with pytest.raises(ValueError, match="daily price payload contains a date outside the request"):
+        price_native.model_input(store, corrected, as_of=last, evaluated_at=at, market=market)
+    assert rows_at(market) == before
+    request = next(corrected.requests(store, days=[last]))
+    assert request.request_id == "wrong-date"
+    assert request.request is not None
+    assert request.request.pages[0].body == body
 
 
 def test_cold_price_rebuilds_reuse_verified_inputs_and_publish_the_marker_last(
