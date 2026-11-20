@@ -442,7 +442,7 @@ def _run_meta_draft(args: argparse.Namespace) -> int:
 def _emit_ledger(document: PortfolioLedgerDocument, *, now: datetime) -> int:
     try:
         snapshot = current_portfolio(document, sqlite_path=MARKET_DB_PATH, now=now)
-    except PortfolioLedgerError as error:
+    except (PortfolioLedgerError, UnresolvedHoldingQuantityError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     payload = snapshot_to_payload(snapshot)

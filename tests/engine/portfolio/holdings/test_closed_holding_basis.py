@@ -6,9 +6,11 @@ from datetime import datetime
 from decimal import Decimal
 
 import pytest
+import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.screening_sqlite import seed_daily_bars
 
+from baibai_engine.cli import portfolio as portfolio_cli
 from baibai_engine.investment_judgment.trade_proposal.inputs import collect_proposal_inputs
 from baibai_engine.portfolio.holdings.valuation import current_portfolio
 from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
@@ -124,6 +126,27 @@ def test_normal_full_sale_needs_no_market_store(closed_case):
     assert _collect(app, market).total_capital_yen == 955000
     assert app.read_bytes() == before
     assert not market.exists()
+
+
+@pytest.mark.parametrize(("factor", "exit_code"), [(1.0, 0), (0.5, 2)])
+def test_ledger_cli_distinguishes_unresolved_full_sale(
+    closed_case, monkeypatch, capsys, factor, exit_code
+):
+    app, market, _ = closed_case
+    seed_daily_bars(market, [("1234", "2026-10-02", None, factor)])
+    monkeypatch.setattr(portfolio_cli, "MARKET_DB_PATH", market)
+    before = app.read_bytes(), market.read_bytes()
+
+    assert portfolio_cli.main(["ledger", "--db", str(app)], now=NOW) == exit_code
+    captured = capsys.readouterr()
+    if exit_code == 2:
+        assert captured.out == ""
+        assert captured.err.startswith("error: 1234:")
+        assert "株数変更" in captured.err
+    else:
+        assert captured.err == ""
+        assert yaml.safe_load(captured.out)["holdings"] == []
+    assert (app.read_bytes(), market.read_bytes()) == before
 
 
 @pytest.mark.parametrize("action_day", ["2026-10-02", "2026-10-06"])
