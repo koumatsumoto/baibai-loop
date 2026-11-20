@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,7 +23,6 @@ from baibai_engine.investment_judgment.trade_proposal.entry_policy import (
     acquisition_blocker,
     prepare_buy_terms,
 )
-from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.portfolio.holdings.price_grid import (
@@ -36,6 +35,7 @@ from baibai_engine.primitives.time import JST
 
 if TYPE_CHECKING:
     from baibai_engine.investment_judgment.stock_assessment.store import ReviewedAssessment
+    from baibai_engine.portfolio.holdings.market_observations import OrderSessionBounds
 
 
 def proposal_quote(inputs: ProposalInputs, ticker: str) -> QuoteInput | None:
@@ -75,6 +75,7 @@ def no_action_blocker(
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
+    order_sessions: Callable[[], OrderSessionBounds],
 ) -> GateReason | None:
     """新規見送りの根拠を確認。資本代替の内容は提案の独立Reviewに委ねる。"""
     assessment = pair.document
@@ -97,31 +98,44 @@ def no_action_blocker(
             and (settled or pair.review.primary_source_check == "verified")
         )
     ):
-        # 実際の次立会が不明でも、当日引け以降にその立会で取得できないことは分かる。
-        earliest_possible_trade = latest_eligible_close_date(now) + timedelta(days=1)
-        if acquisition_blocker(assessment, earliest_possible_trade) is None:
-            if finding.status == "supported_at_quote" and settled:
-                return None  # 確認した取得権を失わない限り、現金・代替の選択に現在quoteは不要。
-            quote = proposal_quote(inputs, assessment.input_snapshot.ticker)
-            observed = referenced_price_fact(assessment)
-            if (
-                quote is not None
-                and observed is not None
-                and not isinstance(observed.value, bool | str)
-                and assessment.input_snapshot.as_of == now.astimezone(JST).date()
-                and observed.as_of == quote.price_as_of
-                and observed.price_basis == quote.price_basis
-                and finite_decimal(observed.value) == quote.price_yen
-                and (observed.observed_at is None or observed.observed_at <= inputs.checked_at)
-                and assessment_quote_basis(
-                    assessment,
-                    quote,
-                    sqlite_path=sqlite_path,
-                    now=now,
-                    market_connection=market_connection,
+        limit = finding.acquisition_limit
+        earliest = (
+            order_sessions().earliest_possible_day
+            if limit is not None and limit.last_eligible_trade_date is not None
+            else None
+        )
+        if issue := acquisition_blocker(assessment, earliest):
+            return GateReason(
+                code="no_action_reviewed_quote_mismatch",
+                message=(
+                    "この取得権の期限までに利用できる立会がありません。"
+                    if issue.code == "right_acquisition_expired"
+                    else "この取得権を得られる最終立会が未確認です。"
                 )
-            ):
-                return None
+                + "再評価するかdeferを使ってください。",
+            )
+        if finding.status == "supported_at_quote" and settled:
+            return None  # 確認した取得権を失わない限り、現金・代替の選択に現在quoteは不要。
+        quote = proposal_quote(inputs, assessment.input_snapshot.ticker)
+        observed = referenced_price_fact(assessment)
+        if (
+            quote is not None
+            and observed is not None
+            and not isinstance(observed.value, bool | str)
+            and assessment.input_snapshot.as_of == now.astimezone(JST).date()
+            and observed.as_of == quote.price_as_of
+            and observed.price_basis == quote.price_basis
+            and finite_decimal(observed.value) == quote.price_yen
+            and (observed.observed_at is None or observed.observed_at <= inputs.checked_at)
+            and assessment_quote_basis(
+                assessment,
+                quote,
+                sqlite_path=sqlite_path,
+                now=now,
+                market_connection=market_connection,
+            )
+        ):
+            return None
         return GateReason(
             code="no_action_reviewed_quote_mismatch",
             message="査読した終値・日付・株式単位・取得権を今回の比較と照合できません。再評価するかdeferを使ってください。",
