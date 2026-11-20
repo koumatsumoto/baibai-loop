@@ -168,7 +168,7 @@ def main() -> None:
         found = replay(FIXED, lambda: handle.read(SIZE + 1))
     if found is None:
         parser.exit(1, "not the attested filing/operand set\n")
-    print(json.dumps({**asdict(found), "economic_profit_yen": found.profit_yen}))
+    print(json.dumps({**asdict(found), "reported_parent_profit_ttm_yen": found.profit_yen}))
 
 
 if __name__ == "__main__":
