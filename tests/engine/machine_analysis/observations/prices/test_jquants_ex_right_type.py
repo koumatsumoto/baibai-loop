@@ -6,9 +6,9 @@ from datetime import date
 
 import pyarrow.parquet as pq
 import pytest
+from tests.helpers.price_native import project_price_records
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_daily_bars
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
@@ -40,7 +40,7 @@ def test_ex_right_type_survives_source_and_sqlite_roundtrip(tmp_path, kind, fact
     start = date(2026, 10, 13)
     prior = {"Code": "130A0", "Date": start.isoformat(), "C": 110.0, "AdjFactor": 1.0}
     database = tmp_path / "market.sqlite"
-    store_jquants_daily_bars(database, [prior, raw], requested_start=start, requested_end=day)
+    project_price_records(database, [prior, raw])
     assert read_adjustment_factor_bars(database, start, day) == [
         JQuantsAdjustmentFactorEvent(
             ticker="130A", traded_at=day, adjustment_factor=factor, ex_right_type=kind
@@ -88,7 +88,7 @@ def test_provider_market_cap_survives_sqlite_and_lake_without_price(tmp_path, ra
         "MktCap": raw_value,
         "ExRT": None,
     }
-    store_jquants_daily_bars(database, [raw], requested_start=day, requested_end=day)
+    project_price_records(database, [raw])
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute(
             "SELECT close, market_cap_million_yen FROM jquants_daily_bars"
@@ -126,7 +126,7 @@ def test_adjusted_readers_reject_reported_action_without_factor(tmp_path, kind, 
         },
         {"Code": "13010", "Date": end.isoformat(), "C": 100.0, "AdjFactor": 1.0},
     ]
-    store_jquants_daily_bars(database, rows, requested_start=start, requested_end=end)
+    project_price_records(database, rows)
     before = database.read_bytes()
     with pytest.raises(JQuantsProviderError, match="no usable adjustment factor"):
         read_price_bars(database, tickers=("1301",), start=start, end=end)
@@ -136,14 +136,12 @@ def test_adjusted_readers_reject_reported_action_without_factor(tmp_path, kind, 
 def test_adjusted_readers_keep_ordinary_null_factor_and_zero_change(tmp_path):
     start, end = date(2026, 10, 13), date(2026, 10, 14)
     database = tmp_path / "market.sqlite"
-    store_jquants_daily_bars(
+    project_price_records(
         database,
         [
             {"Code": "13010", "Date": day.isoformat(), "C": 100.0, "AdjFactor": None}
             for day in (start, end)
         ],
-        requested_start=start,
-        requested_end=end,
     )
     assert [bar.price for bar in read_price_bars(database, start=start, end=end)["1301"]] == [
         100.0,
@@ -165,7 +163,7 @@ def test_invalid_factor_is_retained_but_not_hidden_from_calculation(tmp_path, fa
         "AdjFactor": factor,
     }
     database = tmp_path / "market.sqlite"
-    store_jquants_daily_bars(database, [prior, raw], requested_start=start, requested_end=day)
+    project_price_records(database, [prior, raw])
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute(
             "SELECT adjustment_factor FROM jquants_daily_bars WHERE traded_at = ?",
@@ -193,7 +191,7 @@ def test_native_null_close_keeps_adjustment_event_without_inventing_price(
         "AdjFactor": 100.0,
     }
     database = tmp_path / "market.sqlite"
-    store_jquants_daily_bars(database, [raw], requested_start=day, requested_end=day)
+    project_price_records(database, [raw])
     assert read_daily_bars(database, day, day) == []
     assert read_adjustment_factor_bars(database, day, day) == [
         JQuantsAdjustmentFactorEvent(ticker="6731", traded_at=day, adjustment_factor=100.0)
@@ -213,7 +211,7 @@ def test_boolean_factor_is_not_a_numeric_action_or_market_cap(tmp_path, value, k
         "ExRT": kind,
         "MktCap": value,
     }
-    store_jquants_daily_bars(database, [raw], requested_start=day, requested_end=day)
+    project_price_records(database, [raw])
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute(
             "SELECT close, adjustment_factor, market_cap_million_yen FROM jquants_daily_bars"

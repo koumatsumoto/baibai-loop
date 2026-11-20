@@ -213,7 +213,7 @@ def test_selection_context_keeps_ledger_metadata_and_events_in_one_snapshot(tmp_
     monkeypatch.setattr(selection_query, "connect_read_only", connect)
     runs = tmp_path / "runs"
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
-    result = context(runs, selected=selected)
+    result = context(runs, selected=selected, scope="review_positions")
     assert result["status"] == "ready"
     assert committed == [True]
     assert writer.load() == replacement

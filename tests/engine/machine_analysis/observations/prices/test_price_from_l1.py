@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -12,7 +11,6 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     complete_request,
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_daily_bars
 from baibai_engine.machine_analysis.observations.prices.from_l1 import (
     price_bars_to_arrow,
     price_receipts_to_arrow,
@@ -31,7 +29,7 @@ def receipt(identity, *, records, at=None, body=None):
     return RetainedRequest(identity, complete_request([page]), None)
 
 
-def test_price_rebuild_matches_existing_projection_without_previous_l2(tmp_path):
+def test_price_projection_preserves_source_values_and_receipt_status():
     records = [
         {
             "Code": "13010",
@@ -46,14 +44,25 @@ def test_price_rebuild_matches_existing_projection_without_previous_l2(tmp_path)
         }
     ]
     day = date(2026, 11, 2)
-    old = tmp_path / "old.sqlite"
-    store_jquants_daily_bars(old, records, requested_start=day, requested_end=day)
-    with sqlite3.connect(old) as conn:
-        expected = conn.execute("SELECT * FROM jquants_daily_bars").fetchall()
-    old.unlink()
     results = rebuild_price_days([receipt("source", records=records)], days=[day])
     bars = price_bars_to_arrow(results.values())
-    assert [tuple(row.values()) for row in bars.to_pylist()] == expected
+    assert [tuple(row.values()) for row in bars.to_pylist()] == [
+        (
+            "1301",
+            day.isoformat(),
+            100.0,
+            120.0,
+            90.0,
+            110.0,
+            500.0,
+            55000.0,
+            1.0,
+            None,
+            None,
+            None,
+            None,
+        )
+    ]
     status = price_receipts_to_arrow([results[day].receipt_row()], l1_coverage_status="partial")
     assert status.select(["projection_status", "l1_coverage_status"]).to_pylist() == [
         {"projection_status": "ok", "l1_coverage_status": "partial"}

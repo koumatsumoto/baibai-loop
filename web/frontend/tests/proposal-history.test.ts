@@ -129,6 +129,8 @@ describe('stock report list and selection', () => {
     expect(detail).toContain(conditional.proposed_limit_yen)
     expect(detail).not.toContain('保存時の指値区分')
     expect(detail).not.toContain('保存時の対象取引日')
+    expect(detail).not.toContain('保存指値・選択数量の金額比較')
+    expect(render(data, a.proposal_id, buyFixture.ticker)).toContain('保存指値・選択数量の金額比較')
   })
 
   it('does not replace missing/failed selections with a different report', () => {

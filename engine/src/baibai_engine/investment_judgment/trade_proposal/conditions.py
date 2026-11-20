@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
+from baibai_engine.investment_judgment.stock_assessment.price_value import referenced_price_fact
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     BuyItem,
     GateReason,
@@ -19,6 +20,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.entry_policy import (
     BuyTermsEvaluation,
+    acquisition_blocker,
     prepare_buy_terms,
 )
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
@@ -28,6 +30,7 @@ from baibai_engine.portfolio.holdings.price_grid import (
     PRICE_GRID_VALID_UNTIL,
 )
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
+from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.primitives.time import JST
 
 if TYPE_CHECKING:
@@ -47,14 +50,7 @@ def assessment_quote_basis(
     market_connection: sqlite3.Connection | None,
 ) -> bool:
     """Compare quote units, including received actions through the judgment day."""
-    price_fact = next(
-        (
-            fact
-            for fact in assessment.input_snapshot.facts
-            if fact.fact_id == assessment.valuation.market_price_fact_id
-        ),
-        None,
-    )
+    price_fact = referenced_price_fact(assessment)
     return (
         quote is not None
         and market_connection is not None
@@ -68,6 +64,66 @@ def assessment_quote_basis(
             known_actions_through=now.astimezone(JST).date(),
             connection=market_connection,
         )
+    )
+
+
+def no_action_blocker(
+    pair: ReviewedAssessment,
+    *,
+    inputs: ProposalInputs,
+    sqlite_path: Path,
+    now: datetime,
+    market_connection: sqlite3.Connection | None,
+) -> GateReason | None:
+    """新規見送りの根拠を確認。資本代替の内容は提案の独立Reviewに委ねる。"""
+    assessment = pair.document
+    thesis = assessment.investment_case
+    if (
+        thesis.status == "broken"
+        and pair.review.primary_source_check == "verified"
+        and any(
+            source.source_tier == "primary" and source.source_id in thesis.source_ids
+            for source in assessment.input_snapshot.sources
+        )
+    ):
+        return None  # 確認済みの事業反証は、株価や数値評価を必要としない。
+    finding = assessment.price_value_case
+    if (
+        finding is not None
+        and finding.status == "supported_at_quote"
+        and assessment.conclusion.stance != "uncertain"
+    ):
+        return None  # 価格の支持は同じ資本の用途まで決めない。
+    if finding is not None and finding.status == "not_supported_at_quote":
+        quote = proposal_quote(inputs, assessment.input_snapshot.ticker)
+        observed = referenced_price_fact(assessment)
+        day = now.astimezone(JST).date()
+        if (
+            quote is not None
+            and observed is not None
+            and not isinstance(observed.value, bool | str)
+            and assessment.input_snapshot.as_of == day
+            and observed.as_of == quote.price_as_of
+            and observed.price_basis == quote.price_basis
+            and finite_decimal(observed.value) == quote.price_yen
+            and (observed.observed_at is None or observed.observed_at <= inputs.checked_at)
+            and acquisition_blocker(assessment, day) is None
+            and assessment_quote_basis(
+                assessment,
+                quote,
+                sqlite_path=sqlite_path,
+                now=now,
+                market_connection=market_connection,
+            )
+        ):
+            return None
+        return GateReason(
+            code="no_action_reviewed_quote_mismatch",
+            message="査読した終値・日付・株式単位・取得権を今回の比較と照合できません。再評価するかdeferを使ってください。",
+        )
+    return GateReason(
+        code="no_action_comparison_incomplete",
+        message="確認済みの事業反証も今回の経済比較も未確定です。deferと再確認条件を使ってください。",
     )
 
 

@@ -25,3 +25,8 @@ def parse_security_code_parts(code: object) -> tuple[str, bool]:
         # A non-zero issue suffix must not be merged into the common-stock line.
         return normalize_ticker(raw[:4]), raw.endswith("0")
     raise SecurityCodeError(f"invalid security code: {code!r}")
+
+
+def sector_33_peer_key(label: object) -> str | None:
+    """その他 (9999) is not 同業; その他製品 and その他金融業 are distinct sectors."""
+    return label if isinstance(label, str) and label.strip() not in {"", "0", "その他"} else None

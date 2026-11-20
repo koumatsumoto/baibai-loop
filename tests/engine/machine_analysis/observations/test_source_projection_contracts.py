@@ -32,7 +32,6 @@ from baibai_engine.machine_analysis.observations.jquants_decode import (
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
-    store_jquants_daily_bars,
     store_jquants_fin_summaries,
     store_jquants_margin_alerts,
     store_jquants_weekly_margin,
@@ -89,76 +88,6 @@ class SourceProjectionTests(unittest.TestCase):
         self.assertIsNone(to_float(-(10**400)))
         self.assertEqual(to_float(0), 0.0)
         self.assertEqual(to_str_or_none(0), "0")
-
-    def test_direct_store_writes_minimal_source_coverage(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            rows = store_jquants_daily_bars(
-                db,
-                [
-                    {
-                        "Code": "72030",
-                        "Date": "2026-05-08",
-                        "C": 1000,
-                        "AdjC": 1000,
-                    }
-                ],
-                requested_start=date(2026, 5, 8),
-                requested_end=date(2026, 5, 8),
-            )
-            self.assertEqual(rows, 1)
-            conn = sqlite3.connect(db)
-            try:
-                coverage = conn.execute(
-                    "SELECT source, coverage_key, record_count, status FROM source_coverage"
-                ).fetchone()
-            finally:
-                conn.close()
-            self.assertEqual(
-                coverage,
-                (
-                    "jquants_daily_bars",
-                    "get_eq_bars_daily_range:2026-05-08..2026-05-08",
-                    1,
-                    "ok",
-                ),
-            )
-
-    def test_daily_bars_source_coverage_counts_persisted_unique_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            rows = store_jquants_daily_bars(
-                db,
-                [
-                    {
-                        "Code": "72030",
-                        "Date": "2026-05-08",
-                        "C": 1000,
-                        "AdjC": 1000,
-                    },
-                    {
-                        "Code": "72030",
-                        "Date": "2026-05-08",
-                        "C": 1000,
-                        "AdjC": 1000,
-                    },
-                ],
-                requested_start=date(2026, 5, 8),
-                requested_end=date(2026, 5, 8),
-            )
-            conn = sqlite3.connect(db)
-            try:
-                table_count = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()
-                coverage = conn.execute(
-                    "SELECT record_count FROM source_coverage WHERE source = ?",
-                    ("jquants_daily_bars",),
-                ).fetchone()
-            finally:
-                conn.close()
-
-            self.assertEqual(rows, 1)
-            self.assertEqual(table_count[0], 1)
-            self.assertEqual(coverage, (1,))
 
     def test_fin_summaries_source_coverage_counts_persisted_unique_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -651,42 +580,6 @@ class SourceProjectionTests(unittest.TestCase):
                 ],
             )
 
-    def test_daily_bars_shifted_chunk_refetch_merges_coverage_window(self) -> None:
-        """The shared coverage-merge path keeps daily_bars source_coverage contiguous
-        so its record-count consistency check stays satisfied after a re-fetch with
-        shifted chunk boundaries."""
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_daily_bars(
-                db,
-                [
-                    {"Code": "72030", "Date": "2026-05-12", "C": 1000, "AdjC": 1000},
-                    {"Code": "72030", "Date": "2026-05-27", "C": 1100, "AdjC": 1100},
-                ],
-                requested_start=date(2026, 5, 12),
-                requested_end=date(2026, 5, 29),
-            )
-            store_jquants_daily_bars(
-                db,
-                [
-                    {"Code": "72030", "Date": "2026-05-27", "C": 1100, "AdjC": 1100},
-                    {"Code": "72030", "Date": "2026-06-02", "C": 1200, "AdjC": 1200},
-                ],
-                requested_start=date(2026, 5, 19),
-                requested_end=date(2026, 6, 5),
-            )
-            conn = sqlite3.connect(db)
-            try:
-                windows = conn.execute(
-                    "SELECT coverage_start, coverage_end, record_count FROM source_coverage "
-                    "WHERE source = 'jquants_daily_bars' ORDER BY coverage_start"
-                ).fetchall()
-                table_count = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
-            finally:
-                conn.close()
-            self.assertEqual(windows, [("2026-05-12", "2026-06-05", 3)])
-            self.assertEqual(table_count, 3)
-
     def test_snapshot_and_single_day_stores_count_persisted_unique_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -887,79 +780,6 @@ class SourceProjectionTests(unittest.TestCase):
 class EmptyPayloadReplacementTest(unittest.TestCase):
     """A complete empty fetch replaces only its requested range."""
 
-    @staticmethod
-    def _bar(ticker: str, day: date) -> dict[str, object]:
-        return {"Code": ticker, "Date": day.isoformat(), "C": 1000.0, "AdjC": 1000.0}
-
-    def test_an_empty_bar_payload_replaces_stored_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            window = (date(2020, 12, 1), date(2020, 12, 31))
-            store_jquants_daily_bars(
-                db,
-                [self._bar("7203", date(2020, 12, 30))],
-                requested_start=window[0],
-                requested_end=window[1],
-            )
-
-            self.assertEqual(
-                store_jquants_daily_bars(
-                    db, [], requested_start=window[0], requested_end=window[1]
-                ),
-                0,
-            )
-
-            conn = open_connection(db)
-            try:
-                remaining = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
-                coverage = conn.execute(
-                    "SELECT record_count FROM source_coverage WHERE source = ?",
-                    ("jquants_daily_bars",),
-                ).fetchall()
-            finally:
-                conn.close()
-            self.assertEqual(remaining, 0)
-            self.assertEqual([row[0] for row in coverage], [0])
-
-    def test_an_empty_payload_over_a_range_holding_nothing_is_accepted(self) -> None:
-        # A genuinely empty stretch has to stay storable, or a window the market
-        # never traded in would fail every pass.
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            persisted = store_jquants_daily_bars(
-                db, [], requested_start=date(2020, 1, 1), requested_end=date(2020, 1, 3)
-            )
-            self.assertEqual(persisted, 0)
-
-    def test_a_non_empty_payload_still_replaces_what_the_range_held(self) -> None:
-        # A complete refetch replaces the scoped cross-section: a name the
-        # provider no longer reports has to disappear.
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            window = (date(2020, 12, 1), date(2020, 12, 31))
-            store_jquants_daily_bars(
-                db,
-                [self._bar("7203", date(2020, 12, 30)), self._bar("9999", date(2020, 12, 30))],
-                requested_start=window[0],
-                requested_end=window[1],
-            )
-            store_jquants_daily_bars(
-                db,
-                [self._bar("7203", date(2020, 12, 30))],
-                requested_start=window[0],
-                requested_end=window[1],
-            )
-
-            conn = open_connection(db)
-            try:
-                tickers = [
-                    str(row[0])
-                    for row in conn.execute("SELECT ticker FROM jquants_daily_bars ORDER BY ticker")
-                ]
-            finally:
-                conn.close()
-            self.assertEqual(tickers, ["7203"])
-
     def test_an_empty_fin_payload_replaces_stored_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -1000,10 +820,6 @@ class RepeatedObservationTest(unittest.TestCase):
     def _case(kind, db):
         day = date(2026, 7, 24) if kind == "weekly" else date(2026, 9, 25)
         record = {"Code": "72030", "Date": day.isoformat()}
-        if kind == "bars":
-            record["C"] = 1000
-            store = partial(store_jquants_daily_bars, db, requested_start=day, requested_end=day)
-            return store, record, "C", "jquants_daily_bars", "close", 1001
         if kind == "alerts":
             record = {
                 "PubDate": day.isoformat(),
@@ -1075,7 +891,7 @@ class RepeatedObservationTest(unittest.TestCase):
                         )
 
     def test_identical_records_conflicts_and_later_corrections(self):
-        for kind in ("bars", "weekly", "daily", "alerts"):
+        for kind in ("weekly", "daily", "alerts"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
                 db = Path(tmp) / "market.sqlite"
                 store, record, field, table, column, correction = self._case(kind, db)

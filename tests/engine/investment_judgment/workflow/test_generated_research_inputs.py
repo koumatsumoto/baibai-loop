@@ -44,6 +44,9 @@ def test_generated_context_does_not_reselect_and_keeps_non_candidates(tmp_path, 
     def forbidden(*args, **kwargs):
         raise AssertionError("must not calculate candidates or live model inputs")
 
+    monkeypatch.setattr(
+        "baibai_engine.machine_analysis.screening.selection_query.read_publication", forbidden
+    )
     result = load_generated_selection_context(
         request=request,
         generation_id=None,
@@ -56,8 +59,8 @@ def test_generated_context_does_not_reselect_and_keeps_non_candidates(tmp_path, 
     )
     assert result["generation_id"] == "fixed-synthetic"
     assert result["model_inputs"]["securities"]["5678"]["not_generated"]
-    assert result["candidate_tickers"] == ["1234"]
-    assert "machine_valuation" not in result["model_inputs"]["securities"]["1234"]
+    assert result["candidate_tickers"] == []
+    assert set(result["model_inputs"]["securities"]) == {"5678"}
 
 
 @pytest.mark.parametrize("with_price_path", [False, True])
@@ -175,7 +178,10 @@ def test_context_cli_uses_fixed_generation_and_keeps_comparison_subjects(tmp_pat
     result = json.loads(capsys.readouterr().out)
     assert result["request"]["scope"] == "discover_new"
     assert result["generation_id"] == "fixed-synthetic"
-    assert result["candidate_tickers"] == ["1234"]
+    assert result["candidate_tickers"] == []
+    assert result["screening"]["not_in_saved_rows"] == ["5678"]
+    assert all(not entry["companies"] for entry in result["screening"]["views"])
+    assert set(result["model_inputs"]["securities"]) == {"5678"}
     assert result["model_inputs"]["securities"]["5678"]["not_generated"]
     assert runs.read_bytes() == before
 
