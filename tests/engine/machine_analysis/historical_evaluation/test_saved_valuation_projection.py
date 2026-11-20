@@ -1,7 +1,6 @@
 """旧保存入力の機械推計投影・副作用と、Valuation の依存境界。"""
 
 import copy
-import hashlib
 import socket
 import sqlite3
 import subprocess
@@ -10,13 +9,15 @@ from datetime import date, datetime
 
 import pytest
 from tests.helpers.research_selection import selection
-from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
+from tests.helpers.screening_run import (
+    read_seeded_analysis,
+    screening_run_payload,
+    seed_saved_run,
+    stock_analysis,
+)
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot, InputGap
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
-    ScreeningRunReader,
-)
 from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
@@ -272,9 +273,8 @@ def test_overflowing_saved_amounts_reach_research_as_missing_without_rewriting_i
     assert security["cash_flow"]["jquants"]["ocf_ttm"] is None
     assert security["balance_sheet"]["edinet"]["cash"] is None
     assert security["balance_sheet"]["jquants"]["cash_eq"] == 0.0
-    retained = ScreeningRunReader(path).get_run("overflow-fixed")
-    assert retained is not None
-    assert retained.stock_analyses[0]["metrics"]["cash"] == bad
+    _, rows = read_seeded_analysis(path, "overflow-fixed")
+    assert rows[0]["metrics"]["cash"] == bad
     assert path.read_bytes() == before
 
 
@@ -312,8 +312,8 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
         run_revision_id="carry-inputs",
     )
     before = path.read_bytes()
-    stored = ScreeningRunReader(path).get_run("carry-inputs")
-    valuation = machine_valuation_from_analysis(stored.stock_analyses[0])
+    _, rows = read_seeded_analysis(path, "carry-inputs")
+    valuation = machine_valuation_from_analysis(rows[0])
     assert valuation.dividend_yield == dividend
     assert valuation.net_share_change_yoy == share_change
     assert valuation.dividend_basis == basis
@@ -425,72 +425,54 @@ def test_fixed_saved_non_candidate_preserves_valuation_without_latest_selection(
     path = tmp_path / "runs.sqlite"
     publish(path, "2026-09-19", "fixed", anchor=1600)
     publish(path, "2026-09-20", "newer", anchor=2000)
-    reader = ScreeningRunReader(path)
-    result = reader.get_run("fixed")
-    assert result is not None
-    assert result.run_revision_id == "fixed"
-    assert result.stock_analyses[0]["candidate"]["reasons"] == []
-    valuation = machine_valuation_from_analysis(result.stock_analyses[0])
-    assert valuation.sector_median_anchor_yen == 1600
-    assert valuation.er_annual == 0.075
-    assert reader.get_run("absent") is None
+    _, rows = read_seeded_analysis(path, "fixed")
+    assert rows[0]["candidate"]["reasons"] == []
+    inputs = _project_saved_legacy_inputs(
+        tickers=("1234",),
+        known_at=datetime.fromisoformat("2026-09-20T18:00:00+09:00"),
+        runs_path=path,
+        run_revision_id="fixed",
+    )
+    valuation = inputs["securities"]["1234"]["machine_valuation"]
+    assert valuation["run_revision_id"] == "fixed"
+    assert valuation["estimate"]["sector_median_anchor_yen"] == 1600
+    assert valuation["estimate"]["er_annual"] == 0.075
 
 
-def test_missing_scope_coordinates_and_broken_store_remain_distinct(tmp_path):
+def test_missing_scope_and_missing_saved_anchor_remain_distinct(tmp_path):
     path = tmp_path / "runs.sqlite"
     publish(path, "2026-09-19", "run")
-    reader = ScreeningRunReader(path)
-    result = reader.get_run("run")
-    assert not any(row["ticker"] == "9999" for row in result.stock_analyses)
+    _, rows = read_seeded_analysis(path, "run")
+    assert not any(row["ticker"] == "9999" for row in rows)
     publish(path, "2026-09-20", "missing-anchor", anchor=None)
-    result = reader.get_run("missing-anchor")
-    valuation = machine_valuation_from_analysis(result.stock_analyses[0])
+    _, rows = read_seeded_analysis(path, "missing-anchor")
+    valuation = machine_valuation_from_analysis(rows[0])
     assert valuation.sector_median_anchor_yen is None
     assert valuation.er_annual == 0.075
     for raw in ({}, {"metrics": {}}, {"metrics": None}):
         assert machine_valuation_from_analysis(raw).sector_median_anchor_yen is None
-    connection = sqlite3.connect(path)
-    connection.execute("DROP TABLE stock_analysis")
-    connection.close()
-    with pytest.raises(sqlite3.OperationalError):
-        reader.get_run("run")
 
 
-def test_read_has_no_network_or_store_writes(tmp_path, monkeypatch):
+def test_saved_projection_only_reads_the_embedded_snapshot(tmp_path, monkeypatch):
     path = tmp_path / "runs.sqlite"
-    publish(path, "2026-09-19", "run")
-    before = hashlib.sha256(path.read_bytes()).hexdigest()
-    original = sqlite3.connect
-    connections = []
-
-    def connect(database, *args, **kwargs):
-        assert "mode=ro" in database
-        connection = original(database, *args, **kwargs)
-        connections.append(connection)
-
-        # Assert that no INSERT/UPDATE/DELETE or schema mutation is even attempted.
-        def authorize(action, _a, _b, _db, _trigger):
-            assert action not in {
-                sqlite3.SQLITE_INSERT,
-                sqlite3.SQLITE_UPDATE,
-                sqlite3.SQLITE_DELETE,
-                sqlite3.SQLITE_CREATE_TABLE,
-                sqlite3.SQLITE_DROP_TABLE,
-            }
-            return sqlite3.SQLITE_OK
-
-        connection.set_authorizer(authorize)
-        return connection
+    publish(path, "2026-09-19", "fixed")
+    _, rows = read_seeded_analysis(path, "fixed")
+    saved = selection(
+        now=datetime.fromisoformat("2026-09-19T18:00:00+09:00"),
+        tickers=("1234",),
+        runs=tmp_path / "fixture.sqlite",
+        rows=rows,
+    )
+    original = saved.model_dump_json()
 
     def forbidden(*_args, **_kwargs):
-        pytest.fail("valuation read attempted network I/O")
+        pytest.fail("saved valuation projection attempted I/O")
 
-    monkeypatch.setattr(sqlite3, "connect", connect)
+    monkeypatch.setattr(sqlite3, "connect", forbidden)
     monkeypatch.setattr(socket, "socket", forbidden)
-    stored = ScreeningRunReader(path).get_run("run")
-    assert machine_valuation_from_analysis(stored.stock_analyses[0]).er_annual == 0.075
-    assert connections
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+    view = project_research_inputs(saved)
+    assert view["securities"]["1234"]["machine_valuation"]["estimate"]["er_annual"] == 0.075
+    assert saved.model_dump_json() == original
 
 
 def test_valuation_import_does_not_load_judgment_or_screening():
@@ -524,15 +506,14 @@ def _project_saved_legacy_inputs(
         for t in tickers
         if t == "9999"
     )
-    run = ScreeningRunReader(runs_path).get_run(revision)
-    assert run is not None
-    saved_rows = {row["ticker"]: row for row in run.stock_analyses}
+    header, rows = read_seeded_analysis(runs_path, revision)
+    saved_rows = {row["ticker"]: row for row in rows}
     snapshot = AnalysisInputSnapshot(
-        run_revision_id=run.run_revision_id,
-        analysis_as_of=date.fromisoformat(run.as_of_date),
-        run_at=datetime.fromisoformat(run.run_at),
-        screening_rules_hash=run.payload.get("screening_rules_hash"),
-        er_model_version=run.payload.get("er_model_version"),
+        run_revision_id=revision,
+        analysis_as_of=date.fromisoformat(header["asof_date"]),
+        run_at=datetime.fromisoformat(header["run_at"]),
+        screening_rules_hash=header.get("screening_rules_hash"),
+        er_model_version=header.get("er_model_version"),
         analyses={ticker: saved_rows[ticker] for ticker in tickers if ticker in saved_rows},
         unavailable={gap.ticker: gap.reason for gap in gaps},
     )

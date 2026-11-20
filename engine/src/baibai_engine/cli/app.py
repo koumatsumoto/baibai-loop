@@ -49,10 +49,6 @@ DOMAINS: Mapping[str, Domain] = {
         module="baibai_engine.cli.external_assessment",
         summary="saved external assessments and explicit offline observation rebuild",
     ),
-    "historical-evaluation": Domain(
-        module="baibai_engine.cli.historical_evaluation.app",
-        summary="read saved legacy runs and candidates",
-    ),
     "market-context": Domain(
         module="baibai_engine.cli.market_context",
         summary="economic observations and mechanical market readings",
@@ -90,9 +86,7 @@ def _domain_table() -> str:
 
 
 def _usage() -> argparse.ArgumentParser:
-    # domain を subparser にしない。subparser は先頭の `--help` を自分のものとして
-    # 消費するので、`baibai-engine historical-evaluation --help` が domain 側の help へ届かなく
-    # なる。domain の一覧は epilog で書き、引数はそのまま素通しする。
+    # 各domainへ --help も渡すため、ルートのsubparserは使わない。
     parser = argparse.ArgumentParser(
         prog="baibai-engine",
         epilog=_domain_table(),

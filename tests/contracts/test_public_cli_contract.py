@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from baibai_engine.cli.app import main
-from baibai_engine.cli.historical_evaluation.app import build_parser as build_screening_parser
 from baibai_engine.cli.investment_judgment import build_parser as build_research_parser
 from baibai_jobs.cli import main as collection_main
 from baibai_jobs.maintenance.market.cli import build_parser as build_source_parser
@@ -14,22 +13,18 @@ def _choices(parser) -> set[str]:
     return set(subparsers.choices)
 
 
-def test_screening_cli_exposes_only_saved_reads() -> None:
-    assert {"run-show", "candidates"} == _choices(build_screening_parser())
+@pytest.mark.parametrize("command", [("run-show",), ("candidates", "show")])
+def test_retired_historical_read_stops_before_store_access(command, monkeypatch, capsys) -> None:
+    def unexpected() -> None:
+        pytest.fail("the retired domain reached store preflight")
 
-
-def test_candidate_capacity_is_not_a_public_cli_override() -> None:
-    with pytest.raises(SystemExit):
-        build_screening_parser().parse_args(
-            [
-                "candidates",
-                "show",
-                "--run-revision-id",
-                "run-revision-fixture",
-                "--review-cap",
-                "20",
-            ]
-        )
+    monkeypatch.setattr("baibai_engine.cli.app.reject_noncanonical_store_paths", unexpected)
+    with pytest.raises(SystemExit) as result:
+        main(["historical-evaluation", *command, "--run-revision-id", "run-fixed"])
+    assert result.value.code == 2
+    captured = capsys.readouterr()
+    assert not captured.out
+    assert "invalid choice" in captured.err
 
 
 def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
@@ -53,7 +48,6 @@ def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
 @pytest.mark.parametrize(
     "domain",
     [
-        "historical-evaluation",
         "investment-judgment",
         "portfolio",
         "operation",
@@ -83,7 +77,7 @@ def test_market_judgment_is_owned_by_research_cli():
 def test_source_maintenance_is_owned_by_collection():
     source = _choices(build_source_parser())
     assert {"extract-edinet-metrics", "backfill-master"} <= source
-    assert not source.intersection(_choices(build_screening_parser()))
+    assert not {"run-show", "candidates"} & source
     with pytest.raises(SystemExit) as help_result:
         collection_main(["maintain-market", "--help"])
     assert help_result.value.code == 0

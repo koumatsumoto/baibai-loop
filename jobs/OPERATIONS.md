@@ -675,14 +675,10 @@ publisherは旧SQL原本を固定pairのkey/hash/size/stored_on/scopeと照合�
 
 旧一覧に匿名取消/編集対象のidentityがなければ、L1だけで旧ticker/採用順を復元できない。旧baselineによる安全側隔離、良好metricの出所/revision/時計、facts成功0行/status/reasonsを保つ。原受領cacheなしの単独hydrate/汎用readerで同じ確認をする場合は、保存pairの一覧を既存ownerで明示materializeする。暗黙R2補完や現在時計で欠落を埋めず、cold出力を旧抽出metadata/warm履歴/PITの完全再現としない。原本・旧canonical/release/stageと移送証拠は保持する。
 
-## 保存済み旧runを読む
+<a id="保存済み旧runを読む"></a>
+## 保存済み旧run
 
-旧ER/FV・四Approachはexact runで読む。旧E[r]の較正帯は[凍結資料](../docs/reference/estimate-calibration.md)だけを残し、再計算・CLIでの再割当てをしない。旧Selection/L3/Review/台帳は保持する。 全文・候補のみのどちらも保存値をJSONで出力する（`--format json` も可）。旧 `--format yaml` は提供しない。
-
-```bash
-uv run baibai-engine historical-evaluation run-show --run-revision-id <RUN_REVISION_ID> --runs-db <PRIVATE_RUNS_COPY>
-uv run baibai-engine historical-evaluation candidates show --run-revision-id <RUN_REVISION_ID> --runs-db <PRIVATE_RUNS_COPY>
-```
+旧Stock Analysisの専用閲覧CLIは終了。旧run・候補行と[旧E[r]の凍結資料](../docs/reference/estimate-calibration.md)は変更しない。現行の探索・固定Caseは[探索運用](../docs/reference/screening-runtime.md)、既発行の正式提案は保存済み提案を参照。現行出力で旧runを作り直さない。
 
 <a id="financials-identity-cutover"></a>
 <a id="company-financialsの保存idと公開時入力の読取"></a>

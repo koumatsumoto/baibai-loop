@@ -1,6 +1,6 @@
 # 保存済み旧評価の読取
 
-旧ER/FV・四Approachの再推計/再選抜、較正の再生成/再配布は廃止済み。[操作](../../jobs/OPERATIONS.md#保存済み旧runを読む)ではexact runを指定し、保存run・旧Selectionを当時の値/identity/時刻/欠測のまま読む。旧候補は保存分析の投影で、現在のrules/推計で埋めず、現行候補・L3評価/Reviewにしない。store/原本は保持する。
+旧ER/FV・四Approachの再推計/再選抜、較正の再生成/再配布と[専用閲覧](../../jobs/OPERATIONS.md#保存済み旧runを読む)は終了。旧run・保存Researchの根拠は元の値・identity・時刻・欠測を保ち、現行候補やL3評価に読み替えない。
 
 <a id="machine-valuation"></a>
 ## 保存済み機械ER/FVの意味
@@ -14,7 +14,7 @@
 <a id="er-level-distribution-context"></a>
 ## 凍結した歴史分布
 
-[2026-10-22の分布](archive/er-bands-2026-10-22.yaml)と[以前の記録](archive/er-bands-2026-09-24.yaml)は当時の資料である。現行の候補は旧機械E[r]を出さない。旧銘柄を帯に再割当てするCLI・Python配布への同梱は廃止した。元の値・日付・不足はこの資料と保存runをそのまま読む。
+[2026-10-22の分布](archive/er-bands-2026-10-22.yaml)と[以前の記録](archive/er-bands-2026-09-24.yaml)は当時の資料である。現行の候補は旧機械E[r]を出さない。旧銘柄を帯に再割当てするCLI・Python配布への同梱は廃止した。この資料の値・日付・不足は再計算しない。
 
 帯は宣言予測母集団の観測分布で、未評価≠0損益。宣言/観測の月数・企業数・重みを分け、8.5%帯を[L3要求率](../doctrine.md#required-return-policy)へ連動させない。price-only/FY配当込みの母集団差を配当効果とせず、FY配当を支払/権利落ちcash ledgerとしない。
 
