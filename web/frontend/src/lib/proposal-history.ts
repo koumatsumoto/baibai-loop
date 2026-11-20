@@ -55,10 +55,7 @@ export function reportListSummary({ proposal, item }: ReportEntry): string {
       return shortWhole(item.blockers[0]?.message) ?? '判断に必要な条件がそろわず保留。確認事項は個別レポートに記録。'
     case 'buy': {
       const action = item.timing === 'wait_limit' ? '指値で待つ案' : '買い指値案'
-      if (item.terms != null) {
-        const terms = item.terms
-        return shortWhole(`${terms.target_session}の${action}：${terms.limit_price_yen}円・${terms.quantity}株。`) ?? `保存時の${action}。価格・数量は個別レポートに記録。`
-      }
+      if (item.terms != null) return `保存時の${action}：${item.terms.quantity}株。`
       return shortWhole(item.proposed_limit_yen && `${action}。作者の上限は${item.proposed_limit_yen}円。具体的な指値・数量は未確定。`) ?? `${action}。具体的な指値・数量は未確定。`
     }
     case 'no_action': {

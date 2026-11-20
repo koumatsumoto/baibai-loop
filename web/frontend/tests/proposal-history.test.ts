@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { ProposalHistoryView, SavedProposalView } from '../src/api/types'
 import { groupProposalReports, proposalActionLabel, proposalReportHref, publicationPeriod, reportListSummary } from '../src/lib/proposal-history'
 import { ProposalHistory } from '../src/pages/ProposalHistoryPage'
-import { buyFixture, holdFixture, newProposalFixture, partialBuyFixture, reviewedDeferFixture, sellFixture } from './fixtures/proposals'
+import { buyFixture, holdFixture, holdingProposalFixture, newProposalFixture, partialBuyFixture, reviewedDeferFixture, sellFixture } from './fixtures/proposals'
 
 function view(proposals: SavedProposalView[], missing: string[] = []): ProposalHistoryView {
   return { generated_at: '2026-11-20T00:00:00Z', status: missing.length ? 'partial' : (proposals.length ? 'ready' : 'empty'), error: missing.length ? '一部を読めません' : null, proposals, unavailable_proposal_ids: missing }
@@ -70,6 +70,41 @@ describe('stock report list and selection', () => {
     expect(html).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/)
   })
 
+  it('shows exact saved buy price and its target session beside the matching decision only', () => {
+    const terms = { ...buyFixture.terms!, target_session: '2026-11-19', limit_price_yen: '1190.0000000000000001' }
+    const buy = { ...buyFixture, terms, rationale: '事業価値に対して価格条件を置いた。' }
+    const sell = { ...sellFixture, terms: { ...terms, target_session: '2026-11-24', limit_price_yen: '1801.0000' } }
+    const noAction = newProposalFixture.items.find(item => item.action === 'no_action')!
+    const olderBuy = { ...older, as_of: '2026-11-18', published_at: '2026-11-18T20:00:00+09:00', items: [buy, partialBuyFixture, noAction] }
+    const laterDefer = { ...newer, as_of: '2026-11-19', published_at: '2026-11-20T03:00:00+09:00' }
+    const holding = { ...holdingProposalFixture, as_of: '2026-11-19', published_at: '2026-11-19T20:00:00+09:00', items: [sell] }
+    const data = view([laterDefer, holding, olderBuy])
+    const html = render(data)
+    const target = '対象取引日 <time dateTime="2026-11-19">2026-11-19</time>'
+    const card = (proposalId: string, ticker: string) => html
+      .split(`href="/proposal?proposal=${proposalId}&amp;ticker=${ticker}"`)[1]?.split('</a>')[0]
+    const buyCard = card(olderBuy.proposal_id, buy.ticker)!
+    expect(buyCard).toContain(target)
+    expect(buyCard).toContain('1190.0000000000000001 円')
+    expect(buyCard.indexOf('買付（指値）')).toBeLessThan(buyCard.indexOf(target))
+    expect(buyCard.indexOf(target)).toBeLessThan(buyCard.indexOf(buy.rationale))
+    expect(buyCard).toContain('提案基準日 2026-11-18')
+    expect(card(laterDefer.proposal_id, buy.ticker)).not.toContain('対象取引日')
+    expect(card(olderBuy.proposal_id, partialBuyFixture.ticker)).not.toContain('対象取引日')
+    expect(card(olderBuy.proposal_id, noAction.ticker)).not.toContain('対象取引日')
+    expect(card(holding.proposal_id, sell.ticker)).not.toContain('対象取引日')
+    expect(html).not.toContain('1801.0000')
+    expect(html).not.toMatch(/期限切れ|失効済み|注文可能/)
+    const detail = render(data, olderBuy.proposal_id, buy.ticker)
+    const [top, rest] = detail.split('data-proposal-details')
+    expect(top).toContain(target)
+    expect(top).toContain('1190.0000000000000001 円')
+    expect(rest).toContain('保存時の対象取引日')
+    expect(rest).toContain('1190.0000000000000001 円')
+    expect(rest).toContain('dateTime="2026-11-19"')
+    expect(detail).not.toMatch(/期限切れ|失効済み|注文可能/)
+  })
+
   it('does not replace missing/failed selections with a different report', () => {
     const data = view([newer], ['unreadable'])
     const missing = render(data, older.proposal_id, '1111')
@@ -120,7 +155,7 @@ describe('stock report list and selection', () => {
     const summary = (item: SavedProposalView['items'][number]) => reportListSummary({
       proposal: { ...older, headline: long }, item: { ...item, rationale: long },
     })
-    expect(summary(buyFixture)).toContain('指値で待つ案：1200.0000円・100株')
+    expect(summary(buyFixture)).toBe('保存時の指値で待つ案：100株。')
     expect(summary(partialBuyFixture)).toBe('買い指値案。作者の上限は1400.1000000000000001円。具体的な指値・数量は未確定。')
     const noAction = { ...reviewedDeferFixture, action: 'no_action' as const, assessment: null }
     expect(summary(noAction)).toContain('新規購入を見送った')
@@ -134,9 +169,13 @@ describe('stock report list and selection', () => {
 
   it('labels corrected originals in list and detail without rewriting the old decision', () => {
     const corrected = { ...older, corrections: [{ correction_id: 'correction', erroneous_ref: { proposal_id: older.proposal_id, draft_sha256: '0'.repeat(64) }, replacement_ref: { proposal_id: 'replacement', draft_sha256: '1'.repeat(64) }, reason: '合成の訂正理由', recorded_at: '2026-11-15T00:00:00Z' }] }
-    expect(render(view([corrected]))).toContain('訂正済みの旧提案')
+    const list = render(view([corrected]))
+    expect(list).toContain('訂正済みの旧提案')
+    expect(list.indexOf('訂正済みの旧提案')).toBeLessThan(list.indexOf('対象取引日'))
+    expect(list).toContain('1200.0000 円')
     const html = render(view([corrected]), older.proposal_id, '1111')
     expect(html).toContain('表示中は訂正済みの旧提案です。採用候補ではありません。')
+    expect(html.indexOf('採用候補ではありません。')).toBeLessThan(html.indexOf('対象取引日'))
     expect(html).toContain(buyFixture.rationale)
   })
 

@@ -24,6 +24,7 @@ import { ModelPerspectives } from '../components/ModelPerspectives'
 import { ReportSummary } from '../components/ReportSummary'
 import { PriceValueFinding } from '../components/PriceValueFinding'
 import { ProposalWarnings } from '../components/ProposalWarnings'
+import { SavedBuySession } from '../components/SavedBuySession'
 import { SavedMarketContext } from '../components/SavedMarketContext'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
@@ -489,7 +490,10 @@ function HoldingReason({ item }: { item: SavedHoldItemView | SavedSellItemView }
 
 export function ProposalItemCard({ item }: { item: ProposalItem }) {
   return (
-    <SectionCard headingLevel={3} meta={<Badge variant="secondary">資金の判断：{proposalActionLabel(item)} · {item.action}</Badge>} padded title={item.ticker}>
+    <SectionCard headingLevel={3} meta={<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+      <Badge variant="secondary">資金の判断：{proposalActionLabel(item)} · {item.action}</Badge>
+      <SavedBuySession item={item} />
+    </div>} padded title={item.ticker}>
       <div className="grid min-w-0 gap-5">
         <PriceValueFinding assessment={item.assessment} />
         <ReportSummary text={item.rationale} />
