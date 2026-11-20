@@ -23,6 +23,7 @@ from tests.helpers.proposal import (
 
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal.conditions import no_action_blocker
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
     ProposalError,
@@ -30,12 +31,19 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     load_proposal_draft,
     proposal_draft_sha256,
 )
+from baibai_engine.investment_judgment.trade_proposal.inputs import (
+    DEFAULT_BUDGET_MAX_YEN,
+    DEFAULT_BUDGET_MIN_YEN,
+    collect_proposal_inputs,
+    proposal_market_snapshot,
+)
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationCompletionError
 from baibai_engine.investment_judgment.workflow.selection import selection_sha256
 from baibai_engine.primitives.json import canonical_json
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.sources.proposal import read_proposal_views
 
 
@@ -746,14 +754,9 @@ def test_nonbuy_has_no_binding_and_date_clock_guard_even_with_same_facts(case):
         tomorrow.publish(proposal)
 
 
-@pytest.mark.parametrize(
-    ("stance", "valuation_unresolved"),
-    [("uncertain", False), ("uncertain", True), ("unsupported", True)],
-)
-def test_missing_economic_comparison_is_not_concluded_by_stance(
-    tmp_path, stance, valuation_unresolved
-):
-    case = backend_case(tmp_path, stance=stance, valuation_unresolved=valuation_unresolved)
+@pytest.mark.parametrize("stance", ["uncertain", "unsupported"])
+def test_missing_economic_comparison_is_not_concluded_by_stance(tmp_path, stance):
+    case = backend_case(tmp_path, stance=stance, valuation_unresolved=True)
     proposal = reviewed_proposal(case, action="no_action")
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     before = _counts(case.app)
@@ -925,6 +928,70 @@ def test_new_no_action_matches_the_authored_economic_finding(
             )
             assert assessment.price_value_case.price_only_condition.ceiling_yen == Decimal("750")
     assert _ledger_snapshot(case.app) == ledger
+
+
+@pytest.mark.parametrize("price_finding", ["not_supported_at_quote", "supported_at_quote"])
+def test_exact_price_rejection_cannot_reuse_a_right_at_its_final_close(tmp_path, price_finding):
+    case = backend_case(tmp_path, assessment_as_of="2026-10-13")
+    final_close = PREPARED.replace(hour=15, minute=30)
+    document, review = pair_payload(
+        review_number=87, quote_as_of="2026-10-13", price_case=price_finding
+    )
+    document["input_snapshot"]["facts"].append(
+        dict(
+            fact_id="final-session",
+            fact_kind="last_eligible_trade_date",
+            value="2026-10-14",
+            unit="date",
+            as_of="2026-10-14",
+            source_ids=["annual"],
+        )
+    )
+    document["price_value_case"]["value_fact_ids"].append("final-session")
+    document["price_value_case"]["acquisition_limit"] = {
+        "value_fact_id": "final-session",
+        "last_eligible_trade_date": "2026-10-14",
+    }
+    observed = final_close - timedelta(minutes=10)
+    for source in document["input_snapshot"]["sources"]:
+        source["retrieved_at"] = observed.isoformat()
+    document["conclusion"].update(stance="uncertain", assessed_at=observed.isoformat())
+    review["reviewed_at"] = (observed + timedelta(minutes=1)).isoformat()
+    update_review_hash(document, review)
+    pair = AssessmentStoreService(
+        case.app, clock=lambda: observed + timedelta(minutes=2)
+    ).publish_reviewed_assessment(
+        assessment_id(87), document, review, supersedes_id=case.pair.assessment_id
+    )
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        # Same retained raw quote on both sides of the boundary; the day has
+        # not been downloaded after the close. No session schedule is available.
+        connection.execute("UPDATE jquants_daily_bars SET traded_at='2026-10-13'")
+        connection.execute("DELETE FROM jquants_market_calendar")
+    with (
+        closing(connect_read_only(case.app)) as app,
+        proposal_market_snapshot(case.market) as market,
+    ):
+        app.execute("BEGIN")
+        for offset in (-1, 0, 1):
+            now = final_close + timedelta(microseconds=offset)
+            inputs = collect_proposal_inputs(
+                app,
+                tickers=("1234",),
+                proposal_id=PROPOSAL_ID,
+                now=now,
+                sqlite_path=case.market,
+                budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
+                budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+                market_connection=market,
+            )
+            assert inputs.quotes[0].price_as_of.isoformat() == "2026-10-13"
+            failure = no_action_blocker(
+                pair, inputs=inputs, now=now, sqlite_path=case.market, market_connection=market
+            )
+            assert (None if failure is None else failure.code) == (
+                None if offset < 0 else "no_action_reviewed_quote_mismatch"
+            )
 
 
 def test_old_uncertain_no_action_keeps_exact_read_and_retry(tmp_path):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,6 +23,7 @@ from baibai_engine.investment_judgment.trade_proposal.entry_policy import (
     acquisition_blocker,
     prepare_buy_terms,
 )
+from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.portfolio.holdings.price_grid import (
@@ -94,10 +95,18 @@ def no_action_blocker(
         and assessment.conclusion.stance != "uncertain"
     ):
         return None  # 価格の支持は同じ資本の用途まで決めない。
-    if finding is not None and finding.status == "not_supported_at_quote":
+    if finding is not None and (
+        finding.status == "not_supported_at_quote"
+        or (
+            finding.status == "supported_at_quote"
+            and pair.review.primary_source_check == "verified"
+        )
+    ):
         quote = proposal_quote(inputs, assessment.input_snapshot.ticker)
         observed = referenced_price_fact(assessment)
         day = now.astimezone(JST).date()
+        # 実際の次立会が不明でも、当日引け以降にその立会で取得できないことは分かる。
+        earliest_possible_trade = latest_eligible_close_date(now) + timedelta(days=1)
         if (
             quote is not None
             and observed is not None
@@ -107,7 +116,7 @@ def no_action_blocker(
             and observed.price_basis == quote.price_basis
             and finite_decimal(observed.value) == quote.price_yen
             and (observed.observed_at is None or observed.observed_at <= inputs.checked_at)
-            and acquisition_blocker(assessment, day) is None
+            and acquisition_blocker(assessment, earliest_possible_trade) is None
             and assessment_quote_basis(
                 assessment,
                 quote,
