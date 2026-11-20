@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import zipfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import date, datetime, timedelta
 from typing import Literal
 
@@ -34,7 +34,28 @@ def parse_csv_zip_metric_record(
     period_start: date | None = None,
     period_end: date | None = None,
 ) -> EdinetMetricRecord:
-    rows: Sequence[Mapping[str, str]] = _read_csv_zip_rows(content)
+    rows = [row for _, member in read_csv_zip_members(content) for row in member]
+    return parse_csv_metric_rows(
+        ticker=ticker,
+        doc_id=doc_id,
+        doc_type_code=doc_type_code,
+        rows=rows,
+        submit_datetime=submit_datetime,
+        period_start=period_start,
+        period_end=period_end,
+    )
+
+
+def parse_csv_metric_rows(
+    *,
+    ticker: str,
+    doc_id: str,
+    doc_type_code: str,
+    rows: Sequence[Mapping[str, str]],
+    submit_datetime: str | None = None,
+    period_start: date | None = None,
+    period_end: date | None = None,
+) -> EdinetMetricRecord:
     if not rows:
         return EdinetMetricRecord(
             ticker=ticker,
@@ -247,13 +268,12 @@ _TAGS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _read_csv_zip_rows(content: bytes) -> list[dict[str, str]]:
+def read_csv_zip_members(content: bytes) -> Iterator[tuple[str, list[dict[str, str]]]]:
     try:
         archive = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as exc:
         raise EDINETProviderError("zip_invalid") from exc
     with archive:
-        rows: list[dict[str, str]] = []
         for name in archive.namelist():
             if not name.lower().endswith(".csv"):
                 continue
@@ -266,8 +286,7 @@ def _read_csv_zip_rows(content: bytes) -> list[dict[str, str]]:
             if len(headers) != len(set(headers)) or not required.issubset(headers):
                 raise EDINETProviderError("csv_parse_failed: missing or duplicate native headers")
             reader.fieldnames = headers
-            rows.extend(dict(row) for row in reader if row)
-    return rows
+            yield name, [dict(row) for row in reader if row]
 
 
 def _decode_csv(content: bytes) -> str:
