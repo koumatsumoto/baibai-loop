@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from itertools import groupby
 from math import isfinite
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.edinet.fields import (
@@ -16,6 +16,9 @@ from baibai_engine.data_collection.providers.edinet.fields import (
     validated_document_operation,
 )
 from baibai_engine.data_collection.providers.edinet.receipts import EdinetListReceipt
+
+if TYPE_CHECKING:
+    from baibai_engine.data_collection.providers.edinet.list_native import NativeListReceipt
 
 _RETAINED_NATIVE_FIELDS = (
     "secCode",
@@ -38,6 +41,14 @@ class DocumentListProjection:
     native_payload: dict[str, Any] | None
     documents: tuple[dict[str, Any], ...]
     error: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FixedEdinetListEvidence:
+    """Same-run read of one fixed L1 list head, never a persisted cache."""
+
+    receipts: tuple[NativeListReceipt, ...]
+    failed_days: tuple[str, ...]
 
 
 def project_document_list(receipts: Sequence[EdinetListReceipt]) -> DocumentListProjection:
