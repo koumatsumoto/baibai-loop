@@ -87,13 +87,32 @@ def test_source_only_plan_retains_out_of_window_rechecks_and_real_today_order(tm
     assert client.calls == [today, DAY]
 
 
-def test_default_540_day_scope_is_not_shortened_by_missing_l2(tmp_path):
+def test_default_540_day_scope_is_not_shortened_by_missing_l2(tmp_path, monkeypatch):
     _, owner = owner_at(tmp_path)
     client = Client()
+    publish = owner.publish
+    published_days = []
+    first = None
+
+    def publish_first(receipts):
+        nonlocal first
+        (item,) = receipts
+        published_days.append(item.doc_date)
+        if first is None:
+            first = publish(receipts)
+        return first
+
+    # Keep the first real empty-head transition and observe every later publish
+    # call. The populated-head test below runs the entire 541-day storage loop.
+    monkeypatch.setattr(owner, "publish", publish_first)
     report = acquire_lists(owner, client, start=DAY - timedelta(days=540), end=DAY, today=DAY)
     assert len(client.calls) == 541
+    assert client.calls[0] == DAY
     assert set(client.calls) == {DAY - timedelta(days=i) for i in range(541)}
+    assert published_days == client.calls
     assert report["received_count"] == 541
+    assert [item.doc_date for item in owner.freeze().iter_receipts()] == [DAY]
+    assert not (tmp_path / "market.sqlite").exists()
 
 
 @pytest.mark.parametrize("failure", [b"invalid JSON \xff", EdinetRateLimitError("quota")])
@@ -324,7 +343,9 @@ def test_bootstrap_store_requests_do_not_multiply_old_history(tmp_path):
     report = acquire_lists(owner, client, start=DAY - timedelta(days=540), end=DAY, today=DAY)
     assert report["received_count"] == 541
     assert len(client.calls) == 541
+    assert set(client.calls) == {DAY - timedelta(days=i) for i in range(541)}
     assert store.put_keys.count(HEAD_KEY) == 541
+    assert not (tmp_path / "market.sqlite").exists()
     # Each prior immutable body is checked once at entry; each new one once at publication.
     body_heads = [key for key in store.head_keys if key != HEAD_KEY]
     assert len(body_heads) <= 100 + 541 * 4
