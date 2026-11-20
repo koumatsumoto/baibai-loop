@@ -34,9 +34,7 @@ class ProposalViews(NamedTuple):
     history: ProposalHistoryView
 
 
-def read_proposal_views(
-    db_path: Path, *, generated_at: datetime | None = None
-) -> ProposalViews:
+def read_proposal_views(db_path: Path, *, generated_at: datetime | None = None) -> ProposalViews:
     """Project a verified publication once; latest and history keep distinct status and order."""
     now = generated_at if generated_at is not None else datetime.now(JST)
     try:
@@ -47,9 +45,7 @@ def read_proposal_views(
         return _views(now)
 
 
-def _read_snapshot(
-    connection: sqlite3.Connection, now: datetime
-) -> ProposalViews:
+def _read_snapshot(connection: sqlite3.Connection, now: datetime) -> ProposalViews:
     history_ids: tuple[str, ...] | None
     try:
         history_ids = published_proposal_ids(connection)
