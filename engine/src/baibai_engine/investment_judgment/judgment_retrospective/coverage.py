@@ -18,7 +18,7 @@ from baibai_engine.investment_judgment.judgment_retrospective.store import (
     load_retrospective,
     validate_correction,
 )
-from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalItem
+from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalItem, order_readiness
 from baibai_engine.investment_judgment.trade_proposal.query import (
     is_erroneous_proposal_as_of,
     load_investment_proposal,
@@ -32,6 +32,14 @@ def original_item_questions(item: ProposalItem) -> dict[str, object]:
         "original_action": item.action,
         "original_rationale": item.rationale,
         "original_review_conditions": list(item.review_conditions),
+        **(
+            {
+                "original_economic_decision": item.economic_decision,
+                "original_order_readiness": order_readiness(item),
+            }
+            if item.action == "buy"
+            else {}
+        ),
         **(
             {
                 "original_blockers": [b.model_dump(mode="json") for b in item.blockers],

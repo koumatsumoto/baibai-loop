@@ -150,9 +150,11 @@ def _preview_buy(
             "calculation_price_yen": str(quote.price_yen if grid is None else grid),
             "price_grid_available": grid is not None,
         }
+    calculation = buy_evaluation_payload(result, order_blockers=order_blockers)
     return {
         "current_quote_calculation": trial,
-        "saved_limit_revalidation": buy_evaluation_payload(result, order_blockers=order_blockers),
+        "saved_limit_revalidation": calculation if item.terms is not None else None,
+        "saved_ceiling_calculation": calculation if item.terms is None else None,
     }, blockers
 
 
@@ -340,6 +342,17 @@ def preview_current_terms(
                 else None,
                 "current_terms_warnings": [],
             }
+            if item.action == "buy":
+                row.update(
+                    saved_economic_decision=item.economic_decision,
+                    saved_proposed_limit_yen=(
+                        None if item.proposed_limit_yen is None else str(item.proposed_limit_yen)
+                    ),
+                    saved_terms_unavailable_reasons=[
+                        reason.model_dump(mode="json") for reason in item.terms_unavailable_reasons
+                    ],
+                    saved_ceiling_calculation=None,
+                )
             order_blockers: tuple[GateReason, ...] = ()
             session = None
             if item.action in {"buy", "sell"}:
@@ -433,7 +446,9 @@ def preview_current_terms(
                         )
             if item.action in {"buy", "sell"}:
                 blockers.extend(order_blockers)
-                revalidation = row["saved_limit_revalidation"]
+                revalidation = row["saved_limit_revalidation"] or row.get(
+                    "saved_ceiling_calculation"
+                )
                 if isinstance(revalidation, dict):
                     if item.action == "sell" and blockers:
                         revalidation["quantity"] = None

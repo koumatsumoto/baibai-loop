@@ -322,7 +322,7 @@ function SavedBuyComparison({ item }: { item: SavedBuyItemView }) {
   return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存指値・選択数量の金額比較">
     <h4 className="text-sm font-semibold">保存指値・選択数量の金額比較</h4>
     {comparison == null
-      ? <p className="text-sm text-muted-foreground">この表示データには金額比較がありません。旧表示データや価値・具体条件・起点が揃わない場合を、損益0や最大数量で補っていません。</p>
+      ? <p className="text-sm text-muted-foreground">この表示データには金額比較がありません。旧表示データや価値・起点が揃わない場合を、損益0や最大数量で補っていません。</p>
       : <>
         <p className="text-xs leading-6 text-muted-foreground">この銘柄だけが保存指値で全量約定した条件付き比較です。保存時の未拘束cashを共通の元手とし、他の買付・既保有を含むNAVではありません。銘柄間で残cashや終期合計を足し合わせません。</p>
         <dl className="grid gap-4 sm:grid-cols-3">
@@ -514,7 +514,7 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
               {item.action === 'buy' && item.proposed_limit_yen !== null && <dl><Field label="作者指定の上限（具体条件未確定）">{item.proposed_limit_yen} 円</Field></dl>}
               <Reasons reasons={item.terms_unavailable_reasons} title="具体条件が不足する理由" />
             </div>)}
-            {item.action === 'buy' && <SavedBuyComparison item={item} />}
+            {item.action === 'buy' && item.terms !== null && <SavedBuyComparison item={item} />}
             {item.action === 'sell' && <SavedSellLimitComparison item={item} />}
             {item.action === 'hold' && <SavedHoldQuoteComparison item={item} />}
             {(item.action === 'hold' || item.action === 'sell') && <>
