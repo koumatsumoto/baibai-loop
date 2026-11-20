@@ -1,4 +1,4 @@
-"""H.15 planning inputs retain range receipts through both public transports."""
+"""H.15 planning inputs retain range receipts using the published automated package."""
 
 import json
 import tempfile
@@ -6,7 +6,6 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 from tests.helpers.provider_fixtures import _FakeResponse
@@ -34,6 +33,7 @@ DAY = date(2026, 11, 6)
 WHEN = datetime(2026, 11, 6, 1, tzinfo=UTC)
 PREAMBLE = ['"Release","Synthetic H.15 fixture"', "  Units: percent  "]
 HEADER = "\n".join([*PREAMBLE, '"Time Period",RIFLGFCY10_N.B,RIFLGFCY02_N.B,OTHER']) + "\n"
+HEADER_ONLY = object()
 
 
 def state(path):
@@ -46,7 +46,7 @@ def state(path):
 
 @pytest.fixture
 def source(monkeypatch):
-    control = SimpleNamespace(clock=WHEN, value="1.0", browser=False, requests=[], navigations=[])
+    control = SimpleNamespace(clock=WHEN, value="1.0", requests=[])
 
     class Clock(datetime):
         @classmethod
@@ -56,22 +56,19 @@ def source(monkeypatch):
     def body():
         if isinstance(control.value, Exception):
             raise control.value
+        if control.value is HEADER_ONLY:
+            return HEADER.encode()
         row = "" if control.value is None else f'{DAY},{control.value},.,"literal, note"\n'
-        return (HEADER + row).encode()
+        return (HEADER + "2000-01-03,1.23,.,outside\n" + row).encode()
 
     class Session:
         def get(self, url, **kwargs):
             assert url == SOURCE.source_url
             control.requests.append(kwargs["params"])
-            return _FakeResponse(b"" if control.browser else body())
+            return _FakeResponse(body())
 
         def close(self):
             pass
-
-    class Browser:
-        def fetch_download(self, url, **kwargs):
-            control.navigations.append(dict(parse_qsl(urlsplit(url).query, keep_blank_values=True)))
-            return body()
 
     class Context(FetchContext):
         def __init__(self, **kwargs):
@@ -80,7 +77,7 @@ def source(monkeypatch):
             self.session = Session()
 
         def browser_fetcher(self):
-            return Browser()
+            raise AssertionError("the automated package must not open a browser")
 
     for module in (acquisition, handoff, inputs, store):
         monkeypatch.setattr(module, "datetime", Clock)
@@ -131,16 +128,20 @@ def acquire(directory, canonical, mode, source, monkeypatch):
     if mode == "planning":
         assert not state(database)["economic_source_records"]
     source.requests.clear()
-    source.navigations.clear()
     packet = directory / "packet"
     status = handoff.acquire("frb_h15", SOURCE.source_id, DAY, packet, database)
     assert len(source.requests) == 1
-    assert source.requests[0]["from"] == recent_start(SOURCE, DAY).strftime("%m/%d/%Y")
-    assert source.requests[0]["to"] == DAY.strftime("%m/%d/%Y")
-    assert source.navigations == (source.requests if source.browser else [])
+    assert source.requests[0]["from"] == source.requests[0]["to"] == ""
     handoff.validate_handoff(packet, "frb_h15", SOURCE.source_id)
     raw = packet / "receipts.sqlite"
     with closing(store.open_read_only_connection(raw)) as connection:
+        assert (
+            connection.execute(
+                "SELECT 1 FROM economic_source_records WHERE observed_at < ? OR observed_at > ?",
+                (recent_start(SOURCE, DAY).isoformat(), DAY.isoformat()),
+            ).fetchone()
+            is None
+        )
         assert (
             connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE name='economic_frb_h15_input_days'"
@@ -157,28 +158,25 @@ def integrate(raw, canonical, accepted):
     return result
 
 
-@pytest.mark.parametrize("browser", [False, True])
-def test_plain_and_browser_rechecks_keep_changes_empty_failure_and_next_input(
-    tmp_path, source, monkeypatch, browser
-):
+def test_package_rechecks_keep_changes_empty_failure_and_next_input(tmp_path, source, monkeypatch):
     original = tmp_path / "seed.sqlite"
     seed(original)
     original_bytes = original.read_bytes()
-    source.browser = browser
     results = []
     for mode in ("full", "planning"):
         canonical = tmp_path / f"canonical-{mode}.sqlite"
         canonical.write_bytes(original_bytes)
         phases = []
         for hour, value in enumerate(
-            ("1.5", "1.0", None, ProviderFetchStoppedError("synthetic cutoff"), "ND"), 1
+            ("1.5", "1.0", None, ProviderFetchStoppedError("synthetic cutoff"), "ND", HEADER_ONLY),
+            1,
         ):
             source.clock, source.value = WHEN + timedelta(hours=hour), value
             before = state(canonical)
             with tempfile.TemporaryDirectory(dir=tmp_path) as temporary:
                 directory = Path(temporary)
                 raw, status, report = acquire(directory, canonical, mode, source, monkeypatch)
-                failed = isinstance(value, Exception)
+                failed = isinstance(value, Exception) or value is HEADER_ONLY
                 assert status == int(failed)
                 assert report["sources"][0]["status"] == ("failed" if failed else "ok")
                 raw_bytes = raw.read_bytes()

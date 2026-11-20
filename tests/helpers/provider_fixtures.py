@@ -358,6 +358,7 @@ class _StaticSession:
         headers: Mapping[str, str] | None = None,
         timeout: int,
         stream: bool = False,
+        allow_redirects: bool = True,
     ) -> _FakeResponse:
         return self.response
 

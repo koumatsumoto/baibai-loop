@@ -10,7 +10,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from tests.helpers.http_doubles import BodyTimeout
-from tests.helpers.provider_fixtures import _FakeBrowserFetcher
 from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ProtocolError
 from urllib3.response import HTTPResponse
@@ -24,7 +23,6 @@ from baibai_engine.data_collection.providers.spglobal.pmi import fetch_pdf_bytes
 from baibai_engine.data_collection.receipts.native_sources import store
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.transport.context import (
-    BrowserUnavailableError,
     FetchContext,
     IndicatorsProviderError,
 )
@@ -216,41 +214,43 @@ def test_retry_success_can_supersede_prior_day_with_an_empty_native_snapshot(wir
         assert latest.records == ()
 
 
-def test_h15_transient_http_failure_recovers_without_selecting_browser(wire, tmp_path, monkeypatch):
-    wire.second = lambda attempt: (
-        failed_response("503")
-        if attempt == 1
-        else (200, {}, b'"Time Period","RIFLGFCY10_N.B"\n2026-02-01,ND\n')
+@pytest.mark.parametrize(
+    ("failed", "reason", "status"),
+    [
+        ((503, {}, b"unavailable"), "503", 503),
+        ((200, {}, b"<html>not CSV</html>"), "missing Time Period header", None),
+    ],
+)
+def test_h15_bad_package_stops_after_one_get_and_keeps_the_last_receipt(
+    wire, tmp_path, monkeypatch, failed, reason, status
+):
+    path = tmp_path / "native.sqlite"
+    valid = (200, {}, b'"Time Period","RIFLGFCY10_N.B"\n2026-02-01,ND\n')
+    wire.second = lambda _attempt: valid
+    assert isinstance(
+        refresh_sources(["fed-h15"], db_path=path, start=END, end=END)[0], SourceRefreshSuccess
     )
+    with closing(store.open_read_only_connection(path)) as connection:
+        before = tuple(read_snapshots(connection, END, END, source_id="fed-h15"))
+    assert len(before) == 1
+    assert before[0].records
+    wire.calls.clear()
+    wire.second = lambda attempt: failed if attempt == 1 else valid
     monkeypatch.setattr(
         FetchContext, "browser_fetcher", lambda self: pytest.fail("HTTP failure is not fallback")
     )
-    outcome = refresh_sources(["fed-h15"], db_path=tmp_path / "native.sqlite", start=END, end=END)[
-        0
-    ]
-    assert isinstance(outcome, SourceRefreshSuccess)
-    assert outcome.record_count == 1
-    assert wire.calls == ["2", "2"]
-    assert wire.waits == [1.0]
-
-
-def test_h15_does_not_replay_completed_plain_to_browser_selection(wire, tmp_path, monkeypatch):
-    wire.second = lambda attempt: (200, {}, b"<html>not CSV</html>")
-    browser = _FakeBrowserFetcher(BrowserUnavailableError("failed to launch"))
-    contexts = []
-
-    def fetch_browser(context):
-        contexts.append(context)
-        return browser
-
-    monkeypatch.setattr(FetchContext, "browser_fetcher", fetch_browser)
-    outcome = refresh_sources(["fed-h15"], db_path=tmp_path / "native.sqlite", start=END, end=END)[
-        0
-    ]
+    outcome = refresh_sources(["fed-h15"], db_path=path, start=END, end=END)[0]
     assert isinstance(outcome, SourceRefreshFailure)
-    assert "failed to launch" in outcome.message
+    assert reason in outcome.message
+    assert outcome.http_status == status
+    assert outcome.browser_download_diagnostic is None
     assert wire.calls == ["2"]
     assert wire.waits == []
-    assert len(browser.urls) == 1
-    assert contexts[0].blocked_browser_urls == {}
-    assert contexts[0].bytes_cache == {}
+    with closing(store.open_read_only_connection(path)) as connection:
+        assert tuple(read_snapshots(connection, END, END, source_id="fed-h15")) == before
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT status, record_count FROM economic_source_runs WHERE status = 'failed'"
+            )
+        ] == [("failed", 0)]

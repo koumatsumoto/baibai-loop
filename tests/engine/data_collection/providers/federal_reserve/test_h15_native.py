@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import date
 from typing import cast
 from unittest import TestCase
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 import requests
 from tests.helpers.provider_fixtures import (
@@ -21,7 +21,7 @@ from baibai_engine.data_collection.catalog import require_source
 from baibai_engine.data_collection.providers.federal_reserve.h15 import FrbH15Source, parse_h15_csv
 from baibai_engine.data_collection.transport.context import (
     MAX_CSV_RESPONSE_BYTES,
-    BrowserUnavailableError,
+    FetchContext,
     HttpSession,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
@@ -188,90 +188,13 @@ class NativeParserTests(TestCase):
         self.assertEqual(records[date(2026, 5, 1)][0]["row"]["OTHER"], "first\nsecond")
 
     def test_parse_h15_csv_reports_non_csv_response_with_snippet(self) -> None:
-        text = "<!DOCTYPE html>\n<html><head><title>Access Denied</title></head></html>"
+        text = "<!DOCTYPE html>\n<html><head><title>Download unavailable</title></head></html>"
 
         with self.assertRaisesRegex(
             IndicatorsProviderError,
             r"missing Time Period header; response starts with: '<!DOCTYPE html> <html>",
         ):
             parse_h15_csv(text, start=date(2026, 5, 1), end=date(2026, 5, 1))
-
-    def test_h15_fetch_sends_browser_user_agent(self) -> None:
-        series = require_source("fed-h15")
-        captured: dict[str, object] = {}
-
-        class _Response:
-            status_code = 200
-            headers: dict[str, str] = {}
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def iter_content(self, chunk_size: int) -> object:
-                del chunk_size
-                return iter([b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n'])
-
-            def close(self) -> None:
-                return None
-
-        class _Session:
-            def get(self, url: str, **kwargs: object) -> _Response:
-                captured["url"] = url
-                captured["headers"] = kwargs.get("headers")
-                return _Response()
-
-        records = FrbH15Source().fetch_records(
-            series,
-            start=date(2026, 5, 1),
-            end=date(2026, 5, 1),
-            session=cast(HttpSession, _Session()),
-        )
-
-        self.assertEqual(
-            records,
-            {
-                date(2026, 5, 1): [
-                    {
-                        "row": {"Time Period": "2026-05-01", "RIFLGFCY10_N.B": "4.39"},
-                        "preamble": [],
-                    }
-                ]
-            },
-        )
-        headers = cast("dict[str, str]", captured["headers"])
-        self.assertIn("Mozilla/5.0", headers["User-Agent"])
-        # Preserve the configured request headers; this fixture proves no live access cause.
-        self.assertIn("Accept", headers)
-        self.assertIn("Accept-Language", headers)
-
-    def test_h15_falls_back_to_a_browser_when_the_plain_response_is_empty(self) -> None:
-        series = require_source("fed-h15")
-        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
-
-        with _context_with_browser(browser) as context:
-            records = FrbH15Source().fetch_records(
-                series,
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 1),
-                session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
-                context=context,
-            )
-
-        self.assertEqual(
-            records,
-            {
-                date(2026, 5, 1): [
-                    {
-                        "row": {"Time Period": "2026-05-01", "RIFLGFCY10_N.B": "4.39"},
-                        "preamble": [],
-                    }
-                ]
-            },
-        )
-        self.assertEqual(len(browser.urls), 1)
-        # The browser navigates to the same query the plain client sent.
-        self.assertIn("series=bf17364827e38702b42a58cf8eaa3f78", browser.urls[0])
-        self.assertIn("from=05%2F01%2F2026", browser.urls[0])
 
     def test_h15_keeps_a_forbidden_response_without_a_browser_route(self) -> None:
         series = require_source("fed-h15")
@@ -313,7 +236,9 @@ class NativeParserTests(TestCase):
             with (
                 self.subTest(status=response.status_code, body=response.content),
                 _context_with_browser(browser) as context,
-                patch("baibai_engine.data_collection.transport.context.wait_for_read_retry"),
+                patch(
+                    "baibai_engine.data_collection.transport.context.wait_for_read_retry"
+                ) as retry,
                 patch.object(
                     context, "discard_cached_bytes", wraps=context.discard_cached_bytes
                 ) as discard,
@@ -326,6 +251,7 @@ class NativeParserTests(TestCase):
                     session=cast(HttpSession, _StaticSession(response)),
                     context=context,
                 )
+            retry.assert_not_called()
             if response.content == b"\xff":
                 # The text transport evicts undecodable bytes without another GET.
                 self.assertEqual(discard.call_count, 1)
@@ -333,36 +259,6 @@ class NativeParserTests(TestCase):
                 discard.assert_not_called()
             self.assertEqual(context.bytes_cache, {})
             self.assertEqual(browser.urls, [])
-
-    def test_h15_falls_back_to_a_browser_when_the_plain_success_needs_rendering(self) -> None:
-        series = require_source("fed-h15")
-        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
-        render_page = (
-            b"<!DOCTYPE html><html><title>H.15 Data Download</title>"
-            b"<!-- <title>Access Denied</title> --><body>Access Denied is not the title</body></html>"
-        )
-
-        with _context_with_browser(browser) as context:
-            records = FrbH15Source().fetch_records(
-                series,
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 1),
-                session=cast(HttpSession, _StaticSession(_FakeResponse(render_page))),
-                context=context,
-            )
-
-        self.assertEqual(
-            records,
-            {
-                date(2026, 5, 1): [
-                    {
-                        "row": {"Time Period": "2026-05-01", "RIFLGFCY10_N.B": "4.39"},
-                        "preamble": [],
-                    }
-                ]
-            },
-        )
-        self.assertEqual(len(browser.urls), 1)
 
     def test_h15_explicit_denial_in_a_successful_response_never_selects_another_route(self) -> None:
         for body in (
@@ -402,303 +298,6 @@ class NativeParserTests(TestCase):
                 self.assertNotIn("403", str(caught.exception))
                 self.assertIsNone(caught.exception.__cause__)
 
-    def test_h15_browser_fallback_downloads_once_for_every_series_in_a_pass(self) -> None:
-        # Synthetic package includes all three registered Treasury yield columns.
-        source = require_source("fed-h15")
-        readings = load_definitions().by_id()
-        assert source.provider_series_id == ""
-        assert {readings[key].source_id for key in ("us.10y", "us.2y", "us.30y")} == {
-            source.source_id
-        }
-        assert len({readings[key].reading_key for key in ("us.10y", "us.2y", "us.30y")}) == 3
-        browser = _FakeBrowserFetcher(
-            b'"Time Period","RIFLGFCY10_N.B","RIFLGFCY02_N.B","RIFLGFCY30_N.B"\n'
-            b"2026-05-01,4.39,3.88,4.90\n"
-        )
-        session = cast(HttpSession, _StaticSession(_FakeResponse(b"")))
-        expected = {
-            date(2026, 5, 1): [
-                {
-                    "row": {
-                        "Time Period": "2026-05-01",
-                        "RIFLGFCY10_N.B": "4.39",
-                        "RIFLGFCY02_N.B": "3.88",
-                        "RIFLGFCY30_N.B": "4.90",
-                    },
-                    "preamble": [],
-                }
-            ]
-        }
-
-        with _context_with_browser(browser) as context:
-            for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B", "RIFLGFCY30_N.B"):
-                with self.subTest(provider_series_id=provider_series_id):
-                    records = FrbH15Source().fetch_records(
-                        require_source("fed-h15"),
-                        start=date(2026, 5, 1),
-                        end=date(2026, 5, 1),
-                        session=session,
-                        context=context,
-                    )
-                    self.assertEqual(records, expected)
-
-        # All three series retain the whole package from one cached download,
-        # rather than paying for another browser navigation per requested column.
-        self.assertEqual(len(browser.urls), 1)
-
-    def test_h15_plain_download_is_shared_for_all_registered_treasury_columns(self) -> None:
-        body = (
-            b'"Time Period","RIFLGFCY10_N.B","RIFLGFCY02_N.B","RIFLGFCY30_N.B"\n2026-05-01,ND,.,\n'
-        )
-        requests: list[str] = []
-
-        class _Session:
-            def get(self, url: str, **kwargs: object) -> _FakeResponse:
-                del kwargs
-                requests.append(url)
-                return _FakeResponse(body)
-
-        browser = _FakeBrowserFetcher(AssertionError("plain CSV should not need a browser"))
-        expected = {
-            date(2026, 5, 1): [
-                {
-                    "row": {
-                        "Time Period": "2026-05-01",
-                        "RIFLGFCY10_N.B": "ND",
-                        "RIFLGFCY02_N.B": ".",
-                        "RIFLGFCY30_N.B": "",
-                    },
-                    "preamble": [],
-                }
-            ]
-        }
-
-        with _context_with_browser(browser) as context:
-            for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B", "RIFLGFCY30_N.B"):
-                with self.subTest(provider_series_id=provider_series_id):
-                    records = FrbH15Source().fetch_records(
-                        require_source("fed-h15"),
-                        start=date(2026, 5, 1),
-                        end=date(2026, 5, 1),
-                        session=cast(HttpSession, _Session()),
-                        context=context,
-                    )
-                    self.assertEqual(records, expected)
-
-        self.assertEqual(len(requests), 1)
-        self.assertEqual(browser.urls, [])
-
-    def test_h15_reports_the_plain_failure_when_the_browser_is_also_blocked(self) -> None:
-        series = require_source("fed-h15")
-        browser = _FakeBrowserFetcher(IndicatorsProviderError("browser could not download"))
-
-        with (
-            _context_with_browser(browser) as context,
-            self.assertRaisesRegex(
-                IndicatorsProviderError,
-                r"browser could not download; the plain client first failed with: "
-                r"empty response body from .* \(status 200, content-type 'text/html'\)",
-            ),
-        ):
-            FrbH15Source().fetch_records(
-                series,
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 1),
-                session=cast(
-                    HttpSession,
-                    _StaticSession(_FakeResponse(b"", headers={"Content-Type": "text/html"})),
-                ),
-                context=context,
-            )
-
-    def test_h15_reports_the_render_page_when_the_browser_is_also_blocked(self) -> None:
-        series = require_source("fed-h15")
-        browser = _FakeBrowserFetcher(IndicatorsProviderError("browser could not download"))
-        render_page = b"<!DOCTYPE html><html><title>H.15 Data Download</title></html>"
-
-        with (
-            _context_with_browser(browser) as context,
-            self.assertRaisesRegex(
-                IndicatorsProviderError,
-                r"the plain client first failed with: response without the CSV header: "
-                r"'<!DOCTYPE html><html><title>H.15 Data Download",
-            ),
-        ):
-            FrbH15Source().fetch_records(
-                series,
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 1),
-                session=cast(HttpSession, _StaticSession(_FakeResponse(render_page))),
-                context=context,
-            )
-
-    def test_h15_rejects_a_browser_response_without_the_csv_header(self) -> None:
-        series = require_source("fed-h15")
-        browser = _FakeBrowserFetcher(b"<!DOCTYPE html><html><title>Just a moment</title></html>")
-
-        with _context_with_browser(browser) as context:
-            with self.assertRaisesRegex(
-                IndicatorsProviderError, r"browser response without the CSV header"
-            ):
-                FrbH15Source().fetch_records(
-                    series,
-                    start=date(2026, 5, 1),
-                    end=date(2026, 5, 1),
-                    session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
-                    context=context,
-                )
-
-            # An unvalidated browser answer in the cache would fail every later
-            # series sharing the URL with the parser's format error.
-            self.assertEqual(context.bytes_cache, {})
-
-    def test_h15_rejects_a_browser_response_that_is_not_utf8(self) -> None:
-        series = require_source("fed-h15")
-        browser = _FakeBrowserFetcher(b"\xff\xfe\x00garbage")
-
-        with _context_with_browser(browser) as context:
-            # Bad browser bytes remain a provider failure and never enter the cache.
-            with self.assertRaises(IndicatorsProviderError):
-                FrbH15Source().fetch_records(
-                    series,
-                    start=date(2026, 5, 1),
-                    end=date(2026, 5, 1),
-                    session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
-                    context=context,
-                )
-
-            self.assertEqual(context.bytes_cache, {})
-
-    def test_h15_does_not_re_navigate_after_the_browser_was_blocked_in_this_pass(self) -> None:
-        browser = _FakeBrowserFetcher(IndicatorsProviderError("navigation timed out"))
-        session = cast(HttpSession, _StaticSession(_FakeResponse(b"")))
-        reported: list[str] = []
-
-        with _context_with_browser(browser) as context:
-            for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B"):
-                with (
-                    self.subTest(reading_key=provider_series_id),
-                    self.assertRaises(IndicatorsProviderError) as caught,
-                ):
-                    FrbH15Source().fetch_records(
-                        require_source("fed-h15"),
-                        start=date(2026, 5, 1),
-                        end=date(2026, 5, 1),
-                        session=session,
-                        context=context,
-                    )
-                reported.append(str(caught.exception))
-
-        # Each navigation costs a timeout, so a blocked edge must be paid for once
-        # per pass rather than once per series and attempt.
-        self.assertEqual(len(browser.urls), 1)
-        # The series that skipped the navigation is the only one still reporting,
-        # so what the edge answered has to travel with the record of the block.
-        for message in reported:
-            self.assertIn("navigation timed out", message)
-
-    def test_h15_retries_the_browser_after_it_could_not_be_started(self) -> None:
-        browser = _FakeBrowserFetcher(BrowserUnavailableError("failed to launch"))
-        session = cast(HttpSession, _StaticSession(_FakeResponse(b"")))
-        reached_browser = 0
-
-        with _context_with_browser(browser) as context:
-            for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B"):
-                with (
-                    self.subTest(reading_key=provider_series_id),
-                    self.assertRaises(IndicatorsProviderError),
-                ):
-                    FrbH15Source().fetch_records(
-                        require_source("fed-h15"),
-                        start=date(2026, 5, 1),
-                        end=date(2026, 5, 1),
-                        session=session,
-                        context=context,
-                    )
-                reached_browser = len(browser.urls)
-
-            # A browser that never started says nothing about the source, so the
-            # next series has the same reason to try as this one did.
-            self.assertEqual(context.blocked_browser_urls, {})
-
-        self.assertEqual(reached_browser, 2)
-
-    def test_h15_deadline_is_not_remembered_as_a_source_refusal(self) -> None:
-        browser = _FakeBrowserFetcher(AssertionError("deadline must prevent navigation"))
-        with _context_with_browser(browser) as context:
-            with (
-                patch.object(
-                    context,
-                    "browser_fetcher",
-                    side_effect=ProviderFetchStoppedError("acquisition job deadline exhausted"),
-                ),
-                self.assertRaisesRegex(ProviderFetchStoppedError, "deadline exhausted"),
-            ):
-                FrbH15Source().fetch_records(
-                    require_source("fed-h15"),
-                    start=date(2026, 5, 1),
-                    end=date(2026, 5, 1),
-                    session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
-                    context=context,
-                )
-            self.assertEqual(context.blocked_browser_urls, {})
-            self.assertEqual(browser.urls, [])
-
-    def test_h15_does_not_fall_back_to_a_browser_for_a_failure_that_is_not_a_block(self) -> None:
-        series = require_source("fed-h15")
-        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
-        oversized = _FakeResponse(b"x" * 32, headers={"Content-Length": "9000000"})
-
-        with _context_with_browser(browser) as context:
-            with self.assertRaisesRegex(IndicatorsProviderError, r"response too large"):
-                FrbH15Source().fetch_records(
-                    series,
-                    start=date(2026, 5, 1),
-                    end=date(2026, 5, 1),
-                    session=cast(HttpSession, _StaticSession(oversized)),
-                    context=context,
-                )
-
-            # A known size-limit failure is not a reason to fetch the same
-            # resource again through another transport.
-            self.assertEqual(browser.urls, [])
-
-    def test_h15_browser_navigation_preserves_a_query_already_in_the_source_url(self) -> None:
-        series = require_source("fed-h15")
-        series = replace(series, source_url="https://example.test/Output.aspx?rel=H15")
-        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
-
-        with _context_with_browser(browser) as context:
-            FrbH15Source().fetch_records(
-                series,
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 1),
-                session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
-                context=context,
-            )
-
-        # The plain client merges params into an existing query; the navigation
-        # must address the same resource rather than a doubled "?".
-        self.assertEqual(browser.urls[0].count("?"), 1)
-        self.assertIn("rel=H15", browser.urls[0])
-        self.assertIn("layout=seriescolumn", browser.urls[0])
-
-    def test_h15_browser_download_is_capped_by_the_provider_limit(self) -> None:
-        series = require_source("fed-h15")
-        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
-
-        with _context_with_browser(browser) as context:
-            FrbH15Source().fetch_records(
-                series,
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 1),
-                session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
-                context=context,
-            )
-
-        # One resource, one ceiling — not a second one that depends on the route.
-        self.assertEqual(browser.max_bytes, [MAX_CSV_RESPONSE_BYTES])
-
     def test_h15_without_a_context_reports_the_response_instead_of_falling_back(self) -> None:
         series = require_source("fed-h15")
         render_page = b"<!DOCTYPE html><html><title>H.15 Data Download</title></html>"
@@ -725,3 +324,103 @@ class NativeParserTests(TestCase):
                 end=date(2026, 5, 1),
                 session=cast(HttpSession, _StaticSession(_FakeResponse(body))),
             )
+
+    def test_one_published_package_serves_disjoint_windows_without_retaining_other_dates(
+        self,
+    ) -> None:
+        source = require_source("fed-h15")
+        readings = load_definitions().by_id()
+        assert {readings[key].source_id for key in ("us.10y", "us.2y", "us.30y")} == {
+            source.source_id
+        }
+        preamble = '"Release","Synthetic metadata with literal spaces  "'
+        header = '"Time Period",RIFLGFCY02_N.B,RIFLGFCY10_N.B,RIFLGFCY30_N.B,OTHER'
+        text = "\n".join(
+            (
+                preamble,
+                header,
+                "2026-05-01,ND,.,,first",
+                "2026-05-04,2.1,3.2,4.3,second",
+                "2026-05-05,2.2,3.3,4.4,outside",
+            )
+        )
+        session = _StaticSession(_FakeResponse(text.encode()))
+        with FetchContext() as context, patch.object(session, "get", wraps=session.get) as fetch:
+            for day, expected in (
+                (date(2026, 5, 1), ("ND", ".", "", "first")),
+                (date(2026, 5, 4), ("2.1", "3.2", "4.3", "second")),
+            ):
+                records = FrbH15Source().fetch_records(
+                    source, start=day, end=day, session=cast(HttpSession, session), context=context
+                )
+                self.assertEqual(
+                    records,
+                    {
+                        day: [
+                            {
+                                "row": dict(
+                                    zip(
+                                        (
+                                            "Time Period",
+                                            "RIFLGFCY02_N.B",
+                                            "RIFLGFCY10_N.B",
+                                            "RIFLGFCY30_N.B",
+                                            "OTHER",
+                                        ),
+                                        (day.isoformat(), *expected),
+                                        strict=True,
+                                    )
+                                ),
+                                "preamble": [preamble],
+                            }
+                        ]
+                    },
+                )
+        fetch.assert_called_once()
+        assert fetch.call_args is not None
+        self.assertIs(fetch.call_args.kwargs["allow_redirects"], False)
+        url = fetch.call_args.args[0] + "?" + urlencode(fetch.call_args.kwargs["params"])
+        self.assertEqual(
+            url,
+            "https://www.federalreserve.gov/datadownload/Output.aspx?"
+            "filetype=csv&from=&label=include&lastobs=&layout=seriescolumn&rel=H15&"
+            "series=bf17364827e38702b42a58cf8eaa3f78&to=&type=package",
+        )
+
+    def test_automated_package_failure_is_one_get_without_browser_or_another_url(self) -> None:
+        for response, reason in (
+            (_FakeResponse(b""), "empty response"),
+            (_FakeResponse(b"<title>H.15 Download</title>"), "missing Time Period header"),
+            (_FakeResponse(b"Time Period,OTHER\n"), "full package contains no observations"),
+            (
+                _FakeResponse(
+                    b"Time Period,OTHER\n2026-05-01,wrong",
+                    status_code=302,
+                    headers={"Location": "https://example.test/other"},
+                ),
+                "not following redirect",
+            ),
+            (
+                _FakeResponse(
+                    b"wrong", headers={"Content-Length": str(MAX_CSV_RESPONSE_BYTES + 1)}
+                ),
+                "too large",
+            ),
+        ):
+            session = _StaticSession(response)
+            with (
+                self.subTest(reason=reason),
+                FetchContext() as context,
+                patch.object(session, "get", wraps=session.get) as fetch,
+                patch.object(context, "browser_fetcher") as browser,
+                self.assertRaisesRegex(IndicatorsProviderError, reason),
+            ):
+                FrbH15Source().fetch_records(
+                    require_source("fed-h15"),
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                    session=cast(HttpSession, session),
+                    context=context,
+                )
+            fetch.assert_called_once()
+            browser.assert_not_called()

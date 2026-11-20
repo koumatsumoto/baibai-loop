@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
@@ -157,6 +158,49 @@ class IndicatorsProviderParserTests(TestCase):
                 b"ok",
             )
 
+    def test_redirect_policies_do_not_share_a_receipt_in_either_order(self) -> None:
+        url = "https://example.test/package"
+        for first in (True, False):
+            with self.subTest(first=first), FetchContext() as context:
+                session = MagicMock()
+                session.get.side_effect = lambda _url, **kw: _FakeResponse(
+                    b"followed" if kw.get("allow_redirects", True) else b"direct"
+                )
+                for policy in (first, not first, first, not first):
+                    self.assertEqual(
+                        fetch_bytes(
+                            session,
+                            url,
+                            params=None,
+                            max_bytes=1000,
+                            context=context,
+                            allow_redirects=policy,
+                        ),
+                        b"followed" if policy else b"direct",
+                    )
+                self.assertEqual(session.get.call_count, 2)
+
+    def test_decode_failure_only_discards_the_receipt_for_its_redirect_policy(self) -> None:
+        url = "https://example.test/package"
+        for good in (True, False):
+            with self.subTest(good=good), FetchContext() as context:
+                session = MagicMock()
+                session.get.side_effect = [
+                    _FakeResponse(b"good"),
+                    _FakeResponse(b"\xff"),
+                    _FakeResponse(b"repaired"),
+                ]
+
+                read = partial(
+                    fetch_text, session, url, params=None, max_bytes=1000, context=context
+                )
+                self.assertEqual(read(allow_redirects=good), "good")
+                with self.assertRaisesRegex(IndicatorsProviderError, "not UTF-8"):
+                    read(allow_redirects=not good)
+                self.assertEqual(read(allow_redirects=good), "good")
+                self.assertEqual(read(allow_redirects=not good), "repaired")
+                self.assertEqual(session.get.call_count, 3)
+
     def test_discard_cached_bytes_keeps_other_responses_and_browser_evidence(self) -> None:
         with FetchContext() as context:
             store_fetched_bytes(context, "https://example.test/data", None, b"bad", max_bytes=1000)
@@ -168,7 +212,7 @@ class IndicatorsProviderParserTests(TestCase):
             context.discard_cached_bytes("https://example.test/data", None)
 
             self.assertEqual(
-                context.bytes_cache, {("https://example.test/data", (("month", "1"),)): b"ok"}
+                context.bytes_cache, {("https://example.test/data", (("month", "1"),), True): b"ok"}
             )
             self.assertEqual(
                 context.blocked_browser_urls, {"https://example.test/data": "turned away"}
