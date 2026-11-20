@@ -42,6 +42,11 @@ def proposal_quote(inputs: ProposalInputs, ticker: str) -> QuoteInput | None:
     return next((quote for quote in inputs.quotes if quote.ticker == ticker), None)
 
 
+def _quote_is_current(quote: QuoteInput, now: datetime) -> bool:
+    age = (now.astimezone(JST).date() - quote.price_as_of).days
+    return 0 <= age <= PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"]
+
+
 def assessment_quote_basis(
     assessment: StockAssessmentDocument,
     quote: QuoteInput | None,
@@ -120,6 +125,7 @@ def no_action_blocker(
         observed = referenced_price_fact(assessment)
         if (
             quote is not None
+            and _quote_is_current(quote, now)
             and observed is not None
             and not isinstance(observed.value, bool | str)
             and assessment.input_snapshot.as_of == now.astimezone(JST).date()
@@ -138,7 +144,7 @@ def no_action_blocker(
             return None
         return GateReason(
             code="no_action_reviewed_quote_mismatch",
-            message="査読した終値・日付・株式単位・取得権を今回の比較と照合できません。再評価するかdeferを使ってください。",
+            message="査読した終値の鮮度・日付・金額・株式単位・取得権を今回の比較と照合できません。再評価するかdeferを使ってください。",
         )
     return GateReason(
         code="no_action_comparison_incomplete",
@@ -222,12 +228,7 @@ def terms_unavailable_reasons(
         )
     reasons: list[GateReason] = []
     quote = proposal_quote(inputs, item.ticker)
-    if (
-        quote is None
-        or not 0
-        <= (now.astimezone(JST).date() - quote.price_as_of).days
-        <= (PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"])
-    ):
+    if quote is None or not _quote_is_current(quote, now):
         reasons.append(
             GateReason(
                 code="quote_missing_or_stale", message="現在quoteが欠測または鮮度期限外です。"

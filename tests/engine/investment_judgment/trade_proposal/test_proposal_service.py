@@ -10,6 +10,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
+from tests.helpers.operation_proposal import seed_proposal
 from tests.helpers.proposal import (
     PREPARED,
     PROPOSAL_ID,
@@ -48,7 +49,6 @@ from baibai_engine.investment_judgment.workflow.operation.progress import progre
 from baibai_engine.investment_judgment.workflow.operation.service import OperationCompletionError
 from baibai_engine.investment_judgment.workflow.selection import selection_sha256
 from baibai_engine.portfolio.holdings.market_observations import read_order_session_bounds
-from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.sources.proposal import read_proposal_views
 
@@ -330,15 +330,29 @@ def test_context_and_work_file_keep_one_app_market_and_reviewed_pair_snapshot(
             "観測価格で割安と判断したかと、同じ資金で今買う・指値で待つ・別案や現金を選ぶかを分ける。価格だけを待つ場合と、不足があり調査を保留する場合を区別する。 モデル観測・一次資料によって企業の利益・普通株に帰属する資金の見通し、価格条件、または次に確かめる事実の何が変わったかを記す。変わらない場合も区別する。",
         ),
         ("review_conditions", "買付では未約定・部分約定・新情報の後に何を再確認するかを記す。"),
+        ("resume_conditions", "不足を確認して行動と理由を記述し、独立検証を行う。"),
+        (
+            "review_conditions",
+            (
+                "前回の指値・対象日を今回へ流用せず、元提案全体への本人報告があっても約定・現保有や"
+                "今後の一律見送りと決めず、企業の根拠・観測価格・取引条件のどれが今回の"
+                "「買う・待つ・見送る」を変えたか（変化なしも含む）を記す。"
+            ),
+        ),
+        ("blocker_message", "行動・具体条件・比較理由の執筆と独立検証が未了です。"),
         ("reviewer_identity", "独立Reviewerのidentityを記述してください。"),
     ],
 )
 def test_known_scaffold_instruction_is_not_authored_even_with_a_matching_review(case, field, seed):
-    raw = reviewed_proposal(case).payload()
+    raw = reviewed_proposal(
+        case, action="defer" if field in {"resume_conditions", "blocker_message"} else "buy"
+    ).payload()
     if field == "reviewer_identity":
         raw["review"][field] = seed
-    elif field == "review_conditions":
+    elif field in {"review_conditions", "resume_conditions"}:
         raw["items"][0][field] = [seed]
+    elif field == "blocker_message":
+        raw["items"][0]["blockers"] = [{"code": "primary_source_pending", "message": seed}]
     elif field == "rationale":
         raw["items"][0][field] = seed
     else:
@@ -946,6 +960,68 @@ def test_new_no_action_matches_the_authored_economic_finding(
     assert _ledger_snapshot(case.app) == ledger
 
 
+@pytest.mark.parametrize("quote_age_days", [7, 8])
+@pytest.mark.parametrize(
+    ("finding", "stance", "price_dependent"),
+    [
+        ("not_supported_at_quote", "uncertain", True),
+        ("supported_at_quote", "uncertain", True),
+        ("supported_at_quote", "supported", False),
+    ],
+)
+def test_no_action_only_needs_a_fresh_observation_when_its_comparison_uses_that_price(
+    tmp_path, quote_age_days, finding, stance, price_dependent
+):
+    case = backend_case(tmp_path)
+    observed_on = (PUBLISHED.date() - timedelta(days=quote_age_days)).isoformat()
+    # Even a current independently reviewed pair cannot refresh an old native bar.
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET traded_at=?", (observed_on,))
+    document, review = pair_payload(review_number=89, quote_as_of=observed_on, price_case=finding)
+    document["conclusion"]["stance"] = stance
+    update_review_hash(document, review)
+    case.pair = AssessmentStoreService(
+        case.app, clock=lambda: PREPARED - timedelta(minutes=1)
+    ).publish_reviewed_assessment(
+        assessment_id(89), document, review, supersedes_id=case.pair.assessment_id
+    )
+    case.operations.record_assessment(
+        case.operation.operation_id, case.pair.assessment_id, now=PREPARED
+    )
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    draft = reviewed_proposal(case, action="no_action")
+    assert draft.inputs.quotes[0].price_as_of.isoformat() == observed_on
+    assert case.pair.document.input_snapshot.as_of == PUBLISHED.date()
+    ledger = _ledger_snapshot(case.app)
+    if quote_age_days == 8 and price_dependent:
+        before = case.app.read_bytes()
+        assert [b.code for b in service.check(draft).blockers] == [
+            "no_action_reviewed_quote_mismatch"
+        ]
+        with pytest.raises(ProposalError, match="鮮度"):
+            service.publish(draft)
+        assert case.app.read_bytes() == before
+        # This same signed shape was accepted by the old writer. Preserve its exact ID and digest.
+        saved = TradeProposal.model_validate({**draft.payload(), "published_at": PUBLISHED})
+        seed_proposal(case.app, saved)
+        before = case.app.read_bytes()
+        assert service.publish(draft) == saved
+        assert case.app.read_bytes() == before
+    else:
+        assert service.check(draft).valid
+        saved = service.publish(draft)
+    item = preview_current_terms(
+        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+    ).items[0]
+    assert (item["current_quote_calculation"] is not None) == (quote_age_days == 7)
+    assert (
+        read_proposal_views(case.app, generated_at=PUBLISHED).latest.proposal.items[0].action
+        == "no_action"
+    )
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    assert _ledger_snapshot(case.app) == ledger
+
+
 @pytest.mark.parametrize(
     ("price_finding", "stance"),
     [
@@ -1145,6 +1221,26 @@ def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(
                     writer.publish(draft)
                 assert writer.publish(saved_draft) == saved
                 assert case.app.read_bytes() == before
+            # Economic rejection can be reviewed without a next session. Today's
+            # price projection still needs one, but a proven expiry is not missing evidence.
+            preview = preview_current_terms(
+                proposal_id=saved.proposal_id,
+                db_path=case.app,
+                sqlite_path=case.market,
+                now=friday + timedelta(minutes=2),
+            ).items[0]
+            why = preview.get("current_quote_unavailable_reason")
+            assert (None if why is None else why["code"]) == (
+                None
+                if name == "open_on_deadline"
+                else "right_acquisition_expired"
+                if blocker is not None
+                else "right_acquisition_unconfirmed"
+            )
+            assert (preview["current_quote_calculation"] is not None) == (
+                name == "open_on_deadline"
+            )
+            assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
     assert len(fingerprints) == 1
     assert _counts(case.app)["position_decision_reference"] == 0
     assert _ledger_snapshot(case.app) == ledger
@@ -1157,25 +1253,7 @@ def test_old_uncertain_no_action_keeps_exact_read_and_retry(tmp_path):
         {**proposal.model_dump(mode="python"), "published_at": PUBLISHED}
     )
     # A prior writer accepted this payload. New policy must not rewrite its saved meaning.
-    with closing(sqlite3.connect(case.app)) as connection, connection:
-        connection.execute(
-            "INSERT INTO investment_proposal(proposal_id,as_of,prepared_at,published_at,"
-            "request_scope,payload,draft_sha256) VALUES (?,?,?,?,?,?,?)",
-            (
-                historical.proposal_id,
-                historical.as_of.isoformat(),
-                historical.prepared_at.isoformat(),
-                historical.published_at.isoformat(),
-                historical.request_scope,
-                canonical_json(historical.payload()),
-                proposal_draft_sha256(proposal),
-            ),
-        )
-        connection.execute(
-            "INSERT INTO investment_proposal_item(proposal_id,item_index,ticker,action,"
-            "assessment_id) VALUES (?,0,?,'no_action',?)",
-            (historical.proposal_id, "1234", case.pair.assessment_id),
-        )
+    seed_proposal(case.app, historical)
     before = _counts(case.app)
     assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == historical
     service = TradeProposalService(

@@ -15,6 +15,11 @@ _RESERVED_CONDITIONS = frozenset(
     {
         "買付では未約定・部分約定・新情報の後に何を再確認するかを記す。",
         (
+            "前回の指値・対象日を今回へ流用せず、元提案全体への本人報告があっても約定・現保有や"
+            "今後の一律見送りと決めず、企業の根拠・観測価格・取引条件のどれが今回の"
+            "「買う・待つ・見送る」を変えたか（変化なしも含む）を記す。"
+        ),
+        (
             "現物台帳の最終事実・終値・実口座を区別する。条件付き回収は注文でなく、"
             "失う将来配当と保有の値下がりリスク、再確認する資料・時点を記す。"
         ),
@@ -46,7 +51,14 @@ def _has_reserved_instruction(proposal: TradeProposalDraft) -> bool:
         or not _RESERVED_CONDITIONS.isdisjoint(item.review_conditions)
         or (
             item.action == "defer"
-            and any(r.code == "proposal_content_requires_review" for r in item.blockers)
+            and (
+                "不足を確認して行動と理由を記述し、独立検証を行う。" in item.resume_conditions
+                or any(
+                    r.code == "proposal_content_requires_review"
+                    or r.message == "行動・具体条件・比較理由の執筆と独立検証が未了です。"
+                    for r in item.blockers
+                )
+            )
         )
         for item in proposal.items
     )

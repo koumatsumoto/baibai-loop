@@ -4,7 +4,7 @@ import json
 import sqlite3
 import weakref
 from contextlib import closing
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -115,24 +115,23 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
             )
     payload = operation.payload
 
-    assert (
-        operation_main(
-            [
-                "--db",
-                str(db),
-                "--format",
-                "json",
-                "complete",
-                operation.operation_id,
-                "--result",
-                "調査作業を終了、評価は未完了",
-                "--next",
-                "新しい明示依頼を待つ",
-            ],
-            now=NOW,
-        )
-        == 0
-    )
+    args = [
+        "--db",
+        str(db),
+        "--format",
+        "json",
+        "complete",
+        operation.operation_id,
+        "--result",
+        "調査作業を終了、評価は未完了",
+        "--next",
+        "新しい明示依頼を待つ",
+    ]
+    earlier = NOW - timedelta(microseconds=1)
+    assert operation_main(args, now=earlier) == 1
+    assert "completed_at cannot precede started_at" in capsys.readouterr().err
+    assert OperationService(db).get(operation.operation_id) == operation
+    assert operation_main(args, now=NOW) == 0
     completed = OperationService(db).get(operation.operation_id)
     assert json.loads(capsys.readouterr().out) == completed.model_dump(
         mode="json", exclude={"payload"}
@@ -142,6 +141,10 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
         update={"result": "調査作業を終了、評価は未完了", "next": "新しい明示依頼を待つ"}
     )
     assert selection_sha256(selection_binding(completed.payload)) == selection_sha256(selected)
+    assert operation_main(args, now=earlier) == 0
+    assert json.loads(capsys.readouterr().out) == completed.model_dump(
+        mode="json", exclude={"payload"}
+    )
     with pytest.raises(OperationConflictError, match="immutable"):
         OperationService(db).complete(
             operation.operation_id, result="別の結果", next="別の予定", completed_at=NOW

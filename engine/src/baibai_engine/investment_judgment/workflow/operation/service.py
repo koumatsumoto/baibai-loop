@@ -272,9 +272,8 @@ class OperationService:
                         and before.payload.next == next
                         and (None if reference is None else reference.proposal_id) == proposal_id
                         and before.completed_at is not None
-                        and completed_at >= before.completed_at
                     ):
-                        # 応答喪失後も当時の参照・時計を返す。後日訂正で完了を書き換えない。
+                        # 再送は時点照会ではない。時計逆行や後日訂正でも元の完了を返す。
                         return before
                     raise OperationConflictError(
                         f"completed operation session is immutable: {operation_id}"

@@ -36,6 +36,7 @@ jobs:
     environment: tradingview-runtime
     outputs:
       handoff: ${{ steps.stage.outputs.handoff }}
+      summary: ${{ steps.summary.outcome }}
       target-target-date: ${{ steps.target.outputs.target_date }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -452,7 +453,11 @@ jobs:
 
   notify:
     needs: snapshot
-    if: ${{ always() }}
+    # A failed best-effort summary still needs its separate receipt log.
+    if: >-
+      ${{ always() && (cancelled() || github.event_name != 'schedule' ||
+          needs.snapshot.result != 'success' || needs.snapshot.outputs.handoff == '' ||
+          needs.snapshot.outputs.summary != 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
