@@ -21,6 +21,7 @@ relationship over the required period, separately from reading the price.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from math import isfinite
@@ -293,21 +294,23 @@ def read_order_session_bounds(
             return OrderSessionBounds(earliest, None)
         conn = connect_read_only(sqlite_path)
     try:
-        rows = conn.execute(
-            "SELECT day,holiday_division FROM jquants_market_calendar "
-            "WHERE day>=? ORDER BY day LIMIT 14",
-            (earliest.isoformat(),),
-        ).fetchall()
+        with closing(
+            conn.execute(
+                "SELECT day,holiday_division FROM jquants_market_calendar "
+                "WHERE day>=? ORDER BY day",
+                (earliest.isoformat(),),
+            )
+        ) as rows:
+            for day, division in rows:
+                is_open = cash_equity_open(division)
+                if day != earliest.isoformat() or is_open is None:
+                    break
+                if is_open:
+                    return OrderSessionBounds(earliest, earliest)
+                earliest += timedelta(days=1)
     finally:
         if owns_connection:
             conn.close()
-    for day, division in rows:
-        is_open = cash_equity_open(division)
-        if day != earliest.isoformat() or is_open is None:
-            break
-        if is_open:
-            return OrderSessionBounds(earliest, earliest)
-        earliest += timedelta(days=1)
     return OrderSessionBounds(earliest, None)
 
 

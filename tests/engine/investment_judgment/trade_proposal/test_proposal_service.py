@@ -1026,20 +1026,32 @@ def test_exact_price_comparison_cannot_reuse_a_right_at_its_final_close(
             )
 
 
-def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(tmp_path, mocker):
+@pytest.mark.parametrize("days_to_deadline", [3, 15])
+def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(
+    tmp_path, mocker, days_to_deadline
+):
     case = backend_case(tmp_path)
     friday = datetime.fromisoformat("2026-10-16T16:20:00+09:00")
-    saturday, sunday, monday, tuesday = ("2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20")
     seed_daily_bars(case.market, [("1234", friday.date().isoformat(), 1100.0, 1.0)])
-    weekend = [(saturday, "0"), (sunday, "0")]
-    closed = [*weekend, (monday, "3")]  # Futures-only on the last eligible day.
+    prefix = [
+        ((friday.date() + timedelta(days=offset)).isoformat(), "0")
+        for offset in range(1, days_to_deadline)
+    ]
+    deadline = (friday.date() + timedelta(days=days_to_deadline)).isoformat()
+    following = (friday.date() + timedelta(days=days_to_deadline + 1)).isoformat()
+    closed = [*prefix, (deadline, "3")]  # Futures-only on the last eligible day.
     calendars = (
-        ("open_on_deadline", [*weekend, (monday, "2")], monday, None),
-        ("next_tuesday", [*closed, (tuesday, "1")], tuesday, "期限まで"),
+        ("open_on_deadline", [*prefix, (deadline, "2")], deadline, None),
+        ("next_after_deadline", [*closed, (following, "1")], following, "期限まで"),
         ("closed_with_no_later_row", closed, None, "期限まで"),
         ("missing", [], None, None),
-        ("missing_sunday", [weekend[0], (monday, "3"), (tuesday, "1")], None, None),
-        ("invalid_sunday", [weekend[0], (sunday, "?"), (monday, "3"), (tuesday, "1")], None, None),
+        ("gap_before_deadline", [*closed[:-2], (deadline, "3"), (following, "1")], None, None),
+        (
+            "invalid_before_deadline",
+            [*closed[:-2], (prefix[-1][0], "?"), (deadline, "3"), (following, "1")],
+            None,
+            None,
+        ),
     )
     variants = (
         ("not_supported_at_quote", "uncertain"),
@@ -1062,7 +1074,7 @@ def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(tmp_path,
             {
                 "fact_id": "final-session",
                 "fact_kind": "last_eligible_trade_date",
-                "value": monday,
+                "value": deadline,
                 "unit": "date",
                 "as_of": friday.date().isoformat(),
                 "source_ids": ["annual"],
@@ -1071,7 +1083,7 @@ def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(tmp_path,
         document["price_value_case"]["value_fact_ids"].append("final-session")
         document["price_value_case"]["acquisition_limit"] = {
             "value_fact_id": "final-session",
-            "last_eligible_trade_date": monday,
+            "last_eligible_trade_date": deadline,
         }
         update_review_hash(document, review)
         pair = AssessmentStoreService(
