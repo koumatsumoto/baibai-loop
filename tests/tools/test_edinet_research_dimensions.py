@@ -20,6 +20,7 @@ from tools.experiments.edinet_research_dimensions import (
     issuer_declarations,
     observe_context,
 )
+from tools.experiments.edinet_segment_occurrences import annual_segment_amount_occurrences
 
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.debt import debt_facts
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import (
@@ -564,3 +565,184 @@ def test_equal_inline_facts_do_not_share_their_parent_note(same_file, basis):
     assert annual_segment_note_at(parts, positive, concept=sample, context_id="B") is None
     parts["b.htm"] = page(inside, "urn:homonym")
     assert annual_segment_note_at(parts, positive, concept=sample, context_id="A") is None
+
+
+def _amount_sources(changes=(), omit=None):
+    # PublicDoc manifest is needed: a caller-selected subset can hide a duplicate.
+    pfs = "http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs/2025-11-01/jppfs_cor"
+    crp = "http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2025-11-01/jpcrp_cor"
+    ns = (
+        f'xmlns:i="http://www.xbrl.org/2008/inlineXBRL" xmlns:p="{pfs}" xmlns:c="{crp}" '
+        f'xmlns:x="{_I}" xmlns:yen="http://www.xbrl.org/2003/iso4217" '
+        'xmlns:amount="http://www.xbrl.org/inlineXBRL/transformation/2011-07-31" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+    )
+    unit = '<x:unit id="money"><x:measure>yen:JPY</x:measure></x:unit>'
+
+    def context(name, year):
+        return (
+            f'<x:context id="{name}"><x:entity><x:identifier scheme="urn:test">X</x:identifier>'
+            f"</x:entity><x:period><x:startDate>{year}-04-01</x:startDate>"
+            f"<x:endDate>{year + 1}-03-31</x:endDate></x:period></x:context>"
+        )
+
+    defs = unit + "".join(
+        context(c, 2024 if c == "Prior" else 2025)
+        for c in ("Prior", "Missing", "Zero", "Twice", "CurrentNote")
+    )
+
+    def ix(ref, amount, attrs):
+        return (
+            f'<i:nonFraction name="p:NetSales" contextRef="{ref}" unitRef="money" {attrs}>'
+            f"{amount}</i:nonFraction>"
+        )
+
+    fmt = 'decimals="-3" scale="3" format="amount:numdotdecimal"'
+    duplicate = ix("Twice", "750", fmt)
+    cells = (
+        ix("Prior", "1,234", fmt + ' sign="-"')
+        + ix("Missing", "", 'xsi:nil="true"')
+        + ix("Zero", "0", fmt)
+        + duplicate
+    )
+
+    def fact(ref, number, nil=False):
+        prop = 'xsi:nil="true"' if nil else 'decimals="-3"'
+        return f'<p:NetSales contextRef="{ref}" unitRef="money" {prop}>{number}</p:NetSales>'
+
+    note = (
+        '<i:nonNumeric name="c:NotesSegmentInformationEtcFinancialStatementsTextBlock" '
+        f'contextRef="CurrentNote"><div>{cells}</div></i:nonNumeric>'
+    )
+
+    def page(body):
+        return f'<html xmlns="http://www.w3.org/1999/xhtml" {ns}><body>{body}</body></html>'
+
+    originals = {
+        "report.xbrl": f"<x:xbrl {ns}>"
+        + defs
+        + fact("Prior", "-1234000")
+        + fact("Missing", "", True)
+        + fact("Zero", "0")
+        + fact("Twice", "750000")
+        + "</x:xbrl>",
+        "note.htm": page(note),
+        "other.htm": page(f"<i:header><i:resources>{defs}</i:resources></i:header>{duplicate}"),
+        "manifest": '<manifest xmlns="http://disclosure.edinet-fsa.go.jp/2013/manifest"><tocComposition>'
+        '<item ref="annual" in="presentation" extrole="http://disclosure.edinet-fsa.go.jp/role/jpcrp/'
+        'rol_CabinetOfficeOrdinanceOnDisclosureOfCorporateInformationEtcFormNo3AnnualSecuritiesReport"/>'
+        '</tocComposition><list><instance id="annual" type="PublicDoc" preferredFilename="report.xbrl">'
+        "<ixbrl>note.htm</ixbrl><ixbrl>other.htm</ixbrl></instance></list></manifest>",
+    }
+    for part, old, new in changes:
+        assert old in originals[part]
+        originals[part] = originals[part].replace(old, new)
+    manifest, _ = _scoped(originals.pop("manifest").encode())
+    if omit:
+        del originals[omit]
+    docs = {part: _scoped(raw.encode()) for part, raw in originals.items()}
+    keys = {(f"{{{pfs}}}NetSales", c) for c in ("Prior", "Missing", "Zero", "Twice")}
+    return manifest, docs, keys
+
+
+def test_manifest_wide_unique_amount_matches_both_forms_without_equating_nil_and_zero():
+    manifest, docs, keys = _amount_sources()
+    matched = annual_segment_amount_occurrences(manifest, docs, keys)
+    assert {k[1]: (v.note, v.yen) for k, v in matched.items()} == {
+        "Prior": ("non_consolidated", -1234000),  # legitimately inside current note
+        "Missing": ("non_consolidated", None),
+        "Zero": ("non_consolidated", 0),
+    }
+    assert all(v.locator[0] == "note.htm" for v in matched.values())
+    # Both forms exist under "Twice"; no tie-break by note, equal value or first file.
+    assert not {key for key in matched if key[1] == "Twice"}
+    old = next(v.locator for k, v in matched.items() if k[1] == "Prior")
+    key = next(k for k in keys if k[1] == "Prior")
+    manifest, docs, keys = _amount_sources([("note.htm", ' sign="-"', "")])
+    assert (
+        annual_segment_note_at(docs, old, concept=key[0], context_id=key[1]) == "non_consolidated"
+    )
+    assert key not in annual_segment_amount_occurrences(manifest, docs, keys)
+
+
+@pytest.mark.parametrize(
+    ("part", "old", "new"),
+    [
+        ("note.htm", "1,234", "1,243"),
+        ("note.htm", "1,234", "1,23,4"),
+        ("note.htm", ' sign="-"', ' sign="+"'),
+        (
+            "note.htm",
+            'scale="3" format="amount:numdotdecimal" sign="-"',
+            'scale="6" format="amount:numdotdecimal" sign="-"',
+        ),
+        ("note.htm", 'format="amount:numdotdecimal" sign="-"', 'format="c:numdotdecimal" sign="-"'),
+        (
+            "note.htm",
+            'unitRef="money" decimals="-3" scale="3" format="amount:numdotdecimal" sign="-"',
+            'unitRef="shares" decimals="-3" scale="3" format="amount:numdotdecimal" sign="-"',
+        ),
+        ("report.xbrl", ">-1234000<", ">1234000<"),
+        ("report.xbrl", 'decimals="-3">-1234000', 'decimals="0">-1234000'),
+        ("report.xbrl", 'decimals="-3">-1234000', 'xsi:nil="true">'),
+        ("report.xbrl", 'decimals="-3">-1234000', 'precision="3">-1234000'),
+        (
+            "report.xbrl",
+            ">-1234000</p:NetSales>",
+            '>-1234000</p:NetSales><p:NetSales contextRef="Prior" unitRef="money" decimals="-3">-1234000</p:NetSales>',
+        ),
+        (
+            "other.htm",
+            "</body>",
+            '<i:nonFraction name="unknown:NetSales" contextRef="Prior"/></body>',
+        ),
+        ("other.htm", '<x:context id="Prior">', '<x:context id="Prior"/><x:context id="Prior">'),
+        ("report.xbrl", '<x:context id="Prior">', '<x:context id="Elsewhere">'),
+    ],
+)
+def test_amount_inconsistency_does_not_hide_unrelated_observations(part, old, new):
+    manifest, docs, keys = _amount_sources([(part, old, new)])
+    assert {k[1] for k in annual_segment_amount_occurrences(manifest, docs, keys)} == {
+        "Missing",
+        "Zero",
+    }
+
+
+@pytest.mark.parametrize(
+    ("part", "old", "new"),
+    [
+        ("manifest", "other.htm", "note.htm"),
+        ("manifest", 'in="presentation"', 'in="definition"'),
+        ("note.htm", 'contextRef="CurrentNote"', 'contextRef="NoSuchNote"'),
+        ("other.htm", "<i:resources>", '<i:resources target="second">'),
+        ("other.htm", "yen:JPY", "yen:USD"),
+        (
+            "other.htm",
+            "</x:unit>",
+            '</x:unit><x:unit id="money"><x:measure>yen:JPY</x:measure></x:unit>',
+        ),
+        ("report.xbrl", "yen:JPY", "yen:USD"),
+    ],
+)
+def test_incomplete_or_ambiguous_bundle_or_currency_provides_no_amount_witness(part, old, new):
+    manifest, docs, keys = _amount_sources([(part, old, new)])
+    assert not annual_segment_amount_occurrences(manifest, docs, keys)
+
+
+def test_dropping_the_declared_other_file_cannot_make_an_ambiguous_match_unique():
+    manifest, docs, keys = _amount_sources(omit="other.htm")
+    assert not annual_segment_amount_occurrences(manifest, docs, keys)
+
+
+def test_nil_with_lexical_zero_and_negative_zero_are_not_verified_yen():
+    manifest, docs, keys = _amount_sources(
+        [
+            ("note.htm", 'xsi:nil="true"></i:nonFraction>', 'xsi:nil="true">0</i:nonFraction>'),
+            (
+                "note.htm",
+                'format="amount:numdotdecimal">0</i:nonFraction>',
+                'format="amount:numdotdecimal" sign="-">0</i:nonFraction>',
+            ),
+        ]
+    )
+    assert {k[1] for k in annual_segment_amount_occurrences(manifest, docs, keys)} == {"Prior"}
