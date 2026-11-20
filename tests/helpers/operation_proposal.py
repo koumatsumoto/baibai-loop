@@ -90,6 +90,17 @@ def proposal_for(operation, *, actions=None, number=1):
                 )
         elif action == "buy":
             item.update(timing="wait_limit", terms=template["terms"], terms_unavailable_reasons=[])
+        elif action == "signed_price_decision":
+            item.update(
+                action="buy",
+                timing="wait_limit",
+                terms=None,
+                proposed_limit_yen=template["terms"]["limit_price_yen"],
+                economic_decision="price_conditional_allocation",
+                terms_unavailable_reasons=[
+                    {"code": "order_session_unknown", "message": "実行する立会のみ未確定"}
+                ],
+            )
         elif action == "buy_needs_terms":
             item.update(
                 action="buy",

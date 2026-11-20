@@ -562,8 +562,17 @@ def _completion_reference(
         raise OperationCompletionError("Proposal scope differs from the Operation's fixed coverage")
     if any(pair.published_at > proposal.published_at for pair in pairs.values()):
         raise OperationCompletionError("Assessment is later than Proposal publication")
-    if any(item.action == "buy" and item.terms is None for item in proposal.items):
-        raise OperationCompletionError("buy proposal completion requires concrete order terms")
+    # Only the signed positive economic decision closes Research without terms;
+    # do not infer it from an old missing-price/classification explanation.
+    if any(
+        item.action == "buy"
+        and item.terms is None
+        and item.economic_decision != "price_conditional_allocation"
+        for item in proposal.items
+    ):
+        raise OperationCompletionError(
+            "buy completion requires concrete order terms or a signed economic allocation decision"
+        )
     exact = ProposalRef(proposal_id=proposal_id, draft_sha256=proposal.review.draft_sha256)
     if reference is not None and reference.proposal_id == proposal_id and reference != exact:
         raise OperationCompletionError("Proposal reference differs from its saved draft hash")

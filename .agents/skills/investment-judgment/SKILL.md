@@ -201,6 +201,8 @@ as_ofは元発行日以降のJST情報境界で保存時計ではない。後日
 ```bash
 uv run baibai-engine operation --db <APP_DB> --format json complete <OPERATION_ID> --proposal-id <ID> --result '<RESULT>' --next '<NEXT>'
 uv run baibai-engine investment-judgment prepare \
+
+署名済みの価格条件付き配分（`price_conditional_allocation`）なら、立会未確定のまま調査を完了できる。注文条件や判断参照は生成されない。以前の分類・刻み未確定で条件が空の買付を、この経済判断とみなして閉じない。
   --operation-id <OPERATION_ID> --db <APP_DB> --workspace .cache/research/<ASOF> --force
 ```
 

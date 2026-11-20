@@ -469,14 +469,19 @@ def test_publication_requires_exact_current_selection_and_outcomes(case, mutatio
             )
 
 
-@pytest.mark.parametrize("action", ["buy", "buy_needs_terms"])
-def test_only_concrete_buy_terms_complete_purchase_proposal(case, action):
+@pytest.mark.parametrize("action", ["buy", "buy_needs_terms", "signed_price_decision"])
+def test_only_signed_positive_buy_or_concrete_terms_can_close_research(case, action, tmp_path):
+    from tests.helpers.generated_selection import generated_draft_for
+
+    from baibai_engine.investment_judgment.workflow.workspace import prepare_selected_workspace
+
     db, _ = case
     reference = seed_assessment(db)
     service, operation = start(case, ("1234",))
     operation = service.record_assessment(operation.operation_id, reference, now=NOW)
     proposal = proposal_for(operation, actions={"1234": action})
     seed_proposal(db, proposal)
+    ledger_before = ledger_rows(db)
     if action == "buy_needs_terms":
         with pytest.raises(OperationCompletionError, match="concrete order terms"):
             service.complete(
@@ -500,6 +505,38 @@ def test_only_concrete_buy_terms_complete_purchase_proposal(case, action):
         assert completed.status == "completed"
         with closing(connect_read_only(db)) as reader:
             assert load_investment_proposal(reader, proposal.proposal_id) == proposal
+        if action == "signed_price_decision":
+            assert proposal.items[0].terms is None
+            with closing(connect_read_only(db)) as reader:
+                assert (
+                    reader.execute(
+                        "SELECT count(*) FROM position_decision_reference WHERE proposal_id=?",
+                        (proposal.proposal_id,),
+                    ).fetchone()[0]
+                    == 0
+                )
+            original = db.read_bytes()
+            assert (
+                service.complete(
+                    operation.operation_id,
+                    proposal_id=proposal.proposal_id,
+                    result=completed.payload.result,
+                    next=completed.payload.next,
+                    completed_at=PUBLISHED + timedelta(days=2),
+                )
+                == completed
+            )
+            assert db.read_bytes() == original
+            follow = prepare_selected_workspace(
+                draft=generated_draft_for(selection_binding(operation.payload)),
+                db_path=db,
+                runs_path=db.with_name("runs.sqlite"),
+                workspace=tmp_path / "fresh-case",
+                now=PUBLISHED + timedelta(days=2),
+            )
+            assert follow.operation_id != operation.operation_id
+            assert follow.status == "prepared"
+    assert ledger_rows(db) == ledger_before
 
 
 def test_proposal_reference_changes_and_publication_times_are_checked(case):
