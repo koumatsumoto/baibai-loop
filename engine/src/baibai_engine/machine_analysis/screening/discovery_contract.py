@@ -4,17 +4,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Annotated, Final, Literal, TypedDict
+from typing import Annotated, Final, Literal, TypedDict, TypeIs
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictInt, TypeAdapter, with_config
 
+from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
+from baibai_engine.machine_analysis.observations.prices.price_observation import (
+    ExpectedPriceBar,
+    NativePriceSession,
+)
+
+type DiscoveryMethod = Literal["opportunity-discovery-v1", "opportunity-discovery-v2"]
+DISCOVERY_V2: Final = "opportunity-discovery-v2"
 DISCOVERY_METHOD: Final = "opportunity-discovery-v1"
-DISCOVERY_SUFFIX: Final = "-" + DISCOVERY_METHOD
+DISCOVERY_METHODS: Final = (DISCOVERY_METHOD, DISCOVERY_V2)
 
 
 class DiscoveryPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     method: Literal["opportunity-discovery-v1"] = DISCOVERY_METHOD
+
+
+class DiscoveryPolicyV2(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    method: Literal["opportunity-discovery-v2"]
 
 
 _OBSERVATION = ConfigDict(strict=True, allow_inf_nan=False)
@@ -54,7 +67,7 @@ class BookEquity(TypedDict, total=False):
 
 
 @with_config(_OBSERVATION)
-class DiscoveryRow(TypedDict):
+class DiscoveryFacts(TypedDict):
     ticker: str
     models_recorded: bool
     name: str | None
@@ -65,13 +78,28 @@ class DiscoveryRow(TypedDict):
     matched_paths: MatchedPaths
     missing: list[str]
     coordinates: list[EconomicCoordinate]
+    book_equity: BookEquity | None
+    capital_action: CapitalActionCounts | None
+
+
+class DiscoveryRow(DiscoveryFacts):
     price: ObservedNumber | None
     price_date: str | None
     expected_price_date: str | None
     basis: str | None
     price_ready: bool
-    book_equity: BookEquity | None
-    capital_action: CapitalActionCounts | None
+
+
+@with_config(ConfigDict(strict=True, extra="forbid", allow_inf_nan=False))
+class DiscoveryRowV2(DiscoveryFacts):
+    execution_price: ExpectedPriceBar
+
+
+type IndexedRow = DiscoveryRow | DiscoveryRowV2
+
+
+def is_session_row(row: IndexedRow) -> TypeIs[DiscoveryRowV2]:
+    return "execution_price" in row
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,16 +110,9 @@ class DiscoveryIndexRead:
     as_of: date | None = None
     evaluation_time: datetime | None = None
     published_at: datetime | None = None
-    rows: tuple[DiscoveryRow, ...] = ()
+    rows: tuple[IndexedRow, ...] = ()
     universe_tickers: tuple[str, ...] = ()
-
-
-_ROWS = TypeAdapter(tuple[DiscoveryRow, ...])
-
-
-def require_publishable_rows(rows: tuple[DiscoveryRow, ...]) -> None:
-    # A typed dict is still mutable in the writer. Missing evidence is not an empty route set.
-    _ROWS.validate_python(rows, strict=True)
+    price_session: NativePriceSession | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,19 +127,74 @@ class DiscoverySelection:
         return tuple(row["ticker"] for row in self.rows)
 
 
-def discovery_publication_id(generation_id: str) -> str:
-    return f"selection-{generation_id}{DISCOVERY_SUFFIX}"
+@dataclass(frozen=True, slots=True)
+class DiscoverySelectionV2:
+    policy: DiscoveryPolicyV2
+    rows: tuple[DiscoveryRowV2, ...]
+    summary: dict[str, JsonValue]
+    price_session: NativePriceSession
+
+    @property
+    def tickers(self) -> tuple[str, ...]:
+        return tuple(row["ticker"] for row in self.rows)
+
+
+type IndexedSelection = DiscoverySelection | DiscoverySelectionV2
+
+
+def discovery_publication_id(generation_id: str, method: DiscoveryMethod = DISCOVERY_METHOD) -> str:
+    return f"selection-{generation_id}-{method}"
+
+
+def discovery_method_for_id(selection_id: str, generation_id: str) -> DiscoveryMethod | None:
+    # An unknown edition belongs to the discovery family; it is never an archived card.
+    suffix = selection_id.removeprefix(f"selection-{generation_id}-")
+    for method in DISCOVERY_METHODS:
+        if selection_id == discovery_publication_id(generation_id, method):
+            return method
+    if suffix.startswith("opportunity-discovery-") or "-opportunity-discovery-" in suffix:
+        raise ValueError("unknown discovery publication version or identity")
+    return None
+
+
+_ROW_CODECS = (TypeAdapter(tuple[DiscoveryRow, ...]), TypeAdapter(tuple[DiscoveryRowV2, ...]))
+
+
+def require_publishable_rows(result: IndexedSelection) -> None:
+    # TypedDict values can change between projection and publication.
+    _ROW_CODECS[isinstance(result, DiscoverySelectionV2)].validate_python(result.rows, strict=True)
+
+
+def planned_stock_tickers(metadata: GenerationMetadata) -> tuple[str, ...]:
+    if metadata.subject_plan is None:
+        raise ValueError("discovery V2 requires a fixed generation stock plan")
+    return tuple(sorted(t for t, row in metadata.subject_plan.items() if row.scope == "stock"))
 
 
 def validate_discovery_publication(
     *,
     selection_id: str,
     generation_id: str,
-    result: DiscoverySelection,
+    result: IndexedSelection,
     universe_tickers: tuple[str, ...],
+    metadata: GenerationMetadata | None = None,
 ) -> None:
-    """全社母集団の1銘柄1行。モデル欠測は行の欠落ではない。"""
-    if selection_id != discovery_publication_id(generation_id):
-        raise ValueError("discovery publication identity differs from its generation")
+    if discovery_method_for_id(selection_id, generation_id) != result.policy.method:
+        raise ValueError("discovery publication identity differs from its generation or format")
     if result.tickers != universe_tickers or len(set(universe_tickers)) != len(universe_tickers):
         raise ValueError("discovery result differs from the exact stock universe")
+    if isinstance(result, DiscoverySelectionV2):
+        if metadata is None or metadata.generation_id != generation_id:
+            raise ValueError("discovery V2 requires its exact generation header")
+        if universe_tickers != planned_stock_tickers(metadata):
+            raise ValueError("discovery universe differs from the saved stock plan")
+        result.price_session.validate_cutoff(metadata.as_of, metadata.evaluation_time)
+        for row in result.rows:
+            bar = row["execution_price"]
+            state, price = bar["day_state"], bar["raw_close_yen"]
+            if (
+                ((state is None or state == "no_trade") and price is not None)
+                or (state == "priced" and (price is None or price <= 0))
+                or (result.price_session.expected_date is None and state is not None)
+            ):
+                raise ValueError("recorded price differs from the expected session row")

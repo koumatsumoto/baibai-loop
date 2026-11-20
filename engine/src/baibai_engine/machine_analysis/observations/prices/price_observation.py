@@ -4,12 +4,51 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from math import isfinite
-from typing import Literal
+from typing import Annotated, Literal, Self, TypedDict
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator, with_config
 
 PriceDayState = Literal["priced", "no_trade", "mixed", "invalid"]
 PRICE_PATH_DIFFERENCES = (1, 20, 60, 252)
+
+
+@with_config(ConfigDict(strict=True, extra="forbid", allow_inf_nan=False))
+class ExpectedPriceBar(TypedDict):
+    """One stock on the official expected session, not an adjusted valuation input."""
+
+    raw_close_yen: Annotated[float, Field(strict=True, allow_inf_nan=False)] | None
+    day_state: PriceDayState | None
+
+
+class NativePriceSession(BaseModel):
+    """Exact native scope of the expected session, shared by every stock in a seal."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    expected_date: date | None
+    status: Literal["ok", "empty", "partial", "unavailable", "not_recorded", "unconfirmed"]
+    recorded_at: AwareDatetime | None
+
+    @model_validator(mode="after")
+    def scope_evidence(self) -> Self:
+        if self.expected_date is None and self.status != "not_recorded":
+            raise ValueError("a native price scope requires its exact session")
+        if self.status == "not_recorded" and self.recorded_at is not None:
+            raise ValueError("absent native price scope cannot have a receipt clock")
+        if self.status in {"ok", "empty"} and self.recorded_at is None:
+            raise ValueError("confirmed native price scope requires its receipt clock")
+        return self
+
+    def validate_cutoff(self, as_of: date, known_at: datetime) -> None:
+        if self.expected_date is not None and self.expected_date > as_of:
+            raise ValueError("expected price session is after the generation date")
+        if self.recorded_at is not None and self.recorded_at > known_at:
+            raise ValueError("native price receipt is after the generation cutoff")
+
+    def observed(self, bar: ExpectedPriceBar) -> bool:
+        price = bar["raw_close_yen"]
+        return self.status == "ok" and price is not None and price > 0
 
 
 @dataclass(frozen=True, slots=True)
