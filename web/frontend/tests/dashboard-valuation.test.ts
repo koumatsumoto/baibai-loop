@@ -98,6 +98,8 @@ describe('Dashboard valuation display', () => {
       cash_pct: null, deployed_pct: null,
     }))
     expect(html).toContain('未評価: 8255')
+    expect(html).toContain('9 銘柄を保有')
+    expect(html).not.toContain('保有株数は未照合')
     expect(html).toContain('総資産・評価損益・資産配分を表示できません')
     expect(html).toContain('配分データなし')
     expect(html).toContain('￥3,507,000')
