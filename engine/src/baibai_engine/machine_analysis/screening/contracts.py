@@ -5,7 +5,9 @@ from typing import Annotated
 
 from pydantic import Field, JsonValue
 
-from baibai_engine.machine_analysis.screening.discovery_contract import DiscoverySelection
+from baibai_engine.machine_analysis.screening.discovery_contract import (
+    DiscoverySelection as DiscoverySelection,
+)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialSelection,

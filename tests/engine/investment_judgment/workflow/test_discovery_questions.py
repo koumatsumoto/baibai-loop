@@ -237,11 +237,27 @@ def test_cli_question_to_one_fixed_company_and_finite_comparison(tmp_path, monke
     absent = cli([*fixed, "--compare-ticker", "9999"])
     assert absent["discovery"]["outside_universe"] == ["9999"]
     assert not absent["model_inputs"]["securities"]["9999"]["models"]
-    assert not cli([*fixed, "--screening-lane", "growth_research"])["discovery"]["rows"]
-    assert cli([*fixed, "--screening-excluded"])["discovery"]["total"] == 0
+    for legacy_option in (["--screening-lane", "growth_research"], ["--screening-excluded"]):
+        assert "legacy publication" in cli([*fixed, *legacy_option], expected=3)["reason"]
+        assert (
+            "explicit legacy screening selection"
+            in cli([*base, *legacy_option], expected=3)["reason"]
+        )
+    gaps = cli([*fixed, "--discovery-question", "input_gap"])
+    assert gaps["discovery"]["total"] == len(rows)
+    assert gaps["screening_selection_id"] == identity
+    assert "candidate_tickers" not in gaps
     specified = cli([*fixed, "--scope", "specified_stocks", "--ticker", "4567"])
     assert list(specified["model_inputs"]["securities"]) == ["4567"]
     assert "held_tickers" not in specified
+    generation_only = [*base, "--generation-id", gen.generation_id]
+    named = cli([*generation_only, "--scope", "specified_stocks", "--ticker", "4567"])
+    assert named["screening_selection_id"] is None
+    assert named["candidate_tickers"] == []
+    assert list(named["model_inputs"]["securities"]) == ["4567"]
+    direct_review = cli([*generation_only, "--scope", "review_positions"])
+    assert direct_review["screening_selection_id"] is None
+    assert direct_review["holding_scope"] == "no_ledger_record"
     holdings = cli([*fixed, "--scope", "review_positions"])
     assert holdings["holding_scope"] == "no_ledger_record"
     assert holdings["held_tickers"] is None
@@ -252,7 +268,7 @@ def test_cli_question_to_one_fixed_company_and_finite_comparison(tmp_path, monke
     held = cli([*fixed, "--scope", "review_positions"])
     assert held["held_tickers"] == ["2345"]
     assert list(held["model_inputs"]["securities"]) == ["2345"]
-    with pytest.raises(ValueError, match="explicit company detail"):
+    with pytest.raises(ValueError, match="legacy publication"):
         load_generated_selection_context(
             request=ResearchRequest(scope="discover_new", text="矛盾する画面"),
             generation_id=None,

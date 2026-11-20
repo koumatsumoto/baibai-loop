@@ -152,9 +152,18 @@ def test_context_reads_one_fixed_publication_without_duplicate_full_result(
     arguments = args(path, now)
     if not explicit_id:
         arguments["screening_selection_id"] = None
+        with pytest.raises(ValueError, match="explicit legacy screening selection"):
+            load_generated_selection_context(**arguments, screening_lane="growth_research")
+        overview = load_generated_selection_context(**arguments, comparison_tickers=("2345",))
+        assert overview["status"] == "inputs_required"
+        assert overview["screening_selection_id"] == "technical-policy"
+        assert overview["missing_inputs"] == [{"code": "unindexed_legacy_publication"}]
+        assert not calls
+        return
     context = load_generated_selection_context(**arguments, screening_lane="growth_research")
     assert len(calls) == 1
     assert calls[0]["known_at"] == now
+    assert calls[0]["selection_id"] == "technical-policy"
     assert context["screening_selection_id"] == "technical-policy"
     assert context["generation_id"] == fixed.generation_id
     assert context["candidate_tickers"]

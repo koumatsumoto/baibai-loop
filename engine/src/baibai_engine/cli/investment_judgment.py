@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument(
         "--screening-lane",
         choices=("growth_research", "input_review", "alternative_financial_research"),
-        help="explicitly inspect a historical screening lane (can read the full publication)",
+        help="inspect a historical lane with an explicit legacy --screening-selection-id",
     )
     context_parser.add_argument(
         "--discovery-question",
@@ -137,15 +137,15 @@ def build_parser() -> argparse.ArgumentParser:
         const="technical_matched",
         choices=SCREENING_EXCLUSION_SCOPES,
         help=(
-            "diagnose saved technical matches or financially unresolved rows "
-            "outside lanes without selecting them"
+            "diagnose a fixed legacy --screening-selection-id for technical matches or "
+            "financially unresolved rows outside lanes"
         ),
     )
     context_parser.add_argument(
         "--screening-page",
         type=int,
         default=0,
-        help="zero-based page of the same saved technical-financial discovery pool",
+        help="zero-based page of the same discovery question or explicit legacy selection",
     )
     context_parser.add_argument("--db", type=Path)
     context_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
