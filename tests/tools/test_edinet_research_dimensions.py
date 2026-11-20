@@ -712,6 +712,8 @@ def test_amount_inconsistency_does_not_hide_unrelated_observations(part, old, ne
     ("part", "old", "new"),
     [
         ("manifest", "other.htm", "note.htm"),
+        ("note.htm", "<i:nonNumeric name=", '<i:nonNumeric xsi:nil="true" name='),
+        ("note.htm", "<i:nonNumeric name=", '<i:nonNumeric continuedAt="remote" name='),
         ("manifest", 'in="presentation"', 'in="definition"'),
         ("note.htm", 'contextRef="CurrentNote"', 'contextRef="NoSuchNote"'),
         ("other.htm", "<i:resources>", '<i:resources target="second">'),

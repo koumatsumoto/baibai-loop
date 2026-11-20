@@ -155,7 +155,13 @@ def annual_segment_amount_occurrences(
                 ix_contexts.update(c.get("id") for c in node.findall(f"{_IX}resources/{_I}context"))
                 ix_units.extend((u, scopes) for u in node.findall(f"{_IX}resources/{_I}unit"))
             if node.tag == _IX + "nonNumeric":
-                enclosing_context = node.get("contextRef", "")
+                # Neither a nil note nor an unresolved continuation proves local note scope.
+                enclosing_context = (
+                    node.get("contextRef", "")
+                    if node.attrib.keys() <= {"name", "contextRef", "id", "escape"}
+                    and node.get("escape") in {None, "true"}
+                    else ""
+                )
             if node.tag in {_IX + "nonFraction", _IX + "fraction", _IX + "nonNumeric"}:
                 lexical, ref = node.get("name", ""), node.get("contextRef", "")
                 concept = _qname(lexical, scopes.get(node, {}))
