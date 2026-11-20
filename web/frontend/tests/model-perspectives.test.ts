@@ -146,6 +146,32 @@ it('当時の資料による見立てを区別し、元の不足判断を推定�
   expect(estimatedOnly).not.toContain('data-evidence="author"')
 })
 
+it.each([
+  ['adverse', '逆風'], ['mixed', '支持・相反'], ['supportive', '支持'],
+] as const)('市場代理2窓のマイナスを当時の作者判断と混ぜない: %s', (judgment, label) => {
+  const a = assessmentFixture('market-clock')
+  const summary = '市場代理1321の終値・20本前比 -2.5%、市場代理1321の終値・60本前比 -13.0%。'
+  a.estimated_model_chart = {
+    selection_sha256: 'f'.repeat(64), input_known_at: '2026-10-26T03:00:00Z',
+    research_as_of: '2026-10-26', generation_id: 'fixed-market', monex_fiscal_eps: null,
+    rows: [{ model: 'market_context', assessment: 'context_only', summary,
+      evidence: '市場環境：market.points', observed_on: '2026-10-23', source_url: null }],
+  }
+  const tickerRow = (html: string) => html.split('data-model="market_context"')[1].split('</tr>')[0]
+  const historical = render(a)
+  expect(tickerRow(historical)).toContain('観測あり・個社への影響未判定')
+  expect(tickerRow(historical)).not.toContain('data-evidence="author"')
+  expect(historical).toContain(summary)
+  expect(historical).toContain('dateTime="2026-10-23"')
+  expect(historical).toContain('dateTime="2026-10-26T03:00:00Z"')
+  a.model_perspectives = [{ model: 'market_context', assessment: judgment, summary: '当時の個社・同業との比較', source_ids: [] }]
+  const reviewed = render(a)
+  expect(tickerRow(reviewed)).toContain('data-evidence="author"')
+  expect(tickerRow(reviewed)).toContain(`>${label}<`)
+  expect(tickerRow(reviewed)).not.toContain('data-evidence="observation"')
+  expect(reviewed).toContain('当時の個社・同業との比較')
+})
+
 it('合成対照で49明細の作者105・固定観測238を保ち、評価なし2を作らない', () => {
   const models: SavedModelPerspectiveView['model'][] = [
     'company_financials', 'company_growth', 'market_context', 'external_assessment',

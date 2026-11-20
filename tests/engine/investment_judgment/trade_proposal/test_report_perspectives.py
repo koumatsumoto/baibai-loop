@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import date
 
 import pytest
 
@@ -215,7 +216,7 @@ def test_sector_origin_and_context_only_household_observation_no_investment_vote
         "market",
     )
     r = _estimate(s)
-    assert r["market_context"]["assessment"] == "neutral"
+    assert r["market_context"]["assessment"] == "context_only"
     assert "1321の終値・20本前比 +0.0%" in r["market_context"]["summary"]
     assert "市場全体の方向" not in r["market_context"]["summary"]
     assert r["industry_trends"]["assessment"] == r["social_trends"]["assessment"] == "context_only"
@@ -226,6 +227,43 @@ def test_sector_origin_and_context_only_household_observation_no_investment_vote
     m["vintage_at"] = LATE
     r = _estimate(s)
     assert r["industry_trends"]["assessment"] == r["social_trends"]["assessment"] == "insufficient"
+
+
+@pytest.mark.parametrize(("short", "long"), [(-0.025, -0.13), (0.023, -0.13), (0.0, 0.0)])
+def test_market_proxy_keeps_fixed_values_without_a_second_judgment(short, long):
+    s = _sel()
+    point = {
+        "observation_date": "2026-10-19",
+        "benchmark_return_20d": short,
+        "benchmark_return_60d": long,
+    }
+    later = {**point, "observation_date": "2026-10-21", "benchmark_return_20d": 0.95}
+    _put(s, "market_context", {"market": {"benchmark_ticker": "another", "points": [later]}})
+    records = [point, later, {**point, "date": "2026-10-21"}]
+    _put(s, "market_context", {"market": {"benchmark_ticker": "1321", "points": records}}, "market")
+    chart = estimate_missing(s, ticker="1234", recorded=set(), selection_sha256=HASH)
+    row = next(row for row in chart["rows"] if row["model"] == "market_context")
+    assert row == {
+        "model": "market_context",
+        "assessment": "context_only",
+        "summary": (
+            f"市場代理1321の終値・20本前比 {short:+.1%}、市場代理1321の終値・60本前比 {long:+.1%}。"
+            "この代理の価格変化です。他の指数や個社が同じ方向・幅で動くとは限りません。"
+        ),
+        "evidence": "市場環境：market.points / benchmark_return_20d・60d",
+        "observed_on": date(2026, 10, 19),
+        "source_url": None,
+    }
+    assert chart["input_known_at"].isoformat() == CUT
+    assert chart["selection_sha256"] == HASH
+    assert chart["generation_id"] == "frozen"
+    assert len(chart["rows"]) == 7
+    assert _estimate(s, recorded={"market_context"}) == {
+        r["model"]: r for r in chart["rows"] if r["model"] != "market_context"
+    }
+    # Equal-date ambiguity stays missing and is never turned into a neutral observer.
+    records.append(dict(point))
+    assert _estimate(s)["market_context"]["assessment"] == "insufficient"
 
 
 @pytest.mark.parametrize(("excess", "shown"), [(0.0, "+0.0"), (-0.016, "-1.6")])
