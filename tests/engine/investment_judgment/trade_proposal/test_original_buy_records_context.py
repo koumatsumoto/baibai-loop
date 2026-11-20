@@ -5,7 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 from tests.helpers.generated_selection import seed_generated_selection
-from tests.helpers.proposal import PUBLISHED, backend_case, read_saved_proposal, reviewed_proposal
+from tests.helpers.proposal import (
+    PROPOSAL_ID,
+    PUBLISHED,
+    backend_case,
+    read_saved_proposal,
+    reviewed_proposal,
+)
 
 from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
 from baibai_engine.investment_judgment.trade_proposal.contracts import proposal_draft_sha256
@@ -127,6 +133,7 @@ def _setup(tmp_path, *, scope="review_positions", linked="erroneous", before_pro
 
 def _context(fixture, *, now=NOW):
     return input_reader.build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=fixture.operation.operation_id,
         db_path=fixture.case.app,
         sqlite_path=fixture.case.market,

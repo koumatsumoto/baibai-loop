@@ -4,7 +4,14 @@ from decimal import Decimal
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
-from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import (
+    PREPARED,
+    PROPOSAL_ID,
+    PUBLISHED,
+    backend_case,
+    bind_review,
+    reviewed_proposal,
+)
 
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalError
@@ -61,6 +68,7 @@ def bind_finding(case, status, *, condition=None, last_acquisition="not_time_lim
 
 def context(case):
     return build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,

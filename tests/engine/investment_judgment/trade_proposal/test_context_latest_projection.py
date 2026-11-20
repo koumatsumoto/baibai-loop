@@ -5,6 +5,7 @@ from datetime import timedelta
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.proposal import (
+    PROPOSAL_ID,
     PUBLISHED,
     backend_case,
     read_saved_proposal,
@@ -18,6 +19,7 @@ from baibai_engine.investment_judgment.trade_proposal.service import TradePropos
 
 def _context(case):
     return build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,

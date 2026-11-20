@@ -44,10 +44,15 @@ def test_authoring_export_never_replaces_an_existing_path(
         ]
     else:
         monkeypatch.setattr(
-            "baibai_engine.investment_judgment.trade_proposal.scaffold.scaffold_proposal", scaffold
+            "baibai_engine.investment_judgment.trade_proposal.inputs.build_proposal_context",
+            lambda **_kwargs: object(),
+        )
+        monkeypatch.setattr(
+            "baibai_engine.investment_judgment.trade_proposal.scaffold.scaffold_proposal",
+            lambda _context: scaffold(),
         )
         args = [
-            "trade-proposal-scaffold",
+            "trade-proposal-context",
             "--operation-id",
             "synthetic-operation",
             "--proposal-id",

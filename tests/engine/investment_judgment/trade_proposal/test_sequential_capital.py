@@ -9,11 +9,16 @@ from functools import partial
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.generated_selection import seed_generated_selection
-from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, read_saved_proposal
+from tests.helpers.proposal import (
+    PUBLISHED,
+    authored_defer_fixture,
+    backend_case,
+    bind_review,
+    read_saved_proposal,
+)
 
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
@@ -70,7 +75,7 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
             assert operation.operation_id != case.operation.operation_id
             assert case.operations.get(case.operation.operation_id) == first_completed
         proposal_id = f"investment-proposal-00000000-0000-4000-8000-{index + 7:012x}"
-        raw = scaffold_proposal(
+        raw = authored_defer_fixture(
             operation_id=operation.operation_id,
             proposal_id=proposal_id,
             db_path=case.app,
@@ -107,9 +112,6 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
                         "warnings": [],
                     },
                 )
-        raw["review"].update(
-            reviewer_identity="synthetic-independent-reviewer", reviewed_at=now.isoformat()
-        )
         proposal = bind_review(raw, documents)
         assert proposal.inputs.available_cash_yen == cash
         before = store.load()

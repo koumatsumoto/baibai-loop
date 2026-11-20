@@ -8,6 +8,7 @@ from pydantic import TypeAdapter
 from tests.helpers import proposal as helper
 from tests.helpers.db_seed import seed_historical_operation, seed_ledger
 from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.proposal import PROPOSAL_ID
 from tests.helpers.research_selection import historical_operation, selected_target, selection
 
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
@@ -162,6 +163,7 @@ def _prepare(tmp_path, *, tickers=("1234",), version=12, screening=True, technic
 
 def _read(app, operation_id, tmp_path):
     return build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=operation_id,
         db_path=app,
         sqlite_path=tmp_path / "absent-market",
@@ -313,6 +315,7 @@ def test_discovery_nonmatch_does_not_change_reviewed_action_or_exact_retry(
     saved = service.publish(draft)
     before = case.app.read_bytes()
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,
