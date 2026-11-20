@@ -215,21 +215,31 @@ def test_rejects_extra_arguments_before_credentials_or_remote(tmp_path, extra):
     assert not (state / "requests.jsonl").exists()
 
 
-@pytest.mark.parametrize("key", KEYS)
 @pytest.mark.parametrize(
-    "fault",
+    ("key", "fault"),
     [
-        "403",
-        "429",
-        "conflict",
-        "after",
-        "empty",
-        "None",
-        "quoted-none",
-        "malformed",
-        "unbalanced",
-        "ack-collision",
-        "interrupt",
+        # One key exercises every input to the shared put_with_evidence owner.
+        *[
+            (KEYS[0], fault)
+            for fault in (
+                "403",
+                "429",
+                "conflict",
+                "after",
+                "empty",
+                "None",
+                "quoted-none",
+                "malformed",
+                "unbalanced",
+                "ack-collision",
+                "interrupt",
+            )
+        ],
+        # On each later key, retain committed-but-unacknowledged outcomes for
+        # a failed request, a missing ETag, and a failed local receipt write.
+        *[(key, fault) for key in KEYS[1:] for fault in ("after", "empty", "ack-collision")],
+        # A later conditional PUT can reject after an earlier commit.
+        (KEYS[1], "conflict"),
     ],
 )
 def test_unknown_put_stops_without_later_keys_or_resend(tmp_path, key, fault):
@@ -237,14 +247,35 @@ def test_unknown_put_stops_without_later_keys_or_resend(tmp_path, key, fault):
     env.update(EVIDENCE_FAULT=fault, EVIDENCE_FAULT_KEY=key)
     result = _run(root, env, evidence)
     assert result.returncode != 0
-    assert [_key(row) for row in _puts(state)] == list(KEYS[: KEYS.index(key) + 1])
+    index = KEYS.index(key)
+    puts = _puts(state)
+    assert [_key(row) for row in puts] == list(KEYS[: index + 1])
+    args = puts[-1]["args"]
+    if key == KEYS[-1]:
+        assert "--if-match" not in args
+    else:
+        assert args[args.index("--if-match") + 1] == '"etag-stable"'
+
+    # A request log cannot tell us whether the fake bucket committed the last body.
+    rejected = fault in {"403", "429", "conflict", "interrupt"}
+    committed = KEYS[:index] if rejected else KEYS[: index + 1]
+    assert {path.name for path in state.glob("put-*")} == {f"put-{name}" for name in committed}
+    for name in committed:
+        assert (state / ("put-" + name)).read_bytes() == (evidence / name).read_bytes()
+    for name in KEYS[:index]:
+        assert _read(evidence / (name + ".put_ack.json"))["put_response_etag"] == "ack-" + name
+
     assert _read(evidence / "attempt.stopped.json")["outcome_unknown_key"] == key
     assert not (evidence / "attempt.completed.json").exists()
+    assert "machine_receipt_sha256=" not in result.stdout
     assert (evidence / key).is_file()
     assert (evidence / (key + ".put_started.json")).is_file()
     assert "private.invalid" not in result.stderr
-    if fault != "ack-collision":
-        assert not (evidence / (key + ".put_ack.json")).exists()
+    ack = evidence / (key + ".put_ack.json")
+    if fault == "ack-collision":
+        assert ack.read_text() == "prior retained evidence"
+    else:
+        assert not ack.exists()
     assert not list(root.glob(".r2-transfer.*"))
 
 
