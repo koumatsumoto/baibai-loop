@@ -31,8 +31,11 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
-from baibai_engine.machine_analysis.screening.contracts import ScreeningResult, ScreeningSelection
-from baibai_engine.machine_analysis.screening.discovery_contract import DiscoverySelection
+from baibai_engine.machine_analysis.screening.contracts import (
+    DiscoverySelection,
+    ScreeningResult,
+    ScreeningSelection,
+)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     ResearchLane,
