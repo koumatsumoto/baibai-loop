@@ -5,7 +5,6 @@ import sqlite3
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -503,23 +502,13 @@ def test_old_explicit_lane_does_not_load_unrequested_held_details(tmp_path, monk
 
     runs = tmp_path / "runs"
     seed_economic_generation(runs)
-    # Exercise the held-target boundary independently of ledger replay arithmetic.
-    db = tmp_path / "app"
-    db.touch()
-    monkeypatch.setattr(query, "connect_read_only", lambda path: sqlite3.connect(path))
-    monkeypatch.setattr(
-        query, "load_ledger_document", lambda connection: SimpleNamespace(events=())
-    )
-    monkeypatch.setattr(
-        query,
-        "replay_events_through",
-        lambda *args: SimpleNamespace(
-            lots={"9999": [SimpleNamespace(quantity=1)], "5678": [SimpleNamespace(quantity=0)]}
-        ),
-    )
-    monkeypatch.setattr(query, "latest_assessment", lambda *args, **kwargs: None)
-    result = context(runs, db_path=db)
-    assert result["held_tickers"] == ("9999",)
+
+    def no_ledger(*args, **kwargs):
+        pytest.fail("a historical screening report must not inspect the portfolio")
+
+    monkeypatch.setattr(query, "_ledger_positions", no_ledger)
+    result = context(runs)
+    assert "held_tickers" not in result
     assert result["requested_tickers"] == ()
     assert result["request"]["requested_tickers"] == []
     assert result["model_inputs"]["securities"] == {}

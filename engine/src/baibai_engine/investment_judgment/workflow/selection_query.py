@@ -17,6 +17,7 @@ from baibai_engine.investment_judgment.judgment_retrospective.holdings import ho
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.book_prices import read_book_prices
+from baibai_engine.investment_judgment.workflow.case_screening import read_case_screening
 from baibai_engine.investment_judgment.workflow.discovery import (
     PriceCoordinateMinimum,
     discovery_context,
@@ -28,7 +29,7 @@ from baibai_engine.investment_judgment.workflow.screening_brief import (
     technical_financial_exclusion_diagnostic,
     technical_financial_screening_brief,
 )
-from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
+from baibai_engine.investment_judgment.workflow.selection import CaseScreening, ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.machine_analysis.screening.contracts import (
@@ -115,7 +116,6 @@ def load_generated_selection_context(
     ):
         raise ValueError("discovery requires an explicit saved screening selection")
     # 最新は一度だけ解決する。旧本文を読む権限を暗黙の最新IDに引き継がない。
-    legacy_targeted_read = False
     if screening_selection_id is not None or generation_id is None:
         index = read_discovery_index(
             path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
@@ -137,10 +137,7 @@ def load_generated_selection_context(
                 if index.status == "indexed" and request.scope == "review_positions"
                 else (None, None)
             )
-            requested = request.requested_tickers or held or ()
-            comparisons = tuple(
-                sorted(set(requested) | {normalize_ticker(t) for t in comparison_tickers})
-            )
+            requested, comparisons = _evidence_subjects(request, held, comparison_tickers)
             detail = bool(comparison_tickers) or request.scope != "discover_new"
             if detail and screening_page:
                 raise ValueError("choose explicit company detail or one discovery question page")
@@ -184,18 +181,30 @@ def load_generated_selection_context(
                 indexed["capacity"] = research_capacity(request.scope, len(held or ())).model_dump(
                     mode="json"
                 )
-                indexed["holding_review_history"] = history
-                indexed["held_tickers"] = held
-                indexed["holding_scope"] = (
-                    "no_ledger_record" if held is None else "current_ledger_replayed_to_fact_cutoff"
-                )
+                indexed.update(_holding_context(request, held, history))
             return indexed
         generation_id = index.generation_id
-        legacy_targeted_read = overview and bool(comparison_tickers)
+    if generation_id is None:
+        raise ValueError("an explicit generation is required")
+    if not archived_view and screening_page:
+        raise ValueError("choose explicit company detail or one discovery question page")
+    app_path = database_path(db_path)
+    held, history = (
+        _ledger_positions(app_path, known_at, as_of, request.requested_tickers)
+        if request.scope == "review_positions"
+        else (None, None)
+    )
+    requested, comparisons = _evidence_subjects(request, held, comparison_tickers)
+    detail_targets = set(comparisons)
+
     lane = screening_lane or "growth_research"
     publication = None
     screening = None
-    if screening_selection_id is not None:
+    finite_evidence = None
+    if archived_view:
+        # A user explicitly asked for the old publication's saved lane/diagnostic,
+        # not the ordinary specified/held/comparison view.
+        assert screening_selection_id is not None
         publication = read_publication(
             path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
         )
@@ -204,17 +213,16 @@ def load_generated_selection_context(
         screening = publication.selection
         if screening.generation_id != generation_id:
             raise ValueError("screening selection differs from the chosen generation")
-    if generation_id is None:
-        raise ValueError("an explicit generation is required")
-    app_path = database_path(db_path)
-    ledger_positions, history = _ledger_positions(
-        app_path,
-        known_at,
-        as_of if request.scope == "review_positions" else None,
-        request.requested_tickers,
-    )
-    held = ledger_positions or ()
-    requested = request.requested_tickers or (held if request.scope == "review_positions" else ())
+    elif screening_selection_id is not None:
+        fixed = read_case_screening(
+            screening_selection_id,
+            subjects=tuple(sorted(detail_targets)),
+            known_at=known_at,
+            path=runs_path,
+        )
+        if fixed is None or fixed[1].generation_id != generation_id:
+            raise ValueError("screening publication unavailable for the chosen generation")
+        finite_evidence = _legacy_subject_evidence(fixed[0], fixed[1], detail_targets)
     candidates = () if screening is None else screening.result.tickers
     technical_screening = screening is not None and isinstance(
         screening.result, TechnicalFinancialSelection
@@ -225,7 +233,7 @@ def load_generated_selection_context(
         start = screening_page * screening.result.policy.page_size
         candidates = (
             ()
-            if screening_excluded or legacy_targeted_read
+            if screening_excluded
             else screening.result.lane_tickers(lane)[
                 start : start + screening.result.policy.page_size
             ]
@@ -235,13 +243,10 @@ def load_generated_selection_context(
     compact_screening = screening is not None and isinstance(
         screening.result, (EconomicPathSelection, TechnicalFinancialSelection)
     )
-    detail_targets = set(requested) | {normalize_ticker(ticker) for ticker in comparison_tickers}
     if compact_screening:
         # 候補株の詳細を展開せず、発行時の完全planから候補に必要な共有文脈を解く。
         # 明示対象・保有は同じgenerationの全予定モデルを通常どおり読める。
         assert publication is not None
-        if request.scope == "review_positions":
-            detail_targets.update(held)
         metadata = publication.generation
         related = research_subjects(metadata, tuple(sorted(detail_targets | set(candidates))))
         plan = metadata.subject_plan
@@ -267,7 +272,7 @@ def load_generated_selection_context(
         "status": "ready",
         **(
             {"read_cost": "explicit_full_saved_publication"}
-            if request.scope == "discover_new"
+            if screening_selection_id is not None
             else {}
         ),
         "request": request.model_dump(mode="json"),
@@ -275,12 +280,12 @@ def load_generated_selection_context(
         "input_known_at": known_at.isoformat(),
         "generation_id": generation_id,
         "screening_selection_id": screening_selection_id,
-        "capacity": research_capacity(request.scope, len(held)).model_dump(mode="json"),
-        "screening": None
+        "capacity": research_capacity(request.scope, len(held or ())).model_dump(mode="json"),
+        "screening": finite_evidence
         if screening is None
         else _project_screening(
             screening,
-            page=None if legacy_targeted_read and technical_screening else screening_page,
+            page=screening_page,
             lane=lane,
             comparison_tickers=tuple(sorted(detail_targets)),
             excluded=screening_excluded,
@@ -288,7 +293,9 @@ def load_generated_selection_context(
         ),
         "candidate_tickers": list(candidates),
         "candidate_order_semantics": (
-            "diagnostic_rows_are_not_candidate_tickers"
+            "explicit_subjects_not_screening_candidates"
+            if not archived_view
+            else "diagnostic_rows_are_not_candidate_tickers"
             if screening_excluded
             else "saved_route_round_robin_page_not_investment_ranking"
             if technical_screening
@@ -297,21 +304,74 @@ def load_generated_selection_context(
             else "per_view_rank_not_a_union_investment_ranking"
         ),
         "requested_tickers": requested,
-        "held_tickers": held,
-        **(
-            {
-                "holding_review_history": history,
-                "holding_scope": (
-                    "no_ledger_record"
-                    if ledger_positions is None
-                    else "current_ledger_replayed_to_fact_cutoff"
-                ),
-            }
-            if request.scope == "review_positions"
-            else {}
-        ),
+        **(_holding_context(request, held, history) if request.scope == "review_positions" else {}),
         "model_inputs": model_inputs,
         **_judgments(app_path, tuple(sorted(set(candidates) | detail_targets)), as_of, known_at),
+    }
+
+
+def _evidence_subjects(
+    request: ResearchRequest, held: tuple[str, ...] | None, comparisons: tuple[str, ...]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    requested = request.requested_tickers or held or ()
+    targets = set(requested)
+    if request.scope == "review_positions":
+        targets.intersection_update(held or ())
+    # A named contrast is not a requested holding and never changes its status.
+    return requested, tuple(sorted(targets | {normalize_ticker(t) for t in comparisons}))
+
+
+def _holding_context(
+    request: ResearchRequest, held: tuple[str, ...] | None, history: dict[str, object] | None
+) -> dict[str, Any]:
+    return {
+        "held_tickers": held,
+        "holding_review_history": history,
+        "holding_scope": "no_ledger_record"
+        if held is None
+        else "current_ledger_replayed_to_fact_cutoff",
+        **(
+            {
+                "requested_not_held": None
+                if held is None
+                else sorted(set(request.requested_tickers) - set(held))
+            }
+            if request.requested_tickers
+            else {}
+        ),
+    }
+
+
+def _legacy_subject_evidence(
+    published_at: datetime, selection: CaseScreening, tickers: set[str]
+) -> dict[str, Any]:
+    """固定の旧原本は一つの圧縮本文。証拠は指定銘柄分だけ、保存時のまま返す。"""
+    result = selection.result
+    # read_case_screening already retained only the subjects actually requested.
+    original = TypeAdapter[ScreeningResult](ScreeningResult).dump_python(result, mode="json")
+    if isinstance(result, TechnicalFinancialSelection):
+        present = {row.ticker for row in result.rows}
+        evidence = {
+            "comparison_rows": sorted(original["rows"], key=lambda row: row["ticker"]),
+            "technical_policy_id": result.technical_policy_id,
+            "financial_policy_id": result.financial_policy_id,
+        }
+    elif isinstance(result, EconomicPathSelection):
+        present = set(result.tickers)
+        evidence = {"cards": original["cards"]}
+    elif "views" in original:  # Other retained pre-index form: the two as-published views.
+        present = set(result.tickers)
+        evidence = {"views": original["views"]}
+    else:
+        raise ValueError("expected an unindexed historical screening publication")
+    return {
+        "source_sha256": selection.source_sha256,
+        "published_at": published_at.isoformat(),
+        "scope": "explicit_subjects_of_saved_publication",
+        "policy": original["policy"],
+        "not_in_saved_rows": sorted(tickers - present),
+        "outside_universe": sorted(tickers.difference(selection.universe_tickers)),
+        **evidence,
     }
 
 
@@ -333,7 +393,7 @@ def _judgments(
 
 
 def _ledger_positions(
-    app_path: Path, known_at: datetime, review_as_of: date | None, requested: tuple[str, ...]
+    app_path: Path, known_at: datetime, review_as_of: date, requested: tuple[str, ...]
 ) -> tuple[tuple[str, ...] | None, dict[str, object] | None]:
     if not app_path.exists():
         return None, None
@@ -346,8 +406,6 @@ def _ledger_positions(
         held = tuple(
             sorted(t for t, lots in state.lots.items() if any(lot.quantity > 0 for lot in lots))
         )
-        if review_as_of is None:
-            return held, None
         selected = set(held).intersection(requested) if requested else set(held)
         return held, holding_review_history(
             connection, ledger, selected, as_of=review_as_of, known_at=known_at
