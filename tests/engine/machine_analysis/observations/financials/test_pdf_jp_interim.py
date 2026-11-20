@@ -56,7 +56,8 @@ def interim(text=H1):
     )
 
 
-def test_interim_cumulative_display_does_not_borrow_earlier_annual_reference():
+@pytest.mark.parametrize("same_day_reference", [False, True])
+def test_interim_cumulative_display_does_not_borrow_annual_reference(same_day_reference):
     item = interim()
     assert item.reason is None
     assert (item.current_start, item.current_end, item.comparative_start, item.comparative_end) == (
@@ -71,6 +72,19 @@ def test_interim_cumulative_display_does_not_borrow_earlier_annual_reference():
         ("parent_profit", 440, 71),
     ]
     assert item.pairs[-1].row == "親会社株主に帰属する中間純利益"
+    annual = pdf(True)
+    if same_day_reference:
+        # Same issuer, date, annual fiscal end, unit and amounts are insufficient.
+        # This source restates an annual operand for another accounting-policy change.
+        annual = annual.model_copy(
+            update={
+                "published_on": item.published_on,
+                "source_sha256": "d" * 64,
+                "annual_reference": annual.annual_reference.model_copy(
+                    update={"basis_text": "別の会計方針の変更による前期連結実績"}
+                ),
+            }
+        )
     financial, growth, *_ = generate_financial_and_price_models(
         ticker="9127",
         documents=later_interim_docs(),
@@ -82,11 +96,13 @@ def test_interim_cumulative_display_does_not_borrow_earlier_annual_reference():
         as_of=date(2026, 11, 14),
         input_release=InputRelease(release_id="synthetic", manifest_sha256="a" * 64),
         ttm_rules=DEFAULT_TTM_RULES,
-        pdf_statements=[pdf(), pdf(True), item],
+        pdf_statements=[pdf(), annual, item],
     )
     sel = financial.payload["financial"]["pdf_selection"]
     assert sel == growth.payload["pdf_selection"]
-    assert sel["reason"] == "restated_annual_reference_missing_or_ambiguous"
+    assert sel["reason"] == "jp_interim_annual_restatement_basis_unverified"
+    assert sel["blocks_legacy_ttm"]
+    assert sel["annual"] is None
     assert not sel["amounts_yen"]
     assert sel["current"]["disclosure_number"] == "later-interim"
     assert financial.payload["earnings_price"]["profit_ttm_yen"] is None
