@@ -1,6 +1,5 @@
 """公開済み入力を差し替えず、実Operation入口で固定する。"""
 
-import json
 from contextlib import closing
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -9,7 +8,6 @@ import pytest
 from tests.engine.investment_judgment.workflow.test_growth_projection_copy import growth_payload
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
-from baibai_engine.cli.operation import main
 from baibai_engine.investment_judgment.market_assessment.models import (
     MarketContextAssessment,
     StoredAssessment,
@@ -126,7 +124,7 @@ def test_new_case_checks_only_the_full_growth_reports_it_seals(
         "reordered",
     ],
 )
-def test_start_requires_exact_market_judgment_at_selection_cutoff(tmp_path, capsys, change):
+def test_start_requires_exact_market_judgment_at_selection_cutoff(tmp_path, change):
     runs, app = tmp_path / "runs", tmp_path / "app"
     document = MarketContextAssessment(
         context_id="market-context-assessment-2026-10-14-fixed",
@@ -157,40 +155,29 @@ def test_start_requires_exact_market_judgment_at_selection_cutoff(tmp_path, caps
         supplied = dict(reversed(tuple(canonical.items())))
     raw = selected.model_dump(mode="json")
     raw["inputs"]["saved_market_context_assessment"] = supplied
-    payload = tmp_path / "payload.json"
-    payload.write_text(OperationPayload(checkpoint="start", artifacts=(raw,)).model_dump_json())
+
+    def admit():
+        return OperationService(app, runs_path=runs).start(
+            session_kind="capital-allocation",
+            as_of=NOW.date(),
+            started_at=NOW,
+            payload=OperationPayload(checkpoint="start", artifacts=(raw,)),
+        )
+
     before = None
     if app.exists():
         with closing(connect_read_only(app)) as connection:
             before = connection.execute(
                 "SELECT context_id,payload FROM market_context_assessment"
             ).fetchall()
-    result = main(
-        [
-            "--db",
-            str(app),
-            "--runs-path",
-            str(runs),
-            "--format",
-            "json",
-            "start",
-            "--kind",
-            "capital-allocation",
-            "--as-of",
-            NOW.date().isoformat(),
-            "--payload",
-            str(payload),
-        ],
-        now=NOW,
-    )
     if change not in {"canonical", "reordered"}:
-        assert result == 1
-        assert "saved Market Assessment differs from the selected cutoff" in capsys.readouterr().err
+        with pytest.raises(
+            ValueError, match="saved Market Assessment differs from the selected cutoff"
+        ):
+            admit()
         assert OperationService(app).active() is None
     else:
-        assert result == 0
-        published = json.loads(capsys.readouterr().out)
-        operation = OperationService(app).get(published["operation_id"])
+        operation = admit()
         assert (
             selection_binding(operation.payload).inputs.saved_market_context_assessment == canonical
         )

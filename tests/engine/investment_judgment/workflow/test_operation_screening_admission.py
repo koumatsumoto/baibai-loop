@@ -8,7 +8,6 @@ from datetime import datetime
 import pytest
 from tests.helpers.generated_selection import seed_generated_selection
 
-from baibai_engine.cli.operation import main
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
@@ -41,7 +40,7 @@ NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
         "reordered",
     ],
 )
-def test_start_preserves_published_screening_json_types(tmp_path, capsys, method, change):
+def test_start_preserves_published_screening_json_types(tmp_path, method, change):
     runs, app = tmp_path / "runs", tmp_path / "app"
     selected = seed_generated_selection(
         runs=runs,
@@ -116,31 +115,18 @@ def test_start_preserves_published_screening_json_types(tmp_path, capsys, method
         card["paths"][0]["evidence"] = dict(reversed(tuple(card["paths"][0]["evidence"].items())))
         screening["result"] = dict(reversed(tuple(screening["result"].items())))
         raw["inputs"]["screening_selection"] = dict(reversed(tuple(screening.items())))
-    payload = tmp_path / "payload.json"
-    payload.write_text(OperationPayload(checkpoint="start", artifacts=(raw,)).model_dump_json())
+
+    def admit():
+        return OperationService(app, runs_path=runs).start(
+            session_kind="capital-allocation",
+            as_of=NOW.date(),
+            started_at=NOW,
+            payload=OperationPayload(checkpoint="start", artifacts=(raw,)),
+        )
+
     source_before = runs.read_bytes()
-    result = main(
-        [
-            "--db",
-            str(app),
-            "--runs-path",
-            str(runs),
-            "--format",
-            "json",
-            "start",
-            "--kind",
-            "capital-allocation",
-            "--as-of",
-            NOW.date().isoformat(),
-            "--payload",
-            str(payload),
-        ],
-        now=NOW,
-    )
     if change in {"canonical", "reordered"}:
-        assert result == 0
-        output = json.loads(capsys.readouterr().out)
-        saved = selection_binding(OperationService(app).get(output["operation_id"]).payload)
+        saved = selection_binding(admit().payload)
         assert canonical_json(saved.model_dump(mode="json")) == canonical_json(original)
         policy = saved.inputs.screening_selection
         assert policy.universe_tickers == ("1234", "5678")
@@ -148,8 +134,8 @@ def test_start_preserves_published_screening_json_types(tmp_path, capsys, method
         assert policy.result.policy.method == method
         assert {row.subject for row in saved.inputs.generation.models} == {"1234", "5678"}
     else:
-        assert result == 1
-        assert "screening selection differs from chosen generation" in capsys.readouterr().err
+        with pytest.raises(ValueError, match="screening selection differs from chosen generation"):
+            admit()
         assert not app.exists()
     assert runs.read_bytes() == source_before
 

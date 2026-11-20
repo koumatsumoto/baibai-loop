@@ -132,64 +132,77 @@ def test_meta_draft_cli_writes_the_exit_tax_settings_as_scalars(
     assert replacement["as_of"] == "2026-07-11T15:30:00+09:00"
 
 
-def test_operation_checkpoint_cli_replaces_the_active_payload(
+def test_prepare_then_checkpoint_cli_updates_only_notes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    db = tmp_path / "app.sqlite"
-    from tests.helpers.generated_selection import seed_generated_selection
+    from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
-    runs = tmp_path / "runs.sqlite"
-    binding = seed_generated_selection(runs=runs, now=OPERATION_NOW).model_dump(mode="json")
-    start = tmp_path / "start.yaml"
-    start.write_text(yaml.safe_dump({"checkpoint": "start", "artifacts": [binding]}))
-    assert (
-        operation_main(
-            [
-                "--db",
-                str(db),
-                "--runs-path",
-                str(runs),
-                "start",
-                "--kind",
-                "capital-allocation",
-                "--payload",
-                str(start),
-                "--as-of",
-                "2026-07-19",
-            ],
-            now=OPERATION_NOW,
-        )
-        == 0
-    )
-    operation_id = _emitted(capsys)["operation_id"]
-    payload = tmp_path / "checkpoint.yaml"
-    payload.write_text(
-        yaml.safe_dump(
-            {
-                "checkpoint": "fixed research checkpoint",
-                "artifacts": [binding],
-                "next": "continue only the fixed selection",
-            }
-        ),
-        encoding="utf-8",
-    )
+    from baibai_engine.cli.investment_judgment import main as judgment_main
+    from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 
+    db, runs, workspace = tmp_path / "app", tmp_path / "runs", tmp_path / "ws"
+    draft = tmp_path / "selection.json"
+    source = seed_generated_selection(runs=runs, now=OPERATION_NOW)
+    draft.write_text(generated_draft_for(source).model_dump_json(), encoding="utf-8")
+    prepare = [
+        "prepare",
+        "--selection-file",
+        str(draft),
+        "--db",
+        str(db),
+        "--runs-path",
+        str(runs),
+        "--workspace",
+        str(workspace),
+    ]
+    assert judgment_main(prepare, now=OPERATION_NOW) == 0
+    initial = _emitted(capsys)
+    operation_id = initial["operation_id"]
+    frozen_contents = (workspace / "domain-inputs.yaml").read_bytes()
+    before = OperationService(db).get(operation_id)
+    # Checkpoint needs only the existing App; legacy CLI required a full JSON/YAML payload.
+    runs.rename(tmp_path / "offline-runs")
     code = operation_main(
-        ["--db", str(db), "checkpoint", str(operation_id), "--payload", str(payload)],
+        [
+            "--db",
+            str(db),
+            "checkpoint",
+            operation_id,
+            "--note",
+            "fixed research checkpoint",
+            "--next",
+            "continue only the fixed selection",
+        ],
         now=OPERATION_NOW,
     )
-
     assert code == 0
     emitted = _emitted(capsys)
     assert emitted["operation_id"] == operation_id
     assert "payload" not in emitted
-    with closing(sqlite3.connect(db)) as connection, connection:
-        row = connection.execute(
-            "SELECT status, json_extract(payload, '$.checkpoint') "
-            "FROM operation_session WHERE operation_id = ?",
-            (operation_id,),
-        ).fetchone()
-    assert tuple(row) == ("active", "fixed research checkpoint")
+    expected = before.payload.model_copy(
+        update={
+            "checkpoint": "fixed research checkpoint",
+            "next": "continue only the fixed selection",
+        }
+    )
+    assert OperationService(db).get(operation_id) == before.model_copy(update={"payload": expected})
+    first_app = db.read_bytes()
+    assert (
+        operation_main(
+            ["--db", str(db), "checkpoint", operation_id, "--note", "fixed research checkpoint"],
+            now=OPERATION_NOW,
+        )
+        == 0
+    )
+    assert db.read_bytes() == first_app
+    capsys.readouterr()
+    assert judgment_main(prepare, now=OPERATION_NOW) == 0
+    resumed = _emitted(capsys)
+    assert resumed["status"] == "resumed"
+    assert resumed["operation_id"] == operation_id
+    assert resumed["selection_sha256"] == initial["selection_sha256"]
+    assert (workspace / "domain-inputs.yaml").read_bytes() == frozen_contents
+    assert db.read_bytes() == first_app
 
 
 def test_db_init_cli_creates_the_application_database_at_the_current_schema(

@@ -15,7 +15,7 @@ OperationStatus = Literal["active", "completed"]
 
 
 class OperationPayload(BaseModel):
-    """The replaceable active checkpoint or immutable final operation result."""
+    """Working notes, fixed evidence, and retained Operation results."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -63,14 +63,7 @@ class OperationSession(OperationHeader):
     payload: OperationPayload
 
 
-SESSION_KINDS: tuple[SessionKind, ...] = (
-    "capital-allocation",
-    "position-review",
-)
-
-
 __all__ = [
-    "SESSION_KINDS",
     "OperationHeader",
     "OperationPayload",
     "OperationSession",
