@@ -461,8 +461,20 @@ def rebuild(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--saved-input", type=Path)
-    parser.add_argument("--work-directory", type=Path, required=True)
+    parser.add_argument(
+        "--saved-input",
+        type=Path,
+        help="Rebuild a preserved InputSnapshot without reading the current price head.",
+    )
+    parser.add_argument(
+        "--work-directory",
+        type=Path,
+        required=True,
+        help=(
+            "Work path, not an archived head. If saved input is omitted, "
+            "capture the current L1 head at startup."
+        ),
+    )
     parser.add_argument("--start", type=date.fromisoformat, required=True)
     parser.add_argument("--end", type=date.fromisoformat, required=True)
     parser.add_argument("--output", type=Path, required=True)
