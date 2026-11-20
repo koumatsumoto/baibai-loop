@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import weakref
 from contextlib import closing
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 import yaml
 from pydantic import ValidationError
 from tests.helpers.db_seed import seed_historical_operation
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.research_selection import historical_operation, selection
 
 from baibai_engine.cli.operation import main as operation_main
@@ -32,40 +31,6 @@ from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
-
-
-@pytest.mark.parametrize("ticker", [None, "", " "])
-def test_position_operation_requires_explicit_fixed_selection(
-    tmp_path: Path, ticker: str | None
-) -> None:
-    db = tmp_path / "app.sqlite"
-    with pytest.raises(OperationConflictError, match="research_selection"):
-        OperationService(db).start(
-            session_kind="position-review",
-            ticker=ticker,
-            as_of=NOW.date(),
-            started_at=NOW,
-            payload=OperationPayload(checkpoint="start"),
-        )
-    assert not db.exists()
-
-
-@pytest.mark.parametrize("tickers", [None, [], ["2331", "2331"]])
-def test_start_refuses_incomplete_research_binding_without_creating_db(
-    tmp_path: Path, tickers
-) -> None:
-    db = tmp_path / "app.sqlite"
-    payload = OperationPayload(
-        checkpoint="start",
-        artifacts=()
-        if tickers is None
-        else ({"kind": "research_triage", "ref": "triage", "research_set": tickers},),
-    )
-    with pytest.raises(OperationConflictError, match="investment-judgment prepare"):
-        OperationService(db).start(
-            session_kind="capital-allocation", as_of=NOW.date(), started_at=NOW, payload=payload
-        )
-    assert not db.exists()
 
 
 def test_operation_kinds_are_limited_to_multi_step_workflows(
@@ -151,41 +116,6 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
     assert OperationService(db).get(operation.operation_id) == completed
 
 
-def test_operation_json_format_emits_one_machine_object(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    runs = tmp_path / "runs.sqlite"
-    selected = seed_generated_selection(runs=runs, now=NOW)
-    db = tmp_path / "app.sqlite"
-    draft = tmp_path / "start.yaml"
-    draft.write_text(yaml.safe_dump(_active_payload(selected=selected).model_dump(mode="json")))
-
-    assert (
-        operation_main(
-            [
-                "--db",
-                str(db),
-                "--runs-path",
-                str(runs),
-                "--format",
-                "json",
-                "start",
-                "--kind",
-                "capital-allocation",
-                "--payload",
-                str(draft),
-                "--as-of",
-                "2026-07-19",
-            ],
-            now=NOW,
-        )
-        == 0
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["session_kind"] == "capital-allocation"
-
-
 def _active_payload(checkpoint: str = "source review", *, selected=None) -> OperationPayload:
     return OperationPayload(
         checkpoint=checkpoint,
@@ -196,66 +126,17 @@ def _active_payload(checkpoint: str = "source review", *, selected=None) -> Oper
     )
 
 
-def test_start_releases_validated_source_copies_before_saving_payload(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    runs, app = tmp_path / "runs.sqlite", tmp_path / "app.sqlite"
-    selected = seed_generated_selection(
-        runs=runs, now=NOW, scope="specified_stocks", tickers=("1234",)
-    )
-    payload = _active_payload(selected=selected)
-    source_before = runs.read_bytes()
-    observed = {}
-    for name in ("selection_binding", "read_research_model_inputs"):
-        original = getattr(operation_service, name)
-
-        def read(*args, _original=original, _name=name, **kwargs):
-            value = _original(*args, **kwargs)
-            observed[_name] = weakref.ref(value)
-            return value
-
-        monkeypatch.setattr(operation_service, name, read)
-    insert = operation_service._insert
-
-    def save(connection, operation):
-        assert observed.keys() == {"selection_binding", "read_research_model_inputs"}
-        assert all(reference() is None for reference in observed.values())
-        assert operation.payload == payload
-        insert(connection, operation)
-
-    monkeypatch.setattr(operation_service, "_insert", save)
-    operation = OperationService(app, runs_path=runs).start(
-        session_kind="capital-allocation", as_of=NOW.date(), started_at=NOW, payload=payload
-    )
-
-    assert OperationService(app).get(operation.operation_id) == operation
-    assert operation.payload == payload
-    assert selection_sha256(selection_binding(operation.payload)) == selection_sha256(selected)
-    assert runs.read_bytes() == source_before
-
-
 def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Path) -> None:
     runs = tmp_path / "runs.sqlite"
     selected = seed_generated_selection(runs=runs, now=NOW)
     db = tmp_path / "app.sqlite"
     service = OperationService(db, runs_path=runs)
-    operation = service.start(
-        session_kind="capital-allocation",
-        as_of=date(2026, 7, 19),
-        started_at=NOW,
-        payload=_active_payload("one", selected=selected),
-    )
+    operation, _ = service.start(generated_draft_for(selected), now=NOW)
 
     with pytest.raises(OperationConflictError, match="active operation already exists"):
-        service.start(
-            session_kind="capital-allocation",
-            ticker=None,
-            as_of=date(2026, 7, 19),
-            started_at=NOW,
-            payload=_active_payload(selected=selected),
-        )
+        service.start(generated_draft_for(selected), now=NOW)
 
-    service.checkpoint(operation.operation_id, _active_payload("two", selected=selected))
+    service.checkpoint(operation.operation_id, note="two", now=NOW)
     with closing(sqlite3.connect(db)) as connection, connection:
         row = connection.execute(
             "SELECT count(*), json_extract(payload, '$.checkpoint') FROM operation_session"
@@ -284,12 +165,7 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
     db = tmp_path / "app.sqlite"
     initialize_database(db)
     service = OperationService(db, runs_path=runs)
-    operation = service.start(
-        session_kind="capital-allocation",
-        as_of=date(2026, 7, 19),
-        started_at=NOW,
-        payload=_active_payload(selected=selected),
-    )
+    operation, _ = service.start(generated_draft_for(selected), now=NOW)
     connection = connect_rw(db)
     try:
         with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
@@ -441,41 +317,18 @@ def test_operation_cli_rejects_status_with_id_and_invalid_status(
     assert not db.exists()
 
 
-def test_operation_start_requires_the_explicit_payload_at_the_cli_boundary(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    db = tmp_path / "app.sqlite"
-    with pytest.raises(SystemExit) as error:
-        operation_main(
-            ["--db", str(db), "start", "--kind", "capital-allocation", "--as-of", "2026-07-19"],
-            now=NOW,
-        )
-    assert error.value.code == 2
-    assert "--payload" in capsys.readouterr().err
-    assert not db.exists()
-
-
 @pytest.mark.parametrize(
     "arguments",
     [
-        ["start", "--kind", "capital-allocation", "--as-of", "2026-07-19"],
-        ["checkpoint", "unknown-operation"],
+        ["start", "--payload", "private"],
+        ["checkpoint", "unknown-operation", "--payload", "private"],
     ],
-    ids=["start", "checkpoint"],
 )
-def test_operation_cli_reports_malformed_payload_without_echoing_its_content(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], arguments: list[str]
-) -> None:
+def test_retired_raw_payload_commands_fail_before_opening_database(tmp_path, arguments):
     db = tmp_path / "app.sqlite"
-    draft = tmp_path / "payload.yaml"
-    draft.write_text("checkpoint: [\nprivate-marker: do-not-echo\n", encoding="utf-8")
-
-    assert operation_main(["--db", str(db), *arguments, "--payload", str(draft)], now=NOW) == 1
-
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err == f"error: invalid operation payload YAML: {draft}\n"
-    assert "do-not-echo" not in captured.err
+    with pytest.raises(SystemExit) as error:
+        operation_main(["--db", str(db), *arguments], now=NOW)
+    assert error.value.code == 2
     assert not db.exists()
 
 

@@ -5,68 +5,24 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 
-from baibai_engine.investment_judgment.company_research.query import company_context
-from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
-from baibai_engine.investment_judgment.market_assessment.query import (
-    latest_assessment_from_connection,
-)
 from baibai_engine.investment_judgment.stock_assessment.store import require_assessment_ref
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     ResearchProgress,
     require_coverage,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedSelectionWithContext,
-    ResearchTarget,
-    selection_targets,
+    ResearchSelectionRecord as ResearchSelection,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
-    ResearchSelectionRecord as ResearchSelection,
+    SelectedTarget,
+    selection_targets,
 )
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
-from baibai_engine.primitives.json import canonical_json
-
-
-def validate_selection(
-    connection: sqlite3.Connection, selection: ResearchSelection, *, now: datetime
-) -> None:
-    validate_target_purposes(connection, selection_targets(selection), now=now)
-    if isinstance(selection, GeneratedSelectionWithContext):
-        market = latest_assessment_from_connection(
-            connection, as_of=selection.research_as_of, known_at=selection.input_known_at
-        )
-        market_projection = (
-            None
-            if market is None
-            else assessment_projection(market, as_of=selection.research_as_of)
-        )
-        if canonical_json(selection.inputs.saved_market_context_assessment) != canonical_json(
-            market_projection
-        ):
-            raise ValueError("saved Market Assessment differs from the selected cutoff")
-        expected = {
-            target.ticker: company_context(
-                connection,
-                target.ticker,
-                as_of=selection.research_as_of,
-                known_at=selection.input_known_at,
-            )
-            for target in selection.targets
-        }
-        if canonical_json(
-            {
-                ticker: context.model_dump(mode="json")
-                for ticker, context in selection.inputs.saved_company_context.items()
-            }
-        ) != canonical_json(
-            {ticker: context.model_dump(mode="json") for ticker, context in expected.items()}
-        ):
-            raise ValueError("saved company context differs from the selected cutoff")
 
 
 def validate_target_purposes(
-    connection: sqlite3.Connection, targets: tuple[ResearchTarget, ...], *, now: datetime
+    connection: sqlite3.Connection, targets: tuple[SelectedTarget, ...], *, now: datetime
 ) -> None:
     ledger = load_ledger_document(connection)
     held: set[str] = set()

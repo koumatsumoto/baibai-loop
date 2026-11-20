@@ -1,6 +1,5 @@
 """公開済み入力を差し替えず、実Operation入口で固定する。"""
 
-import json
 from contextlib import closing
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -9,18 +8,15 @@ import pytest
 from tests.engine.investment_judgment.workflow.test_growth_projection_copy import growth_payload
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
-from baibai_engine.cli.operation import main
 from baibai_engine.investment_judgment.market_assessment.models import (
     MarketContextAssessment,
     StoredAssessment,
 )
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
-    _generated_selection,
     prepare_selected_workspace,
     resume_selected_workspace,
 )
@@ -30,7 +26,6 @@ from baibai_engine.storage.sqlite.application.read import connect_read_only
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
 
-@pytest.mark.parametrize("entry", ["start", "prepare"])
 @pytest.mark.parametrize(
     ("fault_ticker", "fault", "error"),
     [
@@ -44,7 +39,7 @@ NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
     ],
 )
 def test_new_case_checks_only_the_full_growth_reports_it_seals(
-    tmp_path, entry, fault_ticker, fault, error
+    tmp_path, fault_ticker, fault, error
 ):
     runs, app, ws = tmp_path / "runs", tmp_path / "app", tmp_path / "ws"
     tickers = ("1234", "2345", "3456")
@@ -77,24 +72,11 @@ def test_new_case_checks_only_the_full_growth_reports_it_seals(
         update={"targets": source.targets[:1], "comparison_tickers": ("2345",)}
     )
     service = OperationService(app, runs_path=runs)
-    if entry == "start":
-        # Same authentic source slice, even when the supplied model itself is malformed.
-        fixed = _generated_selection(draft, runs_path=runs, app_path=app)
-        supplied = OperationPayload(checkpoint="start", artifacts=(fixed.model_dump(mode="json"),))
 
-        def start():
-            return service.start(
-                session_kind="capital-allocation",
-                as_of=NOW.date(),
-                started_at=NOW,
-                payload=supplied,
-            )
-    else:
-
-        def start():
-            return prepare_selected_workspace(
-                draft=draft, db_path=app, runs_path=runs, workspace=ws, now=NOW
-            )
+    def start():
+        return prepare_selected_workspace(
+            draft=draft, db_path=app, runs_path=runs, workspace=ws, now=NOW
+        )
 
     original = runs.read_bytes()
     if error:
@@ -157,40 +139,27 @@ def test_start_requires_exact_market_judgment_at_selection_cutoff(tmp_path, caps
         supplied = dict(reversed(tuple(canonical.items())))
     raw = selected.model_dump(mode="json")
     raw["inputs"]["saved_market_context_assessment"] = supplied
-    payload = tmp_path / "payload.json"
-    payload.write_text(OperationPayload(checkpoint="start", artifacts=(raw,)).model_dump_json())
+    from baibai_engine.investment_judgment.workflow.selection import (
+        parse_selection,
+        selection_sha256,
+    )
+
+    draft = generated_draft_for(selected).model_copy(
+        update={"expected_selection_sha256": selection_sha256(parse_selection(raw))}
+    )
     before = None
     if app.exists():
         with closing(connect_read_only(app)) as connection:
             before = connection.execute(
                 "SELECT context_id,payload FROM market_context_assessment"
             ).fetchall()
-    result = main(
-        [
-            "--db",
-            str(app),
-            "--runs-path",
-            str(runs),
-            "--format",
-            "json",
-            "start",
-            "--kind",
-            "capital-allocation",
-            "--as-of",
-            NOW.date().isoformat(),
-            "--payload",
-            str(payload),
-        ],
-        now=NOW,
-    )
+    service = OperationService(app, runs_path=runs)
     if change not in {"canonical", "reordered"}:
-        assert result == 1
-        assert "saved Market Assessment differs from the selected cutoff" in capsys.readouterr().err
-        assert OperationService(app).active() is None
+        with pytest.raises(ValueError, match="supplied hash"):
+            service.start(draft, now=NOW)
+        assert service.active() is None
     else:
-        assert result == 0
-        published = json.loads(capsys.readouterr().out)
-        operation = OperationService(app).get(published["operation_id"])
+        operation, _ = service.start(draft, now=NOW)
         assert (
             selection_binding(operation.payload).inputs.saved_market_context_assessment == canonical
         )

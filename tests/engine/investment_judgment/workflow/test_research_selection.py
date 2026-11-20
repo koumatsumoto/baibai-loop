@@ -6,7 +6,6 @@ import pytest
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.research_selection import selected_target, selection
 
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
@@ -105,14 +104,9 @@ def test_draft_four_parses_but_canonical_and_new_write_reject_it(tmp_path):
         GeneratedResearchSelectionV5.model_validate(current_raw)
     current_raw["capacity"]["max_deep_research_targets"] = 4
     expanded = GeneratedResearchSelectionV5.model_validate(current_raw)
-    with pytest.raises(ValueError, match="current capacity"):
+    with pytest.raises(ValueError, match="saved research capacity"):
         OperationService(tmp_path / "app", runs_path=tmp_path / "runs").start(
-            session_kind="capital-allocation",
-            as_of=NOW.date(),
-            started_at=NOW,
-            payload=OperationPayload(
-                checkpoint="start", artifacts=(expanded.model_dump(mode="json"),)
-            ),
+            generated_draft_for(expanded), now=NOW
         )
     assert not (tmp_path / "app").exists()
 
@@ -174,13 +168,6 @@ def test_saved_legacy_selection_is_readable_but_cannot_start_new_operation(tmp_p
     saved = selection(now=NOW, tickers=("1234",))
     assert parse_selection(saved.model_dump(mode="json")) == saved
     with pytest.raises(ValueError, match="resume-only"):
-        OperationService(tmp_path / "app", runs_path=tmp_path / "absent-runs").start(
-            session_kind="capital-allocation",
-            as_of=NOW.date(),
-            started_at=NOW,
-            payload=OperationPayload(
-                checkpoint="new request", artifacts=(saved.model_dump(mode="json"),)
-            ),
-        )
+        OperationService(tmp_path / "app", runs_path=tmp_path / "absent-runs").start(saved, now=NOW)
     assert not (tmp_path / "app").exists()
     assert not (tmp_path / "absent-runs").exists()

@@ -7,6 +7,7 @@ import json
 import sqlite3
 from collections.abc import Generator, Iterator, Sequence
 from contextlib import closing, contextmanager
+from datetime import datetime
 from itertools import groupby
 from pathlib import Path
 
@@ -129,9 +130,19 @@ def _subject_models(
 
 def _read_metadata(connection: sqlite3.Connection, generation_id: str) -> GenerationMetadata | None:
     header = connection.execute(
-        "SELECT header FROM model_generation WHERE generation_id=?", (generation_id,)
+        "SELECT header,as_of,evaluation_time FROM model_generation WHERE generation_id=?",
+        (generation_id,),
     ).fetchone()
-    return None if header is None else GenerationMetadata.model_validate_json(header[0])
+    if header is None:
+        return None
+    metadata = GenerationMetadata.model_validate_json(header[0])
+    if (metadata.generation_id, metadata.as_of.isoformat(), metadata.evaluation_time) != (
+        generation_id,
+        header[1],
+        datetime.fromisoformat(header[2]),
+    ):
+        raise ValueError("generation header identity or evaluation clock differs from its index")
+    return metadata
 
 
 def _decode_model(
@@ -155,28 +166,53 @@ def _read[Collection: (ModelGeneration, ModelInputSlice)](
 ) -> Collection | None:
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
-        metadata = _read_metadata(connection, generation_id)
-        if metadata is None:
-            return None
-        if research_targets is not None:
-            subjects = research_subjects(metadata, research_targets)
-        scope = None if subjects is None else canonical_json(tuple(subjects))
-        rows = connection.execute(
-            "SELECT model_id,subject,calculation_revision,payload_gzip FROM generated_model "
-            "WHERE generation_id=? AND (? IS NULL OR subject IN "
-            "(SELECT value FROM json_each(?))) ORDER BY model_id,subject",
-            (generation_id, scope, scope),
+        return _read_from_connection(
+            connection,
+            generation_id,
+            collection=collection,
+            subjects=subjects,
+            research_targets=research_targets,
         )
-        models = tuple(_decode_model(*row) for row in rows)
-        # Keep decoded models and nested metadata typed: dumping a temporary
-        # generation would recursively copy every retained owner payload again.
-        fields = dict(metadata)
-        if subjects is not None:
-            fields["subjects"] = tuple(subjects)
-            if metadata.subject_plan is not None:
-                fields["subject_plan"] = {
-                    subject: definition
-                    for subject, definition in metadata.subject_plan.items()
-                    if subject in subjects
-                }
-        return collection(**fields, models=models)
+
+
+def read_research_model_inputs_from_connection(
+    connection: sqlite3.Connection, generation_id: str, *, targets: Sequence[str]
+) -> ModelInputSlice | None:
+    return _read_from_connection(
+        connection, generation_id, collection=ModelInputSlice, research_targets=targets
+    )
+
+
+def _read_from_connection[Collection: (ModelGeneration, ModelInputSlice)](
+    connection: sqlite3.Connection,
+    generation_id: str,
+    *,
+    collection: type[Collection],
+    subjects: Sequence[str] | None = None,
+    research_targets: Sequence[str] | None = None,
+) -> Collection | None:
+    metadata = _read_metadata(connection, generation_id)
+    if metadata is None:
+        return None
+    if research_targets is not None:
+        subjects = research_subjects(metadata, research_targets)
+    scope = None if subjects is None else canonical_json(tuple(subjects))
+    rows = connection.execute(
+        "SELECT model_id,subject,calculation_revision,payload_gzip FROM generated_model "
+        "WHERE generation_id=? AND (? IS NULL OR subject IN "
+        "(SELECT value FROM json_each(?))) ORDER BY model_id,subject",
+        (generation_id, scope, scope),
+    )
+    models = tuple(_decode_model(*row) for row in rows)
+    # Keep decoded models and nested metadata typed: dumping a temporary
+    # generation would recursively copy every retained owner payload again.
+    fields = dict(metadata)
+    if subjects is not None:
+        fields["subjects"] = tuple(subjects)
+        if metadata.subject_plan is not None:
+            fields["subject_plan"] = {
+                subject: definition
+                for subject, definition in metadata.subject_plan.items()
+                if subject in subjects
+            }
+    return collection(**fields, models=models)

@@ -4,7 +4,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.proposal import (
     PROPOSAL_ID,
     PUBLISHED,
@@ -22,7 +22,6 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.portfolio.ledger.events import ExecutionEvent, ReservationEvent
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
@@ -107,15 +106,7 @@ def _setup(tmp_path, *, scope="review_positions", linked="erroneous", before_pro
         scope=scope,
     )
     operations = OperationService(case.app, runs_path=case.runs)
-    operation = operations.start(
-        session_kind="position-review" if scope == "review_positions" else "capital-allocation",
-        as_of=selected.research_as_of,
-        started_at=START,
-        ticker="1234" if scope == "review_positions" else None,
-        payload=OperationPayload(
-            checkpoint="research", artifacts=(selected.model_dump(mode="json"),)
-        ),
-    )
+    operation = operations.start(generated_draft_for(selected), now=START)[0]
     if scope == "review_positions":
         operations.record_assessment(operation.operation_id, case.pair.assessment_id, now=START)
     else:

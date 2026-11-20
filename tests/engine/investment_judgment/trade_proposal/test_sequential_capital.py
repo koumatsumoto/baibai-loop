@@ -8,7 +8,7 @@ from functools import partial
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.proposal import (
     PUBLISHED,
     authored_defer_fixture,
@@ -20,7 +20,6 @@ from tests.helpers.proposal import (
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
 from baibai_engine.portfolio.ledger.drafts import apply_draft, build_broker_fact_draft
 from baibai_engine.portfolio.ledger.events import replay_events_through
@@ -60,15 +59,7 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
             selected = seed_generated_selection(
                 runs=case.runs, db=case.app, now=now, tickers=(ticker,), scope="specified_stocks"
             )
-            operation = case.operations.start(
-                session_kind="capital-allocation",
-                as_of=selected.research_as_of,
-                started_at=now,
-                payload=OperationPayload(
-                    checkpoint="人間報告後の新しい明示依頼",
-                    artifacts=(selected.model_dump(mode="json"),),
-                ),
-            )
+            operation = case.operations.start(generated_draft_for(selected), now=now)[0]
             operation = case.operations.record_assessment(
                 operation.operation_id, pair.assessment_id, now=now
             )

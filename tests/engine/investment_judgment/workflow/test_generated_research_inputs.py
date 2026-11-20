@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 import yaml
+from tests.helpers.generated_selection import generated_draft_for
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target, selection
 from tests.helpers.retained_model_generation import seed_generation
@@ -14,7 +15,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import Generated
 from baibai_engine.investment_judgment.trade_proposal.inputs import proposal_liquidity_context
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -317,14 +317,14 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume(tmp_path):
     altered["inputs"]["generation"] = truncated.model_dump(mode="json")
     assert parse_selection(altered).inputs.generation == truncated
     rejected = tmp_path / "rejected.sqlite"
-    with pytest.raises(ValueError, match="differs from its canonical generation"):
+    with pytest.raises(ValueError, match="supplied hash"):
         OperationService(rejected, runs_path=runs).start(
-            session_kind="capital-allocation",
-            as_of=AS_OF,
-            started_at=NOW,
-            payload=OperationPayload(checkpoint="start", artifacts=(altered,)),
+            generated_draft_for(parse_selection(altered)).model_copy(
+                update={"expected_selection_sha256": selection_sha256(parse_selection(altered))}
+            ),
+            now=NOW,
         )
-    assert not rejected.exists()
+    assert OperationService(rejected).active() is None
     before = project_research_inputs(saved)
     digest = selection_sha256(saved)
     runs.unlink()

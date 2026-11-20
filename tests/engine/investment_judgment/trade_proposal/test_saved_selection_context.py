@@ -6,13 +6,12 @@ import pytest
 from pydantic import ValidationError
 from tests.helpers import proposal as helper
 from tests.helpers.db_seed import seed_historical_operation, seed_ledger
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.proposal import PROPOSAL_ID
 from tests.helpers.research_selection import historical_operation, selection
 
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import parse_selection, selection_sha256
@@ -104,14 +103,7 @@ def test_normal_operation_keeps_original_questions_after_source_is_unavailable(
     assert REQUEST not in selected.selection_summary
     assert all(REQUEST not in target.research_question for target in selected.targets)
     operations = OperationService(app, runs_path=tmp_path / "runs.sqlite")
-    operation = operations.start(
-        session_kind="capital-allocation",
-        as_of=selected.research_as_of,
-        started_at=START,
-        payload=OperationPayload(
-            checkpoint="research", artifacts=(selected.model_dump(mode="json"),)
-        ),
-    )
+    operation = operations.start(generated_draft_for(selected), now=START)[0]
     _finish_research(operations, operation)
     (tmp_path / "runs.sqlite").rename(tmp_path / "retained-runs.sqlite")
 
@@ -183,14 +175,7 @@ def test_zero_target_still_does_not_enter_proposal_authoring(tmp_path):
     _ledger(app)
     selected = _selected(tmp_path, tickers=())
     operations = OperationService(app, runs_path=tmp_path / "runs.sqlite")
-    operation = operations.start(
-        session_kind="capital-allocation",
-        as_of=selected.research_as_of,
-        started_at=START,
-        payload=OperationPayload(
-            checkpoint="research", artifacts=(selected.model_dump(mode="json"),)
-        ),
-    )
+    operation = operations.start(generated_draft_for(selected), now=START)[0]
     before = app.read_bytes()
     with pytest.raises(ValidationError, match="at least 1 item"):
         build_proposal_context(

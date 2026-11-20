@@ -54,7 +54,7 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --runs-path stores/screening/runs.sqlite
 ```
 
-prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。書込CLIの応答は操作ID・状態などのヘッダだけを返す。IDなしの`show`も履歴ヘッダのみ。固定証拠・進捗・結果の全文はIDを指定して読む。
+prepareは指定Generation・探索公表物と対象/比較企業・共有材料を一つのRuns断面から読み、別のApp書込時点で開いている作業・現在保有を確認する。会社と市場の既存判断は、同じApp断面でinput_known_atまでの保存時計から選ぶ。二つのDBを同時点の完全な復元とはしない。既知の指紋を照合するにはdraftのscreening_source_sha256（探索公表物）またはexpected_selection_sha256（Case全体）を指定する。保存したSelectionからdomain-inputs.yamlを投影する。途中メモはoperation checkpointの--noteで変更する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。書込CLIの応答は操作ID・状態などのヘッダだけを返す。IDなしの`show`も履歴ヘッダのみ。固定証拠・進捗・結果の全文はIDを指定して読む。
 
 個社の `external_assessment.monex_fiscal_eps` があれば、世代に固定済みの配信元・対象決算期・円/株・受領時刻を用いる。今期／来期のアナリスト予想、会社予想、目標株価、ローリング1年予想を取り違えない。欄なしは実世界での予想なしを証明しない。調査や提案のために原本の全件復元／再取得をせず、過去の判断へ後発データを足さない。
 

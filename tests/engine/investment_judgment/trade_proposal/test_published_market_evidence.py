@@ -54,7 +54,7 @@ def _case(tmp_path, monkeypatch, *, market=True, legacy_clock=False, **kwargs):
 
     monkeypatch.setattr(evidence_fixture, "seed_generated_selection", with_market)
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.operation.validation.assessment_projection",
+        "baibai_engine.investment_judgment.workflow.operation.admission.assessment_projection",
         project,
     )
     return evidence_fixture.evidence_case(tmp_path, monkeypatch, **kwargs)

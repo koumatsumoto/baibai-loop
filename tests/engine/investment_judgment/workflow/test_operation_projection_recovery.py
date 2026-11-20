@@ -40,7 +40,7 @@ def test_projection_read_error_returns_saved_id_and_force_resume_keeps_draft(
     assert projection.read_text() == broken_inputs
     before = app.read_bytes(), authored.read_bytes()
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.read_research_model_inputs",
+        "baibai_engine.investment_judgment.workflow.operation.admission.read_research_model_inputs_from_connection",
         lambda *_, **__: pytest.fail("saved Operation reread the model generation"),
     )
     assert main([*arguments, "--operation-id", operation.operation_id, "--force"], now=NOW) == 0
@@ -62,7 +62,7 @@ def test_input_read_error_before_commit_still_has_no_operation_id(tmp_path, caps
         raise OSError("required input unavailable")
 
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.read_research_model_inputs",
+        "baibai_engine.investment_judgment.workflow.operation.admission.read_research_model_inputs_from_connection",
         fail,
     )
     assert (

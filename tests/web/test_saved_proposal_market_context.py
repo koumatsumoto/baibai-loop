@@ -125,11 +125,10 @@ def test_old_market_clock_is_not_backfilled_and_returned_value_is_detached(tmp_p
         return result
 
     with monkeypatch.context() as legacy:
-        for module in ("workflow.workspace.selected_prepare", "workflow.operation.validation"):
-            legacy.setattr(
-                f"baibai_engine.investment_judgment.{module}.assessment_projection",
-                legacy_projection,
-            )
+        legacy.setattr(
+            "baibai_engine.investment_judgment.workflow.operation.admission.assessment_projection",
+            legacy_projection,
+        )
         case, proposal, _runs, _ = _case(tmp_path)
     before = case.app.read_bytes()
     view = read_proposal_views(case.app).latest.proposal

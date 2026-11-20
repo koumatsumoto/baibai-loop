@@ -6,9 +6,9 @@ from datetime import datetime, timedelta
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
-from baibai_engine.cli.operation import main
+from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.company_research.document import ResearchDraft
 from baibai_engine.investment_judgment.company_research.store import (
     ResearchStoreService,
@@ -18,7 +18,6 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
     load_reviewed_assessment,
 )
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import parse_selection, selection_sha256
@@ -64,23 +63,22 @@ def _inputs(tmp_path, value=0):
 
 
 def _start(tmp_path, app, runs, raw):
-    payload = tmp_path / "payload.json"
-    payload.write_text(OperationPayload(checkpoint="start", artifacts=(raw,)).model_dump_json())
+    draft = generated_draft_for(parse_selection(raw)).model_copy(
+        update={"expected_selection_sha256": selection_sha256(parse_selection(raw))}
+    )
+    path = tmp_path / "selection.json"
+    path.write_text(draft.model_dump_json())
     return main(
         [
+            "prepare",
+            "--selection-file",
+            str(path),
             "--db",
             str(app),
             "--runs-path",
             str(runs),
-            "--format",
-            "json",
-            "start",
-            "--kind",
-            "capital-allocation",
-            "--as-of",
-            NOW.date().isoformat(),
-            "--payload",
-            str(payload),
+            "--workspace",
+            str(tmp_path / "prepared"),
         ],
         now=NOW,
     )
@@ -101,8 +99,8 @@ def test_start_rejects_assessment_fact_type_change(tmp_path, capsys, original, r
     assert selection_sha256(incoming) != selection_sha256(selected)
     before = app.read_bytes(), runs.read_bytes()
 
-    assert _start(tmp_path, app, runs, raw) == 1
-    assert "saved company context differs from the selected cutoff" in capsys.readouterr().err
+    assert _start(tmp_path, app, runs, raw) == 3
+    assert "supplied hash" in capsys.readouterr().out
     assert OperationService(app).active() is None
     assert (app.read_bytes(), runs.read_bytes()) == before
     with closing(connect_read_only(app)) as connection:
@@ -123,8 +121,8 @@ def test_start_retains_research_record_digest_guard(tmp_path, capsys, original, 
     assert research["reference"] == record.reference.model_dump(mode="json")
     before = app.read_bytes(), runs.read_bytes()
 
-    assert _start(tmp_path, app, runs, raw) == 1
-    assert "Research payload digest mismatch" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="Research payload digest mismatch"):
+        parse_selection(raw)
     assert OperationService(app).active() is None
     assert (app.read_bytes(), runs.read_bytes()) == before
     with closing(connect_read_only(app)) as connection:
@@ -173,12 +171,7 @@ def test_start_accepts_typed_canonical_context_and_resume(tmp_path, capsys, monk
         pytest.fail("resume must use its saved company context")
 
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.operation.validation.company_context",
-        forbidden,
-    )
-    monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare."
-        "read_company_contexts",
+        "baibai_engine.investment_judgment.workflow.operation.admission.company_context",
         forbidden,
     )
     workspace = tmp_path / "workspace"

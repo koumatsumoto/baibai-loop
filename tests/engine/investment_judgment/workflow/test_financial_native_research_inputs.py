@@ -10,6 +10,7 @@ import pyarrow.parquet as pq
 import pytest
 import yaml
 from pydantic import ValidationError
+from tests.helpers.generated_selection import generated_draft_for
 from tests.helpers.lake_release import market_store
 from tests.helpers.model_generation import materialize_generation, publish_generation
 from tests.helpers.r2_store import MemoryR2Store
@@ -23,7 +24,6 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialL1,
 )
 from baibai_engine.investment_judgment.company_research.context import CompanyContext, NotFound
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchInputsV5,
@@ -163,7 +163,7 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
         db_path=app,
     )
     context_entry = context["model_inputs"]["analysis_source"]["inputs"]["financial"]
-    assert not app.exists()
+    assert OperationService(app).active() is None
     assert "full_result_ref" not in context_entry
     assert "descriptor" not in context_entry
     assert context_entry["summary"] == expected_summary
@@ -244,7 +244,7 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
     monkeypatch.setattr(FinancialL1, "fixed", forbidden)
     monkeypatch.setattr(store, "get_bytes", forbidden)
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.operation.service.read_research_model_inputs",
+        "baibai_engine.investment_judgment.workflow.operation.service.freeze_runs",
         forbidden,
     )
     resumed = resume_selected_workspace(
@@ -300,14 +300,14 @@ def test_native_descriptor_and_generation_identity_cannot_be_substituted(tmp_pat
             },
         ),
     )
+    from baibai_engine.investment_judgment.workflow.selection import selection_sha256
+
     app = tmp_path / "app"
-    with pytest.raises(ValueError, match="differs from its canonical generation"):
+    with pytest.raises(ValueError, match="supplied hash"):
         OperationService(app, runs_path=runs).start(
-            session_kind="capital-allocation",
-            as_of=AS_OF,
-            started_at=AT,
-            payload=OperationPayload(
-                checkpoint="start", artifacts=(altered.model_dump(mode="json"),)
+            generated_draft_for(altered).model_copy(
+                update={"expected_selection_sha256": selection_sha256(altered)}
             ),
+            now=AT,
         )
-    assert not app.exists()
+    assert OperationService(app).active() is None

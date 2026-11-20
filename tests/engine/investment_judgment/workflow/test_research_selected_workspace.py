@@ -26,6 +26,7 @@ from baibai_engine.investment_judgment.company_research.store import (
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
 )
+from baibai_engine.investment_judgment.workflow.operation import admission
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -223,7 +224,7 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     with monkeypatch.context() as projection_only:
         projection_only.setattr(sqlite3, "connect", forbidden)
         assert project_research_inputs(saved) == inputs
-    monkeypatch.setattr(selected_prepare, "read_research_model_inputs", forbidden)
+    monkeypatch.setattr(admission, "read_research_model_inputs_from_connection", forbidden)
     seed_saved_run(
         runs,
         screening_run_payload(
@@ -274,8 +275,8 @@ def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_
     (tmp_path / "runs").unlink()
     monkeypatch.setattr(selected_prepare, "_write_workspace_file", writer)
     monkeypatch.setattr(
-        selected_prepare,
-        "read_research_model_inputs",
+        admission,
+        "read_research_model_inputs_from_connection",
         lambda *_a, **_kw: pytest.fail("resume reread source"),
     )
     repaired = prepare(tmp_path, value=value)
@@ -347,8 +348,8 @@ def test_workspace_binding_rejects_a_different_preloaded_operation(tmp_path):
 
 def test_required_read_failure_and_over_capacity_do_not_write(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        selected_prepare,
-        "read_research_model_inputs",
+        admission,
+        "read_research_model_inputs_from_connection",
         lambda *_a, **_kw: (_ for _ in ()).throw(OSError("required read failed")),
     )
     with pytest.raises(OSError, match="required read"):
@@ -805,16 +806,11 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
     assert OperationService(tmp_path / "app").get(prepared.operation_id).as_of == NOW.date()
 
 
-def test_held_new_is_a_conflict_before_input_collection_and_cli_exit4(
+def test_held_new_is_a_conflict_under_app_writer_and_cli_exit4(
     tmp_path, holding_case, monkeypatch, capsys
 ):
     db, _market, _ = holding_case
     value = seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("2331",))
-    monkeypatch.setattr(
-        selected_prepare,
-        "read_research_model_inputs",
-        lambda *_a, **_kw: pytest.fail("purpose conflict read inputs"),
-    )
     file = tmp_path / "selection.json"
     file.write_text(generated_draft_for(value).model_dump_json())
     assert (

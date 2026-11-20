@@ -7,8 +7,6 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import TypeAdapter
-
 from baibai_engine.investment_judgment.workflow.selection import CaseScreening, PopulationGroup
 from baibai_engine.machine_analysis.screening.contracts import ScreeningResult
 from baibai_engine.machine_analysis.screening.discovery_contract import (
@@ -24,7 +22,6 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
 from baibai_engine.machine_analysis.screening.selection_query import (
     read_case_publication_from_connection,
 )
-from baibai_engine.primitives.json import encode_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 
@@ -120,14 +117,4 @@ def read_case_screening_from_connection(
         legacy_candidate_count=None
         if isinstance(result, (DiscoverySelection, DiscoverySelectionV2))
         else len(result.tickers),
-    )
-
-
-_CASE = TypeAdapter(CaseScreening)
-
-
-def same_case_screening(saved: CaseScreening, canonical: CaseScreening) -> bool:
-    # Python equality alone equates a true boolean with a numeric one in untyped evidence.
-    return encode_json(_CASE.dump_python(saved, mode="json")) == encode_json(
-        _CASE.dump_python(canonical, mode="json")
     )

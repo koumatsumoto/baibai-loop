@@ -160,11 +160,10 @@ def test_legacy_projection_keeps_unrecorded_cutoff_and_draft_unchanged(tmp_path,
         return value
 
     with monkeypatch.context() as legacy:
-        for module in ("workflow.workspace.selected_prepare", "workflow.operation.validation"):
-            legacy.setattr(
-                f"baibai_engine.investment_judgment.{module}.assessment_projection",
-                historical_projection,
-            )
+        legacy.setattr(
+            "baibai_engine.investment_judgment.workflow.operation.admission.assessment_projection",
+            historical_projection,
+        )
         app, market, _runs, operation = _prepare(tmp_path, market_document=_market_document())
     expected = saved_market_assessment(selection_binding(operation.payload))
     before = app.read_bytes()

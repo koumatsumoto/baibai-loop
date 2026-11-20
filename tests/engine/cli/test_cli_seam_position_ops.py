@@ -132,53 +132,33 @@ def test_meta_draft_cli_writes_the_exit_tax_settings_as_scalars(
     assert replacement["as_of"] == "2026-07-11T15:30:00+09:00"
 
 
-def test_operation_checkpoint_cli_replaces_the_active_payload(
+def test_operation_checkpoint_cli_updates_only_working_notes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     db = tmp_path / "app.sqlite"
-    from tests.helpers.generated_selection import seed_generated_selection
+    from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
+
+    from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 
     runs = tmp_path / "runs.sqlite"
-    binding = seed_generated_selection(runs=runs, now=OPERATION_NOW).model_dump(mode="json")
-    start = tmp_path / "start.yaml"
-    start.write_text(yaml.safe_dump({"checkpoint": "start", "artifacts": [binding]}))
-    assert (
-        operation_main(
-            [
-                "--db",
-                str(db),
-                "--runs-path",
-                str(runs),
-                "start",
-                "--kind",
-                "capital-allocation",
-                "--payload",
-                str(start),
-                "--as-of",
-                "2026-07-19",
-            ],
-            now=OPERATION_NOW,
-        )
-        == 0
+    selected = seed_generated_selection(runs=runs, now=OPERATION_NOW)
+    operation, _ = OperationService(db, runs_path=runs).start(
+        generated_draft_for(selected), now=OPERATION_NOW
     )
-    operation_id = _emitted(capsys)["operation_id"]
-    payload = tmp_path / "checkpoint.yaml"
-    payload.write_text(
-        yaml.safe_dump(
-            {
-                "checkpoint": "fixed research checkpoint",
-                "artifacts": [binding],
-                "next": "continue only the fixed selection",
-            }
-        ),
-        encoding="utf-8",
-    )
-
+    operation_id = operation.operation_id
     code = operation_main(
-        ["--db", str(db), "checkpoint", str(operation_id), "--payload", str(payload)],
+        [
+            "--db",
+            str(db),
+            "checkpoint",
+            operation_id,
+            "--note",
+            "fixed research checkpoint",
+            "--next",
+            "continue only the fixed selection",
+        ],
         now=OPERATION_NOW,
     )
-
     assert code == 0
     emitted = _emitted(capsys)
     assert emitted["operation_id"] == operation_id

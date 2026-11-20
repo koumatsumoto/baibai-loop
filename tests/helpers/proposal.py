@@ -17,7 +17,6 @@ from baibai_engine.investment_judgment.trade_proposal.inputs import build_propos
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -28,7 +27,7 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
@@ -208,15 +207,7 @@ def backend_case(
         scope="review_positions" if holding else "specified_stocks",
     )
     operations = OperationService(app, runs_path=runs)
-    operation = operations.start(
-        session_kind="position-review" if holding else "capital-allocation",
-        as_of=selected.research_as_of,
-        started_at=selected.input_known_at,
-        ticker="1234" if holding and len(tickers) == 1 else None,
-        payload=OperationPayload(
-            checkpoint="research", artifacts=(selected.model_dump(mode="json"),)
-        ),
-    )
+    operation = operations.start(generated_draft_for(selected), now=selected.input_known_at)[0]
     operation = operations.record_assessment(
         operation.operation_id, pair.assessment_id, now=PREPARED
     )

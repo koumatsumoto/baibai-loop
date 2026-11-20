@@ -103,7 +103,7 @@ def test_market_cutoff_survives_normal_selection_and_resume(tmp_path, monkeypatc
     assert assessment_by_id(app, context_id=prior.context_id).document == prior.payload()
     assert app.read_bytes() == before[0]
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.latest_assessment",
+        "baibai_engine.investment_judgment.workflow.operation.admission.latest_assessment_from_connection",
         lambda *_a, **_kw: pytest.fail("resume selected a later Market Assessment"),
     )
     resumed = resume_selected_workspace(
@@ -167,13 +167,10 @@ def test_legacy_fixed_selection_resume_does_not_rewrite_the_saved_projection(tmp
         return projected
 
     with monkeypatch.context() as legacy:
-        for module in (
-            "workflow.workspace.selected_prepare",
-            "workflow.operation.validation",
-        ):
-            legacy.setattr(
-                f"baibai_engine.investment_judgment.{module}.assessment_projection", old_projection
-            )
+        legacy.setattr(
+            "baibai_engine.investment_judgment.workflow.operation.admission.assessment_projection",
+            old_projection,
+        )
         app, prior, prepared = _prepare(tmp_path)
     input_path = prepared.workspace / "domain-inputs.yaml"
     before = app.read_bytes(), input_path.read_bytes()

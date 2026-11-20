@@ -213,12 +213,16 @@ class GeneratedResearchSelectionDraft(_Contract):
     input_known_at: AwareDatetime
     generation_id: Text
     screening_selection_id: Text | None = None
+    screening_source_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+    expected_selection_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
     selection_summary: Text
     targets: tuple[SelectedTarget, ...] = ()
     comparison_tickers: tuple[Ticker, ...] = Field(default=(), exclude_if=lambda value: not value)
 
     @model_validator(mode="after")
     def validate_selection(self) -> Self:
+        if self.screening_source_sha256 is not None and self.screening_selection_id is None:
+            raise ValueError("screening source hash requires an explicit publication")
         _validate_comparisons(
             self.comparison_tickers,
             self.targets,

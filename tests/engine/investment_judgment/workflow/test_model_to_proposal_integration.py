@@ -943,7 +943,7 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     }
     case.runs.unlink()
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.read_research_model_inputs",
+        "baibai_engine.investment_judgment.workflow.operation.admission.read_research_model_inputs_from_connection",
         lambda *_a, **_kw: pytest.fail("resume recollected mutable inputs"),
     )
     monkeypatch.setattr(
@@ -1132,7 +1132,7 @@ def test_seven_domains_retain_shared_raw_evidence_through_review_proposal_and_re
             )
     case.runs.unlink()
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.read_research_model_inputs",
+        "baibai_engine.investment_judgment.workflow.operation.admission.read_research_model_inputs_from_connection",
         lambda *_a, **_kw: pytest.fail("resume replaced the saved seven-domain inputs"),
     )
     (case.prepared.workspace / "domain-inputs.yaml").unlink()
@@ -1287,7 +1287,7 @@ def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_
         rebuild_economic_input(store, source, saved)
     case.runs.unlink()
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.read_research_model_inputs",
+        "baibai_engine.investment_judgment.workflow.operation.admission.read_research_model_inputs_from_connection",
         lambda *_a, **_kw: pytest.fail("resume replaced the saved economic inputs"),
     )
     (case.prepared.workspace / "domain-inputs.yaml").unlink()

@@ -2,39 +2,29 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import EllipsisType
 from typing import Literal, cast
 
-from baibai_engine.investment_judgment.company_research.query import read_company_contexts
-from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
-from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
-from baibai_engine.investment_judgment.workflow.case_screening import read_case_screening
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import (
-    OperationPayload,
     OperationSession,
 )
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
-from baibai_engine.investment_judgment.workflow.operation.service import OperationService
-from baibai_engine.investment_judgment.workflow.operation.validation import validate_target_purposes
+from baibai_engine.investment_judgment.workflow.operation.service import (
+    OperationConflictError,
+    OperationService,
+)
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchInputsV5,
     GeneratedResearchSelectionDraft,
     GeneratedResearchSelectionV5,
     GeneratedSelection,
     ResearchScope,
     ResearchSelectionRecord,
-    ResearchTarget,
     selection_sha256,
     validate_input_known_at,
-)
-from baibai_engine.investment_judgment.workflow.selection_policy import (
-    research_capacity,
-    validate_capacity,
 )
 from baibai_engine.investment_judgment.workflow.workspace.admission import (
     validate_workspace_selection,
@@ -46,9 +36,6 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
     _load_mapping,
     _write_workspace_file,
 )
-from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-from baibai_engine.storage.sqlite.application.paths import database_path
-from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,57 +64,24 @@ def _same_draft(
         and selection.inputs.generation.generation_id == draft.generation_id
         and selection.inputs.screening_selection_id == draft.screening_selection_id
         and (
+            draft.expected_selection_sha256 is None
+            or selection_sha256(selection) == draft.expected_selection_sha256
+        )
+        and (
+            draft.screening_source_sha256 is None
+            or (
+                isinstance(selection, GeneratedResearchSelectionV5)
+                and selection.inputs.screening_selection is not None
+                and selection.inputs.screening_selection.source_sha256
+                == draft.screening_source_sha256
+            )
+        )
+        and (
             selection.comparison_tickers
             if isinstance(selection, GeneratedResearchSelectionV5)
             else ()
         )
         == draft.comparison_tickers
-    )
-
-
-def _generated_selection(
-    draft: GeneratedResearchSelectionDraft, *, runs_path: Path, app_path: Path
-) -> GeneratedResearchSelectionV5:
-    if draft.request.scope == "discover_new" and draft.screening_selection_id is None:
-        raise ValueError("discovery requires an explicit saved screening selection")
-    subjects = (*[t.ticker for t in draft.targets], *draft.comparison_tickers)
-    publication = None
-    if draft.screening_selection_id is not None:
-        publication = read_case_screening(
-            draft.screening_selection_id,
-            path=runs_path,
-            known_at=draft.input_known_at,
-            subjects=subjects,
-        )
-        if publication is None or publication[1].generation_id != draft.generation_id:
-            raise ValueError("screening selection differs from the chosen generation")
-    models = read_research_model_inputs(draft.generation_id, targets=subjects, path=runs_path)
-    if models is None:
-        raise ValueError("chosen model generation is unavailable")
-    context = latest_assessment(app_path, as_of=draft.research_as_of, known_at=draft.input_known_at)
-    return GeneratedResearchSelectionV5(
-        comparison_tickers=draft.comparison_tickers,
-        request=draft.request,
-        research_as_of=draft.research_as_of,
-        input_known_at=draft.input_known_at,
-        selection_summary=draft.selection_summary,
-        targets=draft.targets,
-        capacity=research_capacity(draft.request.scope, len(draft.targets)),
-        inputs=GeneratedResearchInputsV5(
-            saved_company_context=read_company_contexts(
-                app_path,
-                tickers=tuple(t.ticker for t in draft.targets),
-                as_of=draft.research_as_of,
-                known_at=draft.input_known_at,
-            ),
-            generation=models,
-            screening_selection_id=draft.screening_selection_id,
-            screening_selection=None if publication is None else publication[1],
-            screening_published_at=None if publication is None else publication[0],
-            saved_market_context_assessment=None
-            if context is None
-            else assessment_projection(context, as_of=draft.research_as_of),
-        ),
     )
 
 
@@ -179,45 +133,9 @@ def prepare_selected_workspace(
             company_growth_periods=company_growth_periods,
         )
     try:
-        validate_capacity(
-            len(draft.targets), research_capacity(draft.request.scope, len(draft.targets))
-        )
-    except ValueError as error:
+        committed, saved = service.start(draft, now=now)
+    except OperationConflictError as error:
         raise ResearchWorkspaceConflictError(str(error)) from error
-    tickers = tuple(t.ticker for t in draft.targets)
-    if database_path(db_path).exists():
-        with closing(connect_read_only(database_path(db_path))) as connection:
-            try:
-                validate_target_purposes(
-                    connection,
-                    tuple(
-                        ResearchTarget(ticker=t.ticker, purpose=t.purpose) for t in draft.targets
-                    ),
-                    now=now,
-                )
-            except ValueError as error:
-                raise ResearchWorkspaceConflictError(str(error)) from error
-    selection = _generated_selection(draft, runs_path=runs_path, app_path=database_path(db_path))
-    holding = draft.request.scope == "review_positions"
-    payload = OperationPayload(
-        checkpoint="Research selection and fixed inputs saved",
-        artifacts=(selection.model_dump(mode="json"),),
-        canonical_refs=(draft.generation_id,),
-        next="research the selected targets; record completed or unfinished outcomes",
-    )
-    # 開始側はpayloadから固定入力を検証する。元の全社木を同時に保持し続けない。
-    del selection
-    operation_id = service.start(
-        session_kind="position-review" if holding else "capital-allocation",
-        as_of=draft.research_as_of,
-        started_at=now,
-        ticker=tickers[0] if holding and len(tickers) == 1 else None,
-        payload=payload,
-    ).operation_id
-    del payload
-    committed = service.get(operation_id)
-    saved = selection_binding(committed.payload)
-    assert saved is not None
     return _materialize(
         committed,
         saved,

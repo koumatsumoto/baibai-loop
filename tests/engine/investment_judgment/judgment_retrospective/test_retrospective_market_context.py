@@ -164,10 +164,10 @@ def test_old_projection_does_not_invent_unrecorded_cutoff(tmp_path, monkeypatch)
         return result
 
     with monkeypatch.context() as legacy:
-        for module in ("workflow.workspace.selected_prepare", "workflow.operation.validation"):
-            legacy.setattr(
-                f"baibai_engine.investment_judgment.{module}.assessment_projection", old_projection
-            )
+        legacy.setattr(
+            "baibai_engine.investment_judgment.workflow.operation.admission.assessment_projection",
+            old_projection,
+        )
         case, proposal, _runs, _original = _case(tmp_path)
     market = _scaffold(case.app, proposal)["context"]["origin"]["market_context"]
     assert market["status"] == "retained"

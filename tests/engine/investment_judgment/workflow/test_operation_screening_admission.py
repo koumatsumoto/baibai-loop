@@ -6,12 +6,11 @@ import sqlite3
 from datetime import datetime
 
 import pytest
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
-from baibai_engine.cli.operation import main
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.workflow.selection import parse_selection, selection_sha256
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CandidateCard,
@@ -116,31 +115,14 @@ def test_start_preserves_published_screening_json_types(tmp_path, capsys, method
         card["paths"][0]["evidence"] = dict(reversed(tuple(card["paths"][0]["evidence"].items())))
         screening["result"] = dict(reversed(tuple(screening["result"].items())))
         raw["inputs"]["screening_selection"] = dict(reversed(tuple(screening.items())))
-    payload = tmp_path / "payload.json"
-    payload.write_text(OperationPayload(checkpoint="start", artifacts=(raw,)).model_dump_json())
-    source_before = runs.read_bytes()
-    result = main(
-        [
-            "--db",
-            str(app),
-            "--runs-path",
-            str(runs),
-            "--format",
-            "json",
-            "start",
-            "--kind",
-            "capital-allocation",
-            "--as-of",
-            NOW.date().isoformat(),
-            "--payload",
-            str(payload),
-        ],
-        now=NOW,
+    pinned = generated_draft_for(selected).model_copy(
+        update={"expected_selection_sha256": selection_sha256(parse_selection(raw))}
     )
+    service = OperationService(app, runs_path=runs)
+    source_before = runs.read_bytes()
     if change in {"canonical", "reordered"}:
-        assert result == 0
-        output = json.loads(capsys.readouterr().out)
-        saved = selection_binding(OperationService(app).get(output["operation_id"]).payload)
+        operation, saved = service.start(pinned, now=NOW)
+        assert saved == selection_binding(service.get(operation.operation_id).payload)
         assert canonical_json(saved.model_dump(mode="json")) == canonical_json(original)
         policy = saved.inputs.screening_selection
         assert policy.universe_tickers == ("1234", "5678")
@@ -148,9 +130,9 @@ def test_start_preserves_published_screening_json_types(tmp_path, capsys, method
         assert policy.result.policy.method == method
         assert {row.subject for row in saved.inputs.generation.models} == {"1234", "5678"}
     else:
-        assert result == 1
-        assert "screening selection differs from chosen generation" in capsys.readouterr().err
-        assert not app.exists()
+        with pytest.raises(ValueError, match="supplied hash"):
+            service.start(pinned, now=NOW)
+        assert service.active() is None
     assert runs.read_bytes() == source_before
 
 
@@ -164,13 +146,11 @@ def test_finite_case_is_bound_to_the_actual_published_bytes(tmp_path, legacy_for
 
     def start(record):
         return service.start(
-            session_kind="capital-allocation",
-            as_of=record.research_as_of,
-            started_at=NOW,
-            payload=OperationPayload(
-                checkpoint="start", artifacts=(record.model_dump(mode="json"),)
+            generated_draft_for(record).model_copy(
+                update={"screening_source_sha256": record.inputs.screening_selection.source_sha256}
             ),
-        )
+            now=NOW,
+        )[0]
 
     if legacy_format:
         with sqlite3.connect(runs) as connection:
@@ -179,11 +159,8 @@ def test_finite_case_is_bound_to_the_actual_published_bytes(tmp_path, legacy_for
             connection.execute(
                 "UPDATE screening_selection SET payload_gzip=?", (gzip.compress(wire, mtime=0),)
             )
-        from baibai_engine.investment_judgment.workflow.operation.service import (
-            OperationConflictError,
-        )
 
-        with pytest.raises(OperationConflictError, match="screening selection differs"):
+        with pytest.raises(ValueError, match="supplied source hash"):
             start(selected)
         assert not app.exists()
         _, fresh = read_case_screening(

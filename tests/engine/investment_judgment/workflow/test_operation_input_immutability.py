@@ -1,15 +1,13 @@
 """固定生成の数値型と保存Selectionを、実CLIの書込境界で保つ。"""
 
-import json
 from datetime import datetime
 
 import pytest
 from tests.helpers.db_seed import seed_historical_operation
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.research_selection import historical_operation, selection
 
 from baibai_engine.cli.operation import main
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import parse_selection, selection_sha256
@@ -39,35 +37,18 @@ def test_start_preserves_exact_generated_payload_type(tmp_path, capsys, value):
     selected = _generated(tmp_path)
     raw = selected.model_dump(mode="json")
     raw["inputs"]["generation"]["models"][0]["payload"]["sample"] = value
-    payload = tmp_path / "payload.json"
-    payload.write_text(OperationPayload(checkpoint="start", artifacts=(raw,)).model_dump_json())
     app, runs = tmp_path / "app", tmp_path / "runs"
     source_before = runs.read_bytes()
-    result = main(
-        [
-            "--db",
-            str(app),
-            "--runs-path",
-            str(runs),
-            "--format",
-            "json",
-            "start",
-            "--kind",
-            "capital-allocation",
-            "--as-of",
-            NOW.date().isoformat(),
-            "--payload",
-            str(payload),
-        ],
-        now=NOW,
+    draft = generated_draft_for(selected).model_copy(
+        update={"expected_selection_sha256": selection_sha256(parse_selection(raw))}
     )
+    service = OperationService(app, runs_path=runs)
     if type(value) is not int:
-        assert result == 1
-        assert "model input slice differs from its canonical generation" in capsys.readouterr().err
-        assert not app.exists()
+        with pytest.raises(ValueError, match="supplied hash"):
+            service.start(draft, now=NOW)
+        assert service.active() is None
     else:
-        assert result == 0
-        saved = selection_binding(OperationService(app).active().payload)
+        _, saved = service.start(draft, now=NOW)
         actual = saved.inputs.generation.models[0].payload["sample"]
         assert type(actual) is int
         assert actual == 0
@@ -75,8 +56,7 @@ def test_start_preserves_exact_generated_payload_type(tmp_path, capsys, value):
 
 
 @pytest.mark.parametrize("version", [2, 3, 4, 5])
-@pytest.mark.parametrize("change", ["false", "float", "null", "reordered", "same"])
-def test_checkpoint_preserves_saved_selection_json_and_hash(tmp_path, capsys, version, change):
+def test_checkpoint_preserves_saved_selection_json_and_hash(tmp_path, version):
     if version == 2:
         raw = selection(now=NOW, tickers=("1234",)).model_dump(mode="json")
         raw["inputs"]["market_context"]["sample"] = 0
@@ -95,38 +75,12 @@ def test_checkpoint_preserves_saved_selection_json_and_hash(tmp_path, capsys, ve
     seed_historical_operation(app, operation)
     service = OperationService(app)
     operation = service.get(operation.operation_id)
-    payload = operation.payload.model_dump(mode="json")
-    target = (
-        payload["artifacts"][0]["inputs"]["market_context"]
-        if version == 2
-        else payload["artifacts"][0]["inputs"]["generation"]["models"][0]["payload"]
+    assert (
+        main(
+            ["--db", str(app), "checkpoint", operation.operation_id, "--note", "new note"], now=NOW
+        )
+        == 0
     )
-    if change in {"false", "float", "null"}:
-        target["sample"] = {"false": False, "float": 0.0, "null": None}[change]
-    if change == "reordered":
-        payload["artifacts"][0] = dict(reversed(tuple(payload["artifacts"][0].items())))
-    path = tmp_path / "checkpoint.json"
-    path.write_text(json.dumps(payload))
-    before = app.read_bytes()
-    result = main(
-        [
-            "--db",
-            str(app),
-            "--format",
-            "json",
-            "checkpoint",
-            operation.operation_id,
-            "--payload",
-            str(path),
-        ],
-        now=NOW,
-    )
-    if change in {"false", "float", "null"}:
-        assert result == 1
-        assert "Research selection is immutable" in capsys.readouterr().err
-        assert app.read_bytes() == before
-    else:
-        assert result == 0
     after = service.get(operation.operation_id)
-    assert after.payload == operation.payload
+    assert after.payload.artifacts == operation.payload.artifacts
     assert selection_sha256(selection_binding(after.payload)) == selection_sha256(selected)

@@ -108,6 +108,7 @@ def generated_draft_for(selection):
         request=selection.request,
         research_as_of=selection.research_as_of,
         input_known_at=selection.input_known_at,
+        comparison_tickers=getattr(selection, "comparison_tickers", ()),
         generation_id=selection.inputs.generation.generation_id,
         screening_selection_id=selection.inputs.screening_selection_id,
         selection_summary=selection.selection_summary,

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,9 +18,9 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
     load_proposal_with_assessments,
 )
-from baibai_engine.investment_judgment.workflow.case_screening import (
-    read_case_screening,
-    same_case_screening,
+from baibai_engine.investment_judgment.workflow.operation.admission import (
+    freeze_runs,
+    select_in_app,
 )
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationHeader,
@@ -43,17 +42,19 @@ from baibai_engine.investment_judgment.workflow.operation.progress import (
 )
 from baibai_engine.investment_judgment.workflow.operation.validation import (
     validate_progress,
-    validate_selection,
+    validate_target_purposes,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchSelectionDraft,
     GeneratedResearchSelectionV5,
     ResearchSelectionRecord,
     SelectedTarget,
-    selection_sha256,
+    validate_input_known_at,
 )
-from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
-from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
+from baibai_engine.investment_judgment.workflow.selection_policy import (
+    research_capacity,
+    validate_capacity,
+)
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import RUNS_DB_PATH
@@ -61,7 +62,6 @@ from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import (
     connect_existing,
-    connect_rw,
     initialize_database,
 )
 from baibai_engine.storage.sqlite.read import read_rows
@@ -96,155 +96,88 @@ class OperationService:
 
     def start(
         self,
+        draft: GeneratedResearchSelectionDraft,
         *,
-        session_kind: SessionKind,
-        as_of: date,
-        started_at: datetime,
-        payload: OperationPayload,
-        ticker: str | None = None,
-    ) -> OperationSession:
-        payload.validate_metadata()
-        if started_at.utcoffset() is None:
-            raise OperationConflictError("started_at must include a UTC offset")
-        selection = selection_binding(payload)
-        if selection is None:
+        now: datetime,
+    ) -> tuple[OperationSession, GeneratedResearchSelectionV5]:
+        if not isinstance(draft, GeneratedResearchSelectionDraft):
             raise OperationConflictError(
-                "start with `investment-judgment prepare`; one research_selection is required"
+                "start with a generated selection draft; saved selections are resume-only"
             )
-        if not isinstance(selection, GeneratedResearchSelectionV5):
-            raise OperationConflictError(
-                "new Research requires Selection V5; legacy selections are resume-only"
+        # model_copy/constructはfield検証を迂回できる。再検証は小さい依頼だけ。
+        draft = GeneratedResearchSelectionDraft.model_validate(draft.model_dump(mode="python"))
+        try:
+            validate_input_known_at(draft.input_known_at, now=now)
+            validate_capacity(
+                len(draft.targets), research_capacity(draft.request.scope, len(draft.targets))
             )
-        if selection.capacity != research_capacity(selection.request.scope, len(selection.targets)):
-            raise OperationConflictError("new Research requires the current capacity policy")
-        if selection.input_known_at > started_at or selection.research_as_of != as_of:
-            raise OperationConflictError("Research date/cutoff differs from Operation start")
-        expected_kind = (
-            "position-review"
-            if selection.request.scope == "review_positions"
-            else "capital-allocation"
-        )
-        expected_ticker = (
-            selection.targets[0].ticker
-            if expected_kind == "position-review" and len(selection.targets) == 1
-            else None
-        )
-        if session_kind != expected_kind or ticker != expected_ticker:
-            raise OperationConflictError("Operation kind/ticker differs from Research scope")
-        # 共有scopeは元の完全headerから解く。入力sliceの共有モデル欠落を見逃さない。
-        subjects = selection.evidence_subjects()
-        canonical = read_research_model_inputs(
-            selection.inputs.generation.generation_id,
-            targets=subjects,
-            path=self._runs_path,
-        )
-        if canonical is None or encode_json(canonical.model_dump(mode="json")) != encode_json(
-            selection.inputs.generation.model_dump(mode="json")
-        ):
-            raise ValueError("model input slice differs from its canonical generation")
-        # 探索は必要な観測だけを読む。Caseの根拠にする企業だけ全期間の原本を確かめる。
-        for model in canonical.models:
-            if model.model_id != "company_growth" or model.subject not in subjects:
-                continue
-            if CompanyGrowth.model_validate(model.payload).ticker != model.subject:
-                raise ValueError("growth payload belongs to a different subject")
-        del canonical
-        selection_id = selection.inputs.screening_selection_id
-        if selection_id is not None:
-            proven = read_case_screening(
-                selection_id,
-                path=self._runs_path,
-                known_at=selection.input_known_at,
-                subjects=subjects,
-            )
-            if (
-                proven is None
-                or proven[0] != selection.inputs.screening_published_at
-                or selection.inputs.screening_selection is None
-                or not same_case_screening(selection.inputs.screening_selection, proven[1])
-            ):
-                raise OperationConflictError("screening selection differs from chosen generation")
-        if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
-            raise OperationConflictError(
-                "current ticker must be a four-character alphanumeric code"
-            )
-        if session_kind == "position-review" and any(
-            item.purpose != "holding" for item in selection.targets
-        ):
-            raise OperationConflictError("position-review Operation admits only holding targets")
+        except ValueError as error:
+            raise OperationConflictError(str(error)) from error
+        fixed = freeze_runs(draft, self._runs_path)
         initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
+            active = connection.execute(
+                "SELECT operation_id FROM operation_session WHERE status='active'"
+            ).fetchone()
+            if active is not None:
+                raise OperationConflictError(f"active operation already exists: {active[0]}")
             try:
-                active = connection.execute(
-                    "SELECT operation_id FROM operation_session WHERE status = 'active'"
-                ).fetchone()
-                if active is not None:
-                    raise OperationConflictError(
-                        f"active operation already exists: {active['operation_id']}"
-                    )
-                try:
-                    validate_selection(connection, selection, now=started_at)
-                except ValueError as error:
-                    raise OperationConflictError(str(error)) from error
-                progress = validate_progress(
-                    connection,
-                    selection,
-                    progress_binding(payload),
-                    now=started_at,
-                    complete=False,
-                )
-                if progress.proposal_ref is not None:
-                    raise OperationConflictError(
-                        "bind a Proposal after starting its Research Operation"
-                    )
-                if progress.outcomes:
-                    payload = with_progress(payload, progress)
-                del selection
-                operation_id = f"research-op-{uuid4().hex}"
-                operation = OperationSession(
-                    operation_id=operation_id,
-                    session_kind=session_kind,
-                    status="active",
-                    as_of=as_of,
-                    ticker=ticker,
-                    started_at=started_at,
-                    payload=payload,
-                )
-                _insert(connection, operation)
-                connection.commit()
-            except BaseException:
-                connection.rollback()
-                raise
-        return operation
-
-    def checkpoint(
-        self, operation_id: str, payload: OperationPayload, *, now: datetime | None = None
-    ) -> OperationSession:
-        payload.validate_metadata()
-
-        def replace_notes(
-            _connection: sqlite3.Connection,
-            _before: OperationSession,
-            selection: ResearchSelectionRecord,
-            previous: ResearchProgress,
-        ) -> OperationPayload:
-            if progress_binding(payload) != previous:
-                raise OperationConflictError(
-                    "checkpoint cannot change research_progress; reload and use record-* commands"
-                )
-            # Only checkpoint accepts replacement artifacts from the caller.
-            try:
-                incoming = selection_binding(payload)
+                validate_target_purposes(connection, draft.targets, now=now)
             except ValueError as error:
                 raise OperationConflictError(str(error)) from error
-            if incoming is None or selection_sha256(incoming) != selection_sha256(selection):
-                raise OperationConflictError(
-                    "Research selection is immutable; no replacement targets"
-                )
-            return payload
+            selection = select_in_app(connection, draft, fixed)
+            holding = draft.request.scope == "review_positions"
+            header = OperationHeader(
+                operation_id=f"research-op-{uuid4().hex}",
+                session_kind="position-review" if holding else "capital-allocation",
+                status="active",
+                as_of=draft.research_as_of,
+                ticker=draft.targets[0].ticker if holding and len(draft.targets) == 1 else None,
+                started_at=now,
+            )
+            payload = OperationPayload(
+                checkpoint="Research selection and fixed inputs saved",
+                artifacts=(selection.model_dump(mode="json"),),
+                canonical_refs=(draft.generation_id,),
+                next="research the selected targets; record completed or unfinished outcomes",
+            )
+            body = encode_json(payload.model_dump(mode="json"))
+            del fixed, selection, payload
+            _insert(connection, header, body)
+            # 初回の自由形式JSONキー順もresumeと同じ保存バイトから投影する。
+            # 読み直すのは本文だけ。RunsやApp正本への再照会はしない。
+            committed = OperationSession(
+                **dict(header), payload=OperationPayload.model_validate_json(body)
+            )
+            saved = selection_binding(committed.payload)
+            assert isinstance(saved, GeneratedResearchSelectionV5)
+        return committed, saved
 
-        return self._edit_active(operation_id, replace_notes, now=now)
+    def checkpoint(
+        self,
+        operation_id: str,
+        *,
+        note: str,
+        next: str | None = None,
+        now: datetime,
+    ) -> OperationSession:
+        def update_notes(
+            _connection: sqlite3.Connection,
+            before: OperationSession,
+            _selection: ResearchSelectionRecord,
+            _previous: ResearchProgress,
+        ) -> OperationPayload | None:
+            if not note.strip() or (next is not None and not next.strip()):
+                raise ValueError("checkpoint note and optional next action must not be blank")
+            updates = {"checkpoint": note}
+            if next is not None:
+                updates["next"] = next
+            if all(getattr(before.payload, key) == value for key, value in updates.items()):
+                return None
+            return before.payload.model_copy(update=updates)
+
+        return self._edit_active(operation_id, update_notes, now=now)
 
     def complete(
         self,
@@ -482,8 +415,6 @@ class OperationService:
                 complete=False,
                 previous=previous,
             )
-            if progress.outcomes:
-                payload = with_progress(payload, progress)
             if (previous_ref := progress.proposal_ref) is not None:
                 # 旧activeの公開参照は保持する。後着outcomeの再評価は明示completeの責務。
                 proposal = load_investment_proposal(connection, previous_ref.proposal_id)
@@ -583,7 +514,7 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
         raise OperationCompletionError(f"{session_kind} completion requires: {', '.join(missing)}")
 
 
-def _insert(connection: sqlite3.Connection, operation: OperationSession) -> None:
+def _insert(connection: sqlite3.Connection, operation: OperationHeader, payload_json: str) -> None:
     connection.execute(
         """
         INSERT INTO operation_session (
@@ -599,7 +530,7 @@ def _insert(connection: sqlite3.Connection, operation: OperationSession) -> None
             operation.ticker,
             operation.started_at.isoformat(),
             None,
-            encode_json(operation.payload.model_dump(mode="json")),
+            payload_json,
         ),
     )
 

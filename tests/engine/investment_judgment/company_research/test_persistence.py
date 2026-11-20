@@ -34,7 +34,6 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     assessment_core_hash,
 )
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -445,12 +444,7 @@ def test_legacy_selection_shapes_and_assessment_v1_identity_are_unchanged(tmp_pa
     # Old V3 is resume-only, and materialization uses retained bytes without a model store.
     retained = parse_selection(v3["selection"])
     with pytest.raises(ValueError, match="resume-only"):
-        OperationService(path).start(
-            session_kind="capital-allocation",
-            as_of=NOW.date(),
-            started_at=NOW,
-            payload=OperationPayload(checkpoint="new", artifacts=(v3["selection"],)),
-        )
+        OperationService(path).start(retained, now=NOW)
     operation = historical_operation(retained)
     seed_historical_operation(path, operation)
     resumed = resume_selected_workspace(

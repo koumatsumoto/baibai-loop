@@ -77,6 +77,8 @@ def evidence_case(tmp_path, monkeypatch, *, generation_version=1, selection_vers
 
         monkeypatch.setattr(generation_helpers, "ModelGeneration", generation)
 
+    prior_selections = []
+
     def seed(**kwargs):
         growth = CompanyGrowth(
             ticker="1234",
@@ -121,22 +123,23 @@ def evidence_case(tmp_path, monkeypatch, *, generation_version=1, selection_vers
 
         from baibai_engine.investment_judgment.workflow.selection import parse_selection
 
-        return parse_selection(
-            legacy_selection_payload(selection, kwargs["runs"], version=selection_version)
+        prior_selections.append(
+            parse_selection(
+                legacy_selection_payload(selection, kwargs["runs"], version=selection_version)
+            )
         )
+        return prior_selections[-1]
 
     monkeypatch.setattr(proposal_helpers, "seed_generated_selection", seed)
     from tests.helpers.db_seed import seed_historical_operation
     from tests.helpers.research_selection import historical_operation
 
-    from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
-
-    def install_historical_operation(service, *, payload, started_at, **_):
-        record = historical_operation(selection_binding(payload)).model_copy(
-            update={"payload": payload, "started_at": started_at}
-        )
+    def install_historical_operation(service, _draft, *, now):
+        selected = prior_selections[-1]
+        record = historical_operation(selected)
+        assert record.started_at == now
         seed_historical_operation(service._db_path, record)
-        return record
+        return record, selected
 
     with monkeypatch.context() as history:
         history.setattr(operation_service.OperationService, "start", install_historical_operation)

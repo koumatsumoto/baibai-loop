@@ -9,6 +9,7 @@ from tests.helpers.archived_technical_financial import (
     stored_publication,
     stored_row,
 )
+from tests.helpers.generated_selection import generated_draft_for
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.technical_financial import _seed
@@ -363,8 +364,6 @@ def test_case_pins_explicit_contrast_and_scope_without_promoting_or_using_later_
     import sqlite3
     from hashlib import sha256
 
-    from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
-    from baibai_engine.investment_judgment.workflow.operation.service import OperationConflictError
     from baibai_engine.investment_judgment.workflow.screening_brief import saved_discovery_context
 
     runs, app, workspace = tmp_path / "runs", tmp_path / "app", tmp_path / "case"
@@ -452,14 +451,19 @@ def test_case_pins_explicit_contrast_and_scope_without_promoting_or_using_later_
     assert details["comparisons_not_in_saved_rows"] == ["9999"]
     altered = saved.model_dump(mode="json")
     altered["inputs"]["screening_selection"]["result"]["rows"][0]["name"] = "later disclosure"
-    with pytest.raises(OperationConflictError, match="screening selection differs"):
+    from baibai_engine.investment_judgment.workflow.selection import (
+        parse_selection,
+        selection_sha256,
+    )
+
+    with pytest.raises(ValueError, match="supplied hash"):
         OperationService(tmp_path / "other", runs_path=runs).start(
-            session_kind="capital-allocation",
-            as_of=fixed.as_of,
-            started_at=now,
-            payload=OperationPayload(checkpoint="test", artifacts=(altered,)),
+            generated_draft_for(parse_selection(altered)).model_copy(
+                update={"expected_selection_sha256": selection_sha256(parse_selection(altered))}
+            ),
+            now=now,
         )
-    assert not (tmp_path / "other").exists()
+    assert OperationService(tmp_path / "other").active() is None
     runs.rename(tmp_path / "unavailable")
     replay = resume_selected_workspace(
         operation_id=result.operation_id, db_path=app, workspace=tmp_path / "resumed", now=now

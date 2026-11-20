@@ -11,18 +11,16 @@ import pytest
 from pydantic import ValidationError
 from tests.helpers.assessment_v1 import NOW, assessment_id, pair_payload
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.operation_proposal import PUBLISHED, proposal_for, seed_proposal
 from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation import service as operation_owner
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     ProposalRef,
     ResearchProgress,
@@ -70,15 +68,7 @@ def start(case, tickers=(), *, scope="discover_new"):
     runs = db.with_name("runs.sqlite")
     value = seed_generated_selection(runs=runs, db=db, now=NOW, tickers=tickers, scope=scope)
     service = OperationService(db, runs_path=runs)
-    operation = service.start(
-        session_kind="position-review" if scope == "review_positions" else "capital-allocation",
-        as_of=NOW.date(),
-        started_at=NOW,
-        ticker=tickers[0] if scope == "review_positions" and len(tickers) == 1 else None,
-        payload=OperationPayload(
-            checkpoint="合成依頼を明示開始", artifacts=(value.model_dump(mode="json"),)
-        ),
-    )
+    operation = service.start(generated_draft_for(value), now=NOW)[0]
     return service, operation
 
 
@@ -244,24 +234,6 @@ def test_selection_immutable_and_missing_outcomes_cannot_drop_targets(case, part
             next="次の明示依頼",
             completed_at=PUBLISHED,
         )
-    selected = selection_binding(operation.payload)
-    changed = selected.model_copy(update={"selection_summary": "別の選定"})
-    with pytest.raises(OperationConflictError, match="immutable"):
-        service.checkpoint(
-            operation.operation_id,
-            operation.payload.model_copy(
-                update={
-                    "artifacts": (
-                        changed.model_dump(mode="json"),
-                        *(
-                            artifact
-                            for artifact in operation.payload.artifacts
-                            if artifact.get("kind") != "research_selection"
-                        ),
-                    )
-                }
-            ),
-        )
     assert service.get(operation.operation_id) == operation
     assert ledger_rows(db) == []
 
@@ -297,9 +269,7 @@ def test_checkpoint_cannot_propagate_a_corrupt_persisted_outcome(case, change):
             (corrupt.model_dump_json(), operation.operation_id),
         )
     with pytest.raises(ValueError, match=r"differs|unselected|outside"):
-        service.checkpoint(
-            operation.operation_id, corrupt.model_copy(update={"checkpoint": "new note"}), now=NOW
-        )
+        service.checkpoint(operation.operation_id, note="new note", now=NOW)
     assert service.get(operation.operation_id).payload == corrupt
 
 
@@ -389,22 +359,10 @@ def test_late_outcome_survives_stale_checkpoint_and_requires_current_proposal(
     operation = service.record_assessment(operation.operation_id, later, now=PUBLISHED)
     assert progress_binding(stale_payload).outcomes[1].status == "unfinished"
     assert progress_binding(operation.payload).outcomes[1].assessment_ref.assessment_id == later
-    stale_file = tmp_path / "stale-checkpoint.json"
-    stale_file.write_text(stale_payload.model_dump_json(), encoding="utf-8")
-    assert (
-        operation_main(
-            ["--db", str(db), "checkpoint", operation.operation_id, "--payload", str(stale_file)],
-            now=PUBLISHED,
-        )
-        == 1
+    operation = service.checkpoint(
+        operation.operation_id, note="後着評価を保存し、提案を更新する", now=PUBLISHED
     )
-    assert "cannot change research_progress" in capsys.readouterr().err
-    assert service.get(operation.operation_id) == operation
-    current_payload = operation.payload.model_copy(
-        update={"checkpoint": "後着評価を保存し、提案を更新する", **notes}
-    )
-    operation = service.checkpoint(operation.operation_id, current_payload, now=PUBLISHED)
-    assert operation.payload == current_payload
+    assert progress_binding(operation.payload).outcomes[1].assessment_ref.assessment_id == later
     with closing(connect_read_only(db)) as reader:
         assert load_investment_proposal(reader, proposal.proposal_id) == proposal
         with pytest.raises(ValueError, match="scope differs"):
@@ -749,7 +707,7 @@ def test_concurrent_writes_cannot_overwrite_an_outcome_recorded_after_their_read
         with pytest.raises(OperationConflictError, match="progress changed"):
             service.checkpoint(
                 operation.operation_id,
-                operation.payload.model_copy(update={"checkpoint": "調査メモを保存する"}),
+                note="調査メモを保存する",
                 now=PUBLISHED,
             )
     elif command == "record-unfinished":

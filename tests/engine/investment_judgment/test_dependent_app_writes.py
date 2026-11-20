@@ -94,7 +94,7 @@ def test_checkpoint_uses_one_existing_writer_and_preserves_fixed_selection(tmp_p
 
     with monkeypatch.context() as patch:
         patch.setattr(sqlite3, "connect", track)
-        result = service.checkpoint(operation.operation_id, updated, now=PUBLISHED)
+        result = service.checkpoint(operation.operation_id, note=updated.checkpoint, now=PUBLISHED)
 
     assert len(opened) == 2
     assert "mode=ro" in opened[0][0]
