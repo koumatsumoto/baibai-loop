@@ -60,6 +60,7 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
     assert "upload-serving" not in str(by_id["upload-stores"])
     assert by_id["upload-stores"]["if"] == "steps.batch.outputs.models_ready == 'true'"
     assert "steps.batch.outcome == 'success'" in by_id["source-seal"]["if"]
+    assert "--daily-origin" in by_id["source-seal"]["run"]
 
 
 def test_optional_edinet_acceptance_is_before_any_model_publication(workflow, steps, by_id):

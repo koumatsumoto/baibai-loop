@@ -71,6 +71,8 @@ from baibai_jobs.publication.jpx_verification import (
 )
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.machine_bundle import read_published_machine
+from baibai_jobs.publication.machine_origin import current_daily_run
+from baibai_jobs.publication.snapshot_publication import daily_external_readback_dir
 from baibai_jobs.publication.tradingview_verification import (
     capture_publication as capture_tradingview_publication,
 )
@@ -462,6 +464,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--group", help="Reissue only this scoped input group")
     parser.add_argument("--lease-handle", type=Path)
     parser.add_argument(
+        "--daily-origin", action="store_true", help="read this attempt's verified Lake bytes"
+    )
+    parser.add_argument(
         "--quality-output", type=Path, help="Actions step output for the daily check"
     )
     parser.add_argument(
@@ -484,6 +489,9 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("--recover-jpx-stage is only valid with plan")
         if args.quality_output and args.command != "check":
             raise ValueError("--quality-output is only valid with check")
+        if args.daily_origin and args.command != "seal":
+            raise ValueError("--daily-origin is only valid with seal")
+        publication_run = current_daily_run() if args.daily_origin else None
         directory = args.directory
         if args.command == "check":
             report = json.loads((directory / "applied.json").read_text())
@@ -547,9 +555,8 @@ def main(argv: list[str] | None = None) -> int:
                 with args.quality_output.open("a", encoding="utf-8") as output:
                     print(f"tv_quality_asof={day}", file=output)
             return int(integration_failed)
-        with closing(
-            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-        ) as store:
+        bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+        with closing(Boto3R2Store(bucket=bucket)) as store:
             directory.mkdir(parents=True, exist_ok=True)
             if args.command == "plan":
                 if (directory / "plan.json").exists():
@@ -685,11 +692,17 @@ def main(argv: list[str] | None = None) -> int:
                         generations=generations,
                     )
                 if report.get("external"):
+                    readback_directory = (
+                        daily_external_readback_dir(directory, bucket=bucket, run=publication_run)
+                        if publication_run is not None
+                        else None
+                    )
                     report["external_results"] = verify_and_seal(
                         store,
                         report["external"],
                         handle=handle,
                         directory=directory / "external-readback",
+                        same_run_readback=readback_directory,
                     )
                 if any(
                     item["entry"]["source"] == "tradingview" and item["applied"]

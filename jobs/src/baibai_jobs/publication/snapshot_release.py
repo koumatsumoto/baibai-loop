@@ -132,6 +132,7 @@ class _RemotePublication:
 
     store: ObjectStore
     verified_readback_root: Path | None = None
+    verified_readback_keys: frozenset[str] | None = None
     uploaded_objects: int = 0
     reused_objects: int = 0
     uploaded_bytes: int = 0
@@ -245,6 +246,7 @@ class _RemotePublication:
         destination = (
             _mirror_path(self.verified_readback_root, key)
             if self.verified_readback_root is not None
+            and (self.verified_readback_keys is None or key in self.verified_readback_keys)
             else None
         )
         if destination is not None:
@@ -281,9 +283,14 @@ def publish_release(
     expected_release_sha256: str | None = None,
     before_pointer_switch: Callable[[], None] | None = None,
     verified_readback_root: Path | None = None,
+    verified_readback_keys: frozenset[str] | None = None,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
-    publication = _RemotePublication(store=store, verified_readback_root=verified_readback_root)
+    publication = _RemotePublication(
+        store=store,
+        verified_readback_root=verified_readback_root,
+        verified_readback_keys=verified_readback_keys,
+    )
     pointer_key = lake_current_release_pointer_key()
     if pointer_precondition is None:
         initial = publication.head(pointer_key)

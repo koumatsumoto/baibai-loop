@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import sys
 import time
@@ -14,6 +15,7 @@ from contextlib import ExitStack, nullcontext
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import TypedDict
 
 from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialL1,
@@ -66,6 +68,8 @@ from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.machine_origin import current_daily_run
 from baibai_jobs.publication.snapshot_publication import (
+    PreparedMarketLake,
+    daily_external_readback_dir,
     prepare_market_lake,
     publish_prepared_market_lake,
 )
@@ -105,6 +109,39 @@ def _project_company_models(
     project()
 
 
+class _ReadbackOptions(TypedDict, total=False):
+    verified_readback_root: Path
+    verified_readback_keys: frozenset[str]
+
+
+def _external_readback_options(
+    prepared: PreparedMarketLake,
+    directory: Path | None,
+    partitions: frozenset[tuple[str, int, int]],
+) -> _ReadbackOptions:
+    if directory is None or not partitions:
+        return {}
+    # The actual GET already runs during publication. Retain only the small,
+    # bounded subset needed by this attempt's downstream semantic verification.
+    root = directory / prepared.release_sha256
+    root.mkdir(mode=0o700, parents=True)
+    remaining = min(256 * 1024**2, shutil.disk_usage(root).free // 16)
+    keys: set[str] = set()
+    for name, year, month in sorted(partitions):
+        if (dataset := prepared.export.datasets.get(name)) is None:
+            continue
+        for partition in dataset.manifest.partitions:
+            if partition.values != {"year": year, "month": month}:
+                continue
+            for obj in partition.objects:
+                if obj.key not in keys and obj.bytes <= remaining:
+                    keys.add(obj.key)
+                    remaining -= obj.bytes
+    if not keys:
+        return {}
+    return {"verified_readback_root": root, "verified_readback_keys": frozenset(keys)}
+
+
 def integrate_models(
     *,
     store: FinancialObjectStore,
@@ -117,6 +154,8 @@ def integrate_models(
     growth_start: date | None,
     edinet_input: InputSnapshot | None = None,
     preserve_generation_ids: tuple[str, ...] = (),
+    external_readback_dir: Path | None = None,
+    external_partitions: frozenset[tuple[str, int, int]] = frozenset(),
 ) -> dict[str, object]:
     """leaseで順序を守り、モデル生成後に別releaseを作らない。"""
     handle = _load_handle(lease_handle)
@@ -237,7 +276,10 @@ def integrate_models(
             verify_held(store, handle)
 
         publication = publish_prepared_market_lake(
-            prepared, store=store, before_pointer_switch=before_pointer_switch
+            prepared,
+            store=store,
+            before_pointer_switch=before_pointer_switch,
+            **_external_readback_options(prepared, external_readback_dir, external_partitions),
         )
         _phase_progress("lake_publish", phase_started)
     phase_started = _phase_progress("model_cache_prune")
@@ -306,6 +348,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         publication_run = current_daily_run() if args.daily_origin else None
+        bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+        external_readback_dir = None
+        external_partitions: frozenset[tuple[str, int, int]] = frozenset()
         edinet_input = None
         if args.integration_report is not None:
             report = json.loads(args.integration_report.read_bytes())
@@ -313,11 +358,18 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("source integration report differs from the model date")
             if report.get("edinet_input") is not None:
                 edinet_input = InputSnapshot.model_validate(report["edinet_input"])
+            if publication_run is not None and (external := report.get("external")):
+                external_partitions = frozenset(
+                    (str(name), int(year), int(month)) for name, year, month in external["changed"]
+                )
+                external_readback_dir = daily_external_readback_dir(
+                    args.integration_report.parent, bucket=bucket, run=publication_run
+                )
         preserve_generation_ids = (
             read_generation_ids(path=args.runs) if args.preserve_existing_generations else ()
         )
         result = integrate_models(
-            store=Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),
+            store=Boto3R2Store(bucket=bucket),
             market=args.market,
             economic=args.economic,
             runs=args.runs,
@@ -327,6 +379,8 @@ def main(argv: list[str] | None = None) -> int:
             growth_start=args.growth_start,
             edinet_input=edinet_input,
             preserve_generation_ids=preserve_generation_ids,
+            external_readback_dir=external_readback_dir,
+            external_partitions=external_partitions,
         )
     except Exception as error:
         notice: dict[str, object] = {

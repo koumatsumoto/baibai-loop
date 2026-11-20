@@ -319,13 +319,18 @@ def verify_and_seal(
     *,
     handle: PublicationLeaseHandle,
     directory: Path,
+    same_run_readback: Path | None = None,
 ) -> list[dict[str, object]]:
     """Read back typed/source history without changing SQLite, then seal each plan."""
     verify_held(store, handle)
     pointer = _serving_pointer(store).pointer
     if pointer is None:
         raise LakePublishError("common external readback requires a canonical release")
-    directory.mkdir(parents=True, exist_ok=True)
+    if same_run_readback is not None:
+        # The publisher saves actual verified GET bytes under this same attempt
+        # and release digest; independent readback keeps its own directory.
+        directory = same_run_readback / pointer.manifest_sha256
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     after = _resolve_serving_release(store, directory, pointer)
     # Other source datasets legitimately change in common integration. Preserve
     # the external owner's guarantee for its untouched datasets/partitions.
@@ -370,7 +375,9 @@ def verify_and_seal(
         for part in manifest.partitions:
             if (name, part.values["year"], part.values["month"]) in changed:
                 for obj in part.objects:
-                    _fetch(store, directory, obj.key, expected_sha256=obj.sha256)
+                    _fetch(
+                        store, directory, obj.key, expected_sha256=obj.sha256, expected_size=obj.bytes
+                    )
     with lake_session() as session:
         cache = LakeObjectCache(root=directory, source=LocalMirrorSource(directory))
         equity_web_verify_release_history(

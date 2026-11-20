@@ -256,7 +256,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          uv run python -m baibai_jobs.integration.sources seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+          uv run python -m baibai_jobs.integration.sources seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" --daily-origin
       - name: Refresh source-scoped inputs from this canonical generation
         id: source-inputs
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
