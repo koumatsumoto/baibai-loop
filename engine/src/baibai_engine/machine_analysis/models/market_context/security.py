@@ -13,6 +13,7 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
 from baibai_engine.machine_analysis.observations.stocks.contracts import (
     MasterSnapshot,
 )
+from baibai_engine.primitives.stocks import sector_33_peer_key
 
 _WEEK_52_WINDOW_BARS = 252
 _VOL_CALENDAR_DIFFERENCES = 20
@@ -204,13 +205,16 @@ def _relative_block(
             if endpoints is None
             else {"start_date": endpoints[0].isoformat(), "end_date": endpoints[1].isoformat()}
         )
+    peer_sector = sector_33_peer_key(sector)
     return {
         "benchmark_ticker": benchmark_ticker,
         **versus_benchmark,
         "window_basis": "observed_security_bar_differences",
         "comparison_windows": comparison_windows,
-        "sector": _sector_block(bars=bars, sector=sector, master=master, peer_returns=peer_returns)
-        if sector
+        "sector": _sector_block(
+            bars=bars, sector=peer_sector, master=master, peer_returns=peer_returns
+        )
+        if peer_sector is not None
         else None,
     }
 

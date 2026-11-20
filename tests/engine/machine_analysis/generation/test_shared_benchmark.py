@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.lake_release import market_store
+from tests.helpers.master import insert_master_rows
 from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
@@ -66,7 +67,7 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
     result = generate(path)
     shared = result.result("market_context", "market")
     benchmark = shared.payload["benchmark_trend"]
-    assert shared.calculation_revision == "shared-market-context-v19-no-self-price-rank"
+    assert shared.calculation_revision == "shared-market-context-v20-classified-sector-peers"
     if not benchmark_count:
         assert benchmark is None
     else:
@@ -93,6 +94,61 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
         == benchmark
     )
     assert path.read_bytes() == before
+
+
+def test_generation_excludes_unclassified_from_peers_but_not_market_breadth(tmp_path):
+    scope = {
+        "1001": ("その他", -0.18),
+        "1002": ("その他", 0.45),
+        "1003": ("その他製品", 0.06),
+        "1004": ("その他製品", -0.04),
+        "1005": ("その他金融業", -0.03),
+        "1006": ("その他金融業", 0.12),
+    }
+    days = tuple(ASOF - timedelta(days=i) for i in reversed(range(43)))
+    sessions = tuple(day for day in days if day.weekday() < 5)
+    changes = {t: change for t, (_, change) in scope.items()} | {"1321": 0.08}
+    path = market_store(
+        tmp_path / "market.sqlite",
+        daily_bars=[
+            (t, day.isoformat(), 100 * (1 + change) if day == ASOF else 100, 1000)
+            for t, change in changes.items()
+            for day in sessions
+        ],
+    )
+    with closing(sqlite3.connect(path)) as connection, connection:
+        insert_master_rows(
+            connection,
+            [(ASOF.isoformat(), t, t, "プライム", label, "011") for t, (label, _) in scope.items()],
+        )
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar VALUES (?,?)",
+            [(d.isoformat(), "1" if d in sessions else "0") for d in days],
+        )
+        connection.execute(
+            "UPDATE jquants_daily_bars SET open=close,high=close,low=close,turnover_value=close*volume"
+        )
+    publication = generate(path, tickers=tuple(scope))
+    unknown = publication.result("market_context", "1001").payload
+    assert unknown["master"]["sector_33"] == "その他"
+    assert unknown["relative"]["sector"] is None
+    assert unknown["price"]["close"] == pytest.approx(82)
+    assert unknown["price_path_relative"]["comparisons"]["R20"]["relative_return"] == pytest.approx(
+        -0.26
+    )
+    for ticker, label, peer_return, gap in (
+        ("1003", "その他製品", -0.04, 0.10),
+        ("1005", "その他金融業", 0.12, -0.15),
+    ):
+        peer = publication.result("market_context", ticker).payload["relative"]["sector"]
+        assert peer["sector_33"] == label
+        assert peer["peer_count"] == 1
+        assert peer["peer_median_return_20d"] == pytest.approx(peer_return)
+        assert peer["relative_return_20d"] == pytest.approx(gap)
+    market = publication.result("market_context", "market").payload["market"]
+    assert {row["sector_33"] for row in market["sectors"]} == {"その他製品", "その他金融業"}
+    assert all(row["ticker_count"] == 2 for row in market["sectors"])
+    assert market["points"][-1]["breadth_sample_size"] == len(scope)
 
 
 def test_new_and_legacy_saved_shapes_survive_correction_and_detached_l3_read(tmp_path):
