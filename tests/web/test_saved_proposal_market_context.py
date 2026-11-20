@@ -10,9 +10,9 @@ from tests.engine.investment_judgment.judgment_retrospective.test_retrospective_
 from tests.engine.investment_judgment.trade_proposal.test_saved_market_context import (
     _market_document,
 )
+from tests.helpers.assessment_history import publish_at_declared_time
 from tests.helpers.proposal import PUBLISHED
 
-from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
@@ -33,7 +33,8 @@ def test_saved_final_comparison_retains_market_countercase_and_original_clocks(t
         next="後日比較",
         completed_at=PUBLISHED + timedelta(minutes=1),
     )
-    AssessmentService(case.app).publish(
+    publish_at_declared_time(
+        case.app,
         _market_document(suffix="later", published_at=PUBLISHED + timedelta(minutes=2)),
         expected_head=original.context_id,
     )
@@ -64,7 +65,7 @@ def test_saved_final_comparison_retains_market_countercase_and_original_clocks(t
 
 def test_not_recorded_at_selection_is_not_replaced_by_later_market_head(tmp_path):
     case, proposal, _runs, _ = _case(tmp_path, market=False)
-    AssessmentService(case.app).publish(_market_document(), expected_head=None)
+    publish_at_declared_time(case.app, _market_document(), expected_head=None)
     before = case.app.read_bytes()
     view = read_proposal_views(case.app).latest.proposal
     assert view.saved_market_context.status == "not_recorded"

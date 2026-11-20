@@ -214,7 +214,7 @@ def test_app_publications_racing_freeze_use_actual_cutoff_and_optional_hash(
     )
 
     def publish():
-        AssessmentService(app).publish(market, expected_head=None)
+        AssessmentService(app, clock=lambda: instant).publish(market, expected_head=None)
         ResearchStoreService(app, clock=lambda: instant).save(research)
 
     _after_freeze(monkeypatch, publish)
@@ -330,3 +330,80 @@ def test_resume_matches_explicit_pins_without_reopening_runs(tmp_path, pin):
     with pytest.raises(ResearchWorkspaceConflictError, match="different fixed selection"):
         prepare(app, runs, ws, pinned.model_copy(update={pin: "f" * 64}))
     assert before == (app.read_bytes(), (ws / "domain-inputs.yaml").read_bytes())
+
+
+@pytest.mark.parametrize("delta", [-1, 0, 1, 120_000_000])
+def test_prechecked_market_draft_is_fixed_only_after_receipt_at_app_cutoff(
+    tmp_path, monkeypatch, delta
+):
+    from baibai_engine.cli.investment_judgment import main
+
+    app, runs, ws = tmp_path / "app", tmp_path / "runs", tmp_path / "ws"
+    value = seed_generated_selection(runs=runs, now=C, tickers=("1234",))
+    draft = generated_draft_for(value)
+    prior = MarketContextAssessment(
+        context_id="market-context-assessment-2026-10-14-in-time",
+        as_of=C.date(),
+        known_at=C - timedelta(minutes=4),
+        published_at=C - timedelta(minutes=2),
+        summary="on time",
+        inputs=(),
+    )
+    next_doc = prior.model_copy(
+        update={
+            "context_id": "market-context-assessment-2026-10-14-declared",
+            "published_at": C - timedelta(microseconds=2),
+            "summary": "prechecked before receipt",
+        }
+    )
+
+    def command(document):
+        path = tmp_path / (document.context_id + ".json")
+        path.write_text(document.model_dump_json())
+        return ["market-context", "--db", str(app), "publish", str(path)]
+
+    assert main(command(prior), now=prior.published_at) == 0
+    cmd = command(next_doc)
+    before = app.read_bytes()
+    assert main([*cmd, "--check"], now=next_doc.published_at) == 0
+    assert app.read_bytes() == before
+    receipt = C.astimezone(UTC) + timedelta(microseconds=delta)
+
+    def publish_after_runs_read():
+        assert main([*cmd, "--expected-head", prior.context_id], now=receipt) == 0
+
+    _after_freeze(monkeypatch, publish_after_runs_read)
+    op = prepare(app, runs, ws, draft)
+    saved = selection_binding(OperationService(app).get(op.operation_id).payload)
+    market = saved.inputs.saved_market_context_assessment
+    expected = next_doc if delta <= 0 else prior
+    assert market["context_id"] == expected.context_id
+    assert datetime.fromisoformat(market["published_at"]) == expected.published_at
+    assert datetime.fromisoformat(market["recorded_at"]) == (
+        receipt if delta <= 0 else prior.published_at
+    )
+
+
+def test_legacy_market_unknown_is_not_pinned_or_treated_as_absent(tmp_path):
+    from tests.helpers.assessment_history import seed_history
+
+    app, runs, ws = tmp_path / "app", tmp_path / "runs", tmp_path / "ws"
+    value = seed_generated_selection(runs=runs, now=C, tickers=("1234",))
+    legacy = MarketContextAssessment(
+        context_id="market-context-assessment-2026-10-14-old",
+        as_of=C.date(),
+        known_at=C - timedelta(minutes=2),
+        published_at=C,
+        summary="legacy",
+        inputs=(),
+    )
+    seed_history(app, legacy.payload())
+    before = app.read_bytes()
+    draft = generated_draft_for(value).model_copy(
+        update={"expected_selection_sha256": selection_sha256(value)}
+    )
+    with pytest.raises(ValueError, match="receipt unknown"):
+        prepare(app, runs, ws, draft)
+    assert OperationService(app).active() is None
+    assert app.read_bytes() == before
+    assert not ws.exists()

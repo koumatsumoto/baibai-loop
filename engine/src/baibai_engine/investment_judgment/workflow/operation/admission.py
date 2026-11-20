@@ -82,7 +82,7 @@ def select_in_app(
 ) -> GeneratedResearchSelectionV5:
     models, publication = fixed
     market = latest_assessment_from_connection(
-        connection, as_of=draft.research_as_of, known_at=draft.input_known_at
+        connection, as_of=draft.research_as_of, known_at=draft.input_known_at, require_receipt=True
     )
     companies = {
         t.ticker: company_context(

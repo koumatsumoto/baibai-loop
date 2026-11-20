@@ -13,11 +13,11 @@ from tests.engine.investment_judgment.trade_proposal.test_saved_market_context i
     _market_document,
 )
 from tests.engine.investment_judgment.workflow import test_selection_evidence as evidence_fixture
+from tests.helpers.assessment_history import publish_at_declared_time
 from tests.helpers.proposal import PUBLISHED, read_saved_proposal
 
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import assessment_by_id
-from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
 from baibai_engine.investment_judgment.trade_proposal.query import saved_proposal_market_context
 from baibai_engine.investment_judgment.workflow.selection_evidence import read_selection_evidence
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -38,7 +38,7 @@ def _case(tmp_path, monkeypatch, *, market=True, legacy_clock=False, **kwargs):
         if not market:
             return selected
         document = _market_document()
-        AssessmentService(seed_kwargs["db"]).publish(document, expected_head=None)
+        publish_at_declared_time(seed_kwargs["db"], document, expected_head=None)
         record = assessment_by_id(seed_kwargs["db"], context_id=document.context_id)
         return selected.model_copy(
             update={
@@ -85,7 +85,8 @@ def test_published_market_fragment_is_retained_without_reinterpreting_old_models
     expected = json.loads(canonical)["inputs"]["saved_market_context_assessment"]
     assert current.inputs.saved_market_context_assessment != expected
     assert "known_at" not in expected
-    AssessmentService(case.app).publish(
+    publish_at_declared_time(
+        case.app,
         _market_document(suffix="later", published_at=PUBLISHED + timedelta(days=1)),
         expected_head=expected["context_id"],
     )
@@ -145,7 +146,7 @@ def test_damaged_receipt_never_substitutes_operational_or_current_market(
 
 def test_absent_original_market_is_not_filled_from_later_head(tmp_path, monkeypatch):
     case, proposal, _, _ = _case(tmp_path, monkeypatch, market=False)
-    AssessmentService(case.app).publish(_market_document(), expected_head=None)
+    publish_at_declared_time(case.app, _market_document(), expected_head=None)
     before = case.app.read_bytes()
     with closing(connect_read_only(case.app)) as connection:
         result = saved_proposal_market_context(connection, proposal)

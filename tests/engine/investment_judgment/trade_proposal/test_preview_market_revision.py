@@ -12,10 +12,10 @@ from tests.engine.investment_judgment.trade_proposal.test_saved_market_context i
     _market_document,
     _prepare,
 )
+from tests.helpers.assessment_history import publish_at_declared_time
 from tests.helpers.assessment_v1 import assessment_id
 from tests.helpers.proposal import PUBLISHED, backend_case, read_saved_proposal
 
-from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.query import saved_proposal_market_context
@@ -61,7 +61,7 @@ def test_new_market_reference_is_nonblocking_and_never_changes_the_saved_economi
     baseline = _preview(case, saved)
     assert saved.market_context_assessment_id is None
     later = _later_document()
-    AssessmentService(case.app).publish(later, expected_head=None)
+    publish_at_declared_time(case.app, later, expected_head=None)
     before = case.app.read_bytes()
 
     preview = _preview(case, saved)
@@ -98,7 +98,7 @@ def test_fixed_selection_market_context_stays_exact_when_a_different_reference_i
     later = _later_document()
     if same_claims:
         later = later.model_copy(update={"summary": original.summary})
-    AssessmentService(case.app).publish(later, expected_head=original.context_id)
+    publish_at_declared_time(case.app, later, expected_head=original.context_id)
     case.runs.rename(tmp_path / "unused-runs.sqlite")
     before = case.app.read_bytes()
 
@@ -123,7 +123,7 @@ def test_market_reference_uses_publication_instant_cutoff_not_offset_or_day(
     case = backend_case(tmp_path)
     _, _, saved = _publish(case)
     later = _later_document()
-    AssessmentService(case.app).publish(later, expected_head=None)
+    publish_at_declared_time(case.app, later, expected_head=None)
     now = later.published_at.astimezone(UTC) + timedelta(microseconds=microseconds)
     preview = _preview(case, saved, now=now)
     assert preview.status == ("changed" if changed else "unchanged")
@@ -136,7 +136,7 @@ def test_retry_of_the_same_fixed_market_reference_does_not_report_change(tmp_pat
     original = _market_document()
     case = _fixed_case(tmp_path, original)
     _, _, saved = _publish(case)
-    AssessmentService(case.app).publish(original, expected_head=None)
+    publish_at_declared_time(case.app, original, expected_head=None)
     before = case.app.read_bytes()
     assert _preview(case, saved).status == "unchanged"
     assert case.app.read_bytes() == before
@@ -147,7 +147,7 @@ def test_legacy_market_cutoff_is_not_inferred_from_publication(tmp_path, missing
     case = backend_case(tmp_path)
     _, _, saved = _publish(case)
     later = _later_document()
-    AssessmentService(case.app).publish(later, expected_head=None)
+    publish_at_declared_time(case.app, later, expected_head=None)
     legacy = later.payload()
     legacy["schema_version"] = 5
     if missing:
@@ -172,7 +172,7 @@ def test_broken_current_market_body_does_not_fall_back_or_block_exact_saved_read
     case = backend_case(tmp_path)
     _, _, saved = _publish(case)
     later = _later_document()
-    AssessmentService(case.app).publish(later, expected_head=None)
+    publish_at_declared_time(case.app, later, expected_head=None)
     with closing(sqlite3.connect(case.app)) as connection, connection:
         connection.execute(
             "UPDATE market_context_assessment SET payload='[]' WHERE context_id=?",

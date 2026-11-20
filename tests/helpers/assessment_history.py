@@ -361,3 +361,12 @@ def seed_history(path, payload: dict[str, Any], *, supersedes: str | None = None
         connection.commit()
     finally:
         connection.close()
+
+
+def publish_at_declared_time(path, document, *, expected_head):
+    """Synthetic on-time publication. Delay/unknown-clock controls use the real service separately."""
+    from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
+
+    return AssessmentService(path, clock=lambda: document.published_at).publish(
+        document, expected_head=expected_head
+    )
