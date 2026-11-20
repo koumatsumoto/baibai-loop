@@ -32,6 +32,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
+    R2Error,
 )
 from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
 
@@ -469,6 +470,67 @@ def legacy_bundle(store, p, *, body=b"legacy original"):
     del store.objects[retained]
     store.puts.clear()
     return legacy, retained, payload
+
+
+@pytest.mark.parametrize("retained_exists", [True, False])
+def test_bundle_reader_gets_the_exact_selected_bytes_without_a_redundant_head(
+    monkeypatch, retained_exists
+):
+    store, p = FakeObjectStore(), plan()
+    legacy, retained, _ = legacy_bundle(store, p, body=b"old bytes")
+    if retained_exists:
+        _, _, other = legacy_bundle(store, p, body=b"distinct retained bytes")
+        store.seed(retained, other, "application/gzip")
+
+    def response(key):
+        store.events.append(("GET-with-metadata", key))
+        return store.objects.get(key)
+
+    monkeypatch.setattr(store, "get_bytes_with_metadata", response, raising=False)
+    store.events.clear()
+    _, (raw,) = external_assessment_raw.read_raw_bundle(store, legacy)
+    assert raw.body == (b"distinct retained bytes" if retained_exists else b"old bytes")
+    assert store.events == (
+        [("HEAD", retained), ("GET", retained)]
+        if retained_exists
+        else [("HEAD", retained), ("HEAD", legacy), ("GET", legacy)]
+    )
+    store.events.clear()
+    if retained_exists:
+        _, (direct,) = external_assessment_raw.read_raw_bundle(store, retained)
+        assert direct == raw
+    else:
+        with pytest.raises(ValueError, match="missing"):
+            external_assessment_raw.read_raw_bundle(store, retained)
+    assert store.events == [("GET-with-metadata", retained)]
+    if not retained_exists:
+        del store.objects[legacy]
+        store.events.clear()
+        with pytest.raises(ValueError, match="missing"):
+            external_assessment_raw.read_raw_bundle(store, legacy)
+        assert store.events == [("HEAD", retained), ("HEAD", legacy)]
+
+
+@pytest.mark.parametrize("fault", ["404", "403", "429", "invalid"])
+@pytest.mark.parametrize("retained_exists", [True, False])
+def test_a_failed_get_after_positive_head_never_reselects(monkeypatch, fault, retained_exists):
+    store = FakeObjectStore()
+    legacy, retained, payload = legacy_bundle(store, plan())
+    if retained_exists:
+        store.seed(retained, payload)
+
+    def body(key):
+        assert key == (retained if retained_exists else legacy)
+        if fault != "invalid":
+            raise R2Error(fault)
+        return b"not a tar archive"
+
+    monkeypatch.setattr(store, "get_bytes", body)
+    monkeypatch.setattr(
+        store, "get_bytes_with_metadata", lambda _: pytest.fail("reselected key"), raising=False
+    )
+    with pytest.raises(ValueError if fault == "invalid" else R2Error, match=fault):
+        external_assessment_raw.read_raw_bundle(store, legacy)
 
 
 def test_preserve_legacy_bundle_without_rewriting_identity_or_original():

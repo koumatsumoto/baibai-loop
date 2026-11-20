@@ -27,6 +27,7 @@ from baibai_engine.data_collection.receipts.public_pages.receipts import (
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakePublishError,
+    ObjectMetadataReader,
     ObjectStore,
 )
 from baibai_jobs.acquisition.external_assessments.identity import (
@@ -214,17 +215,27 @@ class RawBundle:
             raise LakePublishError("external assessment raw bundle write receipt mismatch")
 
 
+def _read_bundle_bytes(store: ObjectStore, key: str) -> bytes | None:
+    retained = retained_key(key)
+    if retained == key and isinstance(store, ObjectMetadataReader):
+        saved = store.get_bytes_with_metadata(key)
+        return saved[0] if saved is not None else None
+    # A legacy reference has two locations. Once HEAD chooses one, a failed
+    # body read must not silently switch locations.
+    if store.head(retained) is not None:
+        return store.get_bytes(retained)
+    if retained != key and store.head(key) is not None:
+        return store.get_bytes(key)
+    return None
+
+
 def read_raw_bundle(
     store: ObjectStore, key: str
 ) -> tuple[dict[str, Any], tuple[EquityWebSourceResponse, ...]]:
     """Validate canonical v2 receipts and bytes without extracting paths to disk."""
-    retained = retained_key(key)
-    # 旧stageの参照文字列は保持し、同じbytesの保全copyを優先して読む。
-    retained_object = store.head(retained)
-    actual = retained if retained_object is not None else key
-    if retained_object is None and (actual == retained or store.head(actual) is None):
+    payload = _read_bundle_bytes(store, key)
+    if payload is None:
         raise ValueError("external original is missing; keep this source incomplete")
-    payload = store.get_bytes(actual)
     try:
         return _decode_raw_bundle(payload, key)
     except (tarfile.TarError, gzip.BadGzipFile, EOFError, zlib.error) as error:
