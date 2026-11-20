@@ -114,6 +114,16 @@ class DiscoveryIndexRead:
     universe_tickers: tuple[str, ...] = ()
     price_session: NativePriceSession | None = None
 
+    def listing_dates(self) -> dict[str, tuple[str | None, str | None, str | None]]:
+        """Edition-specific cross-check dates, never a replacement for the financial quote."""
+        expected = self.price_session.expected_date if self.price_session else None
+        return {
+            r["ticker"]: (r["sector"], None, expected.isoformat() if expected else None)
+            if is_session_row(r)
+            else (r["sector"], r["price_date"], r["expected_price_date"])
+            for r in self.rows
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class DiscoverySelection:
