@@ -9,7 +9,7 @@
 一次資料・共通観測・PortfolioもL3へ直接渡し、候補外も同じGenerationを使える。必須DAGやagent群ではない。
 
 - **L1 / Data Collection**は受領原本または明示したprovider-native表現。**Observations**はその投影・正規化で、原本を代替しない。
-- **L2 / Machine Analysis**は入力と規則から再現できる観測・計算・候補抽出。解析モデルは分析観点で、機械学習に限らない。**ModelGeneration**（以下Generation）は固定入力・対象・予定モデルと結果のまとまりで、観測日は同一とは限らない。**ScreeningSelection**は保存モデルへ候補政策を適用した候補と理由で、モデル生成・追加や買付採否とは別。
+- **L2 / Machine Analysis**は入力と規則から再現できる観測・計算・候補抽出。解析モデルは分析観点で、機械学習に限らない。**ModelGeneration**（以下Generation）は固定入力・対象・予定モデルと結果のまとまりで、観測日は同一とは限らない。**ScreeningSelection**は保存モデルから公開する探索観測と理由で、モデル生成や買付採否ではない。
 - **L3 / Investment Judgment**は部分的企業理解（Research）、価値・価格・成立条件（Assessment）、別作業者の根拠・仮定・算術・反証確認（Review）、現価格/cash/保有への適用（Proposal）を担う。算術は仮定を事実にせず、Reviewは安全保証や注文承認ではない。
 - **Research Selection**は明示依頼の有限対象・問い・入力で、機械候補のScreeningSelectionと分ける。**Operation**は進行・成果・再開を管理する。completedと再開はskillへ。**Market Assessment**は独立したL3入口で、L2のMarket Contextとは別。
 
