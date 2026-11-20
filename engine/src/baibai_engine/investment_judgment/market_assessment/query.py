@@ -126,12 +126,21 @@ def latest_assessment_from_connection(
     require_aware(known_at)
     rows = connection.execute(
         "SELECT context_id,as_of,published_at,schema_version FROM market_context_assessment "
-        "WHERE schema_version IN (3,4,5,6,?) AND as_of<=?",
-        (RECEIPTED_ENVELOPE_VERSION, as_of.isoformat()),
+        "WHERE as_of<=?",
+        (as_of.isoformat(),),
     )
     eligible: list[tuple[datetime, date, str]] = []
     unknown: set[str] = set()
     for row in rows:
+        version = row["schema_version"]
+        if version not in (3, 4, 5, ASSESSMENT_SCHEMA_VERSION, RECEIPTED_ENVELOPE_VERSION):
+            if require_receipt:
+                # An unknown edition cannot establish the meaning of its clock.
+                # Do not interpret it even to exclude this publication after C.
+                raise ValueError(
+                    f"unsupported market publication envelope {version}: {row['context_id']}"
+                )
+            continue  # Ordinary analytical latest still ignores unsupported publications.
         instant = require_aware(datetime.fromisoformat(str(row["published_at"])))
         if instant > known_at:
             continue
