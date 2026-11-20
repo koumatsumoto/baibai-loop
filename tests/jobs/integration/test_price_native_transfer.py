@@ -1,23 +1,33 @@
 """SQLite転送の順序を変えても全値・固定入力・coverageと原子性を保つ。"""
 
+import hashlib
 import json
 import sqlite3
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from threading import Barrier, Lock
 
 import pytest
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
-from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
+from baibai_engine.data_collection.providers.jquants.price_native import (
+    MAX_PACK_BYTES,
+    PREFIX,
+    PriceAttempt,
+    PriceL1,
+)
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_observation_reader import (
     read_price_day_states,
 )
+from baibai_engine.storage.objects.r2 import LakePublishError, R2Error
 from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration import price_native
+from baibai_jobs.publication.l1_price_export import export_prices_from_native_input
 
 DAY = date(2026, 10, 31)
 AT = datetime(2026, 11, 4, tzinfo=UTC)
@@ -411,3 +421,156 @@ def test_verified_rows_do_not_turn_discarded_conflicts_into_errors_or_cross_requ
         )
     with pytest.raises(JQuantsProviderError, match="conflicting daily bars"):
         rebuild_price_days((early_item,), days=(DAY,), prepared=state)
+
+
+def _fixed_pack_boundaries(store, tmp_path):
+    # Distinct packs can span a month boundary or contain nonadjacent
+    # correction dates, so the existing planner must use three month batches.
+    pack_ids = "D" * 18 + "A" * 9 + "C" * 8 + "A" * 10 + "E" * 19 + "B"
+    start = date(2026, 10, 16)
+    end = start + timedelta(days=len(pack_ids) - 1)
+    stamp = datetime.combine(end + timedelta(days=1), datetime.min.time(), UTC)
+    owner = PriceL1(store, tmp_path / "native")
+    owner.initialize()
+    groups = {}
+    for i, tag in enumerate(pack_ids):
+        day = (start + timedelta(days=i)).isoformat()
+        rows = (
+            []
+            if i == 20
+            else [
+                {
+                    "Code": "13010",
+                    "Date": day,
+                    "O": 101 + i,
+                    "H": 105 + i,
+                    "L": 99 + i,
+                    "C": 103 + i,
+                    "Vo": 1234,
+                    "Va": 127102,
+                    "AdjFactor": 0.5,
+                    "UL": "1",
+                    "LL": "0",
+                    "ExRT": "1",
+                    "MktCap": 12345.5,
+                }
+            ]
+        )
+        groups.setdefault(tag, []).append(
+            PriceAttempt(
+                str(i),
+                date.fromisoformat(day),
+                stamp,
+                (
+                    JQuantsPage(
+                        "daily_bars", {"date": day}, stamp, json.dumps({"data": rows}).encode()
+                    ),
+                ),
+            )
+        )
+    for attempts in groups.values():
+        owner.commit(attempts)
+    return owner.fixed(), end, stamp
+
+
+def _pack_reads(store):
+    return [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
+
+
+def test_daily_pack_prefetch_preserves_fixed_input_sqlite_and_parquet_bytes(tmp_path, monkeypatch):
+    store = MemoryR2Store()
+    fixed, day, stamp = _fixed_pack_boundaries(store, tmp_path)
+    raw = {
+        key: hashlib.sha256(value.body).hexdigest()
+        for key, value in store.values.items()
+        if key.startswith(PREFIX)
+    }
+    results = []
+    bounded_reads = []
+    get = store.get_bytes_with_metadata
+
+    def read_bounded(key, *, sha256, max_bytes):
+        assert key == PREFIX + "packs/" + sha256 + ".json.gz"
+        assert max_bytes == MAX_PACK_BYTES + 128 * 1024
+        bounded_reads.append(key)
+        loaded = get(key)
+        assert loaded is not None
+        assert 0 < len(loaded[0]) <= max_bytes
+        return loaded[0]
+
+    monkeypatch.setattr(store, "get_verified_bytes", read_bounded, raising=False)
+    for kind in ("serial", "prefetch"):
+        store.get_keys.clear()
+        market = market_store(tmp_path / (kind + ".sqlite"))
+        with monkeypatch.context() as options:
+            if kind == "serial":
+                options.setattr(price_native, "prefetch_price_packs", lambda *a, **k: nullcontext())
+            identity = price_native.model_input(
+                store, fixed, as_of=day, evaluated_at=stamp, market=market
+            )
+        mirror = tmp_path / kind
+        with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=mirror) as snapshot:
+            report = export_prices_from_native_input(
+                source_snapshot=snapshot,
+                saved=identity,
+                mirror_root=mirror,
+                producer_git_commit="f" * 40,
+                build_id="fixed",
+                created_at=stamp,
+            )
+        results.append((identity.model_dump_json(), rows_at(market), report.manifest.partitions))
+        keys = _pack_reads(store)
+        assert len(keys) == (7 if kind == "serial" else 5)
+        assert set(keys) == set(raw) - {PREFIX + "head.json"}
+    assert results[0] == results[1]
+    assert len(bounded_reads) == 5
+    assert set(bounded_reads) == set(raw) - {PREFIX + "head.json"}
+    assert {key: hashlib.sha256(store.values[key].body).hexdigest() for key in raw} == raw
+
+
+@pytest.mark.parametrize("failure", ["missing", "corrupt", "refused"])
+def test_prefetch_bounded_at_first_failed_pack_and_rolls_back(tmp_path, monkeypatch, failure):
+    store = MemoryR2Store()
+    fixed, day, stamp = _fixed_pack_boundaries(store, tmp_path)
+    price = fixed.value()
+    first_id = price["scopes"][min(price["scopes"])]["adopted"]
+    bad = PREFIX + "packs/" + price["receipts"][first_id]["pack"] + ".json.gz"
+    first_group = Barrier(3, timeout=3)
+    lock = Lock()
+    touched = []
+    read = store.get_bytes_with_metadata
+
+    def fail(key):
+        if not key.startswith(PREFIX + "packs/"):
+            return read(key)
+        with lock:
+            touched.append(key)
+            if len(touched) > 3:
+                pytest.fail("scheduled beyond the initial lookahead after failure")
+        first_group.wait()
+        if key == bad:
+            if failure == "missing":
+                return None
+            if failure == "refused":
+                raise R2Error("fixed first request rejected")
+            changed = b"wrong original bytes"
+            remote = store.head(key)
+            assert remote is not None
+            return changed, replace(
+                remote, size=len(changed), metadata={"sha256": hashlib.sha256(changed).hexdigest()}
+            )
+        # An independently broken later pack must not mask the leftmost failure.
+        raise R2Error("subsequent pack rejected")
+
+    monkeypatch.setattr(store, "get_bytes_with_metadata", fail)
+    market = market_store(tmp_path / "market.sqlite", daily_bars=(("9999", DAY.isoformat(), 9, 1),))
+    before = rows_at(market)
+    store.put_keys.clear()
+    error = R2Error if failure == "refused" else LakePublishError
+    label = "fixed first request rejected" if failure == "refused" else "fixed full-day L1 pack"
+    with pytest.raises(error, match=label):
+        price_native.model_input(store, fixed, as_of=day, evaluated_at=stamp, market=market)
+    assert len(touched) == len(set(touched)) == 3
+    assert bad in touched
+    assert rows_at(market) == before
+    assert not store.put_keys

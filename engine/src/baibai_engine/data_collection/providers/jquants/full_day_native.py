@@ -12,9 +12,13 @@ import gzip
 import json
 import sqlite3
 import zlib
+from collections import deque
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from itertools import groupby
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol, Self
 
@@ -33,7 +37,12 @@ from baibai_engine.data_collection.providers.jquants.native_objects import (
     _put,
     _read,
 )
-from baibai_engine.storage.objects.r2 import LakePublishError, ObjectMetadataReader, ObjectStore
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
+    ObjectMetadataReader,
+    ObjectStore,
+    VerifiedObjectReader,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +244,66 @@ def full_day_request_packs(
             yield identity, receipts[identity]["pack"]
 
 
+type ReadFixedPack = Callable[[str], bytes]
+
+
+def _verified_pack(
+    store: ObjectStore, contract: FullDayContract, digest: str, *, max_bytes: int | None = None
+) -> bytes:
+    key = contract.prefix + "packs/" + digest + ".json.gz"
+    if max_bytes is not None and isinstance(store, VerifiedObjectReader):
+        payload = store.get_verified_bytes(key, sha256=digest, max_bytes=max_bytes)
+    else:
+        payload = _read_fixed_pack(store, key)
+    if payload is None or (max_bytes is not None and len(payload) > max_bytes):
+        raise LakePublishError("fixed full-day L1 pack is unavailable")
+    if _digest(payload) != digest:
+        raise LakePublishError("fixed full-day L1 pack is unavailable")
+    return payload
+
+
+@contextmanager
+def prefetch_fixed_packs(
+    store: ObjectStore,
+    contract: FullDayContract,
+    *,
+    digests: Sequence[str],
+    width: int,
+    max_bytes: int,
+) -> Iterator[ReadFixedPack]:
+    """Overlap verified GETs with decoding, in fixed order and within this execution."""
+    # A pack that straddles two consecutive batches needs only one verified body.
+    order = (digest for digest, _ in groupby(digests))
+    pending: deque[tuple[str, Future[bytes]]] = deque()
+    last: tuple[str, bytes] | None = None
+    pool = ThreadPoolExecutor(max_workers=width)
+    try:
+
+        def read(digest: str) -> bytes:
+            nonlocal last
+            if last is not None and digest == last[0]:
+                return last[1]
+            # Refill only after the caller has successfully consumed the previous pack.
+            # A refused/corrupt pack cannot schedule work beyond its existing lookahead.
+            while len(pending) < width and (next_digest := next(order, None)) is not None:
+                future = pool.submit(
+                    _verified_pack, store, contract, next_digest, max_bytes=max_bytes
+                )
+                pending.append((next_digest, future))
+            if not pending or pending[0][0] != digest:
+                raise ValueError("fixed full-day pack read order differs from plan")
+            _, future = pending.popleft()
+            payload = future.result()
+            last = digest, payload
+            return payload
+
+        yield read
+        if pending or next(order, None) is not None:
+            raise ValueError("fixed full-day pack read plan was not consumed")
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
 type VerifiedDayRows = Callable[[str, JQuantsRequest, list[dict[str, Any]]], None]
 
 
@@ -247,6 +316,7 @@ def read_full_day_requests(
     contract: FullDayContract,
     attempt_type: type[FullDayAttempt],
     consume: VerifiedDayRows | None = None,
+    read_pack: ReadFixedPack | None = None,
 ) -> Iterator[RetainedRequest]:
     """Read digest-verified packs using an explicitly fixed head or saved input selection."""
     by_pack: dict[str, set[str]] = {}
@@ -254,9 +324,9 @@ def read_full_day_requests(
         for identity, digest in full_day_request_packs(scopes.get(day.isoformat(), {}), receipts):
             by_pack.setdefault(digest, set()).add(identity)
     for digest, identities in by_pack.items():
-        payload = _read_fixed_pack(store, contract.prefix + "packs/" + digest + ".json.gz")
-        if payload is None or _digest(payload) != digest:
-            raise LakePublishError("fixed full-day L1 pack is unavailable")
+        payload = (
+            read_pack(digest) if read_pack is not None else _verified_pack(store, contract, digest)
+        )
         values = json.loads(gzip.decompress(payload))
         found: set[str] = set()
         for raw in values:
