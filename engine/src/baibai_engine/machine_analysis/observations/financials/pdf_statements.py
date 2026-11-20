@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.primitives.time import JST
 
-REVISION = "pdf-restated-display-statements-v5-period-basis"
+REVISION = "pdf-restated-display-statements-v6-jp-interim-headline"
 type Metric = Literal["sales", "operating_profit", "parent_profit"]
 _ROWS: dict[Metric, tuple[str, ...]] = {
     "sales": ("売上高", "売上収益"),
@@ -338,23 +338,62 @@ def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatemen
     _require(len(dates) == 1, "pdf_publication_date_unknown")
     published = _date(dates[0])
     _require(published <= base.received_at.astimezone(JST).date(), "pdf_publication_after_receipt")
-    heading = first.split("(注)", 1)[0]
-    rows = []
-    for line in heading.splitlines():
-        tokens = line.split()
-        if len(tokens) == 9 and re.fullmatch(r"\d{4}年\d+月期第1四半期", tokens[0]):
-            rows.append(tokens)
-    _require(len(rows) == 2, "pdf_headline_columns_unknown")
+    interim = re.fullmatch(
+        r"(\d{4}年\d+月期)第2四半期\(中間期\)決算短信〔日本基準〕\(連結\)",
+        _compact(first.splitlines()[0]),
+    )
+    role = "中間期" if interim else "第1四半期"
+    profit_label = "親会社株主に帰属する" + ("中間純利益" if interim else "四半期純利益")
+    if interim:
+        # Restrict both the table and its restatement note to reported earnings.
+        # A balance/forecast table or note later on the same page is not proof.
+        boundary = re.search(r"(?m)^\s*\(2\)\s*連結財政状態", first)
+        _require(boundary is not None, "pdf_headline_columns_unknown")
+        assert boundary is not None
+        first = first[: boundary.start()]
+        compact = _compact(first)
+    lines = first.split("(注)", 1)[0].splitlines()
+    row_label = rf"(\d{{4}})年(\d+)月期{role}"
+    indexed = [
+        (index, tokens)
+        for index, line in enumerate(lines)
+        if len(tokens := line.split()) == 9 and re.fullmatch(row_label, tokens[0])
+    ]
+    _require(len(indexed) == 2, "pdf_headline_columns_unknown")
+    rows = [tokens for _, tokens in indexed]
+    if interim:
+        _require(
+            rows[0][0] == interim[1] + role and indexed[1][0] == indexed[0][0] + 1,
+            "pdf_headline_period_conflict",
+        )
+        actual = _compact("".join(lines[: indexed[0][0]]))
+        period = re.search(
+            r"1\."
+            + re.escape(interim[1])
+            + r"第2四半期\(中間期\)の連結業績\("
+            + _DATE
+            + r"[~〜～]"
+            + _DATE
+            + r"\)\(1\)連結経営成績\(累計\)(?:\(%表示は、対前年中間期増減率\))?"
+            + "売上高営業利益経常利益"
+            + profit_label
+            + r"(?:百万円%){4}$",
+            actual,
+        )
+        _require(period is not None, "pdf_metric_headers_unsupported")
+    else:
+        period = re.search(r"連結業績[（(]" + _DATE + r"[~〜～]" + _DATE, compact)
     ends = []
     for row in rows:
-        header = re.fullmatch(r"(\d{4})年(\d+)月期第1四半期", row[0])
+        header = re.fullmatch(row_label, row[0])
         assert header is not None
         year, month = int(header[1]), int(header[2])
         ends.append(date(year, month, monthrange(year, month)[1]))
     current_start = add_months_clamped(ends[0], -12) + timedelta(days=1)
     prior_start = add_months_clamped(ends[1], -12) + timedelta(days=1)
-    current_end = add_months_clamped(current_start, 3) - timedelta(days=1)
-    prior_end = add_months_clamped(prior_start, 3) - timedelta(days=1)
+    months = 6 if interim else 3
+    current_end = add_months_clamped(current_start, months) - timedelta(days=1)
+    prior_end = add_months_clamped(prior_start, months) - timedelta(days=1)
     _require(
         prior_year_dates_match(
             prior_start,
@@ -367,7 +406,6 @@ def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatemen
         "pdf_comparative_period_mismatch",
     )
     _require(current_end <= published, "pdf_period_headers_invalid")
-    period = re.search(r"連結業績[（(]" + _DATE + r"[~〜～]" + _DATE, compact)
     _require(
         period is not None
         and _date((period[1], period[2], period[3])) == current_start
@@ -382,7 +420,7 @@ def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatemen
     )
     _require(basis is not None, "pdf_comparative_basis_not_explicit")
     _require(
-        "売上高営業利益経常利益親会社株主に帰属する四半期純利益" in compact,
+        "売上高営業利益経常利益" + profit_label in compact,
         "pdf_metric_headers_unsupported",
     )
     assert basis is not None
@@ -400,7 +438,7 @@ def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatemen
         for metric, column, label in (
             ("sales", 1, "売上高"),
             ("operating_profit", 3, "営業利益"),
-            ("parent_profit", 7, "親会社株主に帰属する四半期純利益"),
+            ("parent_profit", 7, profit_label),
         )
     )
     # The headline's first row is current, unlike the IFRS detailed PL.
