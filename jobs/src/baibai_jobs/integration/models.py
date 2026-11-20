@@ -151,6 +151,7 @@ def _external_readback_options(
 
     return {"retain_verified_readback": retain}
 
+
 def integrate_models(
     *,
     store: FinancialObjectStore,
