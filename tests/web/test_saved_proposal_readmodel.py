@@ -5,6 +5,7 @@ import sqlite3
 from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
@@ -23,9 +24,13 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
+from baibai_engine.investment_judgment.trade_proposal.query import SavedProposalReportContext
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import initialize_database
+from baibai_web.readmodel.builders import proposal as proposal_builder
 from baibai_web.readmodel.builders.proposal import project_saved_proposal
+from baibai_web.readmodel.proposal_models import SavedAssessmentSourceView
+from baibai_web.sources import proposal as proposal_source
 from baibai_web.sources.proposal import read_proposal_views
 
 
@@ -212,6 +217,52 @@ def test_model_perspectives_project_exact_judgments_sources_and_missingness(payl
     assert [s.model_dump(mode="json") for s in assessment.model_perspective_sources] == expected
     assert pair.document.model_dump_json() == before
     assert len(assessment.model_perspectives) == 2  # Other five are absent, not neutral/zero.
+
+
+def test_single_projection_keeps_fixed_context_on_current_assessment_only(payload, mocker):
+    pair = _pair()
+    _current(payload, pair)
+    _holding(payload, action="hold", original={"original_assessment_ref": _ref(pair)})
+    proposal = TradeProposal.model_validate(payload)
+    sha = proposal.research_scope.selection_sha256
+    context = SavedProposalReportContext(
+        market={
+            "source": "proposal_fixed_selection",
+            "selection_sha256": sha,
+            "status": "not_recorded",
+            "assessment": None,
+        },
+        charts={
+            pair.assessment_id: {
+                "selection_sha256": sha,
+                "input_known_at": proposal.prepared_at,
+                "research_as_of": proposal.as_of,
+                "generation_id": None,
+                "rows": [],
+            }
+        },
+        issuer_names={},
+    )
+    mocker.patch.object(
+        proposal_source,
+        "load_proposal_with_assessments",
+        return_value=(proposal, {pair.assessment_id: pair}),
+    )
+    mocker.patch.object(proposal_source, "saved_proposal_report_context", return_value=context)
+    projects = mocker.spy(proposal_builder, "_assessment")
+    writes = mocker.spy(SavedAssessmentSourceView, "model_validate")
+
+    item = proposal_source._project(
+        None, proposal.proposal_id, records=SimpleNamespace(read=lambda _: ([], []))
+    ).items[0]
+
+    projects.assert_called_once_with(pair)
+    assert sorted(call.args[0].source_id for call in writes.call_args_list) == ["annual", "price"]
+    assert item.assessment.estimated_model_chart.selection_sha256 == sha
+    assert item.original_assessment.estimated_model_chart is None
+    assert item.assessment.model_dump(exclude={"estimated_model_chart"}) == (
+        item.original_assessment.model_dump(exclude={"estimated_model_chart"})
+    )
 
 
 def test_legacy_model_perspectives_remain_unrecorded(payload):
