@@ -665,8 +665,12 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
                 str(tmp_path / "app"),
                 "--format",
                 "json",
-                "record-proposal",
+                "complete",
                 prepared.operation_id,
+                "--result",
+                "proposal complete",
+                "--next",
+                "human decision",
                 "--proposal-id",
                 proposal.proposal_id,
             ],
@@ -678,6 +682,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     operation = service.get(prepared.operation_id)
     complete = service.complete(
         prepared.operation_id,
+        proposal_id=proposal.proposal_id,
         result="proposal complete",
         next="human decision",
         completed_at=NOW,

@@ -208,11 +208,9 @@ def test_preview_does_not_require_active_operation_or_compare_current_progress(t
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
-    recorded = case.operations.record_proposal(
-        case.operation.operation_id, proposal.proposal_id, now=PUBLISHED
-    )
     case.operations.complete(
-        recorded.operation_id,
+        case.operation.operation_id,
+        proposal_id=proposal.proposal_id,
         result="完成した比較で見送る。",
         next="重要な変化があれば新Research。",
         completed_at=PUBLISHED,

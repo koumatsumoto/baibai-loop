@@ -75,11 +75,9 @@ def test_scaffold_and_revisit_use_exact_market_after_operation_completion(
     case, proposal, runs, original = _case(tmp_path, action=action)
     expected = saved_market_assessment(selection_binding(case.operation.payload))
     operations = OperationService(case.app)
-    bound = operations.record_proposal(
-        case.operation.operation_id, proposal.proposal_id, now=PUBLISHED
-    )
     operations.complete(
-        bound.operation_id,
+        case.operation.operation_id,
+        proposal_id=proposal.proposal_id,
         result="合成判断を保存した",
         next="後日比較",
         completed_at=PUBLISHED + timedelta(minutes=1),

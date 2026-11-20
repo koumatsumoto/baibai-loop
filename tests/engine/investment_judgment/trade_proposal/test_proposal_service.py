@@ -86,11 +86,9 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
         ).fetchone()
     assert binding == ("1234", "proposal", published.review.draft_sha256)
     assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
-    recorded = case.operations.record_proposal(
-        case.operation.operation_id, published.proposal_id, now=PUBLISHED
-    )
     completed = case.operations.complete(
-        recorded.operation_id,
+        case.operation.operation_id,
+        proposal_id=published.proposal_id,
         result="合成提案を発行した。",
         next="本人が採否と証券画面の条件を確認する。",
         completed_at=PUBLISHED,
@@ -145,14 +143,18 @@ def test_published_unbound_unfinished_proposal_cannot_be_skipped(case, monkeypat
     }
     if publication == "changed_reason":
         with pytest.raises(OperationCompletionError, match="fixed coverage"):
-            case.operations.record_proposal(
-                operation.operation_id, proposal.proposal_id, now=PUBLISHED
+            case.operations.complete(
+                operation.operation_id,
+                proposal_id=proposal.proposal_id,
+                result="理由変更",
+                next="再確認",
+                completed_at=PUBLISHED,
             )
         assert case.operations.get(operation.operation_id) == operation
     else:
-        case.operations.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
         completed = case.operations.complete(
             operation.operation_id,
+            proposal_id=proposal.proposal_id,
             result="未完了を明示した提案を保存し作業を終了",
             next="不足する資料を確認する",
             completed_at=PUBLISHED,
@@ -172,10 +174,12 @@ def test_reviewed_defer_still_requires_a_bound_published_proposal(tmp_path):
     published = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
     ).publish(proposal)
-    case.operations.record_proposal(
-        case.operation.operation_id, published.proposal_id, now=PUBLISHED
+    assert (
+        case.operations.complete(
+            case.operation.operation_id, proposal_id=published.proposal_id, **notes
+        ).status
+        == "completed"
     )
-    assert case.operations.complete(case.operation.operation_id, **notes).status == "completed"
 
 
 def test_unfinished_completion_prevents_later_new_proposal_publication(case):

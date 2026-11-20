@@ -76,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="close an active session once its kind's completion requirements hold",
     )
     complete.add_argument("operation_id")
+    complete.add_argument("--proposal-id", help="exact published proposal for the current outcomes")
     complete.add_argument("--result", required=True, help="summary of the work and its outcome")
     complete.add_argument("--next", required=True, help="next action after this Operation")
     assessment = commands.add_parser(
@@ -83,11 +84,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     assessment.add_argument("operation_id")
     assessment.add_argument("--assessment-id", required=True)
-    proposal = commands.add_parser(
-        "record-proposal", help="bind an immutable published Trade Proposal"
-    )
-    proposal.add_argument("operation_id")
-    proposal.add_argument("--proposal-id", required=True)
     unfinished = commands.add_parser(
         "record-unfinished", help="record unfinished research separately from economic rejection"
     )
@@ -139,15 +135,15 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 )
             elif args.command == "complete":
                 operation = service.complete(
-                    args.operation_id, result=args.result, next=args.next, completed_at=current_time
+                    args.operation_id,
+                    proposal_id=args.proposal_id,
+                    result=args.result,
+                    next=args.next,
+                    completed_at=current_time,
                 )
             elif args.command == "record-assessment":
                 operation = service.record_assessment(
                     args.operation_id, args.assessment_id, now=current_time
-                )
-            elif args.command == "record-proposal":
-                operation = service.record_proposal(
-                    args.operation_id, args.proposal_id, now=current_time
                 )
             elif args.command == "record-unfinished":
                 operation = service.record_unfinished(

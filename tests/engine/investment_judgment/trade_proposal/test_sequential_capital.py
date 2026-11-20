@@ -127,11 +127,9 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
                 assert published.portfolio_exposure.common_factors[0].key == "cycle"
             else:
                 assert "5678" in published.portfolio_exposure.common_factor_unclassified_tickers
-        operation = case.operations.record_proposal(
-            operation.operation_id, published.proposal_id, now=now
-        )
         completed = case.operations.complete(
             operation.operation_id,
+            proposal_id=published.proposal_id,
             result="具体条件まで提案を完成した。",
             next="本人の採否・broker操作と報告を待つ。",
             completed_at=now,
