@@ -42,7 +42,7 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
 )
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
-from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker, sector_33_peer_key
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -359,6 +359,20 @@ def _validate_model_cutoff(models: ModelInputSlice, as_of: date, known_at: datet
         raise ValueError("chosen generation is after the research cutoff")
 
 
+def _withhold_unclassified_sector_peer(payload: dict[str, Any]) -> bool:
+    master = payload.get("master")
+    sector = master.get("sector_33") if isinstance(master, dict) else None
+    relative = payload.get("relative")
+    if sector_33_peer_key(sector) is not None or not isinstance(relative, dict):
+        return False
+    if not isinstance(relative.get("sector"), dict):
+        return False
+    # 旧保存に架空の「その他同業」があっても、比較未成立を相対騰落にしない。
+    relative["sector"] = None
+    relative["sector_unavailable_reason"] = "unclassified_sector"
+    return True
+
+
 def _model_context(
     models: ModelInputSlice, detail_targets: set[str], *, compact: bool
 ) -> dict[str, Any]:
@@ -400,7 +414,10 @@ def _model_context(
                 else "shared_subjects"
             )
             payload = model_inputs[group][model.subject]["models"][model.model_id]
-        if payload.pop("full_result_ref", None) is not None:
+        projected = payload.pop("full_result_ref", None) is not None
+        if model.model_id == "market_context" and model.subject in detail_targets:
+            projected |= _withhold_unclassified_sector_peer(payload)
+        if projected:
             # A slice index need not match the full Generation's model order.
             payload["generation_model_ref"] = {
                 "generation_id": models.generation_id,
