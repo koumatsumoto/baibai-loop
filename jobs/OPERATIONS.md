@@ -234,7 +234,7 @@ publish.shは引数なし。台帳preflight→取得世代への条件付きback
 
 本人が追加backupを不要と明示し、更新後Appが旧提案・評価・台帳等の全旧行を保持することを旧新の正規copyで照合した追加専用反映では、`R2_APP_BACKUP_CREATE=skip` で新しいbackup生成だけを省略できる。既定はretain。取得ETag照合と最終If-Matchは省略されず、未知世代・競合は停止する。旧backupの削除を止めるフラグは `R2_APP_BACKUP_PRUNE=skip`。両方のskipは、旧backupを削除せず、新backup作成も上記条件で意図して省くときだけ使う。既存情報を書き換える一般更新へこの省略判断を流用しない。
 
-保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。非0・無応答は元App世代と対象IDを読戻す。本体PUT済みなら再送せず、表示だけ未起動ならActionsで確認してcloud-materializeを起動する。通常はcurrent schemaだけを開き、自動移行しない。旧schema29を調査する場合は、[切替時の版](https://github.com/koumatsumoto/baibai-loop/tree/26561b8fc99099ed1d221f4b664b2026511d4b7c)で隔離したコピーを読む。30へ変換が必要な場合もその版の `tools.enable_share_conversions` で未存在の別ファイルへ出し、保存row・ID・hashを照合する。後続の記録を持つ正本へ旧DBを戻さず、旧版の未公開差分だけを現世代へ正規手順で引き継ぐ。
+保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。非0・無応答では元App世代と対象IDを読戻し、不明なまま再送しない。PUT済みで表示runが未作成と確認できたときだけ、cloud-materializeを起動する。通常はcurrent schemaだけを開き、自動移行しない。旧schema29を調査する場合は、[切替時の版](https://github.com/koumatsumoto/baibai-loop/tree/26561b8fc99099ed1d221f4b664b2026511d4b7c)で隔離したコピーを読む。30へ変換が必要な場合もその版の `tools.enable_share_conversions` で未存在の別ファイルへ出し、保存row・ID・hashを照合する。後続の記録を持つ正本へ旧DBを戻さず、旧版の未公開差分だけを現世代へ正規手順で引き継ぐ。
 
 ### application DB を復元する
 
