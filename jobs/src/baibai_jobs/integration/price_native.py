@@ -9,15 +9,15 @@ import os
 import sqlite3
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Iterator, Sequence
-from contextlib import closing
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import closing, contextmanager
 from datetime import date, datetime, timedelta
 from itertools import batched, groupby
 from operator import itemgetter
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
-import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import JsonValue
 
@@ -36,15 +36,18 @@ from baibai_engine.machine_analysis.generation.price_inputs import (
     with_calendar_closures,
 )
 from baibai_engine.machine_analysis.observations.prices.from_l1 import (
+    PRICE_BAR_SCHEMA,
     PriceBatchRows,
     PriceDay,
-    materialize_price_days,
+    PriceReceiptRow,
+    price_bars_to_arrow,
+    price_receipts_to_arrow,
     rebuild_price_days,
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
-from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.models import CoverageStatus
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 
 _PRICE_PACK_PREFETCH = 3
@@ -304,7 +307,11 @@ def _descriptor(saved: InputSnapshot) -> dict[str, JsonValue]:
 
 
 def saved_interval(saved: InputSnapshot) -> tuple[date, date]:
-    summary = _descriptor(saved)["summary"]
+    return _saved_interval(_descriptor(saved))
+
+
+def _saved_interval(descriptor: dict[str, JsonValue]) -> tuple[date, date]:
+    summary = descriptor["summary"]
     if not isinstance(summary, dict):
         raise ValueError("native price input requires a selection summary")
     start, end = summary.get("selection_start"), summary.get("selection_end")
@@ -316,52 +323,78 @@ def saved_interval(saved: InputSnapshot) -> tuple[date, date]:
     return first, last
 
 
-def materialize_saved_input(
+@contextmanager
+def _cold_price_output(output: Path, *, include_head: bool = False) -> Iterator[Path]:
+    if output.exists(follow_symlinks=False):
+        raise FileExistsError(f"price rebuild output already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".price-rebuild-", dir=output.parent) as directory:
+        staged = Path(directory)
+        yield staged
+        # mkdir must not replace even an empty directory claimed by another rebuild.
+        output.mkdir()
+        names = ("daily_bars.parquet", "price_receipt_status.parquet")
+        for name in (*names, "head.json") if include_head else names:
+            (staged / name).rename(output / name)
+        (staged / "input.json").rename(output / "input.json")
+
+
+def _write_cold_price_parquet(
     store: ObjectStore,
-    saved: InputSnapshot,
-    connection: duckdb.DuckDBPyConnection,
     *,
-    days: Sequence[date],
+    scopes: dict[str, Any],
+    receipts: dict[str, Any],
+    batches: Iterable[Sequence[date]],
+    staged: Path,
+    saved_selection: bool,
 ) -> dict[str, Any]:
-    saved_interval(saved)
     counts: dict[str, Any] = {
-        "days": len(days),
+        "days": 0,
         "rows": 0,
         "unavailable": 0,
         "partial": 0,
         "incomplete": 0,
-        "failed": 0,
-        "held": 0,
-        "closed_unrequested": 0,
     }
+    if saved_selection:
+        counts.update(failed=0, held=0, closed_unrequested=0)
     complete = raw_complete = True
-    for index, month in enumerate(_months(days)):
-        selected = read_price_input(store, _descriptor(saved), days=month)
-        scopes = selected["scopes"]
-        closed = read_closed_price_days(store, scopes)
-        requests = read_price_requests(
-            store, scopes=scopes, receipts=selected["receipts"], days=month
-        )
-        results = rebuild_price_days(requests, days=month)
-        materialize_price_days(
-            connection, results.values(), l1_coverage_status="partial", append=index > 0
-        )
-        for day, item in results.items():
-            scope = scopes[day.isoformat()]
-            unresolved = price_day_unresolved(item, scope)
-            raw_complete = raw_complete and not unresolved
-            complete = complete and (not unresolved or day in closed)
-            counts["rows"] += len(item.rows)
-            counts["unavailable"] += int(item.status == "unavailable")
-            counts["partial"] += int(item.status == "partial")
-            counts["incomplete"] += int(bool(item.incomplete_requests))
-            counts["failed"] += int(bool(scope.get("failure")))
-            counts["held"] += int(bool(scope.get("held")))
-            counts["closed_unrequested"] += int(day in closed)
+    status_rows: list[PriceReceiptRow] = []
+    with pq.ParquetWriter(staged / "daily_bars.parquet", PRICE_BAR_SCHEMA) as writer:
+        for batch in batches:
+            closed = (
+                read_closed_price_days(
+                    store, {day.isoformat(): scopes[day.isoformat()] for day in batch}
+                )
+                if saved_selection
+                else set()
+            )
+            requests = read_price_requests(store, scopes=scopes, receipts=receipts, days=batch)
+            results = rebuild_price_days(requests, days=batch)
+            bars = price_bars_to_arrow(results.values())
+            if bars.num_rows:
+                writer.write_table(bars)
+            counts["rows"] += bars.num_rows
+            counts["days"] += len(batch)
+            for day, item in results.items():
+                scope = scopes.get(day.isoformat(), {})
+                unresolved = price_day_unresolved(item, scope)
+                raw_complete = raw_complete and not unresolved
+                complete = complete and (not unresolved or day in closed)
+                counts["unavailable"] += int(item.status == "unavailable")
+                counts["partial"] += int(item.status == "partial")
+                counts["incomplete"] += int(bool(item.incomplete_requests))
+                if saved_selection:
+                    counts["failed"] += int(bool(scope.get("failure")))
+                    counts["held"] += int(bool(scope.get("held")))
+                    counts["closed_unrequested"] += int(day in closed)
+                status_rows.append(item.receipt_row())
     counts["coverage_status"] = "complete" if complete else "partial"
-    counts["raw_coverage_status"] = "complete" if raw_complete else "partial"
-    connection.execute(
-        "UPDATE price_receipt_status SET l1_coverage_status=?", [counts["raw_coverage_status"]]
+    raw_coverage: CoverageStatus = "complete" if raw_complete else "partial"
+    if saved_selection:
+        counts["raw_coverage_status"] = raw_coverage
+    pq.write_table(
+        price_receipts_to_arrow(status_rows, l1_coverage_status=raw_coverage),
+        staged / "price_receipt_status.parquet",
     )
     return counts
 
@@ -371,24 +404,28 @@ def rebuild_saved_input(
 ) -> dict[str, Any]:
     """Cold rebuild from immutable selection metadata and packs, without latest or L2."""
     days = _days(start, end)
-    saved_interval(saved)
-    output.mkdir(parents=True, exist_ok=False)
-    with lake_session() as session:
-        connection = session.connection
-        result = materialize_saved_input(store, saved, connection, days=days)
-        for table in ("daily_bars", "price_receipt_status"):
-            pq.write_table(connection.table(table).to_arrow_table(), output / (table + ".parquet"))
-    selected = read_price_input(store, _descriptor(saved), days=days)
-    write_json_atomic(
-        output / "input.json",
-        {
-            "saved_input": saved.model_dump(mode="json"),
-            "source_head_sha256": _descriptor(saved)["head_sha256"],
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            **selected,
-        },
-    )
+    descriptor = _descriptor(saved)
+    _saved_interval(descriptor)
+    with _cold_price_output(output) as staged:
+        selected = read_price_input(store, descriptor, days=days)
+        result = _write_cold_price_parquet(
+            store,
+            scopes=selected["scopes"],
+            receipts=selected["receipts"],
+            batches=_months(days),
+            staged=staged,
+            saved_selection=True,
+        )
+        write_json_atomic(
+            staged / "input.json",
+            {
+                "saved_input": saved.model_dump(mode="json"),
+                "source_head_sha256": descriptor["head_sha256"],
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                **selected,
+            },
+        )
     return result
 
 
@@ -399,60 +436,45 @@ def rebuild(
     days = _days(start, end)
     head = fixed.value()
     scopes = head["scopes"]
-    output.mkdir(parents=True, exist_ok=False)
-    counts: dict[str, Any] = {
-        "days": len(days),
-        "rows": 0,
-        "unavailable": 0,
-        "partial": 0,
-        "incomplete": 0,
-    }
-    complete = True
-    with lake_session() as session:
-        connection = session.connection
-        for index, batch in enumerate(
-            _native_batches(days, scopes=head["scopes"], receipts=head["receipts"])
-        ):
-            results = rebuild_price_days(
-                read_price_requests(
-                    store, scopes=head["scopes"], receipts=head["receipts"], days=batch
-                ),
-                days=batch,
-            )
-            materialize_price_days(
-                connection, results.values(), l1_coverage_status="partial", append=index > 0
-            )
-            for day, item in results.items():
-                complete = complete and not price_day_unresolved(
-                    item, scopes.get(day.isoformat(), {})
-                )
-                counts["rows"] += len(item.rows)
-                counts["unavailable"] += int(item.status == "unavailable")
-                counts["partial"] += int(item.status == "partial")
-                counts["incomplete"] += int(bool(item.incomplete_requests))
-        counts["coverage_status"] = "complete" if complete else "partial"
-        connection.execute(
-            "UPDATE price_receipt_status SET l1_coverage_status=?", [counts["coverage_status"]]
+    receipts = head["receipts"]
+    with _cold_price_output(output, include_head=True) as staged:
+        result = _write_cold_price_parquet(
+            store,
+            scopes=scopes,
+            receipts=receipts,
+            batches=_native_batches(days, scopes=scopes, receipts=receipts),
+            staged=staged,
+            saved_selection=False,
         )
-        for table in ("daily_bars", "price_receipt_status"):
-            pq.write_table(connection.table(table).to_arrow_table(), output / (table + ".parquet"))
-    (output / "head.json").write_bytes(fixed.payload)
-    write_json_atomic(
-        output / "input.json",
-        {
-            "head_sha256": fixed.content_id,
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "acquisition": {day.isoformat(): scopes.get(day.isoformat(), {}) for day in days},
-        },
-    )
-    return counts
+        (staged / "head.json").write_bytes(fixed.payload)
+        write_json_atomic(
+            staged / "input.json",
+            {
+                "head_sha256": fixed.content_id,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "acquisition": {day.isoformat(): scopes.get(day.isoformat(), {}) for day in days},
+            },
+        )
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--saved-input", type=Path)
-    parser.add_argument("--work-directory", type=Path, required=True)
+    parser.add_argument(
+        "--saved-input",
+        type=Path,
+        help="Rebuild a preserved InputSnapshot without reading the current price head.",
+    )
+    parser.add_argument(
+        "--work-directory",
+        type=Path,
+        required=True,
+        help=(
+            "Work path, not an archived head. If saved input is omitted, "
+            "capture the current L1 head at startup."
+        ),
+    )
     parser.add_argument("--start", type=date.fromisoformat, required=True)
     parser.add_argument("--end", type=date.fromisoformat, required=True)
     parser.add_argument("--output", type=Path, required=True)

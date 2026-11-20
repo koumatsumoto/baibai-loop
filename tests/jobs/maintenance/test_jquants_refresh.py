@@ -6,12 +6,10 @@ import sqlite3
 from datetime import date
 
 import pytest
+from tests.helpers.price_native import project_price_records
 
 from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
-from baibai_engine.machine_analysis.observations.jquants_writer import (
-    store_jquants_daily_bars,
-    store_jquants_fin_summaries,
-)
+from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -61,12 +59,7 @@ def test_partial_financial_refetch_preserves_empty_outer_windows(database):
 
 def test_partial_daily_bar_response_does_not_satisfy_coverage(database):
     target = day("2026-10-07")
-    store_jquants_daily_bars(
-        database,
-        [{"Code": "", "Date": target.isoformat(), "C": 100.0}],
-        requested_start=target,
-        requested_end=target,
-    )
+    project_price_records(database, [{"Code": "", "Date": target.isoformat(), "C": 100.0}])
     assert read_daily_bars(database, target, target) is None
     with sqlite3.connect(database) as conn:
         assert not range_covered(conn, "jquants_daily_bars", target, target)

@@ -10,6 +10,7 @@ from tests.helpers.proposal import (
     PREPARED,
     PROPOSAL_ID,
     PUBLISHED,
+    authored_defer_fixture,
     backend_case,
     bind_review,
     read_saved_proposal,
@@ -57,12 +58,13 @@ def test_collect_preserves_meta_cutoff_and_stable_daily_label(tmp_path):
     assert "observed_at" not in first.quotes[0].model_dump()
     assert proposal_inputs_fingerprint(first) == proposal_inputs_fingerprint(second)
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,
         now=PREPARED,
     )
-    assert context.proposal_id is None
+    assert context.proposal_id == PROPOSAL_ID
     assert context.next_order_session.isoformat() == "2026-10-15"
     actual = context.calculations["1234"]["buy_at_actual_quote"]
     conditional = context.calculations["1234"]["calculation_at_maximum_price"]
@@ -196,37 +198,33 @@ def test_expired_active_sell_reservation_is_retained(tmp_path):
 @pytest.mark.parametrize("holding", [False, True])
 def test_scaffold_keeps_signal_integration_as_authoring_not_a_price_gate(tmp_path, holding):
     case = backend_case(tmp_path, holding=holding)
-    raw = scaffold_proposal(
+    context = build_proposal_context(
         operation_id=case.operation.operation_id,
         proposal_id=PROPOSAL_ID,
         db_path=case.app,
         sqlite_path=case.market,
         now=PREPARED,
     )
-    item = raw["items"][0]
-    assert item["action"] == "defer"
-    assert item["assessment_ref"]["assessment_id"] == case.pair.assessment_id
-    assert [reason["code"] for reason in item["blockers"]] == ["proposal_content_requires_review"]
-    assert "モデル観測・一次資料" in item["rationale"]
-    assert any("全シグナルのコメントは要求しない" in text for text in item["review_conditions"])
-    assert any("絶対騰落" in text and "自己除外同業" in text for text in item["review_conditions"])
-    assert not any("前回の指値・対象日" in text for text in item["review_conditions"])
-    if holding:
-        assert "当初の仮説" in item["rationale"]
-        assert "残存見返り" in item["rationale"]
-        assert "回収" in raw["comparison"]
-        assert "指値と数量" not in raw["comparison"]
-        assert "買付" not in "".join(item["review_conditions"])
-    else:
-        assert "指値で待つ" in item["rationale"]
-        assert "調査を保留" in item["rationale"]
-        assert "現金維持" in raw["comparison"]
-        assert "回収" not in raw["comparison"]
-    assert raw["review"]["draft_sha256"] == "0" * 64
+    raw = scaffold_proposal(context)
+    assert raw["items"] == [
+        {
+            "ticker": "1234",
+            "action": None,
+            "rationale": None,
+            "review_conditions": [],
+            "assessment_ref": context.research_scope.outcomes[0].assessment_ref.model_dump(
+                mode="json"
+            ),
+        }
+    ]
+    assert raw["review"] is None
+    assert all(raw[key] is None for key in ("headline", "comparison", "forgone"))
 
 
 @pytest.mark.parametrize("with_report", [False, True])
-def test_repeated_new_target_gets_one_authoring_prompt_not_its_old_terms(tmp_path, with_report):
+def test_repeated_new_target_keeps_prior_evidence_out_of_the_unsigned_work_file(
+    tmp_path, with_report
+):
     case = backend_case(tmp_path)
     saved = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
@@ -244,30 +242,28 @@ def test_repeated_new_target_gets_one_authoring_prompt_not_its_old_terms(tmp_pat
                 reported_at=reported,
             )
         )
-    draft = scaffold_proposal(
+    context = build_proposal_context(
         operation_id=case.operation.operation_id,
         proposal_id="investment-proposal-00000000-0000-4000-8000-000000000004",
         db_path=case.app,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=1),
     )
-    item = draft["items"][0]
-    reminders = [text for text in item["review_conditions"] if "前回の指値・対象日" in text]
-    assert len(reminders) == 1
-    assert "元提案全体への本人報告があっても" in reminders[0]
-    assert "観測価格" in reminders[0]
-    assert "変化なし" in reminders[0]
+    previous = context.previous_buy_context["targets"]["1234"]
+    assert previous["proposal_ref"]["proposal_id"] == saved.proposal_id
+    assert bool(previous["human_reports"]) is with_report
+    draft = scaffold_proposal(context)
+    assert draft["items"][0]["action"] is None
+    assert draft["items"][0]["review_conditions"] == []
+    assert "terms" not in draft["items"][0]
     assert "合成の本人による前回のみの説明。" not in str(draft)
-    assert item["action"] == "defer"
-    assert "terms" not in item
-    assert [reason["code"] for reason in item["blockers"]] == ["proposal_content_requires_review"]
 
 
 def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_path):
     case = backend_case(tmp_path, cash_yen=95000)
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("DELETE FROM jquants_master_snapshots")
-    raw = scaffold_proposal(
+    raw = authored_defer_fixture(
         operation_id=case.operation.operation_id,
         proposal_id=PROPOSAL_ID,
         db_path=case.app,
@@ -289,7 +285,6 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
             }
         ],
     )
-    raw["review"]["reviewer_identity"] = "synthetic-independent-reviewer"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
@@ -348,7 +343,7 @@ def test_original_reason_respects_reported_buy_time_precision(
             "sector": "情報・通信業",
             "common_factors": ["domestic-demand"],
             "decision_reference": proposal.proposal_id,
-            "quantity": 100,
+            "quantity": 200,
             "price_guard_yen": "1000",
             "expires_at": "2026-10-15T15:30:00+09:00",
         }
@@ -402,6 +397,12 @@ def test_original_reason_respects_reported_buy_time_precision(
     )
     assert context.inputs.prior_buy_execution_references == (execution.execution_id,)
     assert context.inputs.positions[0].quantity == 100
+    assert context.previous_buy_context["targets"] == {}  # Held; not a repeat new candidate.
+    [active] = context.inputs.active_reservations
+    assert active.decision_reference == proposal.proposal_id
+    assert active.reserved_yen == 100000
+    at_quote = context.calculations["1234"]["buy_at_actual_quote"]
+    assert "active_reservation_exists" in {reason["code"] for reason in at_quote["hard_blockers"]}
 
 
 @pytest.mark.parametrize(("kind", "unchanged"), [("3", True), ("1", False)])
@@ -452,6 +453,7 @@ def test_classification_uses_native_product_not_sector(tmp_path, product_categor
         "snapshot_date": "2026-10-14",
     }
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,
@@ -569,6 +571,7 @@ def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
     monkeypatch.setattr(owner, "collect_proposal_inputs", collect_then_correct)
     if consumer == "context":
         context = build_proposal_context(
+            proposal_id=PROPOSAL_ID,
             operation_id=case.operation.operation_id,
             db_path=case.app,
             sqlite_path=case.market,
@@ -620,6 +623,7 @@ def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
     # A separate evaluation sees all of the correction, not the old cheap quote
     # combined with the corrected unit factor. The saved assessment is unchanged.
     corrected = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,
@@ -699,6 +703,7 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
     monkeypatch.setattr(input_reader, "read_unadjusted_close", quote_then_correct)
     if consumer == "context":
         context = build_proposal_context(
+            proposal_id=PROPOSAL_ID,
             operation_id=case.operation.operation_id,
             db_path=case.app,
             sqlite_path=case.market,
@@ -725,6 +730,7 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
     # The next independent read sees the whole correction. No reader closes or
     # commits its caller's snapshot, and no saved proposal is rewritten.
     corrected = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,

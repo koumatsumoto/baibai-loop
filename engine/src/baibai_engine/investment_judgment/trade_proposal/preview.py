@@ -6,6 +6,7 @@ import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import cache
 from pathlib import Path
 from typing import Literal
 
@@ -45,7 +46,10 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
 )
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import ProposalRecords
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
-from baibai_engine.portfolio.holdings.market_observations import next_order_session
+from baibai_engine.portfolio.holdings.market_observations import (
+    OrderSessionBounds,
+    read_order_session_bounds,
+)
 from baibai_engine.portfolio.holdings.price_grid import floor_common_stock_limit
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.time import JST
@@ -150,9 +154,11 @@ def _preview_buy(
             "calculation_price_yen": str(quote.price_yen if grid is None else grid),
             "price_grid_available": grid is not None,
         }
+    calculation = buy_evaluation_payload(result, order_blockers=order_blockers)
     return {
         "current_quote_calculation": trial,
-        "saved_limit_revalidation": buy_evaluation_payload(result, order_blockers=order_blockers),
+        "saved_limit_revalidation": calculation if item.terms is not None else None,
+        "saved_ceiling_calculation": calculation if item.terms is None else None,
     }, blockers
 
 
@@ -310,6 +316,13 @@ def preview_current_terms(
         blocked = False
         rows: list[dict[str, object]] = []
         assessments = {}
+
+        @cache
+        def order_sessions() -> OrderSessionBounds:
+            return read_order_session_bounds(
+                sqlite_path=sqlite_path, now=now, connection=market_connection
+            )
+
         for item in proposal.items:
             blockers = (
                 [
@@ -340,13 +353,22 @@ def preview_current_terms(
                 else None,
                 "current_terms_warnings": [],
             }
+            if item.action == "buy":
+                row.update(
+                    saved_economic_decision=item.economic_decision,
+                    saved_proposed_limit_yen=(
+                        None if item.proposed_limit_yen is None else str(item.proposed_limit_yen)
+                    ),
+                    saved_terms_unavailable_reasons=[
+                        reason.model_dump(mode="json") for reason in item.terms_unavailable_reasons
+                    ],
+                    saved_ceiling_calculation=None,
+                )
             order_blockers: tuple[GateReason, ...] = ()
             session = None
             if item.action in {"buy", "sell"}:
                 if item.action == "buy" or item.conditional_recovery is None:
-                    session = next_order_session(
-                        sqlite_path=sqlite_path, now=now, connection=market_connection
-                    )
+                    session = order_sessions().confirmed_session
                 order_blockers = terms_unavailable_reasons(item, inputs, now=now, session=session)
                 if item.terms is None:
                     order_blockers += (
@@ -400,16 +422,14 @@ def preview_current_terms(
                         (quote for quote in inputs.quotes if quote.ticker == item.ticker), None
                     )
                     case = pair.document.price_value_case
-                    acquisition_issue = (
-                        acquisition_blocker(
+                    acquisition_issue = None
+                    if case is not None and case.acquisition_limit is not None:
+                        bounds = order_sessions()
+                        acquisition_issue = acquisition_blocker(
                             pair.document,
-                            next_order_session(
-                                sqlite_path=sqlite_path, now=now, connection=market_connection
-                            ),
+                            bounds.confirmed_session,
+                            earliest_possible_day=bounds.earliest_possible_day,
                         )
-                        if case is not None and case.acquisition_limit is not None
-                        else None
-                    )
                     if acquisition_issue is not None:
                         row["current_quote_unavailable_reason"] = acquisition_issue.model_dump(
                             mode="json"
@@ -433,7 +453,9 @@ def preview_current_terms(
                         )
             if item.action in {"buy", "sell"}:
                 blockers.extend(order_blockers)
-                revalidation = row["saved_limit_revalidation"]
+                revalidation = row["saved_limit_revalidation"] or row.get(
+                    "saved_ceiling_calculation"
+                )
                 if isinstance(revalidation, dict):
                     if item.action == "sell" and blockers:
                         revalidation["quantity"] = None

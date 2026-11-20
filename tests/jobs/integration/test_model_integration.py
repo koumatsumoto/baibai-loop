@@ -617,6 +617,7 @@ def test_explicit_v2_uses_raw_session_but_default_cli_remains_v1(integration, mo
     generate = job.read_and_generate_models
 
     def with_seal(**kwargs):
+        assert kwargs["include_session_prices"] is True
         stream = generate(**kwargs)
         return replace(
             stream,

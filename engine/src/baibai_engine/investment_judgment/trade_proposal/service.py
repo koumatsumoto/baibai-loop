@@ -8,6 +8,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from functools import cache
 from pathlib import Path
 
 from baibai_engine.investment_judgment.stock_assessment.store import (
@@ -19,6 +20,7 @@ from baibai_engine.investment_judgment.trade_proposal.conditions import (
     assessment_quote_basis,
     buy_evaluation_payload,
     buy_evaluator,
+    no_action_blocker,
     proposal_quote,
     terms_unavailable_reasons,
 )
@@ -54,7 +56,10 @@ from baibai_engine.investment_judgment.workflow.operation.research_binding impor
 )
 from baibai_engine.investment_judgment.workflow.selection import saved_market_assessment
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
-from baibai_engine.portfolio.holdings.market_observations import next_order_session
+from baibai_engine.portfolio.holdings.market_observations import (
+    OrderSessionBounds,
+    read_order_session_bounds,
+)
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
@@ -79,13 +84,14 @@ def _validate_action(
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
+    order_sessions: Callable[[], OrderSessionBounds],
 ) -> tuple[tuple[GateReason, ...], dict[str, object]]:
     latest = latest_assessment_id(connection, item.ticker) == pair.assessment_id
     inputs = proposal.inputs
     blockers: list[GateReason] = []
     calculation: dict[str, object] = {}
     session = (
-        next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
+        order_sessions().confirmed_session
         if item.action == "buy" or (item.action == "sell" and item.conditional_recovery is None)
         else None
     )
@@ -299,13 +305,24 @@ def _check_proposal(
             "proposal input facts changed; resnapshot and independently review"
         )
     draft_hash = proposal_draft_sha256(proposal)
-    if require_review and proposal.review.draft_sha256 != draft_hash:
-        raise ProposalConflictError(
-            f"proposal content review binds a different draft; expected {draft_hash}"
-        )
+    review = proposal.review
+    if require_review:
+        if review is None:
+            raise ProposalConflictError("independent proposal content review is required")
+        if review.draft_sha256 != draft_hash:
+            raise ProposalConflictError(
+                f"proposal content review binds a different draft; expected {draft_hash}"
+            )
     pairs: dict[str, ReviewedAssessment] = {}
     calculations: dict[str, dict[str, object]] = {}
     blockers: list[GateReason] = []
+    if not require_review and review is not None and review.draft_sha256 != draft_hash:
+        blockers.append(
+            GateReason(
+                code="proposal_content_review_stale",
+                message="内容Reviewは変更前の本文を指しています。",
+            )
+        )
     if proposal.as_of != now.astimezone(JST).date():
         blockers.append(
             GateReason(
@@ -314,8 +331,9 @@ def _check_proposal(
             )
         )
     if (
-        not proposal.prepared_at <= proposal.review.reviewed_at <= now
+        proposal.prepared_at > now
         or proposal.inputs.checked_at > now
+        or (review is not None and review.reviewed_at > now)
     ):
         blockers.append(
             GateReason(
@@ -323,7 +341,7 @@ def _check_proposal(
                 message="準備・入力収集・独立Reviewの時刻を現在発行時刻までに揃えてください。",
             )
         )
-    if proposal.inputs.checked_at > proposal.review.reviewed_at:
+    if review is not None and proposal.inputs.checked_at > review.reviewed_at:
         blockers.append(
             GateReason(
                 code="proposal_inputs_after_review",
@@ -338,6 +356,13 @@ def _check_proposal(
                 message="保存終値の対象日は、入力収集時点で利用できる取引日以前である必要があります。",
             )
         )
+
+    @cache
+    def order_sessions() -> OrderSessionBounds:
+        return read_order_session_bounds(
+            sqlite_path=sqlite_path, now=now, connection=market_connection
+        )
+
     for item in proposal.items:
         if item.assessment_ref is None:
             continue
@@ -352,22 +377,24 @@ def _check_proposal(
                     message="参照評価の公開が今回提案時刻より後です。",
                 )
             )
-        if pair.review.reviewed_at > proposal.review.reviewed_at:
+        if review is not None and pair.review.reviewed_at > review.reviewed_at:
             blockers.append(
                 GateReason(
                     code="assessment_after_review",
                     message="参照評価の独立Reviewは、提案の独立Review以前である必要があります。",
                 )
             )
-        # No-action is a concluded economic comparison, not an unfinished assessment.
-        # Unsupported cases may still be rejected without a numeric valuation.
-        if item.action == "no_action" and pair.document.conclusion.stance == "uncertain":
-            blockers.append(
-                GateReason(
-                    code="no_action_assessment_uncertain",
-                    message="評価の採否が未確定です。deferと再確認条件を使うか、評価・Reviewを更新してください。",
-                )
+        if item.action == "no_action":
+            reason = no_action_blocker(
+                pair,
+                inputs=proposal.inputs,
+                sqlite_path=sqlite_path,
+                now=now,
+                market_connection=market_connection,
+                order_sessions=order_sessions,
             )
+            if reason is not None:
+                blockers.append(reason)
         if item.action in {"buy", "hold", "sell"}:
             action_blockers, calculation = _validate_action(
                 connection,
@@ -377,6 +404,7 @@ def _check_proposal(
                 sqlite_path=sqlite_path,
                 now=now,
                 market_connection=market_connection,
+                order_sessions=order_sessions,
             )
             blockers.extend(action_blockers)
             calculations[item.ticker] = calculation

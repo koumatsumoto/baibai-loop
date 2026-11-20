@@ -28,6 +28,7 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CompanyCoordinates,
     PathCoordinates,
 )
+from baibai_engine.primitives.stocks import sector_33_peer_key
 
 _PATH_METRICS: tuple[Metric, ...] = (
     "sales",
@@ -55,9 +56,7 @@ def _project_economic_paths(
     earnings_read = read_earnings_price(earnings) if earnings else None
     market = payloads.get("market_context", {})
     master = _object(market.get("master"))
-    sector = _text(master.get("sector_33"))
-    if sector is not None and sector.strip() in {"", "0", "その他"}:
-        sector = None
+    sector = sector_33_peer_key(master.get("sector_33"))
     sector_group = sector or "unknown_sector"
     cap = _positive(earnings.get("market_cap_yen"))
     pricing_valid = (

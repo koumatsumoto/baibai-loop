@@ -12,7 +12,7 @@ from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 
-from pydantic import JsonValue
+from pydantic import JsonValue, TypeAdapter
 
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment.store import (
@@ -25,6 +25,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     LiquidityContext,
     PositionInput,
     ProposalError,
+    ProposalId,
     ProposalInputs,
     ProposalResearchScope,
     QuoteInput,
@@ -32,6 +33,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ReservationInput,
     SecurityClassification,
     TradeProposal,
+    order_readiness,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
@@ -428,7 +430,7 @@ def _previous_buy_context(
     scope: ProposalResearchScope,
     inputs: ProposalInputs,
     *,
-    proposal_id: str | None,
+    proposal_id: str,
     now: datetime,
 ) -> dict[str, JsonValue]:
     held = {position.ticker for position in inputs.positions if position.quantity > 0}
@@ -458,7 +460,9 @@ def _previous_buy_context(
             "as_of": proposal.as_of.isoformat(),
             "published_at": proposal.published_at.isoformat(),
             "assessment_ref": item.assessment_ref.model_dump(mode="json"),
-            "previous_timing": item.timing,
+            "previous_economic_decision": item.economic_decision,
+            "previous_order_readiness": order_readiness(item),
+            "previous_timing": item.timing if item.terms is not None else None,
             "previous_terms": None
             if item.terms is None
             else item.terms.model_dump(
@@ -486,7 +490,7 @@ def _previous_buy_context(
 @dataclass(frozen=True, slots=True)
 class ProposalAuthoringContext:
     operation_id: str
-    proposal_id: str | None
+    proposal_id: str
     request_scope: RequestScope
     research_scope: ProposalResearchScope
     inputs: ProposalInputs
@@ -632,10 +636,11 @@ def build_proposal_context(
     db_path: Path | None,
     sqlite_path: Path,
     now: datetime,
-    proposal_id: str | None = None,
+    proposal_id: str,
 ) -> ProposalAuthoringContext:
     from baibai_engine.portfolio.holdings.market_observations import next_order_session
 
+    proposal_id = TypeAdapter(ProposalId).validate_python(proposal_id, strict=True)
     with (
         closing(connect_read_only(db_path)) as connection,
         proposal_market_snapshot(sqlite_path) as market_connection,
@@ -659,7 +664,7 @@ def build_proposal_context(
         inputs = collect_proposal_inputs(
             connection,
             tickers=tuple(target.ticker for target in scope.targets),
-            proposal_id=proposal_id or "",
+            proposal_id=proposal_id,
             now=now,
             sqlite_path=sqlite_path,
             budget_min_yen=DEFAULT_BUDGET_MIN_YEN,

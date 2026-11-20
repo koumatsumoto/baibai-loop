@@ -286,6 +286,7 @@ def integrate_models(
             )
             if prepared.serving.pointer is not None
             else None,
+            include_session_prices=discovery_method == DISCOVERY_V2,
             price_identity=prepared.price_identity,
             master_identity=prepared.master_identity,
             calendar_identity=prepared.calendar_identity,

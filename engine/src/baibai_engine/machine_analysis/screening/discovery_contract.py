@@ -176,17 +176,12 @@ def discovery_method_for_id(selection_id: str, generation_id: str) -> DiscoveryM
     return None
 
 
-_V1_ROWS = TypeAdapter(tuple[DiscoveryRow, ...])
-_V2_ROWS = TypeAdapter(tuple[DiscoveryRowV2, ...])
+_ROW_CODECS = (TypeAdapter(tuple[DiscoveryRow, ...]), TypeAdapter(tuple[DiscoveryRowV2, ...]))
 
 
 def require_publishable_rows(result: IndexedSelection) -> None:
     # TypedDict values can change between projection and publication.
-    if isinstance(result, DiscoverySelectionV2):
-        _V2_ROWS.validate_python(result.rows, strict=True)
-        NativePriceSession.model_validate(result.price_session)
-    else:
-        _V1_ROWS.validate_python(result.rows, strict=True)
+    _ROW_CODECS[isinstance(result, DiscoverySelectionV2)].validate_python(result.rows, strict=True)
 
 
 def planned_stock_tickers(metadata: GenerationMetadata) -> tuple[str, ...]:

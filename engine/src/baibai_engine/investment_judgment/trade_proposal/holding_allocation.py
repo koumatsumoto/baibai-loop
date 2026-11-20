@@ -94,7 +94,9 @@ def compare_holding_allocations(
     facts = proposal.inputs
     on, through = assumptions.quote_on, assumptions.dividend_rights_through
     sale_on = assumptions.assumed_sale_on
-    decision = max(facts.checked_at, proposal.prepared_at, proposal.review.reviewed_at)
+    decision = max(facts.checked_at, proposal.prepared_at)
+    if proposal.review is not None:
+        decision = max(decision, proposal.review.reviewed_at)
     if isinstance(proposal, TradeProposal):
         decision = max(decision, proposal.published_at)
     if (

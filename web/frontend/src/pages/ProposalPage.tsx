@@ -322,7 +322,7 @@ function SavedBuyComparison({ item }: { item: SavedBuyItemView }) {
   return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存指値・選択数量の金額比較">
     <h4 className="text-sm font-semibold">保存指値・選択数量の金額比較</h4>
     {comparison == null
-      ? <p className="text-sm text-muted-foreground">この表示データには金額比較がありません。旧表示データや価値・具体条件・起点が揃わない場合を、損益0や最大数量で補っていません。</p>
+      ? <p className="text-sm text-muted-foreground">この表示データには金額比較がありません。旧表示データや価値・起点が揃わない場合を、損益0や最大数量で補っていません。</p>
       : <>
         <p className="text-xs leading-6 text-muted-foreground">この銘柄だけが保存指値で全量約定した条件付き比較です。保存時の未拘束cashを共通の元手とし、他の買付・既保有を含むNAVではありません。銘柄間で残cashや終期合計を足し合わせません。</p>
         <dl className="grid gap-4 sm:grid-cols-3">
@@ -508,13 +508,13 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
               <Field label="保存株価（未調整終値）">{item.saved_quote.price_yen} 円</Field>
               <Field label="保存株価の基準日"><time dateTime={item.saved_quote.price_as_of}>{item.saved_quote.price_as_of}</time></Field>
             </dl>}
-            {item.action === 'buy' && <p className="text-sm text-muted-foreground">保存時の指値区分：{TIMING_LABEL[item.timing]}（{item.timing}）</p>}
+            {item.action === 'buy' && item.terms !== null && <p className="text-sm text-muted-foreground">保存時の指値区分：{TIMING_LABEL[item.timing]}（{item.timing}）</p>}
             {(item.action === 'buy' || item.action === 'sell') && (item.terms !== null ? <SavedTerms terms={item.terms} withPriceFinding={item.assessment?.price_value_case != null} /> : <div className="grid gap-3">
               <p className="text-sm font-medium">{item.action === 'sell' && item.reason_code.startsWith('consider_') ? '保有配分の条件案（注文対象外）' : '具体条件未確定'}</p>
               {item.action === 'buy' && item.proposed_limit_yen !== null && <dl><Field label="作者指定の上限（具体条件未確定）">{item.proposed_limit_yen} 円</Field></dl>}
               <Reasons reasons={item.terms_unavailable_reasons} title="具体条件が不足する理由" />
             </div>)}
-            {item.action === 'buy' && <SavedBuyComparison item={item} />}
+            {item.action === 'buy' && item.terms !== null && <SavedBuyComparison item={item} />}
             {item.action === 'sell' && <SavedSellLimitComparison item={item} />}
             {item.action === 'hold' && <SavedHoldQuoteComparison item={item} />}
             {(item.action === 'hold' || item.action === 'sell') && <>

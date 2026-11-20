@@ -8,6 +8,8 @@ from decimal import Decimal
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.proposal import (
+    PROPOSAL_ID,
+    authored_defer_fixture,
     backend_case,
     bind_review,
     evaluate_buy_terms,
@@ -22,7 +24,6 @@ from baibai_engine.investment_judgment.trade_proposal.conditions import assessme
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
@@ -116,7 +117,7 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
     case.operations.record_assessment(
         case.operation.operation_id, pair.assessment_id, now=_morning("09:10:00")
     )
-    raw = scaffold_proposal(
+    raw = authored_defer_fixture(
         operation_id=case.operation.operation_id,
         proposal_id=template["proposal_id"],
         db_path=case.app,
@@ -135,9 +136,12 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
     if mode == "buy":
         item["terms"]["valuation_as_of"] = "2026-10-15"
     raw["items"] = [item]
-    raw["review"]["reviewed_at"] = _morning("09:25:00").isoformat()
-    raw["review"]["reviewer_identity"] = "synthetic-independent-morning-reviewer"
-    draft = bind_review(raw, {pair.assessment_id: pair.document})
+    draft = bind_review(
+        raw,
+        {pair.assessment_id: pair.document},
+        reviewed_at=_morning("09:25:00").isoformat(),
+        reviewer_identity="synthetic-independent-morning-reviewer",
+    )
     service = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: _morning("09:30:00")
     )
@@ -158,6 +162,7 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
     assert ("corporate_action_unresolved" in codes) == (mode in ("buy", "holding_return"))
     assert check.valid == (mode in ("holding_case", "no_action"))
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,

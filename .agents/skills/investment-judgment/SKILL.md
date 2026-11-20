@@ -54,7 +54,7 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --runs-path stores/screening/runs.sqlite
 ```
 
-prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。書込CLIの応答は操作ID・状態などのヘッダだけを返す。IDなしの`show`も履歴ヘッダのみ。固定証拠・進捗・結果の全文はIDを指定して読む。
+prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。書込CLIの応答は操作ID・状態などのヘッダだけを返す。IDなしの`show`も履歴ヘッダのみ。固定証拠・進捗・結果の全文はIDを指定して読む。作業メモは `operation --db <APP_DB> checkpoint <ID> --note <NOTE>`。次手も更新する場合だけ `--next <NEXT>` を付ける。メモで固定入力・既存outcome・正式提案参照は変更できない。
 
 個社の `external_assessment.monex_fiscal_eps` があれば、世代に固定済みの配信元・対象決算期・円/株・受領時刻を用いる。今期／来期のアナリスト予想、会社予想、目標株価、ローリング1年予想を取り違えない。欄なしは実世界での予想なしを証明しない。調査や提案のために原本の全件復元／再取得をせず、過去の判断へ後発データを足さない。
 
@@ -130,10 +130,13 @@ uv run baibai-engine operation --db <APP_DB> --format json record-unfinished \
 
 ```bash
 uv run baibai-engine investment-judgment trade-proposal-context \
-  --operation-id <OPERATION_ID> --db <APP_DB> --sqlite-path stores/market/market.sqlite
+  --operation-id <OPERATION_ID> --proposal-id <NEW_PROPOSAL_ID> --out <DRAFT> \
+  --db <APP_DB> --sqlite-path stores/market/market.sqlite
 ```
 
-contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って比較する。相対強弱を判断理由に使う時は、[固定した比較と価格経路](../../../docs/reference/trade-proposal.md#fixed-price-comparison)から反対の読みを一つ検討し、価値・採否・次の確認事項のどれが変わったかを残す。`trade-proposal-check <DRAFT> --db <APP_DB>`→別作業者の内容Review→`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。
+標準出力のcontextと任意の新規作業ファイルは同じ時点・IDの投影である。前回提案・本人報告、監理指定と関連届出の出典はcontextで確認し、今回の判断へ流用しない。作者は固定全対象の行動・理由・再調査条件を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って書く。相対強弱を理由にするなら[反対の読み](../../../docs/reference/trade-proposal.md#fixed-price-comparison)で価値・採否・次の確認のどれが変わるかを残す。
+
+`trade-proposal-check <DRAFT> --db <APP_DB>`の`unreviewed`は本文の事前確認で、正式保存ではない。評価のReviewとは別に、提案の内容Reviewerが本文とdigestを検証して[内容Review](../../../engine/src/baibai_engine/investment_judgment/trade_proposal/contracts.py)を記入する。`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`は発行時点の事実を改めて確認する。
 
 保有の利確・配当・業種集中が競合するときは[資本回収案の比較](../../../docs/reference/trade-proposal.md#holding-allocation)で、維持と、同じ現金を別の組合せから回収する案を固定終値・同じ権利窓で突き合わせる。現金目標がなければ作らず、差が採否を変えるものだけを正式本文に残す。
 
@@ -196,13 +199,12 @@ as_ofは元発行日以降のJST情報境界で保存時計ではない。後日
 ## 完了と再開
 
 ```bash
-uv run baibai-engine operation --db <APP_DB> --format json record-proposal <OPERATION_ID> --proposal-id <ID>
-uv run baibai-engine operation --db <APP_DB> --format json complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'
+uv run baibai-engine operation --db <APP_DB> --format json complete <OPERATION_ID> --proposal-id <ID> --result '<RESULT>' --next '<NEXT>'
 uv run baibai-engine investment-judgment prepare \
   --operation-id <OPERATION_ID> --db <APP_DB> --workspace .cache/research/<ASOF> --force
 ```
 
-record-proposalは公開済み提案の束縛。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> --format json show <ID>`で読み、workspaceのincompleteと区別する。
+完了時は現在の全対象・成果に一致する正式提案IDを明示する。既に訂正されたIDは使わず、最新への自動置換もしない。空選定または未発行で全対象未完の場合だけIDを省き、理由と次手を記す。同じID・結果・次手での再試行は元の完了を返す。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> --format json show <ID>`で読み、workspaceのincompleteと区別する。
 
 Operationに保存された[Research Selection](../../../docs/architecture.md#store-authority)から再開し、selection-contextで選び直さない。forceは表示を再投影し執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
 

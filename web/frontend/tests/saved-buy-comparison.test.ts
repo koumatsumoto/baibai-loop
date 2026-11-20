@@ -37,11 +37,19 @@ describe('保存指値・数量の金額比較', () => {
   })
 
   it.each([null, undefined])('旧未収録/nullを0や仮の数量に変えない: %s', value => {
-    const item = { ...partialBuyFixture, saved_buy_comparison: value } as SavedBuyItemView
+    const item = { ...buyFixture, saved_buy_comparison: value } as SavedBuyItemView
     const html = render(item)
     expect(html).toContain('この表示データには金額比較がありません。')
+    expect(html).not.toContain('作者が選んだ数量')
+    expect(html).not.toContain('この銘柄への投下額')
+    expect(html).not.toContain('下方ケース（Downside）の金額')
+  })
+
+  it('具体条件のなかった旧買付案に保存指値・数量の比較を表示しない', () => {
+    const html = render(partialBuyFixture)
+    expect(html).toContain('作者指定の上限（具体条件未確定）')
+    expect(html).not.toContain('保存指値・選択数量の金額比較')
     expect(html).not.toContain('0 株')
-    expect(html).not.toContain('0 円')
     expect(html).not.toContain('下方ケース（Downside）の金額')
   })
 

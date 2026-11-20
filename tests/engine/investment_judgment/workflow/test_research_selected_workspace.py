@@ -13,6 +13,7 @@ import yaml
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
 from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
+from tests.helpers.proposal import fixture_review
 from tests.helpers.research_selection import historical_operation, selected_target, selection
 from tests.helpers.retained_model_generation import seed_generation
 
@@ -24,8 +25,6 @@ from baibai_engine.investment_judgment.company_research.store import (
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
-    load_proposal_draft,
-    proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
@@ -601,20 +600,11 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         "--sqlite-path",
         str(tmp_path / "absent-market"),
     ]
-    assert (
-        main(
-            ["trade-proposal-context", "--operation-id", prepared.operation_id, *common_args],
-            now=NOW,
-        )
-        == 0
-    )
-    context = json.loads(capsys.readouterr().out)
-    assert context["research_scope"]["operation_id"] == prepared.operation_id
     draft_path = tmp_path / "proposal-draft.yaml"
     assert (
         main(
             [
-                "trade-proposal-scaffold",
+                "trade-proposal-context",
                 "--operation-id",
                 prepared.operation_id,
                 "--proposal-id",
@@ -627,33 +617,23 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         )
         == 0
     )
-    assert yaml.safe_load(capsys.readouterr().out)["proposal_id"] == proposal_id
+    context = json.loads(capsys.readouterr().out)
+    assert context["research_scope"]["operation_id"] == prepared.operation_id
+    assert context["proposal_id"] == proposal_id
     raw = yaml.safe_load(draft_path.read_text())
     raw.update(headline="合成見送り", comparison="合成比較", forgone="cash")
     raw["items"][0]["action"] = "no_action"
-    raw["items"][0].pop("blockers")
-    raw["items"][0].pop("resume_conditions")
+    raw["items"][0]["review_conditions"] = ["次回決算の採算を確認する。"]
     raw["items"][0]["rationale"] = "合成比較の経済的見送り"
-    raw["review"]["reviewer_identity"] = "independent"
-    raw["review"]["reviewed_at"] = NOW.isoformat()
     draft_path.write_text(yaml.safe_dump(raw))
     unchanged = draft_path.read_bytes(), (workspace / "domain-inputs.yaml").read_bytes()
     assert main(["trade-proposal-check", str(draft_path), *common_args], now=NOW) == 0
     checked = yaml.safe_load(capsys.readouterr().out)
     assert checked["valid"] is True
-    assert checked["review_binding"] == "stale"
+    assert checked["review_binding"] == "unreviewed"
     assert unchanged == (draft_path.read_bytes(), (workspace / "domain-inputs.yaml").read_bytes())
-    draft = load_proposal_draft(raw)
-    draft = draft.model_copy(
-        update={
-            "review": draft.review.model_copy(
-                update={
-                    "draft_sha256": proposal_draft_sha256(draft),
-                }
-            )
-        }
-    )
-    draft_path.write_text(yaml.safe_dump(draft.model_dump(mode="json")))
+    raw["review"] = fixture_review(checked["draft_sha256"], reviewed_at=NOW.isoformat())
+    draft_path.write_text(yaml.safe_dump(raw))
     assert main(["trade-proposal-publish", str(draft_path), *common_args], now=NOW) == 0
     proposal = TradeProposal.model_validate(yaml.safe_load(capsys.readouterr().out))
     assert proposal.request_scope == scope
@@ -665,8 +645,12 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
                 str(tmp_path / "app"),
                 "--format",
                 "json",
-                "record-proposal",
+                "complete",
                 prepared.operation_id,
+                "--result",
+                "proposal complete",
+                "--next",
+                "human decision",
                 "--proposal-id",
                 proposal.proposal_id,
             ],
@@ -678,6 +662,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     operation = service.get(prepared.operation_id)
     complete = service.complete(
         prepared.operation_id,
+        proposal_id=proposal.proposal_id,
         result="proposal complete",
         next="human decision",
         completed_at=NOW,

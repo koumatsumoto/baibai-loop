@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
-import duckdb
 import pytest
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
@@ -13,10 +10,10 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     RetainedRequest,
     complete_request,
 )
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_daily_bars
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.prices.from_l1 import (
-    PriceDay,
-    materialize_price_days,
+    price_bars_to_arrow,
+    price_receipts_to_arrow,
     rebuild_price_days,
 )
 
@@ -32,7 +29,7 @@ def receipt(identity, *, records, at=None, body=None):
     return RetainedRequest(identity, complete_request([page]), None)
 
 
-def test_price_rebuild_matches_existing_projection_without_previous_l2(tmp_path):
+def test_price_projection_preserves_source_values_and_receipt_status():
     records = [
         {
             "Code": "13010",
@@ -47,18 +44,29 @@ def test_price_rebuild_matches_existing_projection_without_previous_l2(tmp_path)
         }
     ]
     day = date(2026, 11, 2)
-    old = tmp_path / "old.sqlite"
-    store_jquants_daily_bars(old, records, requested_start=day, requested_end=day)
-    with sqlite3.connect(old) as conn:
-        expected = conn.execute("SELECT * FROM jquants_daily_bars").fetchall()
-    old.unlink()
     results = rebuild_price_days([receipt("source", records=records)], days=[day])
-    with duckdb.connect(":memory:") as conn:
-        materialize_price_days(conn, results.values(), l1_coverage_status="partial")
-        assert conn.execute("SELECT * FROM daily_bars").fetchall() == expected
-        assert conn.execute(
-            "SELECT projection_status, l1_coverage_status FROM price_receipt_status"
-        ).fetchone() == ("ok", "partial")
+    bars = price_bars_to_arrow(results.values())
+    assert [tuple(row.values()) for row in bars.to_pylist()] == [
+        (
+            "1301",
+            day.isoformat(),
+            100.0,
+            120.0,
+            90.0,
+            110.0,
+            500.0,
+            55000.0,
+            1.0,
+            None,
+            None,
+            None,
+            None,
+        )
+    ]
+    status = price_receipts_to_arrow([results[day].receipt_row()], l1_coverage_status="partial")
+    assert status.select(["projection_status", "l1_coverage_status"]).to_pylist() == [
+        {"projection_status": "ok", "l1_coverage_status": "partial"}
+    ]
 
 
 def test_price_missing_empty_and_later_complete():
@@ -79,32 +87,11 @@ def test_price_refuses_payload_outside_requested_day():
         rebuild_price_days([source], days=[day])
 
 
-def priced_day(day: str, request_id: str, close: float) -> PriceDay:
-    row = ("1301", day, None, None, None, close, None, None, None, None, None, None, None)
-    return PriceDay(date.fromisoformat(day), request_id, (row,), "ok", 0, 0, 0)
-
-
-def test_price_materialization_rolls_back_on_duplicate_ticker_day():
-    day = priced_day("2026-11-02", "id", 100.0)
-    duplicate = replace(day, rows=day.rows * 2)
-    with duckdb.connect(":memory:") as conn:
-        with pytest.raises(duckdb.ConstraintException):
-            materialize_price_days(conn, [duplicate], l1_coverage_status="partial")
-        assert (
-            conn.execute(
-                "SELECT count(*) FROM information_schema.tables WHERE table_name='daily_bars'"
-            ).fetchone()[0]
-            == 0
-        )
-
-
-def test_materialize_price_days_appends_distinct_months_and_rolls_back_duplicates():
-    first = priced_day("2026-10-30", "first", 100.0)
-    second = priced_day("2026-11-02", "second", 110.0)
-    with duckdb.connect(":memory:") as conn:
-        materialize_price_days(conn, [first], l1_coverage_status="complete")
-        materialize_price_days(conn, [second], l1_coverage_status="complete", append=True)
-        with pytest.raises(duckdb.ConstraintException):
-            materialize_price_days(conn, [second], l1_coverage_status="complete", append=True)
-        assert conn.execute("SELECT count(*) FROM daily_bars").fetchone()[0] == 2
-        assert conn.execute("SELECT count(*) FROM price_receipt_status").fetchone()[0] == 2
+def test_price_rebuild_collapses_equal_rows_but_refuses_conflicting_ticker_day():
+    day = date(2026, 11, 2)
+    record = {"Code": "13010", "Date": day.isoformat(), "C": 100}
+    equal = receipt("equal", records=[record, dict(record)])
+    assert price_bars_to_arrow(rebuild_price_days([equal], days=[day]).values()).num_rows == 1
+    conflicting = receipt("conflicting", records=[record, {**record, "C": 101}])
+    with pytest.raises(JQuantsProviderError, match="conflicting daily bars"):
+        rebuild_price_days([conflicting], days=[day])

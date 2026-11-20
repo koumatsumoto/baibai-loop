@@ -3,11 +3,14 @@
 import hashlib
 import json
 import sqlite3
-from contextlib import contextmanager, nullcontext
+from collections import Counter
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from threading import Barrier, Lock
 
+import pyarrow.parquet as pq
 import pytest
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
@@ -19,12 +22,12 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
     PriceAttempt,
     PriceL1,
 )
+from baibai_engine.machine_analysis.generation.price_inputs import read_price_input
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_observation_reader import (
     read_price_day_states,
 )
 from baibai_engine.storage.objects.r2 import LakePublishError, R2Error
-from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration import price_native
 from baibai_jobs.publication.l1_price_export import export_prices_from_native_input
@@ -120,6 +123,10 @@ def test_rebuild_preserves_matching_days_and_repairs_other_days(tmp_path, fixed_
                 )
                 conn.execute(
                     "INSERT INTO jquants_daily_bars(ticker,traded_at) VALUES('1301','1990-01-01')"
+                )
+                conn.execute(
+                    "INSERT INTO jquants_daily_bars(ticker,traded_at) VALUES('9999',?)",
+                    ((DAY + timedelta(days=2)).isoformat(),),
                 )
                 conn.execute(
                     "UPDATE jquants_daily_bars SET ex_right_type=CAST(X'80' AS TEXT) "
@@ -220,49 +227,137 @@ def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
     assert not store.put_keys
 
 
-def test_native_price_paths_use_small_runner_session(tmp_path, monkeypatch, fixed_prices):
-    from pathlib import Path
+def test_wrong_date_in_native_price_keeps_original_and_prior_projection(tmp_path, fixed_prices):
+    store, fixed = fixed_prices
+    market = market_store(tmp_path / "market.sqlite")
+    last = DAY + timedelta(days=2)
+    price_native.model_input(
+        store, fixed, as_of=last, evaluated_at=AT + timedelta(hours=1), market=market
+    )
+    before = rows_at(market)
+    at = AT + timedelta(hours=2)
+    body = json.dumps({"data": [{"Code": "13010", "Date": DAY.isoformat(), "C": 777}]}).encode()
+    page = JQuantsPage("daily_bars", {"date": last.isoformat()}, at, body)
+    owner = PriceL1(store, tmp_path / "native")
+    owner.commit([PriceAttempt("wrong-date", last, at, (page,))])
+    corrected = owner.fixed()
+    with pytest.raises(ValueError, match="daily price payload contains a date outside the request"):
+        price_native.model_input(store, corrected, as_of=last, evaluated_at=at, market=market)
+    assert rows_at(market) == before
+    request = next(corrected.requests(store, days=[last]))
+    assert request.request_id == "wrong-date"
+    assert request.request is not None
+    assert request.request.pages[0].body == body
 
-    monkeypatch.setenv("BAIBAI_LAKE_QUERY_PROFILE", "small-runner")
-    observed = []
 
-    @contextmanager
-    def recorded_session():
-        with lake_session() as session:
-            settings = dict(
-                session.connection.execute(
-                    "SELECT name,value FROM duckdb_settings() WHERE name IN "
-                    "('memory_limit','threads','max_temp_directory_size','temp_directory',"
-                    "'autoload_known_extensions','autoinstall_known_extensions')"
-                ).fetchall()
-            )
-            observed.append(settings)
-            assert Path(settings["temp_directory"]).is_dir()
-            yield session
-
-    monkeypatch.setattr(price_native, "lake_session", recorded_session)
+def test_cold_price_rebuilds_reuse_verified_inputs_and_publish_the_marker_last(
+    tmp_path, monkeypatch, fixed_prices
+):
     store, fixed = fixed_prices
     end = DAY + timedelta(days=2)
-    market = market_store(tmp_path / "limited.sqlite")
+    market = market_store(tmp_path / "market.sqlite")
     saved = price_native.model_input(
         store, fixed, as_of=end, evaluated_at=AT + timedelta(hours=1), market=market
     )
-    cold = price_native.rebuild_saved_input(
-        store, saved, start=DAY, end=end, output=tmp_path / "cold"
-    )
-    direct = price_native.rebuild(store, fixed, start=DAY, end=end, output=tmp_path / "direct")
+    days = (DAY, DAY + timedelta(days=1), end)
+    selected = read_price_input(store, saved.descriptor, days=days)
+    expected_rows = rows_at(market)["jquants_daily_bars"]
+    cold_output, direct_output = tmp_path / "cold", tmp_path / "direct"
+    committed = []
+    rename = Path.rename
+
+    def check_marker(path, target):
+        if target.parent in (cold_output, direct_output) and target.name == "input.json":
+            assert pq.ParquetFile(target.parent / "daily_bars.parquet").metadata.num_rows == 4
+            assert (
+                pq.ParquetFile(target.parent / "price_receipt_status.parquet").metadata.num_rows
+                == 3
+            )
+            assert (target.parent / "head.json").exists() is (target.parent == direct_output)
+            committed.append(target.parent)
+        return rename(path, target)
+
+    monkeypatch.setattr(Path, "rename", check_marker)
+    store.get_keys.clear()
+    cold = price_native.rebuild_saved_input(store, saved, start=DAY, end=end, output=cold_output)
+    assert Counter(key.split("/")[-2] for key in store.get_keys) == {
+        "selections": 1,
+        "months": 2,
+        "packs": 3,
+    }
+    store.get_keys.clear()
+    direct = price_native.rebuild(store, fixed, start=DAY, end=end, output=direct_output)
+    assert Counter(key.split("/")[-2] for key in store.get_keys) == {"packs": 2}
+    assert committed == [cold_output, direct_output]
     assert cold["rows"] == direct["rows"] == 4
-    with sqlite3.connect(market) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone() == (4,)
-    assert len(observed) == 2  # Only the two standalone Parquet builders need DuckDB.
-    assert len({item["temp_directory"] for item in observed}) == len(observed)
-    for settings in observed:
-        assert settings["memory_limit"] == "953.6 MiB"
-        assert settings["threads"] == "2"
-        assert settings["max_temp_directory_size"] == "3.7 GiB"
-        assert settings["autoload_known_extensions"] == "false"
-        assert settings["autoinstall_known_extensions"] == "false"
-        assert not Path(settings["temp_directory"]).exists()
+    assert (direct_output / "head.json").read_bytes() == fixed.payload
+    assert json.loads((cold_output / "input.json").read_bytes()) == {
+        "saved_input": saved.model_dump(mode="json"),
+        "source_head_sha256": fixed.content_id,
+        "start": DAY.isoformat(),
+        "end": end.isoformat(),
+        **selected,
+    }
+    bars = pq.read_table(cold_output / "daily_bars.parquet")
+    assert bars.equals(pq.read_table(direct_output / "daily_bars.parquet"))
+    assert sorted(tuple(row.values()) for row in bars.to_pylist()) == sorted(expected_rows)
+    status = pq.read_table(cold_output / "price_receipt_status.parquet")
+    assert status.equals(pq.read_table(direct_output / "price_receipt_status.parquet"))
+
+
+@pytest.mark.parametrize("saved_mode", [True, False])
+def test_corrupt_price_pack_after_a_completed_batch_leaves_no_output(tmp_path, saved_mode):
+    store = MemoryR2Store()
+    owner = PriceL1(store, tmp_path / "native")
+    owner.initialize()
+    end = DAY + timedelta(days=1)
+    keys = []
+    for i, day in enumerate((DAY, end)):
+        value = day.isoformat()
+        body = json.dumps({"data": [{"Code": "13010", "Date": value, "C": 100 + i}]}).encode()
+        owner.commit(
+            [PriceAttempt(value, day, AT, (JQuantsPage("daily_bars", {"date": value}, AT, body),))]
+        )
+        head = owner.fixed().value()
+        identity = head["scopes"][value]["adopted"]
+        keys.append(PREFIX + "packs/" + head["receipts"][identity]["pack"] + ".json.gz")
+    fixed = owner.fixed()
+    saved = price_native.model_input(
+        store, fixed, as_of=end, evaluated_at=AT, market=market_store(tmp_path / "market.sqlite")
+    )
+    store.values[keys[-1]].body = b"corrupt"
+    store.get_keys.clear()
+    output = tmp_path / "failed"
+    run, selection = (
+        (price_native.rebuild_saved_input, saved) if saved_mode else (price_native.rebuild, fixed)
+    )
+    with pytest.raises(LakePublishError, match="native L1 object failed integrity"):
+        run(store, selection, start=DAY, end=end, output=output)
+    assert _pack_reads(store) == keys
+    assert not output.exists()
+    assert list(tmp_path.glob(".price-rebuild-*")) == []
+
+
+@pytest.mark.parametrize("claim_during_rebuild", [False, True])
+def test_cold_rebuild_does_not_replace_an_empty_directory_even_if_claimed_late(
+    tmp_path, monkeypatch, fixed_prices, claim_during_rebuild
+):
+    store, fixed = fixed_prices
+    output = tmp_path / "occupied"
+    if claim_during_rebuild:
+        write = price_native.write_json_atomic
+
+        def claim(path, payload):
+            write(path, payload)
+            output.mkdir()
+
+        monkeypatch.setattr(price_native, "write_json_atomic", claim)
+    else:
+        output.mkdir()
+    with pytest.raises(FileExistsError):
+        price_native.rebuild(store, fixed, start=DAY, end=DAY, output=output)
+    assert list(output.iterdir()) == []
+    assert list(tmp_path.glob(".price-rebuild-*")) == []
 
 
 def test_packing_cannot_trade_an_extra_read_of_one_original_for_two_other_reads():

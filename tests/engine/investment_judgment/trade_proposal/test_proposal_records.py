@@ -60,11 +60,9 @@ def records_case(tmp_path):
     wrong = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
     ).publish(reviewed_proposal(case, action="no_action", proposal_id=B))
-    case.operations.record_proposal(
-        case.operation.operation_id, wrong.proposal_id, now=PUBLISHED + timedelta(minutes=2)
-    )
     case.operations.complete(
         case.operation.operation_id,
+        proposal_id=wrong.proposal_id,
         result="合成の有限判断完了",
         next="人間の判断と実取引は別",
         completed_at=PUBLISHED + timedelta(minutes=2),
@@ -341,3 +339,96 @@ def test_record_append_does_not_initialize_or_migrate_another_store(
     assert (app.read_bytes() if app.exists() else None) == before
     assert set(tmp_path.rglob("*")) == entries_before
     assert case.app.read_bytes() == original
+
+
+@pytest.mark.parametrize("already_corrected", [False, True])
+def test_active_completion_validates_exact_correction_as_of_and_never_redirects(
+    tmp_path, already_corrected, monkeypatch
+):
+    from baibai_engine.investment_judgment.workflow.operation import service as op_owner
+    from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
+
+    case = backend_case(tmp_path)
+    first = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(reviewed_proposal(case))
+    wrong = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
+    ).publish(reviewed_proposal(case, action="no_action", proposal_id=B))
+    instant = PUBLISHED + timedelta(minutes=2)
+    correction_time = instant if already_corrected else instant + timedelta(microseconds=1)
+    ProposalRecordService(case.app, clock=lambda: correction_time).correct(
+        ProposalCorrectionDraft(
+            correction_id="correct-active",
+            erroneous_ref=ref(wrong),
+            replacement_ref=ref(first),
+            reason="別の正式版を誤って発行したため。",
+        ),
+        expected_latest_ref=ref(wrong),
+    )
+    op_id = case.operation.operation_id
+    notes = {"result": "選定と成果を確定", "next": "採否は別"}
+    before = snapshot(case.app)
+    if already_corrected:
+        with pytest.raises(op_owner.OperationCompletionError, match="corrected"):
+            case.operations.complete(
+                op_id, proposal_id=wrong.proposal_id, completed_at=instant, **notes
+            )
+        assert snapshot(case.app) == before  # Aへも遷移しない。
+    exact = first if already_corrected else wrong
+    trace = []
+    committed_rows = []
+    open_writer = op_owner.connect_existing
+
+    def traced(path):
+        connection = open_writer(path)
+
+        def observe(sql):
+            trace.append(sql)
+            if sql == "COMMIT":
+                committed_rows.append(connection.total_changes)
+
+        connection.set_trace_callback(observe)
+        return connection
+
+    monkeypatch.setattr(op_owner, "connect_existing", traced)
+    complete = case.operations.complete(
+        op_id, proposal_id=exact.proposal_id, completed_at=instant, **notes
+    )
+    assert progress_binding(complete.payload).proposal_ref.draft_sha256 == exact.review.draft_sha256
+    assert (
+        sum(
+            "FROM investment_proposal WHERE proposal_id=" in sql and "request_scope,payload" in sql
+            for sql in trace
+        )
+        == 1
+    )
+    assert committed_rows == [1]
+    assert trace[0] == "BEGIN IMMEDIATE"
+    assert trace[-1] == "COMMIT"
+    after = snapshot(case.app)
+    assert {k: v for k, v in before.items() if k != "operation_session"} == {
+        k: v for k, v in after.items() if k != "operation_session"
+    }
+    trace.clear()
+    earlier = instant - timedelta(microseconds=1)
+    for retry_at in (earlier, instant, correction_time + timedelta(days=1)):
+        assert (
+            case.operations.complete(
+                op_id, proposal_id=exact.proposal_id, completed_at=retry_at, **notes
+            )
+            == complete
+        )
+    retry = {"proposal_id": exact.proposal_id, **notes}
+    for changed in (
+        {"proposal_id": (wrong if already_corrected else first).proposal_id},
+        {"proposal_id": None},
+        {"result": "異なる結果"},
+        {"next": "異なる次手"},
+    ):
+        with pytest.raises(op_owner.OperationConflictError, match="immutable"):
+            case.operations.complete(op_id, **(retry | changed), completed_at=earlier)
+    assert all("FROM operation_session" in sql for sql in trace if sql.startswith("SELECT"))
+    assert not any(sql.startswith(("INSERT", "UPDATE", "DELETE")) for sql in trace)
+    assert snapshot(case.app) == after
+    assert committed_rows == [1, 0, 0, 0]

@@ -123,6 +123,7 @@ def test_real_native_close_only_and_failed_recheck_reach_nonfirst_value_case(tmp
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "seal") as seal:
         stream = read_and_generate_models(
             generation_id="native-finite",
+            include_session_prices=True,
             market_snapshot=seal,
             price_identity=fixed,
             market_release=InputRelease(release_id="fixture", manifest_sha256="2" * 64),

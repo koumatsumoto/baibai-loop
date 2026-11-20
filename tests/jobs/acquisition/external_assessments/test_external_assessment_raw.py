@@ -5,8 +5,10 @@ import json
 import tarfile
 import uuid
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
+from botocore.exceptions import ClientError
 from tests.helpers.external_assessment_html import (
     monex_html,
     official_html,
@@ -31,7 +33,9 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 )
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
     LakePublishError,
+    R2Error,
 )
 from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
 
@@ -469,6 +473,124 @@ def legacy_bundle(store, p, *, body=b"legacy original"):
     del store.objects[retained]
     store.puts.clear()
     return legacy, retained, payload
+
+
+@pytest.mark.parametrize("retained_exists", [True, False])
+def test_bundle_reader_gets_the_exact_selected_bytes_without_a_redundant_head(
+    monkeypatch, retained_exists
+):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz):
+            return RECEIVED.astimezone(tz)
+
+    ids = iter((uuid.UUID(int=1), uuid.UUID(int=2)))
+    monkeypatch.setattr(external_assessment_raw, "datetime", Clock)
+    monkeypatch.setattr(external_assessment_raw, "uuid", SimpleNamespace(uuid4=lambda: next(ids)))
+    store, p = FakeObjectStore(), plan()
+    legacy, retained, _ = legacy_bundle(store, p, body=b"old bytes")
+    suffix = f"utc-date/2026-10-11/bundles/{p.run_id}/cohort-0000-{1:032x}.tar.gz"
+    assert retained == external_assessment_raw.RETAINED_RAW_PREFIX + suffix
+    assert legacy == external_assessment_raw.RAW_PREFIX + suffix
+    if retained_exists:
+        _, _, other = legacy_bundle(store, p, body=b"distinct retained bytes")
+        store.seed(retained, other, "application/gzip")
+
+    def response(key):
+        store.events.append(("GET-with-metadata", key))
+        return store.objects.get(key)
+
+    monkeypatch.setattr(store, "get_bytes_with_metadata", response, raising=False)
+    store.events.clear()
+    _, (raw,) = external_assessment_raw.read_raw_bundle(store, legacy)
+    assert raw.body == (b"distinct retained bytes" if retained_exists else b"old bytes")
+    assert store.events == (
+        [("HEAD", retained), ("GET", retained)]
+        if retained_exists
+        else [("HEAD", retained), ("HEAD", legacy), ("GET", legacy)]
+    )
+    store.events.clear()
+    if retained_exists:
+        _, (direct,) = external_assessment_raw.read_raw_bundle(store, retained)
+        assert direct == raw
+    else:
+        with pytest.raises(ValueError, match="missing"):
+            external_assessment_raw.read_raw_bundle(store, retained)
+    assert store.events == [("GET-with-metadata", retained)] + (
+        [] if retained_exists else [("HEAD", retained)]
+    )
+    if not retained_exists:
+        del store.objects[legacy]
+        store.events.clear()
+        with pytest.raises(ValueError, match="missing"):
+            external_assessment_raw.read_raw_bundle(store, legacy)
+        assert store.events == [("HEAD", retained), ("HEAD", legacy)]
+
+
+@pytest.mark.parametrize(
+    ("get_reply", "head_reply", "error"),
+    [
+        ("404", "404", ValueError),
+        ("NoSuchKey", "200", R2Error),
+        ("NotFound", "403", R2Error),
+        ("404", "429", R2Error),
+        ("403", None, R2Error),
+        ("429", None, R2Error),
+        ("500", None, R2Error),
+        ("invalid", None, ValueError),
+    ],
+)
+def test_exact_current_key_errors_remain_source_local_only_for_confirmed_absence_or_invalid_bytes(
+    monkeypatch, get_reply, head_reply, error
+):
+    store = Boto3R2Store(
+        bucket="fixture",
+        env={"R2_ACCOUNT_ID": "a" * 32, "R2_ACCESS_KEY_ID": "fake", "R2_SECRET_ACCESS_KEY": "fake"},
+    )
+    key = external_assessment_raw.RETAINED_RAW_PREFIX + (
+        "utc-date/2026-10-11/bundles/synthetic-20261011/cohort-0000-" + "0" * 32 + ".tar.gz"
+    )
+    calls = []
+
+    def reply(method, code, params):
+        calls.append((method, params))
+        if code in {"200", "invalid"}:
+            return {"ETag": '"stamp"', "ContentLength": 4, "Body": io.BytesIO(b"oops")}
+        raise ClientError({"Error": {"Code": code}}, method)
+
+    client = SimpleNamespace(
+        get_object=lambda **params: reply("GET", get_reply, params),
+        head_object=lambda **params: reply("HEAD", head_reply, params),
+    )
+    monkeypatch.setattr(store, "_client", lambda: client)
+    with pytest.raises(error):
+        external_assessment_raw.read_raw_bundle(store, key)
+    assert calls == [
+        (method, {"Bucket": "fixture", "Key": key})
+        for method in (["GET", "HEAD"] if head_reply else ["GET"])
+    ]
+
+
+@pytest.mark.parametrize("fault", ["404", "403", "429", "invalid"])
+@pytest.mark.parametrize("retained_exists", [True, False])
+def test_a_failed_get_after_positive_head_never_reselects(monkeypatch, fault, retained_exists):
+    store = FakeObjectStore()
+    legacy, retained, payload = legacy_bundle(store, plan())
+    if retained_exists:
+        store.seed(retained, payload)
+
+    def body(key):
+        assert key == (retained if retained_exists else legacy)
+        if fault != "invalid":
+            raise R2Error(fault)
+        return b"not a tar archive"
+
+    monkeypatch.setattr(store, "get_bytes", body)
+    monkeypatch.setattr(
+        store, "get_bytes_with_metadata", lambda _: pytest.fail("reselected key"), raising=False
+    )
+    with pytest.raises(ValueError if fault == "invalid" else R2Error, match=fault):
+        external_assessment_raw.read_raw_bundle(store, legacy)
 
 
 def test_preserve_legacy_bundle_without_rewriting_identity_or_original():

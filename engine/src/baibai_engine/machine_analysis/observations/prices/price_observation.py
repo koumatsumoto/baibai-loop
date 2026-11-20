@@ -8,16 +8,7 @@ from datetime import date, datetime
 from math import isfinite
 from typing import Annotated, Literal, Self, TypedDict
 
-from pydantic import (
-    AwareDatetime,
-    BaseModel,
-    ConfigDict,
-    Field,
-    ValidationInfo,
-    field_validator,
-    model_validator,
-    with_config,
-)
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator, with_config
 
 from baibai_engine.primitives.time import JST
 
@@ -36,45 +27,38 @@ class ExpectedPriceBar(TypedDict):
 class NativePriceSession(BaseModel):
     """Exact native scope of the expected session, shared by every stock in a seal."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     expected_date: date | None
     status: Literal["ok", "empty", "partial", "unavailable", "not_recorded", "unconfirmed"]
     recorded_at: AwareDatetime | None
 
-    @field_validator("expected_date", "recorded_at", mode="before")
-    @classmethod
-    def iso_clock(cls, value: object, info: ValidationInfo) -> object:
-        if isinstance(value, str):
-            return (
-                date.fromisoformat(value)
-                if info.field_name == "expected_date"
-                else datetime.fromisoformat(value)
-            )
-        if value is None or isinstance(value, date):
-            return value
-        raise ValueError("native price evidence requires an ISO date or timestamp")
-
     @model_validator(mode="after")
     def scope_evidence(self) -> Self:
+        self._require_scope_evidence()
+        return self
+
+    def _require_scope_evidence(self) -> None:
         if self.expected_date is None and self.status != "not_recorded":
             raise ValueError("a native price scope requires its exact session")
         if self.status == "not_recorded" and self.recorded_at is not None:
             raise ValueError("absent native price scope cannot have a receipt clock")
-        if self.status in {"ok", "empty"} and (
-            self.recorded_at is None
-            or self.expected_date is None
-            or self.recorded_at.astimezone(JST).date() < self.expected_date
-        ):
-            raise ValueError(
-                "confirmed native price scope requires a receipt clock on or after its session"
-            )
-        return self
+        if self.status in {"ok", "empty"} and self.recorded_at is None:
+            raise ValueError("confirmed native price scope requires its receipt clock")
 
     def validate_cutoff(self, as_of: date, known_at: datetime) -> None:
+        # Typed copies can bypass model validators before publication.
+        self._require_scope_evidence()
         if self.expected_date is not None and self.expected_date > as_of:
             raise ValueError("expected price session is after the generation date")
         if self.recorded_at is not None and self.recorded_at > known_at:
             raise ValueError("native price receipt is after the generation cutoff")
+        if (
+            self.status in {"ok", "empty"}
+            and self.expected_date is not None
+            and self.recorded_at is not None
+            and self.recorded_at.astimezone(JST).date() < self.expected_date
+        ):
+            raise ValueError("confirmed native price receipt is before its JST session")
 
     def observed(self, bar: ExpectedPriceBar) -> bool:
         price = bar["raw_close_yen"]

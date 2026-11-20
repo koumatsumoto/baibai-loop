@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from tests.helpers import proposal as helper
 from tests.helpers.db_seed import seed_historical_operation, seed_ledger
 from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.proposal import PROPOSAL_ID
 from tests.helpers.research_selection import historical_operation, selection
 
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
@@ -125,6 +126,7 @@ def test_normal_operation_keeps_original_questions_after_source_is_unavailable(
     )
     before = app.read_bytes()
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=operation.operation_id,
         db_path=app,
         sqlite_path=tmp_path / "absent-market.sqlite",
@@ -164,6 +166,7 @@ def test_retained_selection_versions_keep_original_text_and_cutoff(tmp_path, ver
     _finish_research(operations, operation)
     before = app.read_bytes()
     payload = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=operation.operation_id,
         db_path=app,
         sqlite_path=tmp_path / "absent-market.sqlite",
@@ -191,6 +194,7 @@ def test_zero_target_still_does_not_enter_proposal_authoring(tmp_path):
     before = app.read_bytes()
     with pytest.raises(ValidationError, match="at least 1 item"):
         build_proposal_context(
+            proposal_id=PROPOSAL_ID,
             operation_id=operation.operation_id,
             db_path=app,
             sqlite_path=tmp_path / "absent-market.sqlite",
@@ -212,6 +216,7 @@ def test_selection_questions_do_not_change_reviewed_action_or_exact_retry(tmp_pa
     saved = service.publish(draft)
     before = case.app.read_bytes()
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,

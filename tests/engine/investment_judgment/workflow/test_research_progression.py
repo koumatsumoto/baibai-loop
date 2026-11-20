@@ -24,6 +24,7 @@ from baibai_engine.investment_judgment.workflow.inputs import project_research_i
 from baibai_engine.investment_judgment.workflow.operation import service as operation_owner
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import (
+    ProposalRef,
     ResearchProgress,
     progress_binding,
     proposal_scope,
@@ -81,10 +82,10 @@ def start(case, tickers=(), *, scope="discover_new"):
     return service, operation
 
 
-def record_and_finish(service, operation, proposal):
-    service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
+def finish(service, operation, proposal):
     return service.complete(
         operation.operation_id,
+        proposal_id=proposal.proposal_id,
         result="調査結果を保存した",
         next="次の明示依頼",
         completed_at=PUBLISHED,
@@ -136,7 +137,7 @@ def test_reviewed_a_and_unfinished_b_keep_complete_scope_and_distinct_actions(ca
     assert service.get(operation.operation_id) == operation
     seed_proposal(db, proposal)
     before = ledger_rows(db)
-    completed = record_and_finish(service, operation, proposal)
+    completed = finish(service, operation, proposal)
     assert "human_confirmation" not in completed.payload.model_dump()
     assert (
         progress_binding(completed.payload).proposal_ref.draft_sha256
@@ -159,7 +160,7 @@ def test_all_unfinished_with_bound_proposal_keeps_the_normal_completion_path(cas
     )
     proposal = proposal_for(operation)
     seed_proposal(db, proposal)
-    completed = record_and_finish(service, operation, proposal)
+    completed = finish(service, operation, proposal)
     assert progress_binding(completed.payload).outcomes[0].status == "unfinished"
     assert proposal.items[0].action == "defer"
     assert proposal.items[0].assessment_ref is None
@@ -217,7 +218,7 @@ def test_holding_uses_common_assessment_reference_and_published_proposal_only(ca
         )
     proposal = proposal_for(operation, actions={"2331": action})
     seed_proposal(db, proposal)
-    completed = record_and_finish(service, operation, proposal)
+    completed = finish(service, operation, proposal)
     assert completed.status == "completed"
     assert ledger_rows(db) == before
     assert proposal.items[0].position.original_assessment_ref is None
@@ -242,24 +243,6 @@ def test_selection_immutable_and_missing_outcomes_cannot_drop_targets(case, part
             result="調査結果を保存した",
             next="次の明示依頼",
             completed_at=PUBLISHED,
-        )
-    selected = selection_binding(operation.payload)
-    changed = selected.model_copy(update={"selection_summary": "別の選定"})
-    with pytest.raises(OperationConflictError, match="immutable"):
-        service.checkpoint(
-            operation.operation_id,
-            operation.payload.model_copy(
-                update={
-                    "artifacts": (
-                        changed.model_dump(mode="json"),
-                        *(
-                            artifact
-                            for artifact in operation.payload.artifacts
-                            if artifact.get("kind") != "research_selection"
-                        ),
-                    )
-                }
-            ),
         )
     assert service.get(operation.operation_id) == operation
     assert ledger_rows(db) == []
@@ -296,9 +279,7 @@ def test_checkpoint_cannot_propagate_a_corrupt_persisted_outcome(case, change):
             (corrupt.model_dump_json(), operation.operation_id),
         )
     with pytest.raises(ValueError, match=r"differs|unselected|outside"):
-        service.checkpoint(
-            operation.operation_id, corrupt.model_copy(update={"checkpoint": "new note"}), now=NOW
-        )
+        service.checkpoint(operation.operation_id, note="new note", now=NOW)
     assert service.get(operation.operation_id).payload == corrupt
 
 
@@ -330,20 +311,24 @@ def test_retry_is_stable_and_checkpoint_cannot_remove_recorded_outcomes_or_refer
         )
     proposal = proposal_for(operation)
     seed_proposal(db, proposal)
-    operation = service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
+    completed = finish(service, operation, proposal)
     assert (
-        service.record_proposal(
-            operation.operation_id, proposal.proposal_id, now=PUBLISHED + timedelta(days=1)
+        service.complete(
+            operation.operation_id,
+            proposal_id=proposal.proposal_id,
+            result=completed.payload.result,
+            next=completed.payload.next,
+            completed_at=PUBLISHED + timedelta(days=1),
         )
-        == operation
+        == completed
     )
-    for update in ({"outcomes": ()}, {"proposal_ref": None}):
-        progress = progress_binding(operation.payload).model_copy(update=update)
-        with pytest.raises(OperationConflictError, match="cannot change research_progress"):
-            service.checkpoint(
-                operation.operation_id, with_progress(operation.payload, progress), now=PUBLISHED
-            )
-        assert service.get(operation.operation_id) == operation
+    with pytest.raises(OperationConflictError, match="immutable"):
+        service.complete(
+            operation.operation_id,
+            result=completed.payload.result,
+            next=completed.payload.next,
+            completed_at=PUBLISHED,
+        )
 
 
 def test_late_outcome_survives_stale_checkpoint_and_requires_current_proposal(
@@ -362,7 +347,23 @@ def test_late_outcome_survives_stale_checkpoint_and_requires_current_proposal(
     )
     proposal = proposal_for(operation)
     seed_proposal(db, proposal)
-    recorded = service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
+    # 旧activeにある中間参照を再現する。新writerは完了前にこの参照を作らない。
+    reference = ProposalRef(
+        proposal_id=proposal.proposal_id, draft_sha256=proposal.review.draft_sha256
+    )
+    recorded = operation.model_copy(
+        update={
+            "payload": with_progress(
+                operation.payload,
+                progress_binding(operation.payload).model_copy(update={"proposal_ref": reference}),
+            )
+        }
+    )
+    with closing(connect_rw(db)) as connection, connection:
+        connection.execute(
+            "UPDATE operation_session SET payload=? WHERE operation_id=?",
+            (recorded.payload.model_dump_json(), operation.operation_id),
+        )
     notes = {"result": "最初の提案を保存した", "next": "人間の採否を待つ"}
     stale_payload = recorded.payload.model_copy(update=notes)
     operation = service.record_assessment(operation.operation_id, later, now=PUBLISHED)
@@ -370,19 +371,30 @@ def test_late_outcome_survives_stale_checkpoint_and_requires_current_proposal(
     assert progress_binding(operation.payload).outcomes[1].assessment_ref.assessment_id == later
     stale_file = tmp_path / "stale-checkpoint.json"
     stale_file.write_text(stale_payload.model_dump_json(), encoding="utf-8")
-    assert (
+    with pytest.raises(SystemExit) as rejected:
         operation_main(
-            ["--db", str(db), "checkpoint", operation.operation_id, "--payload", str(stale_file)],
+            [
+                "--db",
+                str(db),
+                "checkpoint",
+                operation.operation_id,
+                "--note",
+                "keep scoped",
+                "--payload",
+                str(stale_file),
+            ],
             now=PUBLISHED,
         )
-        == 1
-    )
-    assert "cannot change research_progress" in capsys.readouterr().err
+    assert rejected.value.code == 2
+    assert "unrecognized arguments: --payload" in capsys.readouterr().err
     assert service.get(operation.operation_id) == operation
+    note = "後着評価を保存し、提案を更新する"
     current_payload = operation.payload.model_copy(
-        update={"checkpoint": "後着評価を保存し、提案を更新する", **notes}
+        update={"checkpoint": note, "next": notes["next"]}
     )
-    operation = service.checkpoint(operation.operation_id, current_payload, now=PUBLISHED)
+    operation = service.checkpoint(
+        operation.operation_id, note=note, next=notes["next"], now=PUBLISHED
+    )
     assert operation.payload == current_payload
     with closing(connect_read_only(db)) as reader:
         assert load_investment_proposal(reader, proposal.proposal_id) == proposal
@@ -394,16 +406,20 @@ def test_late_outcome_survives_stale_checkpoint_and_requires_current_proposal(
                 published_at=PUBLISHED,
             )
     with pytest.raises(OperationCompletionError, match="scope differs"):
-        service.complete(operation.operation_id, **notes, completed_at=PUBLISHED)
+        service.complete(
+            operation.operation_id,
+            proposal_id=proposal.proposal_id,
+            **notes,
+            completed_at=PUBLISHED,
+        )
     assert service.get(operation.operation_id) == operation
     replacement = proposal_for(operation, number=2)
     seed_proposal(db, replacement)
-    recorded = service.record_proposal(
-        operation.operation_id, replacement.proposal_id, now=PUBLISHED
+    completed = service.complete(
+        operation.operation_id, proposal_id=replacement.proposal_id, **notes, completed_at=PUBLISHED
     )
-    completed = service.complete(operation.operation_id, **notes, completed_at=PUBLISHED)
     assert completed.status == "completed"
-    assert completed.payload == recorded.payload.model_copy(update=notes)
+    assert progress_binding(completed.payload).proposal_ref.proposal_id == replacement.proposal_id
     with closing(connect_read_only(db)) as reader:
         assert load_investment_proposal(reader, proposal.proposal_id) == proposal
 
@@ -452,11 +468,11 @@ def test_only_concrete_buy_terms_complete_purchase_proposal(case, action):
     operation = service.record_assessment(operation.operation_id, reference, now=NOW)
     proposal = proposal_for(operation, actions={"1234": action})
     seed_proposal(db, proposal)
-    operation = service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
     if action == "buy_needs_terms":
         with pytest.raises(OperationCompletionError, match="concrete order terms"):
             service.complete(
                 operation.operation_id,
+                proposal_id=proposal.proposal_id,
                 result="調査結果を保存した",
                 next="次の明示依頼",
                 completed_at=PUBLISHED,
@@ -467,6 +483,7 @@ def test_only_concrete_buy_terms_complete_purchase_proposal(case, action):
         # Current price/cash/target session belong to preview and do not rewrite terms.
         completed = service.complete(
             operation.operation_id,
+            proposal_id=proposal.proposal_id,
             result="調査結果を保存した",
             next="次の明示依頼",
             completed_at=PUBLISHED + timedelta(days=1),
@@ -484,21 +501,37 @@ def test_proposal_reference_changes_and_publication_times_are_checked(case):
     proposal = proposal_for(operation)
     seed_proposal(db, proposal)
     with pytest.raises(OperationCompletionError, match="precedes Proposal publication"):
-        service.record_proposal(operation.operation_id, proposal.proposal_id, now=NOW)
-    assert service.get(operation.operation_id) == operation
-    operation = service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
-    progress = progress_binding(operation.payload)
-    progress = progress.model_copy(
-        update={"proposal_ref": progress.proposal_ref.model_copy(update={"draft_sha256": "0" * 64})}
-    )
-    with pytest.raises(OperationConflictError, match="cannot change research_progress"):
-        service.checkpoint(
+        service.complete(
             operation.operation_id,
-            with_progress(operation.payload, progress),
-            now=PUBLISHED,
+            proposal_id=proposal.proposal_id,
+            result="結果",
+            next="次",
+            completed_at=NOW,
         )
     assert service.get(operation.operation_id) == operation
-    record_and_finish(service, operation, proposal)
+    # Existing old active reference for this exact ID must still match its reviewed draft.
+    corrupt = with_progress(
+        operation.payload,
+        progress_binding(operation.payload).model_copy(
+            update={
+                "proposal_ref": ProposalRef(proposal_id=proposal.proposal_id, draft_sha256="0" * 64)
+            }
+        ),
+    )
+    with closing(connect_rw(db)) as connection, connection:
+        connection.execute(
+            "UPDATE operation_session SET payload=? WHERE operation_id=?",
+            (corrupt.model_dump_json(), operation.operation_id),
+        )
+    with pytest.raises(OperationCompletionError, match="draft hash"):
+        finish(service, operation, proposal)
+    assert service.get(operation.operation_id).payload == corrupt
+    with closing(connect_rw(db)) as connection, connection:
+        connection.execute(
+            "UPDATE operation_session SET payload=? WHERE operation_id=?",
+            (operation.payload.model_dump_json(), operation.operation_id),
+        )
+    finish(service, operation, proposal)
     with (
         closing(connect_read_only(db)) as reader,
         pytest.raises(ValueError, match="active Research Operation"),
@@ -628,14 +661,12 @@ def test_equivalent_publication_instants_use_aware_time_comparison(case):
     )
     proposal = proposal_for(operation)
     seed_proposal(db, proposal)
-    operation = service.record_proposal(
-        operation.operation_id, proposal.proposal_id, now=PUBLISHED.astimezone(UTC)
-    )
     assert (
         service.complete(
             operation.operation_id,
             result="調査結果を保存した",
             next="次の明示依頼",
+            proposal_id=proposal.proposal_id,
             completed_at=PUBLISHED.astimezone(UTC),
         ).status
         == "completed"
@@ -659,18 +690,24 @@ def test_a_new_operation_cannot_bind_the_previous_operations_proposal(case):
     operation = service.record_assessment(operation.operation_id, reference, now=NOW)
     proposal = proposal_for(operation)
     seed_proposal(db, proposal)
-    completed = record_and_finish(service, operation, proposal)
+    completed = finish(service, operation, proposal)
     service, other = start(case, ("1234",))
-    with pytest.raises(OperationConflictError, match="another Research Operation"):
-        service.record_proposal(other.operation_id, proposal.proposal_id, now=PUBLISHED)
-    assert service.get(other.operation_id) == other
-    service.record_unfinished(
+    other = service.record_unfinished(
         other.operation_id,
         ticker="1234",
         reason="今回の問いは未確認",
         references=("synthetic-new-question",),
         now=PUBLISHED,
     )
+    with pytest.raises(OperationCompletionError, match="another Research Operation"):
+        service.complete(
+            other.operation_id,
+            proposal_id=proposal.proposal_id,
+            result="結果",
+            next="次",
+            completed_at=PUBLISHED,
+        )
+    assert service.get(other.operation_id) == other
     other_completed = service.complete(
         other.operation_id,
         result="評価未完了のまま今回の作業を終了",
@@ -703,7 +740,7 @@ def test_concurrent_writes_cannot_overwrite_an_outcome_recorded_after_their_read
         with pytest.raises(OperationConflictError, match="progress changed"):
             service.checkpoint(
                 operation.operation_id,
-                operation.payload.model_copy(update={"checkpoint": "調査メモを保存する"}),
+                note="調査メモを保存する",
                 now=PUBLISHED,
             )
     elif command == "record-unfinished":
@@ -716,7 +753,8 @@ def test_concurrent_writes_cannot_overwrite_an_outcome_recorded_after_their_read
                 now=PUBLISHED,
             )
     else:
-        with pytest.raises(OperationConflictError, match="progress changed"):
+        # 完了はwriter内で先着のreviewed outcomeを読む。未発行のまま閉じない。
+        with pytest.raises(OperationCompletionError, match="published Trade Proposal"):
             service.complete(
                 operation.operation_id,
                 result="調査結果を保存した",

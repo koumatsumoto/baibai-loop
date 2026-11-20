@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -19,9 +19,26 @@ from baibai_engine.machine_analysis.observations.normalization import Normalized
 from baibai_engine.machine_analysis.observations.prices.jquants_normalization import (
     normalize_daily_bars,
 )
+from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import JQUANTS_DAILY_BARS
+from baibai_engine.storage.snapshots.models import CoverageStatus
 
-if TYPE_CHECKING:
-    import duckdb
+# The old cold Parquet fields were all nullable, independent of the Lake key constraints.
+PRICE_BAR_SCHEMA = pa.schema(
+    (column.name, column.arrow_type) for column in JQUANTS_DAILY_BARS.columns
+)
+_PRICE_RECEIPT_SCHEMA = pa.schema(
+    [
+        ("day", pa.date32()),
+        ("request_id", pa.string()),
+        ("projection_status", pa.string()),
+        ("l1_coverage_status", pa.string()),
+        ("rejected_count", pa.int64()),
+        ("excluded_count", pa.int64()),
+        ("incomplete_requests", pa.int64()),
+    ]
+)
+
+type PriceReceiptRow = tuple[date, str | None, str, int, int, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +50,16 @@ class PriceDay:
     rejected_count: int
     excluded_count: int
     incomplete_requests: int
+
+    def receipt_row(self) -> PriceReceiptRow:
+        return (
+            self.day,
+            self.request_id,
+            self.status,
+            self.rejected_count,
+            self.excluded_count,
+            self.incomplete_requests,
+        )
 
 
 @dataclass(slots=True)
@@ -92,71 +119,31 @@ def rebuild_price_days(
     return output
 
 
-def materialize_price_days(
-    connection: duckdb.DuckDBPyConnection,
-    results: Iterable[PriceDay],
-    *,
-    l1_coverage_status: str,
-    append: bool = False,
-) -> None:
-    if l1_coverage_status not in {"complete", "partial"}:
-        raise ValueError("invalid L1 coverage status")
-    days = tuple(results)
-    if len({item.day for item in days}) != len(days):
-        raise ValueError("price day appears more than once")
-    connection.execute("BEGIN TRANSACTION")
-    try:
-        if not append:
-            connection.execute(
-                "CREATE TEMP TABLE daily_bars (ticker VARCHAR NOT NULL, "
-                "traded_at VARCHAR NOT NULL, "
-                "open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume DOUBLE, "
-                "turnover_value DOUBLE, "
-                "adjustment_factor DOUBLE, upper_limit VARCHAR, lower_limit VARCHAR, "
-                "ex_right_type VARCHAR, "
-                "market_cap_million_yen DOUBLE, PRIMARY KEY(ticker, traded_at))"
-            )
-            connection.execute(
-                "CREATE TEMP TABLE price_receipt_status (day DATE PRIMARY KEY, request_id VARCHAR, "
-                "projection_status VARCHAR NOT NULL, l1_coverage_status VARCHAR NOT NULL, "
-                "rejected_count BIGINT NOT NULL, excluded_count BIGINT NOT NULL, "
-                "incomplete_requests BIGINT NOT NULL)"
-            )
-        for result in days:
-            if result.rows:
-                # Columnar transfer avoids a Python-to-DuckDB call per price row.
-                names = (
-                    "ticker",
-                    "traded_at",
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "turnover_value",
-                    "adjustment_factor",
-                    "upper_limit",
-                    "lower_limit",
-                    "ex_right_type",
-                    "market_cap_million_yen",
-                )
-                batch = pa.Table.from_arrays(
-                    [pa.array(column) for column in zip(*result.rows, strict=True)], names=names
-                )
-                connection.from_arrow(batch).insert_into("daily_bars")
-            connection.execute(
-                "INSERT INTO price_receipt_status VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [
-                    result.day,
-                    result.request_id,
-                    result.status,
-                    l1_coverage_status,
-                    result.rejected_count,
-                    result.excluded_count,
-                    result.incomplete_requests,
-                ],
-            )
-        connection.execute("COMMIT")
-    except BaseException:
-        connection.execute("ROLLBACK")
-        raise
+def _rows_to_batch(rows: Sequence[tuple[Any, ...]], schema: Any) -> Any:
+    return pa.RecordBatch.from_arrays(
+        [
+            pa.array(column, type=field.type)
+            for column, field in zip(zip(*rows, strict=True), schema, strict=True)
+        ],
+        schema=schema,
+    )
+
+
+def price_bars_to_arrow(results: Iterable[PriceDay]) -> Any:
+    """Project one bounded input batch without a SQL round trip or inferred null types."""
+    return pa.Table.from_batches(
+        (_rows_to_batch(item.rows, PRICE_BAR_SCHEMA) for item in results if item.rows),
+        schema=PRICE_BAR_SCHEMA,
+    )
+
+
+def price_receipts_to_arrow(
+    receipts: Iterable[PriceReceiptRow], *, l1_coverage_status: CoverageStatus
+) -> Any:
+    rows = [
+        (day, request_id, status, l1_coverage_status, rejected, excluded, incomplete)
+        for day, request_id, status, rejected, excluded, incomplete in receipts
+    ]
+    if not rows:
+        return _PRICE_RECEIPT_SCHEMA.empty_table()
+    return pa.Table.from_batches([_rows_to_batch(rows, _PRICE_RECEIPT_SCHEMA)])

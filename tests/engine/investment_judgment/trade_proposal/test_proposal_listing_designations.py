@@ -81,16 +81,9 @@ def test_targeted_observation_and_draft_use_receipt_not_future_or_another_code(t
     assert obs.designations_by_ticker == {"1234": ("監理銘柄（確認中）",)}
     assert ctx.inputs == no_source.inputs
     assert ctx.calculations == no_source.calculations
-    draft = scaffold_proposal(
-        operation_id=case.operation.operation_id,
-        proposal_id=PROPOSAL_ID,
-        db_path=case.app,
-        sqlite_path=case.market,
-        now=PREPARED,
-    )
-    assert draft["items"][0]["action"] == "defer"
-    reasons = draft["items"][0]["review_conditions"]
-    assert sum("監理銘柄（確認中）" in r for r in reasons) == 1
+    draft = scaffold_proposal(ctx)
+    assert draft["items"][0]["action"] is None
+    assert draft["items"][0]["review_conditions"] == []
     assert "listing_designations" not in draft
     later = _context(case, PREPARED + timedelta(minutes=2)).listing_designations
     assert later.bundle_id == future
@@ -200,21 +193,9 @@ def test_tender_lookup_follows_flagged_target_and_never_turns_metadata_into_term
     assert set(context.payload()["tender_filing_references"]["references_by_ticker"]) == {"1234"}
     assert context.inputs == base.inputs
     assert context.calculations == base.calculations
-    draft = scaffold_proposal(
-        operation_id=case.operation.operation_id,
-        proposal_id=PROPOSAL_ID,
-        db_path=case.app,
-        sqlite_path=case.market,
-        now=PREPARED,
-    )
-    item = draft["items"][0]
-    assert item["action"] == "defer"
-    assert all(any(i in r for r in item["review_conditions"]) for i in ids)
-    first, second = next(r for r in item["review_conditions"] if "起点SFICT001" in r).split(" ／ ")
-    assert all(doc_id in first for doc_id in ("SFICT001", "SFICT002", "SFICT003"))
-    assert "SFICT004" not in first
-    assert "起点SFICT004" in second
-    assert "SFICT003" not in second
+    draft = scaffold_proposal(context)
+    assert draft["items"][0]["action"] is None
+    assert draft["items"][0]["review_conditions"] == []
     assert "tender_filing_references" not in draft
     assert original == (case.app.read_bytes(), case.market.read_bytes())
     _bundle(case, start=PREPARED + timedelta(seconds=1), page=_page("5678"))

@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import yaml
@@ -46,16 +47,25 @@ from baibai_engine.investment_judgment.independent_review.contracts import (
 )
 from baibai_engine.investment_judgment.market_assessment.models import MarketContextAssessment
 from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
+from baibai_engine.investment_judgment.stock_assessment.calculation import (
+    CalculationInput,
+    calculate,
+)
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     assessment_core_hash,
 )
-from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
+from baibai_engine.investment_judgment.stock_assessment.store import (
+    AssessmentStoreService,
+    load_reviewed_assessment,
+)
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
+    ProposalError,
     load_proposal_draft,
     proposal_draft_sha256,
 )
+from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.report_perspectives import (
@@ -72,6 +82,9 @@ from baibai_engine.investment_judgment.workflow.selection import (
     ResearchRequest,
     selection_sha256,
 )
+from baibai_engine.investment_judgment.workflow.selection_query import (
+    load_generated_selection_context,
+)
 from baibai_engine.investment_judgment.workflow.workspace import (
     ResearchWorkspaceDataError,
     prepare_selected_workspace,
@@ -79,6 +92,7 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     resume_selected_workspace,
 )
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
+from baibai_engine.machine_analysis.generation.query import stream_generation_subjects
 from baibai_engine.machine_analysis.generation.runners.external_assessment import (
     external_assessment,
 )
@@ -100,6 +114,12 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     decode_attempt,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
+from baibai_engine.machine_analysis.screening import selection_store
+from baibai_engine.machine_analysis.screening.discovery_contract import discovery_publication_id
+from baibai_engine.machine_analysis.screening.policies.discovery import (
+    evaluate_discovery_rows,
+    project_discovery_row,
+)
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.primitives.json import canonical_json
@@ -195,6 +215,41 @@ def _retain_shared_articles(path, *, at=START, revision="original"):
             assert len(extracted) == 1
 
 
+def _discover_second(generation, *, runs, app, request, monkeypatch):
+    identity = generation.metadata.generation_id
+    subjects = generation.subjects
+    with stream_generation_subjects(identity, subjects=subjects, path=runs) as saved:
+        metadata, grouped = saved
+        rows = {
+            ticker: project_discovery_row(ticker, models=models, metadata=metadata)
+            for ticker, models in grouped
+        }
+    selection = evaluate_discovery_rows(metadata, tickers=subjects, rows=rows)
+    publication_id = discovery_publication_id(identity)
+    # Use the writer's real clock boundary without moving the publication after
+    # this historical fixture's Case or editing the persisted timestamp later.
+    with monkeypatch.context() as scope:
+        clock = Mock(wraps=datetime)
+        clock.now.return_value = START.astimezone(UTC)
+        scope.setattr(selection_store, "datetime", clock)
+        assert selection_store.ScreeningSelectionStore(runs).publish(publication_id, selection)
+    fixed = dict(
+        request=request,
+        research_as_of=START.date(),
+        known_at=START,
+        runs_path=runs,
+        db_path=app,
+        generation_id=identity,
+        screening_selection_id=publication_id,
+    )
+    page = load_generated_selection_context(**fixed, discovery_question="universe")["discovery"]
+    first, chosen = page["rows"]
+    assert (first["ticker"], chosen["ticker"]) == ("1001", "1234")
+    detail = load_generated_selection_context(**fixed, comparison_tickers=(chosen["ticker"],))
+    assert detail["discovery"]["rows"] == [chosen["observations"]]
+    return publication_id, chosen["ticker"]
+
+
 def _prepare_case(
     tmp_path,
     monkeypatch,
@@ -204,6 +259,7 @@ def _prepare_case(
     economic_input=None,
     ledger_age=0,
     monex_original=False,
+    discover=False,
 ):
     # urllib3 probes local IPv6 support at import (socket + bind, no remote IO).
     # Initialize it before the strict workflow guard, independent of test order.
@@ -249,6 +305,12 @@ def _prepare_case(
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [("2026-10-14", 1), ("2026-10-15", 1)],
         )
+    if discover:
+        seed_daily_bars(market, [("1001", START.date().isoformat(), 500.0, 1.0)])
+        with closing(sqlite3.connect(market)) as connection, connection:
+            insert_master_rows(
+                connection, [("2026-10-14", "1001", "別の合成企業", "Prime", "小売業", "011")]
+            )
     # 同じ四半期の増収と利益率低下を別々に残す。成長スコアや将来予測ではない。
     if scenario != "gaps":
         with closing(sqlite3.connect(market)) as connection, connection:
@@ -343,24 +405,33 @@ def _prepare_case(
             as_of=START.date(),
             evaluation_time=START,
             ttm_rules=DEFAULT_TTM_RULES,
-            tickers=("1234",),
+            tickers=("1001", "1234") if discover else ("1234",),
         )
         ModelGenerationStore(runs).publish_stream(generation)
     if monex_original:
         # In the authoring transfer, retained native bodies are not available.
         with closing(sqlite3.connect(market)) as conn, conn:
             conn.execute("DELETE FROM equity_web_source_responses")
+    if discover:
+        request = ResearchRequest(text="価格だけでなく資本の取り分を比較する", scope="discover_new")
+        screening_id, chosen = _discover_second(
+            generation, runs=runs, app=app, request=request, monkeypatch=monkeypatch
+        )
+    else:
+        request = ResearchRequest(
+            text="合成五モデルの判断経路", scope="specified_stocks", requested_tickers=("1234",)
+        )
+        screening_id, chosen = None, "1234"
     prepared = prepare_selected_workspace(
         draft=GeneratedResearchSelectionDraft(
             schema_version=2,
-            request=ResearchRequest(
-                text="合成五モデルの判断経路", scope="specified_stocks", requested_tickers=("1234",)
-            ),
+            request=request,
+            screening_selection_id=screening_id,
             research_as_of=START.date(),
             input_known_at=START,
             generation_id=generation.metadata.generation_id,
             selection_summary="観測の意味と欠測を保存して判断へ渡す",
-            targets=(selected_target(),),
+            targets=(selected_target(chosen),),
         ),
         db_path=app,
         workspace=tmp_path / "workspace",
@@ -712,18 +783,13 @@ def _assessment_payload(case):
 def _promote_and_propose(case):
     promote(workspace=case.prepared.workspace, ticker="1234", db_path=case.app, now=PROMOTED)
     context = build_proposal_context(
-        operation_id=case.prepared.operation_id,
-        db_path=case.app,
-        sqlite_path=case.market,
-        now=PREPARED,
-    )
-    raw = scaffold_proposal(
-        operation_id=case.prepared.operation_id,
         proposal_id=PROPOSAL_ID,
+        operation_id=case.prepared.operation_id,
         db_path=case.app,
         sqlite_path=case.market,
         now=PREPARED,
     )
+    raw = scaffold_proposal(context)
     raw.update(
         headline="合成五領域の比較",
         comparison="保存評価の五領域・反証を現金維持と比較した。",
@@ -733,13 +799,12 @@ def _promote_and_propose(case):
     item["review_conditions"] = ["借換不能・恒常収益源の喪失なら価格と独立して再調査する。"]
     if case.scenario == "unknown":
         item.update(
+            action="defer",
             rationale="借換条件の重要欠測で保留。安い指値でも不足を迂回しない。",
             blockers=[{"code": "valuation_unresolved", "message": "借換条件が未確認"}],
             resume_conditions=["借換条件を確認し、新Assessmentと独立Reviewを作る。"],
         )
     else:
-        item.pop("blockers")
-        item.pop("resume_conditions")
         if case.scenario == "broken":
             item.update(
                 action="no_action",
@@ -769,18 +834,17 @@ def _promote_and_propose(case):
                     warnings=[],
                 ),
             )
-    raw["review"].update(
-        reviewer_identity="synthetic-independent-proposal-reviewer",
-        reviewed_at="2026-10-14T16:15:00+09:00",
-    )
     return context, bind_review(
-        raw, {assessment_id(): context.assessments[assessment_id()].document}
+        raw,
+        {assessment_id(): context.assessments[assessment_id()].document},
+        reviewed_at="2026-10-14T16:15:00+09:00",
+        reviewer_identity="synthetic-independent-proposal-reviewer",
     )
 
 
 @pytest.mark.parametrize("scenario", ["wait", "current", "broken", "gaps", "unknown"])
 def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch, scenario):
-    case = _prepare_case(tmp_path, monkeypatch, scenario)
+    case = _prepare_case(tmp_path, monkeypatch, scenario, discover=scenario == "wait")
     projection = project_research_inputs(case.selected)
     security = projection["securities"]["1234"]["models"]
     assert security["company_financials"]["earnings_price"]["price_yen"] == case.quote
@@ -850,6 +914,26 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     assert service.check(proposal).valid
     published = service.publish(proposal)
     assert read_saved_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
+    if scenario == "wait":
+        assert published.request_scope == "discover_new"
+        screening = case.selected.inputs.screening_selection
+        assert screening.universe_tickers == ("1001", "1234")
+        assert [row["ticker"] for row in screening.result.rows] == ["1234"]
+        evidence = context.payload()["saved_discovery_context"]
+        assert evidence["selection_sha256"] == published.research_scope.selection_sha256
+        assert evidence["screening_selection_id"] == case.selected.inputs.screening_selection_id
+        assert [row["ticker"] for row in evidence["rows"]] == ["1234"]
+        displayed = read_proposal_views(case.app, generated_at=PUBLISHED).latest.proposal
+        assert displayed.proposal_id == published.proposal_id
+        assert displayed.headline == published.headline
+        [shown] = displayed.items
+        assert (shown.ticker, shown.action, shown.rationale) == (
+            "1234",
+            "buy",
+            published.items[0].rationale,
+        )
+        assert shown.assessment.assessment_id == pair.assessment_id
+        assert shown.assessment.review_id == pair.review.review_id
     assert LedgerStoreService(case.app).load() == case.ledger
     before = (case.prepared.workspace / "domain-inputs.yaml").read_bytes()
     with closing(sqlite3.connect(case.market)) as connection, connection:
@@ -954,7 +1038,9 @@ def test_changed_action_reason_cannot_publish_with_original_content_review(
     assert changed.review == proposal.review
     assert proposal_draft_sha256(changed) != changed.review.draft_sha256
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
-    assert service.check(changed, require_review=False).valid
+    stale = service.check(changed, require_review=False)
+    assert [b.code for b in stale.blockers] == ["proposal_content_review_stale"]
+    assert service.check(changed.model_copy(update={"review": None}), require_review=False).valid
     with pytest.raises(ProposalConflictError, match="content review"):
         service.publish(changed)
     with closing(connect_read_only(case.app)) as connection:
@@ -1424,3 +1510,218 @@ def test_monex_fixed_research_uses_the_same_eligible_price_pair_and_eps_original
     assert chart["monex_fiscal_eps"]["current_fy"]["eps_jpy_per_share"] == 10 + latest
     row = next(row for row in chart["rows"] if row["model"] == "external_assessment")
     assert f"{100 + latest}円/株" in row["summary"]
+
+
+def test_cash_choice_uses_verified_finite_right_not_issuer_stance(tmp_path, monkeypatch):
+    case = _prepare_case(tmp_path, monkeypatch, discover=True)
+    document, review = case.document, case.review
+    source = next(s for s in document["input_snapshot"]["sources"] if s["source_id"] == "annual")
+    source["used_for"] = "合成の信託預託・清算決議。確定分配後に当該普通株を消却する。"
+    facts = document["input_snapshot"]["facts"]
+    next(f for f in facts if f["fact_id"] == "owner_receipt")["value"] = 1300
+    facts.append(
+        dict(
+            fact_id="last-eligible",
+            fact_kind="last_eligible_trade_date",
+            value="2026-10-15",
+            unit="date",
+            as_of="2026-10-14",
+            source_ids=["annual"],
+        )
+    )
+    document["investment_case"].update(
+        explanation="新取得者への預託現金1300円と普通株消却だけ。存続事業への残余請求はない。",
+        invalidation_conditions=["新取得者の資格または預託による分配が不成立。"],
+    )
+    document["price_value_case"].update(
+        price_compatible_conditions="観測終値1100円を預託済みの終期内分配1300円が支える。",
+        value_fact_ids=["owner_receipt", "last-eligible"],
+        acquisition_limit={
+            "value_fact_id": "last-eligible",
+            "last_eligible_trade_date": "2026-10-15",
+        },
+    )
+    for name in ("base", "downside"):
+        document["valuation"][name].update(
+            terminal_value_per_share_yen="0",
+            cash_distribution_per_share_yen="1300",
+            calculation="合成：期中支払の後、比較の終期前に預託分配1300円、消却で残価0。",
+        )
+    review["recalculated_projections"] = [
+        {
+            "name": name,
+            "terminal_value_per_share_yen": "0",
+            "cash_distribution_per_share_yen": "1300",
+        }
+        for name in ("base", "downside")
+    ]
+    update_review_hash(document, review)
+    for name, data in (("assessment-draft.yaml", document), ("assessment-review.yaml", review)):
+        (case.prepared.workspace / "1234" / name).write_text(
+            yaml.safe_dump(data, allow_unicode=True)
+        )
+    promote(workspace=case.prepared.workspace, ticker="1234", db_path=case.app, now=PROMOTED)
+
+    operation_id = case.prepared.operation_id
+    prior = assessment_id()
+    saved = []
+    fingerprints = set()
+    for index, (scenario, blocker) in enumerate(
+        (
+            ("concluded", None),
+            ("uncertain_issuer", None),
+            ("unknown_right", "no_action_reviewed_quote_mismatch"),
+            ("different_session", "no_action_reviewed_quote_mismatch"),
+            ("partial_primary_review", "no_action_comparison_incomplete"),
+            ("settled_expired_right", "no_action_reviewed_quote_mismatch"),
+            ("settled_unknown_right", "no_action_reviewed_quote_mismatch"),
+        )
+    ):
+        now = PREPARED + timedelta(minutes=index * 5)
+        if index:
+            revised, checked = deepcopy(document), deepcopy(review)
+            revised["conclusion"]["assessed_at"] = (now - timedelta(minutes=3)).isoformat()
+            if not scenario.startswith("settled_"):
+                revised["conclusion"]["stance"] = "uncertain"
+                revised["investment_case"].update(
+                    status="uncertain",
+                    status_reason="消却後の存続事業の契約更新は不明。既に預託した分配と終期の残価は不変。",
+                )
+            if scenario.endswith("unknown_right"):
+                revised["input_snapshot"]["facts"][-1].update(
+                    fact_kind="other", value="後発公告で新取得者の資格を再確認中。", unit="notice"
+                )
+                revised["price_value_case"]["acquisition_limit"]["last_eligible_trade_date"] = None
+            if scenario == "settled_expired_right":
+                revised["input_snapshot"]["facts"][-1]["value"] = "2026-10-14"
+                revised["price_value_case"]["acquisition_limit"]["last_eligible_trade_date"] = (
+                    "2026-10-14"
+                )
+            if scenario == "different_session":
+                revised["input_snapshot"]["facts"][0].update(
+                    as_of="2026-10-13", observed_at="2026-10-13T15:30:00+09:00"
+                )
+            if scenario == "partial_primary_review":
+                checked.update(
+                    primary_source_check="partially_verified",
+                    uncertainty_acceptance_reason="合成：一次資料の確認は一部で、取得者への適用照合が残る。",
+                )
+            checked.update(
+                review_id=review["review_id"][:-2] + f"{50 + index:02x}",
+                reviewed_at=(now - timedelta(minutes=2)).isoformat(),
+            )
+            update_review_hash(revised, checked)
+            pair = AssessmentStoreService(
+                case.app, clock=lambda now=now: now - timedelta(minutes=1)
+            ).publish_reviewed_assessment(
+                assessment_id(50 + index), revised, checked, supersedes_id=prior
+            )
+            prior = pair.assessment_id
+            case.operations.record_assessment(operation_id, prior, now=now)
+
+        context = build_proposal_context(
+            operation_id=operation_id,
+            proposal_id=PROPOSAL_ID[:-2] + f"{index + 3:02x}",
+            db_path=case.app,
+            sqlite_path=case.market,
+            now=now,
+        )
+        assert context.research_scope.selection_sha256 == selection_sha256(case.selected)
+        fingerprints.add(proposal_inputs_fingerprint(context.inputs))
+        pair = context.assessments[prior]
+        assert pair.document.price_value_case.status == "supported_at_quote"
+        [quote] = context.inputs.quotes
+        assert (quote.ticker, quote.price_yen, quote.price_as_of, quote.price_basis) == (
+            "1234",
+            Decimal("1100"),
+            PREPARED.date(),
+            "last_close_unadjusted",
+        )
+        assert context.inputs.available_cash_yen == 300_000
+        # 同じ正本素材から計算する。比較の数値だけでは取得権の確認にならない。
+        exact = pair.document.model_dump(mode="json")
+        paths = calculate(
+            CalculationInput.model_validate(
+                {
+                    "input_snapshot": exact["input_snapshot"],
+                    "valuation": exact["valuation"],
+                    "price_comparison": {
+                        "price_yen": "1000",
+                        "hypothetical_quantity": 200,
+                        "waiting_terms": {
+                            "initial_cash_yen": str(context.inputs.available_cash_yen),
+                            "deadline": "2026-10-15",
+                            "fixed_terminal_date": "2027-10-14",
+                            "lot_size": context.inputs.board_lot,
+                            "entry_fee_bps": 0,
+                            "terminal_sale_fee_bps": 0,
+                            "base_missed_distribution_per_share_yen": 0,
+                            "downside_missed_distribution_per_share_yen": 0,
+                        },
+                    },
+                }
+            )
+        )["waiting_paths"]
+        assert (paths["cash_only_terminal_wealth_yen"], paths["terminal_date"]) == (
+            "300000",
+            "2027-10-14",
+        )
+        assert paths["buy_now_unspent_cash_yen"] == "80000"
+        assert paths["cases"]["base"]["buy_now_terminal_wealth_yen"] == "340000"
+        full_wait = paths["cases"]["base"]["wait_paths"][-1]
+        assert (full_wait["cash_after_deadline_yen"], full_wait["terminal_wealth_yen"]) == (
+            "100000",
+            "360000",
+        )
+        raw = scaffold_proposal(context)
+        raw.update(
+            headline="一株の価格は支持、同じ資金は現金で維持",
+            comparison="30万円、翌年10月14日終期。今買う34万円、1000円待機全成立36万円、現金30万円。"
+            "分配より前の30万円の期中支払に対し、買付後の自由現金8万/10万円では足りない。",
+            forgone="不確定な中途換金に頼らず、終期の増分4万/6万円を見送る。",
+        )
+        raw["items"][0].update(
+            action="no_action",
+            rationale="普通株の価格支持とは別に、同額・同終期で今必要な流動性を選ぶ。",
+            review_conditions=["期中支払または分配資格・時期が変われば再比較する。"],
+        )
+        draft = bind_review(
+            raw,
+            {pair.assessment_id: pair.document},
+            reviewed_at=(now + timedelta(minutes=1)).isoformat(),
+        )
+        service = TradeProposalService(
+            case.app, sqlite_path=case.market, clock=lambda now=now: now + timedelta(minutes=2)
+        )
+        checked_proposal = service.check(draft)
+        assert checked_proposal.valid == (blocker is None), scenario
+        assert [reason.code for reason in checked_proposal.blockers] == (
+            [] if blocker is None else [blocker]
+        )
+        if blocker is not None:
+            before = case.app.read_bytes()
+            with pytest.raises(ProposalError, match="defer"):
+                service.publish(draft)
+            assert case.app.read_bytes() == before
+            continue
+        published = service.publish(draft)
+        saved.append(published)
+        [item] = published.items
+        assert "terms" not in item.model_dump(mode="json")
+        shown = read_proposal_views(
+            case.app, generated_at=now + timedelta(minutes=2)
+        ).latest.proposal
+        [view] = shown.items
+        assert (view.action, view.rationale) == (item.action, item.rationale)
+        assert view.assessment.investment_case_status == pair.document.investment_case.status
+        assert view.assessment.price_value_case.status == "supported_at_quote"
+
+    assert len(fingerprints) == 1
+    assert len(saved) == 2
+    for published in saved:
+        assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
+    with closing(sqlite3.connect(case.app)) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM position_decision_reference"
+        ).fetchone() == (0,)
+    assert LedgerStoreService(case.app).load() == case.ledger

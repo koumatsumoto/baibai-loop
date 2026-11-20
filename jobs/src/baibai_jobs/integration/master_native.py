@@ -350,11 +350,19 @@ def materialize_saved_input(
     market: Path,
     days: Sequence[date],
     replace_all: bool = False,
+    require_resolved: bool = False,
 ) -> dict[str, Any]:
     """Project fixed requested snapshots for preflight or the whole normal generation."""
     saved_interval(saved)
     selected = read_master_input(store, _descriptor(saved), days=days)
     scopes = selected["scopes"]
+    if require_resolved and any(
+        not (scope := scopes.get(day.isoformat(), {})).get("adopted")
+        or scope.get("failure")
+        or scope.get("held")
+        for day in days
+    ):
+        raise ValueError("native master replay acquisition is unresolved")
     if any(day.isoformat() not in scopes for day in days):
         raise ValueError("native master has no retained requested snapshot date")
     summary = _descriptor(saved)["summary"]

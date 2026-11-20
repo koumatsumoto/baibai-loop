@@ -74,6 +74,7 @@ async def snapshot(
     progress_output: Path | None = None,
     *,
     master_asof: date | None = None,
+    recovery_slot: bool = False,
 ) -> dict[str, object]:
     output_enabled = progress_output is not None
 
@@ -105,6 +106,7 @@ async def snapshot(
                 interval=interval,
                 progress=progress,
                 master_asof=master_asof,
+                recovery_slot=recovery_slot,
             )
     except Exception as exc:
         category = failure_category(exc)
@@ -174,6 +176,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     refresh.add_argument("--progress-output", type=Path)
     refresh.add_argument(
+        "--recovery-slot", action="store_true", help="apply the additional slot's small request cap"
+    )
+    refresh.add_argument(
         "--interval", type=float, default=15.0, help="request interval, 15..3600 seconds"
     )
     rebuild = sub.add_parser("rebuild", help="rebuild one date from explicit saved MCP receipts")
@@ -231,6 +236,7 @@ def main(argv: list[str] | None = None, /) -> int:
                 args.interval,
                 args.progress_output,
                 master_asof=args.master_asof,
+                recovery_slot=args.recovery_slot,
             )
         )
     except RebuildError as exc:

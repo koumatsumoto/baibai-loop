@@ -16,6 +16,12 @@ MARKET_SOURCE_SCHEDULES = {
     "43 8 * * *": time(8, 43, tzinfo=UTC),
     "13 9 * * *": time(9, 13, tzinfo=UTC),
 }
+TRADINGVIEW_SLOTS = {
+    **{f"37 {hour} * * 1-5": "post-close" for hour in (6, 8, 10, 12, 14)},
+    **{f"37 {hour} * * 0,6": "rest-day" for hour in (0, 4, 8)},
+    "27 9 * * *": "gap-recovery",
+    "23 11 * * *": "gap-recovery",
+}
 
 
 def batch_target_date(instant: datetime) -> date:
@@ -106,9 +112,9 @@ def resolve_tradingview_target(
     if manual_observation and event_name != "workflow_dispatch":
         raise ValueError("manual observation requires workflow_dispatch")
     if event_name == "schedule":
-        if schedule not in {"37 6,8,10,12,14 * * 1-5", "37 0,4,8 * * 0,6"}:
+        if schedule not in TRADINGVIEW_SLOTS:
             raise ValueError("unknown TradingView schedule")
-        slot = "rest-day-4h" if schedule == "37 0,4,8 * * 0,6" else "post-close-2h"
+        slot = TRADINGVIEW_SLOTS[schedule]
     elif event_name == "workflow_dispatch":
         slot = "manual-observation" if manual_observation else "manual"
     else:

@@ -3,8 +3,18 @@
 from decimal import Decimal
 
 import pytest
+from tests.engine.investment_judgment.trade_proposal.test_current_derived_inputs import (
+    _legacy_proposal,
+)
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
-from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import (
+    PREPARED,
+    PROPOSAL_ID,
+    PUBLISHED,
+    backend_case,
+    bind_review,
+    reviewed_proposal,
+)
 
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalError
@@ -61,6 +71,7 @@ def bind_finding(case, status, *, condition=None, last_acquisition="not_time_lim
 
 def context(case):
     return build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,
@@ -208,7 +219,20 @@ def test_next_order_session_controls_entitlement_not_unchanged_quote_or_payment_
         assert row["buy_at_actual_quote"]["quantity"] == 0
         check = service(case).check(buy_at(case, 1000, 1000))
         assert expected in {reason.code for reason in check.blockers}
-    saved = service(case).publish(reviewed_proposal(case, action="no_action"))
+    draft = reviewed_proposal(case, action="no_action")
+    writer = service(case)
+    if expected is None:
+        saved = writer.publish(draft)
+    else:
+        assert [reason.code for reason in writer.check(draft).blockers] == [
+            "no_action_reviewed_quote_mismatch"
+        ]
+        with pytest.raises(ProposalError, match="取得権"):
+            writer.publish(draft)
+        # An older writer accepted this record; preview and exact retry must
+        # continue to read its original price case without accepting it anew.
+        saved = _legacy_proposal(case, draft)
+        assert writer.publish(draft) == saved
     preview = preview_current_terms(
         proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
     ).payload()["items"][0]

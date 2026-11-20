@@ -511,9 +511,15 @@ schema 51への切替は[#2093](https://github.com/koumatsumoto/baibai-loop/pull
 
 [日次](../.github/workflows/cloud-tradingview-snapshot.yml)は未取得原応答だけを再開する。originals_savedは再GETせずrebuildし、L2だけのcopyでは不足原本を受領して既存L2を保つ。後受領を旧L2の生成元にせず、過去cycleを現在応答で埋めない。cycleは09:00 JST切替、営業日15:30/休日09:00から翌09:00未満。休日の前営業日basisは[master/calendar](#master-native-l1)に従う。
 
+通常枠を時刻別に登録し、共通統合前に少数callの追加枠を置く。cronは実行時刻/回数の保証でなく、遅着も実時計のcycle・観測窓と同じ共有lock・cooldownに従う。追加枠も完了済みなら照会せず、上限到達は部分進捗であって充足ではない。日次全体を再起動しない。
+
+要求銘柄の対応は取れたが必要fieldの欠けた原応答だけは、同cycleの次枠で未充足銘柄を小さいbatchにまとめ直す。拒否の少ない銘柄から未試行等の通常batchと交互に進め、同じ先頭だけで枠を使い切らない。元応答の一部採用や欠落fieldのnull補完はしない。全体に同じ欠落が続けば連続不備で停止し、そのcycleの未取得を残す。原因・受領形の確認が先で、分割はprovider仕様の修正ではない。
+
 必要銘柄/fieldの揃った原応答はL2検証失敗でも保持し後続batchを進める。不足はpartial/診断へ残し、無効応答連続・HTTP/認証・時刻/予算・保存失敗の停止境界を維持する。
 
 receiveはHTTPなしでSDK応答全体/失敗を保存する。同IDは全内容一致の再送だけ、別呼出しは別ID。新受領は共通統合へ渡し、取得copy全体をpushしない。exportには受領時のmaster/calendarを固定したsource-input directoryを渡し、復旧時に最新inputで作り直さない。
+
+applyのmaster投影は同じ固定入力の読取で対象日の取得状態も確認し、未採用・failed・heldならmasterを書き換えない。packet自身が参照する元masterの銘柄集合は別に照合する。
 
 共通統合のsealは、applyで固定した対象日の原応答と最終L2を公開releaseから照合してからstageを消費する。追加前から保たれた最初の行とその原本も照合し、受領拒否/投影失敗は原本公開と明示復旧を分ける。旧bundleの整合だけではsealしない。apply未完で照合対象を固定できなかったstageは、raw保持前後の依存/受領context不一致やwatermark以前の遅着も含め、markerを書かずpendingに残して復旧する。readback計画のない旧applied.jsonはfresh hydrateから再applyし、原本stageや受領時計を作り直さない。
 
@@ -555,6 +561,10 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 
 <a id="price-native-l1"></a>
 **日足。** 正常空L1と価格0行の公開拒否は別。native暦で休場を証明できる未試行日だけを公開coverageから除き、raw不足は残す。旧v1へ遡及しない。統合は毎回固定L1から各日を正規化し、13列すべてが一致する取引日だけ作業用SQLiteの書換えを省く。固定packのGETは展開・投影と重ね、消費順は固定、同時先読みは最大3本。R2応答はv1 pack上限とgzip余裕内で読む。連続するバッチの同一digestは同runで照合したbytesを使う。失敗時は既着手分をjoinして停止し、前回L2では補わない。構築中はこの実行専用のSQLiteに書込み予約を取るため、同じ作業ファイルを別のwriterと共有しない（読取は可能）。
+
+日足の冷再構成は同じ正規化結果からParquetへ書き、`input.json` がある新しい出力だけを完了として扱う。中断でマーカーのない出力が残った場合は、新しい出力先で再実行する。保存入力だけが固定暦で休場を証明でき、価格headのみの再構成では未試行日を補わない。
+
+`--saved-input` を渡さない日足CLIは、開始時に現在のL1 headを一度固定する。`--work-directory` に置いた旧 `head.json` や過去のattemptは入力にならない。元の失敗attemptに結び付く保存InputSnapshotがなければ、元attemptの再現としてはそこで止める。現行headを診断する場合は別の新しい出力先を使い、同じ日付でも過去の選択に付け替えない。
 
 日次の空の転送DBが同じ固定releaseを指す場合、次にnative L1から再生成する旧日足だけは最初にhydrateしない。原本の欠損・訂正を旧株価では埋めない。旧releaseの日足そのものを再現・検査するには通常の `hydrate-market` を使う。
 

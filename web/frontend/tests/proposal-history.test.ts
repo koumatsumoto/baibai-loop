@@ -91,6 +91,7 @@ describe('stock report list and selection', () => {
     expect(buyCard).toContain('提案基準日 2026-11-18')
     expect(card(laterDefer.proposal_id, buy.ticker)).not.toContain('対象取引日')
     expect(card(olderBuy.proposal_id, partialBuyFixture.ticker)).not.toContain('対象取引日')
+    expect(card(olderBuy.proposal_id, partialBuyFixture.ticker)).toContain('買付案（保存時の具体条件なし）')
     expect(card(olderBuy.proposal_id, noAction.ticker)).not.toContain('対象取引日')
     expect(card(holding.proposal_id, sell.ticker)).not.toContain('対象取引日')
     expect(html).not.toContain('1801.0000')
@@ -103,6 +104,33 @@ describe('stock report list and selection', () => {
     expect(rest).toContain('1190.0000000000000001 円')
     expect(rest).toContain('dateTime="2026-11-19"')
     expect(detail).not.toMatch(/期限切れ|失効済み|注文可能/)
+  })
+
+  it('keeps the later economic buy distinct from the earlier order terms of the same company', () => {
+    const conditional = {
+      ...partialBuyFixture, ticker: buyFixture.ticker,
+      economic_decision: 'price_conditional_allocation' as const,
+      terms_unavailable_reasons: [{ code: 'order_session_unknown', message: '保存時には翌立会を確認できなかった。' }],
+    }
+    const legacy = JSON.parse(JSON.stringify(partialBuyFixture))
+    delete legacy.economic_decision
+    expect(proposalActionLabel(legacy)).toBe('買付案（保存時の具体条件なし）')
+    const a = { ...older, items: [buyFixture] }
+    const b = { ...newer, items: [conditional] }
+    const data = view([b, a])
+    const list = render(data)
+    const card = (id: string) => list.split(`href="/proposal?proposal=${id}&amp;ticker=${buyFixture.ticker}"`)[1]?.split('</a>')[0]
+    expect(card(b.proposal_id)).toContain('価格条件付きの買付方針（注文条件未確認）')
+    expect(card(b.proposal_id)).not.toContain('対象取引日')
+    expect(card(a.proposal_id)).toContain('保存時の買付（指値）')
+    expect(card(a.proposal_id)).toContain(buyFixture.terms!.target_session)
+    const detail = render(data, b.proposal_id, buyFixture.ticker)
+    expect(detail).toContain(conditional.terms_unavailable_reasons[0].message)
+    expect(detail).toContain(conditional.proposed_limit_yen)
+    expect(detail).not.toContain('保存時の指値区分')
+    expect(detail).not.toContain('保存時の対象取引日')
+    expect(detail).not.toContain('保存指値・選択数量の金額比較')
+    expect(render(data, a.proposal_id, buyFixture.ticker)).toContain('保存指値・選択数量の金額比較')
   })
 
   it('does not replace missing/failed selections with a different report', () => {
@@ -156,15 +184,79 @@ describe('stock report list and selection', () => {
       proposal: { ...older, headline: long }, item: { ...item, rationale: long },
     })
     expect(summary(buyFixture)).toBe('保存時の指値で待つ案：100株。')
-    expect(summary(partialBuyFixture)).toBe('買い指値案。作者の上限は1400.1000000000000001円。具体的な指値・数量は未確定。')
+    expect(summary(partialBuyFixture)).toBe('作者が示した価格上限は1400.1000000000000001円。注文の指値・数量は未確定。')
     const noAction = { ...reviewedDeferFixture, action: 'no_action' as const, assessment: null }
-    expect(summary(noAction)).toContain('新規購入を見送った')
+    expect(summary(noAction)).toContain('保存時の判断は新規購入の見送り')
     expect(summary(holdFixture)).toContain('今回の保有仮説')
     expect(summary(sellFixture)).toContain('全量売却を提案')
     const manyUnknowns = { ...reviewedDeferFixture, blockers: [{ code: 'reason', message: long }] }
     expect(summary(manyUnknowns)).toBe('判断に必要な条件がそろわず保留。確認事項は個別レポートに記録。')
     const tiny = { ...reviewedDeferFixture, rationale: '買わない。' }
     expect(reportListSummary({ proposal: older, item: tiny })).toBe('買わない。')
+  })
+
+  it.each(['legacy', 'reviewed rebuttal'] as const)('does not invent comparisons or human non-purchase for %s', origin => {
+    const base = newProposalFixture.items.find(item => item.action === 'no_action')!
+    const rationale = '体制変更の開示に記載された当時の原文と前提を整理した。'.repeat(5)
+      + '中核契約の終了を確認し、新規の資金配分は提案しない。'
+    const original = base.assessment!
+    const item = {
+      ...base, rationale,
+      assessment: origin === 'legacy' ? null : {
+        ...original, stance: 'unsupported' as const, investment_case_status: 'broken' as const,
+        investment_case_status_reason: '保存一次資料で中核契約の終了を確認。',
+        valuation: { status: 'unresolved' as const, reason: '比較用の金額は計算しない。' },
+        review: { ...original.review, primary_source_check: 'verified' as const },
+      },
+    }
+    const proposal = { ...older, headline: rationale, items: [item] }
+    const data = view([proposal])
+    const list = render(data)
+    expect(list).toContain('保存時の判断は新規購入の見送り')
+    expect(list).not.toMatch(/他の選択肢と比較|購入を見送った|購入しなかった|人間の報告/)
+    const detail = render(data, proposal.proposal_id, item.ticker)
+    expect(detail).toContain(rationale)
+    expect(detail).not.toContain('人間の報告')
+    if (origin === 'reviewed rebuttal') expect(detail).toContain('保存一次資料で中核契約の終了を確認。')
+  })
+
+  it('keeps a supported quote separate from the saved choice to retain the same capital', () => {
+    const base = newProposalFixture.items.find(item => item.action === 'no_action')!
+    const original = base.assessment!
+    const rationale = '取得権と分配時期を確認し、同じ元手・期間の資金経路を照合した。'.repeat(5)
+      + 'ただし期日前の確定支払いを優先し、現金を残す。'
+    const scenario = { terminal_value_per_share_yen: '0', cash_distribution_per_share_yen: '1300',
+      annualized_return_pct: '18.181818', calculation: '合成の受領額。', source_ids: null, sources: null }
+    const item = {
+      ...base, rationale,
+      assessment: {
+        ...original, stance: 'uncertain' as const, investment_case_status: 'uncertain' as const,
+        valuation: {
+          status: 'resolved' as const, price_yen: '1100', price_as_of: '2026-10-26',
+          price_observed_at: null, price_basis: 'last_close_unadjusted' as const,
+          horizon_months: 12, required_annual_return_pct: '6', base: scenario, downside: scenario,
+        },
+        price_value_case: {
+          status: 'supported_at_quote' as const,
+          observed_quote: { fact_id: 'quote', price_yen: '1100', as_of: '2026-10-26',
+            observed_at: null, price_basis: 'last_close_unadjusted' as const, source_ids: [] },
+          price_compatible_conditions: '同じ期限内の分配を取得できる場合。',
+          price_only_condition: null, acquisition_limit: null, value_facts: [], sources: [],
+        },
+      },
+    }
+    const proposal = { ...older, headline: rationale, items: [item] }
+    const data = view([proposal])
+    const list = render(data)
+    expect(list).toContain('保存時の判断は新規購入の見送り')
+    expect(list).not.toMatch(/中心ケース|要求年率|他の選択肢と比較|購入を見送った/)
+    const short = '期限前の確定支払いを優先し、現金を残す。'
+    expect(reportListSummary({ proposal, item: { ...item, rationale: short } })).toBe(short)
+    const detail = render(data, proposal.proposal_id, item.ticker)
+    expect(detail).toContain(rationale)
+    expect(detail).toContain('この価格で割安を支持')
+    expect(detail).toContain('保存評価の見返り')
+    expect(detail).toContain('経済的見送り')
   })
 
   it('labels corrected originals in list and detail without rewriting the old decision', () => {

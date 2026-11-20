@@ -25,10 +25,9 @@ def workflow():
 
 def test_metadata_order_and_exclusive_writer():
     data = workflow()
-    assert [item["cron"] for item in declared_schedule(PATH.read_text())] == [
-        "37 6,8,10,12,14 * * 1-5",
-        "37 0,4,8 * * 0,6",
-    ]
+    from baibai_jobs.schedule import TRADINGVIEW_SLOTS
+
+    assert [item["cron"] for item in declared_schedule(PATH.read_text())] == list(TRADINGVIEW_SLOTS)
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
         "interval",
         "observation_master_asof",
@@ -81,11 +80,16 @@ def test_notification_uses_job_result_and_only_retained_outputs():
     assert "workflow_call" not in data["on"]
     assert data["jobs"]["snapshot"]["outputs"] == {
         "handoff": "${{ steps.stage.outputs.handoff }}",
+        "summary": "${{ steps.summary.outcome }}",
         "target-target-date": "${{ steps.target.outputs.target_date }}",
     }
     notify = data["jobs"]["notify"]
     assert notify["needs"] == "snapshot"
-    assert notify["if"] == "${{ always() }}"
+    assert " ".join(notify["if"].split()) == (
+        "${{ always() && (cancelled() || github.event_name != 'schedule' || "
+        "needs.snapshot.result != 'success' || needs.snapshot.outputs.handoff == '' || "
+        "needs.snapshot.outputs.summary != 'success') }}"
+    )
     env = next(step for step in notify["steps"] if step.get("id") == "notify")["env"]
     # GitHub's terminal job result already carries failures and cancellation.
     assert env["ACQUIRE_RESULT"] == "${{ needs.snapshot.result }}"
@@ -286,7 +290,7 @@ def test_target_outputs_current_cycle_only_after_validating_inputs(
     for key, value in {
         "GITHUB_OUTPUT": str(output),
         "EVENT_NAME": event,
-        "EVENT_SCHEDULE": "37 6,8,10,12,14 * * 1-5",
+        "EVENT_SCHEDULE": "37 6 * * 1-5",
         "OBSERVATION_MASTER_ASOF": basis,
         "INTERVAL": interval,
     }.items():
@@ -309,11 +313,16 @@ def test_target_outputs_current_cycle_only_after_validating_inputs(
         if basis
         else "manual"
         if event == "workflow_dispatch"
-        else "post-close-2h"
+        else "post-close"
     )
 
 
-def test_acquisition_shell_passes_explicit_master_without_changing_observation_date(tmp_path):
+@pytest.mark.parametrize(
+    "slot", ["gap-recovery", "post-close", "rest-day", "manual", "manual-observation"]
+)
+def test_acquisition_shell_passes_slot_cap_and_master_without_changing_observation_date(
+    tmp_path, slot
+):
     step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
     uv = tmp_path / "uv"
     uv.write_text(
@@ -329,6 +338,7 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
             "GITHUB_OUTPUT": str(tmp_path / "output"),
             "TARGET_DATE": "2026-10-11",
             "MASTER_ASOF": "2026-10-09",
+            "SLOT": slot,
         },
         capture_output=True,
         text=True,
@@ -337,6 +347,8 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
     args = (tmp_path / "arguments").read_text().splitlines()
     assert args[args.index("--asof") + 1] == "2026-10-11"
     assert args[args.index("--master-asof") + 1] == "2026-10-09"
+    assert ("--recovery-slot" in args) is (slot == "gap-recovery")
+    assert step["env"]["SLOT"] == "${{ steps.target.outputs.slot }}"
     assert "--batch-size" not in args
     assert args[args.index("--interval") + 1] == "15"
 

@@ -3,8 +3,17 @@ run-name: "tradingview ${{ github.event.schedule || 'manual' }}"
 
 on:
   schedule:
-    - cron: "37 6,8,10,12,14 * * 1-5"
-    - cron: "37 0,4,8 * * 0,6"
+    - cron: "37 6 * * 1-5"
+    - cron: "37 8 * * 1-5"
+    - cron: "37 10 * * 1-5"
+    - cron: "37 12 * * 1-5"
+    - cron: "37 14 * * 1-5"
+    - cron: "37 0 * * 0,6"
+    - cron: "37 4 * * 0,6"
+    - cron: "37 8 * * 0,6"
+    # Distinct source-only recovery opportunities before the common integration.
+    - cron: "27 9 * * *"
+    - cron: "23 11 * * *"
   workflow_dispatch:
     inputs:
       interval:
@@ -36,6 +45,7 @@ jobs:
     environment: tradingview-runtime
     outputs:
       handoff: ${{ steps.stage.outputs.handoff }}
+      summary: ${{ steps.summary.outcome }}
       target-target-date: ${{ steps.target.outputs.target_date }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -186,6 +196,7 @@ jobs:
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
           MASTER_ASOF: ${{ steps.preflight.outputs.needs_master == 'false' && steps.preflight.outputs.master_asof || '' }}
           INTERVAL: ${{ inputs.interval }}
+          SLOT: ${{ steps.target.outputs.slot }}
         run: |
           set -o pipefail
           progress="$RUNNER_TEMP/tradingview-progress.json"
@@ -193,6 +204,9 @@ jobs:
           stderr="$RUNNER_TEMP/tradingview-stderr.log"
           interval="${INTERVAL:-15}"
           observation_options=()
+          if [[ "${SLOT:-}" == gap-recovery ]]; then
+            observation_options+=(--recovery-slot)
+          fi
           if [[ -n "${MASTER_ASOF:-}" ]]; then
             observation_options+=(--master-asof "$MASTER_ASOF")
           fi
@@ -267,7 +281,7 @@ jobs:
                       reason = report.get("stop_reason")
                       if reason not in {None, "provider_rate_limit",
                                         "provider_response", "provider_transport", "auth",
-                                        "secret_persistence", "time_guard", "soft_budget"}:
+                                        "secret_persistence", "time_guard", "soft_budget", "recovery_request_cap"}:
                           raise ValueError("invalid TradingView stop_reason")
                       outputs.append("stop_reason=" + (reason or "-"))
                   outputs.append("status=" + value)
@@ -452,7 +466,11 @@ jobs:
 
   notify:
     needs: snapshot
-    if: ${{ always() }}
+    # A failed best-effort summary still needs its separate receipt log.
+    if: >-
+      ${{ always() && (cancelled() || github.event_name != 'schedule' ||
+          needs.snapshot.result != 'success' || needs.snapshot.outputs.handoff == '' ||
+          needs.snapshot.outputs.summary != 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

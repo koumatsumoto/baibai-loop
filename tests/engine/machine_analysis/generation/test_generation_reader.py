@@ -48,6 +48,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
             "read_trend_inputs",
         )
     ]
+    receipt_read = mocker.spy(generation_reader, "read_native_price_session")
     mocker.patch(
         "baibai_engine.machine_analysis.generation.runners.market_snapshot.read_price_bars",
         side_effect=AssertionError("must reuse shared prices"),
@@ -69,6 +70,8 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
             ),
             tickers=("1234", "5678"),
         )
+    receipt_read.assert_not_called()
+    assert result.session_prices is None
     assert result.subjects == ("1234", "5678")
     result = materialize_generation(result)
     assert result.inputs.get("margin_interest") == margin_identity
@@ -539,6 +542,7 @@ def test_expected_session_prices_and_native_scope_share_one_stock_scan_and_seal(
             )
         generation = generation_reader.read_and_generate_models(
             generation_id="fixed-session",
+            include_session_prices=True,
             market_snapshot=seal,
             market_release=InputRelease(release_id="fixed", manifest_sha256="1" * 64),
             economic_input=None,

@@ -255,14 +255,52 @@ def test_two_buys_parse_but_current_write_policy_rejects(payload):
 @pytest.mark.parametrize(
     "code", ["security_classification_unavailable", "price_grid_rule_unavailable"]
 )
-def test_buy_economic_judgment_can_have_only_classification_or_grid_terms_gap(payload, code):
+def test_existing_writer_accepts_classification_or_grid_terms_gap(payload, code):
     payload["items"][0]["terms"] = None
     payload["items"][0]["proposed_limit_yen"] = "1000"
     payload["items"][0]["terms_unavailable_reasons"] = [{"code": code, "message": "条件未確定"}]
     proposal = TradeProposal.model_validate(payload)
     assert order_readiness(proposal.items[0]) == "needs_terms"
-    payload["items"][0]["terms_unavailable_reasons"][0]["code"] = "order_session_unknown"
-    with pytest.raises(ValidationError, match="only for price grid or classification"):
+    validate_proposal_policy(proposal)
+
+
+def test_price_conditional_buy_is_exactly_readable_before_writer_cutover(payload):
+    item = payload["items"][0]
+    item.update(
+        terms=None,
+        economic_decision="price_conditional_allocation",
+        proposed_limit_yen="1000",
+        terms_unavailable_reasons=[
+            {"code": "order_session_unknown", "message": "次の注文対象立会を確認できない。"}
+        ],
+    )
+    payload["review"]["draft_sha256"] = proposal_draft_sha256(load_proposal_draft(payload))
+    saved = TradeProposal.model_validate(payload)
+    assert saved.payload() == payload
+    assert proposal_draft_sha256(saved) == saved.review.draft_sha256
+    assert order_readiness(saved.items[0]) == "needs_terms"
+    with pytest.raises(ProposalError, match="not enabled"):
+        validate_proposal_policy(load_proposal_draft(payload))
+
+
+@pytest.mark.parametrize("incompatible", ["concrete", "unmarked", "wrong_gap", "two_gaps"])
+def test_a_signed_price_conditional_allocation_is_distinct_from_legacy_and_concrete_buys(
+    payload, incompatible
+):
+    item = payload["items"][0]
+    item["economic_decision"] = "price_conditional_allocation"
+    if incompatible != "concrete":
+        reasons = [{"code": "order_session_unknown", "message": "立会未確認。"}]
+        item.update(terms=None, proposed_limit_yen="1000", terms_unavailable_reasons=reasons)
+        if incompatible == "unmarked":
+            del item["economic_decision"]
+        elif incompatible == "wrong_gap":
+            reasons[0]["code"] = "security_classification_unavailable"
+        else:
+            reasons.append(
+                {"code": "security_classification_unavailable", "message": "分類も未確認。"}
+            )
+    with pytest.raises(ValidationError):
         TradeProposal.model_validate(payload)
 
 

@@ -4,7 +4,7 @@ import json
 import sqlite3
 import weakref
 from contextlib import closing
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -17,7 +17,6 @@ from tests.helpers.research_selection import historical_operation, selection
 from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.investment_judgment.workflow.operation import service as operation_service
 from baibai_engine.investment_judgment.workflow.operation.models import (
-    SESSION_KINDS,
     OperationHeader,
     OperationPayload,
     OperationSession,
@@ -68,13 +67,12 @@ def test_start_refuses_incomplete_research_binding_without_creating_db(
     assert not db.exists()
 
 
-def test_operation_kinds_are_limited_to_multi_step_workflows(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    assert SESSION_KINDS == ("capital-allocation", "position-review")
-    with pytest.raises(SystemExit):
-        operation_main(["start", "--kind", "pending-result", "--as-of", "2026-07-19"], now=NOW)
-    assert "invalid choice" in capsys.readouterr().err
+def test_operation_kinds_are_limited_to_multi_step_workflows() -> None:
+    from typing import get_args
+
+    from baibai_engine.investment_judgment.workflow.operation.models import SessionKind
+
+    assert get_args(SessionKind) == ("capital-allocation", "position-review")
 
 
 @pytest.mark.parametrize("generated", [False, True], ids=["legacy", "generated"])
@@ -117,24 +115,23 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
             )
     payload = operation.payload
 
-    assert (
-        operation_main(
-            [
-                "--db",
-                str(db),
-                "--format",
-                "json",
-                "complete",
-                operation.operation_id,
-                "--result",
-                "調査作業を終了、評価は未完了",
-                "--next",
-                "新しい明示依頼を待つ",
-            ],
-            now=NOW,
-        )
-        == 0
-    )
+    args = [
+        "--db",
+        str(db),
+        "--format",
+        "json",
+        "complete",
+        operation.operation_id,
+        "--result",
+        "調査作業を終了、評価は未完了",
+        "--next",
+        "新しい明示依頼を待つ",
+    ]
+    earlier = NOW - timedelta(microseconds=1)
+    assert operation_main(args, now=earlier) == 1
+    assert "completed_at cannot precede started_at" in capsys.readouterr().err
+    assert OperationService(db).get(operation.operation_id) == operation
+    assert operation_main(args, now=NOW) == 0
     completed = OperationService(db).get(operation.operation_id)
     assert json.loads(capsys.readouterr().out) == completed.model_dump(
         mode="json", exclude={"payload"}
@@ -144,6 +141,10 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
         update={"result": "調査作業を終了、評価は未完了", "next": "新しい明示依頼を待つ"}
     )
     assert selection_sha256(selection_binding(completed.payload)) == selection_sha256(selected)
+    assert operation_main(args, now=earlier) == 0
+    assert json.loads(capsys.readouterr().out) == completed.model_dump(
+        mode="json", exclude={"payload"}
+    )
     with pytest.raises(OperationConflictError, match="immutable"):
         OperationService(db).complete(
             operation.operation_id, result="別の結果", next="別の予定", completed_at=NOW
@@ -154,36 +155,27 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
 def test_operation_json_format_emits_one_machine_object(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    runs = tmp_path / "runs.sqlite"
-    selected = seed_generated_selection(runs=runs, now=NOW)
     db = tmp_path / "app.sqlite"
-    draft = tmp_path / "start.yaml"
-    draft.write_text(yaml.safe_dump(_active_payload(selected=selected).model_dump(mode="json")))
-
+    operation = historical_operation(selection(now=NOW))
+    seed_historical_operation(db, operation)
     assert (
         operation_main(
             [
                 "--db",
                 str(db),
-                "--runs-path",
-                str(runs),
                 "--format",
                 "json",
-                "start",
-                "--kind",
-                "capital-allocation",
-                "--payload",
-                str(draft),
-                "--as-of",
-                "2026-07-19",
+                "checkpoint",
+                operation.operation_id,
+                "--note",
+                "resume work",
             ],
             now=NOW,
         )
         == 0
     )
-
     payload = json.loads(capsys.readouterr().out)
-    assert payload["session_kind"] == "capital-allocation"
+    assert payload == operation.model_dump(mode="json", exclude={"payload"})
 
 
 def _active_payload(checkpoint: str = "source review", *, selected=None) -> OperationPayload:
@@ -255,7 +247,7 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
             payload=_active_payload(selected=selected),
         )
 
-    service.checkpoint(operation.operation_id, _active_payload("two", selected=selected))
+    service.checkpoint(operation.operation_id, note="two", now=NOW)
     with closing(sqlite3.connect(db)) as connection, connection:
         row = connection.execute(
             "SELECT count(*), json_extract(payload, '$.checkpoint') FROM operation_session"
@@ -441,40 +433,33 @@ def test_operation_cli_rejects_status_with_id_and_invalid_status(
     assert not db.exists()
 
 
-def test_operation_start_requires_the_explicit_payload_at_the_cli_boundary(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    db = tmp_path / "app.sqlite"
-    with pytest.raises(SystemExit) as error:
-        operation_main(
-            ["--db", str(db), "start", "--kind", "capital-allocation", "--as-of", "2026-07-19"],
-            now=NOW,
-        )
-    assert error.value.code == 2
-    assert "--payload" in capsys.readouterr().err
-    assert not db.exists()
-
-
 @pytest.mark.parametrize(
-    "arguments",
+    ("arguments", "reason"),
     [
-        ["start", "--kind", "capital-allocation", "--as-of", "2026-07-19"],
-        ["checkpoint", "unknown-operation"],
+        (
+            ["start", "--kind", "capital-allocation", "--as-of", "2026-07-19"],
+            "invalid choice: 'start'",
+        ),
+        (
+            ["checkpoint", "unknown-operation", "--note", "a note"],
+            "unrecognized arguments: --payload",
+        ),
     ],
     ids=["start", "checkpoint"],
 )
-def test_operation_cli_reports_malformed_payload_without_echoing_its_content(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], arguments: list[str]
+def test_removed_operation_payload_arguments_never_open_a_store(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], arguments: list[str], reason: str
 ) -> None:
     db = tmp_path / "app.sqlite"
     draft = tmp_path / "payload.yaml"
     draft.write_text("checkpoint: [\nprivate-marker: do-not-echo\n", encoding="utf-8")
 
-    assert operation_main(["--db", str(db), *arguments, "--payload", str(draft)], now=NOW) == 1
-
+    with pytest.raises(SystemExit) as error:
+        operation_main(["--db", str(db), *arguments, "--payload", str(draft)], now=NOW)
+    assert error.value.code == 2
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == f"error: invalid operation payload YAML: {draft}\n"
+    assert reason in captured.err
     assert "do-not-echo" not in captured.err
     assert not db.exists()
 

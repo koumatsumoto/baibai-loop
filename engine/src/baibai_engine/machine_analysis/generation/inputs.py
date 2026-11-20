@@ -114,7 +114,7 @@ class FinancialModelInput:
 @dataclass(frozen=True, slots=True)
 class _MarketPriceInputs:
     calendar: PriceCalendar
-    session_prices: SealedSessionPrices
+    session_prices: SealedSessionPrices | None
     bars: dict[str, list[PriceBar]]
     adjustment_events: dict[str, list[JQuantsAdjustmentFactorEvent]]
     provider_capital: dict[str, dict[str, object]]
@@ -127,7 +127,7 @@ def _read_market_price_inputs(
     path: Path,
     *,
     as_of: date,
-    known_at: datetime,
+    session_cutoff: datetime | None,
     subjects: Sequence[str],
     master: MasterSnapshot | None,
 ) -> _MarketPriceInputs:
@@ -164,10 +164,19 @@ def _read_market_price_inputs(
             start=state_start,
             end=as_of,
             tickers=(*subjects, NIKKEI225_ETF_PROXY),
-            expected_date=path_calendar.expected_price_date,
+            expected_date=path_calendar.expected_price_date if session_cutoff is not None else None,
         )
-        session = read_native_price_session(
-            connection, expected_date=path_calendar.expected_price_date, known_at=known_at
+        session_prices = (
+            SealedSessionPrices(
+                read_native_price_session(
+                    connection,
+                    expected_date=path_calendar.expected_price_date,
+                    known_at=session_cutoff,
+                ),
+                expected_bars,
+            )
+            if session_cutoff is not None
+            else None
         )
         turnover_values = read_turnover_values(
             connection,
@@ -258,7 +267,7 @@ def _read_market_price_inputs(
             )
     return _MarketPriceInputs(
         calendar=path_calendar,
-        session_prices=SealedSessionPrices(session, expected_bars),
+        session_prices=session_prices,
         bars=prices,
         adjustment_events=events,
         provider_capital=provider_capital,
@@ -299,6 +308,7 @@ def read_and_generate_models(
     margin_alerts_identity: InputSnapshot | None = None,
     margin_interest_identity: InputSnapshot | None = None,
     short_sale_reports_identity: InputSnapshot | None = None,
+    include_session_prices: bool = False,
 ) -> ModelGenerationStream:
     """callerは同じmarket sealと保存した経済selectionから入力を固定する。
 
@@ -347,7 +357,9 @@ def read_and_generate_models(
         _read_market_price_inputs,
         path,
         as_of=as_of,
-        known_at=min(evaluation_time, market_snapshot.sealed_at),
+        session_cutoff=min(evaluation_time, market_snapshot.sealed_at)
+        if include_session_prices
+        else None,
         subjects=subjects,
         master=master,
     )
@@ -508,7 +520,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=price_inputs.contexts,
-        market_context_revision="shared-market-context-v19-no-self-price-rank",
+        market_context_revision="shared-market-context-v20-classified-sector-peers",
         growth_start=growth_start,
         trends=trends,
     )

@@ -1,23 +1,32 @@
 from __future__ import annotations
 
 import sqlite3
+from collections import Counter
 from contextlib import closing
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 import yaml
+from pydantic import ValidationError
+from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
+from tests.helpers.operation_proposal import seed_proposal
 from tests.helpers.proposal import (
     PREPARED,
     PROPOSAL_ID,
     PUBLISHED,
     backend_case,
     bind_review,
+    fixture_review,
     read_saved_proposal,
     reviewed_proposal,
 )
+from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.cli.investment_judgment import main
+from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal import service as proposal_service
+from baibai_engine.investment_judgment.trade_proposal.conditions import no_action_blocker
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
     ProposalError,
@@ -25,12 +34,23 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     load_proposal_draft,
     proposal_draft_sha256,
 )
+from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
+from baibai_engine.investment_judgment.trade_proposal.inputs import (
+    DEFAULT_BUDGET_MAX_YEN,
+    DEFAULT_BUDGET_MIN_YEN,
+    build_proposal_context,
+    collect_proposal_inputs,
+    proposal_market_snapshot,
+)
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationCompletionError
 from baibai_engine.investment_judgment.workflow.selection import selection_sha256
-from baibai_engine.primitives.json import canonical_json
+from baibai_engine.portfolio.holdings.market_observations import read_order_session_bounds
+from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_web.sources.proposal import read_proposal_views
 
 
 @pytest.fixture
@@ -86,11 +106,9 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
         ).fetchone()
     assert binding == ("1234", "proposal", published.review.draft_sha256)
     assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
-    recorded = case.operations.record_proposal(
-        case.operation.operation_id, published.proposal_id, now=PUBLISHED
-    )
     completed = case.operations.complete(
-        recorded.operation_id,
+        case.operation.operation_id,
+        proposal_id=published.proposal_id,
         result="合成提案を発行した。",
         next="本人が採否と証券画面の条件を確認する。",
         completed_at=PUBLISHED,
@@ -145,14 +163,18 @@ def test_published_unbound_unfinished_proposal_cannot_be_skipped(case, monkeypat
     }
     if publication == "changed_reason":
         with pytest.raises(OperationCompletionError, match="fixed coverage"):
-            case.operations.record_proposal(
-                operation.operation_id, proposal.proposal_id, now=PUBLISHED
+            case.operations.complete(
+                operation.operation_id,
+                proposal_id=proposal.proposal_id,
+                result="理由変更",
+                next="再確認",
+                completed_at=PUBLISHED,
             )
         assert case.operations.get(operation.operation_id) == operation
     else:
-        case.operations.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
         completed = case.operations.complete(
             operation.operation_id,
+            proposal_id=proposal.proposal_id,
             result="未完了を明示した提案を保存し作業を終了",
             next="不足する資料を確認する",
             completed_at=PUBLISHED,
@@ -172,10 +194,12 @@ def test_reviewed_defer_still_requires_a_bound_published_proposal(tmp_path):
     published = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
     ).publish(proposal)
-    case.operations.record_proposal(
-        case.operation.operation_id, published.proposal_id, now=PUBLISHED
+    assert (
+        case.operations.complete(
+            case.operation.operation_id, proposal_id=published.proposal_id, **notes
+        ).status
+        == "completed"
     )
-    assert case.operations.complete(case.operation.operation_id, **notes).status == "completed"
 
 
 def test_unfinished_completion_prevents_later_new_proposal_publication(case):
@@ -231,8 +255,137 @@ def test_cli_yaml_output_failure_preserves_successful_publication(
     assert stored.published_at == PUBLISHED
 
 
+def test_context_and_work_file_keep_one_app_market_and_reviewed_pair_snapshot(
+    case, tmp_path, monkeypatch, capsys
+):
+    from baibai_engine.investment_judgment.trade_proposal import inputs, scaffold
+
+    draft = tmp_path / "work.yaml"
+    counts = Counter()
+
+    def count(owner):
+        original = getattr(inputs, owner)
+
+        def observed(*args, **kwargs):
+            counts[owner] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(inputs, owner, observed)
+
+    for owner in ("connect_read_only", "connect_market_read_only", "require_assessment_ref"):
+        count(owner)
+    project = scaffold.scaffold_proposal
+
+    def intervening_correction(context):
+        with closing(sqlite3.connect(case.market)) as market, market:
+            market.execute("UPDATE jquants_daily_bars SET close=900 WHERE ticker='1234'")
+        return project(context)
+
+    monkeypatch.setattr(scaffold, "scaffold_proposal", intervening_correction)
+    before = case.app.read_bytes()
+    assert (
+        main(
+            [
+                "trade-proposal-context",
+                "--operation-id",
+                case.operation.operation_id,
+                "--proposal-id",
+                PROPOSAL_ID,
+                "--db",
+                str(case.app),
+                "--sqlite-path",
+                str(case.market),
+                "--out",
+                str(draft),
+            ],
+            now=PREPARED,
+        )
+        == 0
+    )
+    context = yaml.safe_load(capsys.readouterr().out)
+    work = yaml.safe_load(draft.read_text())
+    assert counts == dict.fromkeys(
+        ("connect_read_only", "connect_market_read_only", "require_assessment_ref"), 1
+    )
+    assert context["inputs"] == work["inputs"]
+    assert float(work["inputs"]["quotes"][0]["price_yen"]) == 1100
+    with closing(sqlite3.connect(case.market)) as market:
+        assert market.execute(
+            "SELECT close FROM jquants_daily_bars WHERE ticker='1234'"
+        ).fetchone() == (900,)
+    assert case.app.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("field", "seed"),
+    [
+        ("headline", "提案の要点を記述してください。"),
+        ("forgone", "採らなかった行動とその理由を記述してください。"),
+        (
+            "comparison",
+            "docs/reference/trade-proposal.md#limit-selectionに従い、指値と数量、残cash、no-addで増量できない代償を、現金維持で逃す反発・回避できる損失と比べる。 選んだ行動と、それを変える次の価格または企業事実を記す。",
+        ),
+        (
+            "rationale",
+            "観測価格で割安と判断したかと、同じ資金で今買う・指値で待つ・別案や現金を選ぶかを分ける。価格だけを待つ場合と、不足があり調査を保留する場合を区別する。 モデル観測・一次資料によって企業の利益・普通株に帰属する資金の見通し、価格条件、または次に確かめる事実の何が変わったかを記す。変わらない場合も区別する。",
+        ),
+        ("review_conditions", "買付では未約定・部分約定・新情報の後に何を再確認するかを記す。"),
+        ("resume_conditions", "不足を確認して行動と理由を記述し、独立検証を行う。"),
+        (
+            "review_conditions",
+            (
+                "前回の指値・対象日を今回へ流用せず、元提案全体への本人報告があっても約定・現保有や"
+                "今後の一律見送りと決めず、企業の根拠・観測価格・取引条件のどれが今回の"
+                "「買う・待つ・見送る」を変えたか（変化なしも含む）を記す。"
+            ),
+        ),
+        ("blocker_message", "行動・具体条件・比較理由の執筆と独立検証が未了です。"),
+        ("reviewer_identity", "独立Reviewerのidentityを記述してください。"),
+    ],
+)
+def test_known_scaffold_instruction_is_not_authored_even_with_a_matching_review(case, field, seed):
+    raw = reviewed_proposal(
+        case, action="defer" if field in {"resume_conditions", "blocker_message"} else "buy"
+    ).payload()
+    if field == "reviewer_identity":
+        raw["review"][field] = seed
+    elif field in {"review_conditions", "resume_conditions"}:
+        raw["items"][0][field] = [seed]
+    elif field == "blocker_message":
+        raw["items"][0]["blockers"] = [{"code": "primary_source_pending", "message": seed}]
+    elif field == "rationale":
+        raw["items"][0][field] = seed
+    else:
+        raw[field] = seed
+    bound = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    assert proposal_draft_sha256(bound) == bound.review.draft_sha256
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    before = case.app.read_bytes()
+    for require_review in (False, True):
+        with pytest.raises(ProposalError, match="reserved authoring"):
+            service.check(bound, require_review=require_review)
+    with pytest.raises(ProposalError, match="reserved authoring"):
+        service.publish(bound)
+    assert case.app.read_bytes() == before
+
+
+def test_author_can_retain_a_source_caution_without_using_a_scaffold_as_the_decision(case):
+    raw = reviewed_proposal(case).payload()
+    # This observation used to be conditionally supplied by the scaffold. Citing
+    # a source caution is legitimate; it is not an instruction to write a reason.
+    source = (
+        "EDINETの保存一覧に起点SFICT001の合成届出を確認。株式移転と対価の支払期日は別に照合した。"
+        "結果報告書の存在は成立や新規取得者への入金の証明ではない。"
+    )
+    raw["items"][0]["review_conditions"] = [source]
+    bound = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    assert service.check(bound).valid
+    assert service.publish(bound).items[0].review_conditions == (source,)
+
+
 @pytest.mark.parametrize("legacy_publication_time", [False, True])
-def test_cli_scaffold_later_review_check_publish_and_retry_own_the_publication_clock(
+def test_one_context_authored_unsigned_check_later_review_publish_and_exact_retry(
     case, tmp_path, capsys, legacy_publication_time
 ):
     draft = tmp_path / "proposal.yaml"
@@ -240,7 +393,7 @@ def test_cli_scaffold_later_review_check_publish_and_retry_own_the_publication_c
     assert (
         main(
             [
-                "trade-proposal-scaffold",
+                "trade-proposal-context",
                 "--operation-id",
                 case.operation.operation_id,
                 "--proposal-id",
@@ -253,26 +406,42 @@ def test_cli_scaffold_later_review_check_publish_and_retry_own_the_publication_c
         )
         == 0
     )
-    capsys.readouterr()
+    context = yaml.safe_load(capsys.readouterr().out)
     raw = yaml.safe_load(draft.read_text())
     assert "published_at" not in raw
-    raw.update(headline="合成見送り", comparison="現金維持との比較", forgone="買付を見送る")
+    assert raw["review"] is None
+    for field in ("proposal_id", "research_scope", "inputs", "liquidity_context"):
+        assert raw[field] == context[field]
+    untouched = case.app.read_bytes()
+    for command in ("trade-proposal-check", "trade-proposal-publish"):
+        assert main([command, str(draft), *common], now=PREPARED) == 3
+        capsys.readouterr()
     raw["items"][0]["action"] = "no_action"
-    raw["items"][0].pop("blockers")
-    raw["items"][0].pop("resume_conditions")
+    draft.write_text(yaml.safe_dump(raw))
+    assert main(["trade-proposal-check", str(draft), *common], now=PREPARED) == 3
+    capsys.readouterr()
+    raw.update(headline="合成見送り", comparison="現金維持との比較", forgone="買付を見送る")
+    raw["items"][0].update(
+        rationale="観測終値では利益に対して割高なため現金を維持する。",
+        review_conditions=["次回の決算で反復利益を確認する。"],
+    )
     if legacy_publication_time:
         raw["published_at"] = PREPARED.isoformat()
     draft.write_text(yaml.safe_dump(raw))
     assert main(["trade-proposal-check", str(draft), *common], now=PREPARED) == 0
     checked = yaml.safe_load(capsys.readouterr().out)
-    assert checked["review_binding"] == "stale"
+    assert checked["review_binding"] == "unreviewed"
+    assert checked["valid"]
+    assert checked["check_scope"] == "authored_draft_precheck"
+    for unsigned in (raw, {key: value for key, value in raw.items() if key != "review"}):
+        with pytest.raises(ValidationError, match="review"):
+            TradeProposal.model_validate({**unsigned, "published_at": PUBLISHED.isoformat()})
+    assert main(["trade-proposal-publish", str(draft), *common], now=PREPARED) == 4
+    assert "review is required" in capsys.readouterr().err
+    assert case.app.read_bytes() == untouched
 
     reviewed_at = PREPARED + timedelta(minutes=5)
-    raw["review"].update(
-        reviewer_identity="synthetic-independent-reviewer",
-        reviewed_at=reviewed_at.isoformat(),
-        draft_sha256=checked["draft_sha256"],
-    )
+    raw["review"] = fixture_review(checked["draft_sha256"], reviewed_at=reviewed_at.isoformat())
     draft.write_text(yaml.safe_dump(raw))
     draft_bytes = draft.read_bytes()
     assert main(["trade-proposal-check", str(draft), *common], now=PUBLISHED) == 0
@@ -319,7 +488,14 @@ def test_cli_context_check_and_preview_keep_limit_arithmetic_separate_from_the_c
     common = ["--db", str(case.app), "--sqlite-path", str(case.market)]
     assert (
         main(
-            ["trade-proposal-context", "--operation-id", case.operation.operation_id, *common],
+            [
+                "trade-proposal-context",
+                "--operation-id",
+                case.operation.operation_id,
+                "--proposal-id",
+                PROPOSAL_ID,
+                *common,
+            ],
             now=PREPARED,
         )
         == 0
@@ -530,7 +706,9 @@ def test_review_binds_conditions_cash_scope_and_projection(case):
     raw["items"][0]["terms"]["conditions"].append("別の実前提")
     changed = load_proposal_draft(raw)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
-    assert service.check(changed, require_review=False).valid
+    stale = service.check(changed, require_review=False)
+    assert [b.code for b in stale.blockers] == ["proposal_content_review_stale"]
+    assert service.check(changed.model_copy(update={"review": None}), require_review=False).valid
     with pytest.raises(ProposalConflictError, match="content review"):
         service.publish(changed)
 
@@ -596,19 +774,17 @@ def test_nonbuy_has_no_binding_and_date_clock_guard_even_with_same_facts(case):
         tomorrow.publish(proposal)
 
 
-@pytest.mark.parametrize("valuation_unresolved", [False, True])
-def test_uncertain_assessment_requires_defer_not_completed_no_action(
-    tmp_path, valuation_unresolved
-):
-    case = backend_case(tmp_path, stance="uncertain", valuation_unresolved=valuation_unresolved)
+@pytest.mark.parametrize("stance", ["uncertain", "unsupported"])
+def test_missing_economic_comparison_is_not_concluded_by_stance(tmp_path, stance):
+    case = backend_case(tmp_path, stance=stance, valuation_unresolved=True)
     proposal = reviewed_proposal(case, action="no_action")
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     before = _counts(case.app)
     ledger_before = _ledger_snapshot(case.app)
     checked = service.check(proposal)
     assert not checked.valid
-    assert [reason.code for reason in checked.blockers] == ["no_action_assessment_uncertain"]
-    with pytest.raises(ProposalError, match="採否が未確定"):
+    assert [reason.code for reason in checked.blockers] == ["no_action_comparison_incomplete"]
+    with pytest.raises(ProposalError, match="経済比較も未確定"):
         service.publish(proposal)
     assert _counts(case.app) == before
     deferred = reviewed_proposal(case, action="defer")
@@ -622,17 +798,26 @@ def test_uncertain_assessment_requires_defer_not_completed_no_action(
     [
         ("supported", False, False),
         ("unsupported", False, False),
-        ("unsupported", False, True),
         ("unsupported", True, True),
     ],
 )
-def test_concluded_no_action_does_not_require_supported_or_numeric_value(
+def test_concluded_no_action_does_not_require_all_buy_inputs(
     tmp_path, stance, broken, valuation_unresolved
 ):
     case = backend_case(
         tmp_path, stance=stance, broken=broken, valuation_unresolved=valuation_unresolved
     )
+    if stance == "supported":
+        case.market.rename(tmp_path / "unavailable-current-market.sqlite")
     proposal = reviewed_proposal(case, action="no_action")
+    if stance == "supported":
+        assert proposal.inputs.quotes == ()
+        raw = proposal.payload()
+        raw.update(
+            comparison="期中の支払に同じ元手を残すため、取得時の資金拘束を選ばない。",
+            forgone="足元の価格や取引条件は確認し直さず、現在の買付提案はしない。",
+        )
+        proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     ledger_before = _ledger_snapshot(case.app)
     assert service.check(proposal).valid
@@ -642,6 +827,425 @@ def test_concluded_no_action_does_not_require_supported_or_numeric_value(
     assert _ledger_snapshot(case.app) == ledger_before
 
 
+@pytest.mark.parametrize(
+    ("scenario", "price_finding", "blocker"),
+    [
+        ("uncompared", "undetermined", "no_action_comparison_incomplete"),
+        ("quoted_rejection", "not_supported_at_quote", None),
+        ("different_price", "not_supported_at_quote", "no_action_reviewed_quote_mismatch"),
+        ("different_session", "not_supported_at_quote", "no_action_reviewed_quote_mismatch"),
+        ("intraday_price", "not_supported_at_quote", "no_action_reviewed_quote_mismatch"),
+        ("unconfirmed_right", "not_supported_at_quote", "no_action_reviewed_quote_mismatch"),
+        ("business_rebuttal", "undetermined", None),
+        ("cash_alternative", "supported_at_quote", None),
+    ],
+)
+def test_new_no_action_matches_the_authored_economic_finding(
+    tmp_path, scenario, price_finding, blocker
+):
+    case = backend_case(tmp_path)
+    document, review = pair_payload(
+        review_number=83,
+        price_case=price_finding,
+        quote_as_of="2026-10-13" if scenario == "different_session" else None,
+    )
+    comparison = "一単元と同額の11万円を同じ12か月で比較した。"
+    if price_finding == "not_supported_at_quote":
+        document["conclusion"]["stance"] = "uncertain"
+        document["investment_case"].update(status="uncertain", status_reason="長期成長は未確定。")
+        finding = document["price_value_case"]
+        finding["price_compatible_conditions"] = "普通株の分配と残余負担は1100円を支持しない。"
+        finding["price_only_condition"] = {
+            "explanation": "同じ普通株の権利・費用・期間なら750円以下でのみ見直す。",
+            "ceiling_yen": "750",
+        }
+        if scenario == "different_price":
+            document["input_snapshot"]["facts"][0]["value"] = 1101
+        if scenario == "intraday_price":
+            document["input_snapshot"]["facts"][0]["price_basis"] = "realtime"
+        if scenario == "unconfirmed_right":
+            finding["acquisition_limit"] = {
+                "value_fact_id": "owner_receipt",
+                "last_eligible_trade_date": None,
+            }
+        if scenario == "quoted_rejection":
+            # 価格の評価は立会を発注できるという判断ではない。
+            with closing(sqlite3.connect(case.market)) as connection, connection:
+                connection.execute("DELETE FROM jquants_market_calendar")
+        rationale = "観測した普通株の権利への見返りが足りないので、この価格に限り見送る。"
+        comparison += "今の取得価格では、普通株の受取額では維持現金を上回らない。"
+    elif scenario == "uncompared":
+        rationale = "維持投資が未確認で値段も現金・他案も比較していない。"
+        comparison = "同額・同期間の比較は未着手。"
+    elif scenario == "business_rebuttal":
+        document["conclusion"]["stance"] = "unsupported"
+        document["investment_case"].update(
+            status="broken", status_reason="一次資料で主力契約終了と代替収益源の喪失を確認。"
+        )
+        document["valuation"].update(
+            status="unresolved",
+            market_price_fact_id=None,
+            horizon_months=None,
+            required_annual_return_pct=None,
+            base=None,
+            downside=None,
+            unresolved_reason="主力契約の終了が中核仮説を反証するため数値化しない。",
+        )
+        review["recalculated_projections"] = []
+        with closing(sqlite3.connect(case.market)) as connection, connection:
+            connection.execute("UPDATE jquants_daily_bars SET close = NULL")
+        rationale = "契約終了を確認したので、株価とは独立に見送る。"
+        comparison = "収益源を失った当社ではなく現金を残す。"
+    else:
+        rationale = "一株価値は1100円を支持するが、同額の現金を選ぶ。"
+        comparison += "下振れで一単元4万円を失う余地に対し、現金の名目損失はない。"
+    update_review_hash(document, review)
+    case.pair = AssessmentStoreService(
+        case.app, clock=lambda: PREPARED - timedelta(minutes=1)
+    ).publish_reviewed_assessment(
+        assessment_id(83), document, review, supersedes_id=case.pair.assessment_id
+    )
+    case.operation = case.operations.record_assessment(
+        case.operation.operation_id, case.pair.assessment_id, now=PREPARED
+    )
+    raw = reviewed_proposal(case, action="no_action").payload()
+    raw.update(comparison=comparison, forgone="同じ資金を今は当社株に配分しない。")
+    raw["items"][0]["rationale"] = rationale
+    draft = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    assert draft.research_scope.selection_sha256 == selection_sha256(case.selected)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    ledger = _ledger_snapshot(case.app)
+    before = case.app.read_bytes()
+    checked = service.check(draft)
+    assert [reason.code for reason in checked.blockers] == ([] if blocker is None else [blocker])
+    if blocker is not None:
+        assert not checked.valid
+        with pytest.raises(ProposalError, match="defer"):
+            service.publish(draft)
+        assert case.app.read_bytes() == before
+        assert _counts(case.app)["investment_proposal"] == 0
+        if scenario == "uncompared":
+            raw["items"][0].update(
+                action="defer",
+                blockers=[{"code": "maintenance_investment_unconfirmed", "message": rationale}],
+                resume_conditions=["維持投資の原典を確認し、同じ元手の現金と比較する。"],
+            )
+            deferred = service.publish(
+                bind_review(raw, {case.pair.assessment_id: case.pair.document})
+            )
+            assert deferred.items[0].action == "defer"
+            assert deferred.items[0].assessment_ref == draft.items[0].assessment_ref
+    else:
+        assert checked.valid
+        saved = service.publish(draft)
+        [item] = saved.items
+        assert (item.action, item.rationale) == ("no_action", rationale)
+        assert item.assessment_ref.core_sha256 == case.pair.core_sha256
+        assert item.assessment_ref.review_id == case.pair.review.review_id
+        assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+        assert _counts(case.app)["position_decision_reference"] == 0
+        viewed = read_proposal_views(case.app, generated_at=PUBLISHED).latest.proposal
+        assert (viewed.items[0].action, viewed.items[0].rationale) == ("no_action", rationale)
+        assert viewed.items[0].assessment.price_value_case.status == price_finding
+        if scenario == "quoted_rejection":
+            assessment = viewed.items[0].assessment
+            assert assessment.investment_case_status == "uncertain"
+            observed = assessment.price_value_case.observed_quote
+            assert (observed.price_yen, observed.as_of, observed.price_basis) == (
+                Decimal("1100"),
+                PUBLISHED.date(),
+                "last_close_unadjusted",
+            )
+            assert assessment.price_value_case.price_only_condition.ceiling_yen == Decimal("750")
+    assert _ledger_snapshot(case.app) == ledger
+
+
+@pytest.mark.parametrize("quote_age_days", [7, 8])
+@pytest.mark.parametrize(
+    ("finding", "stance", "price_dependent"),
+    [
+        ("not_supported_at_quote", "uncertain", True),
+        ("supported_at_quote", "uncertain", True),
+        ("supported_at_quote", "supported", False),
+    ],
+)
+def test_no_action_only_needs_a_fresh_observation_when_its_comparison_uses_that_price(
+    tmp_path, quote_age_days, finding, stance, price_dependent
+):
+    case = backend_case(tmp_path)
+    observed_on = (PUBLISHED.date() - timedelta(days=quote_age_days)).isoformat()
+    # Even a current independently reviewed pair cannot refresh an old native bar.
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET traded_at=?", (observed_on,))
+    document, review = pair_payload(review_number=89, quote_as_of=observed_on, price_case=finding)
+    document["conclusion"]["stance"] = stance
+    update_review_hash(document, review)
+    case.pair = AssessmentStoreService(
+        case.app, clock=lambda: PREPARED - timedelta(minutes=1)
+    ).publish_reviewed_assessment(
+        assessment_id(89), document, review, supersedes_id=case.pair.assessment_id
+    )
+    case.operations.record_assessment(
+        case.operation.operation_id, case.pair.assessment_id, now=PREPARED
+    )
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    draft = reviewed_proposal(case, action="no_action")
+    assert draft.inputs.quotes[0].price_as_of.isoformat() == observed_on
+    assert case.pair.document.input_snapshot.as_of == PUBLISHED.date()
+    ledger = _ledger_snapshot(case.app)
+    if quote_age_days == 8 and price_dependent:
+        before = case.app.read_bytes()
+        assert [b.code for b in service.check(draft).blockers] == [
+            "no_action_reviewed_quote_mismatch"
+        ]
+        with pytest.raises(ProposalError, match="鮮度"):
+            service.publish(draft)
+        assert case.app.read_bytes() == before
+        # This same signed shape was accepted by the old writer. Preserve its exact ID and digest.
+        saved = TradeProposal.model_validate({**draft.payload(), "published_at": PUBLISHED})
+        seed_proposal(case.app, saved)
+        before = case.app.read_bytes()
+        assert service.publish(draft) == saved
+        assert case.app.read_bytes() == before
+    else:
+        assert service.check(draft).valid
+        saved = service.publish(draft)
+    item = preview_current_terms(
+        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+    ).items[0]
+    assert (item["current_quote_calculation"] is not None) == (quote_age_days == 7)
+    assert (
+        read_proposal_views(case.app, generated_at=PUBLISHED).latest.proposal.items[0].action
+        == "no_action"
+    )
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    assert _ledger_snapshot(case.app) == ledger
+
+
+@pytest.mark.parametrize(
+    ("price_finding", "stance"),
+    [
+        ("not_supported_at_quote", "uncertain"),
+        ("supported_at_quote", "uncertain"),
+        ("supported_at_quote", "supported"),
+    ],
+)
+def test_exact_price_comparison_cannot_reuse_a_right_at_its_final_close(
+    tmp_path, price_finding, stance
+):
+    case = backend_case(tmp_path, assessment_as_of="2026-10-13")
+    final_close = PREPARED.replace(hour=15, minute=30)
+    document, review = pair_payload(
+        review_number=87, quote_as_of="2026-10-13", price_case=price_finding
+    )
+    document["input_snapshot"]["facts"].append(
+        dict(
+            fact_id="final-session",
+            fact_kind="last_eligible_trade_date",
+            value="2026-10-14",
+            unit="date",
+            as_of="2026-10-14",
+            source_ids=["annual"],
+        )
+    )
+    document["price_value_case"]["value_fact_ids"].append("final-session")
+    document["price_value_case"]["acquisition_limit"] = {
+        "value_fact_id": "final-session",
+        "last_eligible_trade_date": "2026-10-14",
+    }
+    observed = final_close - timedelta(minutes=10)
+    for source in document["input_snapshot"]["sources"]:
+        source["retrieved_at"] = observed.isoformat()
+    document["conclusion"].update(stance=stance, assessed_at=observed.isoformat())
+    review["reviewed_at"] = (observed + timedelta(minutes=1)).isoformat()
+    update_review_hash(document, review)
+    pair = AssessmentStoreService(
+        case.app, clock=lambda: observed + timedelta(minutes=2)
+    ).publish_reviewed_assessment(
+        assessment_id(87), document, review, supersedes_id=case.pair.assessment_id
+    )
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        # Same retained raw quote on both sides of the boundary; the day has
+        # not been downloaded after the close. No session schedule is available.
+        connection.execute("UPDATE jquants_daily_bars SET traded_at='2026-10-13'")
+        connection.execute("DELETE FROM jquants_market_calendar")
+    with (
+        closing(connect_read_only(case.app)) as app,
+        proposal_market_snapshot(case.market) as market,
+    ):
+        app.execute("BEGIN")
+        for offset in (-1, 0, 1):
+            now = final_close + timedelta(microseconds=offset)
+            inputs = collect_proposal_inputs(
+                app,
+                tickers=("1234",),
+                proposal_id=PROPOSAL_ID,
+                now=now,
+                sqlite_path=case.market,
+                budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
+                budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+                market_connection=market,
+            )
+            assert inputs.quotes[0].price_as_of.isoformat() == "2026-10-13"
+            failure = no_action_blocker(
+                pair,
+                inputs=inputs,
+                now=now,
+                sqlite_path=case.market,
+                market_connection=market,
+                order_sessions=lambda now=now: read_order_session_bounds(
+                    sqlite_path=case.market, now=now, connection=market
+                ),
+            )
+            assert (None if failure is None else failure.code) == (
+                None if offset < 0 else "no_action_reviewed_quote_mismatch"
+            )
+
+
+@pytest.mark.parametrize("days_to_deadline", [3, 15])
+def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(
+    tmp_path, mocker, days_to_deadline
+):
+    case = backend_case(tmp_path)
+    friday = datetime.fromisoformat("2026-10-16T16:20:00+09:00")
+    seed_daily_bars(case.market, [("1234", friday.date().isoformat(), 1100.0, 1.0)])
+    prefix = [
+        ((friday.date() + timedelta(days=offset)).isoformat(), "0")
+        for offset in range(1, days_to_deadline)
+    ]
+    deadline = (friday.date() + timedelta(days=days_to_deadline)).isoformat()
+    following = (friday.date() + timedelta(days=days_to_deadline + 1)).isoformat()
+    closed = [*prefix, (deadline, "3")]  # Futures-only on the last eligible day.
+    calendars = (
+        ("open_on_deadline", [*prefix, (deadline, "2")], deadline, None),
+        ("next_after_deadline", [*closed, (following, "1")], following, "期限まで"),
+        ("closed_with_no_later_row", closed, None, "期限まで"),
+        ("missing", [], None, None),
+        ("gap_before_deadline", [*closed[:-2], (deadline, "3"), (following, "1")], None, None),
+        (
+            "invalid_before_deadline",
+            [*closed[:-2], (prefix[-1][0], "?"), (deadline, "3"), (following, "1")],
+            None,
+            None,
+        ),
+    )
+    variants = (
+        ("not_supported_at_quote", "uncertain"),
+        ("supported_at_quote", "uncertain"),
+        ("supported_at_quote", "supported"),
+    )
+    ledger = _ledger_snapshot(case.app)
+    prior = case.pair.assessment_id
+    fingerprints = set()
+    read = mocker.spy(proposal_service, "read_order_session_bounds")
+    writer = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: friday + timedelta(minutes=2)
+    )
+    for index, (finding, stance) in enumerate(variants):
+        document, review = pair_payload(
+            as_of=friday.date().isoformat(), review_number=100 + index, price_case=finding
+        )
+        document["conclusion"]["stance"] = stance
+        document["input_snapshot"]["facts"].append(
+            {
+                "fact_id": "final-session",
+                "fact_kind": "last_eligible_trade_date",
+                "value": deadline,
+                "unit": "date",
+                "as_of": friday.date().isoformat(),
+                "source_ids": ["annual"],
+            }
+        )
+        document["price_value_case"]["value_fact_ids"].append("final-session")
+        document["price_value_case"]["acquisition_limit"] = {
+            "value_fact_id": "final-session",
+            "last_eligible_trade_date": deadline,
+        }
+        update_review_hash(document, review)
+        pair = AssessmentStoreService(
+            case.app, clock=lambda index=index: friday - timedelta(minutes=11 - index)
+        ).publish_reviewed_assessment(
+            assessment_id(100 + index), document, review, supersedes_id=prior
+        )
+        prior = pair.assessment_id
+        case.operations.record_assessment(case.operation.operation_id, prior, now=friday)
+        saved = saved_draft = None
+        for offset, (name, rows, session, blocker) in enumerate(calendars):
+            with closing(sqlite3.connect(case.market)) as connection, connection:
+                connection.execute("DELETE FROM jquants_market_calendar")
+                connection.executemany("INSERT INTO jquants_market_calendar VALUES (?,?)", rows)
+            context = build_proposal_context(
+                operation_id=case.operation.operation_id,
+                proposal_id=PROPOSAL_ID[:-2] + f"{50 + index * 10 + offset:02x}",
+                db_path=case.app,
+                sqlite_path=case.market,
+                now=friday,
+            )
+            assert context.research_scope.selection_sha256 == selection_sha256(case.selected)
+            assert context.inputs.quotes[0].price_as_of == friday.date()
+            assert (
+                None
+                if context.next_order_session is None
+                else context.next_order_session.isoformat()
+            ) == session
+            fingerprints.add(proposal_inputs_fingerprint(context.inputs))
+            raw = scaffold_proposal(context)
+            raw.update(
+                headline="合成の取得条件と資金比較",
+                comparison="同じ30万円・12か月で、期中支払と分配までの必要資金を比較した。",
+                forgone="期中支払まで現金を残すため、取得できる場合も買付を選ばない。",
+            )
+            raw["items"][0].update(
+                action="no_action",
+                rationale="観測価格・普通株の取得権と同額の現金を比較。",
+                review_conditions=["取得期限または期中の資金用途を再確認する。"],
+            )
+            draft = bind_review(
+                raw,
+                {prior: pair.document},
+                reviewed_at=(friday + timedelta(minutes=1)).isoformat(),
+            )
+            reads_before = read.call_count
+            checked = writer.check(draft)
+            assert read.call_count == reads_before + 1
+            assert checked.valid == (blocker is None), (finding, stance, name)
+            if name == "open_on_deadline":
+                saved_draft, saved = draft, writer.publish(draft)
+                assert saved.items[0].action == "no_action"
+            if blocker is not None:
+                before = case.app.read_bytes()
+                assert [reason.code for reason in checked.blockers] == [
+                    "no_action_reviewed_quote_mismatch"
+                ]
+                with pytest.raises(ProposalError, match=blocker):
+                    writer.publish(draft)
+                assert writer.publish(saved_draft) == saved
+                assert case.app.read_bytes() == before
+            # Economic rejection can be reviewed without a next session. Today's
+            # price projection still needs one, but a proven expiry is not missing evidence.
+            preview = preview_current_terms(
+                proposal_id=saved.proposal_id,
+                db_path=case.app,
+                sqlite_path=case.market,
+                now=friday + timedelta(minutes=2),
+            ).items[0]
+            why = preview.get("current_quote_unavailable_reason")
+            assert (None if why is None else why["code"]) == (
+                None
+                if name == "open_on_deadline"
+                else "right_acquisition_expired"
+                if blocker is not None
+                else "right_acquisition_unconfirmed"
+            )
+            assert (preview["current_quote_calculation"] is not None) == (
+                name == "open_on_deadline"
+            )
+            assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    assert len(fingerprints) == 1
+    assert _counts(case.app)["position_decision_reference"] == 0
+    assert _ledger_snapshot(case.app) == ledger
+
+
 def test_old_uncertain_no_action_keeps_exact_read_and_retry(tmp_path):
     case = backend_case(tmp_path, valuation_unresolved=True)
     proposal = reviewed_proposal(case, action="no_action")
@@ -649,25 +1253,7 @@ def test_old_uncertain_no_action_keeps_exact_read_and_retry(tmp_path):
         {**proposal.model_dump(mode="python"), "published_at": PUBLISHED}
     )
     # A prior writer accepted this payload. New policy must not rewrite its saved meaning.
-    with closing(sqlite3.connect(case.app)) as connection, connection:
-        connection.execute(
-            "INSERT INTO investment_proposal(proposal_id,as_of,prepared_at,published_at,"
-            "request_scope,payload,draft_sha256) VALUES (?,?,?,?,?,?,?)",
-            (
-                historical.proposal_id,
-                historical.as_of.isoformat(),
-                historical.prepared_at.isoformat(),
-                historical.published_at.isoformat(),
-                historical.request_scope,
-                canonical_json(historical.payload()),
-                proposal_draft_sha256(proposal),
-            ),
-        )
-        connection.execute(
-            "INSERT INTO investment_proposal_item(proposal_id,item_index,ticker,action,"
-            "assessment_id) VALUES (?,0,?,'no_action',?)",
-            (historical.proposal_id, "1234", case.pair.assessment_id),
-        )
+    seed_proposal(case.app, historical)
     before = _counts(case.app)
     assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == historical
     service = TradeProposalService(
@@ -680,10 +1266,6 @@ def test_old_uncertain_no_action_keeps_exact_read_and_retry(tmp_path):
 def test_live_latest_gate_applies_to_buy_but_not_no_action(case):
     buy = reviewed_proposal(case)
     no_action = reviewed_proposal(case, action="no_action")
-    from tests.helpers.assessment_v1 import assessment_id, pair_payload
-
-    from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-
     document, review = pair_payload(review_number=22)
     AssessmentStoreService(
         case.app, clock=lambda: PUBLISHED + timedelta(minutes=1)
@@ -702,10 +1284,6 @@ def test_live_latest_gate_applies_to_buy_but_not_no_action(case):
 
 def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publication(tmp_path):
     case = backend_case(tmp_path, tickers=("1234", "5678"))
-    from tests.helpers.assessment_v1 import assessment_id, pair_payload
-
-    from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-
     case.operation = case.operations.record_unfinished(
         case.operation.operation_id,
         ticker="5678",

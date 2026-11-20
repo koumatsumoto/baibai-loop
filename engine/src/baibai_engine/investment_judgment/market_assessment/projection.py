@@ -115,6 +115,11 @@ def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> di
         "as_of": record.as_of.isoformat(),
         "known_at": body.get("known_at"),
         "published_at": record.published_at.isoformat(),
+        **(
+            {"recorded_at": record.recorded_at.isoformat()}
+            if record.recorded_at is not None
+            else {}
+        ),
         "age_days": age,
         "summary": record.summary,
         "changes": changes,

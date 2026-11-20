@@ -8,6 +8,7 @@ from hashlib import sha256
 
 import pytest
 from tests.helpers import proposal as helper
+from tests.helpers.proposal import PROPOSAL_ID
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
@@ -64,6 +65,7 @@ def case(tmp_path, monkeypatch):
 )
 def test_price_window_date_is_fixed_without_rewriting_legacy_proposals(case, omitted_fields):
     context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
         sqlite_path=case.market,
