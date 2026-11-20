@@ -9,7 +9,7 @@
 一次資料・共通観測・PortfolioもL3へ直接渡し、候補外も同じGenerationを使える。必須DAGやagent群ではない。
 
 - **L1 / Data Collection**は受領原本または明示したprovider-native表現。**Observations**はその投影・正規化で、原本を代替しない。
-- **L2 / Machine Analysis**は入力と規則から再現できる観測・計算・候補抽出。解析モデルは分析観点で、機械学習に限らない。**ModelGeneration**（以下Generation）は固定入力・対象・予定モデルと結果のまとまりで、観測日は同一とは限らない。**ScreeningSelection**は保存モデルへ候補政策を適用した候補と理由で、モデル生成・追加や買付採否とは別。
+- **L2 / Machine Analysis**は入力と規則から再現できる観測・計算・候補抽出。解析モデルは分析観点で、機械学習に限らない。**ModelGeneration**（以下Generation）は固定入力・対象・予定モデルと結果のまとまりで、観測日は同一とは限らない。**ScreeningSelection**は保存モデルから公開する探索観測と理由で、モデル生成や買付採否ではない。
 - **L3 / Investment Judgment**は部分的企業理解（Research）、価値・価格・成立条件（Assessment）、別作業者の根拠・仮定・算術・反証確認（Review）、現価格/cash/保有への適用（Proposal）を担う。算術は仮定を事実にせず、Reviewは安全保証や注文承認ではない。
 - **Research Selection**は明示依頼の有限対象・問い・入力で、機械候補のScreeningSelectionと分ける。**Operation**は進行・成果・再開を管理する。completedと再開はskillへ。**Market Assessment**は独立したL3入口で、L2のMarket Contextとは別。
 
@@ -34,7 +34,7 @@
 | `storage/` | SQLite・snapshot・object転送/条件付き書込。業務の意味は決めない。 |
 | `primitives/`・`cli/` | 小さな共通値/変換、引数/表示/終了コード。汎用業務箱にしない。 |
 
-Collection→L2、観測→モデル、生成→政策、Portfolio→L3の依存を作らない。L2はL1と明示設定から再生成し、前回L2を必須にしない。取得進捗は原本と分け、消失時の再取得条件を持つ。逆依存の解消は関係データの廃棄許可ではない。
+上図は情報の流れであり、importの向きを示さない。CollectionからL2、観測からモデル、生成から候補政策、PortfolioからL3をimportしない。L2はL1と明示設定から再生成し、前回L2を必須にしない。取得進捗は原本と分け、消失時の再取得条件を持つ。逆依存の解消は関係データの廃棄許可ではない。
 
 保存契約は原本/観測owner、検証機構はStorage、公開対象/source別受入はJobsが持つ。全体hydrate/dehydrateには完全なcatalog/policy、個別固定読取には必要なowner契約を渡す。
 
@@ -70,9 +70,9 @@ Collection→L2、観測→モデル、生成→政策、Portfolio→L3の依存
 
 原本受領・原本公開・L2公開は別の成功で、独立L1をL2成功待ちにしない。生成/公開は開始入力を固定し、未生成と結果内欠測を分ける。再開で現在のモデル一覧・既定値・latest headを補わない。L3は必要断面をapplicationへ保存し、元runや可変storeに依存せず再開する。整理/GCは原本・判断・取引履歴・R2全体の削除許可ではない。
 
-原本/全履歴の日次複写を避け、必要投影と不変objectを再利用する。実装済みcold再生成・旧release依存・source別の取得/保持/復旧は[観測](reference/model-observations.md#source-owners)とOPERATIONSへ。保持/容量/時間の実データ受入は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)に残る。
+原本/全履歴の日次複写を避け、必要投影と不変objectを再利用する。実装済みcold再生成・旧release依存・source別の取得/保持/復旧は[観測](reference/model-observations.md#source-owners)とOPERATIONSへ。保持・容量・時間の過去の実測は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)を参照。
 
-[経済固定入力](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)は当時採用した原本と確認/失敗を固定する。後日訂正や採用へ差替えず、冷再計算には保持原本と当時のengine/config/runtimeを要する。原本欠落は当時欠測でなく失敗。新規選択は年別の原本ブロックごとに固定形式を選ぶ。32件以上で当時の原本キー・確認時計が旧SHAと同じ64文字以内に収まる年はrootに直接記述し、対象全行のSHAを順に検証する。それ以外は同じ旧子オブジェクトをそのまま使う。判定はそのブロックだけで決まり、別の年・文書が増えても、先月省いた子の保存をあとから必要としない。rootの保存量は旧root以下、既存の旧rootは詰め直さず子も検証する。冷再計算は当時のキーでnative原本を取り直し、全行とrecipeが一致したときだけ観測を返す。同一実行で検証済みの不変metadataは上限付きで再利用し、前回L2や可変headを原本の代用にはしない。旧hash-only世代の失われたDBは復元できず、全generation exact再生・過去市場PIT・一律I/O上限も保証しない。
+[経済固定入力](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)は原本と確認・失敗の根拠を固定する。後着訂正で差し替えず、原本欠落は当時の欠測としない。冷再計算は元の原本・実行条件・recipeの一致を要し、可変headや前回L2で補わない。新規固定のパッキングと検証は実装を参照。旧hash-only世代の失われたDBや全世代のexact再生は保証しない。
 
 配置・政策変更でも保存identityと再開入力を保ち、配置だけでkey/ID/hash/意味revision・原bytes・受領時刻・source identityを変えない。Company Financialsの旧Selection canonicalは元公開hashの根拠として[保持](../jobs/OPERATIONS.md#financials-identity-cutover)し、通常readerへ旧aliasを戻さない。
 

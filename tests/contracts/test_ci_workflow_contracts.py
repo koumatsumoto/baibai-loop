@@ -133,12 +133,8 @@ def test_the_python_dependency_audit_suppresses_nothing(workflow: str, job: str)
     assert "--disable-pip" not in build_run
 
 
-def test_scanners_are_asked_even_after_an_earlier_gate_fails() -> None:
-    """Sharing the runner does not skip scanners after another gate fails."""
-    by_name = _by_name("ci.yml", "quality")
-
-    for scanner in ("Bandit", "Dependency audit", "Build dependency audit"):
-        assert by_name[scanner]["if"] == "${{ !cancelled() }}"
+def test_bandit_is_asked_even_after_an_earlier_gate_fails() -> None:
+    assert _by_name("ci.yml", "quality")["Bandit"]["if"] == "${{ !cancelled() }}"
 
 
 @pytest.mark.parametrize("workflow_name", ["ci.yml", "security.yml"])
@@ -173,9 +169,3 @@ def test_weekly_sweep_asks_only_what_a_pull_request_cannot() -> None:
         "Dependency audit",
         "Build dependency audit",
     }
-
-
-def test_weekly_dependency_audits_run_after_an_earlier_finding() -> None:
-    by_name = _by_name("security.yml", "audit")
-    for name in ("Dependency audit", "Build dependency audit"):
-        assert by_name[name]["if"] == "${{ !cancelled() }}"

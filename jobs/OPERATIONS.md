@@ -43,12 +43,12 @@ shellの存在確認は明示404以外の失敗を欠落扱いせず停止し、
 修正をmainへ反映してから必要な範囲だけ実行する。実scheduleは[workflows](../.github/workflows/)、対象日は[schedule owner](src/baibai_jobs/schedule.py)を参照する。run IDを固定し、監視timeoutだけで重複dispatchしない。
 
 ```bash
-gh workflow run cloud-daily-batch.yml --ref main -f asof=<YYYY-MM-DD>
+gh workflow run cloud-daily-batch.yml --ref main -f 'asof=<YYYY-MM-DD>' -f preserve_existing_generations=true
 gh run list --workflow cloud-daily-batch.yml --limit 5
 gh run watch <RUN_ID> --exit-status --interval 60
 ```
 
-asof空欄は元run作成JST日。寄前/場中に完了済み日次が必要なら前日を指定し、前営業日へ戻して週末情報を落とさない。queue/rerunは元時計/slotを保持するが、run作成自体が次slotを越す24時間以上の遅延ではasofを明示する。生成対象日と価格日は別で、休場の価格日を繰り上げない。
+手動でasofを省くと元run作成日のJST日付、定期は元run作成時点の直近cron枠の対象日。queue/rerunでは元の時計を使う。対象枠をまたぐ登録遅延の復旧は手動でasofを指定する。寄前・場中に完了済みの日次が必要なら前日を指定する（前営業日に戻して週末情報を落とさない）。手動日次は[日足の到着](#price-native-l1)を確認してから起動し、生成対象日と価格日を同一視しない。
 
 共通統合は全providerを待たず、到着済み受領を固定する。経済L1の公開/readback/seal/input発行→marketのsource別投影/EDINET抽出→固定market releaseと経済selectionによるモデル/候補保存→machine反映/readback・sealの順で進む。source別の失敗/欠測を残して他sourceを進めるが、モデル/公開失敗は後段反映を止める。model-integrationは外部取得/Web生成を呼ばない。
 
@@ -226,15 +226,15 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
 
 ```bash
 jobs/scripts/r2_transfer.sh pull-app
-# 正規CLIでこのDBを更新した後
-jobs/scripts/publish.sh
+# 正規CLIでこのDBを更新した後（通常どおり新backupを作り、旧backupは削除しない）
+R2_APP_BACKUP_PRUNE=skip jobs/scripts/publish.sh
 ```
 
-publish.shは引数なし。台帳preflight→取得世代への条件付きbackup/PUT→次回ETag記録→Web生成dispatchの順。時価/quote不足と取引保存障害を分け、DBだけの世代交換・未知世代の現HEAD補完はしない。App backupは元世代を読戻して実行JST日＋内容SHAのkeyへcreate-onlyで保存し、読戻し照合後に本体PUTへ進む。同日でも既存backupを置換しない。同内容の既存keyは本文一致時だけ再利用し、当日の日別keyも元ETag/sizeと本文が一致するなら重複保存しない。競合・拒否・応答不明は本体PUT前に停止する。従来の日別keyも残す。通常pruneは直近14個のbackup日付に属する全世代を保持し、永久削除をしない反映ではR2_APP_BACKUP_PRUNE=skipを指定する。保存量は日数だけでなく反映回数に増え、元Appとbackupの読戻し通信・一時容量も必要になる。正規の単一PUT由来ETagを持たない旧Appはこの経路で更新せず別途確認する。
+publish.shは引数なし。台帳preflight→取得世代への条件付きbackup/PUT→次回ETag記録→Web生成dispatchの順。時価/quote不足と取引保存障害を分け、DBだけの世代交換・未知世代の現HEAD補完はしない。App backupは元世代を読戻して実行JST日＋内容SHAのkeyへcreate-onlyで保存し、読戻し照合後に本体PUTへ進む。同日でも既存backupを置換しない。同内容の既存keyは本文一致時だけ再利用し、当日の日別keyも元ETag/sizeと本文が一致するなら重複保存しない。backup段階の競合・拒否・応答不明では本体PUTに進まない。従来の日別keyも残す。通常pruneは直近14個のbackup日付に属する全世代を保持し、永久削除をしない反映ではR2_APP_BACKUP_PRUNE=skipを指定する。保存量は日数だけでなく反映回数に増え、元Appとbackupの読戻し通信・一時容量も必要になる。正規の単一PUT由来ETagを持たない旧Appはこの経路で更新せず別途確認する。
 
-本人が追加backupを不要と明示し、更新後Appが旧提案・評価・台帳等の全旧行を保持することを旧新の正規copyで照合した追加専用反映では、`R2_APP_BACKUP_CREATE=skip` で新しいbackup生成だけを省略できる。既定はretain。取得ETag照合と最終If-Matchは省略されず、未知世代・競合は停止する。旧backupの保持・削除は独立した `R2_APP_BACKUP_PRUNE` で扱い、削除しない反映では両方にskipを指定する。既存情報を書き換える一般更新へこの省略判断を流用しない。
+本人が追加backupを不要と明示し、更新後Appが旧提案・評価・台帳等の全旧行を保持することを旧新の正規copyで照合した追加専用反映では、`R2_APP_BACKUP_CREATE=skip` で新しいbackup生成だけを省略できる。既定はretain。取得ETag照合と最終If-Matchは省略されず、未知世代・競合は停止する。旧backupの削除を止めるフラグは `R2_APP_BACKUP_PRUNE=skip`。両方のskipは、旧backupを削除せず、新backup作成も上記条件で意図して省くときだけ使う。既存情報を書き換える一般更新へこの省略判断を流用しない。
 
-保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。PUT後の記録失敗で旧DBを再送しない。dispatchだけ失敗/不明ならActionsを確認し、run未作成時だけcloud-materializeを再dispatchする。publish.sh全体は繰り返さない。通常はcurrent schemaだけを開き、自動移行しない。旧schema29を調査する場合は、[切替時の版](https://github.com/koumatsumoto/baibai-loop/tree/26561b8fc99099ed1d221f4b664b2026511d4b7c)で隔離したコピーを読む。30へ変換が必要な場合もその版の `tools.enable_share_conversions` で未存在の別ファイルへ出し、保存row・ID・hashを照合する。後続の記録を持つ正本へ旧DBを戻さず、旧版の未公開差分だけを現世代へ正規手順で引き継ぐ。
+保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。非0・無応答では元App世代と対象IDを読戻し、不明なまま再送しない。PUT済みで表示runが未作成と確認できたときだけ、cloud-materializeを起動する。通常はcurrent schemaだけを開き、自動移行しない。旧schema29を調査する場合は、[切替時の版](https://github.com/koumatsumoto/baibai-loop/tree/26561b8fc99099ed1d221f4b664b2026511d4b7c)で隔離したコピーを読む。30へ変換が必要な場合もその版の `tools.enable_share_conversions` で未存在の別ファイルへ出し、保存row・ID・hashを照合する。後続の記録を持つ正本へ旧DBを戻さず、旧版の未公開差分だけを現世代へ正規手順で引き継ぐ。
 
 ### application DB を復元する
 
@@ -352,7 +352,7 @@ ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手�
 
 [workflow](../.github/workflows/cloud-economic-sources.yml)は休場日もgroup別に取得し、部分受領をprivate stageへ保存する。限定再実行は所属groupとsource IDを指定する。
 
-取得summaryのfailedはHTTP試行件数ではない。group停止後の未試行sourceはblocked_by_source_idで最初の失敗を参照し、自身のHTTP statusを持たない。error_typesは例外の型だけで、詳細本文はprivate受領に残す。browser_download_diagnosticはdownload待機終了時の許可済みHTTP/MIME・navigation分類のみで、URL・応答本文・生エラーを含めない。欠落した旧summaryからその分類を補完しない。旧summaryは区別できないため、4系列の失敗を4回の拒否と数えたり、経過時間だけでtimeoutと断定しない。型やHTTP statusが得られても、拒否原因・別経路の許諾や回復成功の証明ではない。
+取得summaryのfailedはHTTP試行件数ではない。group停止後の未試行sourceはblocked_by_source_idで最初の失敗を参照し、自身のHTTP statusを持たない。error_typesは例外の型だけで、詳細本文はprivate受領に残す。旧summaryの`browser_download_diagnostic`は許可済みHTTP/MIME・navigation分類だけを保持し、欠落時は補完しない。旧summaryは区別できないため、4系列の失敗を4回の拒否と数えたり、経過時間だけでtimeoutと断定しない。型やHTTP statusが得られても、拒否原因・別経路の許諾や回復成功の証明ではない。
 
 ```bash
 uv run baibai-jobs acquire-economic groups
@@ -690,10 +690,7 @@ uv run baibai-engine historical-evaluation candidates show --run-revision-id <RU
 
 [正本の保存方針](../docs/architecture.md#store-authority)に従い、元公開hashのcanonicalを現在名へ再署名せず、Operationの不変移行証拠をexact Proposal/Review/scopeと照合して読む。schema切替は[application手順](#application-db-を反映する)に従う。
 
-```bash
-uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> selection-evidence <OPERATION_ID> \
-  --selection-sha256 <PUBLISHED_SELECTION_SHA256> --proposal-id <EXACT_PROPOSAL_ID>
-```
+[固定証拠の照会例](../docs/reference/screening-runtime.md#case-evidence)に従い、元公開時の選定SHAと正式提案IDを指定する。
 
 旧出典indexは元canonical/domain-inputsと一組で解決し、新manifestへ旧draftをコピー/force転用しない。
 

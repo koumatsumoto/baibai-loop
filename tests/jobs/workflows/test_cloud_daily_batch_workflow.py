@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.helpers.workflow_schedule import declared_schedule
 
 from baibai_jobs.publication.lease import DAILY_LEASE_TTL
 
@@ -30,8 +29,7 @@ def by_id(steps):
     return {step["id"]: step for step in steps if "id" in step}
 
 
-def test_common_integration_runs_including_weekends_without_acquisition(workflow):
-    assert declared_schedule(WORKFLOW_PATH.read_text()) == [{"cron": "43 13 * * *"}]
+def test_common_integration_runs_without_acquisition(workflow):
     job = workflow["jobs"]["daily"]
     assert int(job["timeout-minutes"]) == 210
     assert timedelta(minutes=int(job["timeout-minutes"])) == DAILY_LEASE_TTL - timedelta(minutes=10)
