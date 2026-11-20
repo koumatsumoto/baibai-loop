@@ -16,6 +16,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
 from baibai_engine.machine_analysis.generation.financial_models import (
     generate_financial_and_price_models,
 )
+from baibai_engine.machine_analysis.models.company_financials.metrics import capital
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.observations.financials import (
@@ -77,6 +78,44 @@ def generate(
         growth_start=growth_start,
         edinet=edinet,
     )
+
+
+@pytest.mark.parametrize("same_order", [True, False])
+def test_financial_generation_shares_only_the_same_ordered_capital_proof(monkeypatch, same_order):
+    sample = document()
+    issued = replace(sample, disclosure_number="B", treasury_shares=None)
+    unnumbered = replace(issued, disclosure_number=None)
+    treasury = replace(sample, disclosure_number="C", shares_outstanding=None)
+    rows = (unnumbered, issued, treasury) if same_order else (issued, unnumbered, treasury)
+    normalization_calls = []
+    capital_calls = []
+    normalize = capital._normalize_summaries_with_status
+    resolve = capital._resolve_capital_basis
+
+    def record_normalization(summaries, *args):
+        normalization_calls.append(tuple(row.disclosure_number for row in summaries))
+        return normalize(summaries, *args)
+
+    def record_resolution(summaries, **kwargs):
+        capital_calls.append(tuple(row.disclosure_number for row in summaries))
+        return resolve(summaries, **kwargs)
+
+    monkeypatch.setattr(capital, "_normalize_summaries_with_status", record_normalization)
+    monkeypatch.setattr(capital, "_resolve_capital_basis", record_resolution)
+    models = generate(documents=rows, bars=[PriceBar(ASOF, 10.0, None)])
+    payload = next(model.payload for model in models if model.model_id == "company_financials")
+    earnings, financial = payload["earnings_price"], payload["financial"]
+    assert earnings["shares_ex_treasury"] == 80.0
+    assert earnings["profit_components"][0]["disclosure_number"] is None
+    assert earnings["unavailable_reason"] is None
+    if same_order:
+        assert financial["shares_ex_treasury"] == 80.0
+        assert normalization_calls == capital_calls == [(None, "B", "C")]
+    else:
+        # Same-day, same-clock ties retain the original snapshot's representative.
+        assert financial["shares_ex_treasury"] is None
+        assert financial["capital_basis_failure_reason"] == "conflicting_capital_document_sources"
+        assert normalization_calls == capital_calls == [(None, "B", "C"), ("B", None, "C")]
 
 
 def test_financial_generation_rejects_post_asof_capital_disclosure():

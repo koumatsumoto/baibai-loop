@@ -1,12 +1,15 @@
 import json
 from dataclasses import asdict, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
 from baibai_engine.machine_analysis.models.company_financials.earnings import (
     earnings_price,
     read_earnings_price,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
+    FinancialCapitalAt,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
@@ -54,6 +57,20 @@ def observation(rows):
         as_of=ASOF,
         ttm_rules=RULES,
     )
+
+
+def test_shared_capital_proof_is_not_reused_at_a_different_cutoff():
+    prepared = FinancialCapitalAt([annual()], as_of=ASOF, adjustment_events=(), capital_actions=())
+    assert observation(prepared).shares_ex_treasury == 80.0
+    with pytest.raises(ValueError, match="different input basis"):
+        build_financial_snapshot(
+            10.0,
+            prepared,
+            None,
+            RULES,
+            adjustment_events=(),
+            asof_date=ASOF - timedelta(days=1),
+        )
 
 
 def test_completed_post_period_share_conversion_does_not_reuse_old_treasury():

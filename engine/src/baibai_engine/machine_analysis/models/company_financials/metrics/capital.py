@@ -20,6 +20,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    FinancialDocumentsAt,
     accounting_period_identity,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
@@ -56,6 +57,78 @@ class _NormalizedSummaryResult:
     summaries: Sequence[JQuantsFinancialSummary]
     capital_basis_barrier: _AccountingObservationKey | None
     basis_adjustments: tuple[dict[str, JsonValue], ...] = ()
+
+
+type _FinancialDocuments = Sequence[JQuantsFinancialSummary] | FinancialDocumentsAt
+type _AdjustmentEvents = Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar]
+type _CapitalProof = tuple[_NormalizedSummaryResult, _CapitalBasisResolution]
+
+
+class FinancialCapitalAt:
+    """Reuse one issuer's exact normalized rows and capital proof within a generation."""
+
+    def __init__(
+        self,
+        documents: _FinancialDocuments,
+        *,
+        as_of: date,
+        adjustment_events: _AdjustmentEvents,
+        capital_actions: Sequence[CapitalAction],
+    ) -> None:
+        actions = tuple(capital_actions)
+        if any(action.after_as_of(as_of) for action in actions):
+            raise ValueError("capital action is after the model as-of date")
+        self._scope = as_of, tuple(adjustment_events), actions
+        self._rows = tuple(FinancialDocumentsAt.rows_for(documents, as_of))
+        self._proof: _CapitalProof | None = None
+
+    def _prepare(self, rows: Sequence[JQuantsFinancialSummary]) -> _CapitalProof:
+        as_of, adjustment_events, capital_actions = self._scope
+        normalized = _normalize_summaries_with_status(rows, adjustment_events, as_of)
+        return normalized, _resolve_capital_basis(
+            normalized.summaries,
+            capital_basis_barrier=normalized.capital_basis_barrier,
+            capital_actions=capital_actions,
+        )
+
+    @staticmethod
+    def resolve_for(
+        documents: FinancialCapitalSource,
+        *,
+        as_of: date,
+        adjustment_events: _AdjustmentEvents,
+        capital_actions: Sequence[CapitalAction],
+        earnings_order: bool = False,
+    ) -> _CapitalProof:
+        if not isinstance(documents, FinancialCapitalAt):
+            documents = FinancialCapitalAt(
+                documents,
+                as_of=as_of,
+                adjustment_events=adjustment_events,
+                capital_actions=capital_actions,
+            )
+        elif documents._scope != (as_of, tuple(adjustment_events), tuple(capital_actions)):
+            raise ValueError("financial capital projection has a different input basis")
+        rows = documents._rows
+        if earnings_order:
+            ordered = sorted(
+                rows,
+                key=lambda row: (
+                    row.disclosed_at,
+                    row.disclosed_time or "",
+                    row.disclosure_number or "",
+                ),
+            )
+            # Equal timestamps can still choose different representatives. Reuse only
+            # when the two paths see the same objects in the same order.
+            if any(left is not right for left, right in zip(rows, ordered, strict=True)):
+                return documents._prepare(ordered)
+        if documents._proof is None:
+            documents._proof = documents._prepare(rows)
+        return documents._proof
+
+
+type FinancialCapitalSource = _FinancialDocuments | FinancialCapitalAt
 
 
 class _ShareBasis(Enum):

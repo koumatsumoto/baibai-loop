@@ -8,10 +8,10 @@ from typing import Literal
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     ENTITY_SCALE_MISMATCH,
+    FinancialCapitalAt,
+    FinancialCapitalSource,
     _common_equity,
     _edinet_passes_entity_scale_check,
-    _normalize_summaries_with_status,
-    _resolve_capital_basis,
     _shares_excluding_treasury,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
@@ -46,7 +46,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.ratios imp
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
-    FinancialDocumentsAt,
     accounting_standard,
     comparable_reporting_basis,
     forecast_source_trace,
@@ -90,7 +89,7 @@ def _reported_source(
 
 def build_financial_snapshot(
     latest_price: float | None,
-    summaries: Sequence[JQuantsFinancialSummary] | FinancialDocumentsAt,
+    summaries: FinancialCapitalSource,
     edinet: EdinetMetricRecord | None,
     ttm_rules: TTMRules,
     *,
@@ -99,15 +98,13 @@ def build_financial_snapshot(
     pdf_selection: PdfFinancialSelection | None = None,
     capital_actions: Sequence[CapitalAction] = (),
 ) -> FinancialSnapshot:
-    if any(action.after_as_of(asof_date) for action in capital_actions):
-        raise ValueError("capital action is after the model as-of date")
-    normalization = _normalize_summaries_with_status(
-        FinancialDocumentsAt.rows_for(summaries, asof_date),
-        adjustment_events,
-        asof_date,
+    normalization, capital_basis = FinancialCapitalAt.resolve_for(
+        summaries,
+        as_of=asof_date,
+        adjustment_events=adjustment_events,
+        capital_actions=capital_actions,
     )
     summaries = normalization.summaries
-    capital_basis_barrier = normalization.capital_basis_barrier
     latest = _latest_summary(summaries)
     forecast = latest_forecast_source(summaries)
     forecast_eps = forecast.forecast_eps if forecast is not None else None
@@ -164,11 +161,6 @@ def build_financial_snapshot(
         ("operating_profit", "ordinary_profit", "profit"),
     )
     operating_profit, operating_profit_source = _select_operating_profit(operating_row)
-    capital_basis = _resolve_capital_basis(
-        summaries,
-        capital_basis_barrier=capital_basis_barrier,
-        capital_actions=capital_actions,
-    )
     if forecast is not None and any(
         action.effective_date > forecast.disclosed_at for action in capital_actions
     ):

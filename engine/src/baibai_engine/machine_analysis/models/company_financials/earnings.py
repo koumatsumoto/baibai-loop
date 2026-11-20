@@ -12,8 +12,8 @@ from math import isfinite
 from pydantic import JsonValue, TypeAdapter
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
-    _normalize_summaries_with_status,
-    _resolve_capital_basis,
+    FinancialCapitalAt,
+    FinancialCapitalSource,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
@@ -22,7 +22,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
 )
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
-    FinancialDocumentsAt,
     accounting_period_identity,
     accounting_standard,
     latest_disclosure_candidates,
@@ -121,7 +120,7 @@ def _accounting_disclosures(
 
 
 def earnings_price(
-    summaries: Sequence[JQuantsFinancialSummary] | FinancialDocumentsAt,
+    summaries: FinancialCapitalSource,
     *,
     adjusted_price: PriceBar | None,
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
@@ -135,17 +134,12 @@ def earnings_price(
     adjusted_priceはas_of基準へ調整済みの価格。開示EPSの足し算やPERの逆数は使わない。
     連結/単体が不明なら原額は保持するが選定用利回りを確定しない。
     """
-    if any(action.after_as_of(as_of) for action in capital_actions):
-        raise ValueError("capital action is after the model as-of date")
-    projected = sorted(
-        FinancialDocumentsAt.rows_for(summaries, as_of),
-        key=lambda row: (row.disclosed_at, row.disclosed_time or "", row.disclosure_number or ""),
-    )
-    normalized = _normalize_summaries_with_status(projected, adjustment_events, as_of)
-    capital = _resolve_capital_basis(
-        normalized.summaries,
-        capital_basis_barrier=normalized.capital_basis_barrier,
+    normalized, capital = FinancialCapitalAt.resolve_for(
+        summaries,
+        as_of=as_of,
+        adjustment_events=adjustment_events,
         capital_actions=capital_actions,
+        earnings_order=True,
     )
     rows = _ttm_components(normalized.summaries, "profit", ttm_rules)
     components = tuple(
