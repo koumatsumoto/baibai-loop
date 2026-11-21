@@ -1,8 +1,6 @@
-"""r6の有限反例と、固定release読取からResearchの固定保存・再開まで。実providerを使わない。"""
+"""企業成長の計算と、保存した結果からのResearchの再開。"""
 
 import socket
-import sqlite3
-from contextlib import closing
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from hashlib import sha256
@@ -11,10 +9,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 from tests.helpers.db_seed import seed_historical_operation
-from tests.helpers.lake_release import publish_market_fixture
-from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import historical_operation, selection
-from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.investment_judgment.workflow.company_growth_projection import (
     project_company_growth,
@@ -41,20 +36,6 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     prior_year_period_matches,
 )
-from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import (
-    read_fixed_financial_documents,
-)
-from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
-    prepare_pdf_financials,
-)
-from baibai_engine.storage.snapshots.keys import release_manifest_key
-from baibai_engine.storage.snapshots.models import ReleaseManifest
-from baibai_engine.storage.sqlite.source_cache.lake_origin import (
-    LakeStoreOrigin,
-    read_lake_store_origin,
-    write_lake_store_origin,
-)
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 NOW = datetime.fromisoformat("2026-10-24T18:00:00+09:00")
 
@@ -100,40 +81,17 @@ def change(result, end, metric, measurement="reported"):
     )
 
 
-def market_store(tmp_path, records, *, release="synthetic-release-1", price_day=None):
-    path = tmp_path / "market.sqlite"
-    with closing(open_connection(path)) as connection, connection:
-        for record in records:
-            insert_financial_record(connection, record)
-        if price_day:
-            connection.execute(
-                "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
-                ("1234", price_day.isoformat(), 1000),
-            )
-    if release:
-        publish_market_fixture(path, release, created_at=NOW)
-    return path
-
-
-def company_growth(path, *, ticker, as_of, start=None, end=None):
-    """Compose the known fixed fixture; production uses shared Generation inputs."""
-    origin = read_lake_store_origin(path)
-    assert origin is not None
-    fixed = read_fixed_financial_documents(
-        path.parent / "mirror", origin=origin, ticker=ticker, as_of=as_of
-    )
+def company_growth(records, *, ticker, as_of, start=None, end=None):
+    documents = [normalize_financial_summary(record) for record in records]
+    assert all(item is not None and item.ticker == ticker for item in documents)
     return generate_company_growth(
-        fixed.documents,
+        documents,
         ticker=ticker,
-        sector=fixed.sector,
+        sector=None,
         as_of=as_of,
-        input_release=InputRelease(
-            release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256
-        ),
+        input_release=InputRelease(release_id="synthetic-release-1", manifest_sha256="a" * 64),
         start=start,
         end=end,
-        pdf_input=prepare_pdf_financials(fixed.documents, fixed.pdf_statements, as_of=as_of),
-        pdf_input_reason=fixed.pdf_input_reason,
     )
 
 
@@ -411,16 +369,14 @@ def test_unknown_accounting_standard_keeps_reported_amount():
     )
 
 
-def test_query_retains_pre_window_operands_and_later_corrections_at_both_edges(tmp_path):
+def test_query_retains_pre_window_operands_and_later_corrections_at_both_edges():
     records = [document(y, q, q * 100) for y in (2022, 2023, 2024) for q in range(1, 5)]
     records.append(document(2022, 4, 450, DiscDate="2026-10-01", DiscNo="late-old-fy"))
-    path = market_store(tmp_path, records)
-    before = path.read_bytes()
     narrow = company_growth(
-        path, ticker="1234", as_of=NOW.date(), start=date(2023, 4, 1), end=date(2023, 12, 31)
+        records, ticker="1234", as_of=NOW.date(), start=date(2023, 4, 1), end=date(2023, 12, 31)
     )
     broad = company_growth(
-        path, ticker="1234", as_of=NOW.date(), start=date(2022, 4, 1), end=date(2025, 3, 31)
+        records, ticker="1234", as_of=NOW.date(), start=date(2022, 4, 1), end=date(2025, 3, 31)
     )
     assert narrow.periods == tuple(
         s for s in broad.periods if date(2023, 4, 1) <= s.period_end <= date(2023, 12, 31)
@@ -435,12 +391,11 @@ def test_query_retains_pre_window_operands_and_later_corrections_at_both_edges(t
     assert narrow.input_release.receipt_cutoff is None
     assert narrow.coverage.status == "unverified"
     assert narrow.coverage.observed_start == date(2022, 6, 30)
-    assert path.read_bytes() == before
 
 
-def test_observations_do_not_prove_continuous_acquisition_coverage(tmp_path):
-    path = market_store(tmp_path, [document(2022, 1, 100), document(2024, 1, 200)])
-    result = company_growth(path, ticker="1234", as_of=NOW.date())
+def test_observations_do_not_prove_continuous_acquisition_coverage():
+    records = [document(2022, 1, 100), document(2024, 1, 200)]
+    result = company_growth(records, ticker="1234", as_of=NOW.date())
     assert result.status == "available"
     assert result.coverage.status == "unverified"
     assert result.coverage.gaps_between_observations == ((date(2022, 6, 30), date(2024, 6, 30)),)
@@ -449,25 +404,21 @@ def test_observations_do_not_prove_continuous_acquisition_coverage(tmp_path):
     assert value.reason == "comparable_prior_period_not_observed"
 
 
-def test_generation_excludes_invalid_documents_and_rejects_invalid_display_period(tmp_path):
-    path = market_store(tmp_path, [document(2024, 1, 100)])
-    with closing(sqlite3.connect(path)) as connection, connection:
-        insert_financial_record(connection, document(2024, 2, 230, CurPerEn="2027-03-31"))
-    publish_market_fixture(path, "fixed", created_at=NOW)
-    result = company_growth(path, ticker="1234", as_of=NOW.date())
+def test_generation_excludes_invalid_documents_and_rejects_invalid_display_period():
+    records = [document(2024, 1, 100), document(2024, 2, 230, CurPerEn="2027-03-31")]
+    result = company_growth(records, ticker="1234", as_of=NOW.date())
     assert len(result.periods) == 1
     assert result.coverage.excluded_document_count == 1
     with pytest.raises(ValueError, match="start <= end"):
-        company_growth(path, ticker="1234", as_of=NOW.date(), start=date(2027, 1, 1))
+        company_growth(records, ticker="1234", as_of=NOW.date(), start=date(2027, 1, 1))
 
 
-def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_path, monkeypatch):
+def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(monkeypatch):
     records = [document(2023, 1, 100, 20, 10), document(2024, 1, 200, 30, 25)]
-    path = market_store(tmp_path, records)
     selected = selection(now=NOW, tickers=("1234",))
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("network used"))
     growth = company_growth(
-        path, ticker="1234", as_of=NOW.date(), start=date(2024, 4, 1), end=date(2024, 6, 30)
+        records, ticker="1234", as_of=NOW.date(), start=date(2024, 4, 1), end=date(2024, 6, 30)
     )
     context = dict(selected.inputs.securities_context["1234"])
     context["company_growth"] = growth.model_dump(mode="json")
@@ -481,12 +432,6 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
     assert expected["changes"][0]["from_value"] == 100
     assert expected["changes"][0]["to_value"] == 200
     assert expected["periods"][0]["period_end"] == "2024-06-30"
-    # Release, method and newly published numbers cannot replace the saved output.
-    with closing(sqlite3.connect(path)) as connection, connection:
-        write_lake_store_origin(connection, LakeStoreOrigin("synthetic-release-2", "c" * 64))
-        insert_financial_record(
-            connection, document(2024, 1, 900, DiscDate="2026-10-23", DiscNo="changed")
-        )
     monkeypatch.setattr(
         "baibai_engine.machine_analysis.generation.financial_models.generate_company_growth",
         lambda *_a, **_kw: pytest.fail("growth recomputed"),
@@ -516,11 +461,11 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
 def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
     tmp_path, monkeypatch
 ):
-    path = market_store(tmp_path, [document(2023, 1, 100), document(2024, 1, 200)])
+    records = [document(2023, 1, 100), document(2024, 1, 200)]
     selected = selection(now=NOW, tickers=("1234",))
     context = dict(selected.inputs.securities_context["1234"])
     context["company_growth"] = company_growth(
-        path, ticker="1234", as_of=NOW.date(), start=date(2024, 4, 1), end=date(2024, 6, 30)
+        records, ticker="1234", as_of=NOW.date(), start=date(2024, 4, 1), end=date(2024, 6, 30)
     ).model_dump(mode="json")
     selected = selected.model_copy(
         update={
@@ -598,11 +543,10 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
         for year in range(2020, 2025)
         for quarter in range(1, 5)
     ]
-    path = market_store(tmp_path, records)
     selected = selection(now=NOW, tickers=("1234",))
     context = dict(selected.inputs.securities_context["1234"])
     context["company_growth"] = company_growth(
-        path, ticker="1234", as_of=NOW.date(), start=start, end=date(2025, 3, 31)
+        records, ticker="1234", as_of=NOW.date(), start=start, end=date(2025, 3, 31)
     ).model_dump(mode="json")
     selected = selected.model_copy(
         update={
@@ -682,50 +626,6 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
     assert selection_sha256(restored) == digest
 
 
-def test_old_other_dataset_watermark_cannot_hide_a_retained_financial_correction(tmp_path):
-    old_price_day = date(2024, 6, 1)
-    financial_day = date(2026, 10, 23)
-    path = market_store(
-        tmp_path,
-        [
-            document(2024, 1, 100),
-            document(2024, 1, 150, DiscDate=financial_day.isoformat(), DiscNo="late-correction"),
-        ],
-        price_day=old_price_day,
-    )
-    origin = read_lake_store_origin(path)
-    manifest = ReleaseManifest.model_validate_json(
-        (path.parent / "mirror" / release_manifest_key(release_id=origin.release_id)).read_bytes()
-    )
-    assert manifest.data_as_of == old_price_day
-    result = company_growth(path, ticker="1234", as_of=date(2024, 6, 30))
-    value = amount(result.periods[0], "reported", "sales")
-    assert value.value == 150
-    assert value.documents[0].disclosed_at == financial_day
-    assert result.input_release.manifest_sha256 == origin.release_manifest_sha256
-    assert result.input_release.receipt_cutoff is None
-    assert result.read_semantics == "retained_latest_in_fixed_release_not_point_in_time"
-
-
-def test_optional_source_rows_leave_core_states_documents_and_changes_unchanged(tmp_path):
-    path = market_store(tmp_path, [document(2023, 1, 100), document(2024, 1, 200)])
-    before = company_growth(path, ticker="1234", as_of=NOW.date())
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute(
-            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
-            ("1234", "2024-06-28", 1000),
-        )
-        insert_financial_record(connection, document(2024, 1, 999, Code="56780"))
-    publish_market_fixture(path, "synthetic-release-with-other-inputs", created_at=NOW)
-    after = company_growth(path, ticker="1234", as_of=NOW.date())
-    assert after.input_release != before.input_release
-    other = company_growth(path, ticker="5678", as_of=NOW.date())
-    assert amount(other.periods[0], "reported", "sales").value == 999
-    assert after.periods == before.periods
-    assert after.changes == before.changes
-    assert {"per", "peer"}.isdisjoint(after.model_dump(mode="json"))
-
-
 def test_metric_availability_cannot_change_the_shared_ttm_measurement_interval():
     records = [
         document(2023, 1, 100),
@@ -784,77 +684,6 @@ def test_unknown_times_without_an_observed_change_do_not_invent_a_revision_confl
         ]
     )
     assert amount(result[-1], "quarter", "sales").value == 130
-
-
-def test_fixed_input_uses_the_normalized_security_master_sector_name(tmp_path):
-    path = market_store(tmp_path, [document(2024, 1, 100, 20)])
-    with closing(sqlite3.connect(path)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [
-                ("2026-10-23", "1234", "合成証券", "プライム", "証券･商品先物取引業", "011"),
-            ],
-        )
-    publish_market_fixture(path, "sector-release", created_at=NOW)
-    result = company_growth(path, ticker="1234", as_of=NOW.date())
-    margin = amount(result.periods[0], "reported", "operating_margin")
-    assert margin.value is None
-    assert margin.reason == "not_applicable_to_financial_sector"
-    assert amount(result.periods[0], "reported", "sales").value == 100
-
-
-def test_working_store_rows_cannot_be_mislabeled_as_the_base_release(tmp_path):
-    path = market_store(tmp_path, [document(2024, 1, 100)])
-    fixed = company_growth(path, ticker="1234", as_of=NOW.date())
-    with closing(sqlite3.connect(path)) as connection, connection:
-        insert_financial_record(
-            connection,
-            document(
-                2024,
-                1,
-                900,
-                DiscDate="2026-10-23",
-                DiscNo="not-yet-published",
-            ),
-        )
-    after_local_update = company_growth(path, ticker="1234", as_of=NOW.date())
-    assert after_local_update.input_release == fixed.input_release
-    assert after_local_update.periods == fixed.periods
-    assert amount(after_local_update.periods[0], "reported", "sales").value == 100
-    publish_market_fixture(path, "synthetic-release-2", created_at=NOW)
-    published = company_growth(path, ticker="1234", as_of=NOW.date())
-    assert published.input_release.release_id == "synthetic-release-2"
-    assert amount(published.periods[0], "reported", "sales").value == 900
-
-
-def test_shared_population_and_individual_generation_use_the_same_fixed_documents(tmp_path):
-    from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import (
-        read_fixed_financial_population,
-    )
-
-    path = market_store(
-        tmp_path,
-        [document(2024, 1, 100), document(2024, 1, 200, Code="56780", DiscNo="second-company")],
-    )
-    origin = read_lake_store_origin(path)
-    population = read_fixed_financial_population(
-        path.parent / "mirror", origin=origin, as_of=NOW.date()
-    )
-    assert set(population) == {"1234", "5678"}
-    release = InputRelease(
-        release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256
-    )
-    for ticker, fixed in population.items():
-        shared = generate_company_growth(
-            fixed.documents,
-            ticker=ticker,
-            sector=fixed.sector,
-            as_of=NOW.date(),
-            input_release=release,
-        )
-        assert shared == company_growth(path, ticker=ticker, as_of=NOW.date())
-    assert population["1234"].documents[0].sales == 100
-    assert population["5678"].documents[0].sales == 200
 
 
 def test_compact_growth_keeps_quarter_and_annual_conflict_and_reported_cash_flow():

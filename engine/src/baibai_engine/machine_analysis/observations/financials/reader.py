@@ -6,7 +6,6 @@ import json
 import sqlite3
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     disclosure_revision,
@@ -19,9 +18,6 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.sqlite.source_cache.coverage import covered_intervals, range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
-
-if TYPE_CHECKING:
-    import duckdb
 
 
 def fin_summaries_readable_from(sqlite_path: Path, asof: date) -> date | None:
@@ -81,18 +77,17 @@ def read_fin_summaries(
 
 
 def read_financial_documents(
-    conn: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    conn: sqlite3.Connection,
     *,
     start: date,
     end: date,
-    ticker: str | None = None,
 ) -> list[JQuantsFinancialSummary]:
     """Decode stored documents in disclosure order, without coverage or forecast projection."""
     cursor = conn.execute(
         "SELECT document_payload FROM jquants_fin_summaries "
-        "WHERE disclosed_at BETWEEN ? AND ? AND (? IS NULL OR ticker = ?) "
+        "WHERE disclosed_at BETWEEN ? AND ? "
         "ORDER BY ticker, disclosed_at, disclosure_number",
-        (start.isoformat(), end.isoformat(), ticker, ticker),
+        (start.isoformat(), end.isoformat()),
     )
     summaries: list[JQuantsFinancialSummary] = []
     while batch := cursor.fetchmany(256):

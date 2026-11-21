@@ -1,4 +1,4 @@
-"""固定seal/lake共通の保存原本読取。履歴ごとの比較を返し、最新値へ集約しない。"""
+"""固定した入力から保存原本を読む。履歴ごとの比較を返し、最新値へ集約しない。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from collections.abc import Collection, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from threading import Lock
-from typing import TYPE_CHECKING, TextIO
+from typing import TextIO
 
 from pydantic import JsonValue
 
@@ -33,12 +33,9 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.models 
     filing_identity,
 )
 
-if TYPE_CHECKING:
-    import duckdb
-
 
 def read_comparison_population(
-    connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    connection: sqlite3.Connection,
     *,
     as_of: date,
     tickers: Sequence[str] | None = None,
@@ -230,7 +227,7 @@ def read_comparison_population(
 
 
 def _archive_contents(
-    connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    connection: sqlite3.Connection,
     *,
     doc_ids: Collection[str],
     tickers: Sequence[str] | None,

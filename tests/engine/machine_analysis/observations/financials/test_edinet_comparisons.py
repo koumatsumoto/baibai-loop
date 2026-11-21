@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
-from tests.helpers.lake_release import publish_market_fixture
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
@@ -31,11 +30,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparisons i
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     normalize_financial_summary,
 )
-from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import (
-    read_fixed_financial_documents,
-)
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
-from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 FIXTURES = Path(__file__).parents[4] / "fixtures" / "edinet" / "comparisons"
@@ -346,58 +340,6 @@ def test_filing_only_evidence_is_not_a_growth_series_or_available_before_submiss
         assert "reported_comparisons" not in growth.payload
     with pytest.raises(ValueError, match="different ticker"):
         generate_financial_and_price_models(**{**kwargs, "ticker": "1234"}, as_of=ASOF)
-
-
-def test_fixed_release_matches_sealed_reader_and_ignores_mutable_zip(tmp_path):
-    path = tmp_path / "market.sqlite"
-    seed(path)
-    raw = {
-        "Code": "436A0",
-        "DiscDate": "2026-07-24",
-        "DiscNo": "synthetic-current",
-        "DocType": "FYFinancialStatements_NonConsolidated_IFRS",
-        "CurPerType": "FY",
-        "CurPerSt": "2025-05-01",
-        "CurPerEn": "2026-04-30",
-        "CurFYEn": "2026-04-30",
-        "Sales": "3525761000",
-    }
-    store_jquants_fin_summaries(
-        path, [raw], requested_start=date(2026, 7, 24), requested_end=date(2026, 7, 24)
-    )
-    with closing(open_connection(path)) as connection:
-        expected = read_comparison_population(connection, as_of=ASOF)["436A"]
-    publish_market_fixture(path, "comparisons-fixed", created_at=datetime(2026, 10, 31, tzinfo=UTC))
-    origin = read_lake_store_origin(path)
-    fixed = read_fixed_financial_documents(
-        tmp_path / "mirror", origin=origin, ticker="436A", as_of=ASOF
-    )
-    assert fixed.comparisons == expected
-    with closing(open_connection(path)) as connection, connection:
-        connection.execute(
-            "UPDATE edinet_source_archives SET zip_content = ?", (b"broken mutable copy",)
-        )
-    again = read_fixed_financial_documents(
-        tmp_path / "mirror", origin=origin, ticker="436A", as_of=ASOF
-    )
-    assert again.comparisons == expected
-    native_objects = list((tmp_path / "mirror" / "lake").rglob("*.parquet"))
-    native_path = next(p for p in native_objects if "edinet.source_archives" in str(p))
-    preserved = native_path.read_bytes()
-    native_path.unlink()
-    partial = read_fixed_financial_documents(
-        tmp_path / "mirror", origin=origin, ticker="436A", as_of=ASOF
-    )
-    assert partial.documents == fixed.documents
-    assert partial.comparisons == ()
-    assert partial.comparison_input_reason == "fixed_comparison_objects_not_materialized"
-    native_path.write_bytes(preserved[:-1] + bytes([preserved[-1] ^ 1]))
-    from baibai_engine.storage.snapshots.objects import LakeObjectError
-
-    with pytest.raises(LakeObjectError, match="differs"):
-        read_fixed_financial_documents(
-            tmp_path / "mirror", origin=origin, ticker="436A", as_of=ASOF
-        )
 
 
 @pytest.mark.parametrize(

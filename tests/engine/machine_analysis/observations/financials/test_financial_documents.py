@@ -121,10 +121,8 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     }
 
 
-@pytest.mark.parametrize("backend", ["sqlite", "duckdb"])
 @pytest.mark.parametrize("corrupt", [False, True])
-def test_raw_document_batches_preserve_order_and_reject_late_corruption(backend, corrupt, mocker):
-    import duckdb
+def test_raw_document_batches_preserve_order_and_reject_late_corruption(corrupt, mocker):
 
     records = [
         document(
@@ -138,8 +136,7 @@ def test_raw_document_batches_preserve_order_and_reject_late_corruption(backend,
         for index in range(257)
     ]
     batches = []
-    connect = sqlite3.connect if backend == "sqlite" else duckdb.connect
-    with closing(connect(":memory:")) as connection:
+    with closing(sqlite3.connect(":memory:")) as connection:
         connection.execute(
             "CREATE TABLE jquants_fin_summaries (ticker TEXT, disclosed_at TEXT, "
             "disclosure_number TEXT, document_payload TEXT)"

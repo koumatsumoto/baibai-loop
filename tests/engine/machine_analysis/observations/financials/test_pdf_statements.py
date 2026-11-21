@@ -7,7 +7,6 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.lake_release import publish_market_fixture
 from tests.helpers.pdf_statements import (
     ASOF,
     FY_URL,
@@ -35,9 +34,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
     DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, InputRelease
-from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import (
-    read_fixed_financial_documents,
-)
 from baibai_engine.machine_analysis.observations.financials.pdf_statement_reader import (
     read_pdf_statements,
 )
@@ -45,10 +41,7 @@ from baibai_engine.machine_analysis.observations.financials.pdf_statements impor
     build_pdf_supplement,
     extract_pages,
 )
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.snapshots.objects import LakeObjectError
-from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.financial_pdfs import receive
 from baibai_jobs.integration.jpx_handoff import export_handoff, import_handoff
@@ -143,7 +136,7 @@ def seed(path, monkeypatch):
     return bundle
 
 
-def test_original_union_cutoff_and_fixed_release(tmp_path, monkeypatch):
+def test_original_union_and_receipt_cutoff(tmp_path, monkeypatch):
     source, target, stage = [
         tmp_path / name for name in ("source.sqlite", "market.sqlite", "stage.sqlite")
     ]
@@ -162,58 +155,9 @@ def test_original_union_cutoff_and_fixed_release(tmp_path, monkeypatch):
     with closing(open_connection(target)) as conn:
         assert read_pdf_statements(conn, as_of=ASOF, known_at=STAMP - timedelta(seconds=1)) == {}
         assert read_pdf_statements(conn, as_of=date(2026, 5, 14)) == {}
-        expected = read_pdf_statements(conn, as_of=ASOF)["9268"]
-    store_jquants_fin_summaries(
-        target,
-        [
-            {
-                "Code": "92680",
-                "DiscDate": "2026-08-07",
-                "DiscNo": "synthetic-current",
-                "DocType": "1QFinancialStatements_Consolidated_IFRS",
-                "CurPerType": "1Q",
-                "CurPerSt": "2026-04-01",
-                "CurPerEn": "2026-06-30",
-                "CurFYSt": "2026-04-01",
-                "CurFYEn": "2027-03-31",
-            }
-        ],
-        requested_start=date(2026, 8, 7),
-        requested_end=date(2026, 8, 7),
-    )
-    publish_market_fixture(target, "pdf-fixed", created_at=STAMP + timedelta(hours=1))
-    origin = read_lake_store_origin(target)
-    fixed = read_fixed_financial_documents(
-        tmp_path / "mirror", origin=origin, ticker="9268", as_of=ASOF
-    )
-    assert fixed.pdf_statements == expected
-    with closing(open_connection(target)) as conn, conn:
-        conn.execute("UPDATE jpx_source_responses SET body_gzip = ?", (b"bad mutable",))
-    assert (
-        read_fixed_financial_documents(
-            tmp_path / "mirror", origin=origin, ticker="9268", as_of=ASOF
-        ).pdf_statements
-        == expected
-    )
-
-    native_path = next(
-        p
-        for p in (tmp_path / "mirror" / "lake").rglob("*.parquet")
-        if "jpx.source_responses" in str(p)
-    )
-    preserved = native_path.read_bytes()
-    native_path.unlink()
-    partial = read_fixed_financial_documents(
-        tmp_path / "mirror", origin=origin, ticker="9268", as_of=ASOF
-    )
-    assert partial.documents == fixed.documents
-    assert partial.pdf_statements == ()
-    assert partial.pdf_input_reason == "fixed_pdf_objects_not_materialized"
-    native_path.write_bytes(preserved[:-1] + bytes([preserved[-1] ^ 1]))
-    with pytest.raises(LakeObjectError, match="differs"):
-        read_fixed_financial_documents(
-            tmp_path / "mirror", origin=origin, ticker="9268", as_of=ASOF
-        )
+        observed = read_pdf_statements(conn, as_of=ASOF)["9268"]
+        assert {statement.source_url for statement in observed} == {URL, FY_URL}
+        assert all(statement.received_at == STAMP for statement in observed)
 
 
 def test_models_share_supplement_without_overwriting_precise_or_historical_values():
