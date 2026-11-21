@@ -9,34 +9,32 @@ import {
   holdingProposalFixture,
   newProposalFixture,
   partialBuyFixture,
-  proposalViewFixture,
+  reportProps,
   reviewedDeferFixture,
   sellFixture,
   unassessedDeferFixture,
 } from './fixtures/proposals'
 
-function renderProposal() {
-  return renderToStaticMarkup(createElement(ProposalReport, { data: proposalViewFixture() }))
+function renderProposal(proposal = newProposalFixture, item = proposal.items[0]) {
+  return renderToStaticMarkup(createElement(ProposalReport, reportProps(proposal, item)))
 }
 
 describe('保存提案レポート', () => {
-  it('新規と保有のscopeを分けて、全5actionを保存順で表示する', () => {
-    const fresh = renderProposal()
-    const holdings = renderToStaticMarkup(createElement(ProposalReport, { data: proposalViewFixture(holdingProposalFixture) }))
-    expect(fresh).toContain('新規探索')
-    expect(holdings).toContain('保有見直し')
-    for (const action of ['買付（指値） · buy', '経済的見送り · no_action', '判断保留 · defer']) expect(fresh).toContain(action)
-    for (const action of ['保有継続 · hold', '全量売却 · sell']) expect(holdings).toContain(action)
-    let previous = -1
-    for (const item of newProposalFixture.items) {
-      const current = fresh.indexOf(`>${item.ticker}<`)
-      expect(current).toBeGreaterThan(previous)
-      previous = current
+  it('選んだ銘柄のscopeとactionだけを示し、別の銘柄の根拠を混ぜない', () => {
+    const labels = { buy: '買付（指値） · buy', no_action: '経済的見送り · no_action', defer: '判断保留 · defer', hold: '保有継続 · hold', sell: '全量売却 · sell' }
+    for (const [proposal, scope] of [[newProposalFixture, '新規探索'], [holdingProposalFixture, '保有見直し']] as const) {
+      for (const item of proposal.items) {
+        const html = renderProposal(proposal, item)
+        expect(html).toContain(scope)
+        expect(html).toContain(labels[item.action])
+        expect(html).toContain(item.rationale)
+        for (const other of proposal.items.filter(other => other.action !== item.action)) {
+          expect(html).not.toContain(other.rationale)
+        }
+        expect(html.includes('7モデルの観点')).toBe(item.assessment !== null)
+        expect(html.match(/<main\b/g)).toHaveLength(1)
+      }
     }
-    expect(fresh).not.toContain('全量売却 · sell')
-    expect(holdings).not.toContain('買付（指値） · buy')
-    expect(fresh).toContain('7モデルの観点')
-    expect(fresh.match(/<main\b/g)).toHaveLength(1)
   })
 
   it('保存本文・比較・再確認条件・warningsを再要約せず残す', () => {
@@ -55,9 +53,8 @@ describe('保存提案レポート', () => {
     const html = renderProposal()
     for (const label of ['提案基準日', '提案本文の準備時刻', '提案の発行時刻', '表示データ生成時刻', '保存時の対象取引日']) expect(html).toContain(label)
     for (const value of ['2026-10-27', '2026-10-27T07:00:01+09:00', '2026-10-27T09:00:02+09:00', '2026-10-29T02:30:03Z', '2026-10-28']) expect(html).toContain(`dateTime="${value}"`)
-    expect(html).toContain('保存時点の提案です。現在の注文条件の再確認・採否・発注は別です。')
+    expect(html).toContain('保存時点のレポートです。現在の注文条件の再確認・採否・発注は別です。')
     expect(html).toContain('対象取引日は実注文の期限ではありません。')
-    expect(html).toContain('現在の注文可否は判定していません。')
     expect(html).not.toContain('期限超過')
     expect(html).not.toContain('失効済み')
     expect(html).not.toContain('注文可能')
@@ -164,7 +161,7 @@ describe('保存提案レポート', () => {
     expect(html).toContain('dateTime="2026-10-23"')
     expect(html).toContain('dateTime="2026-10-26"')
     expect(html).toContain('価格窓の終端であり、売買代金の最終有効日や鮮度の保証ではありません。')
-    expect(html).toContain('売買代金の保存モデルが未取得。')
+    expect(renderProposal(newProposalFixture, reviewedDeferFixture)).toContain('売買代金の保存モデルが未取得。')
     expect(html).toContain('保存された資本集中の補足')
     expect(html).toContain('1000000.0000000001 円')
     expect(html).toContain('12.0000000000000001 %')
@@ -172,7 +169,7 @@ describe('保存提案レポート', () => {
     expect(html).toContain('共通要因が未分類の銘柄')
     expect(html).toContain('9999')
     expect(html).toContain('共通要因の比率は既知部分のみです。')
-    const absent = renderToStaticMarkup(createElement(ProposalReport, { data: proposalViewFixture(holdingProposalFixture) }))
+    const absent = renderProposal(holdingProposalFixture)
     expect(absent).toContain('銘柄別集中：保存値なし')
     expect(absent).not.toContain('0 円')
     expect(absent).not.toContain('0 %')
@@ -199,19 +196,6 @@ describe('保存提案レポート', () => {
     expect(html).toContain('算出に必要な有効観測数なし')
     expect(html).toContain('9876543.0000000001 円')
     expect(html).not.toContain('中央値</dt><dd>0 円')
-  })
-
-  it('正常empty、読取不能、loadingを区別して空提案を捏造しない', () => {
-    const base = { generated_at: '2026-10-29T02:30:03Z', proposal: null }
-    const empty = renderToStaticMarkup(createElement(ProposalReport, { data: { ...base, status: 'empty', error: null } }))
-    const error = renderToStaticMarkup(createElement(ProposalReport, { data: { ...base, status: 'unavailable', error: '保存済み提案を読み取れませんでした。' } }))
-    const loading = renderToStaticMarkup(createElement(ProposalReport, { data: null }))
-    expect(empty).toContain('保存済み提案はありません')
-    expect(empty).toContain('表示データ生成')
-    expect(error).toContain('売買提案の読取不能')
-    expect(error).not.toContain('保存済み提案はありません')
-    expect(loading).toContain('売買提案を読み込んでいます')
-    for (const html of [empty, error, loading]) expect(html).not.toContain('0 円')
   })
 
   it('保存本文をHTMLとして解釈せず、改行を保持する', () => {
@@ -244,7 +228,7 @@ it('システム提案と訂正、人間の非購入報告を分け、未知の�
       recorded_at: '2026-10-29T02:00:00Z',
     }],
   }
-  const html = renderToStaticMarkup(createElement(ProposalReport, { data: proposalViewFixture(proposal) }))
+  const html = renderProposal(proposal)
   for (const text of ['買付（指値） · buy', '合成の訂正理由。', '購入しなかった', '本人の理由（引用）', '会話文脈の要約（担当者）', '今回は待つ。', '合成の担当者要約。', '現在の再推奨や人間の採用ではありません。', '未発注・取消・未約定・永久却下は、この報告からは確認できません。']) expect(html).toContain(text)
   expect(html).toContain(newProposalFixture.headline)
   expect(html).toContain(`dateTime="${newProposalFixture.published_at}"`)

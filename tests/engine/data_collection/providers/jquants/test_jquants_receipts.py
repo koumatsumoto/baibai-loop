@@ -10,7 +10,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
-from tests.helpers.jquants_receipts import Session, acquire_request
+from tests.helpers.jquants_receipts import (
+    Session,
+    acquire_request,
+    read_complete_request,
+    read_request_pages,
+)
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
@@ -18,13 +23,13 @@ from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOU
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
 )
+from baibai_engine.data_collection.providers.jquants.full_day_native import (
+    verify_migrated_full_day_receipts,
+)
 from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
 )
-from baibai_engine.data_collection.providers.jquants.receipts import (
-    read_complete_request,
-    read_request_pages,
-)
+from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -177,15 +182,17 @@ def test_wrong_second_page_query_is_rejected(conn):
         read_complete_request(conn, request_id)
 
 
-def test_missing_page_index_is_rejected(conn):
+def test_missing_first_sqlite_page_is_not_a_complete_or_migrated_request(conn):
     request_id = acquire_request(conn, client(Session(*two_pages())), "daily_bars", {})
     with conn:
         conn.execute(
             "DELETE FROM jquants_source_pages WHERE request_id = ? AND page_index = 0",
             (request_id,),
         )
-    with pytest.raises(ValueError, match="missing page"):
+    with pytest.raises(JQuantsAcquisitionError, match="starts at a continuation page"):
         read_complete_request(conn, request_id)
+    with pytest.raises(ValueError, match="missing pages"):
+        verify_migrated_full_day_receipts(conn, [request_id], {}, attempt_type=PriceAttempt)
 
 
 def test_repeated_continuation_is_retained_but_rejected(conn):

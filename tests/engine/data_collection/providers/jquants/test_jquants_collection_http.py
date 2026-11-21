@@ -12,7 +12,11 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
-from tests.helpers.jquants_receipts import acquire_request
+from tests.helpers.jquants_receipts import (
+    acquire_request,
+    read_complete_request,
+    read_request_pages,
+)
 from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
@@ -24,10 +28,6 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
 )
 from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
-)
-from baibai_engine.data_collection.providers.jquants.receipts import (
-    read_complete_request,
-    read_request_pages,
 )
 from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered

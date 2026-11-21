@@ -32,12 +32,13 @@ export function ProposalHistory({ data, proposalId = null, ticker = null }: {
   </PageShell>
   if (proposalId !== null || ticker !== null) {
     const proposal = data.proposals.find(row => row.proposal_id === proposalId)
-    if (proposal === undefined || !proposal.items.some(item => item.ticker === ticker)) {
+    const item = proposal?.items.find(item => item.ticker === ticker)
+    if (proposal === undefined || item === undefined) {
       return <PageShell title="レポートを表示できません" above={<BackToReports />} width="reading"><SectionCard padded title="指定された保存レポートを確認できません">
         <p>{proposalId !== null && data.unavailable_proposal_ids.includes(proposalId) ? 'この提案は読取不能です。別の時点の提案では代用していません。' : '指定した提案・銘柄の組合せは、この表示データにありません。一覧から選び直してください。'}</p>
       </SectionCard></PageShell>
     }
-    return <ProposalReport key={`${proposalId}:${ticker}`} data={{ generated_at: data.generated_at, status: 'ready', error: null, proposal }} ticker={ticker ?? undefined} above={<BackToReports />} />
+    return <ProposalReport key={`${proposalId}:${ticker}`} proposal={proposal} item={item} generatedAt={data.generated_at} above={<BackToReports />} />
   }
   const groups = groupProposalReports(data.proposals)
   const reportCount = groups.reduce((total, group) => total + group.reports.length, 0)

@@ -272,11 +272,16 @@ describe('stock report list and selection', () => {
   })
 
   it('keeps loading, empty and entirely unreadable histories distinct', () => {
-    expect(render(null)).toContain('履歴を読み込んでいます')
-    expect(render(view([]))).toContain('保存済みレポートはありません')
+    const loading = render(null)
+    const empty = render(view([]))
     const unavailable = render({ ...view([], ['broken']), status: 'unavailable' })
+    expect(loading).toContain('履歴を読み込んでいます')
+    expect(empty).toContain('保存済みレポートはありません')
+    expect(empty).toContain('表示データ生成')
+    expect(unavailable).toContain('売買提案の読取不能')
     expect(unavailable).toContain('読取不能の提案：1件')
     expect(unavailable).not.toContain('保存済みレポートはありません')
+    for (const html of [loading, empty, unavailable]) expect(html).not.toContain('0 円')
   })
 
   it('URL-encodes both immutable proposal identity and ticker', () => {

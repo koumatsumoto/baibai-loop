@@ -65,7 +65,7 @@ draftのpayloadとcash・予約・保有の差分を人間に確認し、`portfo
 
 ## 時価と権利basis
 
-raw closeと保有episodeの数量basisを合わせ、[価格source](../../../docs/reference/model-observations.md#public-research-reports)を守る。日次終値に架空時刻を付けず立会終了による利用可否と観測日を分ける。価格調整から株数/rights行使を推測しない。終値日後も評価日までの受領済みactionを確認する。当日bar不在でも既知分割は扱うが、休場/未到着から変更を作らず未解決数量を自動換算しない。
+raw closeと保有episodeの数量basisを合わせ、[価格source](../../../engine/src/baibai_engine/portfolio/holdings/market_observations.py)を守る。日次終値に架空時刻を付けず立会終了による利用可否と観測日を分ける。価格調整から株数/rights行使を推測しない。終値日後も評価日までの受領済みactionを確認する。当日bar不在でも既知分割は扱うが、休場/未到着から変更を作らず未解決数量を自動換算しない。
 
 quote不足/古さ/権利未解決は該当時価を未評価とし、cash・予約・数量・原価を保つ。全保有を評価できなければNAV/集中比率を作らず、cash-only/旧台帳価格で埋めない。再評価でledger_as_ofを進めない。
 

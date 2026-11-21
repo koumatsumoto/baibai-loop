@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SavedCashView, SavedProposalView } from '../src/api/types'
 import { ProposalReport } from '../src/pages/ProposalPage'
-import { newProposalFixture, proposalViewFixture, unassessedDeferFixture } from './fixtures/proposals'
+import { newProposalFixture, reportProps, unassessedDeferFixture } from './fixtures/proposals'
 
 const noActionFixture = newProposalFixture.items.find(item => item.action === 'no_action')!
 const cash: SavedCashView = {
@@ -12,7 +12,7 @@ const cash: SavedCashView = {
   inputs_checked_at: '2026-10-27T16:10:00+09:00',
   ledger_as_of: '2026-10-26T17:00:00+09:00',
 }
-const render = (proposal: SavedProposalView, ticker?: string) => renderToStaticMarkup(createElement(ProposalReport, { data: proposalViewFixture(proposal), ticker }))
+const render = (proposal: SavedProposalView, item = proposal.items[0]) => renderToStaticMarkup(createElement(ProposalReport, reportProps(proposal, item)))
 
 describe('行動を問わない保存cashの比較前提', () => {
   it.each([noActionFixture, unassessedDeferFixture])('買付比較がない場合も元手と元時計を残す', item => {
@@ -24,7 +24,7 @@ describe('行動を問わない保存cashの比較前提', () => {
     expect(html).not.toContain('保存指値・選択数量の金額比較')
   })
   it('銘柄だけの表示でも共通cashをその銘柄への配分に変えない', () => {
-    const html = render({ ...newProposalFixture, saved_cash: cash }, noActionFixture.ticker)
+    const html = render({ ...newProposalFixture, saved_cash: cash }, noActionFixture)
     expect(html).toContain(cash.available_cash_yen)
     expect(html).toContain('保存提案全体に共通する比較前の未拘束額')
     expect(html).toContain('全額投資・現金維持の推奨')

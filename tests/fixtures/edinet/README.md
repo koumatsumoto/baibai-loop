@@ -1,70 +1,67 @@
-# EDINET財務指標の原本抜粋fixture
+# EDINET原本抜粋の出典
 
-次の7件は、EDINET API v2の`documents/{doc_id}?type=5`から2026-09-17に取得したCSV-ZIPのうち、既存財務抽出対象conceptの行をTSVへ抜粋したもの。行のconcept/context・連結区分・単位・値は原本のまま保持する。
+[EDINET](https://disclosure2.edinet-fsa.go.jp/)の同じdocIDでも、財務CSVとXBRLは**別の原本**。下のSHA256は抜粋やテスト用ZIPではなく、取得した原ZIPの値。原本を再取得する場合は認証付きEDINET API v2の `/api/v2/documents/<docID>?type=5`（CSV）または `type=1`（XBRL）を使う。テストには認証も通信も要らない。
 
-| doc_id | ticker | 原本ZIP SHA256 |
-| --- | --- | --- |
-| S100YU8C | 5946 | cbaed23e6b6b4dea610ca8773065af9b178b8d6db063d52e791a07aad6fbdc46 |
-| S100YI50 | 7122 | e0b9518a3d8dfdd597e6b46f3881bb0bf1ff61e7002f71af90bbae9ce07db9a6 |
-| S100YIDK | 2415 | 7a66793cc903cd427d1a24201a8de4ced4a8fdf317f4323836fb69ee725c30f7 |
-| S100YK4M | 4231 | e6c957454c1a549149bd686e584b2b5203b19ba47a404b229b46927235b2d92e |
-| S100YK21 | 1814 | 13bae46d1ebeacbbdd7b51ad355da2042ead8f970d5e4dfbf89601011d7069f9 |
-| S100YPE4 | 7991 | 7e51fecfd1a5b2c7193c0f93e1f6b5071810a90d22b4e3850c5788a0646c0798 |
-| S100XXXU | 8127 | be3c8bcf178bc6974beea1bd968a749786dc312dd981d24048e3a6dad24f87cb |
+## 財務指標：直下のTSV（type=5）
 
-S100YU8Cの`InterimDuration`は2026-01-01〜06-30。連結・JPYのCFO4,857百万円、合算CapEx△1,136百万円は[会社半期報告書](https://www.chofu.co.jp/detail_news.php?id=500)と[短信](https://www.chofu.co.jp/detail_news.php?id=499)の当中間期CFに一致する。APIの書類期末2026-12-31をこの6か月フローの終点に使わない。
+concept、context、連単、単位、値を変えずに抜粋した。表の「取得」「保存」「受領」は別の時計で、日付しか残らないものに時刻を補わない。
 
-## 標準IFRSの原本抜粋（#1556）
+| docID | 銘柄 | 由来・照合対象 | 原CSV ZIP SHA256 |
+| --- | --- | --- | --- |
+| S100YU8C | 5946 | 2026-09-17取得、中間CF | `cbaed23e6b6b4dea610ca8773065af9b178b8d6db063d52e791a07aad6fbdc46` |
+| S100YI50 | 7122 | 2026-09-17取得 | `e0b9518a3d8dfdd597e6b46f3881bb0bf1ff61e7002f71af90bbae9ce07db9a6` |
+| S100YIDK | 2415 | 同上 | `7a66793cc903cd427d1a24201a8de4ced4a8fdf317f4323836fb69ee725c30f7` |
+| S100YK4M | 4231 | 同上 | `e6c957454c1a549149bd686e584b2b5203b19ba47a404b229b46927235b2d92e` |
+| S100YK21 | 1814 | 同上 | `13bae46d1ebeacbbdd7b51ad355da2042ead8f970d5e4dfbf89601011d7069f9` |
+| S100YPE4 | 7991 | 同上 | `7e51fecfd1a5b2c7193c0f93e1f6b5071810a90d22b4e3850c5788a0646c0798` |
+| S100XXXU | 8127 | 同上 | `be3c8bcf178bc6974beea1bd968a749786dc312dd981d24048e3a6dad24f87cb` |
+| S100YV6Y | 1605 | 2026-10-18保存、INPEX半期 | `5ee8099cf5109a7ca9972fe97956c4c4182943a2c8fc7c312a5805179576b6f0` |
+| S100YTCC | 2914 | 2026-10-18保存、JT半期 | `35e43cfbdf31e855d6f7ecdf4435e9745540acbe42bbd3518bdd190029d7ea43` |
+| S100XU9L | 1605 | 2026-10-20 23:33 UTC取得、INPEX年次 | `886881db589ca476a39bdbe300b00c7e38ff4e9c2e934562a0d94bd2f632eac0` |
+| S100YRSR | 436A | 固定L1、IFRS・日本基準併記 | `8236f27fc5a7d178598f00ffda09fecb0b207f5ff90d94bb757dd7f281888cc0` |
+| S100Y6VZ | 4494 | 固定L1、同上 | `ed8351c1dbbdb15c3498614b328563d09a53e8d28ac1aa93349f2133f5ebbd47` |
+| S100YG7Z | 6803 | 2026-10-29保存、合算取得支出・IFRS債務 | `a53ce3f3f8c357b27325782c3ad7748fa4e97858363b5ccaba656973bee2ed4f` |
+| [S100YRX1](S100YRX1.tsv) | 9268 | 訂正報告書の2行。[照合記録](https://github.com/koumatsumoto/baibai-loop/pull/2137) | 未記載 |
+| S100Z3FV | 6030 | 2026-10-18保存、IFRS債務 | `0f9b136a15cbb2d64cea8c685edc0f26495864ef497291482e81cefd917dfe82` |
+| S100ZCHE | 285A | 2026-11-07T03:26:11.704271Z受領、IFRS中間BS | `3cf12593feb46f41c74ab33a277036db07303d0ffd20afdfcfe37d91fe8c9b69` |
+| S100Z12G | 2776 | 2026-11-12固定入力から抜粋、連結中間CF | `edba85264cddc1acac45f0d38ec495bc89b6d0d32c6eb7e0fb5e10d1596a8524` |
+| S100ZC1D | 9063 | 同上、連結中間CF | `3d65922c10fdd59ea93e1a87723b07ebbdb3b1d96e46d2497c0d7874bd6b1734` |
+| S100Y2OX | 3494 | 同上、単体中間CF | `cc8f70eb368fefa725e14c6caaf649bd8d644480a18cb0f5c77bc9783a6ffb61` |
+| S100ZEFD | 5803 | 2026-11-11T16:49:48.568870Z受領、11-12 UTCに固定L1から抜粋 | `d9a7acc64e55fbc46b4eab75c49e6a465aca3743d8b6f59d3d3015aac046ff97` |
 
-S100YV6Y（INPEX半期）・S100YTCC（JT半期）のCSVは2026-10-18保存済み原本から、S100XU9L（INPEX年次）のCSVは2026-10-20 23:33 UTCにEDINET API v2で取得した原本から抜粋。元の行・context・単位・値を保ち、当期だけでなく前期・個別・セグメントcontextも含める。以下はCSV ZIPのSHA256。全文原本ではない。
+**抜粋の外で何を確認したか（金額は百万円）：**
 
-- S100YV6Y: `5ee8099cf5109a7ca9972fe97956c4c4182943a2c8fc7c312a5805179576b6f0`
-- S100YTCC: `35e43cfbdf31e855d6f7ecdf4435e9745540acbe42bbd3518bdd190029d7ea43`
-- S100XU9L: `886881db589ca476a39bdbe300b00c7e38ff4e9c2e934562a0d94bd2f632eac0`
+- **期間と設備取得**：5946は[半期報告書](https://www.chofu.co.jp/detail_news.php?id=500)・[短信](https://www.chofu.co.jp/detail_news.php?id=499)で2026-01-01〜06-30の連結CFO 4,857、合算取得支出−1,136と一致。INPEX・JTはtype=1でも2026年上期（instantは06-30）、INPEX年次は2025年通期（12-31）を確認した。CSVには前期・個別・セグメントも含む。年度末を中間CFの終点にしない。JTは有形・無形の両取得があるが、INPEXは探鉱評価・開発生産資産に独自科目を使うため、有形だけで全CapEx/FCFを作れない。
+- **基準の混在**：436Aと4494は同じ単体contextに両基準を載せるが、DEIはIFRS・非連結。IFRSの営業CFは順に1,718.237、615.028で、日本基準の1,644.775、517.760とは別。436Aの当期売上は標準 `NetSalesIFRS` で照合した。未対応の負債を別基準から補わない。
+- **合算額・債務**：run `43119209378` の固定入力を使用。6803は11-12抜粋。下表のtype=1でも2025-04-01〜2026-03-31の連結JPY合算取得支出−151を確認し、営業CF 1,610との差は1,459。内訳は不明。6803と6030の当年連結instantは保持XBRLで各2026-03-31、06-30を確認したが、285AはCSVの `InterimInstant` のみ。2027-03-31の年度末を測定日としない。流動・非流動の `BondsAndBorrowings` と `LeaseLiabilities` の合計は順に3,575、10,424.656、802,729。この4科目を全債務とはせず、他項目内のリースを推計しない。
+- **訂正報告書**：9268の当期JPYの2行は棚卸による営業CF増減−10,059と営業CF 689。固定runの照合記録が示す期間は2025-04-01〜2026-03-31だが、TSVだけでは実日付・連結DEI・原ZIP全体を検証できない。
+- **中間の部分支出**：2776（2026-02-01〜07-31）、9063（2026-04-01〜09-30）、3494（2025-10-01〜2026-03-31）の期間は中間CF本表で照合した。CFO／有形取得支出の額は順に605.834／715.528、966.008／976.034、−32.809／1,233.089。2776・3494の無形欄の全角ダッシュをASCIIハイフン同様の0とせず、9063の無形の完全額も未確認。抽出recordは実context日を保持せず、全CapEx・FCF・年率化した値・中間運転資金内訳を証明しない。
+- **CPは期末残高**：5803は日本基準・連結。2026-09-30中間BS（年度末2027-03-31）は[会社短信の印刷p.3](https://tdnet-pdf.kabutan.jp/20261110/140120261109569418.pdf)でも照合した。現金244,826、短期借入40,534、CP 20,000、1年内償還社債10,000・社債10,000、長期借入26,950。CP込み107,484、現金との差137,342。同額のCF純増減は別のフロー。保持type=1はなく、XBRL context日、全金融債務、分配可能余剰、IFRS債務への加算を証明しない。
 
-対応するtype=1 XBRLのcontextも確認。前二書類のInterimDurationは2026-01-01〜06-30、InterimInstantは06-30。年次は2025-01-01〜12-31と12-31。半期書類metadataの12-31は半期CFの終点ではなく、抽出値を年率化しない。JTの有形/無形取得は両方存在するが、INPEXの探鉱評価・開発生産資産取得は会社独自科目なので、標準有形取得だけから全CapEx/FCFを作らない。債券・借入金だけを完全な金融債務にしない。
+<a id="statement-comparisons"></a>
+## 同一文書の当期・比較期：[comparisons/](comparisons/)（type=1）
 
-### 同一context内の会計基準の混在
+本表の売上・営業利益・親会社帰属利益を、同じ提出書のDEI・context・JPY単位・presentation roleで読む。値・日付・精度・memberは原本のまま。テスト用ZIPのentry名はdocIDへ短縮し、locatorはそのZIP内のentryとinstance直下の0始まりのchild位置を指す。
 
-S100YRSR（436A）とS100Y6VZ（4494）は、同じ当期・単体contextに日本基準とIFRSの数値を併記し、`AccountingStandardsDEI=IFRS`、連結DEI=falseを持つ。単純な別名統合では差額を矛盾と誤認するため、宣言された会計基準を先に選ぶ。IFRSの営業CFはそれぞれ1,718,237,000円と615,028,000円で、日本基準の1,644,775,000円と517,760,000円へ戻さない。436Aの標準`NetSalesIFRS`も当期売上高として原本確認した。選んだ基準で未対応の負債は他基準から埋めない。
+| docID / 銘柄 | 提出日時（JST） | 原XBRL ZIP SHA256 | 確認した範囲 |
+| --- | --- | --- | --- |
+| S100YRSR / 436A | 2026-07-24 15:31 | `6c610c6d9ee2eb440470f3794b94aa673afd623089eb97dc86b0ea2d7017b7d0` | IFRS単体年次の売上・営業利益。親利益は対象外 |
+| S100YV6Y / 1605 | 2026-08-10 13:34 | `7c2911799a7e0f152e82e1ccc68c79671b7fe47f5f1f9f91c6bfa70effd0e988` | IFRS連結半期。2026・2025各01-01〜06-30の3項目 |
+| S100XU9L / 1605 | 2026-03-26 15:17 | `e21ee069a6bedc845df4ef6fd37288e736d43e199f95fb5731200e62e06af114` | 2025連結年次の3項目 |
+| S100YG7Z / 6803 | 2026-06-25 13:08 | `b0c8ba935536d64dd82037d63581938e58dd6e9bbe85baefa9e164ddc969094d` | 2026年3月期の3項目。同値の重複factあり |
+| S100Z3FV / 6030 | 2026-09-24 15:56 | `875a32fb76289d7f9988852489fa7a34aac9af1458a6447e1ed37a9d3f2f4ee9` | 2026年6月期の営業利益・親利益。`Revenue2IFRS` は未対応 |
 
-両原本は固定L1内の保存済みCSVから抜粋し、新規provider取得は行っていない。元CSV ZIP SHA256：
-- S100YRSR: `8236f27fc5a7d178598f00ffda09fecb0b207f5ff90d94bb757dd7f281888cc0`
-- S100Y6VZ: `ed8351c1dbbdb15c3498614b328563d09a53e8d28ac1aa93349f2133f5ebbd47`
+最初の2件は2026-10-31のAPI取得。JSONは同じdocIDの一覧原本行で、売上・営業利益を上記CSVとも照合した。後の3件は11-12に固定原本（1605は既存bundle、他は固定入力のZIP）を再読してhash照合。JSONは一覧の必要項目のみ。連結年次の3件には標準 `rol_ConsolidatedStatementOfProfitOrLossIFRS` のlocを残し、単体・包括利益のroleに替えない。欠測を別科目で補わず、比較元が赤字なら成長率を作らない。Q1/Q3の可用性、9268 Q1の組替、J-Quants文書対応・現在TTM・候補順位は検証範囲外。認証付きJ-Quants応答は含まない。
 
-### IFRSの有形・無形合算取得支出
+## 企業調査の数値と注記：[research/](research/)（type=1）
 
-S100YG7Z（6803）はrun 43119209378の固定EDINET入力から2026-11-12にread-onlyで取得した原本CSV行の抜粋。原本ZIP SHA256は`a53ce3f3f8c357b27325782c3ad7748fa4e97858363b5ccaba656973bee2ed4f`、保存日は2026-10-29で、精密な受領時計は残っていない。標準IFRS合算取得支出、営業CF、現金・借入・リース、前期/個別値、会計/連結DEIを元のconcept/context・単位・値のまま保持する。
+2026-09-19取得。PublicDoc instance、issuer XSD、和名labelから数値・context・unit・member定義とラベル、借入金・社債TextBlockを抜粋した。数値・期間・HTML表は不変。無関係な要素を除き、XSD参照のbasenameだけをfixture名へ換えてテスト時にZIPにする。
 
-保持済みtype=1 XBRL（SHA256 `b0c8ba935536d64dd82037d63581938e58dd6e9bbe85baefa9e164ddc969094d`）でも、当年連結contextが2025-04-01〜2026-03-31、JPY単位、合算取得支出が−151百万円であることを確認した。営業CF1,610百万円からの差額は1,459百万円。合算値を有形/無形へ分解したり、欠けた内訳を0としたりしない。全角ダッシュはnilを表し得るため、ASCIIハイフンと同じゼロへ変換しない。
+| docID / 銘柄 | 読む根拠 |
+| --- | --- |
+| S100YJ24 / 1811 錢高組 | 営業利益、比較年度、長期満期表はリースのみ、社債該当なし |
+| S100YR5P / 1873 日本ハウスホールディングス | 外部売上と内部込み売上、負の利益、借入金・社債、括弧内額の二重計上 |
+| S100YCUF / 5410 合同製鐵 | 経常利益基準、報告セグメント合計と「その他」 |
+| S100XTM0 / 2501 サッポロホールディングス | IFRS売上・営業利益、nilと調整行 |
 
-### IFRSの棚卸資産による営業CF増減（訂正報告書）
-
-[S100YRX1.tsv](S100YRX1.tsv)（9268）は、当期JPYの棚卸資産による営業CF増減（−10,059百万円）と営業CF（689百万円）の2行抜粋。[原本照合の記録 #2137](https://github.com/koumatsumoto/baibai-loop/pull/2137) は、固定run `43119209378` の訂正報告書、対象期間2025-04-01〜2026-03-31としている。この2行は内訳の符号を検証するもので、実際の開始・終了日、連結区分を示すDEI、原ZIP全体は含まない。
-
-### IFRSの社債・借入金とリース
-
-S100Z3FV（6030）・S100ZCHE（285A）も同じ固定入力の保存済みCSVから抜粋した。新規provider取得ではなく、元の行・前期/当期context・JPY単位・会計/連結DEIを保持する。
-
-- S100Z3FV: ZIP SHA256 `0f9b136a15cbb2d64cea8c685edc0f26495864ef497291482e81cefd917dfe82`。保存日2026-10-18、精密な受領時計なし。保持XBRLで当年連結instant=2026-06-30を確認。
-- S100ZCHE: ZIP SHA256 `3cf12593feb46f41c74ab33a277036db07303d0ffd20afdfcfe37d91fe8c9b69`。受領2026-11-07T03:26:11.704271Z。`InterimInstant`のCSVを使い、保持入力にないXBRLを確認済みとはしない。年度metadataの2027-03-31をBS測定日へ読み替えない。
-
-S100YG7Zの当年連結instant=2026-03-31も保持XBRLで確認。流動・非流動の`BondsAndBorrowings`と`LeaseLiabilities`の4標準科目を合わせた金額は、順に6803が3,575百万円、6030が10,424.656百万円、285Aが802,729百万円。借入金だけの表示や、その他金融負債に含まれるリースはこの範囲へ推定変換しない。
-
-### 中間CFの部分設備取得
-
-S100Z12G（2776、連結）、S100ZC1D（9063、連結）、S100Y2OX（3494、非連結）は2026-11-12に固定入力の保持済みtype5 CSV原本から抜粋。会社原本・抽出対象scopeの取得を広げず、元の当期/前期・連単・JPY・値を保つ。
-
-- S100Z12G: CSV ZIP SHA256 `edba85264cddc1acac45f0d38ec495bc89b6d0d32c6eb7e0fb5e10d1596a8524`。中間CF本表は2026-02-01〜07-31、CFO605.834百万円、有形取得715.528百万円。無形取得の全角ダッシュは0に変えない。
-- S100ZC1D: CSV ZIP SHA256 `3d65922c10fdd59ea93e1a87723b07ebbdb3b1d96e46d2497c0d7874bd6b1734`。原本の中間CF本表は2026-04-01〜09-30、CFO966.008百万円、有形取得976.034百万円。無形の完全額は未確認。
-- S100Y2OX: CSV ZIP SHA256 `cc8f70eb368fefa725e14c6caaf649bd8d644480a18cb0f5c77bc9783a6ffb61`。中間CF本表は2025-10-01〜2026-03-31、CFO−32.809百万円、有形取得1,233.089百万円。無形取得の全角ダッシュは0に変えない。
-
-CSVの`InterimDuration`と書類metadataの年度末は別である。期間日は原本本文で照合したもので、現在のmetric recordが実context日を保持すると主張しない。既存fieldへ当期部分値を渡すだけで、完全CapEx/FCF・年率化・運転資金内訳の半期対応へ拡張しない。
-
-### 日本基準のコマーシャル・ペーパー残高
-
-S100ZEFD（5803、フジクラ半期）は固定L1の保持済みtype5 CSVから2026-11-12 UTCにread-onlyで取得した抜粋。原本ZIP SHA256は`d9a7acc64e55fbc46b4eab75c49e6a465aca3743d8b6f59d3d3015aac046ff97`、元受領は2026-11-11T16:49:48.568870Z。元のconcept/context・連単・単位・値を保ち、前期・CF純増減・会計/連結/期末DEIを含める。providerからの再取得はしていない。
-
-`AccountingStandardsDEI=Japan GAAP`、連結DEI=true。同じ`InterimInstant`のJPY残高は現金244,826百万円、短期借入40,534、`CommercialPapersLiabilities`20,000、1年内償還社債10,000、社債10,000、長期借入26,950。CPは独立表示であり、借入・社債との合計は107,484百万円、現金との差額は137,342百万円。`NetIncreaseDecreaseInCommercialPapersFinCF`の20,000百万円は別のフローなので加算しない。
-
-当会計期間末DEIは2026-09-30、年度末DEIは2027-03-31。[会社の2027年3月期中間決算短信](https://tdnet-pdf.kabutan.jp/20261110/140120261109569418.pdf)の中間連結BS（印刷ページ3）とも一致する。保持入力にtype1 XBRLはなく、そのcontext日付を検証済みとはしない。この対応は標準CP科目の追加であり、全金融債務・配分可能な株主余剰の完全性や、IFRSの社債借入総額への追加加算を意味しない。
+提出時刻を示す一覧行は含まないので、[試験入力](../../helpers/edinet_research_sources.py)は固定の試験時計を使う。表が原典のdocIDと銘柄の対応であり、同一銘柄の別書類を仮定する保存・統合テストだけが銘柄を明示的に置き換える。

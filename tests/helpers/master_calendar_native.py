@@ -32,7 +32,7 @@ def seed_calendar(store, market: Path, directory: Path, *, as_of: date) -> Calen
         ).fetchall()
     rows = rows or [(as_of.isoformat(), "1")]
     owner.initialize()
-    from baibai_engine.data_collection.providers.jquants.receipts import read_request_pages
+    from tests.helpers.jquants_receipts import read_request_pages
 
     with closing(sqlite3.connect(market)) as connection:
         identities = connection.execute(
@@ -40,7 +40,7 @@ def seed_calendar(store, market: Path, directory: Path, *, as_of: date) -> Calen
         ).fetchall()
         retained = []
         for (identity,) in identities:
-            pages = tuple(read_request_pages(connection, identity))
+            pages = read_request_pages(connection, identity)
             query = pages[0].query
             retained.append(
                 CalendarAttempt(
