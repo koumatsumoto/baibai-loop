@@ -280,6 +280,12 @@ class StockAssessmentDocument(BaseModel):
             raise ValueError("model_perspectives must contain each model at most once")
         return self
 
+    def has_primary_case_source(self) -> bool:
+        return any(
+            source.source_tier == "primary" and source.source_id in self.investment_case.source_ids
+            for source in self.input_snapshot.sources
+        )
+
 
 def current_derived_metric_errors(document: StockAssessmentDocument) -> tuple[str, ...]:
     """旧exact読取とは別に、現在の定量適用へ派生計算の入力を検証する。"""

@@ -6,8 +6,8 @@ import json
 import os
 import sqlite3
 import uuid
-from collections.abc import Iterator
-from contextlib import closing
+from collections.abc import Iterator, Mapping
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -23,11 +23,13 @@ from baibai_engine.storage.objects.r2 import (
     RemoteObject,
 )
 from baibai_engine.storage.snapshots import models as lake_models
+from baibai_engine.storage.snapshots import objects as lake_objects
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.keys import (
     current_release_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
+    validate_lake_object_key,
 )
 from baibai_engine.storage.snapshots.models import (
     ReleaseManifest,
@@ -101,41 +103,102 @@ def _store() -> Boto3R2Store:
     return Boto3R2Store(bucket=bucket)
 
 
-def _bucket_keys(store: Boto3R2Store) -> list[str]:
-    client = store._client()
-    paginator = client.get_paginator("list_objects_v2")
-    return sorted(
-        str(item["Key"])
-        for page in paginator.paginate(Bucket=store.bucket)
-        for item in page.get("Contents", [])
-    )
+class _IsolatedStore:
+    """Map canonical keys to a private test prefix without changing production readers."""
 
+    def __init__(self, store: Boto3R2Store, prefix: str) -> None:
+        self._store = store
+        self.prefix = prefix
+        self._created: set[str] = set()
 
-@pytest.fixture(scope="session", autouse=True)
-def _exclusive_bucket_lifecycle() -> Iterator[None]:
-    """Require an empty dedicated bucket and leave it empty for a repeatable gate."""
+    @property
+    def bucket(self) -> str:
+        return self._store.bucket
 
-    store = _store()
-    existing = _bucket_keys(store)
-    if existing:
-        pytest.fail(
-            "R2 acceptance bucket must be empty and exclusive before the run; "
-            f"found {len(existing)} object(s)"
+    def remote_key(self, key: str) -> str:
+        return self.prefix + validate_lake_object_key(key)
+
+    def reader_store(self, *, bucket: str, env: Mapping[str, str]) -> _IsolatedStore:
+        if bucket != self.bucket:
+            pytest.fail("R2 acceptance reader must use the test bucket")
+        return _IsolatedStore(Boto3R2Store(bucket=bucket, env=env), self.prefix)
+
+    def close(self) -> None:
+        self._store.close()
+
+    def head(self, key: str) -> RemoteObject | None:
+        return self._store.head(self.remote_key(key))
+
+    def get_bytes(self, key: str) -> bytes:
+        return self._store.get_bytes(self.remote_key(key))
+
+    def download_file(
+        self, key: str, path: Path, *, expect_bytes: int | None = None, max_bytes: int | None = None
+    ) -> None:
+        self._store.download_file(
+            self.remote_key(key), path, expect_bytes=expect_bytes, max_bytes=max_bytes
         )
-    try:
-        yield
-    finally:
-        keys = _bucket_keys(store)
-        client = store._client()
+
+    def put_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        sha256: str,
+        content_md5: str,
+        content_type: str,
+        if_match: str | None = None,
+        if_none_match: bool = False,
+    ) -> RemoteObject:
+        remote_key = self.remote_key(key)
+        if if_none_match and if_match is not None:
+            pytest.fail("R2 acceptance write preconditions are mutually exclusive")
+        if not if_none_match and (if_match is None or remote_key not in self._created):
+            pytest.fail("R2 acceptance must create a key before replacing it conditionally")
+        result = self._store.put_file(
+            remote_key,
+            path,
+            sha256=sha256,
+            content_md5=content_md5,
+            content_type=content_type,
+            if_match=if_match,
+            if_none_match=if_none_match,
+        )
+        # A failed or unacknowledged initial PUT does not prove we own the key.
+        self._created.add(remote_key)
+        return result
+
+    def cleanup(self) -> None:
+        # Use only acknowledged creations, never a bucket or prefix inventory.
+        keys = sorted(self._created)
         for offset in range(0, len(keys), 1_000):
-            client.delete_objects(
-                Bucket=store.bucket,
-                Delete={"Objects": [{"Key": key} for key in keys[offset : offset + 1_000]]},
-            )
-        remaining = _bucket_keys(store)
-        if remaining:
-            pytest.fail(f"R2 acceptance cleanup left {len(remaining)} object(s)")
-        print(f"R2 acceptance cleanup deleted {len(keys)} key(s): {keys}")
+            batch = keys[offset : offset + 1_000]
+            with self._store._request("delete-objects"):
+                result = self._store._client().delete_objects(
+                    Bucket=self.bucket,
+                    Delete={"Objects": [{"Key": key} for key in batch]},
+                )
+            if result.get("Errors") or {
+                item.get("Key") for item in result.get("Deleted", [])
+            } != set(batch):
+                pytest.fail(f"R2 acceptance cleanup was not acknowledged for {self.prefix}")
+
+
+@contextmanager
+def _isolated_store() -> Iterator[_IsolatedStore]:
+    with closing(_store()) as raw_store:
+        store = _IsolatedStore(raw_store, f"r2-acceptance/lake/{uuid.uuid4().hex}/")
+        print(f"R2 acceptance namespace: {store.prefix}")
+        try:
+            yield store
+        finally:
+            store.cleanup()
+
+
+@pytest.fixture
+def r2_store() -> Iterator[_IsolatedStore]:
+    with _isolated_store() as store:
+        yield store
 
 
 def _tiny_market(path: Path) -> Path:
@@ -159,7 +222,7 @@ def _tiny_market(path: Path) -> Path:
     )
 
 
-def _download_lake_closure(store: Boto3R2Store, mirror: Path) -> None:
+def _download_lake_closure(store: _IsolatedStore, mirror: Path) -> None:
     def download(key: str) -> bytes:
         path = mirror / key
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,7 +239,9 @@ def _download_lake_closure(store: Boto3R2Store, mirror: Path) -> None:
                 download(item.key)
 
 
-def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) -> None:
+def test_actual_r2_conditional_writes_refuse_a_stale_generation(
+    tmp_path: Path, r2_store: _IsolatedStore
+) -> None:
     """Conditional writes are the only thing standing between two writers and a lost update.
 
     Both pointers move under `--if-match` against the ETag the publisher read, or
@@ -189,8 +254,7 @@ def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) 
     without making one run's serving state depend on another's.
     """
 
-    store = _store()
-    key = f"lake/acceptance/conditional-write/{uuid.uuid4().hex}.json"
+    key = "lake/acceptance/conditional-write.json"
 
     def write(
         generation: str, *, if_match: str | None = None, if_none_match: bool = False
@@ -198,7 +262,7 @@ def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) 
         payload = json.dumps({"generation": generation}, separators=(",", ":")).encode() + b"\n"
         path = tmp_path / f"{generation}.json"
         path.write_bytes(payload)
-        return store.put_file(
+        return r2_store.put_file(
             key,
             path,
             sha256=hashlib.sha256(payload).hexdigest(),
@@ -219,17 +283,17 @@ def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) 
     with pytest.raises(LakeCASConflict):
         write("recreated", if_none_match=True)
 
-    served = store.head(key)
+    served = r2_store.head(key)
     assert served is not None
     assert served.etag == second.etag
-    assert json.loads(store.get_bytes(key))["generation"] == "second"
+    assert json.loads(r2_store.get_bytes(key))["generation"] == "second"
 
 
 def test_actual_r2_lake_publish_and_read_back_into_a_market_store(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, r2_store: _IsolatedStore
 ) -> None:
     narrow_release_policy(monkeypatch)
-    store = _store()
+    store = r2_store
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
     build = export_market_fixture(
@@ -276,15 +340,12 @@ def test_actual_r2_lake_publish_and_read_back_into_a_market_store(
     with closing(sqlite3.connect(mirrored_store)) as connection:
         assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
 
-    # The reader path production uses: objects resolved out of the bucket through
-    # DuckDB's HTTP layer, prefetched by the same worker wiring `lake hydrate` runs,
-    # with nothing pre-downloaded beside it.
+    # Use the real reader and prefetch workers with the same test-only key mapping.
+    # No objects are pre-downloaded to this mirror; DuckDB reads the verified files.
+    monkeypatch.setattr(lake_objects, "Boto3R2Store", store.reader_store)
     direct_mirror = tmp_path / "direct-reader"
     direct_store = _emptied_market(sqlite_path, tmp_path / "direct.sqlite")
-    with open_lake(mirror=direct_mirror, bucket=os.environ["R2_LAKE_ACCEPTANCE_BUCKET"]) as (
-        session,
-        cache,
-    ):
+    with open_lake(mirror=direct_mirror, bucket=store.bucket) as (session, cache):
         direct = resolve_current_release(
             cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
         )
@@ -292,7 +353,7 @@ def test_actual_r2_lake_publish_and_read_back_into_a_market_store(
             cache,
             release=direct,
             dataset_names=tuple(sorted(build.datasets)),
-            bucket=os.environ["R2_LAKE_ACCEPTANCE_BUCKET"],
+            bucket=store.bucket,
         ) as hydration_cache:
             hydrate_market_store(
                 session,
@@ -335,12 +396,13 @@ def test_actual_r2_lake_publish_and_read_back_into_a_market_store(
 def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    r2_store: _IsolatedStore,
     fault: Literal["put", "head", "get", "conflict", "unknown"],
 ) -> None:
     """Keep R2 responsible for the commit while a thin wrapper loses its result."""
 
     narrow_release_policy(monkeypatch)
-    delegate = _store()
+    delegate = r2_store
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
     build = export_market_fixture(
@@ -458,17 +520,21 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
     assert current.release_id == release_id
 
 
-def test_actual_r2_wrong_credentials_do_not_leak(tmp_path: Path) -> None:
+def test_actual_r2_wrong_credentials_do_not_leak(r2_store: _IsolatedStore) -> None:
     secret = f"acceptance-secret-{uuid.uuid4().hex}"
-    store = Boto3R2Store(
-        bucket=os.environ["R2_LAKE_ACCEPTANCE_BUCKET"],
-        env={
-            "PATH": os.environ["PATH"],
-            "R2_ACCOUNT_ID": os.environ["R2_ACCOUNT_ID"],
-            "R2_ACCESS_KEY_ID": "wrong-access-key",
-            "R2_SECRET_ACCESS_KEY": secret,
-        },
-    )
-    with pytest.raises(LakePublishError) as caught:
-        store.head(f"lake/acceptance/wrong-credential/{tmp_path.name}")
+    with (
+        closing(
+            Boto3R2Store(
+                bucket=r2_store.bucket,
+                env={
+                    "PATH": os.environ["PATH"],
+                    "R2_ACCOUNT_ID": os.environ["R2_ACCOUNT_ID"],
+                    "R2_ACCESS_KEY_ID": "wrong-access-key",
+                    "R2_SECRET_ACCESS_KEY": secret,
+                },
+            )
+        ) as store,
+        pytest.raises(LakePublishError) as caught,
+    ):
+        store.head(r2_store.remote_key("lake/acceptance/wrong-credential.json"))
     assert secret not in str(caught.value)

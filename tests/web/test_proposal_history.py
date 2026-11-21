@@ -16,23 +16,30 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+from baibai_engine.primitives.time import JST
 from baibai_web.sources import proposal as proposal_source
 from baibai_web.sources.proposal import read_proposal_views
 
 SECOND = "investment-proposal-00000000-0000-4000-8000-000000000004"
 
 
-def _two_publications(tmp_path):
-    case = backend_case(tmp_path)
-    first = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
-    ).publish(reviewed_proposal(case))
-    second = TradeProposalService(
+def _publish_first(case):
+    return TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+        reviewed_proposal(case)
+    )
+
+
+def _publish_second(case):
+    return TradeProposalService(
         case.app,
         sqlite_path=case.market,
         clock=lambda: (PUBLISHED + timedelta(hours=1)).astimezone(UTC),
     ).publish(reviewed_proposal(case, action="no_action", proposal_id=SECOND))
-    return case, first, second
+
+
+def _two_publications(tmp_path):
+    case = backend_case(tmp_path)
+    return case, _publish_first(case), _publish_second(case)
 
 
 def test_history_preserves_each_publication_exact_pair_and_saved_identity(tmp_path, mocker):
@@ -50,7 +57,8 @@ def test_history_preserves_each_publication_exact_pair_and_saved_identity(tmp_pa
     connect = mocker.spy(proposal_source, "connect_read_only")
     records = mocker.spy(proposal_source, "ProposalRecordReader")
     project = mocker.spy(proposal_source, "read_saved_proposal_view")
-    latest, view = read_proposal_views(case.app, generated_at=PUBLISHED)
+    generated_at = PUBLISHED + timedelta(hours=3)
+    latest, view = read_proposal_views(case.app, generated_at=generated_at)
     assert connect.call_count == records.call_count == 1
     assert [call.args[1] for call in project.call_args_list] == sorted(
         [first.proposal_id, second.proposal_id]
@@ -58,7 +66,7 @@ def test_history_preserves_each_publication_exact_pair_and_saved_identity(tmp_pa
     assert project.call_args_list[0].args[0] is project.call_args_list[1].args[0]
     assert latest.status == "ready"
     assert latest.proposal == view.proposals[0]
-    assert latest.generated_at == view.generated_at == PUBLISHED
+    assert latest.generated_at == view.generated_at == generated_at
     assert latest.proposal is not None
     assert latest.proposal.items[0].assessment.valuation.price_yen == str(
         case.pair.document.input_snapshot.facts[0].value
@@ -76,6 +84,31 @@ def test_history_preserves_each_publication_exact_pair_and_saved_identity(tmp_pa
     assert case.app.read_bytes() == before
     assert not case.market.exists()
     assert not case.runs.exists()
+
+
+def test_generation_clock_follows_the_read_snapshot_when_a_proposal_is_published(tmp_path, mocker):
+    case = backend_case(tmp_path)
+    first = _publish_first(case)
+    clock = mocker.patch.object(proposal_source, "datetime").now
+    clock.return_value = PUBLISHED + timedelta(minutes=30)
+    read_ids = proposal_source.published_proposal_ids
+    generated_at = PUBLISHED + timedelta(hours=1, seconds=1)
+
+    def read_ids_after_publication(connection):
+        assert connection.in_transaction
+        _publish_second(case)
+        clock.return_value = generated_at
+        return read_ids(connection)
+
+    mocker.patch.object(
+        proposal_source, "published_proposal_ids", side_effect=read_ids_after_publication
+    )
+    latest, history = read_proposal_views(case.app)
+    assert latest.proposal == history.proposals[0]
+    assert [row.proposal_id for row in history.proposals] == [SECOND, first.proposal_id]
+    assert history.proposals[0].published_at < generated_at
+    assert latest.generated_at == history.generated_at == generated_at
+    clock.assert_called_once_with(JST)
 
 
 def test_history_keeps_corrected_original_visible_with_its_correction(tmp_path):
@@ -155,7 +188,7 @@ def test_history_index_failure_still_projects_the_selected_publication_once(tmp_
         proposal_source, "published_proposal_ids", side_effect=sqlite3.OperationalError("private")
     )
     project = mocker.spy(proposal_source, "read_saved_proposal_view")
-    latest, history = read_proposal_views(case.app, generated_at=PUBLISHED)
+    latest, history = read_proposal_views(case.app, generated_at=second.published_at)
     assert latest.status == "ready"
     assert latest.proposal is not None
     assert latest.proposal.proposal_id == second.proposal_id

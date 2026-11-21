@@ -10,6 +10,11 @@ from tests.engine.investment_judgment.workflow.test_selection_evidence import ev
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 from tools.diagnostics.check_served_proposal import main
 
+from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
+    ProposalCorrectionDraft,
+    ProposalReference,
+)
+from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_web.sources.proposal import read_proposal_views
 
@@ -129,6 +134,58 @@ def test_migrated_case_and_corrected_latest_are_not_rebound_to_last_history(
     assert capsys.readouterr().out.splitlines() == ["PASS " + name for name in STAGES]
     assert main([*args, "--require-completed"]) != 0
     assert capsys.readouterr().out.splitlines()[-1] == "FAIL completed_case"
+
+
+def test_generation_cannot_predate_later_corrected_publication_in_history(tmp_path, capsys):
+    case = backend_case(tmp_path)
+    first = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(reviewed_proposal(case))
+    second = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
+    ).publish(
+        reviewed_proposal(
+            case,
+            action="no_action",
+            proposal_id="investment-proposal-00000000-0000-4000-8000-000000000004",
+        )
+    )
+    erroneous = ProposalReference(
+        proposal_id=second.proposal_id, draft_sha256=second.review.draft_sha256
+    )
+    ProposalRecordService(case.app, clock=lambda: PUBLISHED + timedelta(minutes=2)).correct(
+        ProposalCorrectionDraft(
+            correction_id="synthetic-clock-order",
+            erroneous_ref=erroneous,
+            replacement_ref=ProposalReference(
+                proposal_id=first.proposal_id, draft_sha256=first.review.draft_sha256
+            ),
+            reason="合成の訂正",
+        ),
+        expected_latest_ref=erroneous,
+    )
+    paths = _capture(case.app, tmp_path)
+    latest, history = (json.loads(path.read_bytes()) for path in paths)
+    assert latest["proposal"]["proposal_id"] == first.proposal_id
+    assert [row["proposal_id"] for row in history["proposals"]] == [
+        second.proposal_id,
+        first.proposal_id,
+    ]
+    assert main(_args(case.app, *paths)) == 0
+    assert capsys.readouterr().out.splitlines() == ["PASS " + stage for stage in STAGES]
+
+    early = PUBLISHED + timedelta(seconds=30)
+    assert first.published_at < early < second.published_at
+    for path, document in zip(paths, (latest, history), strict=True):
+        document["generated_at"] = early.isoformat()
+        path.write_text(json.dumps(document), encoding="utf-8")
+    assert main(_args(case.app, *paths)) == 1
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out.splitlines() == [
+        *["PASS " + stage for stage in STAGES[:3]],
+        "FAIL matching_view_timestamps",
+    ]
 
 
 def test_same_two_reports_cannot_hide_a_different_loaded_case(tmp_path, capsys):

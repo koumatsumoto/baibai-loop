@@ -82,9 +82,14 @@ def evaluate_holding_proposal(
         block("latest_assessment_required", "最新公開評価による再確認が必要です。")
     if not (case_reassessment_reason or "").strip():
         block("case_reassessment_required", "今回の仮説維持または反証確認理由が必要です。")
+    case = assessment.investment_case
     if not primary_verified:
         block("primary_evidence_requires_verification", "material な一次根拠を確認してください。")
-    case = assessment.investment_case
+    elif case.status == "broken" and not assessment.has_primary_case_source():
+        block(
+            "primary_evidence_requires_verification",
+            "仮説の破綻を支える一次資料を評価の仮説に紐付け、独立Reviewで確かめてください。",
+        )
     if case.status == "uncertain":
         block("investment_case_uncertain", "仮説の維持または破綻が未確定です。")
     if conditional_recovery is not None:
