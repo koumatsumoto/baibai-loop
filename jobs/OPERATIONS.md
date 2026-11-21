@@ -756,6 +756,16 @@ uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
 
 履歴UIの導入では`views/proposal-history.json`を含む表示データを先に再生成・公開し、全bytes読戻しで履歴の保存IDと読取不能件数を確認する。履歴データの追加は旧latest API/UIを壊さず、applicationの保存提案を変更しない。
 
+固定Appの正式な最新提案と、実際に配信された2本文を一度だけ照合する場合は、表示JSONを生成した版で以下を使い、稼働CLI・Worker/UIの配備版とは別に控える。非公開の空の作業領域に正規の `pull-app` で固定Appと取得ETagを対で保ち、既に認証した本番の `/api/proposal/latest` と `/api/proposal/history` の成功JSONを非公開ファイルとして採取する。採取を挟むApp正本と2つの表示objectのETagをそれぞれ前後で照合し、Appは取得印の世代に、Workerのbucketとrouteは該当する表示objectに対応することを確認する。WorkerはETagを返さないのでレスポンスから推測しない。採取中の世代が安定していても、以前と同じ表示内容ならそのApp世代から生成した証明にはならない。同じApp取得ETagにひも付く実materializer runと、そのrunが生成・公開して読戻した表示objectの証拠を別に確認する。得られなければ「本文一致、生成元世代は未確認」と区別する。変化・認証・出所の不明を成功にしない。ローカル生成物は認証APIの代用にならず、本文・閲覧秘密・銘柄・ETagをログやIssueへ載せない。
+
+```bash
+uv run python -m tools.diagnostics.check_served_proposal \
+  --db "$APP_COPY" --latest-json "$AUTH_LATEST_JSON" --history-json "$AUTH_HISTORY_JSON"
+```
+
+履歴先頭でなく訂正を反映した正式latestを固定し、現行投影のその一件の全項目、履歴の各行が表示形式に適合し全IDに欠落・重複がないこと、同じ生成時刻、固定Caseの対象・結果・Selectionを別々に照合する。他の履歴本文全件の同値性は検査しない。既知のIDで固定したいときは `--proposal-id` を加える。`--require-completed` は「この提案自体がCaseの完了参照」まで必要なときだけ使う。後日の訂正で正式latestと当時の完了参照が異なることがある。出力は各段階の合否だけで、終了0もApp世代の取得・配備版・実画面・新形式の実発行や売買の証明ではない。
+
+
 必要な表示データを公開・読戻しした成功main runを確認後、[web workflow](../.github/workflows/web.yml)をmainで明示dispatchする。push/PRのweb runは検証だけで、Worker/UIを配備しない。
 
 ```bash

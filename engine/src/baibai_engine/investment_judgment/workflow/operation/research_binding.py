@@ -21,6 +21,15 @@ from baibai_engine.investment_judgment.workflow.selection import (
 )
 
 
+def load_scope_operation(connection: sqlite3.Connection, operation_id: str) -> OperationSession:
+    row = connection.execute(
+        "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError("Proposal requires its current Research Operation")
+    return OperationSession.model_validate({**dict(row), "payload": json.loads(row["payload"])})
+
+
 def require_proposal_research_scope(
     connection: sqlite3.Connection,
     *,
@@ -29,14 +38,7 @@ def require_proposal_research_scope(
     published_at: datetime,
 ) -> ResearchSelection:
     """通常の保存read/previewはこの現在progress照合を呼ばない。"""
-    row = connection.execute(
-        "SELECT * FROM operation_session WHERE operation_id=?", (scope.operation_id,)
-    ).fetchone()
-    if row is None:
-        raise ValueError("Proposal requires its current Research Operation")
-    operation = OperationSession.model_validate(
-        {**dict(row), "payload": json.loads(row["payload"])}
-    )
+    operation = load_scope_operation(connection, scope.operation_id)
     if operation.status != "active":
         raise ValueError("Proposal publication requires an active Research Operation")
     selection = selection_binding(operation.payload)

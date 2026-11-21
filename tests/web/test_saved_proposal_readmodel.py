@@ -252,7 +252,7 @@ def test_single_projection_keeps_fixed_context_on_current_assessment_only(payloa
     projects = mocker.spy(proposal_builder, "_assessment")
     writes = mocker.spy(SavedAssessmentSourceView, "model_validate")
 
-    item = proposal_source._project(
+    item = proposal_source.read_saved_proposal_view(
         None, proposal.proposal_id, records=SimpleNamespace(read=lambda _: ([], []))
     ).items[0]
 

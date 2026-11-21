@@ -489,6 +489,12 @@ def test_generation_binds_edinet_clock_and_passes_fixed_comparison_archives(tmp_
     ("scope", "clock", "error", "key", "count", "expected_status"),
     [
         ("ok", "2026-11-13T10:00:00+00:00", None, "exact", 3, "ok"),
+        ("ok", "2026-11-13T06:29:59.999999Z", None, "exact", 3, "unconfirmed"),
+        ("ok", "2026-11-13T06:30:00Z", None, "exact", 3, "ok"),
+        ("ok", "2026-11-13T09:00:00+09:00", None, "exact", 0, "unconfirmed"),
+        ("ok", "2026-11-13T06:30:00Z", None, "exact", 0, "empty"),
+        ("partial", "2026-11-13T09:00:00+09:00", "held", "exact", 3, "partial"),
+        ("ok", "2026-11-14T00:00:00+09:00", None, "exact", 3, "ok"),
         ("partial", "2026-11-13T10:00:00+00:00", "held", "exact", 3, "partial"),
         ("unavailable", "2026-11-13T10:00:00+00:00", "failed", "exact", 0, "unavailable"),
         ("ok", "2026-11-13T10:00:00+00:00", "failed", "exact", 3, "unconfirmed"),

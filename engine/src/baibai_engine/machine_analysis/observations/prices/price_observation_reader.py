@@ -14,6 +14,7 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
     PriceDayState,
     classify_price_day,
 )
+from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.primitives.time import JST
 
 
@@ -112,6 +113,10 @@ def read_native_price_session(
             expected_date=expected_date, status="unconfirmed", recorded_at=None
         )
     if status == "ok" and error is None and isinstance(count, int) and count >= 0:
+        if expected_date is not None and latest_eligible_close_date(at) < expected_date:
+            return NativePriceSession(
+                expected_date=expected_date, status="unconfirmed", recorded_at=at
+            )
         return NativePriceSession(
             expected_date=expected_date, status="ok" if count else "empty", recorded_at=at
         )

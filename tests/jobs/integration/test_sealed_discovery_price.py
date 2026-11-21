@@ -38,10 +38,15 @@ from baibai_jobs.integration.models import _screening_stream
 from baibai_jobs.integration.price_native import model_input
 
 
-@pytest.mark.parametrize("held", [False, True])
-def test_real_native_close_only_and_failed_recheck_reach_nonfirst_value_case(tmp_path, held):
+@pytest.mark.parametrize(
+    ("held", "receipt_hour_utc", "expected_status"),
+    [(False, 10, "ok"), (True, 10, "partial"), (False, 0, "unconfirmed")],
+)
+def test_real_native_close_only_and_failed_recheck_reach_nonfirst_value_case(
+    tmp_path, held, receipt_hour_utc, expected_status
+):
     day = date(2025, 8, 29)
-    at = datetime(2025, 8, 29, 10, tzinfo=UTC)
+    at = datetime(2025, 8, 29, receipt_hour_utc, tzinfo=UTC)
     data = {
         "data": [
             {"Code": "10010", "Date": day.isoformat(), "C": 510},
@@ -157,8 +162,9 @@ def test_real_native_close_only_and_failed_recheck_reach_nonfirst_value_case(tmp
     assert index.universe_tickers == ("1000", "1001", "1002")
     assert index.rows[-1]["models_recorded"] is False
     assert index.rows[-1]["execution_price"] == {"day_state": "mixed", "raw_close_yen": 710.0}
-    assert index.price_session.status == ("partial" if held else "ok")
-    assert result.result.price_coverage()["valid_count"] == (0 if held else 2)
+    assert index.price_session.status == expected_status
+    assert index.price_session.recorded_at == at
+    assert result.result.price_coverage()["valid_count"] == (2 if expected_status == "ok" else 0)
     assert result.price_inputs is None  # Not a parallel persistent TA price summary.
     actual = load_generated_selection_context(
         request=ResearchRequest(scope="discover_new", text="当時の報告利益を比べる"),
