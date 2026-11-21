@@ -44,6 +44,7 @@ def project_economic_coordinates(
     sector: str | None,
     as_of: date,
     growth: CompanyGrowthReader,
+    review_unmatched_recovery: bool,
 ) -> tuple[list[EconomicCoordinate], str | None]:
     financial = _object(financial_model.get("financial"))
     earnings = _object(financial_model.get("earnings_price"))
@@ -53,6 +54,7 @@ def project_economic_coordinates(
         return [], None
     cap = _positive(earnings.get("market_cap_yen"))
     expected = financial_model.get("expected_price_date")
+    expected_date = _date(expected)
     price_on_expected_day = isinstance(expected, str) and earnings.get("price_date") == expected
     pricing_valid = (
         cap is not None
@@ -76,7 +78,6 @@ def project_economic_coordinates(
             and earnings_read.market_cap_yen is None
             and price_on_expected_day
         )
-        expected_date = _date(expected)
         stale_price = (
             earnings_read.unavailable_reason == "stale_price"
             and _positive(earnings_read.shares_ex_treasury) is not None
@@ -210,6 +211,17 @@ def project_economic_coordinates(
                 margin_improvement = _number(changes["operating_margin"].get("difference"))
                 if _is_positive(improvement) and _is_positive(margin_improvement):
                     recovery_price = _ratio(improvement, cap)
+                    recovery_period = quarter if variant == "quarter" else annual
+                    if (
+                        review_unmatched_recovery
+                        and cap is None
+                        and price_input_reason is not None
+                        and expected_date is not None
+                        and expected_date <= as_of
+                        and recovery_period is not None
+                        and recovery_period.period_end <= as_of
+                    ):
+                        review_reason = price_input_reason
                     if _is_positive(recovery_price):
                         coordinates.append(
                             EconomicCoordinate(

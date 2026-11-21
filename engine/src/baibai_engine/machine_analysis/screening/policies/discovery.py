@@ -57,7 +57,13 @@ def project_discovery_row(
     master = _object(market.get("master"))
     sector = sector_33_peer_key(master.get("sector_33"))
     coordinates, review_reason = project_economic_coordinates(
-        financial, sector=sector, as_of=metadata.as_of, growth=path_growth
+        financial,
+        sector=sector,
+        as_of=metadata.as_of,
+        growth=path_growth,
+        review_unmatched_recovery=(
+            gate.state == "not_selected" and master.get("is_common_stock") is True
+        ),
     )
     price = _object(market.get("price"))
     close = price.get("close")

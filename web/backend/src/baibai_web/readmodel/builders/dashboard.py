@@ -38,7 +38,7 @@ def build_dashboard(
     today = now.date()
 
     try:
-        portfolio = ledger.snapshot()
+        portfolio = ledger.snapshot(now=now)
     except (ValueError, RuntimeError, sqlite3.Error):
         # Reader diagnostics can contain private paths, SQL or stored ledger payloads.
         return _empty_dashboard(
@@ -61,7 +61,9 @@ def build_dashboard(
                 as_of=today, tickers=tuple(holding.ticker for holding in snapshot.holdings)
             )
         except (JQuantsProviderError, SQLiteSchemaError, sqlite3.Error) as error:
-            _LOGGER.warning("保有の銘柄名を取得できないためtickerで表示します: %s", error)
+            _LOGGER.warning(
+                "保有の銘柄名を取得できないためtickerで表示します (%s)", type(error).__name__
+            )
     holdings = [
         holding_view(
             holding,

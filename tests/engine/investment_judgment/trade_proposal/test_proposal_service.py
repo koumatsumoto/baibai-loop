@@ -23,6 +23,7 @@ from tests.helpers.proposal import (
 )
 from tests.helpers.screening_sqlite import seed_daily_bars
 
+from baibai_engine.cli import investment_judgment as judgment_cli
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal import service as proposal_service
@@ -482,6 +483,63 @@ def test_future_review_is_rejected_even_with_a_later_caller_publication_time(cas
     assert case.app.read_bytes() == before
 
 
+@pytest.mark.parametrize("via_cli", [False, True])
+def test_new_publication_uses_jst_date_after_writer_acquisition(
+    case, tmp_path, monkeypatch, capsys, via_cli
+):
+    proposal = reviewed_proposal(case)
+    instant = PUBLISHED.replace(hour=23, minute=59, second=59)
+    after_midnight = instant + timedelta(seconds=2)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: instant)
+    assert service.check(proposal).valid
+    before = case.app.read_bytes()
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz)
+
+    connect = proposal_service.connect_existing
+
+    def connect_crossing_midnight(path):
+        connection = connect(path)
+
+        def trace(statement):
+            nonlocal instant
+            if statement == "BEGIN IMMEDIATE":
+                instant = after_midnight
+
+        connection.set_trace_callback(trace)
+        return connection
+
+    monkeypatch.setattr(proposal_service, "connect_existing", connect_crossing_midnight)
+    if via_cli:
+        monkeypatch.setattr(proposal_service, "datetime", Clock)
+        monkeypatch.setattr(judgment_cli, "datetime", Clock)
+        path = tmp_path / "proposal.yaml"
+        path.write_text(yaml.safe_dump(proposal.payload()))
+        assert (
+            main(
+                [
+                    "trade-proposal-publish",
+                    str(path),
+                    "--db",
+                    str(case.app),
+                    "--sqlite-path",
+                    str(case.market),
+                ]
+            )
+            == 3
+        )
+        assert "基準日は本日" in capsys.readouterr().out
+    else:
+        with pytest.raises(ProposalError, match="基準日は本日"):
+            service.publish(proposal)
+    assert instant == after_midnight
+    assert case.app.read_bytes() == before
+    assert _counts(case.app)["investment_proposal"] == 0
+
+
 def test_cli_context_check_and_preview_keep_limit_arithmetic_separate_from_the_close(
     case, tmp_path, capsys
 ):
@@ -581,14 +639,22 @@ def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
     assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
 
 
-def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gates(case):
+def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gates(
+    case, monkeypatch
+):
     proposal = reviewed_proposal(case)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     published = service.publish(proposal)
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=900")
+
+    def current_inputs_are_not_used(*args, **kwargs):
+        pytest.fail("same-ID retry must not sample a clock or revalidate using market data")
+
+    monkeypatch.setattr(proposal_service, "check_proposal", current_inputs_are_not_used)
+    monkeypatch.setattr(proposal_service, "proposal_market_snapshot", current_inputs_are_not_used)
     later = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(days=20)
+        case.app, sqlite_path=case.market, clock=current_inputs_are_not_used
     )
     assert later.publish(proposal) == published
     raw = proposal.payload()

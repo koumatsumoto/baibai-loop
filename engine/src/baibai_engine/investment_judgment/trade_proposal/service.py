@@ -459,7 +459,6 @@ class TradeProposalService:
     def publish(self, proposal: TradeProposalDraft) -> TradeProposal:
         # Revalidate even callers using model_copy/model_construct; these APIs bypass validators.
         proposal = load_proposal_draft(proposal)
-        now = self._clock()
         with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -476,6 +475,8 @@ class TradeProposalService:
                         )
                     connection.rollback()
                     return stored
+                # Waiting for the writer can cross the JST date or order-session boundary.
+                now = self._clock()
                 validation = check_proposal(
                     connection, proposal, sqlite_path=self._sqlite_path, now=now
                 )

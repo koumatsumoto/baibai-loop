@@ -71,8 +71,8 @@ def _day(request: JQuantsRequest, contract: FullDayContract) -> str:
     return date.fromisoformat(request.params[contract.query_date_key]).isoformat()
 
 
-def full_day_content_id(request: JQuantsRequest, contract: FullDayContract) -> str:
-    """Ignore only pagination mechanics; preserve unknown fields and record order.
+def full_day_content_facts(request: JQuantsRequest, contract: FullDayContract) -> tuple[str, int]:
+    """Return the semantic digest and native row count without reparsing for the count.
 
     Row reordering is conservatively a change. Page boundaries without extra
     envelope fields do not change content; non-pagination envelope fields remain.
@@ -88,7 +88,7 @@ def full_day_content_id(request: JQuantsRequest, contract: FullDayContract) -> s
         }
         if extra:
             extras.append(extra)
-    return _digest(_json([contract.format, _day(request, contract), rows, extras]))
+    return _digest(_json([contract.format, _day(request, contract), rows, extras])), len(rows)
 
 
 @dataclass(frozen=True, slots=True)
@@ -492,7 +492,9 @@ class FullDayL1[Attempt: FullDayAttempt, Fixed: FixedFullDayL1]:
             stamp = item.order_time
             previous_at = scope.get("last_attempt_at")
             held = previous_at is not None and stamp <= datetime.fromisoformat(previous_at)
-            content_id = full_day_content_id(request, self.contract) if request else None
+            content_id, raw_count = (
+                full_day_content_facts(request, self.contract) if request else (None, 0)
+            )
             equal = request is not None and content_id == scope.get("content_id")
             if held:
                 kind = "held"
@@ -531,7 +533,7 @@ class FullDayL1[Attempt: FullDayAttempt, Fixed: FixedFullDayL1]:
                 if self.contract.source == "margin_interest":
                     # Raw envelope count is needed for weekly/daily empty fulfillment.
                     # Existing source head formats and their empty rules stay unchanged.
-                    scope["record_count"] = len(request.records())
+                    scope["record_count"] = raw_count
                 if not equal:
                     scope["changed_at"] = stamp.isoformat()
             value["scopes"][day] = scope

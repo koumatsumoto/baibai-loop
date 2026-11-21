@@ -231,3 +231,79 @@ def test_receipt_reads_are_parallel_and_remain_deterministic(tmp_path, monkeypat
     items = available_handoffs(store)
     assert [item["source"] for item in items] == ["economic-boj", "economic-fred_csv"]
     assert all(not item.get("invalid") for item in items)
+
+
+@pytest.mark.parametrize("market", [False, True])
+@pytest.mark.parametrize(
+    "damage",
+    [
+        {"manifest_sha256": "0" * 64},
+        {"source": "other"},
+        {"status": "unknown"},
+        {"status": []},
+    ],
+)
+def test_invalid_terminal_cannot_consume_or_mark_another_handoff_late(market, damage):
+    store = MemoryR2Store()
+    namespace = "market-sources" if market else "economic-sources"
+    source = "jpx-earnings" if market else "boj"
+    other = "jpx-regulations" if market else "fred_csv"
+
+    def handoff(owner, suffix):
+        key = f"coordination/{namespace}/{owner}-{suffix}/handoff.json"
+        body = {"source" if market else "group": owner, "asof": "2026-11-20"}
+        body["started_at"] = f"2026-11-20T08:{suffix}:00Z"
+        store.store_object(key, json.dumps({"result": body}).encode())
+        return key
+
+    handoff(source, "01")
+    key = handoff(source, "02")
+    handoff(other, "03")
+    fixed = {item["stage_id"]: item for item in available_handoffs(store, market=market)}
+    entry = fixed[f"{source}-02"]
+    seal_integrated(store, entry, generations={}, recovery=False)
+    key = key.removesuffix("handoff.json") + "integrated.json"
+    corrected = store.values[key].body
+    marker = json.loads(corrected)
+    store.store_object(key, json.dumps({**marker, **damage}).encode())
+    store.put_keys.clear()
+    observed = {item["stage_id"]: item for item in available_handoffs(store, market=market)}
+    assert observed[f"{source}-02"]["invalid"]
+    sibling = observed[f"{source}-01"]
+    assert sibling["invalid"] == "unverified_source_marker"
+    assert not sibling.get("late_before_integrated")
+    assert not observed[f"{other}-03"].get("invalid")
+    assert not observed[f"{other}-03"]["late_before_integrated"]
+    with pytest.raises(LakePublishError):
+        seal_integrated(store, entry, generations={}, recovery=False)
+    assert not store.put_keys
+
+    # Only an actually verified seal can prove that this sibling is late.
+    store.store_object(key, corrected)
+    repaired = {item["stage_id"]: item for item in available_handoffs(store, market=market)}
+    assert f"{source}-02" not in repaired
+    assert repaired[f"{source}-01"]["late_before_integrated"]
+
+
+@pytest.mark.parametrize("status", ["integrated", "needs_explicit_recovery"])
+@pytest.mark.parametrize("market", [False, True])
+def test_authenticated_first_format_terminal_still_resolves_without_rewriting(market, status):
+    store = MemoryR2Store()
+    namespace = "market-sources" if market else "economic-sources"
+    key = f"coordination/{namespace}/first-format"
+    result = {"source" if market else "group": "example", "asof": "2026-10-24"}
+    result["started_at"] = "2026-10-24T10:00:00Z"
+    store.store_object(key + "/handoff.json", json.dumps({"result": result}).encode())
+    (entry,) = available_handoffs(store, market=market)
+    marker = {
+        "manifest_sha256": entry["manifest_sha256"],
+        "canonical_generations": {},
+        "status": status,
+        "integrated_at": "2026-10-24T11:00:00+00:00",
+    }
+    store.store_object(key + "/integrated.json", json.dumps(marker).encode())
+    assert available_handoffs(store, market=market) == []
+    (saved,) = available_handoffs(store, market=market, include_integrated=True)
+    assert saved["integration"] == marker
+    seal_integrated(store, entry, generations={}, recovery=status != "integrated")
+    assert not store.put_keys

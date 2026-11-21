@@ -34,7 +34,7 @@ from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_cli import main
 from baibai_web.materialize import export_read_models
 from baibai_web.readmodel.builders import dashboard
-from baibai_web.sources import db_sources, proposal
+from baibai_web.sources import proposal
 
 DISPLAY_DATASETS = (
     "jquants.daily_bars",
@@ -140,7 +140,6 @@ def test_scoped_and_full_hydration_produce_identical_four_views(
         def now(cls, tz=None):
             return NOW if tz is None else NOW.astimezone(tz)
 
-    monkeypatch.setattr(db_sources, "datetime", Clock)
     monkeypatch.setattr(dashboard, "datetime", Clock)
     monkeypatch.setattr(proposal, "datetime", Clock)
     app_before = case.app.read_bytes()

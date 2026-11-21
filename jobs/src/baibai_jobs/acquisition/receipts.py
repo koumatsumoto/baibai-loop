@@ -45,6 +45,24 @@ def _retired_jquants_handoff(key: str) -> bool:
     return True
 
 
+def _integration_marker(
+    payload: bytes, *, digest: str, source: str, article: bool
+) -> dict[str, object]:
+    marker = json.loads(payload)
+    if not isinstance(marker, dict):
+        raise ValueError("invalid integration marker")
+    # The first non-article writer omitted both source and start; the manifest
+    # digest still binds both. Never infer an identity that explicitly disagrees.
+    legacy = not article and "source" not in marker and "started_at" not in marker
+    if (
+        marker.get("manifest_sha256") != digest
+        or (not legacy and marker.get("source") != source)
+        or marker.get("status") not in ("integrated", "needs_explicit_recovery")
+    ):
+        raise ValueError("integration marker differs from the fixed source handoff")
+    return marker
+
+
 def available_handoffs(
     store: ReceiptStore,
     *,
@@ -93,14 +111,10 @@ def available_handoffs(
             watermark = None
             if terminal:
                 try:
-                    integrated = json.loads(terminal.payload)
+                    integrated = _integration_marker(
+                        terminal.payload, digest=digest, source=source_name, article=article
+                    )
                     status = integrated["status"]
-                    if article and (
-                        integrated["manifest_sha256"] != digest
-                        or integrated["source"] != source_name
-                        or status not in {"integrated", "needs_explicit_recovery"}
-                    ):
-                        raise ValueError("article integration marker differs from its original")
                 except (ValueError, KeyError, TypeError):
                     return (
                         {
@@ -114,7 +128,7 @@ def available_handoffs(
                         None,
                         source_name,
                     )
-                if status != "needs_explicit_recovery":
+                if status == "integrated":
                     watermark = (source_name, started)
                 if not include_integrated:
                     return None, watermark, None
@@ -180,23 +194,28 @@ def available_handoffs(
     for entry in ready:
         if entry.get("invalid"):
             continue
-        watermark = watermarks.get(str(entry["source"]))
+        name = str(entry["source"])
+        if (
+            entry.get("namespace") != "article-sources"
+            and entry["integration"] is None
+            and name in blocked_sources
+        ):
+            # Ordering is unknown, not proven late. Keep siblings unsealed for
+            # another attempt after the bad marker has been investigated.
+            entry["invalid"] = "unverified_source_marker"
+            continue
+        watermark = watermarks.get(name)
         # An integrated intermediate receipt can still be missing from a stale input.
         # Only a never-integrated receipt is a newly out-of-order arrival.
         # Article receipts append independently; a later sealed stage must not hide
         # an older raw commit whose planning CAS failed or whose integration failed.
         entry["late_before_integrated"] = bool(
             entry.get("namespace") != "article-sources"
-            and (
-                str(entry["source"]) in blocked_sources
-                or (
-                    # 個別受領IDで引用するMCP原本は、後着でも他の観測を置換しない。
-                    str(entry["source"]) != "economic-" + MARKET_GROUP
-                    and entry["integration"] is None
-                    and watermark
-                    and datetime.fromisoformat(str(entry["started_at"])) < watermark
-                )
-            )
+            # 個別受領IDで引用するMCP原本は、後着でも他の観測を置換しない。
+            and name != "economic-" + MARKET_GROUP
+            and entry["integration"] is None
+            and watermark
+            and datetime.fromisoformat(str(entry["started_at"])) < watermark
         )
     return sorted(
         ready,
@@ -251,5 +270,15 @@ def seal_integrated(
     prior = read_write_once_private(store, key)
     if prior is None:
         put_private(store, key, value, previous_etag=None)
-    elif json.loads(prior.payload)["manifest_sha256"] != entry["manifest_sha256"]:
-        raise LakePublishError("integration marker differs from the fixed source handoff")
+    else:
+        try:
+            _integration_marker(
+                prior.payload,
+                digest=str(entry["manifest_sha256"]),
+                source=str(entry["source"]),
+                article=namespace == "article-sources",
+            )
+        except ValueError as error:
+            raise LakePublishError(
+                "integration marker differs from the fixed source handoff"
+            ) from error

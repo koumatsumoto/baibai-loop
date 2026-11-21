@@ -253,6 +253,7 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     tmp_path, mocker, caplog, failed_source
 ):
     now = datetime.fromisoformat("2026-07-20T09:00:00+09:00")
+    private_master_date = "2026-07-0x/SYNTHETIC_VENDOR_FIELD"
     for module in (
         "baibai_web.sources.db_sources",
         "baibai_web.readmodel.builders.dashboard",
@@ -309,7 +310,7 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
             connection.execute(
                 "INSERT INTO jquants_master_snapshots VALUES (?, ?, ?)",
                 (
-                    "2026-07-0x" if failed_source == "names_date" else "2026-07-20",
+                    private_master_date if failed_source == "names_date" else "2026-07-20",
                     "23310",
                     json.dumps(record),
                 ),
@@ -354,10 +355,10 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
         assert dashboard["valuation_error"] == "市場評価を読み取れません。"
     else:
         assert dashboard["valuation_error"] is None
-    if failed_source == "names_date":
-        assert "stored master snapshot has invalid date: '2026-07-0x'" in caplog.text
-    elif failed_source in {"names_empty", "names_missing"}:
-        assert "stored master record has invalid security fields" in caplog.text
+    if failed_source.startswith("names"):
+        assert private_master_date not in caplog.text
+        assert private_master_date not in json.dumps(dashboard)
+        assert "tickerで表示します (JQuantsProviderError)" in caplog.text
     outcomes = json.loads((output / "views/outcomes.json").read_text())
     assert outcomes["outcomes"][0]["portfolio_twr_pct"] == 10.2
     assert (app.read_bytes(), market.read_bytes()) == before

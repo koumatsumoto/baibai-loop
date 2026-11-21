@@ -12,7 +12,7 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialAttempt,
     FinancialL1,
 )
-from baibai_engine.data_collection.providers.jquants.full_day_native import full_day_content_id
+from baibai_engine.data_collection.providers.jquants.full_day_native import full_day_content_facts
 from baibai_engine.data_collection.providers.jquants.price_native import (
     PREFIX,
     FixedPriceL1,
@@ -97,16 +97,14 @@ def test_price_native_preserves_unknown_fields_and_pagination_equivalence():
             ),
         )
     )
-    assert full_day_content_id(complete_request((original,)), contract) == full_day_content_id(
-        paged, contract
-    )
+    digest, row_count = full_day_content_facts(paged, contract)
+    assert row_count == len(rows)
+    assert full_day_content_facts(complete_request((original,)), contract) == (digest, row_count)
     for value in (None, 0, False, ""):
         changed = replace(
             original, body=json.dumps({"data": [{**rows[0], "Unknown": value}]}).encode()
         )
-        assert full_day_content_id(complete_request((changed,)), contract) != full_day_content_id(
-            paged, contract
-        )
+        assert full_day_content_facts(complete_request((changed,)), contract)[0] != digest
 
 
 def test_price_partial_is_retained_and_replanned_without_a_projection(tmp_path):

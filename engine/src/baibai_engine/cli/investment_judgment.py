@@ -469,7 +469,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 service = TradeProposalService(
                     args.db,
                     sqlite_path=args.sqlite_path,
-                    clock=lambda: resolved_now,
+                    clock=None if now is None else lambda: resolved_now,
                 )
                 if args.command == "trade-proposal-check":
                     validation = service.check(proposal, require_review=False)
