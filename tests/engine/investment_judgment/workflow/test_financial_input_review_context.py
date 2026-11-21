@@ -1,6 +1,5 @@
 """株数確認の予備調査を同じ保存入力で読む。G・価格・採否は補わない。"""
 
-from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -21,9 +20,6 @@ from tests.helpers.technical_discovery import _metadata
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
-from baibai_engine.investment_judgment.workflow.screening_brief import (
-    technical_financial_screening_brief,
-)
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,
@@ -41,14 +37,8 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GenerationSubject,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
-from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-    TechnicalFinancialPolicy,
-    TechnicalFinancialSelection,
-)
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_engine.primitives.json import encode_json
 
 
 def seed(path, *, stale=False, unresolved=False):
@@ -132,7 +122,7 @@ def seed(path, *, stale=False, unresolved=False):
 
 @pytest.mark.parametrize("stale", [False, True])
 @pytest.mark.parametrize("unresolved", [False, True])
-def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_resume(
+def test_review_reasons_survive_finite_detail_and_saved_selection_resume(
     tmp_path, stale, unresolved
 ):
     path = tmp_path / "runs"
@@ -147,26 +137,6 @@ def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_res
         runs_path=path,
         db_path=tmp_path / "app",
     )
-    pages = [
-        load_generated_selection_context(**kwargs, screening_lane="input_review", screening_page=p)
-        for p in range(3)
-    ]
-    assert [p["candidate_tickers"] for p in pages] == [["2345"], ["1234"], []]
-    assert len(selected.result.rows) == selected.result.summary["planned_stocks"] == 4
-    assert len(selected.result.display_order) == len(set(selected.result.display_order)) == 3
-    for page in pages[:2]:
-        card = page["screening"]["cards"][0]
-        assert card["financial_gate"]["state"] == (
-            "input_unresolved" if unresolved and card["ticker"] == "1234" else "not_selected"
-        )
-        assert card["financial_paths"]["matched_routes"] == []
-        assert card["financial_paths"]["coordinates"] == []
-        reason = card["financial_paths"]["input_review_reasons"][0]
-        assert reason["generation_id"] == fixed.generation_id
-        assert reason["reason"] == ("stale_price" if stale else "missing_capital_basis")
-        if stale:
-            assert reason["price_date"] == "2026-11-12"
-            assert reason["expected_price_date"] == "2026-11-13"
     detail = load_generated_selection_context(**kwargs, comparison_tickers=("1234", "2345", "4567"))
     saved_rows = {row.ticker: row for row in selected.result.rows}
     for row in detail["screening"]["comparison_rows"]:
@@ -225,77 +195,3 @@ def test_new_review_reasons_survive_pages_detail_saved_selection_and_runless_res
     )
     assert project_research_inputs(saved) == projection
     assert not path.exists()
-
-
-def test_new_review_queue_is_company_unique_and_reaches_all_pages():
-    base = stored_row("1234", lane="input_review", gate={"state": "not_selected"})
-    reasons = [
-        {"path_id": path, "reason": "missing_capital_basis"}
-        for path in ("business_expansion", "earning_power")
-    ]
-    rows = tuple(
-        replace(
-            base,
-            ticker=str(1000 + i),
-            financial_paths={**base.financial_paths, "input_review_reasons": reasons},
-        )
-        for i in range(73)
-    )
-    result = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(), "T", "G", rows, tuple(r.ticker for r in rows), {}
-    )
-    pages = [
-        technical_financial_screening_brief(result, lane="input_review", page=p) for p in range(3)
-    ]
-    assert [len(page["cards"]) for page in pages] == [36, 36, 1]
-    assert len(set(result.display_order)) == len(result.display_order) == 73
-
-
-@pytest.mark.parametrize("revision", ["v1", "v2", "v3", "v4"])
-def test_historical_policy_keeps_canonical_fields_and_is_not_recomputed(tmp_path, revision):
-    _fixed, current, _, _ = seed(tmp_path / "runs")
-    rows = (
-        tuple(
-            replace(
-                row,
-                financial_paths={
-                    key: value
-                    for key, value in row.financial_paths.items()
-                    if key != "input_review_reasons"
-                },
-                screening_lane="no_current_hypothesis"
-                if "input_review_reasons" in row.financial_paths
-                else row.screening_lane,
-            )
-            for row in current.result.rows
-        )
-        if revision == "v1"
-        else current.result.rows
-    )
-    legacy = replace(
-        current,
-        result=replace(
-            current.result,
-            policy=TechnicalFinancialPolicy(method=f"technical-financial-discovery-{revision}"),
-            rows=rows,
-            display_order=tuple(r.ticker for r in rows),
-        ),
-    )
-    codec = TypeAdapter(ScreeningSelection)
-    payload = encode_json(codec.dump_python(legacy, mode="json"))
-    assert ("input_review_reasons" in payload) is (revision != "v1")
-    parsed = codec.validate_json(payload)
-    assert encode_json(codec.dump_python(parsed, mode="json")) == payload
-    assert bool(parsed.result.lane_tickers("input_review")) is (revision != "v1")
-    assert (
-        technical_financial_screening_brief(parsed.result)["policy"]["method"]
-        == f"technical-financial-discovery-{revision}"
-    )
-    identity = f"archived-review-{revision}"
-    store = ScreeningSelectionStore(tmp_path / "runs")
-    store.publish(identity, legacy)
-    before_retry = (tmp_path / "runs").read_bytes()
-    store.publish(identity, legacy)
-    assert (tmp_path / "runs").read_bytes() == before_retry
-    restored = read_publication(path=tmp_path / "runs", selection_id=identity).selection
-    assert encode_json(codec.dump_python(restored, mode="json")) == payload

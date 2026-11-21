@@ -25,7 +25,6 @@ from baibai_engine.investment_judgment.workflow.discovery import (
     PriceCoordinateMinimum,
 )
 from baibai_engine.investment_judgment.workflow.operation.service import OperationConflictError
-from baibai_engine.investment_judgment.workflow.screening_brief import SCREENING_EXCLUSION_SCOPES
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,
@@ -110,11 +109,6 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument("--generation-id")
     context_parser.add_argument("--screening-selection-id")
     context_parser.add_argument(
-        "--screening-lane",
-        choices=("growth_research", "input_review", "alternative_financial_research"),
-        help="inspect a historical lane with an explicit legacy --screening-selection-id",
-    )
-    context_parser.add_argument(
         "--discovery-question",
         choices=tuple(DISCOVERY_QUESTIONS),
         help="inspect a finite page of the fixed universe for one economic question",
@@ -132,20 +126,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="compare an explicit saved price coordinate within the question; no default",
     )
     context_parser.add_argument(
-        "--screening-excluded",
-        nargs="?",
-        const="technical_matched",
-        choices=SCREENING_EXCLUSION_SCOPES,
-        help=(
-            "diagnose a fixed legacy --screening-selection-id for technical matches or "
-            "financially unresolved rows outside lanes"
-        ),
-    )
-    context_parser.add_argument(
         "--screening-page",
         type=int,
         default=0,
-        help="zero-based page of the same discovery question or explicit legacy selection",
+        help="zero-based page of the same discovery question",
     )
     context_parser.add_argument("--db", type=Path)
     context_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
@@ -318,12 +302,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     db_path=args.db,
                     comparison_tickers=tuple(args.compare_ticker),
                     screening_page=args.screening_page,
-                    screening_lane=args.screening_lane,
                     discovery_question=args.discovery_question,
                     price_coordinate_min=minimum,
                     reported_pbr_max=args.reported_pbr_max,
-                    screening_excluded=args.screening_excluded is not None,
-                    screening_excluded_scope=args.screening_excluded or "technical_matched",
                 )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:

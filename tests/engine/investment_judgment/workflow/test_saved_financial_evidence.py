@@ -95,23 +95,10 @@ def test_legacy_observation_is_not_a_recomputed_common_share_fact(tmp_path, reco
     now = read_publication(path=source_path, selection_id=sid).published_at + timedelta(seconds=1)
     original = source_path.read_bytes()
     arguments = args(source_path, now) | {"screening_selection_id": sid}
-    listed = load_generated_selection_context(**arguments, screening_lane="input_review")
-    assert listed["model_inputs"]["securities"] == {}
-    card = listed["screening"]["cards"][0]
     detail = load_generated_selection_context(**arguments, comparison_tickers=(ticker,))
     archive = detail["screening"]["comparison_rows"][0]
     assert archive["financial_gate"] == row.financial_gate
     assert archive["financial_paths"] == row.financial_paths
-    for bucket, keys in [
-        ("financial_gate", ("forecast_context", "cash_flow_context")),
-        ("financial_paths", ("book_equity", "accounting_change_context")),
-    ]:
-        for key in keys:
-            if recorded:
-                assert card[bucket][key] == archive[bucket][key]
-            else:
-                assert key not in card[bucket]
-                assert key not in archive[bucket]
     raw = detail["model_inputs"]["securities"][ticker]["models"]["company_financials"]
     assert raw["financial"]["forecast_eps_yen"] == FORECAST["forecast_eps_yen"]
     assert raw["financial"]["earnings_forecast_source"] == FORECAST["earnings_forecast_source"]

@@ -1,97 +1,38 @@
-# Screening
+# 探索索引から調査対象を選ぶ
 
-保存モデルから調査する理由を見つけ、有限のResearchへ渡す。候補・表示順・経済経路のeligibleは、割安性・健全性・買付採否ではない。判断は[doctrine](../doctrine.md)、開始/再開は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)へ。
+ScreeningSelectionは「何が価格に対して安い可能性を作るか」を調べるための、保存済みGenerationの索引。候補順位・割安判定・採否ではない。[日次統合](../../jobs/src/baibai_jobs/integration/models.py)が[普通株の探索行](../../engine/src/baibai_engine/machine_analysis/screening/policies/discovery.py)を固定し、[企業判断の入口](../../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)がそれを読む。
 
-旧版も当時の内容・理由・順序・identityで読む。未記録の区画を現在のモデル・既定値で補わず、現政策で再選抜しない。
+## 発行物を固定して読む
 
-## 正準の探索観測
+1. 通常の新規発見は `investment-judgment selection-context` の `--scope discover_new` から始める。返された `repeat_command_args` でSelection ID・基準日・timezone付きcutoffを固定する。
+2. 出力にある問いを `--discovery-question <KEY>` で選ぶ。続きを見るには `next_args`、同じ世代の個社モデルを読むには行の `detail_args`（`--compare-ticker`）を使う。ページ順や経路数は割安順位ではない。
+3. 銘柄の指定は `--scope specified_stocks`、保有点検は `--scope review_positions`。明示対照は調査・提案対象とは別に扱う。台帳を読んでいないことを未保有確認済みにしない。保有は現在の台帳を事実時刻で再生するため、過去の約定の後追記で同じcutoffの対象が変わり得る。
 
-新しい日次発行は、当時の普通株全分母と、株別の観測価格・基準日、経済経路の価格/事業座標、確認すべき不足だけを一つの発行物に固定する。候補外だった会社も含める。全社分の詳細カード・閲覧順位は新規作成しない。詳細を確かめる時だけ同じGenerationの対象別モデルを読む。未観測を不合格、調整価格を発注価格、資本異動の件数を新株主の権利とみなさない。
-
-成長・営業回復の探索は、最新期・直近の通期と、それらの比較に実際に使う前年の保存値を読む。受領していない比較や、適用外の業種を「改善」としない。未確定なら、既に別の条件で不成立の経路にも残る不足を示す。黒転か赤字縮小かの実額・両期・出典は同世代の個社成長モデルで確認する。索引を発行できたことは、参照していない過年度の全項目を検証したという意味ではない。新しいCaseを保存するときは、その対象・明示対照に保存された成長モデルがあれば全文の型と銘柄を確認し、不正な型・別の会社の資料を固定しない。個々の指標が未記録であることは型破損と区別する。
-
-旧形式の全社カード・経路巡回順を再発行する機能はない。過去の表示順は原本の `display_order` を読み、新しい一覧をさかのぼって作らない。通常の読取りが「旧発行物で索引なし」を返す時は、必要な旧情報を同じIDで明示的に読む。今の世代の根拠で補わない。
-
-## 発行物を固定して問いと個社を読む
-
-初回`selection-context`のSelection ID・基準日・timezone付きcutoffを、出力の `repeat_command_args` で引き継ぐ。`--discovery-question <KEY>` を付け、続きは `next_args`、個社の完全モデルは `detail_args` の `--compare-ticker`。候補への追加やResearch開始は行わない。入力不足なら `input_gap`、旧表示の外なら `outside_display`。後者と入力不足は重なり、先頭・数・相対騰落は割安の順位ではない。
-
-旧レーンを明示しない通常の指定銘柄・保有・個社比較では、必要な銘柄と同じGenerationの関係資料だけを返す。軽量索引がない旧公表物をIDで固定した場合も、同じ原本に記録された当該の行だけを読む（圧縮原本自体の展開は必要）。旧候補欄への非掲載と当時の母集団外を区別し、無関係な候補や順位を表示しない。保有台帳を読むのは `--scope review_positions` のときだけで、未導入と実際の保有0社を区別する。保有の個別指定は当該時点の保有との共通分が調査対象で、非保有の比較相手は `--compare-ticker` で別に加えられる。
-
-旧レーンの `--screening-lane` と `--screening-excluded [technical_matched|financial_unresolved]` は、明示した旧 `--screening-selection-id` でのみ使える。診断は保存された非充足や不足を当時のまま返し、通常レーンへ復帰させない。旧 `candidate_tickers` は表示ページ、`summary` は全stock planの分母。
-
-問いが広過ぎるときは先頭の会社を指名しない。例えば「資本異動で持続利益の取り分が変わったか」なら、同じ公表物で対抗候補の座標（経路・variant・価格側の比較基準・数値）を読み、`--discovery-question capital_change --price-coordinate-min <PATH> <VARIANT> <PRICE_GROUP> <対抗候補の観測値>` で同じ測定だけを照合できる。「以上／未満／同基準の値なし」を分け、比較不能な会社を経済的に棄却しない。絞った後も、確認すべきなのは資本異動が新取得者の取り分を変えたかという原典である。座標値そのものを期待利回りとせず、理由がなければ数値条件は使わない。
-
-利益と簿価を比べられる会社は、今の稼ぎが買い手に残るかを調べる。直近利益と期末簿価だけでは、追加投資の金額も、その投資で増えた利益も分からない。再投資の問いは増収を手掛かりに、買収・設備・運転資金に使った額とその後の回収を原典で確かめる。増収のない会社でも再投資はあり得るので、全社索引や個社照会から調べてよい。
-
-個社照会では、[33業種の「その他」](https://jpx-jquants.com/ja/spec/eq-master/sector33code)や業種未記録を同業の根拠にしない。「その他製品」「その他金融業」とも区別する。保存済みの未分類群から出た比較を表示対象外にしても、自社価格・指数との比較と元の世代への参照は残す。価格差の観測を割安判定や表示順には使わない。
-
-新規の市場モデルでも、未分類は同業比較と業種別集計からのみ除き、全普通株の市場breadthは変えない。保存済みのモデル・Caseを新計算で上書きしない。
-
-通常の調査対象は口座から決めない。保有状況を調べていないことと、未保有確認済みを区別する。報告簿価や資本異動の存在は、新たに買った一株の回収可能額・受給資格の証明でない。元の対象外や索引行のない会社を「割安でない」としない。全市場のTOB・権利者一覧はこの索引にはない。
-
-軽量索引のない旧公表物は `unindexed_legacy_publication`。0社や現行世代に読み替えず、必要なときだけ元IDを明示して旧レーンや個社照合へ進む。旧の単一圧縮原本では、明示した有限の出力であっても全社本文の展開が必要になる。
-
-Research・市場判断は保存/公開時刻をcutoffと照合する。一方、保有は現在台帳を事実時刻でreplayするため、過去の注文/約定の後追記で同じcutoffの対象が変わり得る。この読取を、[保存Operationの固定入力からの再開](../../.agents/skills/investment-judgment/SKILL.md#完了と再開)や当時既知の情報集合と同一視しない。
-
-## 保存済みの発見根拠と三つのレーン
-
-同じstock plan全社の[技術・市場の発見根拠（T）](../../engine/src/baibai_engine/machine_analysis/screening/policies/technical_discovery.py)、[財務・成長仮説（G）](../../engine/src/baibai_engine/machine_analysis/screening/policies/financial_growth.py)、[財務経路（F）](#rule-purpose)を併読する。T非合致や価格不足でも財務仮説を落とさず、Gを全企業の普遍的な合否にしない。旧財務上位候補や経済順位で再足切りしない。
-
-| レーン | 調べる理由 |
-| --- | --- |
-| `growth_research` | 当時のGの利益成長/営業回復仮説。新規の既定入口や正式Research採択ではない。 |
-| `input_review` | G未確定にT/Fの根拠がある予備調査、または独立した事業仮説に基づく価格/株数入力の確認。 |
-| `alternative_financial_research` | G非合致でも別のF仮説がある。Gの既知悪化・不足を消さない。 |
-
-所属条件と保存版の読取は[policy owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/technical_financial.py)、価格入力確認は[座標のowner](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_path_inputs.py)が持つ。株数不足・資本異動後の自己株未確認・明示的な古い価格は、必要な事業根拠と他operandがある場合だけ確認理由になる。未知一般・モデル未生成を候補へ戻す仕組みではなく、元の赤字・非適格・価格座標nullも保つ。古い価格を現在価格へ繰り上げず、取引停止・流動性・現在の注文可否は別に調べる。
-
-旧レーン表示は企業重複を除く決定的な経路巡回。新しい旧レーン順を生成せず、コード番号を調査価値の代理にしない。経路は独立票でなく、小群・経路重複による露出差と先頭ページ反復の偏りは残る。ページ容量は候補足切り・投資順位・調査枠ではなく、枠消化や合致数の加点もしない。旧版の順を現在hashで並べ直さない。
-
-三レーンの分離は、T必須の見落としと全経路ORの無差別な拡大を比べる設計仮説で、閾値・表示順の最適性や利益優位は未検証。L3は支持/反証、必要な候補外対照、答えが得られ判断を変える問いから対象を選ぶ。未確定なら先に答える問い、既知非充足の例外なら根拠を示し、資金耐久・価値・買値・待機・最強反証をAssessment/Review/Proposalへつなぐ。
+新しい発行は候補外も含む普通株全体の探索行を持つ。軽量索引のない公表物は `unindexed_legacy_publication` であり、対象0件や現行の順位ではない。必要な会社だけ同じ公表IDで照合し、現在のモデルから当時の選定を作り直さない。照会はResearchの開始や対象追加ではない。
 
 <a id="candidate-discovery"></a>
-## 初回カードから調査へ
+## 観測から仮説へ進む
 
-カードは同世代の保存モデルを併読する入口で、新しいscore・採否gate・注文制限ではない。未記録fieldは省略し、明示null/false/0と区別する。詳細と省略分は同じSelectionの`--compare-ticker`へ進む。原数値・符号・期間・basis・出典と反対材料を一緒に読み、モデル未生成や旧保存へ区画を補作しない。
+利益が増えた会社なら、その利益が追加投資や買収の資金を差し引いても買い手に残るかを見る。簿価に対して価格が低い会社なら、どの資産が換金でき、誰に帰属するかを確かめる。会社の規模や業種、会計期間、株式の権利が異なる数字だけを比べて結論を出さない。
 
-| 比較材料 | 読み違えないための境界 |
+| 調べたいこと | 使う材料と限界 |
 | --- | --- |
-| 成長・回復と会社予想 | 単Qの営業回復、年次/TTM、会社通期予想は別。減収との併存や前年OPの符号を読み、利益差だけで有機成長・一時要因・将来の資金余力を認定しない。会社予想の赤字/黒字も自動除外/安全認定ではない。 |
-| 利益額・EPS・配当 | 会社予想EPSのas-of株式basis、報告basic EPSの累計期・平均株数、現在/期末株数、希薄化後EPSを混ぜない。欠測EPSを利益額÷現在株数で復元せず、符号差の原因を推定しない。配当予想は利益予想と別の期・出典・株式basisを持ち、未記録/nullを無配、計画を支払実績にしない。配当は任意。 |
-| 簿価・報告残高 | 選択簿価の算式/元開示と利益の測定期を別に読む。古いBPSと現在株数、資産と自己資本比率を同時点の普通株資本とせず、出典保持を平均資本ROEの確認済みにしない。現金は拘束・運転資金・金融業の必要資金を控除した余剰ではなく、debt欠測は無借金でない。 |
-| 営業CF・投資支出 | 利益成長と資金化は別。原測定期・TTM・EDINETの別期フローを混ぜず、部分内訳を合計へ合わせたり、不足を0/単純年換算で埋めたりしない。規模不一致で不採用の原観測も表示されるため、掲載だけで比較成立としない。EDINETの不足を別出典の短信CFや全フローへ拡大せず、銀行CFや報告FCFを持続的な普通株主cashにしない。 |
-| 技術・市場の価格と活動 | 値・窓・不足・比較指数/条件日数を伴わせる。相対超過と絶対騰落、倍率と円規模は別。市場下落日の平均を全区間の上昇/勝率、別々の平均を同日の価格×活動の交差、状態を新規クロスや機関買いとしない。活動の基準窓を当日を含むProposal ADVへ取り替えない。 |
-| 会計変更・資本異動 | 明示注意を原公表日/対象期と読み、空一覧やfalseだけで比較可能性を確認済みにしない。公表・効力・受領の時計を分け、完了観測を現在株数の反映完了や将来希薄化としない。限定件数と省略数を保ち、同じ原資料の再受領を独立証拠へ数えない。 |
-| 共有材料との関連 | Generationに明示された関連と保存理由を読む。一事業の関連を連結全体の曝露量・記事の調査母集団への所属とせず、業界の期/利益basisと会社への伝達を別に調べる。未記録理由を現在の業種分類から補わず、関連の有無を候補条件・注意順・支持票にしない。 |
+| 成長・営業回復、持続的な稼ぎ | 原期・前年・会社予想を分け、利益の符号と実額を確認する。増収から有機成長・投資収益を決めつけない。[開示と会計比較](model-observations.md#financial-periods) |
+| 資産・資本異動・買い手の取り分 | 報告簿価は回収額ではなく、大量保有報告は発行会社の自己株確認ではない。原典で効力日・会社・株式basisを揃える。[資本・価格・配当](model-observations.md#capital-basis) |
+| 価格差、活動、地合い | 銘柄・指数・実在の同業を分け、同一端点の価格と比較可能な窓を使う。未分類の「その他」は同業ではない。相対超過・調整価格は割安判定や発注価格ではない。[市場・業種の比較](model-observations.md#market-context-reads) |
 
-観測の詳細な意味は[開示と会計比較](model-observations.md#financial-periods)、[資本・価格・配当](model-observations.md#capital-basis)、[市場の比較](model-observations.md#market-context-reads)に集約する。決算期差・古い年度補助・科目別出典を保ち、出典日の最大値を全体の公表/利用可能時刻にしない。外部評価・共有環境も比較材料で、保存市場判断やportfolioは機械順位を変えない。
-
-<a id="rule-purpose"></a>
-## 保存済み経済経路政策の意味
-
-収益力・事業拡大・営業回復・資本活用の価格/事業座標は[入力owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_path_inputs.py)、保存順位と容量の型は[保存型owner](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_paths.py)へ。通常の発見レーンとは別に、旧保存結果の順位も当時のまま読む。
-
-市場全体が割高でも相対上位は生じる。業種の異質性・小さい参照群・経路数・一過性利益の偏りがあり、順位を期待収益/確率/健全性にしない。成長/回復は利益・CFの黒字を必須にせず、売上/営業改善÷株式時価総額も負債込み事業価値の割安性を保証しない。完全FYはTTM対応期未観測の補助で、既知の悪化・basis不一致を迂回しない。資本経路の報告利益/含意簿価はproxyで、普通株ROE・換金額や未実現資産の全機会を示さない。
+同じ問いでも測定基準の異なる数値は混ぜない。例えば、対抗候補と同じ経路・variant・価格座標を選んだ `--price-coordinate-min` は閲覧条件であり、要求利回りや棄却基準ではない。値なしの相手を割高とせず、必要なら全母集団や個社へ戻る。[価格・事業座標の算出](../../engine/src/baibai_engine/machine_analysis/screening/policies/economic_path_inputs.py)を参照する。
 
 ## 入力不足と品質
 
-[原典・時点・不足の規則](model-observations.md#source-owners)に従い、未観測・比較不能・業種不適用・非正の分母・既知非充足を分ける。全てを再取得で埋まる欠測とせず、金融業のN/Aを赤字へ、親会社/経常利益をOPへ置き換えない。使わない回復経路のN/Aで別の利益成長仮説を消さない。
-
-技術・財務統合政策の価格入力集計は、その世代のTA準備状態であり、財務モデルの価格basis・現在の鮮度/取引可否や全財務入力の充足とは別。候補0件、母集団0件、価格不足を分け、取得coverageや有効な価格だけで「投資機会なし」としない。
-
-## 保存と読取
-
-ModelGenerationとScreeningSelectionは別identity。通常生成で政策を適用し、読取から再適用/再生成しない。固定Generationへの現政策再適用と全社価格/株数不足一覧は提供せず、日次再実行を代替にしない。0候補も正常に公開し、古い非空結果へ戻さない。[保存](../../engine/src/baibai_engine/machine_analysis/screening/selection_store.py)・[時点選択](../../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)、[正本/寿命](../architecture.md#store-authority)、[日次の保持・再開](../../jobs/OPERATIONS.md#日次実行と結果確認)を使う。
-
-新政策の本番受入では既存runの終端・writer/lease・実行commitを確認し、その実行で全既存Generation/Selectionを明示保持する。これは通常cache整理後の長期保管保証ではない。切戻しも新結果と固定Researchのreader・現lease ownerを維持し、旧bundle盲復元・新結果削除・同じidentityへの旧政策上書きで行わない。
+未取得、モデル未生成、企業への非該当、価格・分母が足りない場合、既知の条件不成立を分ける。 `input_gap` は不足を調べるための問いで、`outside_display` は保存表示の外を調べる問い。両者は重なり得る。空、未観測、棄却を同じ結果にしない。[原典・時点・不足の規則](model-observations.md#source-owners)
 
 <a id="case-evidence"></a>
-## 判断時点の証拠を読む
+## 保存された判断を確認する
 
-新規Researchは当時の発行物から、深掘りする対象とdraftの任意の `comparison_tickers` の行・同世代モデルだけを固定する。明示対照の保存は対象とは別に同じCaseの研究capacityまで（通常3社）。市場検索の範囲や売買適格の基準ではない。明示対照は別の使い道・見送りを後日比較するための証拠で、深掘り・提案・売買対象にはしない。母集団・所属・欠測の識別は残すが、調べなかった全社の明細は再開時に現在headから補わない。L2本文の指紋と、Proposalが参照するCaseの指紋は別である。旧V2–4の保存・署名・訂正を新書式に移さない。
+[GenerationとSelection](../architecture.md#store-authority)は別IDで、読取から政策を再適用しない。調査を始めると、Caseには対象・明示した比較相手の行、同世代モデル、cutoffが固定される。調べなかった全社の詳細を再開時に最新値で補わない。
 
-私有Appのコピーで、まず開始履歴を読む。完了だけを選ばず、対象0件、未選定、調査未完、査読後の見送りを区別する。個別の判断はOperation IDで開き、当時の選定・進捗・提案参照をたどる。
+私有application DBのコピーでOperationをID指定して開き、保存選定・進捗・正式提案をたどる。対象0件、未完、査読後の見送りは異なる結果で、後日の取引・振返りは当時の判断の根拠ではない。
 
 ```bash
 uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> --format json show
@@ -99,6 +40,4 @@ uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> --format json sho
 uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> --format json selection-evidence <OPERATION_ID> --selection-sha256 <PUBLISHED_SELECTION_SHA256> --proposal-id <PROPOSAL_ID>
 ```
 
-最後の照会は正式提案が参照する選定原本を読む。運用用と公開時のSHAが異なるときは移行受領が結ぶ当時の本文を返す。提案がなければ捏造せず、`show`の保存内容を読む。[正式提案の読取](../../engine/src/baibai_engine/investment_judgment/trade_proposal/query.py)では提案IDを指定し、公開時刻・全項目・参照した評価を確かめる。後日の訂正・振返り・本人の採否や約定は元の投資判断と分ける。私有の本文や出力は公開しない。
-
-前向き比較は結果を見る前に対象・期間・測定方法を決め、未完でも別の判断に差し替えない。完了時刻は約定可能時刻ではなく、未選定は経済的な棄却でもない。[旧V3/V4専用の二次帳票](https://github.com/koumatsumoto/baibai-loop/blob/b86ba61346000060c701f6d85cb6c0a99103fae7/tools/experiments/inspect_decision_cohort.py)の出力自体を再現する場合だけ、その版と私有コピーを使う。独自の帳票SHAは選定や提案のSHAとは別である。
+最終行は[正式提案](../../engine/src/baibai_engine/investment_judgment/trade_proposal/query.py)が参照する選定原本を読む。公開時と運用用のSHAが違う場合は元の受領をたどる。提案がなければ取得を飛ばし、`show` の保存内容を読む。私有本文や出力を公開しない。

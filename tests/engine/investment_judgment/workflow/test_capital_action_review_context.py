@@ -82,22 +82,10 @@ def arguments(path, now):
     )
 
 
-def test_action_gap_survives_first_card_detail_prepare_and_runless_resume(tmp_path):
+def test_action_gap_survives_detail_prepare_and_runless_resume(tmp_path):
     path = tmp_path / "runs"
     fixed, _, now = seed(path)
     original = path.read_bytes()
-    first = load_generated_selection_context(**arguments(path, now), screening_lane="input_review")
-    assert first["candidate_tickers"] == ["1001"]
-    assert first["model_inputs"]["securities"] == {}
-    card = first["screening"]["cards"][0]
-    assert {r["reason"] for r in card["financial_paths"]["input_review_reasons"]} == {REASON}
-    assert card["financial_gate"]["state"] == "input_unresolved"
-    assert card["technical"]["state"] == "unavailable"
-    assert card["financial_paths"]["matched_routes"] == []
-    action = card["financial_paths"]["capital_action_context"]
-    assert action["observations"][0]["issued_shares"] == 130
-    assert action["earnings_price_unavailable_reason"] == REASON
-    assert action["share_basis_adjustments"] == []
     detail = load_generated_selection_context(**arguments(path, now), comparison_tickers=("1001",))
     cf = detail["model_inputs"]["securities"]["1001"]["models"]["company_financials"]
     assert cf["earnings_price"]["unavailable_reason"] == REASON
@@ -160,8 +148,6 @@ def test_old_policy_keeps_absence_despite_available_capital_model(tmp_path, vers
     codec = TypeAdapter(ScreeningSelection)
     canonical = encode_json(codec.dump_python(selected, mode="json"))
     original = path.read_bytes()
-    first = load_generated_selection_context(**arguments(path, now), screening_lane="input_review")
-    assert first["candidate_tickers"] == []
     detail = load_generated_selection_context(**arguments(path, now), comparison_tickers=("1001",))
     row = detail["screening"]["comparison_rows"][0]
     assert row["screening_lane"] == "no_current_hypothesis"

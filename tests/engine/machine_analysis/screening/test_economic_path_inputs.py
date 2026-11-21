@@ -11,7 +11,6 @@ from tests.helpers.external_assessment_observations import valuation
 from tests.helpers.model_generation import materialize_generation, publish_generation
 from tests.helpers.retained_economic_selection import retained_economic_result
 
-from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
@@ -236,12 +235,6 @@ def test_retained_v4_selection_has_its_original_canonical_hash_and_absences():
     )
     assert "moving_averages" not in saved["cards"][0]["context"]
     assert "price_path" not in saved["cards"][0]["context"]
-    brief = economic_screening_brief(saved)["cards"][0]["context"]
-    assert "moving_averages" not in brief
-    assert "price_path" not in brief
-    assert "turnover_activity_20d" not in brief
-    assert "market_conditioned_60d" not in brief["market_relative"]
-    assert brief["capital_action_context"] == retained["capital_action_context"]
 
 
 def test_price_change_moves_price_axes_not_business_axes():

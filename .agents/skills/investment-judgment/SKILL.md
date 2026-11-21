@@ -27,7 +27,7 @@ uv run baibai-engine investment-judgment selection-context \
 
 前回の条件（配当の原資・普通株主に残る権利、採算、価格と代替など）から、今回確認する原典と問いを選び、採用対象の `research_question` に残す。元条件の誤りを訂正することと、企業が実際に変わったことを分ける。新しい根拠があれば、その時点の評価・独立Review・正式提案へ戻る。材料が増えていなければ同じ案の自動再発行や、原価からの損益だけでの変更はしない。
 
-現在の発行物で入力不足を調べるときは `--discovery-question input_gap`、旧表示の外を比べるときは `outside_display` から同じ個社比較へ進む。旧レーン/除外のflagは固定した旧公表IDの照会だけ。仮説の反証、同業・地合いの影響、待機や別の資金用途によって判断が変わる比較を選び、[評価](../../../docs/reference/stock-assessment.md#uncertainty-and-decision)と[提案](../../../docs/reference/trade-proposal.md#wait-paths)へ渡す。入力未確定・執行不可と、価値は推定できても価格・損失・代替に見合わないことは別。
+現在の発行物で入力不足を調べるときは `--discovery-question input_gap`、旧表示の外を比べるときは `outside_display` から同じ個社比較へ進む。仮説の反証、同業・地合いの影響、待機や別の資金用途によって判断が変わる比較を選び、[評価](../../../docs/reference/stock-assessment.md#uncertainty-and-decision)と[提案](../../../docs/reference/trade-proposal.md#wait-paths)へ渡す。入力未確定・執行不可と、価値は推定できても価格・損失・代替に見合わないことは別。
 
 再訪は`company-research catalog/get`と[振り返り](#判断の振り返り)を有限に読む。catalogの続きはknown_atを固定しnext_after_tickerを使い、未review Research/review済みpair、空/unreadableを分ける。
 

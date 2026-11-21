@@ -163,7 +163,6 @@ def discovery_context(
             "status": "inputs_required",
             "missing_inputs": [{"code": "unindexed_legacy_publication"}],
             "meaning": "旧世代の索引は未記録。候補0社ではなく、全社本文も開いていない。",
-            "explicit_full_read": ["--screening-lane", "growth_research"],
         }
     if data.price_session is not None:
         result["price_session"] = data.price_session.model_dump(mode="json")

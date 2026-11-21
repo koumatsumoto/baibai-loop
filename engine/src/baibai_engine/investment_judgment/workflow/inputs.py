@@ -13,9 +13,6 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
     project_company_growth,
 )
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
-from baibai_engine.investment_judgment.workflow.screening_brief import (
-    technical_financial_screening_brief,
-)
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionV5,
     GeneratedSelection,
@@ -83,14 +80,8 @@ def project_research_inputs(
                     if selection.inputs.screening_selection.price_inputs is not None
                     else {}
                 ),
-                "result": {
-                    **technical_financial_screening_brief(
-                        selection.inputs.screening_selection.result,
-                        page=None,
-                        comparison_tickers=tuple(target.ticker for target in selection.targets),
-                    ),
-                    "full_result_ref": "/inputs/screening_selection/result",
-                }
+                # 全社分の旧レーンはOperationの原文を参照し、候補一覧を再構成しない。
+                "result": {"full_result_ref": "/inputs/screening_selection/result"}
                 if isinstance(
                     selection.inputs.screening_selection.result, TechnicalFinancialSelection
                 )
