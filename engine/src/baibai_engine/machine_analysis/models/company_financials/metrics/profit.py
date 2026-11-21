@@ -1,4 +1,4 @@
-"""実績利益の選択とaccruals。複数FYの較正signalは歴史評価が所有する。"""
+"""報告された利益の選択と、利益が営業キャッシュフローに転じた度合いの計算。"""
 
 from __future__ import annotations
 

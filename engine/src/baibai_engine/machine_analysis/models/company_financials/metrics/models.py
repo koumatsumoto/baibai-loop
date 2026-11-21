@@ -80,16 +80,13 @@ class FinancialSnapshot:
     # 採用した短信の報告期・文書。最新開示日や他BS項目の最大carry日数とは別。
     cash_eq_source: dict[str, str | None] | None = None
     total_assets: float | None = None
-    # Reinvestment用。最新のcomplete actual rowのTAとEqARの積であり、PBRのBPS fallbackは使わない。
+    # 同じ実績開示の総資産と自己資本比率から得た額。PBRが採用する簿価とは限らない。
     same_state_equity_yen: float | None = None
     # PBRが実際に採った分母と元開示。EDINET残高のscopeや現在の純資産とは別に読む。
     book_equity: dict[str, object] | None = None
-    # 最後の raw close を as-of の株式基準へ換算した screening 参考価格。時価総額・E[r]・
-    # Stock Analysis表示は同じ基準の株数と組み合わせる。約定価格ではなく、
-    # Research の価格 fact は SQLite の raw/unadjusted close を取得する。
+    # 基準日の株式単位にそろえた直近終値。倍率に使う価格で、発注・約定価格ではない。
     market_price_yen: float | None = None
-    # 市場が値付けする株式数 (発行済 - 自己株式)。valuation history も現在倍率と同じ
-    # 資本分母で組み、自己株比率の変化ではなく価格変化だけを自己レンジへ反映する。
+    # 時価総額に使う自己株控除後の株数。自己株式が不明なら発行済総数で代用しない。
     shares_ex_treasury: float | None = None
     # 発行済と自己株式を安全に合成できなかった理由。None は通常の欠損も含み、ここには
     # 「値はあるが異なる資本状態に属する」と検出できた場合だけ理由を残す。
@@ -135,8 +132,7 @@ class FinancialSnapshot:
     net_share_change_yoy: float | None = None
     # 自己株買いは発行済株数を減らさないため、控除後株数の変化を別に持つ。
     tradable_share_change_yoy: float | None = None
-    # 予想経常利益または予想純利益の赤字を注記する。
-    # 予想EPSとFV anchorへの影響は実際の入力に依存する。
+    # 会社予想の経常利益・純利益に基づく。EPSの符号から推定しない。
     forecast_full_year_loss_flag: bool | None = None
 
     @field_validator(

@@ -12,7 +12,9 @@ import requests
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsPage,
+    JQuantsRequest,
     JQuantsSource,
+    complete_request,
 )
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -44,21 +46,6 @@ def body(records, *, cursor=None):
     if cursor is not None:
         payload["pagination_key"] = cursor
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-
-
-def receive_page(connection, page: JQuantsPage, *, request_id, page_index):
-    connection.execute(
-        "INSERT INTO jquants_source_pages VALUES (?,?,?,?,?,?,?)",
-        (
-            request_id,
-            page_index,
-            page.source,
-            json.dumps(dict(page.query)),
-            page.received_at.isoformat(),
-            page.received_at.date().isoformat(),
-            gzip.compress(page.body, mtime=0),
-        ),
-    )
 
 
 def acquire_request(
@@ -98,6 +85,25 @@ def receive(db_path, source, query, raw_body, received_at):
         return acquire_request(conn, client, source, query)
     finally:
         conn.close()
+
+
+def read_request_pages(conn: sqlite3.Connection, request_id: str) -> tuple[JQuantsPage, ...]:
+    """Load fixture bytes in stored order; native parsing stays with J-Quants."""
+    rows = conn.execute(
+        "SELECT source,query_json,received_at_utc,body_gzip FROM jquants_source_pages "
+        "WHERE request_id=? ORDER BY page_index",
+        (request_id,),
+    )
+    return tuple(
+        JQuantsPage(
+            source, json.loads(query), datetime.fromisoformat(received), gzip.decompress(body)
+        )
+        for source, query, received, body in rows
+    )
+
+
+def read_complete_request(conn: sqlite3.Connection, request_id: str) -> JQuantsRequest:
+    return complete_request(read_request_pages(conn, request_id))
 
 
 def source_record(source, on_date):

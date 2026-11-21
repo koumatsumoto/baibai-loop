@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SavedMarketContextView, SavedProposalView } from '../src/api/types'
 import { ProposalReport } from '../src/pages/ProposalPage'
-import { newProposalFixture, proposalViewFixture, unassessedDeferFixture } from './fixtures/proposals'
+import { newProposalFixture, reportProps, unassessedDeferFixture } from './fixtures/proposals'
 
 const context: SavedMarketContextView = {
   source: 'proposal_fixed_selection', selection_sha256: 'fixed-hash', status: 'retained', reason: null,
@@ -14,12 +14,12 @@ const context: SavedMarketContextView = {
     sources: [{ input_id: 'rates', reference: 'https://example.invalid/rates', available_at: '2026-10-10T07:00:00Z', status: 'missing' }],
   },
 }
-const render = (proposal: SavedProposalView, ticker?: string) => renderToStaticMarkup(createElement(ProposalReport, { data: proposalViewFixture(proposal), ticker }))
+const render = (proposal: SavedProposalView, item = proposal.items[0]) => renderToStaticMarkup(createElement(ProposalReport, reportProps(proposal, item)))
 const noAction = newProposalFixture.items.find(item => item.action === 'no_action')!
 
 describe('保存された全体市場判断', () => {
   it.each([noAction, unassessedDeferFixture])('情報待ち/見送りを市場支持に変えない', item => {
-    const html = render({ ...newProposalFixture, saved_market_context: context, items: [item] }, item.ticker)
+    const html = render({ ...newProposalFixture, saved_market_context: context, items: [item] }, item)
     for (const text of ['提案開始時に固定した市場判断', '固定金利の反証末尾', '借換期は未確認', 'cash維持と借換費用を比較する', 'rates', 'missing', 'fixed-hash', 'fixed-market', '2026-10-10T08:00:00Z', '2026-10-10T09:00:00Z', '現在の鮮度判定ではありません', '個社価値の採択や売買推奨ではありません']) expect(html).toContain(text)
     expect(html).toContain(item.rationale)
     expect(html).toContain(newProposalFixture.comparison)

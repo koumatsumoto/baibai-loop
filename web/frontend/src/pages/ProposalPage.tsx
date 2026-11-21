@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react'
 import { Copy } from 'lucide-react'
 
 import type {
-  LatestProposalView,
   SavedAssessmentView,
   SavedBuyItemView,
   SavedDeferItemView,
@@ -15,7 +14,6 @@ import type {
   SavedReasonView,
   SavedSellItemView,
 } from '../api/types'
-import { LoadingPage } from '../components/LoadingIndicator'
 import { AssessmentRisks } from '../components/AssessmentRisks'
 import { AssessmentSources } from '../components/AssessmentSources'
 import { AssessmentHypotheses } from '../components/AssessmentHypotheses'
@@ -27,7 +25,6 @@ import { ProposalWarnings } from '../components/ProposalWarnings'
 import { SavedBuySession } from '../components/SavedBuySession'
 import { SavedMarketContext } from '../components/SavedMarketContext'
 import { PageShell } from '../components/PageShell'
-import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -309,6 +306,7 @@ function SavedTerms({ terms, withPriceFinding }: { terms: SavedLimitTermsView; w
         <Field label="条件の評価基準日"><time dateTime={terms.valuation_as_of}>{terms.valuation_as_of}</time></Field>
         {terms.maximum_entry_price_yen !== null && <Field label={withPriceFinding ? "評価と価格条件による保存時の買付上限" : "保存評価の条件付き上限（Pmax）"}>{terms.maximum_entry_price_yen} 円</Field>}
       </dl>
+      <p className="text-xs leading-6 text-muted-foreground">対象取引日は実注文の期限ではありません。</p>
       {terms.maximum_entry_price_yen !== null && <p className="text-xs leading-6 text-muted-foreground">{withPriceFinding ? "保存上限は、査読で裏付けた価格とBaseの算術上限の低い方です。" : "Pmaxは保存評価の条件付き上限です。"}適正価格・勝率・約定価格ではありません。</p>}
       <TextList items={terms.conditions} title="保存条件" />
       <ProposalWarnings warnings={terms.warnings} title="具体条件の保存時の注意事項" />
@@ -610,37 +608,15 @@ function PortfolioExposure({ exposure }: { exposure: SavedPortfolioExposureView 
   </details>
 }
 
-export function ProposalReport({ data, ticker, above }: { data: LatestProposalView | null; ticker?: string; above?: ReactNode }) {
-  if (data === null) return <LoadingPage label="売買提案を読み込んでいます" />
-  if (data.status === 'unavailable') return <PageState message={data.error ?? '保存済み提案を読み取れませんでした。'} title="売買提案の読取不能" />
-  if (data.status === 'empty') return <PageShell lead="最新基準日の保存済み提案を読みます。" meta={<span className="text-xs text-muted-foreground">表示データ生成 <SavedTime value={data.generated_at} /></span>} title="売買提案" width="reading"><SectionCard padded title="保存済み提案はありません"><Prose>表示データ生成時点で、正式に保存された提案はありません。</Prose></SectionCard></PageShell>
-  const proposal = data.proposal
-  if (proposal === null) return <PageState message="保存済み提案を読み取れませんでした。" title="売買提案の読取不能" />
-  const selected = ticker === undefined ? null : proposal.items.find(item => item.ticker === ticker)
-  if (selected === undefined) return <PageState message="指定された銘柄はこの保存提案にありません。" title="レポートを表示できません" />
-  const items = selected === null ? proposal.items : [selected]
+export function ProposalReport({ proposal, item, generatedAt, above }: {
+  proposal: SavedProposalView
+  item: ProposalItem
+  generatedAt: string
+  above?: ReactNode
+}) {
   return (
-    <PageShell above={above} lead={selected === null ? '保存済み提案を、保存順のまま表示します。' : `${selected.ticker} · ${selected.sector ?? '業種未記録'} · ${formatJstDateTime(proposal.published_at)} JST 発行`} meta={<Badge variant="outline">{SCOPE_LABEL[proposal.request_scope]}</Badge>} title={selected === null ? "売買提案" : (selected.company_name ?? selected.ticker)} width="reading">
-      {selected !== null && <p className="text-xs leading-6 text-muted-foreground">保存時点のレポートです。現在の注文条件の再確認・採否・発注は別です。</p>}
-      {selected === null && <SectionCard padded title="サマリ">
-        <div className="grid gap-4">
-          <ReportSummary text={proposal.headline} />
-          <p className="text-xs leading-6 text-muted-foreground">保存時点の提案です。現在の注文条件の再確認・採否・発注は別です。</p>
-          <details className="border-t pt-3">
-            <summary className="cursor-pointer text-sm text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-4">提案の保存日時</summary>
-            <div className="mt-4 grid gap-4">
-              <dl className="grid gap-4 sm:grid-cols-2">
-                <Field label="提案基準日"><time dateTime={proposal.as_of}>{proposal.as_of}</time></Field>
-                <Field label="提案本文の準備時刻"><SavedTime value={proposal.prepared_at} /></Field>
-                <Field label="提案の発行時刻"><SavedTime value={proposal.published_at} /></Field>
-                <Field label="表示データ生成時刻"><SavedTime value={data.generated_at} /></Field>
-              </dl>
-              <Identifier key={proposal.proposal_id} label="proposal_id" value={proposal.proposal_id} />
-              <p className="text-xs leading-6 text-muted-foreground">表示データ生成時点の保存集合で、提案基準日・発行時刻・提案IDの順に最新の1件です。現在の注文可否は判定していません。対象取引日は実注文の期限ではありません。</p>
-            </div>
-          </details>
-        </div>
-      </SectionCard>}
+    <PageShell above={above} lead={`${item.ticker} · ${item.sector ?? '業種未記録'} · ${formatJstDateTime(proposal.published_at)} JST 発行`} meta={<Badge variant="outline">{SCOPE_LABEL[proposal.request_scope]}</Badge>} title={item.company_name ?? item.ticker} width="reading">
+      <p className="text-xs leading-6 text-muted-foreground">保存時点のレポートです。現在の注文条件の再確認・採否・発注は別です。</p>
       <section aria-labelledby="proposal-items-heading" className="grid min-w-0 gap-4">
         {(proposal.corrections ?? []).length > 0 && <SectionCard padded title="提案履歴の訂正">
           {(proposal.corrections ?? []).map((correction) => <div key={correction.correction_id} className="grid gap-2">
@@ -662,21 +638,21 @@ export function ProposalReport({ data, ticker, above }: { data: LatestProposalVi
           </div>)}
         </SectionCard>}
         <h2 className="text-lg font-semibold" id="proposal-items-heading">銘柄別の行動と条件</h2>
-        {items.map((item) => <ProposalItemCard item={item} key={`${proposal.proposal_id}-${item.ticker}`} />)}
+        <ProposalItemCard item={item} />
       </section>
       <details className="rounded-lg border bg-card p-5 sm:p-6">
         <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">全体の比較・見送りと注意事項</summary>
         <div className="mt-5 grid gap-5">
-          {selected !== null && <div className="grid gap-3">
+          <div className="grid gap-3">
             <p className="text-sm font-medium">この銘柄を含む保存提案のサマリ</p><Prose>{proposal.headline}</Prose>
             <dl className="grid gap-4 sm:grid-cols-2">
               <Field label="提案基準日"><time dateTime={proposal.as_of}>{proposal.as_of}</time></Field>
               <Field label="提案本文の準備時刻"><SavedTime value={proposal.prepared_at} /></Field>
               <Field label="提案の発行時刻"><SavedTime value={proposal.published_at} /></Field>
-              <Field label="表示データ生成時刻"><SavedTime value={data.generated_at} /></Field>
+              <Field label="表示データ生成時刻"><SavedTime value={generatedAt} /></Field>
             </dl>
             <Identifier label="proposal_id" value={proposal.proposal_id} />
-          </div>}
+          </div>
           <SavedCash cash={proposal.saved_cash} />
           <SavedMarketContext context={proposal.saved_market_context} />
           <div><p className="mb-2 text-sm font-medium">全体の比較</p><Prose>{proposal.comparison}</Prose></div>

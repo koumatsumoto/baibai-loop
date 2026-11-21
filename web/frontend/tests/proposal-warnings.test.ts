@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { ProposalItemCard, ProposalReport } from '../src/pages/ProposalPage'
-import { buyFixture, holdingProposalFixture, newProposalFixture, proposalViewFixture, sellFixture, termsFixture } from './fixtures/proposals'
+import { buyFixture, holdingProposalFixture, newProposalFixture, reportProps, sellFixture, termsFixture } from './fixtures/proposals'
 
 function renderTerms(warnings: string[], sell = false) {
   const item = sell
@@ -16,9 +16,7 @@ describe('保存注意の意味と元記録', () => {
   it('保有判断と台帳予約を区別し、holdを取消命令や売買阻止に変えない', () => {
     const warnings = ['hold_active_reservation_requires_confirmation:1234']
     const before = JSON.stringify(holdingProposalFixture)
-    const html = renderToStaticMarkup(createElement(ProposalReport, {
-      data: proposalViewFixture({ ...holdingProposalFixture, warnings }),
-    }))
+    const html = renderToStaticMarkup(createElement(ProposalReport, reportProps({ ...holdingProposalFixture, warnings })))
     expect(html).toContain('保有継続 · hold')
     expect(html).toContain('保存入力の台帳に、保有継続を提案した銘柄の未完了予約が残っています。')
     expect(html).toContain('保有判断は既存注文の取消・失効確認ではありません。')
@@ -29,9 +27,7 @@ describe('保存注意の意味と元記録', () => {
   })
 
   it('予約注意のない旧表示へ現在の予約や取消済みを補わない', () => {
-    const html = renderToStaticMarkup(createElement(ProposalReport, {
-      data: proposalViewFixture({ ...holdingProposalFixture, warnings: [] }),
-    }))
+    const html = renderToStaticMarkup(createElement(ProposalReport, reportProps({ ...holdingProposalFixture, warnings: [] })))
     expect(html).not.toContain('hold_active_reservation_requires_confirmation')
     expect(html).not.toContain('未完了予約が残っています。')
     expect(html).not.toContain('取消済み')
@@ -87,9 +83,7 @@ describe('保存注意の意味と元記録', () => {
 
   it('提案全体の未評価とcoverage不足を、確認済みの低リスクへ変換しない', () => {
     const warnings = ['portfolio_valuation_unknown:9127', 'concentration_and_dry_powder_unassessed', 'portfolio_exposure_common_factor_coverage_incomplete']
-    const html = renderToStaticMarkup(createElement(ProposalReport, {
-      data: proposalViewFixture({ ...newProposalFixture, warnings }),
-    }))
+    const html = renderToStaticMarkup(createElement(ProposalReport, reportProps({ ...newProposalFixture, warnings })))
     expect(html).toContain('保存時に時価を確認できない保有銘柄があります。')
     expect(html).toContain('集中度と現金余力の診断は未評価です。')
     expect(html).toContain('共通要因が未分類の銘柄があります。見えている集中度だけで全体を評価できません。')

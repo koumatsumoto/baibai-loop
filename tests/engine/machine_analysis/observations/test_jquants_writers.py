@@ -18,6 +18,8 @@ from tests.helpers.jquants_receipts import (
     Session,
     acquire_request,
     body,
+    read_complete_request,
+    read_request_pages,
     receive,
     source_record,
 )
@@ -28,10 +30,6 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
-)
-from baibai_engine.data_collection.providers.jquants.receipts import (
-    read_complete_request,
-    read_request_pages,
 )
 from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError

@@ -1,26 +1,26 @@
 # 保有・運用のWeb
 
-台帳・保存成績・正式提案の履歴を表示し、未評価をゼロにしない。候補抽出・判断作成・台帳更新は[エンジン側](../docs/architecture.md#変更する場所)で行う。
+Webは[エンジン](../docs/architecture.md#変更する場所)が保存した内容を読む。提案や注文を作ったり、台帳を更新したりしない。
 
-## 表示の意味
+<a id="表示の意味"></a>
 
-[保存提案](../docs/reference/trade-proposal.md)と対応するAssessment/Reviewを表示し、現在価格・cash・注文資格は再計算しない。提案や成績が0件の場合と読取不能を区別し、一部の読取不能で他の表示を止めない。保存提案が参照する当初評価の破損も、その提案の読取不能とする。表示fieldの未記録とは別で、別の提案や後発評価で代用しない。
+| 画面 | 何を、いつの値として読むか |
+| --- | --- |
+| 資産状況 `/` | 人間が報告した台帳を再生し、市場の未調整終値と株数の単位が合う保有だけを時価評価する。台帳の更新日と株価の日付は別。運用成績は新たに計算せず、保存済みの結果を表示する。[台帳・時価・成績の意味](../.agents/skills/ledger-record/SKILL.md) |
+| 売買提案 `/proposal` | [保存提案](../docs/reference/trade-proposal.md)の履歴を発行時刻の新しい順に、JSTの日付・午前/午後でまとめる。銘柄を選ぶと、その提案IDと銘柄に対応する当時の評価・独立検証・条件を読む。現在価格や現在の注文可否を再判定しない。 |
 
-一覧は発行時刻をJSTの日付・午前/午後でまとめ、新しい発行から表示する。提案基準日・評価基準日・表示生成時刻とは別の時計である。レポートは不変proposal_idとtickerの組で選び、同じ銘柄の過去や複数銘柄の旧提案を消さない。会社名・業種は参照先のexact評価snapshotを優先する。評価未完成の保留は、その提案の選定で固定した同一銘柄・当時の日付のmasterだけを使い、現在の名簿や他社から補わない。読取不能の提案件数と訂正済み原本を明示し、人間報告・提案全体の文脈も詳細に残す。最新1件のAPIは既存利用者向けに同じ選択規則で維持する。
+## 提案レポートの読み方
 
-一覧は当時の短い銘柄別要点だけを載せる。単一銘柄なら提案の見出しも使え、長い文章しかない旧提案はその銘柄の保存済み判断・条件を示す。末尾の留保を切り落とした抜粋や、複数銘柄の見出しの使い回しはしない。個別レポートでは保存された要点と理由の全文、七モデルの評価チャート、折りたたんだ詳細の順に読む。新規の要約は[提案作者](../docs/reference/trade-proposal.md#report-summary)が既存fieldへ記述し、Webは判断を再生成しない。
+同じ銘柄でも別の提案は別のレポートである。銘柄の要点を一覧に出し、詳細には理由の全文、七つの観点、根拠・反対論・未解決の問いを残す。留保を切り落とした抜粋や、複数銘柄に同じ見出しを使った要約はしない。提案全体の比較、訂正、人間の報告は銘柄別判断と分けて読める。[要点の書き方](../docs/reference/trade-proposal.md#report-summary)
 
-七モデルの観点はexact評価pairの作者判断（明示の不足・対象外も含む）を優先する。未記録の軸だけ、発行時点の提案に固定された選定原本から算出した `estimated_model_chart` を「資料からの推定」と表示する。利益の実績、四半期の前年同期比較、市場・自社株の方向はその観測範囲で分類する。外部試算、業種集計や金融政策など個社の支え・逆風を単独で示さないものは「観測あり・個社への影響未判定」。根拠不足、中立、未記録、評価そのものがない場合は別。原本の情報締切・観測日・選定hashを表示し、現在の相場や成績で当初判断を上書きしない。元の評価・売買判断・注文・台帳を変更せず、支持の票数や総合点も作らない。 新しいモデル世代に固定のマネックス年度EPSがあれば、外部評価の理由欄に当時の出典・受領時刻とともに併記する。後から原本を補充せず、作者の評価とは区別する。
+チャートの「当時の作者判断」と「固定資料の観測」は別物である。作者が不足・対象外とした観点には後から判断を足さない。作者が記録しなかった観点に限り、当時の選定に固定した資料から読み取れる観測を別欄に示す。提供元の年度EPSも当時の出典・受領時刻を伴う参考値で、投資仮説への賛成票ではない。[観測と根拠の投影](../engine/src/baibai_engine/investment_judgment/trade_proposal/query.py)・[チャート](frontend/src/components/ModelPerspectives.tsx)
 
-評価の見返りは同じpairの価格・期間・Base/Downsideを既存算術で換算し、保存前提と最も強い反対論を併記する。提案指値や現在価格へ差し替えず、旧表示データの未記録と評価未確定を分ける。
+評価の見返りは、参照した評価の価格・期間・Base/Downsideから計算する。提案指値での条件付き比較や保有判断時の終値とは区別する。ある判断や表示項目が未記録でも、ゼロ・中立・安全とはしない。確定評価の参照が破損した提案は読取不能として件数に含め、後発評価や別の銘柄で埋めない。評価未完成の銘柄名・業種を補う場合も、その選定で固定された当時の銘柄情報だけを使う。
 
-詳細には同じ評価の永久損失の検討と未解決の問いを表示する。資金・返済等の限定を七観点へ転記させず、判断・根拠確認の範囲・時点を原文のまま渡す。根拠の確認済みを安全保証、問いの存在を購入不可に変えない。旧表示データに含まれない場合を、リスクや問いがないことと区別する。
+## 実装と配信
 
-## 実装の入口
+- [表示生成](backend/src/baibai_web/materialize.py)は[読取元](backend/src/baibai_web/sources/)から[表示モデル](backend/src/baibai_web/readmodel/)を作る。生成、公開、認証済みレスポンスの読戻しは別の段階である。
+- [履歴画面](frontend/src/pages/ProposalHistoryPage.tsx)は発行履歴を使う。`/api/proposal/latest` は履歴の先頭ではない。訂正対象を除き、提案基準日を優先して選ぶ正式な最新一件で、[配信照合](../tools/diagnostics/check_served_proposal.py)も区別して検証する。
+- [生成ツール](backend/src/baibai_web/contracts_export.py)がPython表示モデルからschema・TypeScriptを作る。生成物は手編集しない。[Worker](edge/src/index.ts)は[配信経路](contracts/routes.json)の全viewに共通認証を適用する。
 
-- [materialize](backend/src/baibai_web/materialize.py)：applicationとmarketから表示を生成する。生成と公開は別。
-- [sources](backend/src/baibai_web/sources/)・[readmodel](backend/src/baibai_web/readmodel/)：正本の読取と表示への投影。提案の選択規則はエンジンの[query](../engine/src/baibai_engine/investment_judgment/trade_proposal/query.py)を使う。
-- [contracts_export](backend/src/baibai_web/contracts_export.py)：Python表示modelからschema・TypeScriptを生成する。生成物を別仕様として手編集しない。
-- [frontend](frontend/)・[edge](edge/)：表示と認証付き配信。全viewに既存の共通認証を適用する。
-
-環境準備・Viteで確認できる範囲・buildは[development](../docs/development.md#webの確認)、本番への生成・公開・読戻しとWorker配備は[運用手順](../jobs/OPERATIONS.md#web-serving)に従う。
+環境準備とViteで確認できる範囲は[開発手順](../docs/development.md#webの確認)、本番での生成・公開・読戻し・Worker配備は[運用手順](../jobs/OPERATIONS.md#web-serving)へ。

@@ -1,14 +1,12 @@
 # 探索索引から調査対象を選ぶ
 
-ScreeningSelectionは「何が価格に対して安い可能性を作るか」を調べるための、保存済みGenerationの索引。候補順位・割安判定・採否ではない。[日次統合](../../jobs/src/baibai_jobs/integration/models.py)が[普通株の探索行](../../engine/src/baibai_engine/machine_analysis/screening/policies/discovery.py)を固定し、[企業判断の入口](../../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)がそれを読む。
+現行のScreeningSelectionは「何が価格に対して安い可能性を作るか」を調べるための索引。[日次統合](../../jobs/src/baibai_jobs/integration/models.py)が一つのModelGenerationから[普通株の観測](../../engine/src/baibai_engine/machine_analysis/screening/policies/discovery.py)を取り出して発行する。行があるのはその世代で対象だったという意味で、割安や買付可能を示さない。
 
 ## 発行物を固定して読む
 
-1. 通常の新規発見は `investment-judgment selection-context` の `--scope discover_new` から始める。返された `repeat_command_args` でSelection ID・基準日・timezone付きcutoffを固定する。
-2. 出力にある問いを `--discovery-question <KEY>` で選ぶ。続きを見るには `next_args`、同じ世代の個社モデルを読むには行の `detail_args`（`--compare-ticker`）を使う。ページ順や経路数は割安順位ではない。
-3. 銘柄の指定は `--scope specified_stocks`、保有点検は `--scope review_positions`。明示対照は調査・提案対象とは別に扱う。台帳を読んでいないことを未保有確認済みにしない。保有は現在の台帳を事実時刻で再生するため、過去の約定の後追記で同じcutoffの対象が変わり得る。
+[企業判断の開始手順](../../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)で依頼の範囲・公表ID・情報締切を固定する。新規発見では、同じ問いに該当する会社を銘柄コード順に読める。複数の問いに該当する会社もある。ページ順や該当数は買い順位ではなく、比較のために開いた会社が調査・提案対象に自動で加わることもない。
 
-新しい発行は候補外も含む普通株全体の探索行を持つ。軽量索引のない公表物は `unindexed_legacy_publication` であり、対象0件や現行の順位ではない。必要な会社だけ同じ公表IDで照合し、現在のモデルから当時の選定を作り直さない。照会はResearchの開始や対象追加ではない。
+過去の公表物にこの索引がない場合、新規発見の一覧は `unindexed_legacy_publication` を返す。「当時の対象が0社だった」という意味ではない。必要なら公表IDと比較銘柄を明示し、[当時の保存行](../../engine/src/baibai_engine/investment_judgment/workflow/selection_query.py)を照合する。保有点検では別に台帳が必要で、台帳未確認は保有ゼロではない。現在の台帳を事実時刻で再生するため、過去の約定を後から記録すると同じ締切の対象が変わり得る。
 
 <a id="candidate-discovery"></a>
 ## 観測から仮説へ進む
@@ -35,7 +33,7 @@ ScreeningSelectionは「何が価格に対して安い可能性を作るか」�
 <a id="case-evidence"></a>
 ## 保存された判断を確認する
 
-[GenerationとSelection](../architecture.md#store-authority)は別IDで、読取から政策を再適用しない。調査を始めると、Caseには対象・明示した比較相手の行、同世代モデル、cutoffが固定される。調べなかった全社の詳細を再開時に最新値で補わない。
+索引を使って調査を始めると、[調査案件（Operation）に保存する選定原本](../../engine/src/baibai_engine/investment_judgment/workflow/case_screening.py)には、対象・明示した比較相手について発行時にあった行が残る。元の[GenerationとScreeningSelection](../architecture.md#store-authority)は別IDで、読取時に選び直さない。案件の情報締切や同世代のモデルを、再開時の最新値に差し替えない。
 
 私有application DBのコピーでOperationをID指定して開き、保存選定・進捗・正式提案をたどる。対象0件、未完、査読後の見送りは異なる結果で、後日の取引・振返りは当時の判断の根拠ではない。
 
@@ -45,4 +43,4 @@ uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> --format json sho
 uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> --format json selection-evidence <OPERATION_ID> --selection-sha256 <PUBLISHED_SELECTION_SHA256> --proposal-id <PROPOSAL_ID>
 ```
 
-最終行は[正式提案](../../engine/src/baibai_engine/investment_judgment/trade_proposal/query.py)が参照する選定原本を読む。公開時と運用用のSHAが違う場合は元の受領をたどる。提案がなければ取得を飛ばし、`show` の保存内容を読む。私有本文や出力を公開しない。
+最後の例は[正式提案のIDと選定原本のSHAを照合する読取](../../engine/src/baibai_engine/investment_judgment/workflow/selection_evidence.py)。公開時と現在の運用用のSHAが違う場合、移行時に保存した原文と両方のSHAを照合できたときだけ、当時の本文が返る。提案がなければこの照合は不要で、`show` の保存内容を読む。私有本文や出力を公開しない。

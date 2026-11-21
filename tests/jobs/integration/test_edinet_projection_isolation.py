@@ -137,11 +137,12 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     ).model_dump(mode="json")
     good_source = tmp_path / "good.sqlite"
     calendar(good_source, DAY.isoformat(), asof.isoformat(), 1, STAMP + timedelta(hours=2))
+    from tests.helpers.jquants_receipts import read_request_pages
+
     from baibai_engine.data_collection.providers.jquants.calendar_native import (
         CalendarAttempt,
         CalendarL1,
     )
-    from baibai_engine.data_collection.providers.jquants.receipts import read_request_pages
 
     native_calendar = CalendarL1(store, tmp_path / "native-calendar")
     native_calendar.initialize()
@@ -149,7 +150,7 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
         request_id = connection.execute(
             "SELECT DISTINCT request_id FROM jquants_source_pages"
         ).fetchone()[0]
-        pages = tuple(read_request_pages(connection, request_id))
+        pages = read_request_pages(connection, request_id)
     native_calendar.commit([CalendarAttempt(request_id, DAY, asof, None, pages)])
     work = tmp_path / "integration"
     work.mkdir()

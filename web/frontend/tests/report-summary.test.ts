@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ReportSummary } from '../src/components/ReportSummary'
 import { ProposalItemCard, ProposalReport } from '../src/pages/ProposalPage'
-import { buyFixture, newProposalFixture, proposalViewFixture } from './fixtures/proposals'
+import { buyFixture, newProposalFixture, reportProps } from './fixtures/proposals'
 
 const reserved = '利益率は回復した。売上も増えた。市場環境は好転した。ただし借換の成立は未確認であり、1,200.50円以下でも成立確認までは買わない。'
 const reversed = '利益率は回復した。売上も増えた。市場環境は好転した。しかし返済資金が足りないため、今回は見送る。'
@@ -39,11 +39,13 @@ describe('読みやすい提案レポート', () => {
     expect(html).toContain('1200.0000 円')
   })
 
-  it('レポート冒頭の結論も切らず、比較・見送り・日付は詳細へ保持する', () => {
+  it('個別判断を冒頭に残し、提案全体の見出し・比較・見送り・日付は詳細へ保持する', () => {
     const proposal = { ...newProposalFixture, headline: reversed }
-    const html = renderToStaticMarkup(createElement(ProposalReport, { data: proposalViewFixture(proposal) }))
-    expect(html.indexOf('サマリ')).toBeLessThan(html.indexOf('銘柄別の行動と条件'))
-    expect(html.slice(0, html.indexOf('<details'))).toContain(reversed)
+    const html = renderToStaticMarkup(createElement(ProposalReport, reportProps(proposal)))
+    const [summary, details] = html.split('この銘柄を含む保存提案のサマリ')
+    expect(summary).toContain(buyFixture.rationale)
+    expect(summary).not.toContain(reversed)
+    expect(details).toContain(reversed)
     expect(html).toContain(proposal.comparison)
     expect(html).toContain(proposal.forgone)
     expect(html).toContain(`dateTime="${proposal.as_of}"`)

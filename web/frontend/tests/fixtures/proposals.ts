@@ -1,6 +1,5 @@
 // 合成データのみ。新規と保有を別の保存scopeとして扱い、実データを複写しない。
 import type {
-  LatestProposalView,
   SavedAssessmentView,
   SavedBuyItemView,
   SavedDeferItemView,
@@ -224,6 +223,6 @@ export const holdingProposalFixture: SavedProposalView = {
   }],
 }
 
-export function proposalViewFixture(proposal: SavedProposalView = newProposalFixture): LatestProposalView {
-  return { generated_at: '2026-10-29T02:30:03Z', status: 'ready', error: null, proposal }
+export function reportProps(proposal = newProposalFixture, item = proposal.items[0]) {
+  return { proposal, item, generatedAt: '2026-10-29T02:30:03Z' }
 }
