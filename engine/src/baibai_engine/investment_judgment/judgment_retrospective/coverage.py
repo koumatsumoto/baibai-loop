@@ -36,6 +36,13 @@ def original_item_questions(item: ProposalItem) -> dict[str, object]:
             {
                 "original_economic_decision": item.economic_decision,
                 "original_order_readiness": order_readiness(item),
+                "original_session_limit": (
+                    item.terms.model_dump(
+                        mode="json", include={"limit_price_yen", "target_session"}
+                    )
+                    if item.terms is not None
+                    else None
+                ),
             }
             if item.action == "buy"
             else {}
