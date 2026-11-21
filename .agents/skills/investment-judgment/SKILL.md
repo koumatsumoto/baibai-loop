@@ -159,7 +159,7 @@ uv run baibai-engine investment-judgment judgment-retrospective changes \
 
 受領の有無にかかわらず、元項目が特定の決算で確かめるとした問いは[該当の開示](../../../docs/reference/stock-assessment.md#event-resolution)を原典で確認する。受領資料が同じ開示の同じ事実を扱っていれば一度の照合にまとめる。決算の公表だけで、同社の価格条件や市場・事業の別の前提まで開き直さない。該当項目の`coverage`を読み、当初の問いを変える根拠があれば下の`scaffold/save`で記録する。新しい材料がなければ同じメモは重ねない。
 
-正式提案の振り返りは、先にその全項目を開く。発行時の理由・再調査条件（保留なら当初の障害と再開条件も）に並べて、後から何を比較し、次回に何を変えようと記録したかを読む。
+正式提案の振り返りは、先にその全項目を開く。発行時の理由・再調査条件（保留なら当初の障害と再開条件も）に並べて、後から何を比較し、次回に何を変えようと記録したかを読む。買いの価格は保存した指値と対象立会を組にして照合し、具体条件のない案に作者上限や後日の立会を補わない。
 
 ```bash
 uv run baibai-engine investment-judgment judgment-retrospective coverage \
