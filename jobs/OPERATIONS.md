@@ -493,6 +493,9 @@ lease外でacquire→inspect→ready --cumulative、共通統合で固定集合�
 
 必要銘柄/fieldの揃った原応答はL2検証失敗でも保持し後続batchを進める。不足はpartial/診断へ残し、無効応答連続・HTTP/認証・時刻/予算・保存失敗の停止境界を維持する。
 
+列欠落の広がりは、固定済みの同じ試行のhandoffから一組の `result.json` と、WALを反映済みの `receipts.sqlite` のローカルコピーを使って調べる（追加取得・再解析保存なし）。`result.json` の `snapshot_date`・`receipt_ids` を使い、別の試行のIDや稼働中DBを混ぜない。
+`uv run python -m baibai_jobs.integration.tradingview_receipts --sqlite <LOCAL_RECEIPTS_SQLITE> --asof <CYCLE_DATE> --diagnose-receipt <ID>` の末尾を受領ごとに繰り返す（最大100件）。field別の分母は銘柄の重複を含む辞書行で、明示missing・非辞書行・応答照合失敗は別。キーの存在は値の妥当性や評価の採用を意味しない。
+
 新しい観測は[日次workflow](../.github/workflows/cloud-tradingview-snapshot.yml)と同じ順で準備する。空の作業DBへ `source_handoff input --source tradingview` で入力を読み、`master-dependency hydrate` で観測日の暦とmasterを固定し、`source_handoff resume` で同じcycleの受領済み分を戻す。master不足時の追加取得は同workflowのpreflightとcooldownに従う。過去観測の回復では元の固定入力を使い、SQL内の依存表や現在のheadで代用しない。
 
 receiveはHTTPなしでSDK応答全体/失敗を保存する。同IDは全内容一致の再送だけ、別呼出しは別ID。exportには上で固定したsource-input directoryを渡し、共通統合へ渡すのは受領packetだけ。取得copy全体をpushしない。
