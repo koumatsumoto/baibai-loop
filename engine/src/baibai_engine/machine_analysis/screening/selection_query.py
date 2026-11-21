@@ -18,7 +18,6 @@ from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
     validate_selection_source,
 )
-from baibai_engine.machine_analysis.screening.discovery_contract import DiscoverySelectionV2
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 _CODEC = TypeAdapter(ScreeningSelection)
@@ -32,8 +31,7 @@ def _decode_selection(payload: bytes) -> ScreeningSelection:
 def read_selection(selection_id: str, *, path: Path | None = None) -> ScreeningSelection | None:
     with closing(connect_read_only(path)) as connection:
         row = connection.execute(
-            "SELECT s.payload_gzip,s.generation_id,g.header FROM screening_selection s "
-            "JOIN model_generation g USING(generation_id) WHERE s.selection_id=?",
+            "SELECT payload_gzip,generation_id FROM screening_selection WHERE selection_id=?",
             (selection_id,),
         ).fetchone()
         if row is None:
@@ -43,9 +41,6 @@ def read_selection(selection_id: str, *, path: Path | None = None) -> ScreeningS
             selection,
             selection_id=selection_id,
             generation_id=row[1],
-            metadata=GenerationMetadata.model_validate_json(row[2])
-            if isinstance(selection.result, DiscoverySelectionV2)
-            else None,
         )
         return selection
 
@@ -86,7 +81,6 @@ def read_publication(
         selection,
         selection_id=identity,
         generation_id=generation.generation_id,
-        metadata=generation,
     )
     return ScreeningPublication(identity, published_at, generation, selection)
 
@@ -120,7 +114,6 @@ def read_case_publication_from_connection(
         selection,
         selection_id=selection_id,
         generation_id=generation.generation_id,
-        metadata=generation,
     )
     return actual_time, digest, selection
 

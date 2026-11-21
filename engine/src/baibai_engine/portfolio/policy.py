@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import TypedDict
 
 
@@ -52,40 +51,3 @@ PORTFOLIO_POLICY: PolicyConfig = {
         "market_price_max_age_days": 7,
     },
 }
-
-
-def validate_policy(policy: Mapping[str, object] = PORTFOLIO_POLICY) -> None:
-    """Fail fast when a code-owned policy threshold is missing or mistyped."""
-
-    positive_integer_paths = (
-        ("cash_management", "override_max_days"),
-        ("order_constraints", "board_lot"),
-        ("valuation", "market_price_max_age_days"),
-    )
-    for path in positive_integer_paths:
-        value = _value_at(policy, path)
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise RuntimeError(f"PORTFOLIO_POLICY.{'.'.join(path)} must be a positive integer")
-    percentage_paths = (
-        ("cash_management", "dry_powder_warning_pct"),
-        ("risk_budget", "max_ticker_concentration_pct"),
-        ("risk_budget", "max_sector_concentration_pct"),
-        ("risk_budget", "max_common_factor_concentration_pct"),
-        ("risk_budget", "max_adv_participation_pct"),
-    )
-    for path in percentage_paths:
-        value = _value_at(policy, path)
-        if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
-            raise RuntimeError(f"PORTFOLIO_POLICY.{'.'.join(path)} must be within 0..100")
-
-
-def _value_at(policy: Mapping[str, object], path: tuple[str, ...]) -> object:
-    current: object = policy
-    for key in path:
-        if not isinstance(current, Mapping) or key not in current:
-            return None
-        current = current[key]
-    return current
-
-
-validate_policy()

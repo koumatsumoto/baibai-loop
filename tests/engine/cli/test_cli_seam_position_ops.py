@@ -160,7 +160,6 @@ def test_prepare_then_checkpoint_cli_updates_only_notes(
     operation_id = initial["operation_id"]
     frozen_contents = (workspace / "domain-inputs.yaml").read_bytes()
     before = OperationService(db).get(operation_id)
-    # Checkpoint needs only the existing App; legacy CLI required a full JSON/YAML payload.
     runs.rename(tmp_path / "offline-runs")
     code = operation_main(
         [

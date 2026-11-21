@@ -14,11 +14,13 @@ from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.technical_discovery import _metadata
 
+from baibai_engine.investment_judgment.trade_proposal.discovery_context import (
+    saved_discovery_context,
+)
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
-from baibai_engine.investment_judgment.workflow.screening_brief import saved_discovery_context
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,

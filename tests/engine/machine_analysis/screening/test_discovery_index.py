@@ -5,6 +5,7 @@ import json
 import sqlite3
 from dataclasses import replace
 from datetime import timedelta
+from hashlib import sha256
 
 import pytest
 from tests.helpers.archived_technical_financial import (
@@ -78,6 +79,13 @@ def test_publication_scope_clocks_values_and_old_body_is_never_opened(tmp_path, 
         )
     assert store.publish(identity, compact)
     assert not store.publish(identity, compact)
+    with sqlite3.connect(path) as conn:
+        (wire,) = conn.execute(
+            "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (identity,)
+        ).fetchone()
+    assert sha256(gzip.decompress(wire)).hexdigest() == (
+        "7f234ba481f9ecd8339dfd57462884d054f3a9d34aff34fc6e5052bb4af9c741"
+    )
     normal = discovery_index.read_discovery_index(path=path)
     assert normal.status == "indexed"
     assert normal.selection_id == identity
@@ -162,6 +170,8 @@ def test_missing_source_is_an_explicit_member_not_an_absent_or_duplicate_row(tmp
         store.publish(identity, broken)
     with pytest.raises(ValueError, match="identity"):
         store.publish("wrong", sparse)
+    with pytest.raises(ValueError, match="version or identity"):
+        store.publish(identity.removesuffix("v1") + "unknown", sparse)
     with sqlite3.connect(path) as c:
         blob = c.execute(
             "select payload_gzip from screening_selection where selection_id=?", (identity,)

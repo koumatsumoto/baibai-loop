@@ -14,10 +14,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
 from baibai_engine.investment_judgment.workflow.selection import (
     ResearchSelectionRecord as ResearchSelection,
 )
-from baibai_engine.machine_analysis.screening.discovery_contract import (
-    DiscoverySelection,
-    DiscoverySelectionV2,
-)
+from baibai_engine.machine_analysis.screening.discovery_contract import DiscoverySelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialRow,
     TechnicalFinancialSelection,
@@ -31,15 +28,13 @@ def saved_discovery_context(
         return None
     saved = selection.inputs.screening_selection
     if saved is None or not isinstance(
-        saved.result, (TechnicalFinancialSelection, DiscoverySelection, DiscoverySelectionV2)
+        saved.result, (TechnicalFinancialSelection, DiscoverySelection)
     ):
         return None
     result = saved.result
     used = set(selection.evidence_subjects())
     policies: dict[str, JsonValue] = {}
-    if isinstance(result, (DiscoverySelection, DiscoverySelectionV2)):
-        if isinstance(result, DiscoverySelectionV2):
-            policies["price_session"] = result.price_session.model_dump(mode="json")
+    if isinstance(result, DiscoverySelection):
         rows = {
             r["ticker"]: cast(JsonValue, deepcopy(r)) for r in result.rows if r["ticker"] in used
         }

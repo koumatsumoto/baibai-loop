@@ -19,7 +19,7 @@ from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_p
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
-from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
+from baibai_engine.portfolio.ledger.events import OpeningBalanceEvent, PortfolioLedgerDocument
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from tests.helpers.assessment_v1 import (
@@ -35,6 +35,18 @@ from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 PREPARED = datetime.fromisoformat("2026-10-14T16:10:00+09:00")
 PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
 PROPOSAL_ID = "investment-proposal-00000000-0000-4000-8000-000000000003"
+
+
+def seed_context_ledger(app: Path, at: datetime) -> None:
+    opening = OpeningBalanceEvent(
+        type="opening_balance", event_id="synthetic", occurred_at=at, amount_yen=1
+    )
+    seed_ledger(
+        app,
+        PortfolioLedgerDocument(
+            schema_version=3, portfolio_scope="repository_only", as_of=at, events=(opening,)
+        ),
+    )
 
 
 def evaluate_buy_terms(assessment, *, proposed_limit_yen, selected_quantity=None, **fixed):

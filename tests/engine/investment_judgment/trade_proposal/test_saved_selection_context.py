@@ -5,7 +5,7 @@ from datetime import timedelta
 import pytest
 from pydantic import ValidationError
 from tests.helpers import proposal as helper
-from tests.helpers.db_seed import seed_historical_operation, seed_ledger
+from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.proposal import PROPOSAL_ID
 from tests.helpers.research_selection import historical_operation, selection
@@ -16,7 +16,6 @@ from baibai_engine.investment_judgment.workflow.operation.models import Operatio
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import parse_selection, selection_sha256
-from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 
 START = helper.PREPARED - timedelta(minutes=3)
 REQUEST = (
@@ -25,27 +24,6 @@ REQUEST = (
     + "元依頼だけに記された比較上の限定。"
     * 30
 )
-
-
-def _ledger(app):
-    seed_ledger(
-        app,
-        PortfolioLedgerDocument.model_validate(
-            {
-                "schema_version": 3,
-                "portfolio_scope": "repository_only",
-                "as_of": START,
-                "events": [
-                    {
-                        "type": "opening_balance",
-                        "event_id": "synthetic",
-                        "occurred_at": START,
-                        "amount_yen": 1,
-                    }
-                ],
-            }
-        ),
-    )
 
 
 def _selected(tmp_path, *, tickers=("1234",), scope="discover_new"):
@@ -99,7 +77,7 @@ def test_normal_operation_keeps_original_questions_after_source_is_unavailable(
     tmp_path, monkeypatch, scope
 ):
     app = tmp_path / "app.sqlite"
-    _ledger(app)
+    helper.seed_context_ledger(app, START)
     selected = _selected(tmp_path, scope=scope)
     assert REQUEST not in selected.selection_summary
     assert all(REQUEST not in target.research_question for target in selected.targets)
@@ -149,7 +127,7 @@ def test_normal_operation_keeps_original_questions_after_source_is_unavailable(
 @pytest.mark.parametrize("version", [2, 3, 4, 5])
 def test_retained_selection_versions_keep_original_text_and_cutoff(tmp_path, version):
     app = tmp_path / "app.sqlite"
-    _ledger(app)
+    helper.seed_context_ledger(app, START)
     if version == 2:
         selected = selection(now=START, tickers=("1234",))
     else:
@@ -180,7 +158,7 @@ def test_retained_selection_versions_keep_original_text_and_cutoff(tmp_path, ver
 
 def test_zero_target_still_does_not_enter_proposal_authoring(tmp_path):
     app = tmp_path / "app.sqlite"
-    _ledger(app)
+    helper.seed_context_ledger(app, START)
     selected = _selected(tmp_path, tickers=())
     operations = OperationService(app, runs_path=tmp_path / "runs.sqlite")
     operation = operations.start(

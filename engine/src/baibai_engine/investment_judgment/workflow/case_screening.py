@@ -11,12 +11,7 @@ from pydantic import TypeAdapter
 
 from baibai_engine.investment_judgment.workflow.selection import CaseScreening, PopulationGroup
 from baibai_engine.machine_analysis.screening.contracts import ScreeningResult
-from baibai_engine.machine_analysis.screening.discovery_contract import (
-    DiscoveryRow,
-    DiscoveryRowV2,
-    DiscoverySelection,
-    DiscoverySelectionV2,
-)
+from baibai_engine.machine_analysis.screening.discovery_contract import DiscoverySelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialSelection,
@@ -30,12 +25,6 @@ from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 def _state(value: object) -> str | None:
     return value if isinstance(value, str) else None
-
-
-def _for_subjects[R: (DiscoveryRow, DiscoveryRowV2)](
-    rows: tuple[R, ...], used: set[str]
-) -> tuple[R, ...]:
-    return tuple(row for row in rows if row["ticker"] in used)
 
 
 def read_case_screening(
@@ -67,7 +56,7 @@ def read_case_screening_from_connection(
     result = source.result
     finite: ScreeningResult
     states: dict[tuple[str, str | None, str | None, bool | None], list[str]] = defaultdict(list)
-    if isinstance(result, (DiscoverySelection, DiscoverySelectionV2)):
+    if isinstance(result, DiscoverySelection):
         # A planned row can explicitly have no models; absence of its identity is not equivalent.
         for entry in result.rows:
             states[
@@ -76,10 +65,7 @@ def read_case_screening_from_connection(
                 entry["financial_state"],
                 entry["models_recorded"],
             ].append(entry["ticker"])
-        if isinstance(result, DiscoverySelectionV2):
-            finite = replace(result, rows=_for_subjects(result.rows, used))
-        else:
-            finite = replace(result, rows=_for_subjects(result.rows, used))
+        finite = replace(result, rows=tuple(row for row in result.rows if row["ticker"] in used))
     elif isinstance(result, TechnicalFinancialSelection):
         for row in result.rows:
             states[
@@ -118,7 +104,7 @@ def read_case_screening_from_connection(
             for (scope, tech, fin, models), value in states.items()
         ),
         legacy_candidate_count=None
-        if isinstance(result, (DiscoverySelection, DiscoverySelectionV2))
+        if isinstance(result, DiscoverySelection)
         else len(result.tickers),
     )
 

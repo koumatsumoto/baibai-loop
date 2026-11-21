@@ -25,7 +25,12 @@ ScreeningSelectionは「何が価格に対して安い可能性を作るか」�
 
 ## 入力不足と品質
 
-未取得、モデル未生成、企業への非該当、価格・分母が足りない場合、既知の条件不成立を分ける。 `input_gap` は不足を調べるための問いで、`outside_display` は保存表示の外を調べる問い。両者は重なり得る。空、未観測、棄却を同じ結果にしない。[原典・時点・不足の規則](model-observations.md#source-owners)
+未取得、モデル未生成、企業への非該当、価格・分母の不足、既知の条件不成立を区別する。
+
+- `input_gap` は、入力や価格の基準が未確定の会社を調べる問い。
+- `outside_display` は、発行時の索引で `screening_lane` が `no_current_hypothesis` の会社を調べる問い。過去の画面に載ったかどうかは見ない。
+
+同じ会社が両方に該当することがある。いずれも棄却や割安の判定ではない。[原典・時点・不足の規則](model-observations.md#source-owners)
 
 <a id="case-evidence"></a>
 ## 保存された判断を確認する

@@ -1,4 +1,4 @@
-"""保存したT/G政策を閲覧・選択・再開する。後日の再評価で入力を補わない。"""
+"""指定企業の保存行を原文と照合し、有限のCaseを同じ根拠から再開する。"""
 
 from datetime import timedelta
 
@@ -193,9 +193,11 @@ def test_case_pins_explicit_contrast_and_scope_without_promoting_or_using_later_
     import sqlite3
     from hashlib import sha256
 
+    from baibai_engine.investment_judgment.trade_proposal.discovery_context import (
+        saved_discovery_context,
+    )
     from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
     from baibai_engine.investment_judgment.workflow.operation.service import OperationConflictError
-    from baibai_engine.investment_judgment.workflow.screening_brief import saved_discovery_context
 
     runs, app, workspace = tmp_path / "runs", tmp_path / "app", tmp_path / "case"
     fixed, source, now = seed(runs)

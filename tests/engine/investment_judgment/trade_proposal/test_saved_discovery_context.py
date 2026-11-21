@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 from pydantic import TypeAdapter
 from tests.helpers import proposal as helper
-from tests.helpers.db_seed import seed_historical_operation, seed_ledger
+from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.proposal import PROPOSAL_ID
 from tests.helpers.research_selection import historical_operation, selected_target, selection
@@ -27,7 +27,6 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
     TechnicalFinancialRow,
     TechnicalFinancialSelection,
 )
-from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 
 START = helper.PREPARED - timedelta(minutes=3)
 CODEC = TypeAdapter(TechnicalFinancialRow)
@@ -100,30 +99,9 @@ def _result(version=12):
     )
 
 
-def _ledger(app):
-    seed_ledger(
-        app,
-        PortfolioLedgerDocument.model_validate(
-            {
-                "schema_version": 3,
-                "portfolio_scope": "repository_only",
-                "as_of": START,
-                "events": [
-                    {
-                        "type": "opening_balance",
-                        "event_id": "synthetic",
-                        "occurred_at": START,
-                        "amount_yen": 1,
-                    }
-                ],
-            }
-        ),
-    )
-
-
 def _prepare(tmp_path, *, tickers=("1234",), version=12, screening=True, technical=True):
     app, runs = tmp_path / "app.sqlite", tmp_path / "runs.sqlite"
-    _ledger(app)
+    helper.seed_context_ledger(app, START)
     source = seed_generated_selection(
         runs=runs,
         now=START,
@@ -258,7 +236,7 @@ def test_other_saved_candidate_policy_is_not_reinterpreted(tmp_path):
 @pytest.mark.parametrize("version", [2, 3])
 def test_old_selection_remains_readable_without_new_source_or_hash(tmp_path, version):
     app = tmp_path / "legacy.sqlite"
-    _ledger(app)
+    helper.seed_context_ledger(app, START)
     if version == 2:
         selected = selection(now=START, tickers=("1234",))
     else:
