@@ -69,7 +69,7 @@ def _read_snapshot(connection: sqlite3.Connection, now: datetime) -> ProposalVie
     projected: dict[str, SavedProposalView] = {}
     for proposal_id in ids:
         try:
-            projected[proposal_id] = _project(connection, proposal_id, records)
+            projected[proposal_id] = read_saved_proposal_view(connection, proposal_id, records)
         except _READ_ERRORS:
             continue
 
@@ -121,7 +121,7 @@ def _views(
     )
 
 
-def _project(
+def read_saved_proposal_view(
     connection: sqlite3.Connection, proposal_id: str, records: ProposalRecordReader
 ) -> SavedProposalView:
     proposal, pairs = load_proposal_with_assessments(connection, proposal_id)

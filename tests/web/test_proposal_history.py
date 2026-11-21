@@ -49,7 +49,7 @@ def test_history_preserves_each_publication_exact_pair_and_saved_identity(tmp_pa
     case.runs.unlink()
     connect = mocker.spy(proposal_source, "connect_read_only")
     records = mocker.spy(proposal_source, "ProposalRecordReader")
-    project = mocker.spy(proposal_source, "_project")
+    project = mocker.spy(proposal_source, "read_saved_proposal_view")
     latest, view = read_proposal_views(case.app, generated_at=PUBLISHED)
     assert connect.call_count == records.call_count == 1
     assert [call.args[1] for call in project.call_args_list] == sorted(
@@ -154,7 +154,7 @@ def test_history_index_failure_still_projects_the_selected_publication_once(tmp_
     mocker.patch.object(
         proposal_source, "published_proposal_ids", side_effect=sqlite3.OperationalError("private")
     )
-    project = mocker.spy(proposal_source, "_project")
+    project = mocker.spy(proposal_source, "read_saved_proposal_view")
     latest, history = read_proposal_views(case.app, generated_at=PUBLISHED)
     assert latest.status == "ready"
     assert latest.proposal is not None
