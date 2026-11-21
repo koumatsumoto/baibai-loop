@@ -161,7 +161,7 @@ def diagnose_receipts(
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--asof", type=date.fromisoformat, required=True)
     parser.add_argument("--sqlite", type=Path)
@@ -171,6 +171,11 @@ def main(argv: list[str] | None = None) -> int:
         metavar="ID",
         help=f"inspect one sealed local attempt (repeat up to {MAX_DIAGNOSTIC_RECEIPTS} times)",
     )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
     if args.diagnose_receipt:
         if args.sqlite is None:

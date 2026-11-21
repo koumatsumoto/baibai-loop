@@ -318,10 +318,13 @@ def test_models_share_selected_ttm_and_restated_quarter_comparison(bounded_read)
 @pytest.mark.parametrize("sector", [None, "銀行業"])
 def test_pdf_does_not_remove_sector_specific_margin_limit(sector):
     reader = CompanyGrowthReader(models(sector=sector)[1].payload)
-    assert (
-        metric_value(reader.observation(reader.latest_period, "quarter"), "operating_margin")
-        is None
+    quarter = reader.observation(reader.latest_period, "quarter")
+    (change,) = reader.year_over_year(quarter, "operating_margin")
+    assert change.reason == (
+        "not_applicable_to_financial_sector" if sector == "銀行業" else "operand_unavailable"
     )
+    assert change.difference is None
+    assert metric_value(quarter, "operating_margin") is None
     assert (
         metric_value(reader.observation(reader.latest_period, "annual_ttm"), "operating_margin")
         is None

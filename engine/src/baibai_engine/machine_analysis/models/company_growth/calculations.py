@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from baibai_engine.machine_analysis.models.company_growth.models import (
+    FINANCIAL_SECTOR_INAPPLICABLE,
     Change,
     Metric,
     Observation,
@@ -201,7 +202,7 @@ def _margin(metrics: dict[Metric, Value], sector: str | None) -> None:
     if sector is None:
         reason = "sector_unverified"
     elif sector in _FINANCIAL_SECTORS:
-        reason = "not_applicable_to_financial_sector"
+        reason = FINANCIAL_SECTOR_INAPPLICABLE
     elif sales.value is None or profit.value is None:
         reason = "operand_unavailable"
     elif sales.value <= 0:
@@ -501,6 +502,16 @@ def _latest_comparable_periods(
     return []
 
 
+def _missing_change_reason(current: Value, *priors: Value | None) -> str:
+    # 両端で非該当が明示されたときだけ、前年の欠測・曖昧な比較と区別する。
+    if priors and all(
+        item is not None and item.value is None and item.reason == FINANCIAL_SECTOR_INAPPLICABLE
+        for item in (current, *priors)
+    ):
+        return FINANCIAL_SECTOR_INAPPLICABLE
+    return "operand_unavailable"
+
+
 def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
     observations = [o for s in states for o in s.observations]
     by_end: dict[tuple[str, int], list[Observation]] = {}
@@ -547,7 +558,7 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
                     else "accounting_standard_incomparable"
                 )
             elif before is None or after is None:
-                reason = "operand_unavailable"
+                reason = _missing_change_reason(value, *(p.metrics.get(metric) for p in priors))
             difference = (
                 after - before
                 if reason is None and before is not None and after is not None
