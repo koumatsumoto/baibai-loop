@@ -116,7 +116,6 @@ def native_market_dependencies(store, tmp_path, monkeypatch):
 
 def test_price_commits_before_an_independent_source_failure(tmp_path, monkeypatch):
     import baibai_engine.data_collection.providers.jquants.http as http
-    import baibai_engine.primitives.market_windows as windows
     import baibai_engine.storage.snapshots.objects as objects
     import baibai_jobs.integration.source_handoff as handoff
     from baibai_jobs.acquisition import jquants_margin_alerts_native
@@ -128,7 +127,7 @@ def test_price_commits_before_an_independent_source_failure(tmp_path, monkeypatc
     store = Store()
     PriceL1(store, tmp_path / "init").initialize()
     native_market_dependencies(store, tmp_path, monkeypatch)
-    monkeypatch.setattr(windows, "FINANCIAL_HISTORY_DAYS", 0)
+    monkeypatch.setattr(handoff, "FINANCIAL_HISTORY_DAYS", 0)
 
     def native_store(*, bucket, verify_put_with_head):
         assert verify_put_with_head is False

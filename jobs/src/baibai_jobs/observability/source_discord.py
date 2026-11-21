@@ -7,7 +7,7 @@ import sys
 
 from .discord import (
     DEFAULT_TIMEOUT_SECONDS,
-    EXPECTED_PMI_SOURCES,
+    PMI_SOURCE,
     deliver,
     render_run_notice,
     run_url,
@@ -22,7 +22,7 @@ def main() -> int:
     acquired = os.environ.get("ACQUIRE_RESULT", "unknown")
     staged = os.environ.get("STAGE_RESULT", "unknown")
     expected_unavailable = (
-        source in EXPECTED_PMI_SOURCES
+        source == PMI_SOURCE
         and os.environ.get("EXPECTED_UNAVAILABLE") == "true"
         and acquired == "failure"
         and staged == "success"

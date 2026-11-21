@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
@@ -21,9 +22,27 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_jobs.acquisition.economic_staging import load_handoff, stage_prefix
 
+_RETIRED_JQUANTS_HANDOFF = re.compile(
+    r"coordination/market-sources/jquants-(?:market|financial)-"
+    r"([0-9]{4}-[0-9]{2}-[0-9]{2})-[0-9]+-[0-9]+/handoff\.json"
+)
+
 
 class ReceiptStore(ObjectStore, Protocol):
     def iter_objects(self, prefix: str) -> Iterator[tuple[str, int]]: ...
+
+
+def _retired_jquants_handoff(key: str) -> bool:
+    # Only the old scheduled SQL writer reserved source-day-run-attempt IDs.
+    # Other IDs need manifest provenance, even if their source prefix looks familiar.
+    match = _RETIRED_JQUANTS_HANDOFF.fullmatch(key)
+    if match is None:
+        return False
+    try:
+        date.fromisoformat(match[1])
+    except ValueError:
+        return False
+    return True
 
 
 def available_handoffs(
@@ -110,24 +129,10 @@ def available_handoffs(
                     "asof": report["asof"],
                     "integration": integrated,
                     **(
-                        {
-                            name: report["planning"][name]
-                            for name in ("previous_stage", "legacy_pending")
-                            if name in report["planning"]
-                        }
-                        if article and isinstance(report.get("planning"), dict)
-                        else {}
-                    ),
-                    **(
-                        {"request_ids_complete": True}
-                        if report.get("request_ids_complete") is True
-                        else {}
-                    ),
-                    **(
-                        {"request_ids": report["request_ids"]}
-                        if source_name.startswith("jquants-")
-                        and isinstance(report.get("request_ids"), list)
-                        and all(isinstance(value, str) for value in report["request_ids"])
+                        {"previous_stage": report["planning"]["previous_stage"]}
+                        if article
+                        and isinstance(report.get("planning"), dict)
+                        and "previous_stage" in report["planning"]
                         else {}
                     ),
                 },
@@ -160,7 +165,7 @@ def available_handoffs(
         keys.extend(
             (market, selected_namespace, key)
             for key, _ in store.iter_objects(f"coordination/{selected_namespace}/{selection}")
-            if key.endswith("/handoff.json")
+            if key.endswith("/handoff.json") and not _retired_jquants_handoff(key)
         )
     # Only create-once manifests and terminal markers are read here. Merge in listing order.
     with ThreadPoolExecutor(max_workers=8) as workers:

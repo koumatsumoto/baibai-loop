@@ -173,7 +173,7 @@ def refresh_sources(
                     cause = cause.__cause__
                 if isinstance(error, ProviderRateLimitError) or (
                     isinstance(error, ProviderFetchStoppedError)
-                    and catalog[source_id].provider in {"spglobal_pmi", "tradingeconomics_pmi"}
+                    and catalog[source_id].provider == "spglobal_pmi"
                 ):
                     stopped_groups[source_policy(catalog[source_id]).acquisition_group] = source_id
                 outcomes.append(

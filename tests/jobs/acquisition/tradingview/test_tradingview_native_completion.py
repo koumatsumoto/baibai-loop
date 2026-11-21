@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 from mcp.types import CallToolResult
-from tests.helpers.tradingview import DAY, NOW, payload, store
+from tests.helpers.tradingview import DAY, NOW, native_inputs, payload, store
 
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
@@ -55,9 +55,12 @@ def test_numeric_projection_failure_keeps_collecting_and_stages_every_original(
         ).fetchall()
 
     stage = tmp_path / "stage.sqlite"
-    selected = export_handoff(path, stage, day=DAY, since=NOW)
+    remote, master, calendar = native_inputs(path, tmp_path, day=DAY)
+    selected = export_handoff(
+        path, stage, day=DAY, since=NOW, master_input=master, calendar_input=calendar
+    )
     assert len(selected.receipt_ids) == 5
-    replayed = import_handoff(stage, canonical, selected)
+    replayed = import_handoff(stage, canonical, selected, store=remote)
     assert not replayed.complete
     assert replayed.report["raw_receipts_added"] == 5
     assert replayed.report["rows_added"] == 0
@@ -68,7 +71,9 @@ def test_numeric_projection_failure_keeps_collecting_and_stages_every_original(
             conn.execute("SELECT * FROM tradingview_source_receipts ORDER BY receipt_id").fetchall()
             == originals
         )
-    assert import_handoff(stage, canonical, selected).report["raw_receipts_added"] == 0
+    assert (
+        import_handoff(stage, canonical, selected, store=remote).report["raw_receipts_added"] == 0
+    )
     assert preflight_snapshot(canonical, DAY, now=NOW)["status"] == "originals_saved"
 
 
@@ -393,8 +398,11 @@ def test_l2_only_current_cycle_receives_originals_without_replacing_projection(t
     from baibai_jobs.integration.tradingview_handoff import export_handoff, import_handoff
 
     stage = tmp_path / "stage.sqlite"
-    selected = export_handoff(path, stage, day=DAY, since=received)
-    imported = import_handoff(stage, canonical, selected)
+    remote, master, calendar = native_inputs(path, tmp_path, day=DAY)
+    selected = export_handoff(
+        path, stage, day=DAY, since=received, master_input=master, calendar_input=calendar
+    )
+    imported = import_handoff(stage, canonical, selected, store=remote)
     assert imported.complete
     assert imported.report["raw_receipts_added"] == 1
     assert imported.report["rows_added"] == 0

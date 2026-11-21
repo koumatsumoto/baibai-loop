@@ -86,8 +86,6 @@ jobs:
               for key, value in {
                   "target_date": day.isoformat(), "slot": slot,
                   "master_asof": master_asof,
-                  # Keep the existing summary fields; preflight decides whether to fetch.
-                  "eligible": "true", "reason": "",
                   "actual_start_utc": now.isoformat(), "actual_start_jst": jst.isoformat(),
               }.items():
                   print(f"{key}={value}", file=output)
@@ -360,8 +358,6 @@ jobs:
           SLOT: ${{ steps.target.outputs.slot }}
           ACTUAL_START_JST: ${{ steps.target.outputs.actual_start_jst }}
           ACTUAL_START_UTC: ${{ steps.target.outputs.actual_start_utc }}
-          ELIGIBLE: ${{ steps.target.outputs.eligible }}
-          REASON: ${{ steps.target.outputs.reason }}
           PREFLIGHT: ${{ steps.preflight.outputs.status }}
           PREFLIGHT_ROWS: ${{ steps.preflight.outputs.rows }}
           COOLDOWN_ALLOWED: ${{ steps.cooldown-check.outputs.allowed }}
@@ -421,7 +417,6 @@ jobs:
               "is_business_day": preflight.get("is_business_day"),
               "actual_start_jst": os.environ.get("ACTUAL_START_JST"),
               "actual_start_utc": os.environ.get("ACTUAL_START_UTC"),
-              "eligible": os.environ.get("ELIGIBLE"), "reason": os.environ.get("REASON"),
               "preflight_status": os.environ.get("PREFLIGHT"), "master_outcome": os.environ.get("MASTER"),
               "tradingview_status": os.environ.get("TRADINGVIEW"),
               "failure_category": os.environ.get("FAILURE_CATEGORY"),

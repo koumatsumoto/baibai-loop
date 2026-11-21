@@ -10,27 +10,18 @@ from baibai_engine.data_collection.providers.articles.contracts import NativeLin
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, digest_json
 
 DISCOVERY_SOURCES = frozenset({"boj_news", "mof_news"})
-# v2 is a reader-first storage migration: retain v1 reads permanently. Once
-# written, rollbacks must retain this reader; old binaries cannot resume v2.
-LEGACY_DISCOVERY_FORMAT = "article-discovery-v1"
 DISCOVERY_FORMAT = "article-discovery-v2"
-# Keep the exact-stage pointer envelope stable: an old reader follows it and
-# rejects the unknown v2 body, rather than treating it as an empty legacy cursor.
 DISCOVERY_REF_FORMAT = "article-discovery-ref-v1"
 MAX_DISCOVERY_BYTES = 1_000_000
 MAX_DISCOVERY_REPLAYS = 8
 
 
 def expand_cursor(cursor: dict[str, Any]) -> dict[str, Any]:
-    """Read v1 inline parents or lossless v2 references before stage binding."""
-    if cursor.get("format") != DISCOVERY_FORMAT:
-        return deepcopy(cursor)
+    """Resolve each stored parent by content hash before binding its exact stage."""
     parents = cursor["discovery_parents"]
     if any(digest_json(parent) != key for key, parent in parents.items()):
         raise ValueError("article discovery parent hash differs")
-    expanded = deepcopy(cursor)
-    expanded.pop("discovery_parents")
-    expanded["format"] = LEGACY_DISCOVERY_FORMAT
+    expanded = {k: v for k, v in cursor.items() if k not in {"format", "discovery_parents"}}
     try:
         expanded["discovery_children"] = {
             url: [{**edge, "parent": deepcopy(parents[edge["parent"]])} for edge in edges]
@@ -67,7 +58,6 @@ def _encoded_size(
 
 class DiscoveryWork:
     def __init__(self, cursor: dict[str, Any]) -> None:
-        cursor = expand_cursor(cursor)
         self.pending: dict[str, dict[str, Any]] = deepcopy(cursor.get("discoveries", {}))
         self.children: dict[str, list[dict[str, Any]]] = deepcopy(
             cursor.get("discovery_children", {})

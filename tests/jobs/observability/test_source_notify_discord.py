@@ -69,7 +69,6 @@ def test_source_failure_has_batch_identity_and_suppresses_run_preview(monkeypatc
     ("source", "acquired", "staged", "flag", "quiet"),
     [
         ("economic-spglobal_pmi", "failure", "success", "true", True),
-        ("economic-tradingeconomics_pmi", "failure", "success", "true", True),
         ("economic-spglobal_pmi", "failure", "failure", "true", False),
         ("economic-spglobal_pmi", "cancelled", "success", "true", False),
         ("economic-spglobal_pmi", "failure", "success", "false", False),

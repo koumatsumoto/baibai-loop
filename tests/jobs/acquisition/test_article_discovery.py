@@ -363,24 +363,23 @@ def test_v2_interns_parents_without_losing_receipts_edges_or_queue():
         identity = work.register(receipt(version, version.encode()), {"stage_id": version})
         queue = work.admit(identity, links, queue, revision="r1")
         assert queue is not None
-    legacy = {
-        "format": worksets.LEGACY_DISCOVERY_FORMAT,
+    expanded = {
         "discoveries": work.pending,
         "discovery_children": work.children,
         "discovery_recoveries": [],
         "pending_urls": queue,
         "pending_evidence": {"untouched": {"title": "kept"}},
     }
-    before = json.loads(json.dumps(legacy))
-    wire = DiscoveryWork(legacy).wire(legacy)
+    before = json.loads(json.dumps(expanded))
+    wire = work.wire(expanded)
     assert wire["format"] == worksets.DISCOVERY_FORMAT
     assert len(wire["discovery_parents"]) == 2
     assert len(wire["discovery_children"]) == 500
     assert sum(map(len, wire["discovery_children"].values())) == 1000
     assert worksets.expand_cursor(wire) == before
-    assert legacy == before
-    assert len(json.dumps(wire)) < len(json.dumps(legacy)) // 2
-    reloaded = DiscoveryWork(wire)
+    assert expanded == before
+    assert len(json.dumps(wire)) < len(json.dumps(expanded)) // 2
+    reloaded = DiscoveryWork(worksets.expand_cursor(wire))
     assert reloaded.children == work.children
     assert reloaded.encoded_size(queue) == work.encoded_size(queue)
 
@@ -399,11 +398,10 @@ def test_v2_invalid_parent_reference_fails_closed(damage):
     else:
         wire["discovery_parents"][key] = {**wire["discovery_parents"][key], "url": "changed"}
     with pytest.raises(ValueError, match="parent"):
-        DiscoveryWork(wire)
+        worksets.expand_cursor(wire)
 
 
-@pytest.mark.parametrize("legacy", [False, True])
-def test_exact_v1_and_v2_children_load_and_bind_local_stage(tmp_path, legacy):
+def test_exact_children_load_and_bind_local_stage(tmp_path):
     from tests.helpers.article_acquisition import _packet
 
     store = MemoryR2Store()
@@ -414,8 +412,6 @@ def test_exact_v1_and_v2_children_load_and_bind_local_stage(tmp_path, legacy):
     target = "https://www.mof.go.jp/child.pdf"
     queue = work.admit(identity, (NativeLink("/a", target),), [], revision="r1")
     cursor = work.wire({"pending_urls": queue})
-    if legacy:
-        cursor = worksets.expand_cursor(cursor)
     entry = commit_stage(
         store,
         state=state,
@@ -428,23 +424,12 @@ def test_exact_v1_and_v2_children_load_and_bind_local_stage(tmp_path, legacy):
         not_before=None,
     )
     loaded, _ = load_planning(store, "mof_news")
-    if not legacy:
-        # Previous binaries recognize the stable ref envelope, then reject the
-        # v2 document before HTTP. They must never resume an empty workset.
-        from baibai_jobs.acquisition.article_planning import _load_workset
-
-        assert loaded.cursor["format"] == "article-discovery-ref-v1"
-        with pytest.raises(ValueError, match="source/format mismatch"):
-            _load_workset(store, loaded, "article-discovery-v1")
     expanded = load_discovery_cursor(store, loaded)
     parent = expanded["discovery_children"][target][0]["parent"]
     assert parent["stage"] == entry
     assert parent["index_evidence"]["stage"] == entry
     assert parent["receipt_id"] == "original"
     assert expanded["pending_urls"] == [target]
-    # A new write migrates representation only; exact old immutable stage is intact.
-    upgraded = DiscoveryWork(expanded).wire(expanded)
-    assert worksets.expand_cursor(upgraded) == expanded
 
 
 def test_repeated_parent_discovery_does_not_starve_unfinished_children():
@@ -460,7 +445,7 @@ def test_repeated_parent_discovery_does_not_starve_unfinished_children():
         assert pending is not None
         read.extend(pending[:2])
         pending = pending[2:]
-        work = DiscoveryWork(work.wire({"pending_urls": pending}))
+        work = DiscoveryWork(worksets.expand_cursor(work.wire({"pending_urls": pending})))
     assert read == [link.url for link in links[2:]]
     # Revalidation remains eligible, but cannot preempt the unfinished FIFO.
     assert pending == [link.url for link in links[:8]]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
@@ -18,10 +17,7 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
 from baibai_engine.machine_analysis.generation.calendar_inputs import read_calendar_input
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.storage.json import write_json_atomic
-from baibai_engine.storage.objects.json import read_private
 from baibai_engine.storage.objects.r2 import ObjectStore
-from baibai_jobs.acquisition.dependencies import load_dependency
-from baibai_jobs.acquisition.economic_staging import stage_prefix
 from baibai_jobs.integration.calendar_native import (
     fixed_input,
     materialize_saved_input,
@@ -109,31 +105,3 @@ def prepare_tradingview_calendar(
     report["calendar_native_input"] = saved.model_dump(mode="json")
     write_json_atomic(directory / "result.json", report)
     return True
-
-
-def verify_stage_calendar_dependencies(
-    store: ObjectStore, entry: Mapping[str, Any], fingerprints: Mapping[str, str]
-) -> None:
-    """Verify old dependency originals against migration before acknowledging their stage."""
-    if entry.get("source") not in {"jquants-market", "tradingview"}:
-        return
-    from baibai_engine.data_collection.providers.jquants.calendar_native import (
-        verify_migrated_calendar_dependency,
-    )
-
-    prefix = stage_prefix(str(entry["stage_id"]), market=True)
-    saved = read_private(store, prefix + "/handoff.json")
-    if saved is None or hashlib.sha256(saved.payload).hexdigest() != entry["manifest_sha256"]:
-        raise ValueError("fixed calendar dependency manifest changed")
-    manifest = json.loads(saved.payload)
-    if not isinstance(manifest, dict) or not isinstance(manifest.get("dependencies", []), list):
-        raise ValueError("invalid fixed calendar dependency manifest")
-    try:
-        for reference in manifest.get("dependencies", []):
-            if reference["source"] != "market_calendar":
-                continue
-            if reference["key"] != prefix + "/dependency-" + reference["sha256"] + ".json":
-                raise ValueError("calendar dependency differs from its fixed stage")
-            verify_migrated_calendar_dependency(load_dependency(store, reference), fingerprints)
-    except (KeyError, TypeError) as error:
-        raise ValueError("invalid fixed calendar dependency") from error

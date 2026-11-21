@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 from mcp.types import CallToolResult
-from tests.helpers.tradingview import DAY, NOW, _sdk, payload, retain_result, store
+from tests.helpers.tradingview import DAY, NOW, _sdk, native_inputs, payload, retain_result, store
 
 from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
 from baibai_jobs.integration.tradingview_handoff import export_handoff, import_handoff
@@ -37,8 +37,11 @@ def test_bad_first_three_batches_resume_without_starving_later_fresh_symbols(tmp
     assert calls == [tickers(1000, 1050), tickers(1050, 1100), tickers(1100, 1150)]
     # A different runner resumes from retained originals, not an in-process cursor.
     packet = tmp_path / "handoff.sqlite"
-    handoff = export_handoff(first, packet, day=DAY, since=NOW)
-    replayed = import_handoff(packet, resumed, handoff)
+    remote, master, calendar = native_inputs(first, tmp_path, day=DAY)
+    handoff = export_handoff(
+        first, packet, day=DAY, since=NOW, master_input=master, calendar_input=calendar
+    )
+    replayed = import_handoff(packet, resumed, handoff, store=remote)
     assert not replayed.complete
     assert len(replayed.report["rejected_receipts"]) == 3
     assert replayed.report["rows"] == 0
@@ -92,10 +95,13 @@ def test_only_a_separately_refetched_healthy_half_can_be_accepted(tmp_path):
     # The rejected original and first half remain diagnostic evidence in the packet;
     # a later good receipt does not retroactively make either one acceptable.
     packet = tmp_path / "packet.sqlite"
-    handoff = export_handoff(path, packet, day=DAY, since=NOW)
+    remote, master, calendar = native_inputs(path, tmp_path, day=DAY)
+    handoff = export_handoff(
+        path, packet, day=DAY, since=NOW, master_input=master, calendar_input=calendar
+    )
     assert len(handoff.receipt_ids) == 3
     canonical = store(tmp_path / "canonical.sqlite", 50)
-    replayed = import_handoff(packet, canonical, handoff)
+    replayed = import_handoff(packet, canonical, handoff, store=remote)
     assert not replayed.complete
     assert len(replayed.report["rejected_receipts"]) == 2
     assert replayed.report["rows"] == 25

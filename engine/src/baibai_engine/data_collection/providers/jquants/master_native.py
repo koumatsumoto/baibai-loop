@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsRequest,
     RetainedRequest,
 )
 from baibai_engine.data_collection.providers.jquants.full_day_native import (
@@ -18,7 +18,6 @@ from baibai_engine.data_collection.providers.jquants.full_day_native import (
     FullDayL1,
     FullDayObjectStore,
     read_full_day_requests,
-    verify_migrated_full_day_receipts,
 )
 from baibai_engine.storage.objects.r2 import ObjectStore
 
@@ -37,6 +36,14 @@ class MasterAttempt(FullDayAttempt):
 class FixedMasterL1(FixedFullDayL1):
     contract = _CONTRACT
     attempt_type = MasterAttempt
+
+
+def is_master_for_day(request: JQuantsRequest, day: date) -> bool:
+    return (
+        request.source == "master"
+        and set(request.params) == {"date"}
+        and request.params["date"] in {day.isoformat(), day.strftime("%Y%m%d")}
+    )
 
 
 def read_master_requests(
@@ -88,13 +95,4 @@ def plan_master_days(
         if day not in complete
         or scopes.get(day.isoformat(), {}).get("failure")
         or scopes.get(day.isoformat(), {}).get("held")
-    )
-
-
-def verify_migrated_master_receipts(
-    connection: sqlite3.Connection, request_ids: Sequence[str], fingerprints: Mapping[str, str]
-) -> set[str]:
-    """Accept an old writer's bytes only when the finite cutover already retained them."""
-    return verify_migrated_full_day_receipts(
-        connection, request_ids, fingerprints, attempt_type=MasterAttempt
     )

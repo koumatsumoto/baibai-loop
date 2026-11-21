@@ -40,7 +40,6 @@ jobs:
       actions: read
     outputs:
       source_runs: ${{ steps.plan.outputs.source_runs }}
-      eligible: ${{ steps.plan.outputs.eligible }}
       observation_date: ${{ steps.plan.outputs.observation_date }}
       master_asof: ${{ steps.plan.outputs.master_asof }}
       operation: ${{ inputs.operation || 'collect' }}
@@ -81,7 +80,6 @@ jobs:
 
   source:
     needs: plan
-    if: ${{ needs.plan.outputs.eligible == 'true' }}
     strategy:
       fail-fast: false
       max-parallel: 2

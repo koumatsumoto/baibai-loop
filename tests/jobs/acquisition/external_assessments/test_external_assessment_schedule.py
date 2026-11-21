@@ -54,27 +54,24 @@ def clock(monkeypatch, value):
 
 
 @pytest.mark.parametrize(
-    ("created", "now", "day", "eligible"),
+    ("created", "now", "day"),
     [
-        (CREATED, CREATED, date(2026, 10, 11), True),
-        (CREATED, datetime(2026, 10, 11, 15, 43, tzinfo=UTC), date(2026, 10, 11), True),
-        (CREATED, datetime(2026, 10, 11, 22, 13, tzinfo=UTC), date(2026, 10, 11), True),
-        (CREATED, datetime(2026, 10, 12, 10, 12, 59, tzinfo=UTC), date(2026, 10, 11), True),
-        (CREATED, datetime(2026, 10, 12, 10, 13, tzinfo=UTC), date(2026, 10, 12), True),
-        (CREATED, datetime(2026, 10, 12, 6, 29, tzinfo=UTC), date(2026, 10, 11), True),
-        (CREATED, datetime(2026, 10, 12, 6, 30, tzinfo=UTC), date(2026, 10, 11), True),
+        (CREATED, CREATED, date(2026, 10, 11)),
+        (CREATED, datetime(2026, 10, 11, 15, 43, tzinfo=UTC), date(2026, 10, 11)),
+        (CREATED, datetime(2026, 10, 11, 22, 13, tzinfo=UTC), date(2026, 10, 11)),
+        (CREATED, datetime(2026, 10, 12, 10, 12, 59, tzinfo=UTC), date(2026, 10, 11)),
+        (CREATED, datetime(2026, 10, 12, 10, 13, tzinfo=UTC), date(2026, 10, 12)),
+        (CREATED, datetime(2026, 10, 12, 6, 29, tzinfo=UTC), date(2026, 10, 11)),
+        (CREATED, datetime(2026, 10, 12, 6, 30, tzinfo=UTC), date(2026, 10, 11)),
         (
             datetime(2026, 10, 12, 0, tzinfo=UTC),
             datetime(2026, 10, 12, 10, 13, tzinfo=UTC),
             date(2026, 10, 12),
-            True,
         ),
     ],
 )
-def test_current_daily_cycle_survives_midnight_and_advances_at_next_due(
-    created, now, day, eligible
-):
-    assert external_assessment_target_date(created, now) == (day, eligible)
+def test_current_daily_cycle_survives_midnight_and_advances_at_next_due(created, now, day):
+    assert external_assessment_target_date(created, now) == day
 
 
 @pytest.mark.parametrize(
@@ -223,7 +220,6 @@ def test_delayed_source_prepare_retains_cycle_without_touching_store_or_provider
     assert (
         sources.main(["prepare", "--source", "monex", "--run-created-at", CREATED.isoformat()]) == 0
     )
-    assert outputs(output)["eligible"] == "true"
     assert outputs(output)["observation_date"] == "2026-10-11"
 
 

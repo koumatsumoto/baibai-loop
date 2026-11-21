@@ -67,6 +67,55 @@ def test_malformed_handoff_does_not_block_other_ready_source(tmp_path):
     assert [entry["source"] for entry in selected if not entry.get("invalid")] == ["economic-boj"]
 
 
+def test_retired_scheduled_jquants_market_handoffs_do_not_read_remote_objects():
+    store = MemoryR2Store()
+    market_id = "jquants-market-2026-04-15-123-1"
+    financial_id = "jquants-financial-2024-02-29-456-2"
+    market = "coordination/market-sources"
+    store.store_object(f"{market}/{market_id}/handoff.json", b"{invalid JSON")
+    store.store_object(
+        f"{market}/{financial_id}/handoff.json",
+        b'{"result":{"source":"jquants-financial","started_at":"2024-02-29T09:00:00Z",'
+        b'"asof":"2024-02-29"}}',
+    )
+    store.store_object(f"{market}/{financial_id}/integrated.json", b'{"status":"integrated"}')
+    assert available_handoffs(store, market=True, include_integrated=True) == []
+    assert not store.get_keys
+    assert not store.head_keys
+    assert not store.put_keys
+
+    economic = f"coordination/economic-sources/{market_id}"
+    store.store_object(
+        f"{economic}/handoff.json",
+        b'{"result":{"group":"boj","started_at":"2026-04-15T09:00:00Z","asof":"2026-04-15"}}',
+    )
+    (entry,) = available_handoffs(store)
+    assert entry["source"] == "economic-boj"
+    assert store.get_keys == [f"{economic}/handoff.json"]
+    assert f"{economic}/integrated.json" in store.head_keys
+
+
+def test_market_handoff_listing_keeps_opaque_ids_and_reports_current_malformed_keys():
+    store = MemoryR2Store()
+    prefix = "coordination/market-sources"
+    manual = "jquants-market-2026-04-15-123-1-manual"
+    broken_ids = {"jpx-earnings-2026-04-15-123-1", "jquants-financial-2026-02-29-123-1"}
+    store.store_object(
+        f"{prefix}/{manual}/handoff.json",
+        b'{"result":{"source":"jpx-earnings","started_at":"2026-04-15T09:00:00Z",'
+        b'"asof":"2026-04-15"}}',
+    )
+    for stage_id in broken_ids:
+        store.store_object(f"{prefix}/{stage_id}/handoff.json", b"{invalid JSON")
+
+    entries = {entry["stage_id"]: entry for entry in available_handoffs(store, market=True)}
+    assert set(entries) == broken_ids | {manual}
+    assert entries[manual]["source"] == "jpx-earnings"
+    assert all(entries[stage_id].get("invalid") for stage_id in broken_ids)
+    assert set(store.get_keys) == {f"{prefix}/{stage_id}/handoff.json" for stage_id in entries}
+    assert f"{prefix}/{manual}/integrated.json" in store.head_keys
+
+
 def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
     tmp_path, monkeypatch
 ):

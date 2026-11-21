@@ -16,7 +16,6 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
 )
-from baibai_jobs.acquisition.dependencies import save_dependencies
 
 _PLANNING_INPUT_GROUPS = {
     "boj-acquisition-input-v1": "economic-boj",
@@ -114,8 +113,6 @@ def save_handoff(
     if receipt_format:
         # Pre-reader-first code must fail rather than silently broaden recovery.
         value["receipt_format"] = receipt_format
-    if market:
-        value["dependencies"] = save_dependencies(store, prefix, directory)
     manifest = json.dumps(value, sort_keys=True).encode()
     if (
         current_input_stage is not None

@@ -5,13 +5,10 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from datetime import date, datetime
-from typing import Any
 from zoneinfo import ZoneInfo
 
-from baibai_engine.data_collection.providers.jquants.dependencies import (
-    dependency_covers_day,
-    read_dependency,
-)
+from baibai_engine.data_collection.providers.jquants.contracts import JQuantsRequest
+from baibai_engine.data_collection.providers.jquants.master_native import is_master_for_day
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     MIN_COMMON_STOCK_MASTER_ROWS,
     masters_from_payloads,
@@ -21,13 +18,10 @@ from baibai_engine.machine_analysis.observations.stocks.models import SecurityMa
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 
 
-def received_master_universe(value: dict[str, Any], master_asof: date) -> tuple[str, ...]:
+def received_master_universe(request: JQuantsRequest, master_asof: date) -> tuple[str, ...]:
     """Use an exact complete native receipt without assigning a full lake origin."""
     _require_master_date(master_asof)
-    request = read_dependency(value)
-    if request.source != "master" or not dependency_covers_day(
-        "master", request.params, master_asof
-    ):
+    if not is_master_for_day(request, master_asof):
         raise ValueError("external assessment requires an exact-date master receipt")
     snapshot = validate_master_snapshot(request.records(), master_asof)
     return _common_stock_tickers(masters_from_payloads([row[2] for row in snapshot.rows]))

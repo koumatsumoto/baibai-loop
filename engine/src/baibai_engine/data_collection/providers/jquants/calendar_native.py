@@ -9,8 +9,7 @@ from __future__ import annotations
 import base64
 import gzip
 import json
-import sqlite3
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -20,7 +19,6 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsPage,
     JQuantsRequest,
-    RetainedRequest,
     complete_request,
     page_envelope,
 )
@@ -29,7 +27,6 @@ from baibai_engine.data_collection.providers.jquants.native_index import (
     IncompleteReceipt,
     NativeMarketIndex,
     ReceiptEvidence,
-    index_market_originals,
     plan_calendar,
 )
 from baibai_engine.data_collection.providers.jquants.native_objects import (
@@ -127,9 +124,6 @@ def _content(request: JQuantsRequest) -> tuple[str, dict[str, dict[str, Any]]]:
         date.fromisoformat(request.params["from"]),
         date.fromisoformat(request.params["to"]),
     )
-    evidence = index_market_originals(
-        [RetainedRequest("content", request, None)], source="market_calendar"
-    ).receipts[0]
     rows: list[dict[str, Any]] = []
     extras = []
     for page in request.pages:
@@ -140,33 +134,30 @@ def _content(request: JQuantsRequest) -> tuple[str, dict[str, dict[str, Any]]]:
         }
         if extra:
             extras.append(extra)
-    grouped: dict[str, list[dict[str, Any]]] = {}
+    grouped: dict[date, list[dict[str, Any]]] = {}
+    divisions: dict[date, str] = {}
+    valid_range = True
     for row in rows:
         try:
-            key = date.fromisoformat(str(row.get("Date", ""))[:10]).isoformat()
+            day = date.fromisoformat(str(row.get("Date", ""))[:10])
         except ValueError:
+            valid_range = False
             continue
-        grouped.setdefault(key, []).append(row)
-    divisions = dict(evidence.calendar_divisions)
-    available = set(evidence.calendar_days) - set(evidence.invalid_calendar_days)
-    states = {
-        day.isoformat(): {
-            "content_id": _digest(
-                _json(
-                    [
-                        FORMAT,
-                        day.isoformat(),
-                        grouped.get(day.isoformat(), []),
-                        extras,
-                        evidence.valid_calendar,
-                    ]
-                )
-            ),
-            "valid": evidence.valid_calendar and day in available,
+        if not start <= day <= end:
+            valid_range = False
+            continue
+        grouped.setdefault(day, []).append(row)
+        raw = row.get("HolDiv")
+        if raw is not None and (division := str(raw).strip()):
+            divisions.setdefault(day, division)
+    states = {}
+    for day in interval(start, end):
+        day_rows = grouped.get(day, [])
+        states[day.isoformat()] = {
+            "content_id": _digest(_json([FORMAT, day.isoformat(), day_rows, extras, valid_range])),
+            "valid": valid_range and len(day_rows) == 1 and day in divisions,
             "division": divisions.get(day),
         }
-        for day in interval(start, end)
-    }
     return _digest(_json([FORMAT, start.isoformat(), end.isoformat(), rows, extras])), states
 
 
@@ -395,56 +386,3 @@ class CalendarL1:
             )
         _put(self.store, HEAD_KEY, _json(value), self.directory, etag=fixed.etag)
         return report
-
-
-def verify_migrated_calendar_receipts(
-    connection: sqlite3.Connection, request_ids: Sequence[str], fingerprints: Mapping[str, str]
-) -> set[str]:
-    """Only finite-cutover byte proof permits removing an old range from replay."""
-    migrated = set()
-    for identity in request_ids:
-        rows = connection.execute(
-            "SELECT page_index,source,query_json,received_at_utc,body_gzip "
-            "FROM jquants_source_pages WHERE request_id=? ORDER BY page_index",
-            (identity,),
-        ).fetchall()
-        if not any(row[1] == "market_calendar" for row in rows):
-            continue
-        if any(row[0] != i or row[1] != "market_calendar" for i, row in enumerate(rows)):
-            raise ValueError("old calendar has missing pages or mixed source identity")
-        pages = tuple(
-            JQuantsPage(
-                "market_calendar",
-                json.loads(query),
-                datetime.fromisoformat(at),
-                gzip.decompress(body),
-            )
-            for _index, _source, query, at, body in rows
-        )
-        _verify_migrated_calendar_pages(identity, pages, fingerprints)
-        migrated.add(identity)
-    return migrated
-
-
-def _verify_migrated_calendar_pages(
-    identity: str, pages: tuple[JQuantsPage, ...], fingerprints: Mapping[str, str]
-) -> None:
-    query = pages[0].query
-    if set(query) != {"from", "to"}:
-        raise ValueError("old calendar requires a full explicit range")
-    attempt = CalendarAttempt(
-        identity, date.fromisoformat(query["from"]), date.fromisoformat(query["to"]), None, pages
-    )
-    if fingerprints.get(identity) != _digest(_json(attempt.value())):
-        raise ValueError("old calendar is absent from or differs from the finite cutover")
-
-
-def verify_migrated_calendar_dependency(
-    value: dict[str, Any], fingerprints: Mapping[str, str]
-) -> None:
-    from baibai_engine.data_collection.providers.jquants.dependencies import read_dependency
-
-    request = read_dependency(value)
-    if request.source != "market_calendar":
-        raise ValueError("unexpected migrated calendar dependency source")
-    _verify_migrated_calendar_pages(value["request_id"], request.pages, fingerprints)

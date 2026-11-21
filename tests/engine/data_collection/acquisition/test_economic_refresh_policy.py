@@ -1,6 +1,5 @@
 import sqlite3
 from contextlib import closing
-from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -229,17 +228,14 @@ def test_pmi_partial_pdf_months_cover_history_even_when_the_range_failed(tmp_pat
         assert recovery_ranges(conn, source, END) == ((date(2025, 10, 1), date(2025, 10, 17)),)
 
 
-@pytest.mark.parametrize("provider", ["spglobal_pmi", "tradingeconomics_pmi"])
 @pytest.mark.parametrize("explicit", [False, True])
-def test_pmi_recovery_plans_from_receipt_metadata_without_reading_pdf_bodies(
-    tmp_path, provider, explicit
-):
+def test_pmi_recovery_plans_from_receipt_metadata_without_reading_pdf_bodies(tmp_path, explicit):
     from baibai_engine.data_collection.receipts.native_sources.documents import (
         SourceDocument,
         store_document,
     )
 
-    source = replace(load_sources()["spglobal-jp-pmi-mfg"], provider=provider)
+    source = load_sources()["spglobal-jp-pmi-mfg"]
     first = date(2024 if explicit else 2025, 1, 1)
     finish = date(2025, 12, 31) if explicit else date(2025, 10, 1)
     last = finish if explicit else recent_start(source, END) - timedelta(days=1)

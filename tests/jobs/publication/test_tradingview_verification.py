@@ -12,7 +12,15 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master_calendar_native import seed_calendar, seed_master
 from tests.helpers.r2_store import MemoryR2Store
-from tests.helpers.tradingview import DAY, NOW, _sdk, payload, retain_result, seed_snapshot
+from tests.helpers.tradingview import (
+    DAY,
+    NOW,
+    _sdk,
+    native_inputs,
+    payload,
+    retain_result,
+    seed_snapshot,
+)
 from tests.helpers.tradingview import store as tradingview_store
 
 from baibai_engine.storage.objects.r2 import LakePublishError
@@ -97,8 +105,14 @@ def new_stage(tmp_path, remote, database, *, result=None):
     identity = retain_result(raw, result or _sdk(payload(["TSE:1000"])))
     packet = tmp_path / "packet"
     packet.mkdir()
+    _, packet_master, packet_calendar = native_inputs(raw, tmp_path, day=DAY, remote=remote)
     handoff = export_handoff(
-        raw, packet / "receipts.sqlite", day=DAY, since=NOW - timedelta(seconds=1)
+        raw,
+        packet / "receipts.sqlite",
+        day=DAY,
+        master_input=packet_master,
+        calendar_input=packet_calendar,
+        since=NOW - timedelta(seconds=1),
     )
     (packet / "result.json").write_text(
         json.dumps(
@@ -112,7 +126,7 @@ def new_stage(tmp_path, remote, database, *, result=None):
     )
     save_handoff(remote, "tradingview-new", packet, market=True)
     entry = available_handoffs(remote, market=True)[0]
-    replay = import_handoff(packet / "receipts.sqlite", database, handoff)
+    replay = import_handoff(packet / "receipts.sqlite", database, handoff, store=remote)
     return identity, entry, replay
 
 
@@ -296,8 +310,14 @@ def test_context_failure_keeps_the_original_stage_pending_without_readback_closu
         ).fetchone()
     packet = tmp_path / "packet"
     packet.mkdir()
+    _, packet_master, packet_calendar = native_inputs(raw, tmp_path, day=DAY, remote=remote)
     handoff = export_handoff(
-        raw, packet / "receipts.sqlite", day=DAY, since=NOW - timedelta(seconds=1)
+        raw,
+        packet / "receipts.sqlite",
+        day=DAY,
+        master_input=packet_master,
+        calendar_input=packet_calendar,
+        since=NOW - timedelta(seconds=1),
     )
     (packet / "result.json").write_text(
         json.dumps(

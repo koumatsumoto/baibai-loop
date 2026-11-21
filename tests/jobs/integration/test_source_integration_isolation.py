@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
-from tests.helpers.jquants_receipts import FIRST_AT, body, receive
+from tests.helpers.jquants_receipts import FIRST_AT
 from tests.helpers.master_calendar_native import seed_calendar, seed_master
 from tests.helpers.native_handoff import integrate_economic, stage
 from tests.helpers.r2_store import MemoryR2Store
@@ -16,7 +16,6 @@ from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, 
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
-from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, export_handoff
 from baibai_jobs.integration.replay_result import ReplayResult
 from baibai_jobs.integration.sources import apply as apply_market
 
@@ -40,92 +39,6 @@ def apply(store, work, *, market, economic, asof):
     result = apply_market(store, work, market=market, asof=asof)
     result["handoffs"].extend(economic_report["handoffs"])
     return result
-
-
-def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_source(
-    tmp_path, monkeypatch
-):
-    store = MemoryR2Store()
-    saved_edinet = empty_edinet_input(store, tmp_path)
-    from tests.helpers.native_margin_sources import initialize_margin_sources
-
-    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
-    from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
-
-    PriceL1(store, tmp_path / "empty-price-baseline").initialize()
-    market, source = tmp_path / "market.sqlite", tmp_path / "source.sqlite"
-    with closing(open_connection(market)) as conn, conn:
-        conn.executemany(
-            "INSERT INTO jquants_market_calendar VALUES (?, 1)",
-            [((date(2026, 10, 1) + timedelta(days=offset)).isoformat(),) for offset in range(10)],
-        )
-    # A syntactically received page is not a complete admissible calendar view.
-    receive(
-        source,
-        "market_calendar",
-        {"from": "2026-10-01", "to": "2026-10-10"},
-        body([{"Date": "2026-10-01"}]),
-        FIRST_AT + timedelta(hours=1),
-    )
-    packet = tmp_path / "bad"
-    packet.mkdir()
-    requests = export_handoff(
-        source, packet / "receipts.sqlite", since=FIRST_AT, sources=MARKET_SOURCES
-    )
-    (packet / "result.json").write_text(
-        json.dumps(
-            {
-                "source": "jquants-market",
-                "asof": "2026-10-24",
-                "started_at": FIRST_AT.isoformat(),
-                "request_ids": requests,
-            }
-        )
-    )
-    save_handoff(store, "jquants-market-bad", packet, market=True)
-    stage(store, tmp_path / "good", "fred_csv-good", "fred_csv", value="independent receipt")
-    entries = available_handoffs(store)
-    entries.sort(key=lambda entry: not entry["market"])
-    work = tmp_path / "integration"
-    work.mkdir()
-    (work / "plan.json").write_text(
-        json.dumps({"handoffs": entries, "edinet_input": saved_edinet.model_dump(mode="json")})
-    )
-    economic = tmp_path / "economic.sqlite"
-    with closing(initialize_database(economic)):
-        pass
-    native_dependencies(store, market, work, date(2026, 10, 24))
-    with closing(open_connection(market)) as conn:
-        before_rows = conn.execute("SELECT * FROM jquants_market_calendar ORDER BY day").fetchall()
-        before_coverage = conn.execute(
-            "SELECT * FROM source_coverage ORDER BY source, coverage_key"
-        ).fetchall()
-    monkeypatch.setattr(
-        "baibai_jobs.integration.sources.extract_saved_edinet",
-        lambda *args, **kwargs: {},
-    )
-    report = apply(store, work, market=market, economic=economic, asof=date(2026, 10, 24))
-    assert report["handoffs"][0]["failed"] is True
-    assert report["handoffs"][1]["failed"] is False
-    with closing(open_connection(market)) as conn:
-        assert (
-            conn.execute("SELECT * FROM jquants_market_calendar ORDER BY day").fetchall()
-            == before_rows
-        )
-        assert (
-            conn.execute("SELECT * FROM source_coverage ORDER BY source, coverage_key").fetchall()
-            == before_coverage
-        )
-        assert (
-            conn.execute("SELECT COUNT(DISTINCT request_id) FROM jquants_source_pages").fetchone()[
-                0
-            ]
-            == 0
-        )
-    with closing(initialize_database(economic)) as conn:
-        assert next(
-            read_snapshots(conn, date(2026, 10, 24), date(2026, 10, 24), source_id="fred-payems")
-        ).records == ({"value": "independent receipt"},)
 
 
 @pytest.mark.parametrize("projection_failed", [False, True])
@@ -321,10 +234,9 @@ def test_incomplete_handoff_manifest_is_local_and_other_source_still_integrates(
 @pytest.mark.parametrize(
     ("source", "metadata"),
     [
-        ("jquants-market", {}),
         ("jpx-regulations", {}),
         ("jpx-earnings", {"bundle_ids": "not-an-id-list"}),
-        ("tradingview", {"symbols": [], "receipt_ids": [], "master_request_ids": []}),
+        ("tradingview", {"symbols": [], "receipt_ids": []}),
         (
             "tradingview",
             {
@@ -332,7 +244,6 @@ def test_incomplete_handoff_manifest_is_local_and_other_source_still_integrates(
                 "master_asof": "2026-10-23",
                 "symbols": [],
                 "receipt_ids": [None],
-                "master_request_ids": [],
             },
         ),
     ],

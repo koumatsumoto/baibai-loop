@@ -135,8 +135,7 @@ def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref,
 
 
 def test_private_partial_receipts_survive_failed_cooldown_until_common_integration(tmp_path):
-    from tests.helpers.r2_store import MemoryR2Store
-    from tests.helpers.tradingview import DAY, NOW, _sdk, payload, store, stored
+    from tests.helpers.tradingview import DAY, NOW, _sdk, native_inputs, payload, store, stored
 
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         FetchError,
@@ -165,9 +164,16 @@ def test_private_partial_receipts_survive_failed_cooldown_until_common_integrati
     assert report["status"] == "partial"
     packet = tmp_path / "packet"
     packet.mkdir()
-    handoff = export_handoff(local, packet / "receipts.sqlite", day=DAY, since=NOW)
+    remote, master, calendar = native_inputs(local, tmp_path, day=DAY)
+    handoff = export_handoff(
+        local,
+        packet / "receipts.sqlite",
+        day=DAY,
+        since=NOW,
+        master_input=master,
+        calendar_input=calendar,
+    )
     (packet / "result.json").write_text(json.dumps(handoff.to_json()))
-    remote = MemoryR2Store()
     save_handoff(remote, "tradingview-partial", packet, market=True)
     # Cooldown persistence may fail after this private receipt is durable. The
     # separately scheduled integration reads this exact receipt without refetch.
@@ -182,7 +188,7 @@ def test_private_partial_receipts_survive_failed_cooldown_until_common_integrati
     )
     downloaded = tmp_path / "downloaded"
     load_handoff(remote, "tradingview-partial", downloaded, market=True)
-    result = import_handoff(downloaded / "receipts.sqlite", canonical, handoff)
+    result = import_handoff(downloaded / "receipts.sqlite", canonical, handoff, store=remote)
     assert result.report["rows_added"] == 50
     assert stored(canonical) == stored(local)
 
@@ -304,8 +310,6 @@ def test_target_outputs_current_cycle_only_after_validating_inputs(
     fields = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert fields["target_date"] == "2026-10-11"
     assert fields["master_asof"] == basis
-    assert fields["eligible"] == "true"
-    assert fields["reason"] == ""
     assert fields["actual_start_utc"] == "2026-10-11T01:00:00+00:00"
     assert fields["actual_start_jst"] == "2026-10-11T10:00:00+09:00"
     assert fields["slot"] == (

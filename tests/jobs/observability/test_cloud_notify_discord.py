@@ -756,7 +756,6 @@ def test_l1_success_and_fixed_date_survive_a_later_l2_failure(tmp_path, monkeypa
     ("source", "codes", "projection", "notified"),
     [
         ("economic-spglobal_pmi", [403], [], False),
-        ("economic-tradingeconomics_pmi", [403, 403], [], False),
         ("economic-spglobal_pmi", [403, 500], [], True),
         ("economic-spglobal_pmi", [429], [], True),
         ("economic-spglobal_pmi", [None], [], True),

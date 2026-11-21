@@ -1,23 +1,17 @@
 """Ordinary margin acquisition and old-stage replay keep L1 independent of L2."""
 
 import json
-from contextlib import closing
-from dataclasses import replace
 from datetime import date, timedelta
 
 import pytest
-from tests.helpers.jquants_receipts import receive_page
-from tests.helpers.margin_interest_native import AT, DAY, attempt, calendar
+from tests.helpers.margin_interest_native import AT, DAY, calendar
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.margin_interest_native import MarginInterestL1
 from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
-    ShortSaleReportsAttempt,
     ShortSaleReportsL1,
 )
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, import_handoff
 
 
 def test_native_market_commits_all_sources_without_legacy_lake(tmp_path, monkeypatch):
@@ -39,9 +33,6 @@ def test_native_market_commits_all_sources_without_legacy_lake(tmp_path, monkeyp
     fixed_calendar = calendar(store, tmp_path / "calendar", first, asof)
     MarginInterestL1(store, tmp_path / "init").initialize()
     from baibai_engine.data_collection.providers.jquants.margin_alerts_native import MarginAlertsL1
-    from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
-        ShortSaleReportsL1,
-    )
 
     MarginAlertsL1(store, tmp_path / "alerts").initialize()
     ShortSaleReportsL1(store, tmp_path / "shorts").initialize()
@@ -114,61 +105,3 @@ def test_native_market_commits_all_sources_without_legacy_lake(tmp_path, monkeyp
         .fixed()
         .value()["scopes"][DAY.isoformat()]["adopted"]
     )
-
-
-@pytest.mark.parametrize("damage", [None, "absent", "body", "clock"])
-def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
-    store = MemoryR2Store()
-    owner = MarginInterestL1(store, tmp_path / "native")
-    owner.initialize()
-    original = replace(attempt("margin"), attempted_at=None)
-    owner.commit([original])
-    fingerprints = {
-        key: row["fingerprint"] for key, row in owner.fixed().value()["receipts"].items()
-    }
-    page = original.pages[0]
-    if damage == "absent":
-        fingerprints = {}
-    elif damage == "body":
-        page = replace(page, body=b'{"data":[]}')
-    elif damage == "clock":
-        page = replace(page, received_at=AT + timedelta(seconds=1))
-    short = JQuantsPage("short_sale_reports", {"disc_date": DAY.isoformat()}, AT, b'{"data":[]}')
-    shorts = ShortSaleReportsL1(store, tmp_path / "shorts")
-    shorts.initialize()
-    shorts.commit([ShortSaleReportsAttempt("short", DAY, None, (short,))])
-    short_fingerprints = {
-        key: row["fingerprint"] for key, row in shorts.fixed().value()["receipts"].items()
-    }
-    source = tmp_path / "source.sqlite"
-    with closing(open_connection(source)) as connection, connection:
-        receive_page(connection, page, request_id="margin", page_index=0)
-        receive_page(
-            connection,
-            short,
-            request_id="short",
-            page_index=0,
-        )
-    before = source.read_bytes()
-    if damage:
-        with pytest.raises(ValueError, match="legacy margin_interest"):
-            import_handoff(
-                source,
-                ("margin", "short"),
-                sources=MARKET_SOURCES,
-                margin_interest_fingerprints=fingerprints,
-                short_sale_reports_fingerprints=short_fingerprints,
-            )
-    else:
-        result = import_handoff(
-            source,
-            ("margin", "short"),
-            sources=MARKET_SOURCES,
-            margin_interest_fingerprints=fingerprints,
-            short_sale_reports_fingerprints=short_fingerprints,
-        )
-        assert result.complete
-        assert result.report["migrated_margin_interest_requests"] == ["margin"]
-        assert result.report["migrated_short_sale_reports_requests"] == ["short"]
-        assert result.report["replayed_requests"] == []
-    assert source.read_bytes() == before

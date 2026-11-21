@@ -3,33 +3,19 @@
 import gzip
 import hashlib
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta, timezone
-from uuid import UUID
+from datetime import date, timedelta, timezone
 
 import pytest
+from tests.helpers.edinet_receipts import TIME, receipt
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.list_native import (
     HEAD_KEY,
     EdinetListL1,
     FixedEdinetLists,
-    NativeListReceipt,
 )
-from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
 from baibai_engine.storage.json import canonical_json
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
-
-DAY = date(2026, 1, 1)
-TIME = datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=UTC)
-
-
-def receipt(index=1, body=b"raw malformed {", **kwargs):
-    return NativeListReceipt.from_response(
-        DAY,
-        EdinetResponse(TIME + timedelta(microseconds=index), body),
-        UUID(int=index).hex,
-        **kwargs,
-    )
 
 
 def owner(tmp_path, store=None):

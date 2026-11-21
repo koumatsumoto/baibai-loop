@@ -1,4 +1,4 @@
-"""Stock Assessment v1: issue #1533 appendix, entirely synthetic inputs."""
+"""Synthetic Stock Assessment and independent Review inputs."""
 
 import json
 from copy import deepcopy

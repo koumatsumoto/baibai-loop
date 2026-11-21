@@ -1,35 +1,43 @@
-# Development
+# 開発と検証
 
-責務と変更先は[architecture](architecture.md)、採否の基準は[doctrine](doctrine.md#development-investment-policy)に従う。
+## 手元で始める
 
-## 環境準備
-
-Linux / Bash、bootstrap用Python 3.11以上、uvを用意する。実行版と依存の正本は`.python-version`・`pyproject.toml`・`uv.lock`。
+Linux / Bash、bootstrap用Python 3.11以上、uvを用意し、リポジトリのルートで実行する。利用版は[.python-version](../.python-version)・[pyproject.toml](../pyproject.toml)、依存は[uv.lock](../uv.lock)で固定する。
 
 ```bash
 bash tools/setup-dev.sh
 source .cache/dev/env.sh
 uv run baibai-engine --help
+uv run baibai-jobs --help
 ```
 
-shellごとにenv.shをsourceし、checkout移動後はsetupを再実行する。fixtureにsecret・実storeは不要。Windows側だけの作業ではPOSIX運用scriptを検証できない。
+shellを開き直したらenv.shをsourceする。checkoutを移動したらsetupをやり直す。通常のfixture・CLI helpに.envや本番storeは不要。ブラウザの検証が必要なときだけsetupに `--with-browser` を付ける。
 
-browserが必要なら`--with-browser`を追加する。Web編集時は`.node-version`のNode/npmで`npm --prefix web/frontend ci`と`npm --prefix web/edge ci`も実行する。
+## 変更を検証する
 
-### Webの確認
+[責務と変更先](architecture.md#変更する場所)を確認し、変更したdomainと、そのdomainを呼ぶCLI/Jobsのテストを選ぶ。例は一時DBを使うローカル検証。
 
-`npm --prefix web/frontend run dev`はfrontend資産だけを配信する。ローカルAPI・SQLite読取・API proxyはなく、DB由来のDashboard・成績・保存提案は確認できない。型とbuildは`npm --prefix web/frontend run build`で確認する。
+```bash
+uv run pytest -n 0 tests/engine/primitives
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy
+uv run lint-imports
+```
 
-表示JSONの生成は`baibai_web.materialize`、認証付きAPIと画面の受入は[運用手順](../jobs/OPERATIONS.md#web-serving)に従い、fixtureやbuild成功と本番確認を分ける。
+PR全体の検査は[Python CI](../.github/workflows/ci.yml)と[Web CI](../.github/workflows/web.yml)が正本。通常testは実networkを禁止し、CIの緑やfixtureの成功を本番受入には数えない。R2 integration testだけは明示有効化時に書込・削除するため、依頼された専用の空bucketでのみ `-n 0` で行う。
 
-## 実行環境と接続
+<a id="webの確認"></a>
+## Webの確認
 
-本番操作と認証は[OPERATIONS](../jobs/OPERATIONS.md#actions-write-boundary)に従う。実データが必要な場合は`.env.sample`も参照し、秘密をコードや共有成果物へ含めない。S3署名には実credentialが必要で、Network secretのplaceholderは使えない。
+[.node-version](../.node-version)のNodeと対応するnpmで検証する。
 
-## 変更と検証
+```bash
+npm --prefix web/frontend ci
+npm --prefix web/edge ci
+npm --prefix web/frontend run build
+```
 
-[AGENTS](../AGENTS.md)に従いbranchで変更し、対象HEADのCIを確認する。検証コマンドは[workflows](../.github/workflows/)・`pyproject.toml`・各package設定が正本。domain契約はowner、CLI/Jobsは入出力と接続をtestする。
+`npm --prefix web/frontend run dev` は画面資産のみを配信し、ローカルAPIやSQLiteには接続しない。表示データの生成・認証付きAPI・実画面の確認は[Webの運用](../jobs/OPERATIONS.md#web-serving)へ。
 
-通常testは共通fixtureで実network通信を禁止する。実store/provider受入は合成fixtureと分け、CIのskipを受入成功としない。通信の例外は明示有効化したR2 integration testだけで、書込・削除を伴うため、明示依頼された専用空bucketでのみ`-n 0`で逐次実行する。
-
-指標・取得・Reading method変更時の観測store確認は[運用](../jobs/OPERATIONS.md#指標観測とregistryの修正)へ。
+実データ・認証を使う場合は[実行前の確認](../jobs/OPERATIONS.md#actions-write-boundary)と[設定例](../.env.sample)を使う。指標・取得方法を変えた場合の保存観測の確認は[経済原本](../jobs/OPERATIONS.md#指標観測とregistryの修正)へ。

@@ -41,22 +41,21 @@ class ArticleFrontier:
         self.current: dict[str, list[tuple[int, str]]] = {}
         self.new: list[str] = []
         self._new_seen: set[str] = set()
-        self.legacy_omitted = 0
-        self.legacy_recovery = cursor.get("legacy_recovery")
         self.next_page: str | None = cursor.get("next_page")
         self.previous_keys: set[tuple[str, str, str, str]] = set()
-        if cursor.get("format") == FRONTIER_FORMAT:
+        if cursor:
+            if cursor.get("format") != FRONTIER_FORMAT:
+                raise ValueError("unsupported article frontier format")
+            if cursor.get("legacy_omitted"):
+                raise ValueError("unfinished article omissions require explicit recovery")
             self.indexes = list(cursor["indexes"])
             self.observed = dict(cursor["observed"])
-            self.legacy_omitted = cursor["legacy_omitted"]
             if cursor.get("capacity_blocked_indexes"):
                 raise ValueError("article frontier capacity requires exact recovery")
             for url, refs in cursor["pending"]:
                 if url in self.pending:
                     raise ValueError("duplicate article pending URL")
                 self.pending[url] = [(int(index), locator) for index, locator in refs]
-            if type(self.legacy_omitted) is not int or self.legacy_omitted < 0:
-                raise ValueError("invalid historical article omission count")
             for index in self.observed.values():
                 self._index(index)
                 self.previous_keys.update(item_key(item) for item in resolve(self.indexes[index]))
@@ -65,18 +64,6 @@ class ArticleFrontier:
                     self._index(index)
                     if not isinstance(locator, str):
                         raise ValueError("invalid article native locator")
-        else:
-            self.legacy_omitted = int(cursor.get("omitted_url_count", 0))
-            evidence = cursor.get("pending_evidence", {})
-            for url in cursor.get("pending_urls", []):
-                link = evidence.get(url)
-                refs = []
-                if isinstance(link, dict) and isinstance(link.get("stage"), dict):
-                    index = self.register(
-                        {"stage": link["stage"], "index_receipt_id": link["index_receipt_id"]}
-                    )
-                    refs = [(index, link["native_locator"])]
-                self.pending[url] = refs
         self.initial = not self.observed
         self.capacity_blocked: list[int] = []
 
@@ -91,19 +78,6 @@ class ArticleFrontier:
                 return index
         self.indexes.append(reference)
         return len(self.indexes) - 1
-
-    def seed_legacy_index(self, reference: dict[str, Any]) -> None:
-        """Recover a superset from retained old indexes, not an invented old URL list."""
-        index = self.register(reference)
-        self.initial = False
-        items = self.resolve(reference)
-        self.previous_keys.update(item_key(item) for item in items)
-        for item in items:
-            url = item_key(item)[1]
-            refs = self.pending.setdefault(url, [])
-            coordinate = (index, item.locator)
-            if coordinate not in refs:
-                refs.append(coordinate)
 
     def observe(
         self, url: str, reference: dict[str, Any], items: tuple[NativeArticle, ...]
@@ -179,8 +153,6 @@ class ArticleFrontier:
                 for url, refs in self.pending.items()
             ],
             "next_page": self.next_page,
-            "legacy_omitted": self.legacy_omitted,
-            "legacy_recovery": self.legacy_recovery,
             "capacity_blocked_indexes": [remap[index] for index in self.capacity_blocked],
         }
 

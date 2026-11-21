@@ -44,7 +44,7 @@ def source_policy(source: SourceDefinition) -> RefreshPolicy:
         mode = "bulk_then_filter"
     elif source.provider == "matsui_margin":
         mode = "current_only"
-    elif source.provider in {"spglobal_pmi", "tradingeconomics_pmi", "tsr_bankruptcies"}:
+    elif source.provider in {"spglobal_pmi", "tsr_bankruptcies"}:
         mode = "documents"
     elif source.provider == "jquants_options":
         mode = "day_requests"
@@ -97,7 +97,7 @@ def recovery_ranges(
         start, finish = date.fromisoformat(start_raw), date.fromisoformat(end_raw)
         if status == "ok":
             anchors.append(start)
-            if source.provider not in {"spglobal_pmi", "tradingeconomics_pmi"}:
+            if source.provider != "spglobal_pmi":
                 covered.append((start, finish))
         elif (finish - start).days <= source_policy(source).lookback_days:
             anchors.append(start)
@@ -151,7 +151,7 @@ def _missing_ranges(
             (source.source_id, last.isoformat(), first.isoformat()),
         )
     )
-    if source.provider not in {"spglobal_pmi", "tradingeconomics_pmi"}:
+    if source.provider != "spglobal_pmi":
         covered.extend(successful_ranges)
     for (observed,) in connection.execute(
         "SELECT DISTINCT observed_at FROM economic_source_records "
@@ -163,7 +163,7 @@ def _missing_ranges(
     covered.extend(
         (day, day) for day in covered_input_days(connection, source.source_id, first, last)
     )
-    if source.provider in {"spglobal_pmi", "tradingeconomics_pmi"}:
+    if source.provider == "spglobal_pmi":
         for document in read_document_metadata(connection, source.source_id):
             identity = document.metadata
             if "observed_at" not in identity or identity.get("phase", "final") != "final":

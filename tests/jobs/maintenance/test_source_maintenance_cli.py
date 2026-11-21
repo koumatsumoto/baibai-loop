@@ -1,18 +1,4 @@
-"""CLI-seam tests for the current source-maintenance commands.
-
-Every test enters through ``main()`` with the argv a human types. The string that
-argparse hands over for ``--asof`` / ``--start`` / ``--end`` / ``--lookback-days``
-becomes a ``date`` or an ``int`` only on that path, and only there does the
-converted value get wired into the command call; a test that invokes the command
-function with values it constructed itself asserts nothing about either step.
-
-One normal path per subcommand, asserting exit code 0 together with the effect the
-command exists to produce.
-
-The tests stay offline by replacing the provider constructors only. The parser, the
-dispatch, and every store write the commands perform themselves are the real ones,
-so the seam under test is never the thing being faked.
-"""
+"""Current source maintenance through argparse and actual local stores, with offline providers."""
 
 from __future__ import annotations
 
@@ -29,9 +15,6 @@ from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.edinet_metrics import _edinet_csv_zip, _edinet_document
 from tests.helpers.edinet_native import native_edinet_store
 from tests.helpers.http_doubles import FakeSession, response
-from tests.helpers.market_maintenance import (
-    FakeEDINETProvider,
-)
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
@@ -50,13 +33,14 @@ _STORE = Path("stores/market/market.sqlite")
 
 
 @dataclass
-class _SeamEDINETProvider(FakeEDINETProvider):
-    """The shared EDINET acquisition fake with explicit client lifetime."""
-
+class _SeamEDINETProvider:
     close_count: int = 0
 
     def close(self) -> None:
         self.close_count += 1
+
+    def download_csv_zip(self, doc_id: str) -> bytes:
+        raise AssertionError(f"unexpected EDINET download: {doc_id}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,7 +240,6 @@ def test_main_rejects_negative_metric_lookback(command: str) -> None:
     else:
         edinet = _SeamEDINETProvider()
         result = _run_cli([command, "--asof", "2026-04-24", "--lookback-days", "-1"], edinet=edinet)
-        assert edinet.download_calls == []
     assert result.exit_code == 1
     assert "--lookback-days must be zero or greater" in result.stderr
 

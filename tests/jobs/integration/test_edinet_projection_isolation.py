@@ -45,14 +45,11 @@ from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.economic_staging import save_handoff
-from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
 from baibai_jobs.integration.edinet_list_native import (
     clear_verified_receipt_cache,
     materialize_lists,
     project_execution_lists,
 )
-from baibai_jobs.integration.source_handoff import _export
 from baibai_jobs.integration.sources import apply, main
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -154,25 +151,15 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
         ).fetchone()[0]
         pages = tuple(read_request_pages(connection, request_id))
     native_calendar.commit([CalendarAttempt(request_id, DAY, asof, None, pages)])
-    from tests.helpers.master_calendar_native import seed_master
-
-    seed_master(store, market, tmp_path / "native-master", as_of=asof)
-    good_packet = tmp_path / "good-packet"
-    _export("jquants-market", asof, STAMP, good_source, good_packet)
-    save_handoff(store, "jquants-market-good", good_packet, market=True)
     work = tmp_path / "integration"
     work.mkdir()
-    (work / "plan.json").write_text(
-        json.dumps({"handoffs": available_handoffs(store), "edinet_input": saved_edinet})
-    )
-    # J-Quants replay validates migrated originals without fixing unused full-history selections.
+    (work / "plan.json").write_text(json.dumps({"handoffs": [], "edinet_input": saved_edinet}))
+    # EDINET extraction does not read unrelated full-history J-Quants selections.
     mark = len(store.head_keys)
     report = apply(store, work, market=market, asof=asof)
     assert not any(key.startswith("fixed-inputs/jquants-") for key in store.head_keys[mark:])
-    outcomes = {item["entry"]["source"]: item for item in report["handoffs"]}
-    assert "edinet-list" not in outcomes
+    assert not report["handoffs"]
     assert report["extractions"]["native_lists"]["failed_days"] == [bad_day.isoformat()]
-    assert outcomes["jquants-market"]["failed"] is False
     expected = projection_state(market)
     if new_day:
         assert all(actual[0] == old[0] for actual, old in zip(expected, prior, strict=True))
@@ -310,9 +297,6 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
             ]
     else:
         assert [item["docID"] for item in read_edinet_documents(restored, bad_day)] == ["S100OLD"]
-    for outcome in report["handoffs"]:
-        seal_integrated(store, outcome["entry"], generations={}, recovery=outcome["recovery"])
-    assert available_handoffs(store) == []
     resume = tmp_path / "no-new-handoff"
     resume.mkdir()
     (resume / "plan.json").write_text(json.dumps({"handoffs": [], "edinet_input": saved_edinet}))

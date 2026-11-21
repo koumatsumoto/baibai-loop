@@ -153,110 +153,26 @@ def test_unrelated_planning_writer_conflict_keeps_exact_stage_recoverable(tmp_pa
     assert recovery["explicit_article_recovery"] is True
 
 
-def test_legacy_backlog_does_not_stop_acquisition_and_keeps_only_latest_reference():
-    entries = [
-        {
-            "source": "boj_news",
-            "namespace": "article-sources",
-            "market": True,
-            "stage_id": f"boj_news-{number}",
-        }
-        for number in range(42)
-    ]
-    legacy = {
-        **ArticlePlanning("boj_news", {}).to_json(),
-        "format": "article-planning-v1",
-        "pending": entries,
-    }
-    legacy.pop("last_stage")
-    state = ArticlePlanning.decode(json.dumps(legacy).encode(), "boj_news")
-    assert is_due(state, slot=SLOT, now=SLOT)
-    assert state.last_stage == entries[-1]
-    assert "pending" not in state.to_json()
-    assert state.to_json()["format"] == "article-planning-v3"
-
-
-@pytest.mark.parametrize("format_version", ["article-planning-v1", "article-planning-v2"])
-@pytest.mark.parametrize("damage", [None, "missing", "changed"])
-def test_legacy_transition_keeps_all_unprocessed_original_references(
-    tmp_path, format_version, damage
-):
-    from baibai_jobs.acquisition.article_discovery import DISCOVERY_REF_FORMAT
-
+@pytest.mark.parametrize("source", ["boj_news", "minkabu_news"])
+def test_discovery_does_not_need_planning_or_a_source_watermark(tmp_path, source):
     remote = MemoryR2Store()
-    publish_planning_input(remote, "boj_news", {})
-    entries = []
-    for index in range(3):
-        root = tmp_path / str(index)
-        root.mkdir()
-        state, etag = load_planning(remote, "boj_news")
-        entries.append(
-            commit_stage(
-                remote,
-                state=state,
-                expected_etag=etag,
-                slot=SLOT + timedelta(hours=index * 4),
-                stage_id=f"boj_news-legacy-{index}",
-                directory=_packet(root),
-                requests={},
-                cursor={},
-                not_before=None,
-            )
-        )
-    state, _ = load_planning(remote, "boj_news")
-    value = {**state.to_json(), "format": format_version, "pending": entries}
-    value.pop("last_stage")
-    if format_version == "article-planning-v2":
-        value["cursor"] = {"format": DISCOVERY_REF_FORMAT, "stage": entries[-1]}
-    remote.store_object(source_key("boj_news"), json.dumps(value).encode())
-    saved = remote.values[source_key("boj_news")]
-    key = f"coordination/article-sources/{entries[0]['stage_id']}/handoff.json"
-    if damage == "missing":
-        del remote.values[key]
-    elif damage == "changed":
-        remote.store_object(key, b"changed original")
-    state, etag = load_planning(remote, "boj_news")
-    assert remote.values[source_key("boj_news")] == saved
-    assert state.last_stage == entries[-1]
-    assert len(pending_handoffs(remote)) == 3
-    root = tmp_path / "new"
-    root.mkdir()
-    commit_stage(
-        remote,
-        state=state,
-        expected_etag=etag,
-        slot=SLOT + timedelta(hours=12),
-        stage_id="boj_news-after-legacy",
-        directory=_packet(root),
-        requests={},
-        cursor={},
-        not_before=None,
-    )
-    assert "pending" not in json.loads(remote.values[source_key("boj_news")].body)
-    found = pending_handoffs(remote)
-    assert len(found) == 4
-    assert len([entry for entry in found if entry.get("invalid")]) == int(damage is not None)
-
-
-def test_discovery_does_not_need_planning_or_a_source_watermark(tmp_path):
-    remote = MemoryR2Store()
-    publish_planning_input(remote, "boj_news", {})
+    publish_planning_input(remote, source, {})
     entries = []
     for index in range(2):
         root = tmp_path / str(index)
         root.mkdir()
-        packet = _packet(root)
+        packet = _packet(root, source)
         report = json.loads((packet / "result.json").read_text())
         report["started_at"] = (SLOT + timedelta(hours=index * 4)).isoformat()
         (packet / "result.json").write_text(json.dumps(report))
-        state, etag = load_planning(remote, "boj_news")
+        state, etag = load_planning(remote, source)
         entries.append(
             commit_stage(
                 remote,
                 state=state,
                 expected_etag=etag,
                 slot=SLOT + timedelta(hours=index * 4),
-                stage_id=f"boj_news-late-{index}",
+                stage_id=f"{source}-late-{index}",
                 directory=packet,
                 requests={},
                 cursor={},
@@ -266,15 +182,17 @@ def test_discovery_does_not_need_planning_or_a_source_watermark(tmp_path):
     seal_integrated(remote, entries[-1], generations={}, recovery=False)
     for missing_planning in (True, False):
         if missing_planning:
-            del remote.values[source_key("boj_news")]
+            del remote.values[source_key(source)]
         else:
-            remote.store_object(source_key("boj_news"), b"broken mutable planning")
+            remote.store_object(source_key(source), b"broken mutable planning")
         remote.get_keys.clear()
         found = pending_handoffs(remote)
         (old,) = [entry for entry in found if not entry.get("invalid")]
         assert old["stage_id"] == entries[0]["stage_id"]
         assert old["late_before_integrated"] is False
-        assert (source_key("boj_news") in remote.get_keys) is not missing_planning
+        live_root = source == "boj_news" and not missing_planning
+        assert (source_key(source) in remote.get_keys) is live_root
+        assert any(entry.get("invalid") for entry in found) is live_root
 
 
 @pytest.mark.parametrize(
@@ -316,13 +234,6 @@ def test_planning_budgets_utf8_without_dropping_japanese_evidence():
     assert len(payload) <= MAX_PLANNING_BYTES
     assert "あ".encode() in payload
     assert ArticlePlanning.decode(payload, "nhk_news").to_json() == state.to_json()
-    legacy = ArticlePlanning("nhk_news", {}, cursor={"title": "以前の形式"})
-    old_wire = {**legacy.to_json(), "format": "article-planning-v1", "pending": []}
-    old_wire.pop("last_stage")
-    assert (
-        ArticlePlanning.decode(json.dumps(old_wire).encode(), "nhk_news").to_json()
-        == legacy.to_json()
-    )
 
 
 def test_compact_planning_still_refuses_actual_byte_overflow():
@@ -344,7 +255,6 @@ def test_frontier_is_exact_and_outlives_integration_acknowledgement(tmp_path):
         "indexes": [{"stage": {"stage_id": stage_id}, "index_receipt_id": "index"}],
         "observed": {"https://news.web.nhk/index": 0},
         "pending": [["https://news.web.nhk/article", [[0, "/item/0"]]]],
-        "legacy_omitted": 190,
         "next_page": None,
         "capacity_blocked_indexes": [],
     }
@@ -364,7 +274,6 @@ def test_frontier_is_exact_and_outlives_integration_acknowledgement(tmp_path):
     assert saved.cursor == {"format": FRONTIER_REF_FORMAT, "stage": entry}
     resolved = load_frontier_cursor(remote, saved)
     assert resolved["indexes"][0]["stage"] == entry
-    assert resolved["legacy_omitted"] == 190
     seal_integrated(remote, entry, generations={}, recovery=False)
     after, _ = load_planning(remote, source)
     assert after.last_stage == entry
@@ -373,66 +282,6 @@ def test_frontier_is_exact_and_outlives_integration_acknowledgement(tmp_path):
     invalid = ArticlePlanning(source, {}, cursor={"format": FRONTIER_REF_FORMAT, "stage": bad})
     with pytest.raises(LakePublishError, match="manifest differs"):
         load_frontier_cursor(remote, invalid)
-
-
-@pytest.mark.parametrize(
-    ("failures", "bodies", "recoverable"),
-    [
-        (["pending_cursor_overflow"], 8, True),
-        (["http_error", "pending_cursor_overflow"], 8, False),
-        (["pending_cursor_overflow"], 1, False),
-    ],
-)
-def test_legacy_omission_requires_exact_successful_window_even_after_ack(
-    tmp_path, failures, bodies, recoverable
-):
-    from baibai_jobs.acquisition.article_planning import legacy_omission_evidence
-
-    source = "tsr_data"
-    remote = MemoryR2Store()
-    publish_planning_input(remote, source, {})
-    state, etag = load_planning(remote, source)
-    stage_id = "tsr_data-20261029T1313-legacy"
-    packet = _packet(tmp_path, source)
-    report = json.loads((packet / "result.json").read_text())
-    report.update(
-        bodies=bodies,
-        pages=1,
-        status="partial",
-        continuation_only=False,
-        failures=failures,
-        omitted_url_count=1,
-        receipt_ids=["index"],
-        projection_kinds={"index": "index"},
-    )
-    (packet / "result.json").write_text(json.dumps(report))
-    cursor = {"pending_urls": [], "pending_evidence": {}, "omitted_url_count": 1}
-    entry = commit_stage(
-        remote,
-        state=state,
-        expected_etag=etag,
-        slot=SLOT,
-        stage_id=stage_id,
-        directory=packet,
-        requests={"index-url": {"stage": {"stage_id": stage_id}, "receipt": {"id": "index"}}},
-        cursor=cursor,
-        not_before=None,
-    )
-    seal_integrated(remote, entry, generations={}, recovery=False)
-    saved, _ = load_planning(remote, source)
-    result = legacy_omission_evidence(remote, saved)
-    if recoverable:
-        assert result == (entry, [{"stage": entry, "index_receipt_id": "index"}])
-        from dataclasses import replace
-
-        assert (
-            legacy_omission_evidence(
-                remote, replace(saved, cursor={**cursor, "pending_urls": ["changed"]})
-            )
-            is None
-        )
-    else:
-        assert result is None
 
 
 @pytest.mark.parametrize("source", ["tsr_data", "tsr_flash"])

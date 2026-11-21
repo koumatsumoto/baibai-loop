@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import AbstractContextManager
 from datetime import date
 from pathlib import Path
@@ -21,7 +20,6 @@ from baibai_engine.data_collection.providers.jquants.full_day_native import (
     full_day_request_packs,
     prefetch_fixed_packs,
     read_full_day_requests,
-    verify_migrated_full_day_receipts,
 )
 from baibai_engine.storage.objects.r2 import ObjectStore
 
@@ -97,12 +95,3 @@ class PriceL1(FullDayL1[PriceAttempt, FixedPriceL1]):
             fixed_type=FixedPriceL1,
             max_pack_bytes=lambda: MAX_PACK_BYTES,
         )
-
-
-def verify_migrated_price_receipts(
-    connection: sqlite3.Connection, request_ids: Sequence[str], fingerprints: Mapping[str, str]
-) -> set[str]:
-    """Accept legacy price bytes only when the finite cutover already retained them."""
-    return verify_migrated_full_day_receipts(
-        connection, request_ids, fingerprints, attempt_type=PriceAttempt
-    )

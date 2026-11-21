@@ -329,7 +329,6 @@ def test_saved_tsr_body_limit_is_a_successful_finite_continuation(tmp_path, monk
     assert report["continuation_only"] is True
     assert report["failures"] == []
     assert report["bodies"] == 8
-    assert report["omitted_url_count"] == 0
     planning, _ = load_planning(store, source)
     assert planning.last_stage is not None
     frontier = load_frontier_cursor(store, planning)
@@ -447,7 +446,6 @@ def test_large_index_retains_all_pending_work_outside_the_mutable_summary(tmp_pa
     assert report["status"] == "partial"
     assert report["continuation_only"] is True
     assert report["failures"] == []
-    assert report["omitted_url_count"] == 0
     frontier = load_frontier_cursor(store, planning)
     assert len(frontier["pending"]) == articles.MAX_REQUEST_STATES + 1
     assert set(planning.cursor) == {"format", "stage"}
@@ -552,11 +550,13 @@ def test_missing_old_200_closure_uses_one_unconditional_get_instead_of_repeated_
     # old baseline is damaged below. Losing pending work must fail before GET.
     from tests.helpers.article_acquisition import _packet
 
+    from baibai_jobs.acquisition.article_discovery import DiscoveryWork
     from baibai_jobs.acquisition.article_planning import commit_stage
 
     private = tmp_path / "independent-workset"
     private.mkdir()
     current, etag = load_planning(store, "boj_news")
+    cursor = load_discovery_cursor(store, current)
     commit_stage(
         store,
         state=current,
@@ -565,7 +565,7 @@ def test_missing_old_200_closure_uses_one_unconditional_get_instead_of_repeated_
         stage_id="intact-workset",
         directory=_packet(private),
         requests=current.requests,
-        cursor=load_discovery_cursor(store, current),
+        cursor=DiscoveryWork(cursor).wire(cursor),
         not_before=current.not_before,
         advance_slot=False,
     )

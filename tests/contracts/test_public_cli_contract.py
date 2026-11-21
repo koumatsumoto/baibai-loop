@@ -13,20 +13,6 @@ def _choices(parser) -> set[str]:
     return set(subparsers.choices)
 
 
-@pytest.mark.parametrize("command", [("run-show",), ("candidates", "show")])
-def test_retired_historical_read_stops_before_store_access(command, monkeypatch, capsys) -> None:
-    def unexpected() -> None:
-        pytest.fail("the retired domain reached store preflight")
-
-    monkeypatch.setattr("baibai_engine.cli.app.reject_noncanonical_store_paths", unexpected)
-    with pytest.raises(SystemExit) as result:
-        main(["historical-evaluation", *command, "--run-revision-id", "run-fixed"])
-    assert result.value.code == 2
-    captured = capsys.readouterr()
-    assert not captured.out
-    assert "invalid choice" in captured.err
-
-
 def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
     choices = _choices(build_research_parser())
     assert {
@@ -76,7 +62,6 @@ def test_market_judgment_is_owned_by_research_cli():
 def test_source_maintenance_is_owned_by_collection():
     source = _choices(build_source_parser())
     assert {"extract-edinet-metrics", "backfill-master"} <= source
-    assert not {"run-show", "candidates"} & source
     with pytest.raises(SystemExit) as help_result:
         collection_main(["maintain-market", "--help"])
     assert help_result.value.code == 0
@@ -88,7 +73,7 @@ def test_market_snapshot_help_reaches_its_domain_owner():
     assert result.value.code == 0
 
 
-def test_minimal_job_read_boundary_does_not_load_judgment_or_legacy_views():
+def test_calendar_context_read_does_not_load_judgment_or_screening():
     import subprocess
     import sys
 

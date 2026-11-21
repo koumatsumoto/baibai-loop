@@ -47,15 +47,14 @@ def require_source(plan: RunPlan, source: str) -> None:
 
 def selection(
     *, source: str, batch_id: str | None, created_at: datetime | None
-) -> tuple[list[dict[str, str]], date | None, bool]:
+) -> tuple[list[dict[str, str]], date | None]:
     if source not in (*SOURCES, "all"):
         raise ValueError("unknown source")
     observation_date = None
-    eligible = True
     if created_at is not None:
         if batch_id:
             raise ValueError("scheduled identity cannot override the acquisition cycle")
-        observation_date, eligible = external_assessment_target_date(created_at, datetime.now(UTC))
+        observation_date = external_assessment_target_date(created_at, datetime.now(UTC))
     elif not batch_id:
         raise ValueError("manual source acquisition requires a stable batch label")
     exact_scheduled_id = bool(batch_id and batch_id.startswith(SCHEDULED_BATCH_PREFIX))
@@ -78,7 +77,7 @@ def selection(
         )
         prefix(run_id)  # Validate the whole namespaced ID before any credential use.
         result.append({"source": name, "run_id": run_id})
-    return result, observation_date, eligible
+    return result, observation_date
 
 
 def read_selection(payload: str) -> list[dict[str, str]]:
@@ -121,7 +120,7 @@ def resolve_queued_selection(
         return run_id, None
     if run_id != f"{SCHEDULED_BATCH_PREFIX}{source}-{observation_date.isoformat()}":
         raise ValueError("scheduled source identity differs from its cycle")
-    day, _ = external_assessment_target_date(now, now)
+    day = external_assessment_target_date(now, now)
     if day < observation_date:
         raise ValueError("scheduled source cycle is in the future")
     return f"{SCHEDULED_BATCH_PREFIX}{source}-{day.isoformat()}", day
@@ -275,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         report: dict[str, object]
         success = True
         if args.command == "prepare":
-            selected, day, eligible = selection(
+            selected, day = selection(
                 source=args.source, batch_id=args.batch_id, created_at=args.run_created_at
             )
             if args.run_created_at is None and args.master_asof is None:
@@ -285,7 +284,6 @@ def main(argv: list[str] | None = None) -> int:
             if args.confirmed_partial and (len(selected) != 1 or args.run_created_at is not None):
                 raise ValueError("partial publication is an explicit single-source operation")
             report = {
-                "eligible": str(eligible).lower(),
                 "source_runs": json.dumps(selected),
                 "observation_date": day.isoformat() if day else "",
                 "master_asof": args.master_asof.isoformat() if args.master_asof else "",
