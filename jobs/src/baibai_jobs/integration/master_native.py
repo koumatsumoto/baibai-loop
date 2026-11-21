@@ -26,6 +26,7 @@ from baibai_engine.data_collection.providers.jquants.master_native import (
     read_master_requests,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.full_day_inputs import EmptyFullDayInput
 from baibai_engine.machine_analysis.generation.master_inputs import (
     INPUT_FORMAT,
     read_master_input,
@@ -220,12 +221,14 @@ def fixed_input(
     """Retain acquisition membership and state without decoding any source pack."""
     head = fixed.value()
     scopes = head["scopes"]
+    if not isinstance(scopes, dict):
+        raise ValueError("native master L1 scopes must be an object")
     if days is not None:
         if any(day.isoformat() not in scopes for day in days):
             raise ValueError("native master has no retained requested snapshot date")
         scopes = {day.isoformat(): scopes[day.isoformat()] for day in days}
     if not scopes:
-        raise ValueError("native master L1 has no retained snapshot dates")
+        raise EmptyFullDayInput("native master L1 has no retained snapshot dates")
     closed_bases = closed_bases or {}
     scopes = {
         day: {**scope, "closed_basis": closed_bases[date.fromisoformat(day)].isoformat()}

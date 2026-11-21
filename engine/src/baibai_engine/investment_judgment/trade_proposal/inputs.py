@@ -35,6 +35,9 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
     order_readiness,
 )
+from baibai_engine.investment_judgment.trade_proposal.discovery_context import (
+    saved_discovery_context,
+)
 from baibai_engine.investment_judgment.trade_proposal.query import (
     load_investment_proposal,
     previous_buy_proposals,
@@ -47,7 +50,6 @@ from baibai_engine.investment_judgment.workflow.operation.progress import (
     selection_binding,
 )
 from baibai_engine.investment_judgment.workflow.profit_context import saved_profit_context
-from baibai_engine.investment_judgment.workflow.screening_brief import saved_discovery_context
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedSelection,
     saved_market_assessment,

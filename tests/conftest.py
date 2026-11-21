@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import socket
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
-
-from tests.helpers.network import _no_real_network as _no_real_network
 
 # Redirect App/run defaults through env; explicit paths and shell transfers can bypass
 # that redirect. `r2_transfer.sh` resolves store paths from its own checkout, so the
@@ -18,6 +17,17 @@ _REAL_DB_DEFAULTS = (
     Path("stores/market_context/indicators.sqlite"),
     Path("stores/market/market.sqlite"),
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    def denied(*args: object, **kwargs: object) -> None:
+        pytest.fail("unit test attempted real network access; mock the provider transport")
+
+    monkeypatch.setattr(socket.socket, "connect", denied)
+    monkeypatch.setattr(socket.socket, "connect_ex", denied)
+    monkeypatch.setattr(socket, "create_connection", denied)
+    monkeypatch.setattr(socket, "getaddrinfo", denied)
 
 
 @pytest.fixture(autouse=True)

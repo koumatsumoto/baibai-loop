@@ -1,6 +1,7 @@
 """A fixed native input powers cold, cached and published margin-alert readers."""
 
 import sqlite3
+from contextlib import closing
 from datetime import date, timedelta
 
 import pytest
@@ -16,10 +17,8 @@ from baibai_engine.data_collection.providers.jquants.margin_alerts_native import
     PREFIX,
     MarginAlertsL1,
 )
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
-    read_margin_alerts,
-)
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.coverage import uncovered_days
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.margin_alerts_native import materialize_saved_input, model_input
 from baibai_jobs.publication.l1_margin_alerts_export import export_margin_alerts_from_native_input
@@ -156,12 +155,14 @@ def test_empty_correction_replaces_only_its_pubdate_and_keeps_appdate(tmp_path):
     saved, report = build(
         store, owner, market, mirror, previous=previous.manifest, at=AT + timedelta(hours=2)
     )
-    assert len(rows(market)) == 2
-    result = read_margin_alerts(market, prior, DAY)
-    assert [(row.publication_date, row.applied_date) for row in result] == [
-        (DAY, prior),
-        (DAY, DAY),
-    ]
+    with closing(sqlite3.connect(market)) as conn:
+        assert conn.execute(
+            "SELECT publication_date, applied_date FROM jquants_margin_alerts "
+            "ORDER BY publication_date, applied_date"
+        ).fetchall() == [
+            (DAY.isoformat(), prior.isoformat()),
+            (DAY.isoformat(), DAY.isoformat()),
+        ]
     assert saved.descriptor["summary"]["coverage_status"] == "complete"
     assert report.manifest.coverage_status == "complete"
 
@@ -230,8 +231,10 @@ def test_warm_ranges_split_at_changed_input_and_keep_the_last_days_clock(tmp_pat
         (changed + timedelta(days=1), DAY, AT.isoformat()),
     ]
     assert saved.descriptor["summary"]["partial_days"] == 1
-    assert read_margin_alerts(market, changed, changed)
-    assert read_margin_alerts(market, changed + timedelta(days=1), DAY) is None
+    with closing(sqlite3.connect(market)) as conn:
+        assert uncovered_days(
+            conn, "jquants_margin_alerts", [changed, changed + timedelta(days=1), DAY]
+        ) == [changed + timedelta(days=1)]
 
 
 def test_failed_refresh_is_partial_but_keeps_adopted_rows(tmp_path):
@@ -245,10 +248,9 @@ def test_failed_refresh_is_partial_but_keeps_adopted_rows(tmp_path):
     assert rows(market) == expected
     assert saved.descriptor["summary"]["coverage_status"] == "partial"
     assert second.manifest.coverage_status == "partial"
-    assert read_margin_alerts(market, DAY, DAY) is None
 
 
-def test_normal_empty_is_readable_without_fabricating_a_lake_row(tmp_path):
+def test_normal_empty_is_complete_without_fabricating_a_lake_row(tmp_path):
     store, owner, market, mirror = fixture(tmp_path)
     owner.commit([attempt("empty", at=AT + timedelta(hours=1), rows=[])])
     saved = model_input(
@@ -260,7 +262,6 @@ def test_normal_empty_is_readable_without_fabricating_a_lake_row(tmp_path):
         mirror_root=mirror,
     )
     assert rows(market) == []
-    assert read_margin_alerts(market, DAY, DAY) == []
     assert saved.descriptor["summary"]["coverage_status"] == "complete"
 
 
@@ -296,11 +297,9 @@ def test_old_boolean_projection_is_rebuilt_before_warm_reuse(tmp_path, monkeypat
         previous=previous.manifest,
     )
     cold = tmp_path / "cold.sqlite"
-    materialize_saved_input(store, saved, output=cold)
+    assert materialize_saved_input(store, saved, output=cold)["coverage_status"] == "partial"
     assert rows(market) == rows(cold)
     assert len(rows(market)) == 1
-    assert read_margin_alerts(market, DAY, DAY) is None
-    assert read_margin_alerts(cold, DAY, DAY) is None
     assert saved.descriptor["summary"]["coverage_status"] == "partial"
     assert saved.descriptor["selection_sha256"] == before.descriptor["selection_sha256"]
     assert saved.sha256 != before.sha256

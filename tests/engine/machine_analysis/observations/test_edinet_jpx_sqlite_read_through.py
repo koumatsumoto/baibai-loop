@@ -21,10 +21,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_sto
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    has_jpx_regulation_data,
-    read_jpx_regulations,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     EDINET_METRIC_REVISION,
 )
@@ -206,48 +202,6 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
             self.assertEqual(records["1301"].ocf_receivables_cash_effect, -12_000.0)
             self.assertEqual(records["1301"].capex_ppe_reported, 30_000.0)
             self.assertIsNone(records["1301"].capex_intangible_reported)
-
-
-class JPXSQLiteReaderTests(unittest.TestCase):
-    def test_read_jpx_regulations_returns_snapshot(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.executemany(
-                "INSERT INTO jpx_regulation_flags("
-                "asof_date, source_name, ticker, flag, fetched_at_utc"
-                ") VALUES (?, ?, ?, ?, ?)",
-                [
-                    ("2026-04-24", "特別注意銘柄", "1301", "特別注意銘柄", None),
-                    ("2026-04-24", "整理銘柄", "1301", "整理銘柄", None),
-                    ("2026-04-24", "取引停止", "1302", "取引停止", None),
-                ],
-            )
-            _add_source_coverage(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
-            conn.commit()
-            conn.close()
-
-            snapshot = read_jpx_regulations(sqlite_path, date(2026, 4, 24))
-            assert snapshot is not None
-            self.assertEqual(snapshot.flags_by_ticker["1301"], ("整理銘柄", "特別注意銘柄"))
-            self.assertEqual(snapshot.flags_by_ticker["1302"], ("取引停止",))
-
-    def test_has_jpx_regulation_data_false_when_no_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.commit()
-            conn.close()
-            self.assertFalse(has_jpx_regulation_data(sqlite_path, date(2026, 4, 24)))
-
-    def test_has_jpx_regulation_data_true_for_imported_empty_snapshot(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _add_source_coverage(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
-            conn.commit()
-            conn.close()
-            self.assertTrue(has_jpx_regulation_data(sqlite_path, date(2026, 4, 24)))
 
 
 class EDINETSavedReadThroughTests(unittest.TestCase):

@@ -1,9 +1,10 @@
-"""信用残の公表時差・系列切替と取得/読取の接続契約。"""
+"""系列別の信用残と対象範囲をSQLiteに保存する契約。"""
 
 from __future__ import annotations
 
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -11,12 +12,6 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_margin_alerts,
     store_jquants_weekly_margin,
-)
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
-    published_margin_week_ends,
-    read_all_issues_daily_margin,
-    read_margin_alerts,
-    read_weekly_margin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
@@ -42,15 +37,20 @@ class WeeklyMarginStoreTest(unittest.TestCase):
 
     def test_a_week_the_exchange_skipped_is_recorded_as_examined(self) -> None:
         # The endpoint answers with nothing for a week that has no balance date.
-        # Without a coverage row the fetch would ask again on every pass, and the
-        # reader could not tell "no balance date" from "nobody has looked".
+        # An examined week gets a zero-row coverage claim; an unexamined week does not.
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             persisted = store_jquants_weekly_margin(db, [], week_end=date(2017, 5, 5))
 
             self.assertEqual(persisted, 0)
-            self.assertEqual(read_weekly_margin(db, date(2017, 5, 5)), [])
-            self.assertIsNone(read_weekly_margin(db, date(2017, 5, 12)))
+            with closing(open_connection(db)) as conn:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT coverage_start, status, record_count FROM source_coverage "
+                        "WHERE source='jquants_weekly_margin'"
+                    ).fetchall(),
+                    [("2017-05-05", "ok", 0)],
+                )
 
     def test_secondary_issue_lines_are_excluded_not_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -83,11 +83,13 @@ class WeeklyMarginStoreTest(unittest.TestCase):
                 week_end=date(2026, 7, 24),
             )
 
-            rows = read_weekly_margin(db, date(2026, 7, 24))
-            self.assertIsNotNone(rows)
-            assert rows is not None
-            self.assertEqual(rows[0].short_vol, 0.0)
-            self.assertEqual(rows[0].issue_type, "1")
+            with closing(open_connection(db)) as conn:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT short_vol, issue_type FROM jquants_weekly_margin"
+                    ).fetchall(),
+                    [(0.0, "1")],
+                )
 
     def test_an_empty_payload_replaces_a_stored_week(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -96,8 +98,10 @@ class WeeklyMarginStoreTest(unittest.TestCase):
 
             self.assertEqual(store_jquants_weekly_margin(db, [], week_end=date(2026, 7, 24)), 0)
 
-            rows = read_weekly_margin(db, date(2026, 7, 24))
-            self.assertEqual(rows, [])
+            with closing(open_connection(db)) as conn:
+                self.assertEqual(
+                    conn.execute("SELECT week_end FROM jquants_weekly_margin").fetchall(), []
+                )
 
     def test_weekly_store_rejects_post_transition_daily_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,7 +127,6 @@ class WeeklyMarginStoreTest(unittest.TestCase):
                 0,
             )
 
-            self.assertIsNone(read_weekly_margin(db, day))
             conn = open_connection(db)
             try:
                 self.assertEqual(
@@ -181,7 +184,6 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
             self.assertEqual(persisted, 1)
             self.assertEqual(row_count, 1)
             self.assertEqual(status, "ok")
-            self.assertEqual(len(read_all_issues_daily_margin(db, balance_date) or []), 1)
 
     def test_payload_date_mismatch_marks_daily_snapshot_partial(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -202,7 +204,6 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
                 0,
             )
 
-            self.assertIsNone(read_all_issues_daily_margin(db, balance_date))
             conn = open_connection(db)
             try:
                 self.assertEqual(
@@ -235,7 +236,6 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
 
             self.assertEqual(persisted, 0)
             self.assertEqual(coverage, ("partial", 0))
-            self.assertIsNone(read_all_issues_daily_margin(db, balance_date))
 
     def test_margin_alerts_preserve_regulation_facts_in_a_separate_table(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -270,16 +270,15 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
                 requested_end=publication_date,
             )
 
-            alerts = read_margin_alerts(db, publication_date, publication_date)
-            self.assertEqual(len(alerts or []), 1)
-            assert alerts is not None
-            self.assertEqual(alerts[0].applied_date, date(2026, 8, 7))
-            self.assertEqual(
-                alerts[0].tse_margin_regulation_classification,
-                "委託保証金率50%",
-            )
             conn = open_connection(db)
             try:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT publication_date, applied_date, tse_margin_regulation_classification "
+                        "FROM jquants_margin_alerts"
+                    ).fetchall(),
+                    [(publication_date.isoformat(), "2026-08-07", "委託保証金率50%")],
+                )
                 weekly_count = conn.execute(
                     "SELECT COUNT(*) FROM jquants_weekly_margin"
                 ).fetchone()[0]
@@ -311,43 +310,3 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
 
             self.assertEqual(persisted, 0)
             self.assertEqual(coverage, ("partial", 0))
-            self.assertIsNone(read_margin_alerts(db, publication_date, publication_date))
-
-
-class MarginPublicationLagTest(unittest.TestCase):
-    @staticmethod
-    def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
-        for week_end in week_ends:
-            store_jquants_weekly_margin(
-                db,
-                [{"Date": week_end.isoformat(), "Code": "72030", "LongVol": 1.0}],
-                week_end=week_end,
-            )
-        conn = open_connection(db)
-        try:
-            conn.executemany(
-                "INSERT OR REPLACE INTO jquants_daily_bars"
-                "(ticker, traded_at, close) VALUES (?, ?, ?)",
-                [("7203", d.isoformat(), 1.0) for d in trading_days],
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-    def test_a_balance_date_is_not_readable_before_its_publication(self) -> None:
-        # The exchange publishes a week's balances on the second trading day after
-        # the balance date, in the late afternoon. Joining on the balance date, or
-        # even on the publication day's close, would read positioning into a
-        # decision that could not have seen it.
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            week_end = date(2026, 7, 24)  # Friday
-            trading = [date(2026, 7, 24), date(2026, 7, 27), date(2026, 7, 28), date(2026, 7, 29)]
-            self._seed(db, [week_end], trading)
-
-            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 24)), [])
-            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 27)), [])
-            # The exchange publishes late in the afternoon while a decision prices
-            # at the close, so the publication day itself is still too early.
-            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 28)), [])
-            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 29)), [week_end])

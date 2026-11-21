@@ -89,6 +89,7 @@ def project_discovery_row(
         missing.add("financial:" + financial_gap)
     expected = technical.expected_price_date
     day = _text(price.get("resolved_date"))
+    basis = _text(price.get("price_basis"))
     return DiscoveryRow(
         ticker=ticker,
         models_recorded=bool(models),
@@ -118,10 +119,11 @@ def project_discovery_row(
         price=amount,
         price_date=day,
         expected_price_date=expected,
-        basis=_text(price.get("price_basis")),
+        basis=basis,
         price_ready=(
             amount is not None
             and amount > 0
+            and basis == "price_adjusted_close"
             and day is not None
             and day == expected
             and technical.price_ready

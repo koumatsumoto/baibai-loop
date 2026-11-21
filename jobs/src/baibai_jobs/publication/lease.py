@@ -399,8 +399,9 @@ def main(argv: list[str] | None = None) -> int:
                     with Path(output).open("a", encoding="utf-8") as destination:
                         destination.write("acquired=true\n")
                 except OSError:
-                    with suppress(LakePublishError, LeaseError):
+                    with suppress(LakePublishError, LeaseError, OSError):
                         release(store, acquired)
+                        args.handle.unlink(missing_ok=True)
                     raise LeaseError("publication lease output could not be saved") from None
             print(
                 f"publication lease: acquired purpose={acquired.purpose} "

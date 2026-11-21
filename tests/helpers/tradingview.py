@@ -139,3 +139,54 @@ class Timer:
 
     def __call__(self):
         return self.value
+
+
+def native_inputs(source: Path, directory: Path, *, day: date, remote=None):
+    """Freeze the fixture's real market rows; fillers outside the TV markets keep its small universe."""
+    import json
+
+    from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
+    from baibai_engine.data_collection.providers.jquants.master_native import (
+        HEAD_KEY,
+        MasterAttempt,
+        MasterL1,
+    )
+    from baibai_jobs.acquisition.calendar_dependencies import (
+        fix_calendar_dependency,
+        saved_calendar_context,
+    )
+    from baibai_jobs.integration.master_native import fixed_input
+    from tests.helpers.master_calendar_native import seed_calendar
+    from tests.helpers.r2_store import MemoryR2Store
+    from tests.helpers.screening_sqlite import make_master_records
+
+    if remote is None:
+        remote = MemoryR2Store()
+    seed_calendar(remote, source, directory / "tv-calendar", as_of=day)
+    calendar = fix_calendar_dependency(
+        remote, directory=directory / "tv-calendar", observation_date=day
+    )
+    basis, _ = saved_calendar_context(remote, calendar, observation_date=day)
+    owner = MasterL1(remote, directory / "tv-master")
+    if remote.head(HEAD_KEY) is None:
+        with closing(sqlite3.connect(source)) as conn:
+            rows = [
+                json.loads(row[0])
+                for row in conn.execute(
+                    "SELECT record_json FROM jquants_master_snapshots WHERE snapshot_date=?",
+                    (basis.isoformat(),),
+                )
+            ]
+        held = {row["Code"] for row in rows}
+        rows.extend(
+            {**row, "MktNm": "OTHER"}
+            for row in make_master_records(basis)
+            if row["Code"] not in held
+        )
+        params = {"date": basis.isoformat()}
+        at = datetime.combine(basis, datetime.min.time(), tzinfo=UTC)
+        page = JQuantsPage("master", params, at, json.dumps({"data": rows}).encode())
+        owner.initialize()
+        owner.commit([MasterAttempt("fixture-master", basis, at, (page,))])
+    master = fixed_input(remote, owner.fixed(), as_of=basis, evaluated_at=NOW, days=[basis])
+    return remote, master, calendar

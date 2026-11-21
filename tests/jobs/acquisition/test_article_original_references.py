@@ -17,7 +17,6 @@ from baibai_jobs.acquisition.article_planning import (
     publish_planning_input,
     source_key,
 )
-from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import seal_integrated
 
 
@@ -67,48 +66,6 @@ def test_missing_accepted_original_is_visible_even_when_sealed_or_listing_is_emp
     (missing,) = [entry for entry in pending_handoffs(store) if entry.get("invalid")]
     assert missing["stage_id"] == (latest if all_packets else first)["stage_id"]
     assert missing["invalid"] == "missing_article_original"
-
-
-@pytest.mark.parametrize("version", ["article-planning-v1", "article-planning-v2"])
-def test_legacy_pending_is_seeded_once_without_rewriting_its_originals(tmp_path, version):
-    from baibai_jobs.acquisition.article_discovery import DISCOVERY_REF_FORMAT
-
-    store = MemoryR2Store()
-    entries = []
-    for index in range(3):
-        root = tmp_path / str(index)
-        root.mkdir()
-        stage_id = f"boj_news-legacy-{index}"
-        save_handoff(store, stage_id, _packet(root), namespace="article-sources")
-        saved = store.values[f"coordination/article-sources/{stage_id}/handoff.json"].body
-        entries.append(
-            {
-                "source": "boj_news",
-                "market": True,
-                "namespace": "article-sources",
-                "stage_id": stage_id,
-                "manifest_sha256": hashlib.sha256(saved).hexdigest(),
-                "started_at": SLOT.isoformat(),
-                "asof": SLOT.date().isoformat(),
-            }
-        )
-    old_objects = dict(store.values)
-    legacy = {**ArticlePlanning("boj_news", {}).to_json(), "format": version, "pending": entries}
-    legacy.pop("last_stage")
-    if version == "article-planning-v2":
-        legacy["cursor"] = {"format": DISCOVERY_REF_FORMAT, "stage": entries[-1]}
-    store.store_object(source_key("boj_news"), json.dumps(legacy).encode())
-    first = commit(store, tmp_path / "first", "first")
-    next_entry = commit(store, tmp_path / "next", "next")
-    assert manifest(store, first)["result"]["planning"]["legacy_pending"] == entries
-    assert manifest(store, first)["result"]["planning"]["previous_stage"] is None
-    assert "legacy_pending" not in manifest(store, next_entry)["result"]["planning"]
-    assert manifest(store, next_entry)["result"]["planning"]["previous_stage"] == first
-    assert all(store.values[key] == value for key, value in old_objects.items())
-    assert not any(entry.get("invalid") for entry in pending_handoffs(store))
-    remove_packet(store, entries[0])
-    (missing,) = [entry for entry in pending_handoffs(store) if entry.get("invalid")]
-    assert missing["stage_id"] == entries[0]["stage_id"]
 
 
 @pytest.mark.parametrize(
@@ -201,5 +158,4 @@ def test_cas_loser_keeps_its_actual_parent_but_does_not_claim_root_coverage(tmp_
     assert load_planning(store, "boj_news")[0].last_stage["stage_id"] == "boj_news-winner"
     assert len(pending_handoffs(store)) == 3
     remove_packet(store, loser)
-    # The old pending protocol also could not track a failed, unpublished CAS.
     assert not any(entry.get("invalid") for entry in pending_handoffs(store))

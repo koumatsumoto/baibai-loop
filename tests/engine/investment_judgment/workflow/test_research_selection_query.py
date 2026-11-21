@@ -16,12 +16,6 @@ from baibai_engine.investment_judgment.workflow.selection_query import (
     load_generated_selection_context,
 )
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
-from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    CandidateCard,
-    EconomicPathPolicy,
-    EconomicPathSelection,
-    RankedPath,
-)
 from baibai_engine.portfolio.ledger.events import ContributionEvent
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
@@ -38,7 +32,6 @@ def context(path, *, selected=None, known_at=NOW, comparisons=(), scope="discove
         runs_path=path,
         db_path=path.parent / "absent-app",
         comparison_tickers=comparisons,
-        screening_lane=None if selected is None else "growth_research",  # 明示した旧公表だけ。
     )
 
 
@@ -75,47 +68,15 @@ def test_comparisons_do_not_change_request_policy_or_saved_observations(tmp_path
         now=NOW,
         tickers=("1234", "5678"),
         models=models,
-        screening_result=EconomicPathSelection(
-            EconomicPathPolicy(candidate_limit=20),
-            1,
-            (
-                CandidateCard(
-                    ticker="1234",
-                    name=None,
-                    sector=None,
-                    rank=1,
-                    priority=0.5,
-                    strongest_path="earning_power",
-                    paths=(
-                        RankedPath(
-                            "earning_power",
-                            "annual_ttm",
-                            0.1,
-                            0.25,
-                            "market",
-                            "sector",
-                            0.5,
-                            0.5,
-                            1,
-                            1,
-                            0.5,
-                            {},
-                        ),
-                    ),
-                    context={},
-                    model_revisions={},
-                    not_generated=(),
-                ),
-            ),
-        ),
     )
     before = path.read_bytes()
-    baseline = context(path, selected=selected)
+    baseline = context(path, selected=selected, comparisons=("1234",))
     result = context(path, selected=selected, comparisons=("5678", "9999", "5678"))
     assert result["request"] == baseline["request"]
     assert result["request"]["requested_tickers"] == []
-    assert result["screening"] == baseline["screening"]
-    assert result["candidate_tickers"] == ["1234"]
+    assert result["screening"]["source_sha256"] == baseline["screening"]["source_sha256"]
+    assert result["screening"]["policy"] == baseline["screening"]["policy"]
+    assert result["candidate_tickers"] == []
     assert result["capacity"] == baseline["capacity"]
     observed = result["model_inputs"]["securities"]["5678"]["company_financials"]
     assert observed == models[1].payload

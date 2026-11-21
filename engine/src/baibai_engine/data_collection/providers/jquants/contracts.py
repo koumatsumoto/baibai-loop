@@ -161,4 +161,3 @@ class RetainedRequest:
     error: str | None
     first_query: dict[str, str] | None = None
     last_received_at: datetime | None = None
-    page_fingerprints: tuple[tuple[int, str], ...] = ()

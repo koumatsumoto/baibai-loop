@@ -84,5 +84,5 @@ def test_workflow_offers_only_active_sources():
         "monex",
         "kabumap",
     ]
-    selected, _, _ = sources.selection(source="all", batch_id="manual", created_at=None)
+    selected, _ = sources.selection(source="all", batch_id="manual", created_at=None)
     assert [item["source"] for item in selected] == ["monex", "kabumap"]

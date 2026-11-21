@@ -20,9 +20,6 @@ from baibai_engine.investment_judgment.stock_assessment.store import load_review
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    read_next_earnings_dates,
-)
 from baibai_engine.machine_analysis.observations.economic_indicators.service import (
     IndicatorsService,
 )
@@ -41,8 +38,6 @@ from baibai_engine.storage.sqlite.machine_analysis import (
     initialize_run_store,
 )
 from baibai_engine.storage.sqlite.read import read_rows
-from baibai_engine.storage.sqlite.source_cache.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
-from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION
 
 
 @pytest.mark.parametrize("store", ["absent-file", "empty-file"])
@@ -53,7 +48,6 @@ def test_unwritten_stores_return_absence_without_initializing(tmp_path: Path, st
     original = path.read_bytes() if path.exists() else None
     assert read_rows(path, "SELECT payload FROM example_payload") == []
     assert reading_snapshot(path, asof=date(2026, 7, 29)) is None
-    assert read_next_earnings_dates(path, date(2026, 7, 29)) is None
     assert (path.read_bytes() if path.exists() else None) == original
 
 
@@ -120,16 +114,6 @@ def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: 
         closing(connect_application_read_only(store)),
     ):
         pass
-
-
-def test_market_reader_rejects_an_obsolete_store_instead_of_degrading(tmp_path: Path) -> None:
-    store = tmp_path / "market-v24.sqlite"
-    with closing(sqlite3.connect(store)) as connection, connection:
-        connection.executescript(MARKET_SCHEMA_SQL)
-        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
-
-    with pytest.raises(RuntimeError, match="obsolete market SQLite schema"):
-        read_next_earnings_dates(store, date(2026, 8, 30))
 
 
 @pytest.mark.parametrize("kind", ["assessment", "proposal"])

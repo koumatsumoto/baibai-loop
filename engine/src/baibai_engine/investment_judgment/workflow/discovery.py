@@ -13,15 +13,11 @@ from typing import TYPE_CHECKING, Any
 from baibai_engine.investment_judgment.workflow.book_prices import BookPriceComparison
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.machine_analysis.screening.discovery_contract import is_session_row
 
 if TYPE_CHECKING:
-    from baibai_engine.machine_analysis.observations.prices.price_observation import (
-        NativePriceSession,
-    )
     from baibai_engine.machine_analysis.screening.discovery_contract import (
         DiscoveryIndexRead,
-        IndexedRow,
+        DiscoveryRow,
     )
 
 
@@ -57,8 +53,8 @@ DISCOVERY_QUESTIONS = {
         "不足の解消自体に価値はない。経路がなければ調査を打ち切ってよい。",
     ),
     "outside_display": _Question(
-        "当時の表示集合から外れた会社に、既存経路で扱えない経済的理由はあるか。",
-        "表示外は未採択であって割安の証拠でも棄却でもない。",
+        "発行時の索引で経済仮説が立っていない会社に、割安と考える別の根拠はあるか。",
+        "入力不足の会社も含み得る。仮説が立っていないだけでは、割安とも投資対象外とも判断できない。",
     ),
     "no_coordinate": _Question(
         "採用可能な財務・価格座標がない会社に、別の権利や資産から解ける問いはあるか。",
@@ -84,7 +80,7 @@ class PriceCoordinateMinimum:
                 "a recorded price coordinate and a finite comparison value are required"
             )
 
-    def compare(self, row: IndexedRow) -> str:
+    def compare(self, row: DiscoveryRow) -> str:
         matches = [
             c.get("price_value")
             for c in row["coordinates"]
@@ -163,10 +159,7 @@ def discovery_context(
             "status": "inputs_required",
             "missing_inputs": [{"code": "unindexed_legacy_publication"}],
             "meaning": "旧世代の索引は未記録。候補0社ではなく、全社本文も開いていない。",
-            "explicit_full_read": ["--screening-lane", "growth_research"],
         }
-    if data.price_session is not None:
-        result["price_session"] = data.price_session.model_dump(mode="json")
     if comparisons is not None:
         # 索引にない明示銘柄も、元の世代のモデルの有無とは分けて照合する。
         requested = set(comparisons)
@@ -192,12 +185,11 @@ def discovery_context(
             page=page,
             minimum=minimum,
             book_prices=book_prices,
-            price_session=data.price_session,
         ),
     }
 
 
-def _members(row: IndexedRow, price_session: NativePriceSession | None) -> set[str]:
+def _members(row: DiscoveryRow) -> set[str]:
     routes = row["matched_paths"]
     financial, growth = set(routes["financial"]), set(routes["growth"])
     result = {"universe"}
@@ -217,11 +209,7 @@ def _members(row: IndexedRow, price_session: NativePriceSession | None) -> set[s
         for n in (activity["observations"], activity["share_basis_adjustments"])
     ):
         result.add("capital_change")
-    price_observed = (
-        price_session is not None and price_session.observed(row["execution_price"])
-        if is_session_row(row)
-        else row["price_ready"] and row["price"] is not None
-    )
+    price_observed = row["price_ready"] and row["price"] is not None
     if row["missing"] or row["financial_state"] == "input_unresolved" or not price_observed:
         result.add("input_gap")
     if not row["coordinates"]:
@@ -232,20 +220,19 @@ def _members(row: IndexedRow, price_session: NativePriceSession | None) -> set[s
 
 
 def _explore(
-    rows: Sequence[IndexedRow],
+    rows: Sequence[DiscoveryRow],
     universe: Sequence[str],
     *,
     question: str | None,
     page: int,
     minimum: PriceCoordinateMinimum | None = None,
     book_prices: BookPriceComparison | None = None,
-    price_session: NativePriceSession | None = None,
 ) -> dict[str, Any]:
     # 会社が複数の問いに関わる。重なる根拠を票・優先度や予算へ変換しない。
     counts: Counter[str] = Counter()
-    eligible: list[IndexedRow] = []
+    eligible: list[DiscoveryRow] = []
     for row in rows:
-        keys = _members(row, price_session)
+        keys = _members(row)
         counts.update(keys)
         if question in keys:
             eligible.append(row)
@@ -336,7 +323,7 @@ def _explore(
     }
 
 
-def _page(rows: list[IndexedRow], args: list[str], number: int) -> dict[str, Any]:
+def _page(rows: list[DiscoveryRow], args: list[str], number: int) -> dict[str, Any]:
     page_size = 24  # 転送単位。調査予算ではない。
     start = number * page_size
     ordered = sorted(rows, key=lambda row: row["ticker"])

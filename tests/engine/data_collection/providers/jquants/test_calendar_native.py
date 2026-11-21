@@ -117,6 +117,26 @@ def test_raw_completion_is_not_a_proven_closed_session(tmp_path, rows, missing):
     assert sessions[DAY] is None
 
 
+def test_one_invalid_division_does_not_invalidate_other_days(tmp_path):
+    _, source = owner(tmp_path)
+    tomorrow = DAY + timedelta(days=1)
+    source.commit(
+        [
+            attempt(
+                "mixed",
+                end=tomorrow,
+                rows=[
+                    {"Date": DAY.isoformat(), "HolDiv": "1"},
+                    {"Date": tomorrow.isoformat(), "HolDiv": None},
+                ],
+            )
+        ]
+    )
+    assert source.fixed().plan(start=DAY, end=tomorrow) == (tomorrow,)
+    sessions, _ = calendar_sessions(source.fixed().index(), start=DAY, end=tomorrow)
+    assert sessions == {DAY: True, tomorrow: None}
+
+
 def test_scope_query_form_order_unknown_fields_and_older_receipt_are_kept(tmp_path):
     store, source = owner(tmp_path)
     initial = attempt("initial")

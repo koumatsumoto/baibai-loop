@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 
-BASE_URL = "https://tradingeconomics.com"
 STREAM_NAMES = {
     "jp_manufacturing": r"S&P Global Japan Manufacturing PMI",
     "jp_services": r"Japan[’']s S&P Global Services PMI Business Activity Index",
@@ -157,7 +156,3 @@ def parse_article(body: bytes, *, stream: str, url: str) -> PmiArticle:
     ):
         raise ValueError("TE PMI article month/phase conflicts with its publication date")
     return PmiArticle(lead, observed, phase, published, modified)
-
-
-def request_key(url: str) -> str:
-    return "te:" + url.rsplit("/", 1)[1]

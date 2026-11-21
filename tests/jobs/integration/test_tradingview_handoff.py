@@ -1,10 +1,19 @@
 from contextlib import closing
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 from mcp.types import CallToolResult, TextContent
-from tests.helpers.jquants_receipts import body, receive
-from tests.helpers.tradingview import DAY, NOW, _sdk, payload, retain_result, store, stored
+from tests.helpers.tradingview import (
+    DAY,
+    NOW,
+    _sdk,
+    native_inputs,
+    payload,
+    retain_result,
+    store,
+    stored,
+)
 
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.tradingview_handoff import (
@@ -33,15 +42,23 @@ def test_late_partial_handoff_adds_missing_rows_without_narrowing_saved_selectio
             (DAY.isoformat(), "fresh-jpx", NOW.isoformat()),
         )
     stage = tmp_path / "stage.sqlite"
-    selected = export_handoff(source, stage, day=DAY, since=NOW - timedelta(seconds=1))
-    result = import_handoff(stage, canonical, selected)
+    remote, master, calendar = native_inputs(source, tmp_path, day=DAY)
+    selected = export_handoff(
+        source,
+        stage,
+        day=DAY,
+        master_input=master,
+        calendar_input=calendar,
+        since=NOW - timedelta(seconds=1),
+    )
+    result = import_handoff(stage, canonical, selected, store=remote)
     assert result.report["rows_added"] == 1
     assert result.report["rows"] == 2
     assert result.complete is True
     assert result.report["remaining"] == 1
     assert stored(canonical)[0] == before
     assert [row[1] for row in stored(canonical)] == ["1000", "1002"]
-    assert import_handoff(stage, canonical, selected).report["rows_added"] == 0
+    assert import_handoff(stage, canonical, selected, store=remote).report["rows_added"] == 0
     with closing(open_connection(canonical)) as conn:
         assert (
             conn.execute("SELECT source_name FROM jpx_regulation_sources").fetchone()[0]
@@ -54,6 +71,8 @@ def test_late_partial_handoff_adds_missing_rows_without_narrowing_saved_selectio
         assert conn.execute("SELECT COUNT(*) FROM jpx_regulation_sources").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0] == 0
     assert TradingViewHandoff.from_json(selected.to_json()) == selected
+    with pytest.raises(ValueError, match="non-native master"):
+        TradingViewHandoff.from_json({**selected.to_json(), "master_request_ids": ["other"]})
 
 
 def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticker(tmp_path):
@@ -68,8 +87,11 @@ def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticke
     changed["data"]["TSE:1000"]["close"] = 999
     retain_result(source, _sdk(changed), received=NOW + timedelta(minutes=1))
     stage = tmp_path / "stage.sqlite"
-    selected = export_handoff(source, stage, day=DAY, since=NOW)
-    result = import_handoff(stage, canonical, selected)
+    remote, master, calendar = native_inputs(source, tmp_path, day=DAY)
+    selected = export_handoff(
+        source, stage, day=DAY, master_input=master, calendar_input=calendar, since=NOW
+    )
+    result = import_handoff(stage, canonical, selected, store=remote)
     assert result.report["rows_added"] == 0
     assert result.report["raw_receipts_added"] == 1
     assert stored(canonical) == before
@@ -82,11 +104,36 @@ def test_new_canonical_universe_refuses_the_old_handoff_before_receiving_rows(tm
     )
     retain_result(source, _sdk(payload(["TSE:1000"])))
     stage = tmp_path / "stage.sqlite"
-    selected = export_handoff(source, stage, day=DAY, since=NOW)
+    remote, master, calendar = native_inputs(source, tmp_path, day=DAY)
+    selected = export_handoff(
+        source, stage, day=DAY, master_input=master, calendar_input=calendar, since=NOW
+    )
     with pytest.raises(SourceDataError, match="universe"):
-        import_handoff(stage, canonical, selected)
+        import_handoff(stage, canonical, selected, store=remote)
     with closing(open_connection(canonical)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM tradingview_source_receipts").fetchone()[0] == 0
+
+
+def test_declared_receipt_must_exist_in_packet_even_if_canonical_has_it(tmp_path):
+    source = store(tmp_path / "source.sqlite", 2)
+    canonical = store(tmp_path / "canonical.sqlite", 2)
+    prior = retain_result(canonical, _sdk(payload(["TSE:1000"])))
+    received = retain_result(source, _sdk(payload(["TSE:1001"])), symbols=("TSE:1001",))
+    stage = tmp_path / "stage.sqlite"
+    remote, master, calendar = native_inputs(source, tmp_path, day=DAY)
+    handoff = export_handoff(
+        source, stage, day=DAY, master_input=master, calendar_input=calendar, since=NOW
+    )
+    assert handoff.receipt_ids == (received,)
+    with pytest.raises(SourceDataError, match="missing from its packet"):
+        import_handoff(
+            stage, canonical, replace(handoff, receipt_ids=(received, prior)), store=remote
+        )
+    with closing(open_connection(canonical)) as conn:
+        assert conn.execute("SELECT receipt_id FROM tradingview_source_receipts").fetchall() == [
+            (prior,)
+        ]
+    assert stored(canonical) == []
 
 
 def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_path):
@@ -98,8 +145,11 @@ def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_pa
         source, CallToolResult(isError=True, content=[TextContent(type="text", text="HTTP 429")])
     )
     stage = tmp_path / "stage.sqlite"
-    selected = export_handoff(source, stage, day=DAY, since=NOW)
-    result = import_handoff(stage, canonical, selected)
+    remote, master, calendar = native_inputs(source, tmp_path, day=DAY)
+    selected = export_handoff(
+        source, stage, day=DAY, master_input=master, calendar_input=calendar, since=NOW
+    )
+    result = import_handoff(stage, canonical, selected, store=remote)
     assert result.complete is False
     assert result.report["raw_receipts_added"] == 1
     assert result.report["rows_added"] == 0
@@ -109,47 +159,20 @@ def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_pa
     assert stored(canonical) == []
 
 
-def test_legacy_master_pages_never_replace_the_required_native_master(tmp_path):
-    import json
-
-    source, canonical = (
-        store(tmp_path / "source.sqlite", 2),
-        store(tmp_path / "canonical.sqlite", 1),
-    )
-    with closing(open_connection(source)) as conn:
-        records = [
-            json.loads(row[0])
-            for row in conn.execute("SELECT record_json FROM jquants_master_snapshots")
-        ]
-    receive(source, "master", {"date": DAY.isoformat()}, body(records), NOW - timedelta(seconds=1))
-    with closing(open_connection(canonical)) as conn, conn:
-        conn.execute("DELETE FROM jquants_master_snapshots")
-    retain_result(source, _sdk(payload(["TSE:1000"])))
-    stage = tmp_path / "stage.sqlite"
-    selected = export_handoff(source, stage, day=DAY, since=NOW - timedelta(seconds=2))
-    assert len(selected.master_request_ids) == 1
-    with pytest.raises(SourceDataError, match="requires one complete exact-date master"):
-        import_handoff(stage, canonical, selected)
-    with closing(open_connection(canonical)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone() == (0,)
-        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone() == (0,)
-        assert conn.execute("SELECT COUNT(*) FROM tradingview_source_receipts").fetchone() == (0,)
-    with closing(open_connection(stage)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone() == (1,)
-        assert conn.execute("SELECT COUNT(*) FROM tradingview_source_receipts").fetchone() == (1,)
-
-
 def test_overnight_receipt_handoff_keeps_actual_time_and_is_idempotent(tmp_path):
     source = store(tmp_path / "source.sqlite", 1)
     canonical = store(tmp_path / "canonical.sqlite", 1)
     received = NOW.replace(hour=16, minute=31)
     retain_result(source, _sdk(payload(["TSE:1000"])), received=received)
     stage = tmp_path / "stage.sqlite"
-    handoff = export_handoff(source, stage, day=DAY, since=NOW)
-    first = import_handoff(stage, canonical, handoff)
+    remote, master, calendar = native_inputs(source, tmp_path, day=DAY)
+    handoff = export_handoff(
+        source, stage, day=DAY, master_input=master, calendar_input=calendar, since=NOW
+    )
+    first = import_handoff(stage, canonical, handoff, store=remote)
     assert first.report["rows_added"] == 1
     assert first.complete
     (row,) = stored(canonical)
     assert row[0] == DAY.isoformat()
     assert row[3] == received.isoformat()
-    assert import_handoff(stage, canonical, handoff).report["rows_added"] == 0
+    assert import_handoff(stage, canonical, handoff, store=remote).report["rows_added"] == 0

@@ -756,7 +756,6 @@ def test_l1_success_and_fixed_date_survive_a_later_l2_failure(tmp_path, monkeypa
     ("source", "codes", "projection", "notified"),
     [
         ("economic-spglobal_pmi", [403], [], False),
-        ("economic-tradingeconomics_pmi", [403, 403], [], False),
         ("economic-spglobal_pmi", [403, 500], [], True),
         ("economic-spglobal_pmi", [429], [], True),
         ("economic-spglobal_pmi", [None], [], True),
@@ -834,15 +833,14 @@ def test_technical_financial_notice_does_not_call_unresolved_approved(method):
     ]
 
 
-@pytest.mark.parametrize("method", ["opportunity-discovery-v1", "opportunity-discovery-v2"])
-def test_discovery_editions_label_population_not_candidates(method):
+def test_discovery_labels_population_not_candidates():
     assert discord.render_generation(
         {
             "models_ready": True,
             "company_count": 2,
             "model_count": 5,
             "candidate_count": 2,
-            "selection_method": method,
+            "selection_method": "opportunity-discovery-v1",
             "screening_price_inputs": {"valid_count": 1, "universe_count": 2},
         }
     ) == ["モデル生成: 2社 / 5件 / 探索母集団2社", "同日価格観測: 適格1/2社"]

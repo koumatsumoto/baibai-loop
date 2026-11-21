@@ -18,7 +18,7 @@ from pathlib import Path
 
 WEBHOOK_ENV_VAR = "DISCORD_WEBHOOK_URL"
 DEFAULT_TIMEOUT_SECONDS = 10.0
-EXPECTED_PMI_SOURCES = {"economic-spglobal_pmi", "economic-tradingeconomics_pmi"}
+PMI_SOURCE = "economic-spglobal_pmi"
 MESSAGE_MAX_CHARS = 2000
 _SCALAR_MAX_CHARS = 120
 
@@ -231,10 +231,7 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
         "technical-financial-discovery-v25",
         "technical-financial-discovery-v26",
     }
-    discovery_index = notice.get("selection_method") in (
-        "opportunity-discovery-v1",
-        "opportunity-discovery-v2",
-    )
+    discovery_index = notice.get("selection_method") == "opportunity-discovery-v1"
     pool_label = (
         "探索母集団" if discovery_index else "探索閲覧（予備・代替含む）" if integrated else "候補"
     )
@@ -287,7 +284,7 @@ def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:
 
 def is_expected_pmi_refusal(source: str, failures: object) -> bool:
     """Keep the existing notice policy without counting stopped siblings as HTTP replies."""
-    if source not in EXPECTED_PMI_SOURCES or not isinstance(failures, list) or not failures:
+    if source != PMI_SOURCE or not isinstance(failures, list) or not failures:
         return False
     refusals = {
         row["source_id"]

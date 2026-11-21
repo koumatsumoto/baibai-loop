@@ -38,7 +38,7 @@ from baibai_engine.primitives.json import encode_json
 
 
 @pytest.mark.parametrize("legacy", [False, True])
-def test_first_comparison_detail_and_runless_resume_keep_saved_relation(tmp_path, legacy):
+def test_finite_comparison_and_runless_resume_keep_saved_relation(tmp_path, legacy):
     path = tmp_path / "runs"
     original, _, _, _ = seed(path)
     plan = deepcopy(original.subject_plan)
@@ -86,12 +86,6 @@ def test_first_comparison_detail_and_runless_resume_keep_saved_relation(tmp_path
         db_path=tmp_path / "app",
     )
     before = path.read_bytes()
-    first = load_generated_selection_context(**args, screening_lane="input_review")
-    assert first["model_inputs"]["securities"] == {}
-    card = next(c for c in first["screening"]["cards"] if c["ticker"] == "1234")
-    assert ("related_subject_context" in card) is not legacy
-    if not legacy:
-        assert card["related_subject_context"] == context
     detail = load_generated_selection_context(**args, comparison_tickers=("1234",))
     row = detail["screening"]["comparison_rows"][0]
     assert ("related_subject_context" in row) is not legacy

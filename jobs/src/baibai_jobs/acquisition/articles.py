@@ -48,7 +48,6 @@ from baibai_jobs.acquisition.article_discovery import (
     DiscoveryWork,
 )
 from baibai_jobs.acquisition.article_frontier import (
-    FRONTIER_FORMAT,
     FRONTIER_SOURCES,
     MAX_FRONTIER_BYTES,
     ArticleFrontier,
@@ -62,7 +61,6 @@ from baibai_jobs.acquisition.article_planning import (
     commit_stage,
     index_poll_due,
     is_due,
-    legacy_omission_evidence,
     load_discovery_cursor,
     load_frontier_cursor,
     load_planning,
@@ -129,6 +127,8 @@ def acquire_source(
     if shared_deadline is not None and started < shared_deadline:
         return {"source": source, "status": "not_due", "reason": "retry_not_before"}
     cursor = load_discovery_cursor(store, state) if source in DISCOVERY_SOURCES else state.cursor
+    if cursor.get("omitted_url_count"):
+        raise ValueError("unfinished article omissions require explicit recovery")
     discovery = DiscoveryWork(cursor) if source in DISCOVERY_SOURCES else None
     resume_pending = discovery is not None and (
         bool(cursor.get("pending_urls"))
@@ -441,28 +441,6 @@ def acquire_source(
 
         if source in FRONTIER_SOURCES:
             frontier = ArticleFrontier(cursor, resolve_index)
-            if cursor.get("format") != FRONTIER_FORMAT:
-                recovery = legacy_omission_evidence(store, state)
-                if recovery is not None:
-                    entry, references = recovery
-                    for reference in references:
-                        frontier.seed_legacy_index(reference)
-                    frontier.legacy_recovery = {
-                        "stage": entry,
-                        "requeued_omitted_count": frontier.legacy_omitted,
-                    }
-                    frontier.legacy_omitted = 0
-                else:
-                    # Unknown old omissions stay visible; recover available raw without guessing.
-                    for entry_url in policy.entry_urls:
-                        prior = planning.get(entry_url)
-                        if prior is not None:
-                            frontier.seed_legacy_index(
-                                {
-                                    "stage": prior["stage"],
-                                    "index_receipt_id": prior["receipt"]["receipt_id"],
-                                }
-                            )
             if frontier.encoded_size() > MAX_FRONTIER_BYTES:
                 raise ValueError("saved article work exceeds the frontier bound; recover exactly")
         received_index = max(
@@ -687,46 +665,23 @@ def acquire_source(
                 frontier.queue([])
             frontier.next_page = next_page
             pending_urls = list(frontier.pending)
-            omitted_urls = frontier.legacy_omitted
-            if omitted_urls:
-                failed.append("legacy_omission_unresolved")
             if frontier.capacity_blocked:
                 failed.append("frontier_capacity_exceeded")
             cursor = frontier.wire()
-        elif discovery is not None:
-            # The durable workset, not the 128-entry validator cache, owns pending
-            # discovery and child requests. Preserve every unfinished reference.
-            pending_urls = list(dict.fromkeys(pending_urls))
-            omitted_urls = int(cursor.get("omitted_url_count", 0))
-            cursor = discovery.wire(
-                {
-                    "pending_urls": pending_urls,
-                    "pending_evidence": {
-                        url: link for url in pending_urls if (link := evidence_for(url)) is not None
-                    },
-                    "next_page": next_page,
-                    "omitted_url_count": omitted_urls,
-                }
-            )
-            if discovery.pending:
-                failed.append("discovery_pending")
-            if omitted_urls:
-                failed.append("legacy_omission_unresolved")
         else:
-            # The validator cache may evict entries; unfinished work may not.
-            # Keep the full cursor. commit_stage retains it in the immutable
-            # handoff before enforcing the existing planning byte budget.
-            omitted_urls = int(cursor.get("omitted_url_count", 0))
-            if omitted_urls:
-                failed.append("legacy_omission_unresolved")
+            # Keep all unfinished URLs and evidence, even after validator eviction.
+            pending_urls = list(dict.fromkeys(pending_urls))
             cursor = {
                 "pending_urls": pending_urls,
                 "pending_evidence": {
                     url: link for url in pending_urls if (link := evidence_for(url)) is not None
                 },
                 "next_page": next_page,
-                "omitted_url_count": omitted_urls,
             }
+            if discovery is not None:
+                cursor = discovery.wire(cursor)
+                if discovery.pending:
+                    failed.append("discovery_pending")
         continuation_only = bool(pending_urls or next_page) and not (failed or partial)
         # Current index and recent bodies only; old raw history stays in immutable stages.
         planning = dict(list(planning.items())[-MAX_REQUEST_STATES:])
@@ -752,7 +707,6 @@ def acquire_source(
             "requests_used": budget.requests_used,
             "bytes_used": budget.bytes_used,
             "acquisition_seconds": round((datetime.now(UTC) - started).total_seconds(), 3),
-            "omitted_url_count": omitted_urls,
         }
     write_json_atomic(directory / "result.json", report)
     try:

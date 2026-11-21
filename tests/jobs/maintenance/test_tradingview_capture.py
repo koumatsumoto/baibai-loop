@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from mcp.types import CallToolResult
-from tests.helpers.tradingview import DAY, payload, store
+from tests.helpers.tradingview import DAY, native_inputs, payload, store
 
 from baibai_engine.data_collection.providers.tradingview.contract import (
     BATCH_TOOL,
@@ -95,10 +95,16 @@ def test_receive_cli_keeps_native_result_before_weekend_partial_handoff(tmp_path
         assert json.loads(saved.result_json)["structuredContent"] == body
         assert json.loads(saved.result_json)["_meta"] == {"native": True}
     handoff_path = tmp_path / "handoff.sqlite"
+    remote, master, calendar = native_inputs(source, tmp_path, day=SATURDAY)
     selected = export_handoff(
-        source, handoff_path, day=SATURDAY, since=RECEIVED - timedelta(seconds=1)
+        source,
+        handoff_path,
+        day=SATURDAY,
+        master_input=master,
+        calendar_input=calendar,
+        since=RECEIVED - timedelta(seconds=1),
     )
-    applied = import_handoff(handoff_path, canonical, selected)
+    applied = import_handoff(handoff_path, canonical, selected, store=remote)
     assert applied.report["rows_added"] == 2
     assert applied.report["remaining"] == 1
     assert applied.report["unresolved"] == 1

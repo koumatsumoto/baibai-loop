@@ -14,7 +14,11 @@ def setup_plan(monkeypatch, *, fail=None):
     calls = []
     values = {
         "external_ready": ([{"run_id": "private-ready"}], [{"reason": "ValueError"}]),
-        "market_handoffs": [{"source": "jquants-financial"}, {"source": "jpx-earnings"}],
+        "market_handoffs": [
+            {"source": "jquants-market"},
+            {"source": "jquants-financial"},
+            {"source": "jpx-earnings"},
+        ],
         "article_handoffs": [{"source": "boj_news", "stage_id": "private-article"}],
         "edinet_input": SimpleNamespace(model_dump=lambda **_: {"sha256": "private-fixed"}),
     }

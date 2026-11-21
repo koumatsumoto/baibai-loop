@@ -29,7 +29,7 @@ from baibai_jobs.acquisition.calendar_dependencies import (
     saved_calendar_context,
 )
 from baibai_jobs.acquisition.master_dependencies import prepare_tradingview_master
-from baibai_jobs.integration.source_handoff import _export, _replay, _replay_context
+from baibai_jobs.integration.source_handoff import _export, _replay
 
 
 def calendar_attempt(identity, days, *, minute=0, partial=False):
@@ -196,11 +196,9 @@ def test_native_tradingview_packet_cold_replays_fixed_references_without_raw_cal
         assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone() == (0,)
     del store.values[CALENDAR_HEAD]
     del store.values[MASTER_HEAD]
-    report = json.loads((packet / "result.json").read_bytes())
-    selected = _replay_context(store, "tradingview", directory, report)
-    assert selected == {"master_input": master, "calendar_input": calendar}
+    json.loads((packet / "result.json").read_bytes())
     target = market_store(tmp_path / "target.sqlite")
-    result = _replay("tradingview", target, packet, store=store, **selected)
+    result = _replay("tradingview", target, packet, store=store)
     assert result.complete
     assert result.report["rows_added"] == 1
     with sqlite3.connect(target) as conn:
@@ -242,8 +240,6 @@ def test_common_integration_defers_full_calendar_projection_to_model_publication
         directory / "plan.json",
         {
             "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
-            "master_native": True,
-            "calendar_native": True,
             "handoffs": [],
             "external": [],
         },
@@ -286,76 +282,4 @@ def test_common_integration_defers_full_calendar_projection_to_model_publication
     with sqlite3.connect(market) as conn:
         assert conn.execute("SELECT * FROM jquants_market_calendar").fetchall() == [
             (DAY.isoformat(), "1")
-        ]
-
-
-def test_common_apply_verifies_old_calendar_dependency_before_accepting_tradingview(
-    tmp_path, monkeypatch
-):
-    import baibai_jobs.integration.sources as sources
-    from baibai_engine.data_collection.providers.jquants.contracts import complete_request
-    from baibai_engine.data_collection.providers.jquants.dependencies import dependency_from_request
-    from baibai_jobs.acquisition.calendar_dependencies import verify_stage_calendar_dependencies
-    from baibai_jobs.acquisition.economic_staging import save_handoff
-    from baibai_jobs.acquisition.receipts import available_handoffs
-
-    store, _master, calendar, source, directory = native_context(tmp_path, monkeypatch)
-    assert prepare_tradingview_master(
-        store, directory=directory, market=source, observation_date=DAY
-    )
-    saved = json.loads((directory / "result.json").read_bytes())
-    retain_result(
-        source,
-        _sdk(payload(["TSE:1301"])),
-        day=DAY,
-        master=DAY,
-        received=NOW,
-        symbols=("TSE:1301",),
-    )
-    packet = tmp_path / "legacy"
-    _export(
-        "tradingview",
-        DAY,
-        NOW - timedelta(seconds=1),
-        source,
-        packet,
-        master_input=InputSnapshot.model_validate(saved["master_native_input"]),
-    )
-    original = calendar_attempt("calendar", [(DAY, "1")])
-    write_json_atomic(
-        packet / "dependency-calendar.json",
-        dependency_from_request("calendar", complete_request(original.pages)),
-    )
-    save_handoff(store, "tradingview-legacy-calendar", packet, market=True)
-    entries = available_handoffs(store, source="tradingview")
-    fingerprints = {
-        identity: receipt["fingerprint"]
-        for identity, receipt in calendar.fixed().value()["receipts"].items()
-    }
-    verify_stage_calendar_dependencies(store, entries[0], fingerprints)
-    with pytest.raises(ValueError, match="finite cutover"):
-        verify_stage_calendar_dependencies(store, entries[0], {})
-    with pytest.raises(ValueError, match="manifest changed"):
-        verify_stage_calendar_dependencies(
-            store, {**entries[0], "manifest_sha256": "0" * 64}, fingerprints
-        )
-    monkeypatch.setattr(sources, "extract_saved_edinet", lambda *a, **k: {})
-    write_json_atomic(
-        directory / "plan.json",
-        {
-            "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
-            "master_native": True,
-            "calendar_native": True,
-            "handoffs": entries,
-            "external": [],
-        },
-    )
-    target = market_store(tmp_path / "target.sqlite")
-    report = sources.apply(store, directory, market=target, asof=DAY)
-    assert report["handoffs"][0]["applied"] is True
-    assert report["handoffs"][0]["failed"] is False
-    with sqlite3.connect(target) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone() == (0,)
-        assert conn.execute("SELECT ticker FROM tradingview_forecast_snapshots").fetchall() == [
-            ("1301",)
         ]

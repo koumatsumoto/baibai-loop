@@ -13,9 +13,18 @@ from baibai_jobs.integration import source_handoff
 def test_owned_store_closes_on_success_failure_and_interrupt(
     tmp_path, monkeypatch, capsys, command, failure
 ):
-    source = "jpx-earnings"
+    source = "tradingview" if command == "resume" else "jpx-earnings"
     result = tmp_path / "result.json"
-    result.write_text(json.dumps({"created_at": "2026-11-17T00:00:00+00:00"}))
+    saved = {"created_at": "2026-11-17T00:00:00+00:00"}
+    if command == "resume":
+        from tests.helpers.tradingview import DAY, native_inputs, store
+
+        _, master, calendar = native_inputs(store(tmp_path / "market.sqlite", 1), tmp_path, day=DAY)
+        saved.update(
+            master_native_input=master.model_dump(mode="json"),
+            calendar_native_input=calendar.model_dump(mode="json"),
+        )
+    result.write_text(json.dumps(saved))
     original = result.read_bytes()
     output = tmp_path / "github-output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
@@ -66,7 +75,7 @@ def test_owned_store_closes_on_success_failure_and_interrupt(
 
 @pytest.mark.parametrize(
     ("source", "payload", "status"),
-    [("tradingview", "{}", 0), ("jpx-earnings", "{", 1)],
+    [("tradingview", "{}", 0), ("tradingview", "{", 1)],
 )
 def test_resume_checks_saved_input_before_constructing_remote(
     tmp_path, monkeypatch, capsys, source, payload, status
@@ -129,6 +138,5 @@ def test_missing_command_argument_does_not_construct_store(tmp_path, monkeypatch
 
     monkeypatch.setattr(source_handoff, "Boto3R2Store", unexpected)
     assert (
-        source_handoff.main([command, "--source", "jpx-earnings", "--directory", str(tmp_path)])
-        == 1
+        source_handoff.main([command, "--source", "tradingview", "--directory", str(tmp_path)]) == 1
     )

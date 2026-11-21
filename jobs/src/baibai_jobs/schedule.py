@@ -66,7 +66,7 @@ def market_source_target_date(created_at: datetime, *, schedule: str, asof: str 
     return created_at.astimezone(_JST).date()
 
 
-def external_assessment_target_date(created_at: datetime, now: datetime) -> tuple[date, bool]:
+def external_assessment_target_date(created_at: datetime, now: datetime) -> date:
     """Resolve the current daily work cycle, not an exact wall-clock launch window.
 
     A delayed wake-up can finish yesterday's cycle after midnight. Once the next
@@ -77,7 +77,7 @@ def external_assessment_target_date(created_at: datetime, now: datetime) -> tupl
         raise ValueError("timezone-aware external assessment run clocks required")
     if created_at > now:
         raise ValueError("external assessment run creation clock is in the future")
-    return acquisition_target_date(now, EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME), True
+    return acquisition_target_date(now, EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME)
 
 
 def external_assessment_cycle_end(day: date) -> datetime:

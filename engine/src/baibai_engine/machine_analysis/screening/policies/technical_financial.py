@@ -1,4 +1,4 @@
-"""技術・市場・財務の発見根拠と、投資順位でない有限表示順を保存する。"""
+"""財務の発見レーンと、Researchに固定した過去の技術・財務観測の保存型。"""
 
 from __future__ import annotations
 
@@ -7,13 +7,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-type ResearchLane = Literal["growth_research", "input_review", "alternative_financial_research"]
-RESEARCH_LANES: tuple[ResearchLane, ...] = (
-    "growth_research",
-    "input_review",
-    "alternative_financial_research",
-)
-type ScreeningLane = ResearchLane | Literal["no_current_hypothesis"]
+type ScreeningLane = Literal[
+    "growth_research", "input_review", "alternative_financial_research", "no_current_hypothesis"
+]
 
 
 class TechnicalFinancialPolicy(BaseModel):
@@ -49,25 +45,6 @@ class TechnicalFinancialPolicy(BaseModel):
     ] = "technical-financial-discovery-v26"
     page_size: Annotated[int, Field(ge=1, le=36)] = 36
 
-    @property
-    def attention_order(self) -> Literal["ticker_code", "input_review_hash", "all_lanes_hash"]:
-        """保存版のlane内注意順。保存fieldや現在の再順位付けではない。"""
-        if self.method in {"technical-financial-discovery-v1", "technical-financial-discovery-v2"}:
-            return "ticker_code"
-        if self.method in {
-            "technical-financial-discovery-v3",
-            "technical-financial-discovery-v4",
-            "technical-financial-discovery-v5",
-            "technical-financial-discovery-v6",
-            "technical-financial-discovery-v7",
-            "technical-financial-discovery-v8",
-            "technical-financial-discovery-v9",
-            "technical-financial-discovery-v10",
-            "technical-financial-discovery-v11",
-        }:
-            return "input_review_hash"
-        return "all_lanes_hash"
-
 
 @dataclass(frozen=True, slots=True)
 class TechnicalFinancialRow:
@@ -96,12 +73,6 @@ class TechnicalFinancialSelection:
     def tickers(self) -> tuple[str, ...]:
         """G仮説合致と予備調査を含む閲覧集合。Research採択・買付適格性ではない。"""
         return tuple(sorted(self.display_order))
-
-    def lane_tickers(self, lane: ResearchLane) -> tuple[str, ...]:
-        if lane not in RESEARCH_LANES:
-            raise ValueError("unknown screening lane")
-        members = {row.ticker for row in self.rows if row.screening_lane == lane}
-        return tuple(ticker for ticker in self.display_order if ticker in members)
 
 
 def financial_screening_lane(

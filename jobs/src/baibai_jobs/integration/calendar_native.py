@@ -32,6 +32,7 @@ from baibai_engine.machine_analysis.generation.calendar_inputs import (
     retain_calendar_input,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.full_day_inputs import EmptyFullDayInput
 from baibai_engine.machine_analysis.observations.prices.storage_contracts import (
     JQUANTS_MARKET_CALENDAR_DDL,
 )
@@ -104,10 +105,12 @@ def fixed_input(
     """Retain all selected day evidence; neither as-of nor calendar year trims history."""
     head = fixed.value()
     scopes = head["days"]
+    if not isinstance(scopes, dict):
+        raise ValueError("native calendar L1 days must be an object")
     if days is not None:
         scopes = {day.isoformat(): scopes.get(day.isoformat(), {}) for day in days}
     if not scopes:
-        raise ValueError("native calendar L1 has no retained days")
+        raise EmptyFullDayInput("native calendar L1 has no retained days")
     _validate_clock(scopes, evaluated_at)
     retained = sorted(scopes)
     scopes = {

@@ -1,6 +1,6 @@
 """JPX公開観測の純粋な型・予定選択とエラー。取得・保存処理は読み込まない。"""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import date
 
 from pydantic import ConfigDict, Field
@@ -31,11 +31,8 @@ class JPXEarningsCalendarSnapshot:
     source_urls: tuple[str, ...]
     raw_record_count: int
     excluded_record_count: int
-    # Dates a lower-precedence cohort file offered for a ticker another file had
-    # already dated, or `None` when the snapshot was read back from SQLite and
-    # no merge happened. Distinct from the `rejected` counters elsewhere in the
-    # cache, which mean malformed rows and turn a coverage row `partial`.
-    superseded_record_count: int | None
+    # Dates from lower-priority files for tickers already handled by a newer file.
+    superseded_record_count: int
 
     @property
     def valid_record_count(self) -> int:
@@ -48,34 +45,3 @@ class JPXEarningsCalendarSnapshot:
     @property
     def max_date(self) -> date:
         return max(entry.announcement_date for entry in self.entries)
-
-
-def index_calendar_announcements(
-    entries: Sequence[JPXEarningsCalendarEntry],
-) -> dict[str, date]:
-    """Index the current schedule, rejecting contradictory dates for one ticker.
-
-    The source publishes one current date per ticker. The physical SQLite key is
-    ``(announcement_date, ticker)``, so it cannot enforce that source contract.
-    """
-    index: dict[str, date] = {}
-    for entry in entries:
-        seen = index.get(entry.ticker)
-        if seen is not None and seen != entry.announcement_date:
-            raise ValueError(
-                f"earnings calendar has conflicting rows for {entry.ticker}: "
-                f"{seen.isoformat()} and {entry.announcement_date.isoformat()}"
-            )
-        index[entry.ticker] = entry.announcement_date
-    return index
-
-
-def next_earnings_dates(
-    entries: Sequence[JPXEarningsCalendarEntry], asof_date: date
-) -> dict[str, date]:
-    """Select current dates on or after as-of; a date alone is not a disclosure."""
-    return {
-        ticker: announcement_date
-        for ticker, announcement_date in index_calendar_announcements(entries).items()
-        if announcement_date >= asof_date
-    }

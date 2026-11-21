@@ -1,9 +1,8 @@
-"""保存したT/G政策を閲覧・選択・再開する。後日の再評価で入力を補わない。"""
+"""指定企業の保存行を原文と照合し、有限のCaseを同じ根拠から再開する。"""
 
 from datetime import timedelta
 
 import pytest
-from tests.engine.machine_analysis.screening.test_technical_financial import row
 from tests.helpers.archived_technical_financial import (
     SIX_STOCK_ORDER,
     stored_publication,
@@ -16,9 +15,6 @@ from tests.helpers.technical_financial import _seed
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
-from baibai_engine.investment_judgment.workflow.screening_brief import (
-    technical_financial_screening_brief,
-)
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,
@@ -30,10 +26,6 @@ from baibai_engine.investment_judgment.workflow.selection_query import (
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
     prepare_selected_workspace,
     resume_selected_workspace,
-)
-from baibai_engine.machine_analysis.screening.policies.technical_financial import (
-    TechnicalFinancialPolicy,
-    TechnicalFinancialSelection,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -104,70 +96,6 @@ def args(path, now):
         runs_path=path,
         db_path=path.parent / "absent-app",
     )
-
-
-def test_pages_cover_all_without_renaming_unresolved_or_loading_candidate_models(tmp_path):
-    path = tmp_path / "runs"
-    _, selected, now = seed(path)
-    before = path.read_bytes()
-    first = load_generated_selection_context(**args(path, now), screening_lane="growth_research")
-    second = load_generated_selection_context(
-        **args(path, now), screening_lane="growth_research", screening_page=1
-    )
-    third = load_generated_selection_context(**args(path, now), screening_lane="input_review")
-    empty = load_generated_selection_context(
-        **args(path, now), screening_lane="growth_research", screening_page=2
-    )
-    visible = first["candidate_tickers"] + second["candidate_tickers"] + third["candidate_tickers"]
-    assert set(visible) == set(selected.result.display_order)
-    assert first["screening"]["page"]["next"] == 1
-    assert second["screening"]["page"]["next"] is None
-    assert third["screening"]["page"]["next"] is None
-    assert empty["candidate_tickers"] == []
-    assert first["model_inputs"]["securities"] == {}
-    assert first["screening"]["summary"]["planned_stocks"] == 6
-    assert (
-        first["candidate_order_semantics"] == "saved_route_round_robin_page_not_investment_ranking"
-    )
-    assert not (path.parent / "absent-app").exists()
-    assert path.read_bytes() == before
-
-
-@pytest.mark.parametrize("explicit_id", [False, True])
-def test_context_reads_one_fixed_publication_without_duplicate_full_result(
-    tmp_path, monkeypatch, explicit_id
-):
-    import baibai_engine.machine_analysis.screening.selection_query as query
-
-    path = tmp_path / "runs"
-    fixed, _, now = seed(path)
-    original = query.read_publication
-    calls = []
-
-    def observe(**kwargs):
-        calls.append(kwargs)
-        return original(**kwargs)
-
-    monkeypatch.setattr(query, "read_publication", observe)
-    arguments = args(path, now)
-    if not explicit_id:
-        arguments["screening_selection_id"] = None
-        with pytest.raises(ValueError, match="explicit legacy screening selection"):
-            load_generated_selection_context(**arguments, screening_lane="growth_research")
-        overview = load_generated_selection_context(**arguments, comparison_tickers=("2345",))
-        assert overview["status"] == "inputs_required"
-        assert overview["screening_selection_id"] == "technical-policy"
-        assert overview["missing_inputs"] == [{"code": "unindexed_legacy_publication"}]
-        assert not calls
-        return
-    context = load_generated_selection_context(**arguments, screening_lane="growth_research")
-    assert len(calls) == 1
-    assert calls[0]["known_at"] == now
-    assert calls[0]["selection_id"] == "technical-policy"
-    assert context["screening_selection_id"] == "technical-policy"
-    assert context["generation_id"] == fixed.generation_id
-    assert context["candidate_tickers"]
-    assert not (path.parent / "absent-app").exists()
 
 
 def test_nonselected_and_capacity_outside_detail_reads_original_policy_and_full_models(tmp_path):
@@ -256,104 +184,6 @@ def test_publication_cutoff_generation_and_page_are_enforced(tmp_path):
         load_generated_selection_context(**args(path, now), screening_page=-1)
 
 
-def test_display_capacity_never_removes_saved_candidates():
-    rows = tuple(row(str(1000 + index), ("a" if index % 2 else "b",)) for index in range(73))
-    result = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(),
-        "T",
-        "G",
-        rows,
-        tuple(r.ticker for r in reversed(rows)),
-        {"planned_stocks": 73},
-    )
-    pages = [technical_financial_screening_brief(result, page=page) for page in range(3)]
-    assert [len(page["cards"]) for page in pages] == [36, 36, 1]
-    assert sum(len(page["cards"]) for page in pages) == len(result.tickers) == 73
-    pages[0]["cards"][0]["technical"]["matched_routes"].append("mutated")
-    assert all("mutated" not in item.technical["matched_routes"] for item in result.rows)
-
-
-def test_alternative_lane_is_explicit_and_keeps_known_failure():
-    from dataclasses import replace
-
-    original = row("1234", ("activity",), state="not_selected")
-    alternative = replace(
-        original,
-        financial_gate={
-            **original.financial_gate,
-            "checks": {
-                "quarter_operating_profit_increase": {
-                    "state": "not_met",
-                    "value": -50,
-                    "reason": None,
-                },
-            },
-        },
-        financial_paths={"matched_routes": ["business_expansion"], "paths": []},
-        screening_lane="alternative_financial_research",
-    )
-    result = TechnicalFinancialSelection(
-        TechnicalFinancialPolicy(),
-        "T",
-        "G",
-        (alternative,),
-        (alternative.ticker,),
-        {},
-    )
-    primary = technical_financial_screening_brief(result)
-    assert primary["cards"] == []
-    assert primary["lanes"]["alternative_financial_research"]["count"] == 1
-    assert (
-        "--screening-lane alternative_financial_research"
-        in primary["lanes"]["alternative_financial_research"]["read"]
-    )
-    detail = technical_financial_screening_brief(result, lane="alternative_financial_research")
-    card = detail["cards"][0]
-    assert card["financial_gate"]["state"] == "not_selected"
-    assert card["financial_gate"]["checks"]["quarter_operating_profit_increase"]["value"] == -50
-    assert card["screening_lane"] == "alternative_financial_research"
-
-
-def test_cli_reads_requested_lane_without_selecting(tmp_path, capsys):
-    import json
-
-    from baibai_engine.cli.investment_judgment import main
-
-    path = tmp_path / "runs"
-    _, _, now = seed(path)
-    before = path.read_bytes()
-    assert (
-        main(
-            [
-                "selection-context",
-                "--request",
-                "予備調査を比較",
-                "--scope",
-                "discover_new",
-                "--screening-selection-id",
-                "technical-policy",
-                "--runs-path",
-                str(path),
-                "--db",
-                str(tmp_path / "absent-app"),
-                "--screening-lane",
-                "input_review",
-            ],
-            now=now,
-        )
-        == 0
-    )
-    output = json.loads(capsys.readouterr().out)
-    assert output["screening"]["active_lane"] == "input_review"
-    assert set(output["candidate_tickers"]) == {"3456", "6789"}
-    assert all(
-        card["financial_gate"]["state"] == "input_unresolved"
-        for card in output["screening"]["cards"]
-    )
-    assert path.read_bytes() == before
-    assert not (tmp_path / "absent-app").exists()
-
-
 @pytest.mark.parametrize("indexed", [False, True])
 def test_case_pins_explicit_contrast_and_scope_without_promoting_or_using_later_generation(
     tmp_path,
@@ -363,9 +193,11 @@ def test_case_pins_explicit_contrast_and_scope_without_promoting_or_using_later_
     import sqlite3
     from hashlib import sha256
 
+    from baibai_engine.investment_judgment.trade_proposal.discovery_context import (
+        saved_discovery_context,
+    )
     from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
     from baibai_engine.investment_judgment.workflow.operation.service import OperationConflictError
-    from baibai_engine.investment_judgment.workflow.screening_brief import saved_discovery_context
 
     runs, app, workspace = tmp_path / "runs", tmp_path / "app", tmp_path / "case"
     fixed, source, now = seed(runs)

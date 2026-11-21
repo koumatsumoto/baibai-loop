@@ -66,7 +66,7 @@ def test_new_runner_resumes_only_durable_head_after_failed_native_publication(
     from tests.helpers.r2_store import MemoryR2Store
 
     import baibai_engine.data_collection.providers.jquants.http as http
-    import baibai_engine.primitives.market_windows as windows
+    import baibai_jobs.integration.source_handoff as windows
     from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
     from baibai_engine.data_collection.providers.jquants.financial_native import (
         HEAD_KEY,
@@ -115,18 +115,6 @@ def test_new_runner_resumes_only_durable_head_after_failed_native_publication(
     fixed = FinancialL1(store, tmp_path / "runner-3").resume()
     assert len(fixed.value()["receipts"]) == 1
     assert next(fixed.requests(store, days=[date(2026, 11, 2)])).request.records() == []
-
-
-@pytest.mark.parametrize("old_mode", [False, None, "false", 1])
-def test_old_financial_plan_values_never_rebind_to_native_input(tmp_path, old_mode):
-    import json
-
-    from baibai_jobs.integration.sources import apply
-
-    (tmp_path / "plan.json").write_text(json.dumps({"financial_native": old_mode, "handoffs": []}))
-    with pytest.raises(ValueError, match="legacy financial mode"):
-        apply(object(), tmp_path, market=tmp_path / "not-opened", asof=date(2026, 11, 2))
-    assert not (tmp_path / "not-opened").exists()
 
 
 def test_new_plan_omits_financial_mode_and_old_financial_stages(tmp_path, monkeypatch):

@@ -1,6 +1,8 @@
 """L1 acquisition and saved-input consumer operate with no previous market release."""
 
 import json
+import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from datetime import timedelta
 
@@ -19,9 +21,6 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
     ShortSaleReportsL1,
 )
 from baibai_engine.machine_analysis.generation.short_sale_reports_inputs import INPUT_PREFIX
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
-    read_short_sale_reports,
-)
 from baibai_jobs.acquisition.jquants_short_sale_reports_native import (
     acquire_short_sale_reports_native,
 )
@@ -118,14 +117,15 @@ def test_fixed_consumer_keeps_discdate_calcdate_and_original_identity(tmp_path):
     assert result["rows"] == 3
     assert result["coverage_status"] == "complete"
     assert HEAD_KEY not in store.get_keys[before:]
-    rows = read_short_sale_reports(output, DAY, DAY + timedelta(days=1))
-    assert len(rows) == 3
-    assert [(row.disclosed_at, row.calculated_at) for row in rows] == [
-        (DAY, yesterday),
-        (DAY, DAY),
-        (DAY + timedelta(days=1), yesterday),
-    ]
-    assert rows[-1].short_ratio == 0.008
+    with closing(sqlite3.connect(output)) as conn:
+        assert conn.execute(
+            "SELECT disclosed_at, calculated_at, short_ratio FROM jquants_short_sale_reports "
+            "ORDER BY disclosed_at, source_ordinal"
+        ).fetchall() == [
+            (DAY.isoformat(), yesterday.isoformat(), 0.006),
+            (DAY.isoformat(), DAY.isoformat(), 0.006),
+            ((DAY + timedelta(days=1)).isoformat(), yesterday.isoformat(), 0.008),
+        ]
     owner.commit([attempt("withdrawn", at=AT + timedelta(hours=3), rows=[])])
     assert materialize_saved_input(store, saved, output=tmp_path / "cold.sqlite")["rows"] == 3
     corrected = fixed_input(
@@ -136,14 +136,13 @@ def test_fixed_consumer_keeps_discdate_calcdate_and_original_identity(tmp_path):
         evaluated_at=AT + timedelta(hours=4),
     )
     current = tmp_path / "corrected.sqlite"
-    assert materialize_saved_input(store, corrected, output=current)["rows"] == 1
-    assert read_short_sale_reports(current, DAY, DAY) == []
-    assert (
-        read_short_sale_reports(current, DAY + timedelta(days=1), DAY + timedelta(days=1))[
-            0
-        ].calculated_at
-        == yesterday
-    )
+    report = materialize_saved_input(store, corrected, output=current)
+    assert report["rows"] == 1
+    assert report["coverage_status"] == "complete"
+    with closing(sqlite3.connect(current)) as conn:
+        assert conn.execute(
+            "SELECT disclosed_at, calculated_at FROM jquants_short_sale_reports"
+        ).fetchall() == [((DAY + timedelta(days=1)).isoformat(), yesterday.isoformat())]
     with pytest.raises(FileExistsError):
         materialize_saved_input(store, saved, output=output)
 
@@ -174,16 +173,16 @@ def test_duplicate_reporter_rows_keep_provider_page_order_and_null_zero(tmp_path
     saved = fixed_input(store, owner.fixed(), start=DAY, end=DAY, evaluated_at=AT)
     output = tmp_path / "reader.sqlite"
     materialize_saved_input(store, saved, output=output)
-    rows = read_short_sale_reports(output, DAY, DAY)
-    assert [row.source_ordinal for row in rows] == [0, 1, 2, 3]
-    assert [row.short_ratio for row in rows] == [None, None, 0, 0.006]
-    assert [row.short_seller_name for row in rows] == [
-        "Reporter A",
-        "Reporter A",
-        "Reporter A",
-        "Reporter a",
-    ]
-    assert rows[-1].notes == "withdrawn? not a flag"
+    with closing(sqlite3.connect(output)) as conn:
+        assert conn.execute(
+            "SELECT source_ordinal, short_ratio, short_seller_name, notes "
+            "FROM jquants_short_sale_reports ORDER BY source_ordinal"
+        ).fetchall() == [
+            (0, None, "Reporter A", None),
+            (1, None, "Reporter A", None),
+            (2, 0, "Reporter A", None),
+            (3, 0.006, "Reporter a", "withdrawn? not a flag"),
+        ]
 
 
 def test_pubdate_is_not_an_alias_for_disclosure_date(tmp_path):
@@ -197,7 +196,6 @@ def test_pubdate_is_not_an_alias_for_disclosure_date(tmp_path):
     report = materialize_saved_input(owner.store, saved, output=output)
     assert report["coverage_status"] == "partial"
     assert report["rows"] == 0
-    assert read_short_sale_reports(output, DAY, DAY) is None
 
 
 def test_partial_observation_and_failed_receipt_do_not_become_successful_empty(tmp_path):
@@ -212,7 +210,6 @@ def test_partial_observation_and_failed_receipt_do_not_become_successful_empty(t
     result = materialize_saved_input(store, saved, output=output)
     assert result["rows"] == 1
     assert result["partial_days"] == result["unavailable_days"] == 1
-    assert read_short_sale_reports(output, DAY, DAY) is None
     # The L1 request is complete regardless of the projection's rejected row.
     assert owner.fixed().plan(start=DAY, end=DAY + timedelta(days=20), revision_overlap_days=0)[
         0
@@ -227,7 +224,7 @@ def test_partial_observation_and_failed_receipt_do_not_become_successful_empty(t
     )
 
 
-def test_normal_empty_is_readable_and_missing_is_not(tmp_path):
+def test_normal_empty_is_covered_but_missing_is_not(tmp_path):
     store = MemoryR2Store()
     owner = ShortSaleReportsL1(store, tmp_path / "raw")
     owner.initialize()
@@ -236,9 +233,15 @@ def test_normal_empty_is_readable_and_missing_is_not(tmp_path):
         store, owner.fixed(), start=DAY, end=DAY + timedelta(days=1), evaluated_at=AT
     )
     output = tmp_path / "empty.sqlite"
-    materialize_saved_input(store, saved, output=output)
-    assert read_short_sale_reports(output, DAY, DAY) == []
-    assert read_short_sale_reports(output, DAY + timedelta(days=1), DAY + timedelta(days=1)) is None
+    assert materialize_saved_input(store, saved, output=output)["rows"] == 0
+    with closing(sqlite3.connect(output)) as conn:
+        assert conn.execute(
+            "SELECT coverage_start, status, record_count FROM source_coverage "
+            "WHERE source='jquants_short_sale_reports' ORDER BY coverage_start"
+        ).fetchall() == [
+            (DAY.isoformat(), "ok", 0),
+            ((DAY + timedelta(days=1)).isoformat(), "unavailable", 0),
+        ]
 
 
 def test_monthly_fixed_input_reuses_old_metadata_and_no_whole_history_body(tmp_path):
@@ -356,6 +359,7 @@ def test_cli_end_to_end_uses_saved_input_after_head_disappears(tmp_path, monkeyp
         )
         == 0
     )
-    assert (
-        len(read_short_sale_reports(tmp_path / "cold" / "short-sale-reports.sqlite", DAY, DAY)) == 1
-    )
+    with closing(sqlite3.connect(tmp_path / "cold" / "short-sale-reports.sqlite")) as conn:
+        assert conn.execute("SELECT disclosed_at FROM jquants_short_sale_reports").fetchall() == [
+            (DAY.isoformat(),)
+        ]

@@ -1,4 +1,4 @@
-"""旧保存の有限カード・共有文脈・明示詳細と、固定入力からの再開。"""
+"""指定企業の個別・共有モデルを読み、保存した入力から再開する。"""
 
 import json
 import sqlite3
@@ -8,7 +8,6 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import yaml
-from pydantic import TypeAdapter
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.retained_economic_selection import retained_economic_result
@@ -304,96 +303,12 @@ def context(path, *, request=None, comparison_tickers=(), db_path=None):
         request=request or ResearchRequest(text="調査する", scope="discover_new"),
         generation_id=None,
         screening_selection_id="economic-policy",
-        screening_lane="growth_research",  # 明示した旧公表のカードを検証。
         research_as_of=AS_OF,
         known_at=NOW,
         runs_path=path,
         db_path=db_path or path.parent / "absent",
         comparison_tickers=comparison_tickers,
     )
-
-
-@pytest.mark.parametrize("scoped", [False, True])
-def test_initial_cards_keep_evidence_without_reading_candidate_details(
-    tmp_path, monkeypatch, scoped
-):
-    from baibai_engine.machine_analysis.generation import query
-
-    runs = tmp_path / "runs"
-    _, screening = seed_economic_generation(runs, scoped=scoped)
-    stored_before = runs.read_bytes()
-    actual_read = query.read_model_inputs
-    read_subjects = []
-
-    def read(*args, subjects, **kwargs):
-        read_subjects.append(set(subjects))
-        return actual_read(*args, subjects=subjects, **kwargs)
-
-    monkeypatch.setattr(query, "read_model_inputs", read)
-    result = context(runs)
-    expected = {"market", "sector:food", "sector:funding"} if scoped else {"market"}
-    assert read_subjects == [expected]
-    assert result["model_inputs"]["securities"] == {}
-    assert result["candidate_tickers"] == ["1234", "5678"]
-    assert result["candidate_order_semantics"] == (
-        "ticker_code_order_attention_priority_in_screening_cards_rank"
-    )
-    assert [card["ticker"] for card in result["screening"]["cards"]] == ["5678", "1234"]
-    assert [card["rank"] for card in result["screening"]["cards"]] == [1, 2]
-    if scoped:
-        assert set(result["model_inputs"]["shared_subjects"]) == expected
-    full_cards = TypeAdapter(type(screening.result)).dump_python(screening.result, mode="json")[
-        "cards"
-    ]
-    for brief, full in zip(result["screening"]["cards"], full_cards, strict=True):
-        for key in ("ticker", "rank", "priority", "strongest_path", "not_generated"):
-            assert brief[key] == full[key]
-        assert result["screening"]["common_model_revisions"] == full["model_revisions"]
-        assert brief["paths"][0]["price_value"] == full["paths"][0]["price_value"]
-        forecast = full["context"]["financial"]["earnings_forecast_source"]
-        assert brief["context"]["financial"]["earnings_forecast_source"] == forecast
-    card = result["screening"]["cards"][0]
-    assert card["paths"][0]["evidence"]["period_basis"][0]["statement_basis"] == "consolidated"
-    change = card["context"]["latest_growth_changes"]["latest_quarter"][0]["metrics"][
-        "operating_profit"
-    ]
-    assert change["from_value"] == -70.0
-    assert change["to_value"] == -40.0
-    assert card["context"]["price_momentum"]["reason"] == "missing_endpoint"
-    assert card["context"]["price_momentum"]["end_date"] == "2026-09-30"
-    assert (
-        card["context"]["financial"]["earnings_forecast_source"]["fiscal_year_end"] == "2027-03-31"
-    )
-    external = card["context"]["external_assessment"]
-    assert external["state_counts"] == dict.fromkeys(
-        (
-            "first_observation",
-            "increased",
-            "recovered",
-            "count_changed",
-            "not_comparable",
-        ),
-        1,
-    )
-    assert [item["delta"] for item in external["comparable_changes"]] == [10.0]
-    assert external["minkabu"] == {
-        "strong_buy_count": 0,
-        "buy_count": 2,
-        "analyst_eps_yen": 0,
-        "origin": None,
-        "share_basis": None,
-    }
-    rating_source = next(s for s in external["sources"] if s.get("distributor") == "rakuten")
-    assert rating_source["states"][0]["metrics"] == {"rating": 3.5}
-    assert rating_source["states"][0]["observation_counts"]["rating"] == {"latest_count": 0}
-    # 表示を編集しても保存政策の観測やidentityを変更しない。
-    change["to_value"] = 999
-    assert (
-        screening.result.cards[0].paths[0].evidence["operating_observation"]["observation"]["value"]
-        == -40.0
-    )
-    assert runs.read_bytes() == stored_before
-    assert ScreeningSelectionStore(runs).read("economic-policy") == screening
 
 
 @pytest.mark.parametrize("specified", [False, True])
@@ -403,7 +318,6 @@ def test_explicit_candidate_and_non_candidate_details_keep_all_n_models(
 ):
     runs = tmp_path / "runs"
     generation, _ = seed_economic_generation(runs, scoped=scoped)
-    baseline = context(runs)
     monkeypatch.setattr(
         "baibai_engine.investment_judgment.workflow.generated_inputs.project_company_growth",
         lambda *a, **kw: pytest.fail("明示した会社の完全な成長履歴に表示用の表は不要"),
@@ -418,8 +332,7 @@ def test_explicit_candidate_and_non_candidate_details_keep_all_n_models(
     result = context(
         runs, request=request, comparison_tickers=("1234",) if specified else ("1234", "9999")
     )
-    assert result["screening"] == baseline["screening"]
-    assert result["candidate_tickers"] == baseline["candidate_tickers"]
+    assert result["candidate_tickers"] == []
     assert set(result["model_inputs"]["securities"]) == {"1234", "9999"}
     assert "5678" not in result["model_inputs"]["securities"]
     if scoped:
@@ -495,24 +408,6 @@ def test_generation_only_context_cli_keeps_complete_growth_and_all_detail_models
         assert oldest[1]["metrics"]["sales"]["value"] == 200.5
         assert detail["not_generated"] == []
     assert runs.read_bytes() == before
-
-
-def test_old_explicit_lane_does_not_load_unrequested_held_details(tmp_path, monkeypatch):
-    import baibai_engine.investment_judgment.workflow.selection_query as query
-
-    runs = tmp_path / "runs"
-    seed_economic_generation(runs)
-
-    def no_ledger(*args, **kwargs):
-        pytest.fail("a historical screening report must not inspect the portfolio")
-
-    monkeypatch.setattr(query, "_ledger_positions", no_ledger)
-    result = context(runs)
-    assert "held_tickers" not in result
-    assert result["requested_tickers"] == ()
-    assert result["request"]["requested_tickers"] == []
-    assert result["model_inputs"]["securities"] == {}
-    assert "sector:other" not in result["model_inputs"]["shared_subjects"]
 
 
 def test_prepare_saves_full_economic_policy_and_chosen_models_then_resumes_without_runs(tmp_path):

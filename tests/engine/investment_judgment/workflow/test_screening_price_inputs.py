@@ -24,9 +24,6 @@ from baibai_engine.investment_judgment.workflow.selection import (
     ResearchRequest,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.workflow.selection_query import (
-    load_generated_selection_context,
-)
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
     prepare_selected_workspace,
     resume_selected_workspace,
@@ -42,7 +39,7 @@ from baibai_engine.primitives.json import canonical_json
 
 
 @pytest.mark.parametrize("kind", ["missing_price", "nonpositive_business", "empty_universe"])
-def test_zero_candidate_price_inputs_reach_initial_and_fixed_research(tmp_path, kind):
+def test_zero_candidate_price_inputs_reach_fixed_research(tmp_path, kind):
     data = payloads()
     if kind == "missing_price":
         data["company_financials"]["earnings_price"]["price_date"] = None
@@ -84,20 +81,6 @@ def test_zero_candidate_price_inputs_reach_initial_and_fixed_research(tmp_path, 
         connection.execute("UPDATE screening_selection SET published_at='2026-01-06T00:00:00Z'")
     known = datetime(2026, 1, 8, tzinfo=UTC)
     request = ResearchRequest(text="合成の候補調査", scope="discover_new")
-    context = load_generated_selection_context(
-        screening_lane="growth_research",  # 保存済み旧政策の価格契約。
-        request=request,
-        generation_id=None,
-        screening_selection_id="policy",
-        research_as_of=None,
-        known_at=known,
-        runs_path=runs,
-        db_path=app,
-    )
-    assert context["status"] == "ready"
-    assert context["candidate_tickers"] == []
-    assert context["screening"]["eligible_count"] == 0
-    assert context["screening"]["price_inputs"] == summary
     assert store.read("policy") == screening
     assert not store.publish("policy", screening)
     with pytest.raises(ValueError, match="identity has different content"):
@@ -166,17 +149,6 @@ def test_legacy_selection_keeps_hash_payload_and_resume_without_price_summary(tm
         store.publish(identity, replace(saved, price_inputs={"universe_count": 0}))
     with closing(sqlite3.connect(runs)) as connection:
         assert connection.execute("SELECT * FROM screening_selection").fetchall() == before
-    context = load_generated_selection_context(
-        screening_lane="growth_research",  # 保存済み旧政策の価格契約。
-        request=original.request,
-        generation_id=None,
-        screening_selection_id=identity,
-        research_as_of=None,
-        known_at=now,
-        runs_path=runs,
-        db_path=app,
-    )
-    assert "price_inputs" not in context["screening"]
     history = historical_operation(original)
     seed_historical_operation(app, history)
     prepared = resume_selected_workspace(

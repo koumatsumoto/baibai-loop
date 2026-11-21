@@ -7,6 +7,7 @@ from baibai_jobs.observability import source_discord
     ("acquired", "staged", "expected_calls"),
     [
         ("success", "success", 0),
+        ("success", "skipped", 0),
         ("skipped", "success", 0),
         ("skipped", "failure", 1),
         ("failure", "failure", 1),
@@ -69,7 +70,6 @@ def test_source_failure_has_batch_identity_and_suppresses_run_preview(monkeypatc
     ("source", "acquired", "staged", "flag", "quiet"),
     [
         ("economic-spglobal_pmi", "failure", "success", "true", True),
-        ("economic-tradingeconomics_pmi", "failure", "success", "true", True),
         ("economic-spglobal_pmi", "failure", "failure", "true", False),
         ("economic-spglobal_pmi", "cancelled", "success", "true", False),
         ("economic-spglobal_pmi", "failure", "success", "false", False),

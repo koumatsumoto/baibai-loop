@@ -1,4 +1,4 @@
-"""F01/F02/F03/F06/F08: valuation and atomic Reviewed Assessment publication owners."""
+"""価値算術と独立検証済みAssessmentの原子的な公開。"""
 
 from contextlib import closing
 from datetime import datetime

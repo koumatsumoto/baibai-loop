@@ -16,20 +16,18 @@ from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 from baibai_jobs.acquisition.article_discovery import (
     DISCOVERY_FORMAT,
     DISCOVERY_REF_FORMAT,
-    LEGACY_DISCOVERY_FORMAT,
     expand_cursor,
 )
 from baibai_jobs.acquisition.article_frontier import (
     FRONTIER_FORMAT,
     FRONTIER_REF_FORMAT,
-    FRONTIER_SOURCES,
     bind_local_stage,
 )
 from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
 from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs
 
 ARTICLE_SOURCES = tuple(SOURCES)
-# 新規取得と保存原本の読取を分ける。旧sourceのplanning/rootは履歴照合に残す。
+# 廃止sourceの不変原本はstageから読む。更新を止めたplanningは日次の依存にしない。
 COLLECTION_SOURCES = tuple(
     source for source in ARTICLE_SOURCES if source not in {"minkabu_news", "rakuten_news"}
 )
@@ -69,8 +67,6 @@ class ArticlePlanning:
     requests: dict[str, dict[str, Any]] = field(default_factory=dict)
     cursor: dict[str, Any] = field(default_factory=dict)
     last_stage: dict[str, Any] | None = None
-    # Transient v1/v2 migration seed, written once into the next immutable stage.
-    legacy_pending: tuple[dict[str, Any], ...] | None = field(default=None, repr=False)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -91,12 +87,8 @@ class ArticlePlanning:
                 _clock(value)
         if len(self.requests) > MAX_REQUEST_STATES:
             raise ValueError("article request planning bound reached")
-        stages = (
-            self.legacy_pending
-            if self.legacy_pending is not None
-            else ((self.last_stage,) if self.last_stage is not None else ())
-        )
-        for entry in stages:
+        if self.last_stage is not None:
+            entry = self.last_stage
             if (
                 entry.get("source") != self.source
                 or entry.get("namespace") != ARTICLE_NAMESPACE
@@ -120,16 +112,8 @@ class ArticlePlanning:
     @classmethod
     def decode(cls, payload: bytes, source: str) -> ArticlePlanning:
         value = json.loads(payload)
-        if value.get("format") not in {
-            "article-planning-v1",
-            "article-planning-v2",
-            "article-planning-v3",
-        } or (value.get("source") != source):
+        if value.get("format") != "article-planning-v3" or value.get("source") != source:
             raise ValueError("article planning source/format mismatch")
-        if value["format"] == "article-planning-v2" and (
-            value["cursor"].get("format") not in {FRONTIER_REF_FORMAT, DISCOVERY_REF_FORMAT}
-        ):
-            raise ValueError("article planning v2 requires an exact frontier reference")
         result = cls(
             source=source,
             generations=value["generations"],
@@ -137,16 +121,7 @@ class ArticlePlanning:
             not_before=value["not_before"],
             requests=value["requests"],
             cursor=value["cursor"],
-            # Old backlog entries remain discoverable by their immutable handoffs.
-            # Only the last receipt is needed to bind this acquisition summary.
-            last_stage=value["last_stage"]
-            if value["format"] == "article-planning-v3"
-            else value["pending"][-1]
-            if value["pending"]
-            else None,
-            legacy_pending=tuple(value["pending"])
-            if value["format"] != "article-planning-v3"
-            else None,
+            last_stage=value["last_stage"],
         )
         result.encoded()
         return result
@@ -221,8 +196,7 @@ def commit_stage(
         "cursor": cursor,
         "not_before": not_before,
         # Bind to the snapshot used by this CAS, never a later competing writer.
-        "previous_stage": state.last_stage if state.legacy_pending is None else None,
-        **({"legacy_pending": state.legacy_pending} if state.legacy_pending is not None else {}),
+        "previous_stage": state.last_stage,
     }
     write_json_atomic(directory / "result.json", report)
     # Never discard successfully received L1 when planning exceeds its bound.
@@ -255,7 +229,7 @@ def commit_stage(
     bound_cursor = cursor
     if cursor.get("format") == FRONTIER_FORMAT:
         bound_cursor = {"format": FRONTIER_REF_FORMAT, "stage": entry}
-    elif cursor.get("format") in (DISCOVERY_FORMAT, LEGACY_DISCOVERY_FORMAT):
+    elif cursor.get("format") == DISCOVERY_FORMAT:
         bound_cursor = {"format": DISCOVERY_REF_FORMAT, "stage": entry}
     elif cursor.get("pending_evidence"):
         bound_cursor = {
@@ -287,11 +261,11 @@ def pending_handoffs(store: ReceiptStore) -> list[dict[str, Any]]:
     writes one parent; L2 follows the accepted history before filtering seals.
     Missing roots or uncommitted orphans cannot prove completeness of history.
     """
-    checks: list[tuple[Any, str, bool, dict[str, Any]]] = []
+    checks: list[tuple[Any, str, dict[str, Any]]] = []
     issues: dict[str, dict[str, Any]] = {}
     # Read roots before LIST: a later L1 commit must not look like a missing raw
     # merely because it was committed after the listing boundary.
-    for source in ARTICLE_SOURCES:
+    for source in COLLECTION_SOURCES:
         saved = read_private(store, source_key(source))
         if saved is None:
             continue
@@ -304,10 +278,8 @@ def pending_handoffs(store: ReceiptStore) -> list[dict[str, Any]]:
         }
         try:
             state = ArticlePlanning.decode(saved.payload, source)
-            if state.legacy_pending is not None:
-                checks.extend((entry, source, False, problem) for entry in state.legacy_pending)
-            elif state.last_stage is not None:
-                checks.append((state.last_stage, source, True, problem))
+            if state.last_stage is not None:
+                checks.append((state.last_stage, source, problem))
         except (ValueError, KeyError, TypeError, AttributeError):
             issues[str(problem["stage_id"])] = {**problem, "invalid": "invalid_planning_state"}
     entries: list[dict[str, Any]] = [
@@ -319,7 +291,7 @@ def pending_handoffs(store: ReceiptStore) -> list[dict[str, Any]]:
     by_id = {str(entry["stage_id"]): entry for entry in entries}
     seen = set()
     while checks:
-        reference, source, linked, parent = checks.pop()
+        reference, source, parent = checks.pop()
         try:
             if (
                 not isinstance(reference, dict)
@@ -334,7 +306,7 @@ def pending_handoffs(store: ReceiptStore) -> list[dict[str, Any]]:
             parent["invalid"] = "invalid_article_reference"
             issues[str(parent["stage_id"])] = parent
             continue
-        identity = (source, reference["stage_id"], reference["manifest_sha256"], linked)
+        identity = (source, reference["stage_id"], reference["manifest_sha256"])
         if identity in seen:
             continue
         seen.add(identity)
@@ -347,16 +319,11 @@ def pending_handoffs(store: ReceiptStore) -> list[dict[str, Any]]:
             issues[reference["stage_id"]] = {**reference, "invalid": "article_original_differs"}
         if entry.get("invalid"):
             continue  # Keep its existing error visible; do not invent missing parents.
-        if linked and "previous_stage" not in entry:
+        if "previous_stage" not in entry:
             entry["invalid"] = "article_previous_stage_missing"
             continue
         if (previous := entry.get("previous_stage")) is not None:
-            checks.append((previous, source, True, entry))
-        legacy = entry.get("legacy_pending", [])
-        if not isinstance(legacy, list):
-            entry["invalid"] = "invalid_article_legacy_pending"
-            continue
-        checks.extend((item, source, False, entry) for item in legacy)
+            checks.append((previous, source, entry))
     ready = {
         str(entry["stage_id"]): entry
         for entry in entries
@@ -374,8 +341,10 @@ def pending_handoffs(store: ReceiptStore) -> list[dict[str, Any]]:
 
 
 def _load_workset(
-    store: ObjectStore, state: ArticlePlanning, expected_format: str | tuple[str, ...]
+    store: ObjectStore, state: ArticlePlanning, *, reference_format: str, expected_format: str
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    if state.cursor.get("format") != reference_format:
+        raise ValueError("article workset requires an exact stage reference")
     entry = state.cursor["stage"]
     if (
         entry.get("source") != state.source
@@ -390,17 +359,18 @@ def _load_workset(
         raise LakePublishError("article frontier manifest differs or is missing")
     report = json.loads(saved.payload)["result"]
     frontier = report["planning"]["cursor"]
-    formats = (expected_format,) if isinstance(expected_format, str) else expected_format
-    if report["source"] != state.source or frontier.get("format") not in formats:
+    if report["source"] != state.source or frontier.get("format") != expected_format:
         raise ValueError("article frontier source/format mismatch")
     return frontier, entry
 
 
 def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str, Any]:
-    """Read one exact workset before HTTP, retaining old cursors for migration."""
-    if state.cursor.get("format") != FRONTIER_REF_FORMAT:
-        return state.cursor
-    frontier, entry = _load_workset(store, state, FRONTIER_FORMAT)
+    """Read the exact frontier before making any provider request."""
+    if not state.cursor:
+        return {}
+    frontier, entry = _load_workset(
+        store, state, reference_format=FRONTIER_REF_FORMAT, expected_format=FRONTIER_FORMAT
+    )
     return {
         **frontier,
         "indexes": [
@@ -411,9 +381,11 @@ def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str
 
 
 def load_discovery_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str, Any]:
-    if state.cursor.get("format") != DISCOVERY_REF_FORMAT:
-        return expand_cursor(state.cursor)
-    cursor, entry = _load_workset(store, state, (DISCOVERY_FORMAT, LEGACY_DISCOVERY_FORMAT))
+    if not state.cursor:
+        return {}
+    cursor, entry = _load_workset(
+        store, state, reference_format=DISCOVERY_REF_FORMAT, expected_format=DISCOVERY_FORMAT
+    )
     cursor = expand_cursor(cursor)
 
     def bind_reference(value: dict[str, Any]) -> dict[str, Any]:
@@ -434,74 +406,3 @@ def load_discovery_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[st
             for url, value in cursor.get("pending_evidence", {}).items()
         },
     }
-
-
-def legacy_omission_evidence(
-    store: ObjectStore, state: ArticlePlanning
-) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
-    """Prove a v1 omission is recoverable from its exact complete index window.
-
-    Only the matching committed plan with a full successful body budget qualifies.
-    No early failure can have displaced an older pending URL from its retained tail.
-    Re-enumerating every retained index plus the saved pending list is a superset
-    of this slot's omitted URLs. This does not prove coverage of earlier feed gaps.
-    """
-    omitted = state.cursor.get("omitted_url_count", 0)
-    if state.source not in FRONTIER_SOURCES or not omitted or not state.last_slot:
-        return None
-    policy = SOURCES[state.source]
-    prefix = f"{state.source}-{_clock(state.last_slot):%Y%m%dT%H%M}-"
-    candidates = [state.last_stage] if state.last_stage is not None else []
-    candidates.extend(value["stage"] for value in state.requests.values() if "stage" in value)
-    seen = set()
-    for entry in candidates:
-        identity = (entry.get("stage_id"), entry.get("manifest_sha256"))
-        if identity in seen or not str(identity[0]).startswith(prefix):
-            continue
-        seen.add(identity)
-        if (
-            entry.get("source") != state.source
-            or entry.get("namespace") != ARTICLE_NAMESPACE
-            or entry.get("market") is not True
-        ):
-            continue
-        saved = read_private(
-            store, stage_prefix(entry["stage_id"], namespace=ARTICLE_NAMESPACE) + "/handoff.json"
-        )
-        if saved is None or hashlib.sha256(saved.payload).hexdigest() != entry["manifest_sha256"]:
-            raise LakePublishError("legacy frontier manifest differs or is missing")
-        report = json.loads(saved.payload)["result"]
-        prior = report.get("planning", {})
-        bound_requests = {
-            url: bind_local_stage(value, entry) for url, value in prior.get("requests", {}).items()
-        }
-        old_cursor = prior.get("cursor", {})
-        bound_cursor = {
-            **old_cursor,
-            "pending_evidence": {
-                url: bind_local_stage(value, entry)
-                for url, value in old_cursor.get("pending_evidence", {}).items()
-            },
-        }
-        if (
-            report.get("source") != state.source
-            or report.get("status") != "partial"
-            or report.get("continuation_only") is not False
-            or report.get("failures") != ["pending_cursor_overflow"]
-            or report.get("bodies") != policy.max_bodies
-            or report.get("pages") != policy.max_pages
-            or report.get("omitted_url_count") != omitted
-            or prior.get("slot") != state.last_slot
-            or prior.get("not_before") != state.not_before
-            or bound_requests != state.requests
-            or bound_cursor != state.cursor
-        ):
-            continue
-        references = [
-            {"stage": entry, "index_receipt_id": receipt_id}
-            for receipt_id in report["receipt_ids"]
-            if report["projection_kinds"].get(receipt_id) == "index"
-        ]
-        if len(references) >= policy.max_pages:
-            return entry, references
-    return None

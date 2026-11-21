@@ -1,14 +1,5 @@
-"""Tender-offer-price proxies for delisted calibration windows.
-
-The filings establish the reported cash-offer outcome and its ordinary-share price. They do
-not establish a non-tendering holder's squeeze-out proceeds or payment date. The
-calibration convention uses that offer price at the delisting date as an exit proxy,
-not as a broker execution or a confirmed shareholder cash receipt.
-
-Registration statements, corrections, withdrawal status and result statements must
-agree before the proxy is used. Unresolved cases remain subject to the calibration
-sensitivity cases; those cases do not bound every possible recovery value.
-Measurement meaning and limits are in docs/reference/estimate-calibration.md.
+"""完了を原本で確認できる現金TOBの普通株1株当たり価格を、上場廃止時の退出参考値として保存する。
+未応募株主への実際の交付額・交付日や、本人の約定・入金を示すものではない。
 """
 
 from __future__ import annotations

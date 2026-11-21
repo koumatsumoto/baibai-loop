@@ -19,9 +19,7 @@ from baibai_engine.data_collection.transport.context import FetchContext, Provid
 DAY = date(2026, 7, 20)
 
 
-@pytest.mark.parametrize(
-    "provider", ["spglobal_pmi", "tradingeconomics_pmi", "tsr_bankruptcies", "matsui_margin"]
-)
+@pytest.mark.parametrize("provider", ["spglobal_pmi", "tsr_bankruptcies", "matsui_margin"])
 def test_document_refresh_passes_receipt_scope_without_loading_old_bodies(
     tmp_path, monkeypatch, provider
 ):

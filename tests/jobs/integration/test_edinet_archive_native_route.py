@@ -366,25 +366,14 @@ def test_scope_only_pending_work_keeps_unavailable_requests_and_remains_explicit
     assert available_handoffs(owner.store, source="edinet-facts") == []
 
 
-@pytest.mark.parametrize("old_mode", [None, False, True])
-def test_legacy_list_only_native_plan_is_rejected_before_any_cache_write(tmp_path, old_mode):
-    work = tmp_path / "integration"
-    work.mkdir()
-    (work / "plan.json").write_text(json.dumps({"edinet_list_native": old_mode, "handoffs": []}))
+def test_plan_requires_current_fields_and_fixed_edinet_input_before_any_store_read(tmp_path):
     database = tmp_path / "absent.sqlite"
-    with pytest.raises(ValueError, match="fixed EDINET input is absent"):
-        sources.apply(Mock(), work, market=database, asof=ASOF)
-    assert not database.exists()
-
-
-@pytest.mark.parametrize("group", ["edinet-list", "edinet-metrics", "edinet-facts"])
-def test_legacy_stage_replay_and_export_cannot_write_outside_native_head(
-    tmp_path, monkeypatch, group
-):
-    target = tmp_path / "absent.sqlite"
-    with pytest.raises(ValueError, match="cannot be replayed into a native execution copy"):
-        source_handoff._replay(group, target, tmp_path / "absent-stage")
-    with pytest.raises(ValueError, match="does not export legacy"):
-        source_handoff._export(group, DAY, AT, target, tmp_path / "absent-stage")
-    assert not target.exists()
-    assert not (tmp_path / "absent-stage").exists()
+    for fields, message in (
+        ({"handoffs": [], "unknown_mode": True}, "unsupported integration plan fields"),
+        ({"handoffs": []}, "fixed EDINET input is absent"),
+        ({"handoffs": [{"source": "jquants-market"}]}, "does not publish market handoffs"),
+    ):
+        (tmp_path / "plan.json").write_text(json.dumps(fields))
+        with pytest.raises(ValueError, match=message):
+            sources.apply(Mock(), tmp_path, market=database, asof=ASOF)
+        assert not database.exists()

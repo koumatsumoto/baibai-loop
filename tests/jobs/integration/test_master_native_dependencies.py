@@ -1,6 +1,5 @@
 """Native master feeds acquisition consumers without a legacy release or duplicate raw stage."""
 
-import gzip
 import json
 import sqlite3
 from collections import Counter
@@ -14,9 +13,8 @@ from tests.helpers.lake_release import market_store
 from tests.helpers.tradingview import _sdk, payload, retain_result
 from tests.jobs.integration.test_master_native_models import attempt, records, setup_native
 
-from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
-from baibai_engine.data_collection.providers.jquants.master_native import HEAD_KEY, MasterAttempt
+from baibai_engine.data_collection.providers.jquants.master_native import HEAD_KEY
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.master_inputs import (
     INPUT_PREFIX as MASTER_INPUT_PREFIX,
@@ -104,7 +102,10 @@ def test_external_new_native_plan_requires_no_legacy_release_and_saved_resume_is
         == plan
     )
     saved = InputSnapshot.model_validate(binding["master_native_input"])
-    assert saved_master_dependency(store, saved, day=DAY)["request_id"] == "native"
+    request = saved_master_dependency(store, saved, day=DAY)
+    assert request.source == "master"
+    assert request.params == {"date": DAY.strftime("%Y%m%d")}
+    assert request.records() == population
 
 
 @pytest.mark.parametrize("fault", ["empty", "partial", "held"])
@@ -164,7 +165,6 @@ def test_tradingview_native_stage_uses_saved_reference_and_cold_replays_without_
             json.loads((directory / "result.json").read_bytes())["calendar_native_input"]
         ),
     )
-    assert handoff.master_request_ids == ()
     write_json_atomic(
         packet / "result.json",
         {"source": "tradingview", "asof": DAY.isoformat(), **handoff.to_json()},
@@ -395,115 +395,6 @@ def test_master_recovery_preflight_keeps_existing_tradingview_receipts(tmp_path)
     assert preflight_snapshot(market, DAY, now=NOW)["status"] == "already_saved"
 
 
-def test_old_mixed_stage_verifies_migrated_master_and_calendar_without_legacy_projection(tmp_path):
-    from tests.helpers.r2_store import MemoryR2Store
-
-    from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
-
-    store = MemoryR2Store()
-    from tests.helpers.native_margin_sources import initialize_margin_sources
-
-    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
-    page = JQuantsPage("master", {"date": DAY.isoformat()}, AT, body([]))
-    old = MasterAttempt("old-empty", DAY, None, (page,))
-    owner = MasterL1(store, tmp_path / "native")
-    owner.initialize()
-    owner.commit([old])
-    packet = tmp_path / "packet"
-    packet.mkdir()
-    with sqlite3.connect(packet / "receipts.sqlite") as conn:
-        conn.executescript(JQUANTS_SOURCE_PAGES_DDL)
-        for identity, source, query, data in (
-            ("old-empty", "master", {"date": DAY.isoformat()}, page.body),
-            (
-                "calendar",
-                "market_calendar",
-                {"from": DAY.isoformat(), "to": DAY.isoformat()},
-                body([{"Date": DAY.isoformat(), "HolDiv": "1"}]),
-            ),
-        ):
-            conn.execute(
-                "INSERT INTO jquants_source_pages VALUES (?,?,?,?,?,?,?)",
-                (
-                    identity,
-                    0,
-                    source,
-                    json.dumps(query),
-                    AT.isoformat(),
-                    DAY.isoformat(),
-                    gzip.compress(data, mtime=0),
-                ),
-            )
-    write_json_atomic(
-        packet / "result.json",
-        {"source": "jquants-market", "request_ids": ["old-empty", "calendar"]},
-    )
-    fingerprints = {
-        identity: receipt["fingerprint"]
-        for identity, receipt in owner.fixed().value()["receipts"].items()
-    }
-    from baibai_engine.data_collection.providers.jquants.calendar_native import (
-        CalendarAttempt,
-        CalendarL1,
-    )
-
-    calendar_owner = CalendarL1(store, tmp_path / "native-calendar")
-    calendar_owner.initialize()
-    calendar_owner.commit(
-        [
-            CalendarAttempt(
-                "calendar",
-                DAY,
-                DAY,
-                None,
-                (
-                    JQuantsPage(
-                        "market_calendar",
-                        {"from": DAY.isoformat(), "to": DAY.isoformat()},
-                        AT,
-                        body([{"Date": DAY.isoformat(), "HolDiv": "1"}]),
-                    ),
-                ),
-            )
-        ]
-    )
-    calendar_fingerprints = {
-        identity: receipt["fingerprint"]
-        for identity, receipt in calendar_owner.fixed().value()["receipts"].items()
-    }
-    target = tmp_path / "target.sqlite"
-    before = (packet / "receipts.sqlite").read_bytes()
-    result = _replay(
-        "jquants-market",
-        target,
-        packet,
-        master_fingerprints=fingerprints,
-        calendar_fingerprints=calendar_fingerprints,
-        price_fingerprints={},
-        margin_alerts_fingerprints={},
-        short_sale_reports_fingerprints={},
-        margin_interest_fingerprints={},
-    )
-    assert result.complete
-    assert result.report["migrated_master_requests"] == ["old-empty"]
-    assert result.report["migrated_calendar_requests"] == ["calendar"]
-    assert not target.exists()
-    with pytest.raises(ValueError, match="differs from the native cutover"):
-        _replay(
-            "jquants-market",
-            tmp_path / "bad.sqlite",
-            packet,
-            master_fingerprints={},
-            calendar_fingerprints=calendar_fingerprints,
-            price_fingerprints={},
-            margin_alerts_fingerprints={},
-            short_sale_reports_fingerprints={},
-            margin_interest_fingerprints={},
-        )
-    assert not (tmp_path / "bad.sqlite").exists()
-    assert (packet / "receipts.sqlite").read_bytes() == before
-
-
 def test_native_backfill_alias_does_not_refetch_fulfilled_cohort_dates(tmp_path, monkeypatch):
     import baibai_jobs.maintenance.master_native_backfill as backfill
     from baibai_jobs.maintenance.market import cli
@@ -542,91 +433,6 @@ def test_native_backfill_accepts_only_explicit_dates():
     with pytest.raises(SystemExit):
         parser.parse_args(
             ["backfill-master", "--asof", "2026-01-30", "--month-end-from", "2026-01-01"]
-        )
-
-
-def test_legacy_tradingview_master_is_verified_against_finite_native_migration(
-    tmp_path, monkeypatch
-):
-    page = JQuantsPage(
-        "master", {"date": DAY.strftime("%Y%m%d")}, AT, json.dumps({"data": records(DAY)}).encode()
-    )
-    old = MasterAttempt("legacy", DAY, None, (page,))
-    store, owner, source, directory = context(tmp_path, attempts=[old])
-    assert prepare_tradingview_master(
-        store, directory=directory, market=source, observation_date=DAY
-    )
-    saved = InputSnapshot.model_validate(
-        json.loads((directory / "result.json").read_bytes())["master_native_input"]
-    )
-    with sqlite3.connect(source) as conn:
-        conn.execute(
-            "INSERT INTO jquants_source_pages VALUES (?,?,?,?,?,?,?)",
-            (
-                "legacy",
-                0,
-                "master",
-                json.dumps(dict(page.query)),
-                AT.isoformat(),
-                DAY.isoformat(),
-                gzip.compress(page.body, mtime=0),
-            ),
-        )
-    retain_result(
-        source,
-        _sdk(payload(["TSE:1301"])),
-        day=DAY,
-        master=DAY,
-        received=NOW,
-        symbols=("TSE:1301",),
-    )
-    packet = tmp_path / "legacy-packet"
-    packet.mkdir()
-    handoff = export_handoff(
-        source, packet / "receipts.sqlite", day=DAY, since=AT - timedelta(seconds=1)
-    )
-    assert handoff.master_request_ids == ("legacy",)
-    write_json_atomic(
-        packet / "result.json",
-        {"source": "tradingview", "asof": DAY.isoformat(), **handoff.to_json()},
-    )
-    target = market_store(tmp_path / "target.sqlite")
-    with sqlite3.connect(target) as conn:
-        conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
-    fingerprints = {
-        identity: receipt["fingerprint"]
-        for identity, receipt in owner.fixed().value()["receipts"].items()
-    }
-    result = _replay(
-        "tradingview",
-        target,
-        packet,
-        store=store,
-        master_input=saved,
-        calendar_input=InputSnapshot.model_validate(
-            json.loads((directory / "result.json").read_bytes())["calendar_native_input"]
-        ),
-        master_fingerprints=fingerprints,
-    )
-    assert result.complete
-    with sqlite3.connect(target) as conn:
-        assert (
-            conn.execute(
-                "SELECT COUNT(*) FROM jquants_source_pages WHERE source='master'"
-            ).fetchone()[0]
-            == 0
-        )
-    with pytest.raises(ValueError, match="differs from the native cutover"):
-        _replay(
-            "tradingview",
-            target,
-            packet,
-            store=store,
-            master_input=saved,
-            calendar_input=InputSnapshot.model_validate(
-                json.loads((directory / "result.json").read_bytes())["calendar_native_input"]
-            ),
-            master_fingerprints={},
         )
 
 
@@ -718,7 +524,6 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
         work / "plan.json",
         {
             "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
-            "master_native": True,
             "handoffs": available_handoffs(store, source="tradingview"),
             "external": [],
         },

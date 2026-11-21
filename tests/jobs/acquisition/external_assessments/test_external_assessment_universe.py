@@ -8,7 +8,6 @@ import pytest
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage, complete_request
-from baibai_engine.data_collection.providers.jquants.dependencies import dependency_from_request
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_jobs.acquisition.external_assessments.universe import received_master_universe
 
@@ -17,15 +16,8 @@ AT = datetime(2026, 10, 9, 7, tzinfo=UTC)
 
 
 def dependency(rows, *, day=DAY):
-    return dependency_from_request(
-        "native-master",
-        complete_request(
-            (
-                JQuantsPage(
-                    "master", {"date": day.isoformat()}, AT, json.dumps({"data": rows}).encode()
-                ),
-            )
-        ),
+    return complete_request(
+        (JQuantsPage("master", {"date": day.isoformat()}, AT, json.dumps({"data": rows}).encode()),)
     )
 
 
@@ -53,7 +45,7 @@ def test_native_universe_never_falls_back_to_a_nearby_master_date(requested):
 def test_future_master_date_is_rejected_before_decoding_the_receipt():
     future = datetime.now(ZoneInfo("Asia/Tokyo")).date() + timedelta(days=1)
     with pytest.raises(ValueError, match="master cannot be in the future"):
-        received_master_universe({}, future)
+        received_master_universe(dependency([]), future)
 
 
 @pytest.mark.parametrize(

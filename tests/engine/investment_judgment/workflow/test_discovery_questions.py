@@ -8,10 +8,6 @@ from tests.engine.investment_judgment.workflow.test_technical_financial_context 
 
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.workflow.discovery import PriceCoordinateMinimum, _explore
-from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
-from baibai_engine.investment_judgment.workflow.selection_query import (
-    load_generated_selection_context,
-)
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoveryPolicy,
@@ -237,12 +233,6 @@ def test_cli_question_to_one_fixed_company_and_finite_comparison(tmp_path, monke
     absent = cli([*fixed, "--compare-ticker", "9999"])
     assert absent["discovery"]["outside_universe"] == ["9999"]
     assert not absent["model_inputs"]["securities"]["9999"]["models"]
-    for legacy_option in (["--screening-lane", "growth_research"], ["--screening-excluded"]):
-        assert "legacy publication" in cli([*fixed, *legacy_option], expected=3)["reason"]
-        assert (
-            "explicit legacy screening selection"
-            in cli([*base, *legacy_option], expected=3)["reason"]
-        )
     gaps = cli([*fixed, "--discovery-question", "input_gap"])
     assert gaps["discovery"]["total"] == len(rows)
     assert gaps["screening_selection_id"] == identity
@@ -268,18 +258,6 @@ def test_cli_question_to_one_fixed_company_and_finite_comparison(tmp_path, monke
     held = cli([*fixed, "--scope", "review_positions"])
     assert held["held_tickers"] == ["2345"]
     assert list(held["model_inputs"]["securities"]) == ["2345"]
-    with pytest.raises(ValueError, match="legacy publication"):
-        load_generated_selection_context(
-            request=ResearchRequest(scope="discover_new", text="矛盾する画面"),
-            generation_id=None,
-            screening_selection_id=identity,
-            research_as_of=None,
-            known_at=now,
-            runs_path=runs,
-            db_path=tmp_path / "not_an_app",
-            screening_lane="growth_research",
-            comparison_tickers=("2345",),
-        )
     # 旧世代で元本文を勝手に開かず、索引なしを候補0件としない。
     legacy = cli([*base, "--screening-selection-id", "technical-policy"], expected=3)
     assert legacy["missing_inputs"] == [{"code": "unindexed_legacy_publication"}]

@@ -34,22 +34,21 @@ def test_source_ids_are_disjoint_and_current_cycle_is_selected(monkeypatch):
             return datetime(2026, 10, 12, 10, 13, tzinfo=UTC).astimezone(tz)
 
     monkeypatch.setattr(sources, "datetime", Clock)
-    selected, day, eligible = sources.selection(
+    selected, day = sources.selection(
         source="all", batch_id=None, created_at=datetime(2026, 10, 11, 10, 13, tzinfo=UTC)
     )
-    assert eligible
     assert day.isoformat() == "2026-10-12"
     assert len({item["run_id"] for item in selected}) == 2
     assert all(
         item["run_id"] == f"external-assessment-daily-{item['source']}-2026-10-12"
         for item in selected
     )
-    one, _, _ = sources.selection(source="monex", batch_id="manual", created_at=None)
-    other, _, _ = sources.selection(source="kabumap", batch_id="manual", created_at=None)
+    one, _ = sources.selection(source="monex", batch_id="manual", created_at=None)
+    other, _ = sources.selection(source="kabumap", batch_id="manual", created_at=None)
     assert one[0]["run_id"] != other[0]["run_id"]
     assert sources.read_selection(json.dumps(one)) == one
     scheduled = selected[0]["run_id"]
-    resumed, _, _ = sources.selection(source="monex", batch_id=scheduled, created_at=None)
+    resumed, _ = sources.selection(source="monex", batch_id=scheduled, created_at=None)
     assert resumed == selected[:1]
     for wrong_source in ("all", "kabumap"):
         with pytest.raises(ValueError, match="one exact source"):

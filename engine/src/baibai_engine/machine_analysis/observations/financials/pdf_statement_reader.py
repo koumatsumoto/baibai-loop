@@ -7,7 +7,6 @@ import json
 import sqlite3
 from collections.abc import Sequence
 from datetime import date, datetime
-from typing import TYPE_CHECKING
 
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import (
     PdfStatement,
@@ -15,12 +14,9 @@ from baibai_engine.machine_analysis.observations.financials.pdf_statements impor
     extract_pdf,
 )
 
-if TYPE_CHECKING:
-    import duckdb
-
 
 def read_pdf_statements(
-    connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    connection: sqlite3.Connection,
     *,
     as_of: date,
     tickers: Sequence[str] | None = None,

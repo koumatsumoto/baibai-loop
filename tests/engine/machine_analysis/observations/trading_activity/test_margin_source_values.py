@@ -1,4 +1,4 @@
-"""Preserve current margin source values beyond the present L2 share calculations."""
+"""Preserve the native balance date, amounts and publication date through export."""
 
 import sqlite3
 from contextlib import closing
@@ -10,11 +10,6 @@ import pytest
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_weekly_margin,
-)
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
-    published_margin_balance_dates,
-    read_all_issues_daily_margin,
-    read_weekly_margin,
 )
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -79,10 +74,6 @@ def test_daily_margin_publication_and_values_survive_sqlite_and_lake(tmp_path, m
     assert tuple(rows[0][column] for column in columns) == expected
     assert rows[0]["balance_date"] == day.isoformat()
     assert rows[0]["long_vol"] == 30.0
-    typed_rows = read_all_issues_daily_margin(database, day)
-    assert typed_rows is not None
-    typed = typed_rows[0]
-    assert typed.publication_date == (None if missing else date(2026, 10, 15))
 
 
 @pytest.mark.parametrize("source_date", [None, "2026-07-17"])
@@ -91,7 +82,6 @@ def test_weekly_margin_does_not_invent_requested_balance_date(tmp_path, source_d
     record = {"Date": source_date, "Code": "13010", "LongVol": 30, "ShrtVol": 0}
     database = tmp_path / "market.sqlite"
     assert store_jquants_weekly_margin(database, [record], week_end=requested) == 0
-    assert read_weekly_margin(database, requested) is None
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM jquants_weekly_margin").fetchone() == (0,)
         assert connection.execute(
@@ -104,72 +94,8 @@ def test_weekly_native_zero_balance_is_not_missing(tmp_path):
     record = {"Date": day.isoformat(), "Code": "13010", "LongVol": 30, "ShrtVol": 0}
     database = tmp_path / "market.sqlite"
     assert store_jquants_weekly_margin(database, [record], week_end=day) == 1
-    result_rows = read_weekly_margin(database, day)
-    assert result_rows is not None
-    result = result_rows[0]
-    assert result.week_end == day
-    assert result.short_vol == 0.0
-
-
-def _daily_record(day, code, publication_date):
-    return {
-        "Date": day.isoformat(),
-        "Code": code,
-        "PubDate": publication_date,
-        "IssType": "2",
-        "LongVol": 30,
-        "ShrtVol": 12,
-        "LongStdVol": 20,
-        "LongNegVol": 10,
-        "ShrtStdVol": 8,
-        "ShrtNegVol": 4,
-    }
-
-
-@pytest.mark.parametrize(
-    ("asof", "expected"),
-    [
-        (date(2026, 9, 28), set()),
-        (date(2026, 9, 29), {"1301"}),
-        (date(2026, 10, 1), {"1301"}),
-        (date(2026, 10, 2), {"1301", "1302"}),
-    ],
-)
-def test_known_publication_is_applied_per_row_not_just_per_balance_date(tmp_path, asof, expected):
-    day = date(2026, 9, 25)
-    database = tmp_path / "market.sqlite"
-    store_jquants_all_issues_daily_margin(
-        database,
-        [
-            _daily_record(day, "13010", "2026-09-28"),
-            _daily_record(day, "13020", "2026-10-01"),
-        ],
-        balance_date=day,
-    )
-    # The known publication needs no inferred bar calendar. Raw acquisition
-    # reads retain both rows; analysis must not leak a later correction through
-    # the first ticker's usable balance date.
-    assert len(read_all_issues_daily_margin(database, day)) == 2
-    assert published_margin_balance_dates(database, asof) == ([(day, "daily")] if expected else [])
-    rows = read_all_issues_daily_margin(database, day, publication_asof=asof)
-    assert {row.ticker for row in rows} == expected
-
-
-def test_missing_publication_retains_the_existing_lag_rule(tmp_path):
-    day = date(2026, 9, 25)
-    database = tmp_path / "market.sqlite"
-    store_jquants_all_issues_daily_margin(
-        database, [_daily_record(day, "13010", None)], balance_date=day
-    )
-    asof = date(2026, 9, 29)
-    assert published_margin_balance_dates(database, asof) == []
-    assert read_all_issues_daily_margin(database, day, publication_asof=asof) == []
-    with closing(sqlite3.connect(database)) as connection, connection:
-        connection.executemany(
-            "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES ('1301',?,100)",
-            [("2026-09-28",), ("2026-09-29",)],
+    with closing(sqlite3.connect(database)) as conn:
+        assert conn.execute("SELECT week_end, short_vol FROM jquants_weekly_margin").fetchone() == (
+            day.isoformat(),
+            0.0,
         )
-    assert published_margin_balance_dates(database, date(2026, 9, 28)) == []
-    assert published_margin_balance_dates(database, asof) == [(day, "daily")]
-    rows = read_all_issues_daily_margin(database, day, publication_asof=asof)
-    assert [row.ticker for row in rows] == ["1301"]

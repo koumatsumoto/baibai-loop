@@ -459,8 +459,8 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
     )
     from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.primitives.market_windows import FINANCIAL_HISTORY_DAYS
     from baibai_engine.storage.snapshots.reader import resolve_current_release
+    from baibai_jobs.integration.source_handoff import FINANCIAL_HISTORY_DAYS
 
     store, price, calendar, market = source_fixture(tmp_path)
     today = date(2026, 11, 5)

@@ -1065,10 +1065,11 @@ def test_exact_price_comparison_cannot_reuse_a_right_at_its_final_close(
         assessment_id(87), document, review, supersedes_id=case.pair.assessment_id
     )
     with closing(sqlite3.connect(case.market)) as connection, connection:
-        # Same retained raw quote on both sides of the boundary; the day has
-        # not been downloaded after the close. No session schedule is available.
+        # The last session is known. No later calendar row or same-day close is needed
+        # to recognize expiry once this session ends.
         connection.execute("UPDATE jquants_daily_bars SET traded_at='2026-10-13'")
         connection.execute("DELETE FROM jquants_market_calendar")
+        connection.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-14','1')")
     with (
         closing(connect_read_only(case.app)) as app,
         proposal_market_snapshot(case.market) as market,
@@ -1103,7 +1104,7 @@ def test_exact_price_comparison_cannot_reuse_a_right_at_its_final_close(
 
 
 @pytest.mark.parametrize("days_to_deadline", [3, 15])
-def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(
+def test_dated_no_action_distinguishes_expiry_from_unconfirmed_acquisition(
     tmp_path, mocker, days_to_deadline
 ):
     case = backend_case(tmp_path)
@@ -1116,17 +1117,18 @@ def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(
     deadline = (friday.date() + timedelta(days=days_to_deadline)).isoformat()
     following = (friday.date() + timedelta(days=days_to_deadline + 1)).isoformat()
     closed = [*prefix, (deadline, "3")]  # Futures-only on the last eligible day.
+    expired, unknown = "right_acquisition_expired", "right_acquisition_unconfirmed"
     calendars = (
         ("open_on_deadline", [*prefix, (deadline, "2")], deadline, None),
-        ("next_after_deadline", [*closed, (following, "1")], following, "期限まで"),
-        ("closed_with_no_later_row", closed, None, "期限まで"),
-        ("missing", [], None, None),
-        ("gap_before_deadline", [*closed[:-2], (deadline, "3"), (following, "1")], None, None),
+        ("next_after_deadline", [*closed, (following, "1")], following, expired),
+        ("closed_with_no_later_row", closed, None, expired),
+        ("missing", [], None, unknown),
+        ("gap_before_deadline", [*closed[:-2], (deadline, "3"), (following, "1")], None, unknown),
         (
             "invalid_before_deadline",
             [*closed[:-2], (prefix[-1][0], "?"), (deadline, "3"), (following, "1")],
             None,
-            None,
+            unknown,
         ),
     )
     variants = (
@@ -1170,7 +1172,7 @@ def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(
         prior = pair.assessment_id
         case.operations.record_assessment(case.operation.operation_id, prior, now=friday)
         saved = saved_draft = None
-        for offset, (name, rows, session, blocker) in enumerate(calendars):
+        for offset, (name, rows, session, acquisition_problem) in enumerate(calendars):
             with closing(sqlite3.connect(case.market)) as connection, connection:
                 connection.execute("DELETE FROM jquants_market_calendar")
                 connection.executemany("INSERT INTO jquants_market_calendar VALUES (?,?)", rows)
@@ -1208,21 +1210,21 @@ def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(
             reads_before = read.call_count
             checked = writer.check(draft)
             assert read.call_count == reads_before + 1
-            assert checked.valid == (blocker is None), (finding, stance, name)
+            assert checked.valid == (acquisition_problem is None), (finding, stance, name)
             if name == "open_on_deadline":
                 saved_draft, saved = draft, writer.publish(draft)
                 assert saved.items[0].action == "no_action"
-            if blocker is not None:
+            if acquisition_problem is not None:
                 before = case.app.read_bytes()
                 assert [reason.code for reason in checked.blockers] == [
                     "no_action_reviewed_quote_mismatch"
                 ]
-                with pytest.raises(ProposalError, match=blocker):
+                expected = "期限まで" if acquisition_problem == expired else "最終立会が未確認"
+                with pytest.raises(ProposalError, match=expected):
                     writer.publish(draft)
                 assert writer.publish(saved_draft) == saved
                 assert case.app.read_bytes() == before
-            # Economic rejection can be reviewed without a next session. Today's
-            # price projection still needs one, but a proven expiry is not missing evidence.
+            # An uncertain or expired comparison cannot change a signed historical action.
             preview = preview_current_terms(
                 proposal_id=saved.proposal_id,
                 db_path=case.app,
@@ -1230,13 +1232,7 @@ def test_known_closed_sessions_bar_this_right_but_calendar_gaps_do_not(
                 now=friday + timedelta(minutes=2),
             ).items[0]
             why = preview.get("current_quote_unavailable_reason")
-            assert (None if why is None else why["code"]) == (
-                None
-                if name == "open_on_deadline"
-                else "right_acquisition_expired"
-                if blocker is not None
-                else "right_acquisition_unconfirmed"
-            )
+            assert (None if why is None else why["code"]) == acquisition_problem
             assert (preview["current_quote_calculation"] is not None) == (
                 name == "open_on_deadline"
             )

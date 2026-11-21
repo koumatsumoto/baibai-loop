@@ -4,23 +4,12 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
-from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
-    JPXEarningsCalendarEntry,
-    JPXEarningsCalendarSnapshot,
-    JPXProviderError,
-)
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    read_jpx_earnings_calendar_snapshot,
-)
-from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
-    store_jpx_earnings_calendar_snapshot,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     EDINETMetricBaselineError,
     read_edinet_metric_baseline,
@@ -30,7 +19,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write
     store_edinet_metrics,
 )
 from baibai_engine.machine_analysis.observations.financials.reader import (
-    fin_summaries_readable_from,
     read_fin_summaries,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
@@ -222,141 +210,6 @@ class ReadFinSummariesTests(unittest.TestCase):
                 )
 
             self.assertIsNone(read_fin_summaries(db, date(2025, 9, 28), date(2025, 10, 28)))
-
-
-class FinSummariesReadableFromTests(unittest.TestCase):
-    """The floor a caller may read from, which is not where the oldest row sits."""
-
-    @staticmethod
-    def _store_with_windows(tmp: str, windows: tuple[tuple[str, str, str, int], ...]) -> Path:
-        db = Path(tmp) / "market.sqlite"
-        with closing(open_connection(db)) as conn, conn:
-            for coverage_key, min_date, max_date, record_count in windows:
-                add_source_coverage(
-                    conn,
-                    source="jquants_fin_summaries",
-                    coverage_key=coverage_key,
-                    record_count=record_count,
-                    min_date=min_date,
-                    max_date=max_date,
-                )
-        return db
-
-    def test_returns_the_start_of_the_window_holding_the_asof(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = self._store_with_windows(tmp, (("a", "2016-08-11", "2026-08-11", 180_186),))
-            self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2016, 8, 11))
-
-    def test_abutting_windows_read_as_one(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = self._store_with_windows(
-                tmp,
-                (
-                    ("head", "2016-08-01", "2016-08-10", 1_911),
-                    ("body", "2016-08-11", "2026-08-11", 180_186),
-                ),
-            )
-            self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2016, 8, 1))
-
-    def test_a_gap_before_the_asof_answers_nothing(self) -> None:
-        """A hole in the middle is an outage, not a store that starts later.
-
-        Answering with the later window's start would hand back a quietly shorter
-        history that reads exactly like a young store, so the months nobody fetched
-        would never surface.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            db = self._store_with_windows(
-                tmp,
-                (
-                    ("old", "2016-08-01", "2018-12-31", 100),
-                    ("recent", "2020-01-01", "2026-08-11", 100),
-                ),
-            )
-            self.assertIsNone(fin_summaries_readable_from(db, date(2025, 6, 30)))
-
-    def test_the_only_window_answers_even_when_it_starts_late(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = self._store_with_windows(tmp, (("recent", "2020-01-01", "2026-08-11", 100),))
-            self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2020, 1, 1))
-
-    def test_returns_none_when_no_window_holds_the_asof(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = self._store_with_windows(tmp, (("a", "2016-08-11", "2020-12-31", 100),))
-            self.assertIsNone(fin_summaries_readable_from(db, date(2025, 6, 30)))
-
-    def test_a_bounded_window_with_no_rows_is_readable(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = self._store_with_windows(tmp, (("a", "2016-08-11", "2026-08-11", 0),))
-            self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2016, 8, 11))
-            self.assertEqual(read_fin_summaries(db, date(2025, 6, 1), date(2025, 6, 30)), [])
-
-    def test_returns_none_when_sqlite_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertIsNone(
-                fin_summaries_readable_from(Path(tmp) / "missing.sqlite", date(2025, 6, 30))
-            )
-
-
-class ReadJPXEarningsCalendarTests(unittest.TestCase):
-    def test_returns_none_when_earnings_calendar_not_imported(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                conn.execute(
-                    "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
-                    ("2026-05-15", "1301"),
-                )
-
-            self.assertIsNone(read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8)))
-
-    def test_returns_records_from_covered_sparse_whole_list_import(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jpx_earnings_calendar_snapshot(
-                db,
-                JPXEarningsCalendarSnapshot(
-                    entries=(
-                        JPXEarningsCalendarEntry(
-                            ticker="1301", announcement_date=date(2026, 5, 15)
-                        ),
-                    ),
-                    source_urls=("https://www.jpx.co.jp/kessan.xlsx",),
-                    raw_record_count=2,
-                    excluded_record_count=1,
-                    superseded_record_count=None,
-                ),
-                fetched_at_utc="2026-05-08T00:00:00+00:00",
-            )
-
-            snapshot = read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8))
-
-            self.assertIsNotNone(snapshot)
-            assert snapshot is not None
-            self.assertEqual(snapshot.entries[0].ticker, "1301")
-            self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 5, 15))
-
-    def test_rejects_successful_whole_list_coverage_with_zero_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                conn.execute(
-                    "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
-                    "coverage_end, fetched_at_utc, record_count, status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        "jpx_earnings_calendar",
-                        "get_earnings_calendar_snapshot:current",
-                        "2026-05-08",
-                        "2026-08-06",
-                        datetime.now(UTC).isoformat(),
-                        0,
-                        "ok",
-                    ),
-                )
-
-            with self.assertRaisesRegex(JPXProviderError, "row count mismatch"):
-                read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8))
 
 
 class ReadEDINETMetricBaselineTests(unittest.TestCase):

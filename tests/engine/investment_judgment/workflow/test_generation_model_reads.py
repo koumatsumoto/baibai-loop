@@ -87,7 +87,7 @@ def test_selection_context_references_read_the_same_fixed_models(tmp_path, schem
     runs = tmp_path / "runs.sqlite"
     generation = _saved_generation(runs, schema_version)
     context = load_generated_selection_context(
-        screening_lane="growth_research",
+        comparison_tickers=("1234",) if scope == "discover_new" else (),
         request=ResearchRequest(
             text="固定入力の鮮度を確認",
             scope=scope,
@@ -129,12 +129,4 @@ def test_selection_context_references_read_the_same_fixed_models(tmp_path, schem
         growth = growth["models"]
     growth = growth["company_growth"]
     assert "full_result_ref" not in growth
-    if scope == "discover_new":
-        reference = growth["generation_model_ref"]
-        assert reference["model_id"] == "company_growth"
-        exact_growth = read_model_inputs(
-            reference["generation_id"], subjects=(reference["subject"],), path=runs
-        ).result(reference["model_id"], reference["subject"])
-        assert exact_growth == generation.result("company_growth", "1234")
-    else:
-        assert growth == generation.result("company_growth", "1234").payload
+    assert growth == generation.result("company_growth", "1234").payload

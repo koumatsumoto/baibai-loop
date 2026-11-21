@@ -294,7 +294,6 @@ def test_refusal_preserves_work_beyond_validator_cache_bound(tmp_path, clock_and
     state, _ = load_planning(store, "minkabu_news")
     assert session.urls == [articles.SOURCES["minkabu_news"].entry_url, old[0]]
     assert report["pending_url_count"] == len(expected) == 131
-    assert report["omitted_url_count"] == 0
     assert state.cursor["pending_urls"] == expected
     assert set(fresh) <= state.cursor["pending_evidence"].keys()
 
@@ -311,7 +310,6 @@ def test_refusal_preserves_work_beyond_validator_cache_bound(tmp_path, clock_and
     state, _ = load_planning(store, "minkabu_news")
     assert resumed.urls == [articles.SOURCES["minkabu_news"].entry_url, old[0]]
     assert report["pending_url_count"] == len(expected)
-    assert report["omitted_url_count"] == 0
     assert state.cursor["pending_urls"] == expected
 
 
@@ -346,25 +344,26 @@ def test_planning_byte_limit_retains_full_work_in_immutable_stage(tmp_path, monk
     cursor = json.loads(manifest.payload)["result"]["planning"]["cursor"]
     assert cursor["pending_urls"] == [*old, *fresh]
     assert set(fresh) <= cursor["pending_evidence"].keys()
-    assert cursor["omitted_url_count"] == 0
     unchanged, _ = load_planning(store, "minkabu_news")
     assert unchanged.cursor["pending_urls"] == old
     assert unchanged.last_stage is None
 
 
-def test_refusal_does_not_erase_known_historical_omissions(tmp_path):
+def test_unresolved_omission_stops_before_provider_or_planning_write(tmp_path):
     store, _ = pending_store()
     state, _ = load_planning(store, "minkabu_news")
     state = replace(state, cursor={**state.cursor, "omitted_url_count": 3})
     store.store_object(source_key("minkabu_news"), state.encoded())
-    report = articles.acquire_source(
-        store,
-        source="minkabu_news",
-        slot=SLOT,
-        identity="old-omission",
-        directory=tmp_path / "old-omission",
-        session=Session([Response(403, b"denied")]),
-    )
-    state, _ = load_planning(store, "minkabu_news")
-    assert report["omitted_url_count"] == state.cursor["omitted_url_count"] == 3
-    assert "legacy_omission_unresolved" in report["failures"]
+    before = dict(store.values)
+    session = Session([])
+    with pytest.raises(ValueError, match="require explicit recovery"):
+        articles.acquire_source(
+            store,
+            source="minkabu_news",
+            slot=SLOT,
+            identity="incomplete",
+            directory=tmp_path / "incomplete",
+            session=session,
+        )
+    assert session.urls == []
+    assert store.values == before

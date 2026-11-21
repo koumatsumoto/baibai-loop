@@ -7,8 +7,8 @@ from datetime import timedelta
 from threading import Lock
 
 import pytest
+from tests.helpers.edinet_receipts import DAY, receipt
 from tests.helpers.r2_store import MemoryR2Store
-from tests.unit.data_collection.test_edinet_list_native import DAY, receipt
 
 from baibai_engine.data_collection.providers.edinet.list_native import (
     EdinetListL1,

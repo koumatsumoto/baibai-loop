@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook
+from tests.helpers.jpx_earnings import DAY, STAMP, earnings, regulations
 
 from baibai_engine.data_collection.providers.jpx.models import JPXResponse
 from baibai_engine.data_collection.providers.jpx.receipts import (
@@ -21,56 +21,10 @@ from baibai_engine.machine_analysis.observations.disclosures.capital_policy impo
     store_tse_capital_policy_rows,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
-    JPX_EARNINGS_CALENDAR_INDEX_URL,
-    JPX_REGULATION_URLS,
-)
 from baibai_engine.machine_analysis.observations.financials import capital_action_pdf
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration import jpx_handoff
 from baibai_jobs.integration.jpx_handoff import export_handoff, import_handoff
-
-DAY = date(2026, 10, 15)
-STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
-
-
-def earnings(path, stamp, announcement, ticker, *, invalid=False):
-    resources = (("index", JPX_EARNINGS_CALENDAR_INDEX_URL), ("workbook:0", FILE_A))
-    with closing(open_connection(path)) as conn:
-        bundle = create_bundle(conn, "earnings_calendar", DAY, stamp, resources)
-        retain_bundle_response(
-            conn,
-            bundle,
-            "index",
-            JPXResponse(resources[0][1], stamp, "text/html", b"<a href='kessan.xlsx'>daily</a>"),
-        )
-        retain_bundle_response(
-            conn,
-            bundle,
-            "workbook:0",
-            JPXResponse(
-                FILE_A,
-                stamp,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                b"invalid" if invalid else _workbook("", [[announcement, ticker]]),
-            ),
-        )
-        complete_bundle(conn, bundle)
-    return bundle
-
-
-def regulations(path, day, stamp):
-    with closing(open_connection(path)) as conn:
-        bundle = create_bundle(conn, "regulations", day, stamp, tuple(JPX_REGULATION_URLS.items()))
-        for name, url in JPX_REGULATION_URLS.items():
-            retain_bundle_response(
-                conn,
-                bundle,
-                name,
-                JPXResponse(url, stamp, "text/html", (FIXTURES / SOURCE_FILES[name]).read_bytes()),
-            )
-        complete_bundle(conn, bundle)
-    return bundle
 
 
 def test_late_global_earnings_bundle_preserves_latest_complete_workbook(tmp_path):

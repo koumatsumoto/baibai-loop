@@ -263,19 +263,13 @@ def _transfer_script(root: Path, *names: str) -> None:
 
 
 def test_documented_command_gate_rejects_an_absent_transfer_subcommand(tmp_path: Path) -> None:
-    """A skill line naming a subcommand the script has no branch for dies on `usage`.
-
-    This is the shape the Materialize section carried for months: `upload-serving`
-    instead of `upload-serving-views`, past a gate that only looked at `uv run` lines.
-    """
-
-    _transfer_script(tmp_path, "upload-serving-views")
-    _skill(tmp_path, "```bash\njobs/scripts/r2_transfer.sh upload-serving <dir>\n```\n")
+    _transfer_script(tmp_path, "upload-portfolio-views")
+    _skill(tmp_path, "```bash\njobs/scripts/r2_transfer.sh unknown-command <dir>\n```\n")
 
     assert check_documented_commands.check(tmp_path) == [
         (
-            ".agents/skills/demo/SKILL.md: `jobs/scripts/r2_transfer.sh upload-serving <dir>` "
-            "names no r2_transfer subcommand (upload-serving)"
+            ".agents/skills/demo/SKILL.md: `jobs/scripts/r2_transfer.sh unknown-command <dir>` "
+            "names no r2_transfer subcommand (unknown-command)"
         )
     ]
 
@@ -283,28 +277,23 @@ def test_documented_command_gate_rejects_an_absent_transfer_subcommand(tmp_path:
 def test_documented_command_gate_accepts_a_transfer_subcommand_the_script_dispatches(
     tmp_path: Path,
 ) -> None:
-    _transfer_script(tmp_path, "pull-machine", "upload-serving-views")
+    _transfer_script(tmp_path, "pull-machine", "upload-portfolio-views")
     _skill(
         tmp_path,
         "```bash\njobs/scripts/r2_transfer.sh pull-machine\n```\n"
-        "`jobs/scripts/r2_transfer.sh upload-serving-views <dir>` で出す。\n",
+        "`jobs/scripts/r2_transfer.sh upload-portfolio-views <dir>` で出す。\n",
     )
 
     assert check_documented_commands.check(tmp_path) == []
 
 
 def test_documented_command_gate_reads_the_dispatch_the_repository_script_runs() -> None:
-    """Read from the branch that runs, not from the usage line beside it.
-
-    A parser that returned nothing would call every documented line unknown and be
-    noticed; one that returned too much would pass the very name this gate exists to
-    reject, and nothing else would say so.
-    """
+    """The executable branches, not the usage text, are authoritative."""
 
     names = check_documented_commands.transfer_subcommands(ROOT)
 
     assert {"pull-machine", "push-machine", "publish-lake"} <= names
-    assert "upload-serving" not in names
+    assert "unknown-command" not in names
     assert "*" not in names
 
 
@@ -331,15 +320,15 @@ def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None
     ]
 
 
-def test_documented_command_gate_rejects_the_removed_proposal_domain(
+def test_documented_command_gate_rejects_an_unknown_engine_domain(
     tmp_path: Path,
 ) -> None:
     _skill(
         tmp_path,
-        "```bash\nuv run baibai-engine proposal --db stores/application/baibai.sqlite decide <ID>\n```\n",
+        "```bash\nuv run baibai-engine unknown-domain show\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == [
-        ".agents/skills/demo/SKILL.md: baibai-engine: unknown domain proposal"
+        ".agents/skills/demo/SKILL.md: baibai-engine: unknown domain unknown-domain"
     ]
 
 

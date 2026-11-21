@@ -84,10 +84,11 @@ jobs:
 
   notify:
     needs: acquire
-    # Healthy scheduled receipts already have acquisition logs; manual runs keep their summary.
+    # Quiet PMI still fails acquisition and keeps its receipts; a successful stage needs no second log.
     if: >-
-      ${{ always() && (github.event_name != 'schedule' || needs.acquire.result != 'success'
-      || needs.acquire.outputs.handoff == '') }}
+      ${{ always() && (github.event_name != 'schedule' || needs.acquire.outputs.handoff == ''
+      || (needs.acquire.result != 'success' &&
+      !(needs.acquire.result == 'failure' && needs.acquire.outputs.expected_unavailable == 'true'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

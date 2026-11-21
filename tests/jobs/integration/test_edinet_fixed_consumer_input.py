@@ -48,9 +48,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparison_re
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
     extract_edinet_facts_command,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
-    extract_holder_capital,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -78,14 +75,6 @@ def csv_zip(blocks):
         f"{key}\t項目\t{value}" for key, value in blocks.items()
     )
     return zipped({"XBRL_TO_CSV/report.csv": rows.encode("utf-16")})
-
-
-def holder_zip():
-    return zipped(
-        {
-            "XBRL/PublicDoc/report.xbrl": b"""<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:h="http://disclosure.edinet-fsa.go.jp/taxonomy/jplvh/2025-11-01/jplvh_cor"><xbrli:context id="FilingDateInstant"><xbrli:entity><xbrli:identifier scheme="urn:edinet">E00001</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2026-10-28</xbrli:instant></xbrli:period></xbrli:context><xbrli:unit id="u1"><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unit><h:SecurityCodeOfIssuer contextRef="FilingDateInstant">1234</h:SecurityCodeOfIssuer><h:TotalNumberOfOutstandingStocksEtc contextRef="FilingDateInstant" unitRef="u1" decimals="0">2500000</h:TotalNumberOfOutstandingStocksEtc></xbrli:xbrl>"""
-        }
-    )
 
 
 def fixtures(tmp_path):
@@ -157,7 +146,7 @@ def fixtures(tmp_path):
             ),
         ),
         ("S100YR5P", 1, source_zip()),
-        ("S100HOLD", 1, holder_zip()),
+        ("S100HOLD", 1, zipped({"XBRL/PublicDoc/holder.xbrl": b"<xbrl/>"})),
         (
             "S100OFFER",
             5,
@@ -219,16 +208,8 @@ def consumer_outputs(database, *, fixed=None):
             connection, as_of=ASOF, archives=fixed.archives if fixed is not None else None
         )
         assert comparisons["436A"][0].pairs
-    # A researcher can open one already-identified original. This is not a population scan.
-    original = (fixed.archives if fixed is not None else reader).read_xbrl_zip("S100HOLD")
-    holder = extract_holder_capital(
-        original,
-        document_id="S100HOLD",
-        submitted_at=datetime.fromisoformat("2026-10-30T10:00:00+09:00"),
-        known_at=KNOWN,
-    )
-    assert holder is not None
-    assert (holder.ticker, holder.total_stocks) == ("1234", 2500000)
+    # A researcher can still read an identified original without a specialized projection.
+    holder_zip_bytes = (fixed.archives if fixed is not None else reader).read_xbrl_zip("S100HOLD")
     assert (
         extract_edinet_facts_command(
             asof=ASOF,
@@ -242,7 +223,7 @@ def consumer_outputs(database, *, fixed=None):
     with sqlite3.connect(database) as connection:
         facts = connection.execute("SELECT * FROM edinet_segment_facts ORDER BY 1,2,3,4").fetchall()
         assert facts
-    return reader.list_documents(DAY), comparisons, holder, exits, facts
+    return reader.list_documents(DAY), comparisons, holder_zip_bytes, exits, facts
 
 
 def test_cold_input_preserves_exact_originals_scope_and_existing_consumers(tmp_path):
@@ -473,4 +454,3 @@ def test_daily_reads_the_relevant_annual_archive_without_opening_holder_reports(
     assert generation.result("company_financials", "436A").payload["financial"][
         "reported_comparisons"
     ]
-    assert "holder_capital_evidence" not in generation.result("company_financials", "1234").payload

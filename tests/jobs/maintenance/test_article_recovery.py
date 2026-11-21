@@ -1,7 +1,6 @@
 import hashlib
 import json
 from contextlib import closing
-from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -10,15 +9,15 @@ from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
-from baibai_engine.storage.objects.json import put_private
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.article_discovery import DiscoveryWork
 from baibai_jobs.acquisition.article_evidence import exact_entry
 from baibai_jobs.acquisition.article_planning import (
+    commit_stage,
     load_discovery_cursor,
     load_planning,
     publish_planning_input,
-    source_key,
 )
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import download_fixed, seal_integrated
@@ -78,13 +77,22 @@ def test_discovery_registration_is_idempotent_and_preserves_live_source_state(tm
     digest = hashlib.sha256(old_manifest).hexdigest()
     publish_planning_input(store, "mof_news", {"lake_release_id": "current"})
     state, etag = load_planning(store, "mof_news")
-    state = replace(
-        state,
-        last_slot=last_slot,
+    pending = ["https://www.mof.go.jp/other.htm"]
+    current = tmp_path / "current"
+    current.mkdir()
+    commit_stage(
+        store,
+        state=state,
+        expected_etag=etag,
+        slot=SLOT,
+        stage_id="current-mof",
+        directory=_packet(current, "mof_news"),
+        requests={},
+        cursor=DiscoveryWork({}).wire({"pending_urls": pending}),
         not_before=(SLOT + timedelta(hours=8)).isoformat(),
-        cursor={"pending_urls": ["https://www.mof.go.jp/other.htm"]},
+        advance_slot=last_slot is not None,
     )
-    put_private(store, source_key("mof_news"), state.encoded(), previous_etag=etag)
+    state, _ = load_planning(store, "mof_news")
     result = register_discovery(
         store,
         tmp_path / "recovery",
@@ -99,7 +107,7 @@ def test_discovery_registration_is_idempotent_and_preserves_live_source_state(tm
     assert after.not_before == state.not_before
     assert after.requests == state.requests
     cursor = load_discovery_cursor(store, after)
-    assert cursor["pending_urls"] == state.cursor["pending_urls"]
+    assert cursor["pending_urls"] == pending
     recovered = next(iter(cursor["discoveries"].values()))
     assert recovered["receipt_id"] == original.receipt_id
     assert recovered["receipt_sha256"] == original.sha256

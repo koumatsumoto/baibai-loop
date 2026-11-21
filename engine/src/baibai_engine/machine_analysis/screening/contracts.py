@@ -5,15 +5,10 @@ from typing import Annotated
 
 from pydantic import Field, JsonValue
 
-from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoverySelection as DiscoverySelection,
 )
-from baibai_engine.machine_analysis.screening.discovery_contract import (
-    DiscoverySelectionV2,
-    discovery_method_for_id,
-    validate_discovery_publication,
-)
+from baibai_engine.machine_analysis.screening.discovery_contract import is_discovery_publication
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialSelection,
@@ -22,11 +17,7 @@ from baibai_engine.machine_analysis.screening.policies.two_views import ViewSele
 
 # policy.methodの区別で読む。旧payloadへ新しい既定fieldを補わない。
 type ScreeningResult = (
-    ViewSelection
-    | EconomicPathSelection
-    | TechnicalFinancialSelection
-    | DiscoverySelection
-    | DiscoverySelectionV2
+    ViewSelection | EconomicPathSelection | TechnicalFinancialSelection | DiscoverySelection
 )
 
 
@@ -46,17 +37,14 @@ def validate_selection_source(
     *,
     selection_id: str,
     generation_id: str,
-    metadata: GenerationMetadata | None,
 ) -> None:
     if selection.generation_id != generation_id:
         raise ValueError("screening selection differs from the chosen generation")
-    if isinstance(selection.result, (DiscoverySelection, DiscoverySelectionV2)):
-        validate_discovery_publication(
-            selection_id=selection_id,
-            generation_id=generation_id,
-            result=selection.result,
-            universe_tickers=selection.universe_tickers,
-            metadata=metadata,
-        )
-    elif discovery_method_for_id(selection_id, generation_id) is not None:
+    indexed = is_discovery_publication(selection_id, generation_id)
+    if indexed != isinstance(selection.result, DiscoverySelection):
         raise ValueError("discovery publication identity differs from its format")
+    if isinstance(selection.result, DiscoverySelection) and (
+        selection.result.tickers != selection.universe_tickers
+        or len(set(selection.universe_tickers)) != len(selection.universe_tickers)
+    ):
+        raise ValueError("discovery result differs from the exact stock universe")
