@@ -468,7 +468,7 @@ gh workflow run cloud-external-assessment.yml --ref main -f source=monex -f batc
 
 日次は固定master/calendar/parserの元bindingで再開する。依存不足を全market/TradingView起動で迂回しない。同sourceを重ねずqueue後cycleを確認し、plan再作成/hash手修正をせず期限内未試行pairだけを進める。保存失敗pairの再取得は別labelとする。HTTP 401/403はそのsourceの当該passを止め、次の通常slotでは未試行pairだけを進める。
 
-[外部評価summary](src/baibai_jobs/acquisition/external_assessments/cohorts.py)のstate_counts/reason_countsは対象pairの保存状態の集計で、access_denied等の件数を今回のHTTP回数としない。[取得report](src/baibai_jobs/acquisition/external_assessments/daily.py)のprovider_requestsは今回の呼出し、http_requests/response_content_bytesは再開前を含むcohortの記録であり、本文の新規保存数とは分けて読む。
+[外部評価summary](src/baibai_jobs/acquisition/external_assessments/cohorts.py)のstate_counts/reason_countsと取得ログのfailed_http_status_countsは保存状態の集計。failed_http_status_countsは非200で失敗したpairだけの内訳で、正常欠測やHTTP 200の解析失敗を含まない。provider_requestsは今回の呼出し、http_requests/response_content_bytesは再開前を含む[cohortの記録](src/baibai_jobs/acquisition/external_assessments/daily.py)であり、本文の新規保存数とは分けて読む。
 
 新原本はretained。旧rawは切替当時3日保持の短期handoffで、現在の保持設定や削除可否を名前の日付だけで判断しない。元のplanを指定し、残存する同bytes/元IDを保全するときだけ次を使う。
 
