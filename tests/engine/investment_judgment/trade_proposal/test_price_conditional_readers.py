@@ -14,9 +14,12 @@ from tests.helpers.proposal import (
 )
 
 from baibai_engine.cli.investment_judgment import main
+from baibai_engine.investment_judgment.judgment_retrospective.coverage import (
+    original_item_questions,
+)
 from baibai_engine.investment_judgment.judgment_retrospective.query import scaffold_retrospective
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
+from baibai_engine.investment_judgment.trade_proposal.contracts import BuyItem, TradeProposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.selection_evidence import read_selection_evidence
 
@@ -165,6 +168,9 @@ def test_thin_follow_up_and_exact_manual_replay_do_not_reclassify_b(signed_histo
             assert row["original_action"] == "buy"
             assert row["original_order_readiness"] == ("ready" if saved == a else "needs_terms")
             assert row["original_economic_decision"] == (_MARKER if saved == b else None)
+            assert row["original_session_limit"] == (
+                {"limit_price_yen": "1000", "target_session": "2026-10-15"} if saved == a else None
+            )
     context = scaffold_retrospective(
         retrospective_id="synthetic-retrospective",
         proposal_id=b.proposal_id,
@@ -183,3 +189,19 @@ def test_thin_follow_up_and_exact_manual_replay_do_not_reclassify_b(signed_histo
     )
     assert selection["selection_sha256"] == b.research_scope.selection_sha256
     assert case.app.read_bytes() == before
+
+
+def test_follow_up_distinguishes_a_changed_limit_from_a_different_session(signed_history):
+    _, saved, _, _ = signed_history
+    for price, session in ((990, "2026-10-15"), (1000, "2026-10-15"), (1000, "2026-10-16")):
+        raw = saved.items[0].model_dump(mode="json")
+        raw["terms"].update(
+            limit_price_yen=str(price),
+            notional_yen=str(price * raw["terms"]["quantity"]),
+            target_session=session,
+        )
+        row = original_item_questions(BuyItem.model_validate(raw))
+        assert row["original_session_limit"] == {
+            "limit_price_yen": str(price),
+            "target_session": session,
+        }

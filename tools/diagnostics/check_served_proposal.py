@@ -73,7 +73,7 @@ class _Arguments(argparse.ArgumentParser):
         self.exit(2, "FAIL arguments\n")
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = _Arguments(description=__doc__)
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--latest-json", required=True, type=Path)
@@ -86,7 +86,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="also require this publication to be the Case completion reference",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     stage = "app_publication"
     try:
         with closing(connect_read_only(args.db)) as connection:

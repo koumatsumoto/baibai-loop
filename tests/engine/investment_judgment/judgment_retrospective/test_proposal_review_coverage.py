@@ -80,6 +80,7 @@ def test_all_items_and_recorded_conclusions_are_not_new_evidence_or_execution(tm
     before = case.app.read_bytes()
     then = _coverage(case, proposal, NOW - STEP)
     assert [r["original_action"] for r in then["items"]] == ["no_action", "defer"]
+    assert all("original_session_limit" not in row for row in then["items"])
     assert then["item_counts_by_coverage"] == {"not_recorded": 2}
     assert then["items"][1]["original_review_conditions"] == list(
         proposal.items[1].review_conditions
