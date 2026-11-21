@@ -68,7 +68,11 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_filing_looku
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
-from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
+from baibai_engine.portfolio.holdings.market_observations import (
+    OrderSessionBounds,
+    read_order_session_bounds,
+    read_unadjusted_close,
+)
 from baibai_engine.portfolio.holdings.valuation import (
     UnresolvedHoldingQuantityError,
     holding_episode,
@@ -557,7 +561,7 @@ def _context_calculations(
     *,
     sqlite_path: Path,
     now: datetime,
-    session: date | None,
+    sessions: OrderSessionBounds,
     market_connection: sqlite3.Connection | None,
 ) -> dict[str, dict[str, object]]:
     from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
@@ -571,6 +575,7 @@ def _context_calculations(
     from baibai_engine.portfolio.holdings.price_grid import floor_common_stock_limit
 
     result: dict[str, dict[str, object]] = {}
+    session = sessions.confirmed_session
     for outcome in scope.outcomes:
         if outcome.status != "reviewed":
             continue
@@ -600,7 +605,7 @@ def _context_calculations(
             evaluate = buy_evaluator(
                 pair,
                 inputs=inputs,
-                target_session=session,
+                sessions=sessions,
                 latest=latest[outcome.ticker] == pair.assessment_id,
                 sqlite_path=sqlite_path,
                 now=now,
@@ -643,8 +648,6 @@ def build_proposal_context(
     now: datetime,
     proposal_id: str,
 ) -> ProposalAuthoringContext:
-    from baibai_engine.portfolio.holdings.market_observations import next_order_session
-
     proposal_id = TypeAdapter(ProposalId).validate_python(proposal_id, strict=True)
     with (
         closing(connect_read_only(db_path)) as connection,
@@ -692,7 +695,9 @@ def build_proposal_context(
         context_id = saved_context.get("context_id") if isinstance(saved_context, dict) else None
         if context_id is not None and not isinstance(context_id, str):
             raise ProposalError("saved Market Context Assessment identity must be text")
-        session = next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
+        sessions = read_order_session_bounds(
+            sqlite_path=sqlite_path, now=now, connection=market_connection
+        )
         listing = read_listing_designations(
             market_connection,
             tickers=tuple(target.ticker for target in scope.targets),
@@ -709,7 +714,7 @@ def build_proposal_context(
             proposal_liquidity_context(selection),
             context_id,
             latest,
-            session,
+            sessions.confirmed_session,
             _context_calculations(
                 scope,
                 inputs,
@@ -717,7 +722,7 @@ def build_proposal_context(
                 latest,
                 sqlite_path=sqlite_path,
                 now=now,
-                session=session,
+                sessions=sessions,
                 market_connection=market_connection,
             ),
             saved_context,

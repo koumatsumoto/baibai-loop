@@ -15,6 +15,7 @@ from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoveryPolicy,
     DiscoveryRow,
     DiscoverySelection,
+    require_discovery_stock_plan,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
     project_economic_coordinates,
@@ -148,12 +149,7 @@ def evaluate_discovery_rows(
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects) or not rows.keys() <= set(subjects):
         raise ValueError("discovery requires unique planned companies")
-    if metadata.subject_plan is not None and set(subjects) != {
-        ticker
-        for ticker, definition in metadata.subject_plan.items()
-        if definition.scope == "stock"
-    }:
-        raise ValueError("discovery universe differs from the saved stock plan")
+    require_discovery_stock_plan(metadata, subjects)
     complete = tuple(
         rows[t] if t in rows else project_discovery_row(t, models=(), metadata=metadata)
         for t in subjects

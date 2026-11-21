@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Annotated, Final, Literal, TypedDict
+from typing import TYPE_CHECKING, Annotated, Final, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictInt, TypeAdapter, with_config
+
+if TYPE_CHECKING:
+    from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 
 DISCOVERY_METHOD: Final = "opportunity-discovery-v1"
 
@@ -122,3 +125,13 @@ _ROW_CODEC = TypeAdapter(tuple[DiscoveryRow, ...])
 def require_publishable_rows(result: DiscoverySelection) -> None:
     # TypedDict values can change between projection and publication.
     _ROW_CODEC.validate_python(result.rows, strict=True)
+
+
+def require_discovery_stock_plan(
+    metadata: GenerationMetadata, universe_tickers: tuple[str, ...]
+) -> None:
+    plan = metadata.subject_plan
+    if plan is not None and set(universe_tickers) != {
+        ticker for ticker, definition in plan.items() if definition.scope == "stock"
+    }:
+        raise ValueError("discovery universe differs from the saved stock plan")

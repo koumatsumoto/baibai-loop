@@ -144,6 +144,30 @@ def is_annual_period(start: date, end: date) -> bool:
     return abs((start - expected_start).days) <= 7
 
 
+def annual_cumulative_periods(
+    date_matches: Sequence[JQuantsFinancialSummary], annual: JQuantsFinancialSummary
+) -> set[AccountingPeriodKey]:
+    """実期間で照合済みの累計から、選んだ通期に帰属し得る会計期を返す。"""
+    fiscal_year_end = annual.fiscal_year_end
+    if fiscal_year_end is None:
+        return set(map(accounting_period_identity, date_matches))
+    # 同じ実期間が別年度に明示されるとき、年度未記録だけでは帰属を確かめられない。
+    other_year_intervals = {
+        (row.period_start, row.period_end)
+        for row in date_matches
+        if row.fiscal_year_end not in (None, fiscal_year_end)
+    }
+    return {
+        accounting_period_identity(row)
+        for row in date_matches
+        if row.fiscal_year_end == fiscal_year_end
+        or (
+            row.fiscal_year_end is None
+            and (row.period_start, row.period_end) not in other_year_intervals
+        )
+    }
+
+
 def annual_ttm_start(
     current: JQuantsFinancialSummary,
     prior_year: JQuantsFinancialSummary,

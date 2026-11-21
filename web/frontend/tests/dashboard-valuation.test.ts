@@ -96,6 +96,30 @@ describe('Dashboard valuation display', () => {
     expect(html).not.toContain('未評価')
   })
 
+  it('keeps the server total rather than summing individually rounded positions', () => {
+    const holdings = ['1234', '5678'].map(ticker => ({
+      ...holding(ticker), quantity: 25, market_price_yen: '400.1', deployed_cost_yen: 10_000,
+      market_value_yen: 10_003, unrealized_pnl_yen: 3, unrealized_pnl_pct: 0.03,
+    }))
+    const data = dashboard({
+      holdings, holdings_market_value_yen: 20_005, deployed_cost_yen: 20_000, total_capital_yen: 120_005,
+    })
+    const allocation = render(data)
+    expect(allocation).toContain('￥120,005')
+    expect(allocation).toContain('+￥5')
+    expect(allocation).not.toContain('+￥6')
+    const positions = renderToStaticMarkup(createElement(TooltipProvider, null,
+      createElement(MemoryRouter, null, createElement(HoldingsTable, {
+        holdings, warnings: [], quantityUnresolved: false,
+        holdingsMarketValueYen: data.holdings_market_value_yen, deployedCostYen: data.deployed_cost_yen,
+      })),
+    ))
+    expect(positions.match(/￥10,003/g)).toHaveLength(2)
+    expect(positions).toContain('￥400.1')
+    expect(positions).toContain('+￥5')
+    expect(positions).not.toContain('+￥6')
+  })
+
   it('names one unvalued holding without a cash-only chart or partial total', () => {
     const valued = Array.from({ length: 8 }, (_, index) => holding(`${1000 + index}`))
     const unvalued = {
@@ -133,6 +157,7 @@ describe('Dashboard valuation display', () => {
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
         quantityUnresolved: false,
         holdings: [holding('1234')],
+        holdingsMarketValueYen: 110_000, deployedCostYen: 100_000,
         warnings: [{ code: 'portfolio.ticker-concentration', scope: 'ticker', key: '1234',
           actual_pct: 30, warning_pct: 20, overridden: false }],
       })),
@@ -174,6 +199,7 @@ describe('Dashboard valuation display', () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
         quantityUnresolved: false,
+        holdingsMarketValueYen: null, deployedCostYen: 200_000,
         holdings: [
           holding('1234'),
           { ...holding('8255'), market_price_yen: null, market_price_as_of: null,
@@ -201,6 +227,7 @@ it('preserves fractional holding prices and order guards while notionals remain 
     createElement(MemoryRouter, null,
       createElement(HoldingsTable, {
         quantityUnresolved: false,
+        holdingsMarketValueYen: 210_500, deployedCostYen: 210_500,
         holdings: [{ ...holding('1234'), quantity: 200, deployed_cost_yen: 210_500,
           market_price_yen: '1052.5', market_value_yen: 210_500,
           unrealized_pnl_yen: 0, unrealized_pnl_pct: 0 }], warnings: [],

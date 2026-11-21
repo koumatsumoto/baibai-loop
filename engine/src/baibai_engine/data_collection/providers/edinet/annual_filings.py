@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
@@ -13,6 +14,25 @@ from baibai_engine.data_collection.providers.edinet.fields import (
     is_usable_filing_status,
     parse_sec_code,
 )
+
+
+def annual_filing_lineage(
+    doc_id: str, by_id: Mapping[str, dict[str, Any]]
+) -> tuple[dict[str, Any], ...]:
+    """Follow retained annual corrections from the filing to its annual report."""
+    lineage: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    while doc_id not in seen and (document := by_id.get(doc_id)) is not None:
+        kind = str(document.get("docTypeCode"))
+        if kind == "120":
+            return (*lineage, document)
+        parent = document.get("parentDocID")
+        if kind != "130" or not isinstance(parent, str):
+            break
+        lineage.append(document)
+        seen.add(doc_id)
+        doc_id = parent
+    return ()
 
 
 def annual_documents(
@@ -28,13 +48,9 @@ def annual_documents(
     annual_ids = {
         key for key, doc in by_id.items() if str(doc.get("docTypeCode")) in {"120", "130"}
     }
-    roots: dict[str, dict[str, Any]] = {}
-    for key in annual_ids:
-        ancestor = by_id[key]
-        while str(ancestor.get("docTypeCode")) == "130" and ancestor.get("parentDocID") in by_id:
-            ancestor = by_id[ancestor["parentDocID"]]
-        if str(ancestor.get("docTypeCode")) == "120":
-            roots[key] = ancestor
+    roots = {
+        key: lineage[-1] for key in annual_ids if (lineage := annual_filing_lineage(key, by_id))
+    }
     event_days: dict[str, str] = {}
     event_parents: dict[str, str] = {}
     for doc in documents:

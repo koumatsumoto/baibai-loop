@@ -11,12 +11,14 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
+from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
     validate_selection_source,
 )
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoverySelection,
+    require_discovery_stock_plan,
     require_publishable_rows,
 )
 from baibai_engine.primitives.json import encode_json
@@ -59,6 +61,19 @@ class ScreeningSelectionStore:
                         raise ValueError("selection identity has different content")
                     connection.commit()
                     return False
+                if isinstance(selection.result, DiscoverySelection):
+                    # Use the saved plan, not model availability or a new universe.
+                    row = connection.execute(
+                        "SELECT header FROM model_generation WHERE generation_id=?",
+                        (selection.generation_id,),
+                    ).fetchone()
+                    if row is not None:
+                        metadata = GenerationMetadata.model_validate_json(row[0])
+                        if metadata.generation_id != selection.generation_id:
+                            raise ValueError(
+                                "discovery publication differs from its generation header"
+                            )
+                        require_discovery_stock_plan(metadata, selection.universe_tickers)
                 connection.execute(
                     "INSERT INTO screening_selection VALUES (?,?,?,?)",
                     (

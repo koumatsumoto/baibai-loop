@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from math import prod
 from zoneinfo import ZoneInfo
@@ -25,11 +25,16 @@ from baibai_engine.portfolio.ledger.events import (
     OpeningBalanceEvent,
     PortfolioLedgerDocument,
     PortfolioLedgerError,
+    ReleaseEvent,
+    ReservationEvent,
+    ValuationYen,
     WithdrawalEvent,
     estimated_exit_tax_yen,
     holding_episodes,
     matches_share_conversion,
     replay_events_through,
+    round_valuation_yen,
+    sell_charge_event_ids,
     share_conversions,
     value_replayed_state,
 )
@@ -44,7 +49,7 @@ class PortfolioOutcomeError(ValueError):
 @dataclass(frozen=True, slots=True)
 class DailyNav:
     valuation_date: date
-    nav_yen: int
+    nav_yen: ValuationYen
     external_flow_yen: int = 0
 
 
@@ -70,7 +75,7 @@ class PortfolioOutcome:
     benchmark_annualized_return_pct: float | None
     ending_cash_yen: int | None
     ending_reserved_cash_yen: int | None
-    ending_holdings_market_value_yen: int | None
+    ending_holdings_market_value_yen: ValuationYen | None
     confirmed_income_yen: int | None
     confirmed_cost_yen: int | None
     confirmed_tax_yen: int | None
@@ -106,7 +111,7 @@ def compute_time_weighted_return(
         # A zero base (for example after a full withdrawal) is undefined instead.
         if denominator <= 0 or current.nav_yen < 0:
             raise PortfolioOutcomeError("zero_or_negative_nav")
-        returns.append(current.nav_yen / denominator - 1)
+        returns.append(float(current.nav_yen / denominator) - 1)
         previous = current
     cumulative = prod(1 + daily_return for daily_return in returns) - 1
     annualized = None if horizon_years is None else (1 + cumulative) ** (1 / horizon_years) - 1
@@ -126,13 +131,13 @@ def outcome_ledger_at_close(
     end: date,
 ) -> PortfolioLedgerDocument:
     """Scope quantity checks to the same reported-day/close boundary as the outcome."""
+    effective_dates = _effective_event_dates(ledger.events, business_days, start=start, end=end)
     return ledger.model_copy(
         update={
             "events": tuple(
                 event
-                for event in ledger.events
-                if _effective_date_for_period(event, business_days, start=start, end=end)
-                is not None
+                for event, day in zip(ledger.events, effective_dates, strict=True)
+                if day is not None
             )
         }
     )
@@ -150,10 +155,7 @@ def outcome_market_tickers(
     Include fully sold in-period positions: their final sale still needs a basis
     check. Exclude positions closed by the opening close and purchases after end.
     """
-    effective_dates = tuple(
-        _effective_date_for_period(event, business_days, start=start, end=end)
-        for event in ledger.events
-    )
+    effective_dates = _effective_event_dates(ledger.events, business_days, start=start, end=end)
     return tuple(
         sorted(
             {
@@ -199,9 +201,8 @@ def compute_portfolio_outcome(
         return _unresolved(benchmark, "insufficient_portfolio_history")
 
     bars_by_ticker_day = {(bar.ticker, bar.traded_at): bar for bar in bars}
-    effective_event_dates = tuple(
-        _effective_date_for_period(event, business_days, start=start, end=end)
-        for event in ledger.events
+    effective_event_dates = _effective_event_dates(
+        ledger.events, business_days, start=start, end=end
     )
     navs: list[DailyNav] = []
     final_value = None
@@ -214,8 +215,8 @@ def compute_portfolio_outcome(
         # No expiry check here: this prefix ends wherever the valuation day falls, so a
         # reservation lapsing that session with its release reported that evening is the
         # ordinary shape of the ledger at this instant, not a ledger awaiting a human.
-        # Date-only facts are selected by their reported day. Their internal ordering
-        # keys may be after the close and must not impose a second clock-time filter.
+        # The date selection above excludes known post-close facts. Internal
+        # ordering keys are not exact clocks and must not impose a second filter.
         state = replay_events_through(
             selected, datetime.combine(valuation_day, time.max, tzinfo=_TOKYO)
         )
@@ -389,7 +390,9 @@ def outcome_to_payload(outcome: PortfolioOutcome) -> dict[str, object]:
         "benchmark_annualized_return_pct": outcome.benchmark_annualized_return_pct,
         "ending_cash_yen": outcome.ending_cash_yen,
         "ending_reserved_cash_yen": outcome.ending_reserved_cash_yen,
-        "ending_holdings_market_value_yen": outcome.ending_holdings_market_value_yen,
+        "ending_holdings_market_value_yen": round_valuation_yen(
+            outcome.ending_holdings_market_value_yen
+        ),
         "confirmed_income_yen": outcome.confirmed_income_yen,
         "confirmed_cost_yen": outcome.confirmed_cost_yen,
         "confirmed_tax_yen": outcome.confirmed_tax_yen,
@@ -425,35 +428,80 @@ def _unresolved(benchmark: BenchmarkObservation, reason: str) -> PortfolioOutcom
     )
 
 
-def _effective_date(event: LedgerEvent, business_days: tuple[date, ...]) -> date | None:
-    local = event.occurred_at.astimezone(_TOKYO)
-    event_day = event.occurred_on or local.date()
-    if (
-        event.occurred_on is None
-        and event_day in business_days
-        and local.time() > cash_equity_close_time(event_day)
-    ):
-        event_day = event_day.fromordinal(event_day.toordinal() + 1)
-    return next((day for day in business_days if day >= event_day), None)
+def _effective_event_dates(
+    events: tuple[LedgerEvent, ...], business_days: tuple[date, ...], *, start: date, end: date
+) -> tuple[date | None, ...]:
+    """Map facts to closes without mistaking date-only replay keys for clocks."""
+    days = tuple(
+        event.occurred_on or event.occurred_at.astimezone(_TOKYO).date() for event in events
+    )
+    sessions = frozenset(business_days)
+    after_close = {
+        event.event_id
+        for event, day in zip(events, days, strict=True)
+        if event.occurred_on is None
+        and day in sessions
+        and event.occurred_at > outcome_close_instant(day)
+    }
+    orders = {
+        event.reservation_id: event for event in events if isinstance(event, ReservationEvent)
+    }
+    late_sale_charges: dict[str, tuple[str, ExecutionEvent]] = {}
+    for event in events:
+        if not isinstance(event, (ExecutionEvent, ReleaseEvent)) or event.reservation_id is None:
+            continue
+        day = event.occurred_on
+        order = orders.get(event.reservation_id)
+        if day is None or day not in sessions or order is None:
+            continue
+        late_order = (
+            order.event_id in after_close and order.occurred_at.astimezone(_TOKYO).date() == day
+        )
+        expiry = order.expires_at
+        late_expiry = (
+            isinstance(event, ReleaseEvent)
+            and event.reason == "expired"
+            and expiry is not None
+            and expiry.astimezone(_TOKYO).date() == day
+            and expiry > outcome_close_instant(day)
+        )
+        # A date-only fill/release cannot precede its known order; an expired
+        # release cannot precede the confirmed deadline. Cancellation may.
+        if not (late_order or late_expiry):
+            continue
+        after_close.add(event.event_id)
+        if (
+            isinstance(event, ExecutionEvent)
+            and event.side == "sell"
+            and event.event_id.startswith("human-sell-")
+        ):
+            fee_id, tax_id = sell_charge_event_ids(event.event_id)
+            late_sale_charges[fee_id] = ("cost", event)
+            late_sale_charges[tax_id] = ("tax_confirmed", event)
 
-
-def _effective_date_for_period(
-    event: LedgerEvent, business_days: tuple[date, ...], *, start: date, end: date
-) -> date | None:
-    """Map only in-period events to JPX BOD; keep prior state distinct.
-
-    Reported dates do not inherit a close cutoff from their internal ordering keys.
-    Exact-time facts after close still roll to the next business day.
-    Events before the requested start remain part of opening NAV but cannot be
-    misclassified as a start-date cash flow or confirmed period cashflow. Events
-    that roll beyond period end are intentionally omitted from this outcome.
-    """
-
-    event_day = event.occurred_on or event.occurred_at.astimezone(_TOKYO).date()
-    if event_day < start:
-        return event_day
-    effective = _effective_date(event, business_days)
-    return effective if effective is not None and effective <= end else None
+    effective_dates: list[date | None] = []
+    for event, day in zip(events, days, strict=True):
+        if day < start:
+            # Prior events belong to opening state, not to the opening day's flows.
+            effective_dates.append(day)
+            continue
+        late = event.event_id in after_close
+        if (
+            isinstance(event, (CostEvent, ConfirmedTaxEvent))
+            and event.event_id in late_sale_charges
+        ):
+            kind, sale = late_sale_charges[event.event_id]
+            late = late or (
+                event.type == kind
+                and event.ticker == sale.ticker
+                and event.occurred_on == sale.occurred_on
+                and event.occurred_at == sale.occurred_at
+            )
+        first_day = day + timedelta(days=1) if late else day
+        effective_dates.append(
+            next((day for day in business_days if first_day <= day <= end), None)
+        )
+    return tuple(effective_dates)
 
 
 def outcome_close_instant(day: date) -> datetime:

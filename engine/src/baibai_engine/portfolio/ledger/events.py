@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from fractions import Fraction
 from math import gcd, isclose, isfinite
 from typing import Annotated, Literal
@@ -19,6 +19,8 @@ from baibai_engine.primitives.time import JST
 
 _MODEL_CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
 _TICKER_PATTERN = r"^[0-9A-Z]{4}$"
+
+type ValuationYen = int | Decimal
 
 
 class PortfolioLedgerError(ValueError):
@@ -189,6 +191,12 @@ class ExecutionEvent(_EventBase):
     @classmethod
     def _parse_price(cls, value: object) -> Decimal:
         return _price(value)
+
+
+def sell_charge_event_ids(sale_event_id: str) -> tuple[str, str]:
+    """Identify the optional fee and tax recorded with a sell-execution draft."""
+    suffix = sale_event_id.removeprefix("human-sell-")
+    return f"human-sell-fee-{suffix}", f"human-sell-tax-{suffix}"
 
 
 class IncomeEvent(_EventBase):
@@ -389,7 +397,7 @@ class HoldingSnapshot:
     market_price_source_kind: str | None
     market_price_basis: str | None
     market_price_source_ref: str | None
-    market_value_yen: int | None
+    market_value_yen: ValuationYen | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -431,14 +439,14 @@ class PortfolioSnapshot:
     available_cash_yen: int
     reserved_cash_yen: int
     deployed_cost_yen: int
-    holdings_market_value_yen: int | None
+    holdings_market_value_yen: ValuationYen | None
     confirmed_income_yen: int
     confirmed_cost_yen: int
     confirmed_tax_yen: int
     confirmed_cost_tax_yen: int
     realized_gross_pnl_yen: int | None
     book_capital_yen: int
-    total_capital_yen: int | None
+    total_capital_yen: ValuationYen | None
     estimated_exit_tax_rate_bps: int | None
     estimated_exit_tax_basis: str | None
     estimated_exit_tax_yen: int | None
@@ -499,8 +507,8 @@ class ReplayedPortfolioValue:
     available_cash_yen: int
     reserved_cash_yen: int
     deployed_cost_yen: int
-    holdings_market_value_yen: int
-    total_capital_yen: int
+    holdings_market_value_yen: ValuationYen
+    total_capital_yen: ValuationYen
     holdings: tuple[HoldingSnapshot, ...]
 
 
@@ -1004,14 +1012,14 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
         "available_cash_yen": snapshot.available_cash_yen,
         "reserved_cash_yen": snapshot.reserved_cash_yen,
         "deployed_cost_yen": snapshot.deployed_cost_yen,
-        "holdings_market_value_yen": snapshot.holdings_market_value_yen,
+        "holdings_market_value_yen": round_valuation_yen(snapshot.holdings_market_value_yen),
         "confirmed_income_yen": snapshot.confirmed_income_yen,
         "confirmed_cost_yen": snapshot.confirmed_cost_yen,
         "confirmed_tax_yen": snapshot.confirmed_tax_yen,
         "confirmed_cost_tax_yen": snapshot.confirmed_cost_tax_yen,
         "realized_gross_pnl_yen": snapshot.realized_gross_pnl_yen,
         "book_capital_yen": snapshot.book_capital_yen,
-        "total_capital_yen": snapshot.total_capital_yen,
+        "total_capital_yen": round_valuation_yen(snapshot.total_capital_yen),
         "estimated_exit_tax_rate_bps": snapshot.estimated_exit_tax_rate_bps,
         "estimated_exit_tax_basis": snapshot.estimated_exit_tax_basis,
         "estimated_exit_tax_yen": snapshot.estimated_exit_tax_yen,
@@ -1031,7 +1039,7 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
                 "market_price_source_kind": holding.market_price_source_kind,
                 "market_price_basis": holding.market_price_basis,
                 "market_price_source_ref": holding.market_price_source_ref,
-                "market_value_yen": holding.market_value_yen,
+                "market_value_yen": round_valuation_yen(holding.market_value_yen),
             }
             for holding in snapshot.holdings
         ],
@@ -1089,6 +1097,21 @@ def _yen_notional(quantity: int, price: Decimal, *, field: str) -> int:
     if notional != notional.to_integral_value():
         raise PortfolioLedgerError(f"{field} must reconcile to whole yen")
     return int(notional)
+
+
+def round_valuation_yen(value: ValuationYen | None) -> int | None:
+    """Keep the whole-yen output contract; do not round inputs, flows or marks before summing."""
+    return (
+        int(value.to_integral_value(rounding=ROUND_HALF_UP))
+        if isinstance(value, Decimal)
+        else value
+    )
+
+
+def _reference_mark(quantity: int, price: Decimal) -> ValuationYen:
+    amount = quantity * price
+    # Preserve the previous exact representation of whole-yen values (including in L3 inputs).
+    return int(amount) if amount == amount.to_integral_value() else amount
 
 
 def _price_payload(price: Decimal) -> int | float:
@@ -1169,7 +1192,7 @@ def _holding_snapshots(
                 market_price_source_ref=None if market_price is None else market_price.source_ref,
                 market_value_yen=None
                 if market_price is None
-                else _yen_notional(quantity, market_price.price_yen, field="holding market value"),
+                else _reference_mark(quantity, market_price.price_yen),
             )
         )
     return tuple(holdings)
@@ -1195,7 +1218,7 @@ def estimated_exit_tax_yen(
         for holding in holdings
         if holding.market_value_yen is not None
     )
-    return unrealized_gain * rate_bps // 10_000
+    return int(unrealized_gain * rate_bps // 10_000)
 
 
 def active_human_overrides(
@@ -1229,16 +1252,16 @@ def _portfolio_warnings(
     holdings: tuple[HoldingSnapshot, ...],
     reservations: tuple[ReservationSnapshot, ...],
     available_cash: int,
-    total_capital: int,
+    total_capital: ValuationYen,
     policy: PolicyConfig,
 ) -> tuple[PortfolioWarning, ...]:
     cash_policy = policy["cash_management"]
     risk_policy = policy["risk_budget"]
     active_overrides = active_human_overrides(document.overrides, as_of=as_of, policy=policy)
 
-    ticker_exposure: dict[str, int] = defaultdict(int)
-    sector_exposure: dict[str, int] = defaultdict(int)
-    factor_exposure: dict[str, int] = defaultdict(int)
+    ticker_exposure: dict[str, ValuationYen] = defaultdict(int)
+    sector_exposure: dict[str, ValuationYen] = defaultdict(int)
+    factor_exposure: dict[str, ValuationYen] = defaultdict(int)
     for holding in holdings:
         assert holding.market_value_yen is not None
         ticker_exposure[holding.ticker] += holding.market_value_yen
@@ -1260,7 +1283,7 @@ def _portfolio_warnings(
     for scope, exposures, threshold in warning_specs:
         warning_pct = float(threshold)
         for scope_key, exposure in sorted(exposures.items()):
-            raw_actual_pct = exposure * 100 / total_capital
+            raw_actual_pct = float(exposure * 100 / total_capital)
             actual_pct = round(raw_actual_pct, 2)
             if raw_actual_pct > warning_pct:
                 warnings.append(
@@ -1274,7 +1297,7 @@ def _portfolio_warnings(
                     )
                 )
 
-    raw_dry_powder_pct = available_cash * 100 / total_capital
+    raw_dry_powder_pct = float(available_cash * 100 / total_capital)
     dry_powder_pct = round(raw_dry_powder_pct, 2)
     dry_powder_warning = float(cash_policy["dry_powder_warning_pct"])
     if raw_dry_powder_pct < dry_powder_warning:

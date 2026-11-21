@@ -90,21 +90,24 @@ def _validate_action(
     inputs = proposal.inputs
     blockers: list[GateReason] = []
     calculation: dict[str, object] = {}
-    session = (
-        order_sessions().confirmed_session
+    sessions = (
+        order_sessions()
         if item.action == "buy" or (item.action == "sell" and item.conditional_recovery is None)
         else None
     )
     unavailable = (
-        terms_unavailable_reasons(item, inputs, now=now, session=session)
+        terms_unavailable_reasons(
+            item, inputs, now=now, session=None if sessions is None else sessions.confirmed_session
+        )
         if item.action in {"buy", "sell"}
         else ()
     )
     if item.action == "buy":
+        assert sessions is not None
         evaluate = buy_evaluator(
             pair,
             inputs=inputs,
-            target_session=session,
+            sessions=sessions,
             latest=latest,
             sqlite_path=sqlite_path,
             now=now,

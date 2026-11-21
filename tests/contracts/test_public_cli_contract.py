@@ -83,7 +83,7 @@ def test_calendar_context_read_does_not_load_judgment_or_screening():
             "-c",
             (
                 "import sys; import baibai_engine.machine_analysis.observations.prices.calendar_context as api; "
-                "assert callable(api.market_calendar_business_day); "
+                "assert callable(api.observation_calendar_context); "
                 "assert not any(name.startswith('baibai_engine.investment_judgment') "
                 "or name.startswith('baibai_engine.machine_analysis.screening') "
                 "for name in sys.modules)"

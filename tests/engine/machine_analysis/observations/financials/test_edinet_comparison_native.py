@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import UUID
@@ -15,6 +15,7 @@ from tests.engine.machine_analysis.observations.financials.test_edinet_compariso
     archive,
     metadata,
 )
+from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.archive_native import (
@@ -132,7 +133,7 @@ def test_unreceived_families_are_not_empty_successful_vintages(monkeypatch, rout
 
 def test_received_correction_keeps_missing_ancestors_and_related_descendants(monkeypatch, route):
     sibling = correction("S100NEXT", parent="S100FIX")
-    sibling["submitDateTime"] = "2026-07-26 15:31"
+    sibling.update(submitDateTime="2026-07-26 15:31", secCode=None)
     unrelated = {**metadata(), "docID": "S100OTHER"}
     result = population(
         monkeypatch, [metadata(), correction(), sibling, unrelated], [("S100FIX", archive())], route
@@ -262,7 +263,7 @@ def test_saved_partial_pair_survives_heads_and_does_not_borrow_sql_original(work
     store = MemoryR2Store()
     list_owner = EdinetListL1(store, work / "lists")
     list_owner.freeze(require_existing=False)
-    documents = [{**metadata(), "seqNumber": 1}, {**correction(), "seqNumber": 2}]
+    documents = [{**metadata(), "seqNumber": 1}, {**correction(), "seqNumber": 2, "secCode": None}]
     lists = list_owner.publish(
         [
             NativeListReceipt.from_response(
@@ -315,3 +316,107 @@ def test_saved_partial_pair_survives_heads_and_does_not_borrow_sql_original(work
     assert store.values == before_objects
     assert LIST_HEAD not in store.get_keys
     assert ARCHIVE_HEAD not in store.get_keys
+
+
+def test_sparse_annual_correction_reads_own_xbrl_at_cutoff_without_revising_origin(work):
+    early, late = metadata(), {**correction(), "secCode": None}
+    # An interim document with no security code is deliberately outside this annual rule.
+    interim = {
+        **late,
+        "seqNumber": 1,
+        "docID": "S100OTHER",
+        "docTypeCode": "170",
+    }
+    path = work / "market.sqlite"
+    store_edinet_documents(path, date(2026, 7, 24), [early])
+    store_edinet_documents(path, date(2026, 7, 25), [late, interim])
+    old, new = archive(), archive(replace={b"3525761000": b"3600000000"})
+    with closing(sqlite3.connect(path)) as connection:
+        for key, body in (("S100YRSR", old), ("S100FIX", new), ("S100OTHER", b"unrelated type")):
+            retain_source_archive(connection, key, 1, body, stored_on=ASOF)
+    store, fixed = fixed_archives(
+        {
+            ("S100YRSR", 1): old,
+            ("S100FIX", 1): new,
+            ("S100OTHER", 1): b"unrelated type",
+        }
+    )
+    before = path.read_bytes(), dict(store.values)
+    cutoff = datetime.fromisoformat(late["submitDateTime"] + "+09:00")
+    with closing(sqlite3.connect(path)) as connection:
+        early = owner.read_comparison_population(
+            connection, as_of=ASOF, known_at=cutoff - timedelta(microseconds=1), archives=fixed
+        )["436A"]
+        assert [record.source_doc_id for record in early] == ["S100YRSR"]
+        assert store.get_keys == [
+            f"l1/edinet/archives/v1/objects/{hashlib.sha256(old).hexdigest()}.zip"
+        ]
+        native = owner.read_comparison_population(
+            connection, as_of=ASOF, known_at=cutoff, tickers=("436A",), archives=fixed
+        )["436A"]
+        finite_sql = owner.read_comparison_population(
+            connection, as_of=ASOF, known_at=cutoff, tickers=("436A",)
+        )["436A"]
+        full_sql = owner.read_comparison_population(connection, as_of=ASOF, known_at=cutoff)["436A"]
+    assert native == finite_sql == full_sql
+    assert native[:1] == early
+    revised = native[1]
+    assert revised.source_doc_id == "S100FIX"
+    assert revised.parent_doc_id == "S100YRSR"
+    assert revised.source_sha256 == hashlib.sha256(new).hexdigest()
+    assert revised.reason is None
+    assert [read.pairs[0].current.amount for read in native] == ["3525761000", "3600000000"]
+    assert (path.read_bytes(), dict(store.values)) == before
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "orphan",
+        "future_parent",
+        "withdrawn_parent",
+        "conflicting_security",
+        "conflicting_issuer",
+        "nonannual_parent",
+    ],
+)
+def test_sparse_correction_does_not_guess_unusable_ancestry(monkeypatch, route, damage):
+    origin = metadata()
+    sparse = {**correction(), "secCode": None}
+    documents = [origin, sparse]
+    if damage == "orphan":
+        sparse["parentDocID"] = "S100MISSING"
+    elif damage == "future_parent":
+        origin["submitDateTime"] = "2026-07-25 15:31:00.000001"
+    elif damage == "withdrawn_parent":
+        origin.update(legalStatus="0", withdrawalStatus="2")
+    elif damage == "conflicting_issuer":
+        sparse["edinetCode"] = "E00001"
+    elif damage == "nonannual_parent":
+        origin["docTypeCode"] = "160"
+    else:
+        intermediate = correction("S100MID")
+        intermediate["secCode"] = "12340"
+        sparse["parentDocID"] = "S100MID"
+        documents.append(intermediate)
+    observed = population(
+        monkeypatch,
+        documents,
+        [("S100YRSR", archive()), ("S100FIX", archive(replace={b"3525761000": b"3600000000"}))],
+        route,
+    )
+    assert [row.source_doc_id for row in observed["436A"]] == ["S100YRSR"]
+    assert all(row.source_doc_id != "S100FIX" for rows in observed.values() for row in rows)
+
+
+def test_sparse_annual_correction_still_requires_own_xbrl_security_identity(monkeypatch, route):
+    body = archive(replace={b">436A0<": b">12340<"})
+    observed = population(
+        monkeypatch, [metadata(), {**correction(), "secCode": None}], [("S100FIX", body)], route
+    )["436A"]
+    original, revised = observed
+    assert original.reason == "comparison_archive_not_received"
+    assert revised.source_doc_id == "S100FIX"
+    assert revised.reason == "comparison_security_mismatch"
+    assert revised.source_sha256 == hashlib.sha256(body).hexdigest()
+    assert not revised.pairs

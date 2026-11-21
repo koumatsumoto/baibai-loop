@@ -2,11 +2,7 @@
 
 import sqlite3
 from collections.abc import Mapping, Sequence
-from contextlib import closing
 from datetime import date, timedelta
-from pathlib import Path
-
-from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 def observation_calendar_context(conn: sqlite3.Connection, day: date) -> tuple[date, bool]:
@@ -37,22 +33,6 @@ def observation_calendar_context(conn: sqlite3.Connection, day: date) -> tuple[d
         if calendar_days != (day - basis).days + 1:
             raise ValueError("Continuous trading calendar coverage is unavailable")
     return basis, business
-
-
-def market_calendar_business_day(path: Path, day: date) -> bool | None:
-    """Return whether ``day`` is a trading day, or None for absent or unknown categories.
-
-    Calendar read failures raise rather than being treated as a closed market.
-    An absent file, an unreadable store and
-    an uncovered date remain distinct from a confirmed non-business day.
-    """
-
-    with closing(connect_read_only(path)) as connection:
-        row = connection.execute(
-            "SELECT holiday_division FROM jquants_market_calendar WHERE day = ?",
-            (day.isoformat(),),
-        ).fetchone()
-    return None if row is None or row[0] not in {"0", "1", "2", "3"} else row[0] in {"1", "2"}
 
 
 def read_price_calendar(connection: sqlite3.Connection, *, as_of: date) -> dict[date, bool]:

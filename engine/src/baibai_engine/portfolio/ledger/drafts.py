@@ -40,6 +40,7 @@ from baibai_engine.portfolio.ledger.events import (
     active_human_overrides,
     replay_events_through,
     reservation_snapshots,
+    sell_charge_event_ids,
 )
 from baibai_engine.portfolio.ledger.store import LedgerApplyResult, LedgerStoreService
 from baibai_engine.primitives.time import JST
@@ -482,21 +483,13 @@ def build_sell_execution_draft(
         occurred_on=occurred_on,
     )
     if existing is not None:
-        existing_suffix = existing.event_id.removeprefix("human-sell-")
+        fee_id, tax_id = sell_charge_event_ids(existing.event_id)
         fee = next(
-            (
-                event
-                for event in source.events
-                if event.event_id == f"human-sell-fee-{existing_suffix}"
-            ),
+            (event for event in source.events if event.event_id == fee_id),
             None,
         )
         tax = next(
-            (
-                event
-                for event in source.events
-                if event.event_id == f"human-sell-tax-{existing_suffix}"
-            ),
+            (event for event in source.events if event.event_id == tax_id),
             None,
         )
         if not (
@@ -536,9 +529,11 @@ def build_sell_execution_draft(
         execution_id=execution_id,
     )
     occurred_at_text = occurred_at.isoformat()
+    sale_id = f"human-sell-{suffix}"
+    fee_id, tax_id = sell_charge_event_ids(sale_id)
     additions: list[dict[str, object]] = [
         {
-            "event_id": f"human-sell-{suffix}",
+            "event_id": sale_id,
             "type": "execution",
             "occurred_at": occurred_at_text,
             "execution_id": execution_id or f"sell-execution-{suffix}",
@@ -553,7 +548,7 @@ def build_sell_execution_draft(
     if fees_yen is not None:
         additions.append(
             {
-                "event_id": f"human-sell-fee-{suffix}",
+                "event_id": fee_id,
                 "type": "cost",
                 "occurred_at": occurred_at_text,
                 "ticker": ticker,
@@ -564,7 +559,7 @@ def build_sell_execution_draft(
     if tax_yen is not None:
         additions.append(
             {
-                "event_id": f"human-sell-tax-{suffix}",
+                "event_id": tax_id,
                 "type": "tax_confirmed",
                 "occurred_at": occurred_at_text,
                 "ticker": ticker,

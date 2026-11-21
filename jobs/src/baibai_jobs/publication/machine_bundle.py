@@ -29,6 +29,7 @@ def read_published_machine(
     expected_receipt_sha256: str | None = None,
     expected_origin: dict[str, str] | None = None,
 ) -> tuple[LakeReleasePointer, dict[str, str]]:
+    """Read a coherent pair and honor any daily release binding it already carries."""
     pointer = read_pointer_snapshot(store).pointer
     if pointer is None:
         raise ValueError("a published lake release is required")
@@ -44,8 +45,17 @@ def read_published_machine(
         raise LakePublishError("published machine bundle receipt is unavailable") from error
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
         raise LakePublishError("published machine bundle receipt is invalid")
-    if expected_origin is not None and manifest.get("daily_publication") != expected_origin:
+    daily = manifest.get("daily_publication")
+    if expected_origin is not None and daily != expected_origin:
         raise LakePublishError("machine receipt is not from the requested daily run and release")
+    # The lake pointer may already have advanced while both machine stores still
+    # match the previous receipt. Do not use that mixed state for seals or inputs.
+    if "daily_publication" in manifest and (
+        not isinstance(daily, dict)
+        or daily.get("release_id") != pointer.release_id
+        or daily.get("release_manifest_sha256") != pointer.manifest_sha256
+    ):
+        raise LakePublishError("published machine receipt differs from the current lake release")
     keys = manifest.get("keys")
     if not isinstance(keys, dict):
         raise LakePublishError("published machine bundle receipt is invalid")
@@ -88,14 +98,9 @@ def main(argv: list[str] | None = None) -> int:
         with closing(
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET", "baibai-stores"))
         ) as store:
-            pointer, versions = read_published_machine(
+            _, versions = read_published_machine(
                 store, expected_receipt_sha256=args.machine_receipt_sha256, expected_origin=origin
             )
-        if (pointer.release_id, pointer.manifest_sha256) != (
-            expected.release_id,
-            expected.release_manifest_sha256,
-        ):
-            raise ValueError("requested market release is not current")
         if args.capture is not None:
             with args.capture.open("x", encoding="utf-8") as output:
                 json.dump(versions, output)

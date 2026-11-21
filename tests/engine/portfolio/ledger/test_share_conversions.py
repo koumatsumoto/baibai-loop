@@ -29,8 +29,13 @@ from baibai_engine.portfolio.ledger.events import (
 )
 from baibai_engine.portfolio.ledger.read import load_ledger_events
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
-from baibai_engine.portfolio.performance.calculate import compute_portfolio_outcome
+from baibai_engine.portfolio.performance.calculate import (
+    compute_portfolio_outcome,
+    outcome_to_payload,
+)
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_web.readmodel.builders import dashboard
+from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource
 
 NOW = datetime.fromisoformat("2026-10-05T18:00:00+09:00")
 BASIS = date(2026, 10, 2)
@@ -392,6 +397,90 @@ def test_conversion_is_not_external_flow_and_preserves_twr(tmp_path, received_fa
     assert result.portfolio_twr_pct == 0
     assert result.ending_holdings_market_value_yen == 100000
     assert result.ending_cash_yen == 900000
+
+
+@pytest.mark.parametrize(
+    ("second_quote", "total_mark", "emitted_mark"),
+    [("400.1", "20005.0", 20005), ("400.2", "20007.5", 20008)],
+)
+def test_reference_marks_keep_sub_yen_precision_until_whole_yen_output(
+    tmp_path, mocker, second_quote, total_mark, emitted_mark
+):
+    raw = _ledger().model_dump(mode="json")
+    for event in raw["events"]:
+        event["occurred_at"] = event["occurred_at"].replace("2026-10-01", "2025-01-06")
+    raw["events"][1]["price_yen"] = "100"
+    raw["events"].append(
+        dict(raw["events"][1], event_id="other-buy", execution_id="other-buy", ticker="5678")
+    )
+    app = _service(tmp_path, document=PortfolioLedgerDocument.model_validate(raw))
+    basis = date(2026, 1, 5)
+    confirmation = datetime.fromisoformat("2026-01-05T17:00:00+09:00")
+    changes = dict(
+        basis_date=basis, numerator=1, denominator=4, quantity_after=25, confirmed_at=confirmation
+    )
+    _apply(app, **changes)
+    ledger = _apply(app, **changes, ticker="5678", action_id="synthetic-other-consolidation")
+    benchmark = _benchmark()
+    start, end = benchmark.period_start_date, benchmark.period_end_date
+    market = tmp_path / "market.sqlite"
+    days = tuple(start + timedelta(days=i) for i in range((end - start).days + 1))
+    business_days = tuple(day for day in days if day.weekday() < 5)
+    bars = tuple(
+        JQuantsDailyBar(
+            ticker,
+            day,
+            float(price) if day == end else 400.0 if day == basis else 100.0,
+            None,
+            adjustment_factor=4.0 if day == basis else 1.0,
+            ex_right_type="2" if day == basis else None,
+        )
+        for ticker, price in (("1234", "400.1"), ("5678", second_quote))
+        for day in business_days
+    )
+    seed_daily_bars(
+        market, [(b.ticker, b.traded_at.isoformat(), b.close, b.adjustment_factor) for b in bars]
+    )
+    _seed_calendar(market, start, end)
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET ex_right_type='2' WHERE traded_at=?",
+            (basis.isoformat(),),
+        )
+    at = datetime.fromisoformat("2026-01-06T16:00:00+09:00")
+    before = (tmp_path / "app.sqlite").read_bytes(), market.read_bytes()
+    portfolio = current_portfolio(ledger, sqlite_path=market, now=at)
+    assert portfolio.available_cash_yen == 980000
+    assert portfolio.deployed_cost_yen == 20000
+    assert portfolio.holdings[0].market_value_yen == Decimal("10002.5")
+    assert portfolio.holdings_market_value_yen == Decimal(total_mark)
+    assert portfolio.total_capital_yen == 980000 + Decimal(total_mark)
+
+    mocker.patch.object(dashboard, "datetime").now.return_value = at
+    view = dashboard.build_dashboard(
+        DbLedgerSource(tmp_path / "app.sqlite", market), DbMarketSource(market)
+    )
+    assert view.valuation_error is None
+    assert view.valuation_as_of == end
+    assert view.total_capital_yen == 980000 + emitted_mark
+    assert view.holdings_market_value_yen == emitted_mark
+    held = {holding.ticker: holding for holding in view.holdings}
+    assert held["1234"].market_price_yen == "400.1"
+    assert held["1234"].market_value_yen == 10003
+    assert held["1234"].unrealized_pnl_yen == 3
+
+    outcome = compute_portfolio_outcome(ledger, benchmark, business_days=business_days, bars=bars)
+    assert outcome.status == "resolved"
+    assert outcome.portfolio_twr_pct == pytest.approx(
+        float((Decimal(total_mark) - 20000) / 10_000), abs=1e-10
+    )
+    assert outcome_to_payload(outcome)["ending_holdings_market_value_yen"] == emitted_mark
+    assert type(outcome_to_payload(outcome)["ending_holdings_market_value_yen"]) is int
+    with pytest.raises(PortfolioLedgerError, match="sell execution notional must reconcile"):
+        build_sell_execution_draft(
+            app, occurred_at=at, now=at, ticker="1234", quantity=25, price_yen=Decimal("400.1")
+        )
+    assert ((tmp_path / "app.sqlite").read_bytes(), market.read_bytes()) == before
 
 
 def test_cli_only_creates_draft_until_confirmed(tmp_path, capsys):

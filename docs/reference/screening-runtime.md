@@ -2,6 +2,8 @@
 
 現行のScreeningSelectionは「何が価格に対して安い可能性を作るか」を調べるための索引。[日次統合](../../jobs/src/baibai_jobs/integration/models.py)が一つのModelGenerationから[普通株の観測](../../engine/src/baibai_engine/machine_analysis/screening/policies/discovery.py)を取り出して発行する。行があるのはその世代で対象だったという意味で、割安や買付可能を示さない。
 
+当世代の計画にある普通株は、モデルが未生成でも母集団に残す。初回発行で別の集合に差し替えず、過去の発行物の範囲は後から書き換えない。
+
 ## 発行物を固定して読む
 
 [企業判断の開始手順](../../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)で依頼の範囲・公表ID・情報締切を固定する。新規発見では、同じ問いに該当する会社を銘柄コード順に読める。複数の問いに該当する会社もある。ページ順や該当数は買い順位ではなく、比較のために開いた会社が調査・提案対象に自動で加わることもない。

@@ -1,14 +1,13 @@
-"""Reject commands that a skill documents but the tool would refuse to run.
+"""Check the command shapes documented by active skills, operations, and references.
 
 A skill's command lines are executed verbatim every cycle. A missing required option
 does not fail loudly once — it fails on every run, and the operator patches it by hand
 each time, which is exactly the repeated cost the skill exists to remove.
 
-Two families are checked, because a skill's commands come from two places. Python entry
-points are asked of argparse: what the command needs, never what its values mean, so
-placeholders like `<ASOF>` survive and nothing is type-converted. Positional counting is
-deliberately absent — telling an option's value apart from a positional needs value
-semantics this gate does not have. `jobs/scripts/r2_transfer.sh` has no argparse to
+Python entry points are asked of argparse: which options need tokens, never what
+those values mean, so placeholders like `<ASOF>` survive and nothing is type-converted.
+The gate does not count positional arguments or interpret the shell.
+`jobs/scripts/r2_transfer.sh` has no argparse to
 ask, so its subcommand is matched against the `case` the script dispatches in; a name
 that is not a branch there dies on the first line with `usage; exit 2`.
 """
@@ -28,11 +27,16 @@ from typing import cast
 from tools.quality.drift.check_cli_help import DELEGATED_GROUPS, build_parser
 
 _SCAN_DIRECTORIES = (".agents/skills",)
-# Active operations and skills own runnable command examples.
-_SCAN_FILES = ("jobs/OPERATIONS.md",)
+# Include the reference owners of archived-case readback and holding comparison.
+_SCAN_FILES = (
+    "jobs/OPERATIONS.md",
+    "docs/reference/screening-runtime.md",
+    "docs/reference/trade-proposal.md",
+)
 _FENCE = re.compile(r"^\s*```")
 _INLINE_CODE = re.compile(r"`([^`]+)`")
 _COMMENT = re.compile(r"\s+#\s.*$")
+_NEGATIVE_NUMBER = re.compile(r"-(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 _TRANSFER_SCRIPT = Path("jobs/scripts/r2_transfer.sh")
 _TRANSFER_PREFIX = f"{_TRANSFER_SCRIPT.as_posix()} "
@@ -88,12 +92,40 @@ def _command_lines(text: str) -> Iterator[str]:
                 yield _COMMENT.sub("", span).strip()
 
 
-def _option_arity(parser: argparse.ArgumentParser, token: str) -> int | None:
-    """How many following tokens `token` consumes, or None when it is not an option here."""
+def _option_arity(parser: argparse.ArgumentParser, token: str) -> tuple[int, bool] | None:
+    """Minimum values required and whether argparse accepts option-shaped values."""
     for action in parser._actions:
         if token in action.option_strings:
-            return 0 if action.nargs == 0 or isinstance(action.const, bool) else 1
+            nargs = action.nargs
+            if isinstance(nargs, int):
+                return nargs, True
+            return int(nargs in (None, "+")), False
     return None
+
+
+def _looks_like_option(parser: argparse.ArgumentParser, token: str) -> bool:
+    if not token.startswith("-") or token == "-":
+        return False
+    if " " in token:
+        # An exact --option=value still wins over the quoted-space value rule.
+        return _option_arity(parser, token.partition("=")[0]) is not None
+    return _NEGATIVE_NUMBER.fullmatch(token) is None
+
+
+def _lacks_values(
+    parser: argparse.ArgumentParser, tokens: Sequence[str], index: int, arity: tuple[int, bool]
+) -> bool:
+    minimum, allow_option_values = arity
+    if minimum == 0:
+        return False
+    if "=" in tokens[index]:
+        return minimum > 1  # An explicit attached value is exactly one argument in argparse.
+    values = tokens[index + 1 : index + 1 + minimum]
+    return (
+        len(values) < minimum
+        or "--" in values
+        or (not allow_option_values and any(_looks_like_option(parser, value) for value in values))
+    )
 
 
 def _subparser_action(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:  # type: ignore[type-arg]  # argparse ships no public parser-tree API
@@ -117,10 +149,13 @@ def _descend(
             token = remaining[index]
             if not token.startswith("-"):
                 break
-            arity = _option_arity(parser, token.split("=", 1)[0])
+            name = token.partition("=")[0]
+            arity = _option_arity(parser, name)
             if arity is None:
                 raise _Unresolvable(f"{prog}: unknown option {token}")
-            index += 1 + (0 if "=" in token else arity)
+            if _lacks_values(parser, remaining, index, arity):
+                raise _Unresolvable(f"{prog}: omits value for {name}")
+            index += 1 + (0 if "=" in token else arity[0])
         if index >= len(remaining):
             raise _Unresolvable(f"{prog}: no subcommand")
         name = remaining[index]
@@ -193,13 +228,25 @@ def _missing_required(parser: argparse.ArgumentParser, tokens: Sequence[str]) ->
 def _unknown_options(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> list[str]:
     known = {option for action in parser._actions for option in action.option_strings}
     return [
-        argument.split("=", 1)[0]
-        for argument in tokens
-        if argument.startswith("-")
-        and argument != "-"
-        and argument.split("=", 1)[0] not in known
-        and not re.fullmatch(r"-\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|-\.\d+", argument)
+        token.partition("=")[0]
+        for token in tokens
+        if token.partition("=")[0] not in known and _looks_like_option(parser, token)
     ]
+
+
+def _missing_option_values(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> list[str]:
+    missing = []
+    index = 0
+    while index < len(tokens):
+        name, attached, _ = tokens[index].partition("=")
+        arity = _option_arity(parser, name)
+        if arity is not None:
+            if _lacks_values(parser, tokens, index, arity):
+                missing.append(name)
+            elif not attached:
+                index += arity[0]
+        index += 1
+    return missing
 
 
 def check(root: Path) -> list[str]:
@@ -243,6 +290,11 @@ def check(root: Path) -> list[str]:
             unknown = _unknown_options(parser, rest)
             if unknown:
                 errors.append(f"{relative}: `{command}` has unknown options {', '.join(unknown)}")
+            missing_values = _missing_option_values(parser, rest)
+            if missing_values:
+                errors.append(
+                    f"{relative}: `{command}` omits value for {', '.join(missing_values)}"
+                )
             missing = _missing_required(parser, rest)
             if missing:
                 errors.append(
