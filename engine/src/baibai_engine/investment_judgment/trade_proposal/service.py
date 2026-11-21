@@ -17,6 +17,8 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.conditions import (
+    OrderMarket,
+    application_order_blockers,
     assessment_quote_basis,
     buy_evaluation_payload,
     buy_evaluator,
@@ -90,13 +92,14 @@ def _validate_action(
     inputs = proposal.inputs
     blockers: list[GateReason] = []
     calculation: dict[str, object] = {}
-    session = (
-        order_sessions().confirmed_session
+    bounds = (
+        order_sessions()
         if item.action == "buy" or (item.action == "sell" and item.conditional_recovery is None)
         else None
     )
+    market = OrderMarket.from_inputs(inputs, item.ticker, bounds)
     unavailable = (
-        terms_unavailable_reasons(item, inputs, now=now, session=session)
+        terms_unavailable_reasons(item, inputs, now=now, market=market)
         if item.action in {"buy", "sell"}
         else ()
     )
@@ -104,7 +107,7 @@ def _validate_action(
         evaluate = buy_evaluator(
             pair,
             inputs=inputs,
-            target_session=session,
+            target_session=market.session,
             latest=latest,
             sqlite_path=sqlite_path,
             now=now,
@@ -114,7 +117,9 @@ def _validate_action(
             _limit_for_partial_buy(item), None if item.terms is None else item.terms.quantity
         )
         blockers.extend(result.hard_blockers)
-        calculation = buy_evaluation_payload(result, order_blockers=unavailable)
+        calculation = buy_evaluation_payload(
+            result, order_blockers=application_order_blockers(item, unavailable)
+        )
         if item.terms is not None and (
             (
                 result.maximum_price_yen is not None
@@ -229,7 +234,10 @@ def check_proposal(
     sqlite_path: Path,
     now: datetime,
     require_review: bool = True,
+    allow_price_conditional: bool = False,
 ) -> ProposalValidation:
+    proposal = load_proposal_draft(proposal)
+    validate_proposal_policy(proposal, allow_price_conditional=allow_price_conditional)
     with proposal_market_snapshot(sqlite_path) as market_connection:
         return _check_proposal(
             connection,
@@ -250,8 +258,6 @@ def _check_proposal(
     require_review: bool,
     market_connection: sqlite3.Connection | None,
 ) -> ProposalValidation:
-    proposal = load_proposal_draft(proposal)
-    validate_proposal_policy(proposal)
     if now.utcoffset() is None:
         raise ProposalError("proposal clock requires a timezone")
     try:
@@ -438,7 +444,9 @@ class TradeProposalService:
         *,
         sqlite_path: Path = MARKET_DB_PATH,
         clock: Callable[[], datetime] | None = None,
+        allow_price_conditional: bool = False,
     ) -> None:
+        self._allow_price_conditional = allow_price_conditional
         self._db_path = db_path
         self._sqlite_path = sqlite_path
         self._clock = clock or (lambda: datetime.now(JST))
@@ -454,6 +462,7 @@ class TradeProposalService:
                 sqlite_path=self._sqlite_path,
                 now=self._clock(),
                 require_review=require_review,
+                allow_price_conditional=self._allow_price_conditional,
             )
 
     def publish(self, proposal: TradeProposalDraft) -> TradeProposal:
@@ -477,7 +486,11 @@ class TradeProposalService:
                     connection.rollback()
                     return stored
                 validation = check_proposal(
-                    connection, proposal, sqlite_path=self._sqlite_path, now=now
+                    connection,
+                    proposal,
+                    sqlite_path=self._sqlite_path,
+                    now=now,
+                    allow_price_conditional=self._allow_price_conditional,
                 )
                 if not validation.valid:
                     raise ProposalError("; ".join(reason.message for reason in validation.blockers))

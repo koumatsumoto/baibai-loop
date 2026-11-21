@@ -64,7 +64,9 @@ def _has_reserved_instruction(proposal: TradeProposalDraft) -> bool:
     )
 
 
-def validate_proposal_policy(proposal: TradeProposalDraft) -> None:
+def validate_proposal_policy(
+    proposal: TradeProposalDraft, *, allow_price_conditional: bool = False
+) -> None:
     """初期版の新規買付上限を検証する。readの構造上限にはしない。"""
 
     if _has_reserved_instruction(proposal):
@@ -74,5 +76,7 @@ def validate_proposal_policy(proposal: TradeProposalDraft) -> None:
     if sum(item.action == "buy" for item in proposal.items) > MAX_NEW_BUYS:
         raise ProposalError(f"current proposal policy permits at most {MAX_NEW_BUYS} new buy")
     # 初回の新形式を発行する前に、現在稼働中のexact reader・Web・Case完了を確認する。
-    if any(item.action == "buy" and item.economic_decision is not None for item in proposal.items):
+    if not allow_price_conditional and any(
+        item.action == "buy" and item.economic_decision is not None for item in proposal.items
+    ):
         raise ProposalError("price-conditional allocation publication is not enabled")

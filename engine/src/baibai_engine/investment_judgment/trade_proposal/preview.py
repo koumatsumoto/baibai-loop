@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 from typing import Literal
@@ -22,6 +22,8 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
 )
 from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
 from baibai_engine.investment_judgment.trade_proposal.conditions import (
+    OrderMarket,
+    application_order_blockers,
     assessment_quote_basis,
     buy_evaluation_payload,
     buy_evaluator,
@@ -50,7 +52,6 @@ from baibai_engine.portfolio.holdings.market_observations import (
     OrderSessionBounds,
     read_order_session_bounds,
 )
-from baibai_engine.portfolio.holdings.price_grid import floor_common_stock_limit
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -113,7 +114,7 @@ def _preview_buy(
     *,
     latest: bool,
     order_blockers: tuple[GateReason, ...],
-    session: date | None,
+    market: OrderMarket,
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
@@ -124,7 +125,7 @@ def _preview_buy(
     evaluate = buy_evaluator(
         pair,
         inputs=inputs,
-        target_session=session,
+        target_session=market.session,
         latest=latest,
         sqlite_path=sqlite_path,
         now=now,
@@ -135,19 +136,7 @@ def _preview_buy(
     quote = next((quote for quote in inputs.quotes if quote.ticker == item.ticker), None)
     trial: dict[str, object] | None = None
     if quote is not None:
-        classification = next(
-            (row for row in inputs.security_classification if row.ticker == item.ticker), None
-        )
-        grid = (
-            None
-            if classification is None or session is None
-            else floor_common_stock_limit(
-                quote.price_yen,
-                target_session=session,
-                market_segment=classification.market_segment,
-                is_common_stock=classification.is_common_stock,
-            )
-        )
+        grid = market.floor_limit(quote.price_yen)
         current = evaluate(quote.price_yen if grid is None else grid, None)
         trial = {
             **buy_evaluation_payload(current, order_blockers=order_blockers),
@@ -365,18 +354,16 @@ def preview_current_terms(
                     saved_ceiling_calculation=None,
                 )
             order_blockers: tuple[GateReason, ...] = ()
-            session = None
+            bounds = None
+            if item.action == "buy" or (
+                item.action == "sell" and item.conditional_recovery is None
+            ):
+                bounds = order_sessions()
+            market = OrderMarket.from_inputs(inputs, item.ticker, bounds)
             if item.action in {"buy", "sell"}:
-                if item.action == "buy" or item.conditional_recovery is None:
-                    session = order_sessions().confirmed_session
-                order_blockers = terms_unavailable_reasons(item, inputs, now=now, session=session)
-                if item.terms is None:
-                    order_blockers += (
-                        GateReason(
-                            code="order_terms_unconfirmed",
-                            message="保存条件は未確定です。条件を確定した新しい提案とReviewが必要です。",
-                        ),
-                    )
+                order_blockers = application_order_blockers(
+                    item, terms_unavailable_reasons(item, inputs, now=now, market=market)
+                )
             if item.assessment_ref is not None:
                 pair = require_assessment_ref(connection, item.assessment_ref)
                 assessments[pair.assessment_id] = pair.document
@@ -400,7 +387,7 @@ def preview_current_terms(
                         inputs,
                         latest=latest,
                         order_blockers=order_blockers,
-                        session=session,
+                        market=market,
                         sqlite_path=sqlite_path,
                         now=now,
                         market_connection=market_connection,

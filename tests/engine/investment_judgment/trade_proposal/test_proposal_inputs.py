@@ -640,6 +640,7 @@ def test_known_intraday_action_without_new_fill_reaches_sell_quantity_gate(
     tmp_path, kind, unchanged
 ):
     from baibai_engine.investment_judgment.trade_proposal.conditions import (
+        OrderMarket,
         terms_unavailable_reasons,
     )
 
@@ -661,10 +662,11 @@ def test_known_intraday_action_without_new_fill_reaches_sell_quantity_gate(
     assert inputs.positions[0].quantity_basis_confirmed is unchanged
     assert inputs.available_cash_yen == Decimal(210000)
     assert inputs.total_capital_yen == (Decimal(320000) if unchanged else None)
-    from baibai_engine.portfolio.holdings.market_observations import next_order_session
+    from baibai_engine.portfolio.holdings.market_observations import read_order_session_bounds
 
-    session = next_order_session(sqlite_path=case.market, now=now)
-    reasons = terms_unavailable_reasons(proposal.items[0], inputs, now=now, session=session)
+    bounds = read_order_session_bounds(sqlite_path=case.market, now=now)
+    market = OrderMarket.from_inputs(inputs, proposal.items[0].ticker, bounds)
+    reasons = terms_unavailable_reasons(proposal.items[0], inputs, now=now, market=market)
     assert {reason.code for reason in reasons} == (
         set() if unchanged else {"quantity_basis_unconfirmed"}
     )
@@ -740,3 +742,31 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
     assert not corrected.inputs.security_classification[0].is_common_stock
     assert corrected.next_order_session.isoformat() == "2026-10-16"
     assert corrected.calculations["1234"]["maximum_common_grid_price_yen"] is None
+
+
+@pytest.mark.parametrize(("offset", "today_closed"), [(-1, False), (0, True), (1, True)])
+def test_session_gap_and_eligible_close_use_the_same_jst_cutoff(tmp_path, offset, today_closed):
+    from datetime import UTC
+
+    from baibai_engine.investment_judgment.trade_proposal.conditions import OrderMarket
+    from baibai_engine.portfolio.holdings.market_observations import read_order_session_bounds
+
+    case = backend_case(tmp_path)
+    with closing(sqlite3.connect(case.market)) as conn, conn:
+        conn.execute("DELETE FROM jquants_market_calendar WHERE day='2026-10-15'")
+    at = PREPARED.replace(hour=15, minute=30) + timedelta(microseconds=offset)
+    now = at.astimezone(UTC)
+    inputs = _collect(case, now=now)
+    market = OrderMarket.from_inputs(
+        inputs, "1234", read_order_session_bounds(sqlite_path=case.market, now=now)
+    )
+    if today_closed:
+        assert [q.price_as_of for q in inputs.quotes] == [at.date()]
+        assert market.session is None
+        assert [r.code for r in market.gaps] == ["order_session_unknown"]
+        assert market.floor_limit(Decimal(1000)) is None
+    else:
+        assert not inputs.quotes
+        assert market.session == at.date()
+        assert not market.gaps
+        assert market.floor_limit(Decimal(1000)) == Decimal(1000)

@@ -66,7 +66,11 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_filing_looku
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
-from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
+from baibai_engine.portfolio.holdings.market_observations import (
+    OrderSessionBounds,
+    read_order_session_bounds,
+    read_unadjusted_close,
+)
 from baibai_engine.portfolio.holdings.valuation import (
     UnresolvedHoldingQuantityError,
     holding_episode,
@@ -555,16 +559,16 @@ def _context_calculations(
     *,
     sqlite_path: Path,
     now: datetime,
-    session: date | None,
+    bounds: OrderSessionBounds,
     market_connection: sqlite3.Connection | None,
 ) -> dict[str, dict[str, object]]:
     from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
     from baibai_engine.investment_judgment.trade_proposal.conditions import (
+        OrderMarket,
         assessment_quote_basis,
         buy_evaluation_payload,
         buy_evaluator,
     )
-    from baibai_engine.portfolio.holdings.price_grid import floor_common_stock_limit
 
     result: dict[str, dict[str, object]] = {}
     for outcome in scope.outcomes:
@@ -596,7 +600,7 @@ def _context_calculations(
             evaluate = buy_evaluator(
                 pair,
                 inputs=inputs,
-                target_session=session,
+                target_session=bounds.confirmed_session,
                 latest=latest[outcome.ticker] == pair.assessment_id,
                 sqlite_path=sqlite_path,
                 now=now,
@@ -605,26 +609,15 @@ def _context_calculations(
             at_quote = evaluate(quote.price_yen, None)
             # 次の立会で新たに取得できない給付を終価に入れない。元評価の値はそのまま。
             row["current_quote_projection"] = at_quote.current_price_projection
-            row["buy_at_actual_quote"] = buy_evaluation_payload(at_quote)
+            market = OrderMarket.from_inputs(inputs, outcome.ticker, bounds)
+            gaps = market.gaps
+            row["buy_at_actual_quote"] = buy_evaluation_payload(at_quote, order_blockers=gaps)
             maximum = at_quote.maximum_price_yen
             if maximum is not None and maximum > 0:
                 row["calculation_at_maximum_price"] = buy_evaluation_payload(
-                    evaluate(maximum, None)
+                    evaluate(maximum, None), order_blockers=gaps
                 )
-                classification = next(
-                    (row for row in inputs.security_classification if row.ticker == outcome.ticker),
-                    None,
-                )
-                grid = (
-                    None
-                    if classification is None or session is None
-                    else floor_common_stock_limit(
-                        maximum,
-                        target_session=session,
-                        market_segment=classification.market_segment,
-                        is_common_stock=classification.is_common_stock,
-                    )
-                )
+                grid = market.floor_limit(maximum)
                 row["maximum_common_grid_price_yen"] = None if grid is None else str(grid)
         result[outcome.ticker] = row
     return result
@@ -638,8 +631,6 @@ def build_proposal_context(
     now: datetime,
     proposal_id: str,
 ) -> ProposalAuthoringContext:
-    from baibai_engine.portfolio.holdings.market_observations import next_order_session
-
     proposal_id = TypeAdapter(ProposalId).validate_python(proposal_id, strict=True)
     with (
         closing(connect_read_only(db_path)) as connection,
@@ -687,7 +678,9 @@ def build_proposal_context(
         context_id = saved_context.get("context_id") if isinstance(saved_context, dict) else None
         if context_id is not None and not isinstance(context_id, str):
             raise ProposalError("saved Market Context Assessment identity must be text")
-        session = next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
+        bounds = read_order_session_bounds(
+            sqlite_path=sqlite_path, now=now, connection=market_connection
+        )
         listing = read_listing_designations(
             market_connection,
             tickers=tuple(target.ticker for target in scope.targets),
@@ -704,7 +697,7 @@ def build_proposal_context(
             proposal_liquidity_context(selection),
             context_id,
             latest,
-            session,
+            bounds.confirmed_session,
             _context_calculations(
                 scope,
                 inputs,
@@ -712,7 +705,7 @@ def build_proposal_context(
                 latest,
                 sqlite_path=sqlite_path,
                 now=now,
-                session=session,
+                bounds=bounds,
                 market_connection=market_connection,
             ),
             saved_context,
