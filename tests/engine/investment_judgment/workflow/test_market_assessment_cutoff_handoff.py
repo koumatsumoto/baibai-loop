@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 import yaml
 from pydantic import ValidationError
-from tests.helpers.assessment_history import historical_context_payload
+from tests.helpers.assessment_history import historical_context_payload, publish_at_declared_time
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
 from baibai_engine.investment_judgment.market_assessment.models import (
@@ -16,7 +16,6 @@ from baibai_engine.investment_judgment.market_assessment.projection import asses
 from baibai_engine.investment_judgment.market_assessment.query import assessment_by_id
 from baibai_engine.investment_judgment.market_assessment.service import (
     AssessmentConflictError,
-    AssessmentService,
 )
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
@@ -60,7 +59,7 @@ def _document():
 def _prepare(tmp_path):
     app, runs = tmp_path / "app.sqlite", tmp_path / "runs.sqlite"
     prior = _document()
-    AssessmentService(app).publish(prior, expected_head=None)
+    publish_at_declared_time(app, prior, expected_head=None)
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",), db=app)
     prepared = prepare_selected_workspace(
         draft=generated_draft_for(selected),
@@ -85,7 +84,7 @@ def test_market_cutoff_survives_normal_selection_and_resume(tmp_path, monkeypatc
     input_path = prepared.workspace / "domain-inputs.yaml"
     assert yaml.safe_load(input_path.read_text())["saved_market_context_assessment"] == projected
     before_retry = app.read_bytes()
-    assert AssessmentService(app).publish(prior, expected_head=None) == prior
+    assert publish_at_declared_time(app, prior, expected_head=None) == prior
     assert app.read_bytes() == before_retry
 
     later = prior.model_copy(
@@ -96,10 +95,10 @@ def test_market_cutoff_survives_normal_selection_and_resume(tmp_path, monkeypatc
             "summary": "選定後の別判断。旧入力を置き換えない。",
         }
     )
-    AssessmentService(app).publish(later, expected_head=prior.context_id)
+    publish_at_declared_time(app, later, expected_head=prior.context_id)
     before = app.read_bytes(), input_path.read_bytes()
     with pytest.raises(AssessmentConflictError, match="different publication state"):
-        AssessmentService(app).publish(prior, expected_head=None)
+        publish_at_declared_time(app, prior, expected_head=None)
     assert assessment_by_id(app, context_id=prior.context_id).document == prior.payload()
     assert app.read_bytes() == before[0]
     monkeypatch.setattr(
@@ -146,7 +145,7 @@ def test_missing_judgment_does_not_invent_a_cutoff():
 def test_later_publication_is_not_included_at_the_selection_cutoff(tmp_path):
     app, runs = tmp_path / "app.sqlite", tmp_path / "runs.sqlite"
     later = _document().model_copy(update={"published_at": NOW + timedelta(minutes=1)})
-    AssessmentService(app).publish(later, expected_head=None)
+    publish_at_declared_time(app, later, expected_head=None)
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",), db=app)
     prepared = prepare_selected_workspace(
         draft=generated_draft_for(selected),
@@ -188,3 +187,56 @@ def test_legacy_fixed_selection_resume_does_not_rewrite_the_saved_projection(tmp
     assert resumed.selection_sha256 == prepared.selection_sha256
     assert (app.read_bytes(), input_path.read_bytes()) == before
     assert assessment_by_id(app, context_id=prior.context_id).document == prior.payload()
+
+
+@pytest.mark.parametrize("delta_us", [-1, 0, 1, 120_000_000])
+def test_v1_freezes_market_receipt_not_author_or_check_time(tmp_path, delta_us):
+    from baibai_engine.cli.market_assessment import main
+    from baibai_engine.investment_judgment.workflow.selection_query import (
+        load_generated_selection_context,
+    )
+
+    app, runs = tmp_path / "app", tmp_path / "runs"
+    draft_path = tmp_path / "market.yaml"
+    command = ["--db", str(app), "publish", str(draft_path)]
+    prior = _document()
+    draft_path.write_text(yaml.safe_dump(prior.payload()))
+    assert main(command, now=prior.published_at) == 0
+    late = prior.model_copy(
+        update={
+            "context_id": f"market-context-assessment-{NOW.date()}-later",
+            "published_at": NOW - timedelta(microseconds=2),
+        }
+    )
+    draft_path.write_text(yaml.safe_dump(late.payload()))
+    assert main([*command, "--check"], now=late.published_at) == 0
+    selected = seed_generated_selection(
+        runs=runs, now=NOW, tickers=("1234",), scope="specified_stocks", db=app
+    )
+    receipt = NOW + timedelta(microseconds=delta_us)
+    assert main([*command, "--expected-head", prior.context_id], now=receipt) == 0
+    draft = generated_draft_for(selected)
+    context = load_generated_selection_context(
+        request=draft.request,
+        generation_id=draft.generation_id,
+        screening_selection_id=draft.screening_selection_id,
+        research_as_of=NOW.date(),
+        known_at=NOW,
+        runs_path=runs,
+        db_path=app,
+    )
+    prepared = prepare_selected_workspace(
+        draft=draft,
+        db_path=app,
+        runs_path=runs,
+        workspace=tmp_path / "case",
+        now=NOW + timedelta(minutes=3),
+    )
+    case = selection_binding(OperationService(app).get(prepared.operation_id).payload)
+    saved = case.inputs.saved_market_context_assessment
+    expected = late if delta_us <= 0 else prior
+    assert saved["context_id"] == expected.context_id
+    assert context["saved_market_context_assessment"] == saved
+    stored = assessment_by_id(app, context_id=late.context_id)
+    assert stored.recorded_at == receipt
+    assert stored.document == late.payload()

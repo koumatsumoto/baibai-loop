@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         result: Any
-        service = AssessmentService(args.db)
+        service = AssessmentService(args.db, clock=(lambda: now) if now is not None else None)
         if args.command == "publish":
             document = MarketContextAssessment.model_validate(safe_load(args.draft.read_text()))
             if args.check:
