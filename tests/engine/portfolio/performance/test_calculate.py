@@ -235,6 +235,22 @@ def test_portfolio_outcome_includes_idle_cash_and_confirmed_cashflows() -> None:
     assert result.estimated_exit_tax_yen == 20
 
 
+@pytest.mark.parametrize("close", [None, 0.0, -1.0])
+def test_portfolio_outcome_does_not_value_an_unusable_held_close(close: float | None) -> None:
+    start, end = date(2025, 1, 6), date(2026, 1, 6)
+    bars = [JQuantsDailyBar("1234", start, 5.0, None, adjustment_factor=1.0)]
+    if close is not None:
+        bars.append(JQuantsDailyBar("1234", end, close, None, adjustment_factor=1.0))
+
+    result = compute_portfolio_outcome(
+        _ledger(), _benchmark(), business_days=(start, end), bars=tuple(bars)
+    )
+
+    assert result.status == "unresolved"
+    assert result.reason == "missing_market_price"
+    assert result.portfolio_twr_pct is None
+
+
 @pytest.mark.parametrize("factor", [None, 0.0, 0.5, 2.0])
 def test_portfolio_outcome_rejects_unresolved_corporate_action(factor) -> None:
     from baibai_engine.portfolio.performance.calculate import compute_portfolio_outcome
