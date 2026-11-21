@@ -81,7 +81,6 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
         def now(cls, tz=None):
             return NOW if tz is None else NOW.astimezone(tz)
 
-    monkeypatch.setattr(db_sources, "datetime", Clock)
     monkeypatch.setattr(dashboard, "datetime", Clock)
     with closing(sqlite3.connect(market)) as connection, connection:
         insert_master_rows(
@@ -120,6 +119,35 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
         assert view.holdings[0].unrealized_pnl_yen is None
         assert view.cash_pct is None
     assert db.read_bytes() == before
+
+
+def test_dashboard_uses_one_clock_across_market_close(holding_case, monkeypatch):
+    db, market, _ = holding_case
+    before_close = datetime.fromisoformat("2026-09-07T15:29:59+09:00")
+    close = datetime.fromisoformat("2026-09-07T15:30:00+09:00")
+    instants = iter((before_close, close))
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = next(instants)
+            return instant if tz is None else instant.astimezone(tz)
+
+    monkeypatch.setattr(dashboard, "datetime", Clock)
+    # A second wall-clock read would admit the same-day bar across the close.
+    monkeypatch.setattr(db_sources, "datetime", Clock)
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.execute(
+            "INSERT INTO jquants_daily_bars (ticker,traded_at,close,adjustment_factor) "
+            "VALUES ('2331','2026-09-07',1400,1)"
+        )
+    before = db.read_bytes(), market.read_bytes()
+
+    view = build_dashboard(DbLedgerSource(db, market), DbMarketSource(market))
+    assert view.generated_at == before_close
+    assert view.valuation_as_of == date(2026, 9, 4)
+    assert view.holdings[0].market_value_yen == 200_000
+    assert (db.read_bytes(), market.read_bytes()) == before
 
 
 @pytest.mark.parametrize("missing", [False, True])

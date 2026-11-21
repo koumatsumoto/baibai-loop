@@ -1,6 +1,6 @@
 """Describe recorded buy-order outcomes without inferring fills or policy effects.
 
-台帳上の買付予約・約定・解放と、失効までの観測安値と指値の差を集計する。
+台帳上の買付予約・約定・解放と、失効した注文の日足安値と指値の差を集計する。
 前日終値固定の旧ルールやProposalの承認を参照IDだけから推定しない。
 価格差は実現できた利益・因果効果ではなく、価格basisを確認できる場合の記述統計。
 失効後の最高値を逸失利益へ置き換えず、経済成果は同じ資金・終期の別比較で扱う。
@@ -119,8 +119,10 @@ def build_limit_outcomes(*, app_db: Path, market_db: Path, asof: date) -> dict[s
         "asof": asof.isoformat(),
         "scope": "buy_reservations",
         "interpretation": (
-            "報告済み注文状態と失効までの観測安値の記述統計。日足安値は注文有効時間内の"
-            "約定可能性を証明せず、未観測の価格や約定を補わない。"
+            "報告済み注文状態とJSTの日足安値の記述統計。観測期間は報告された失効日と"
+            "記録された期限日の早い方まで（期限不明なら報告された失効日まで）、両端の日を含む。"
+            "日足安値には発注前や期限後の同日価格も入り得るため、注文有効時間内の"
+            "値動きや約定可能性を証明せず、未観測の価格や約定を補わない。"
             "失効後の最高値・逸失利益・投資成績・指値方針の因果効果は測定しない。"
             "参照IDがあるだけでProposalの承認や特定の注文規律に従ったとはみなさない。"
         ),
@@ -205,6 +207,9 @@ def _order_outcome(
         )
     assert release is not None
     window_end = min(release.occurred_at.astimezone(JST).date(), asof)
+    if reservation.expires_at is not None:
+        # 遅れて記帳した解放やcash拘束の終了は、注文期限を延ばさない。
+        window_end = min(window_end, reservation.expires_at.astimezone(JST).date())
     lows = _order_lows(connection, reservation.ticker, placed_on, window_end)
     window_low = min((low for _, low in lows), default=None)
     through_date = lows[-1][0] if lows else None

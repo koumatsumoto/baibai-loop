@@ -557,6 +557,58 @@ def test_expired_window_uses_the_same_tokyo_date_for_any_offset(tmp_path, releas
     assert order["window_low_yen"] == 1050.0
 
 
+@pytest.mark.parametrize(
+    ("expiry", "end", "low", "distance"),
+    [
+        ("2026-07-05T23:30:00Z", "2026-07-06", 1050.0, 5.0),
+        (None, "2026-07-10", 700.0, -30.0),
+    ],
+    ids=["known-tokyo-expiry", "unknown-expiry"],
+)
+def test_late_release_does_not_extend_a_known_expiry_price_window(
+    tmp_path, expiry, end, low, distance
+):
+    app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    reservation = _reservation(
+        reservation_id="late-release",
+        occurred_at="2026-07-01T09:00:00+09:00",
+        limit_yen="1000",
+        decision_reference=None,
+    )
+    reservation["expires_at"] = expiry
+    _ledger(
+        app,
+        [
+            reservation,
+            {
+                "event_id": "release-late",
+                "type": "release",
+                "occurred_at": "2026-07-10T15:30:00+09:00",
+                "reservation_id": "late-release",
+                "reason": "expired",
+            },
+        ],
+    )
+    _market(
+        market,
+        [
+            ("2026-07-03", 1100.0, 1110.0),
+            ("2026-07-06", 1050.0, 1050.0),
+            ("2026-07-08", 700.0, 800.0),
+        ],
+    )
+    before = build_limit_outcomes(app_db=app, market_db=market, asof=date(2026, 7, 9))
+    assert before["orders"][0]["outcome"] == "open"
+    assert before["orders"][0]["window_low_yen"] is None
+    after = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)
+    order = after["orders"][0]
+    assert order["outcome"] == "expired"
+    assert order["window_end"] == end
+    assert order["window_low_yen"] == low
+    assert order["distance_to_limit_pct"] == pytest.approx(distance)
+    assert "期限後の同日価格" in after["interpretation"]
+
+
 @pytest.mark.parametrize("target", ["ledger", "market"])
 @pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
 def test_cli_never_overwrites_an_input_store(tmp_path: Path, target: str, alias: str) -> None:

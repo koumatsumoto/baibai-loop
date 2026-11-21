@@ -220,7 +220,7 @@ sell limitは作者の一株回収下限。実quoteの上下とも可能だがgr
 <a id="publication-review"></a>
 ## Review・保存・preview
 
-別作業者の内容Reviewを正規checkの`draft_sha256`へ束縛し、valid/file hashで代用しない。内容変更は再Review、入力事実変更はsnapshotも取り直す。読取時刻差だけを事実変更にせず、検証は実時刻、公開はエンジンの初回発行時計を保つ。
+別作業者の内容Reviewを正規checkの`draft_sha256`へ束縛し、valid/file hashで代用しない。内容変更は再Review、入力事実変更はsnapshotも取り直す。読取時刻差だけを事実変更にしない。初回発行は書込ロックの取得後の時計で検証・保存し、ロック待ちで日付や引けをまたいだら待つ前の条件を使わない。同じ内容の同ID再試行は現在の市場を読み直さず、元の発行を返す。
 
 提案のReviewは参照評価の独立Review完了以後に行う。評価pairの保存だけが遅れた場合は、内容の完成が遅れた場合と区別する。
 

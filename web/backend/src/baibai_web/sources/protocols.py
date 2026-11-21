@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Protocol
 
 from baibai_engine.portfolio.ledger.events import PortfolioSnapshot
@@ -16,8 +16,8 @@ class PortfolioRead:
 
 
 class LedgerSource(Protocol):
-    def snapshot(self) -> PortfolioRead | None:
-        """Return None only for an uninitialized ledger; damaged ledgers raise."""
+    def snapshot(self, *, now: datetime) -> PortfolioRead | None:
+        """Replay and value at the dashboard's clock. Only an uninitialized ledger is absent."""
         ...
 
 

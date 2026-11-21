@@ -22,7 +22,7 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialL1,
     FixedFinancialL1,
 )
-from baibai_engine.data_collection.providers.jquants.full_day_native import full_day_content_id
+from baibai_engine.data_collection.providers.jquants.full_day_native import full_day_content_facts
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
@@ -79,24 +79,26 @@ def test_complete_request_equivalence_preserves_values_unknowns_and_duplicates()
             ),
         )
     )
-    assert full_day_content_id(complete_request(a.pages), contract) == full_day_content_id(
-        paged, contract
-    )
+    digest, row_count = full_day_content_facts(paged, contract)
+    assert row_count == len(records)
+    assert full_day_content_facts(complete_request(a.pages), contract) == (digest, row_count)
     for extra in (None, 0, "", False):
         changed = replace(
             first, body=json.dumps({"data": [{**records[0], "Unknown": extra}]}).encode()
         )
-        assert full_day_content_id(complete_request((changed,)), contract) != full_day_content_id(
-            paged, contract
+        changed_digest, changed_count = full_day_content_facts(
+            complete_request((changed,)), contract
         )
+        assert changed_digest != digest
+        assert changed_count == row_count
     duplicate = replace(first, body=json.dumps({"data": records + records}).encode())
-    assert full_day_content_id(complete_request((duplicate,)), contract) != full_day_content_id(
-        paged, contract
+    duplicate_digest, duplicate_count = full_day_content_facts(
+        complete_request((duplicate,)), contract
     )
+    assert duplicate_digest != digest
+    assert duplicate_count == 2 * row_count
     extra_envelope = replace(first, body=json.dumps({"data": records, "Unknown": None}).encode())
-    assert full_day_content_id(
-        complete_request((extra_envelope,)), contract
-    ) != full_day_content_id(paged, contract)
+    assert full_day_content_facts(complete_request((extra_envelope,)), contract)[0] != digest
 
 
 def test_equal_changes_and_return_to_prior_content(owner):
@@ -412,8 +414,8 @@ def test_valid_unicode_keeps_content_hash_and_raw_identity(owner, body, monkeypa
     raw = original.value()
     with monkeypatch.context() as baseline:
         baseline.setattr(contracts, "_require_unicode_scalars", lambda value: None)
-        previous = full_day_content_id(complete_request(original.pages), owner.contract)
-    assert full_day_content_id(complete_request(original.pages), owner.contract) == previous
+        previous = full_day_content_facts(complete_request(original.pages), owner.contract)
+    assert full_day_content_facts(complete_request(original.pages), owner.contract) == previous
     assert original.value() == raw
 
 

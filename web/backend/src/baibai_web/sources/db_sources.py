@@ -39,11 +39,10 @@ class DbLedgerSource:
             connection.execute("BEGIN")
             return load_ledger_document(connection)
 
-    def snapshot(self) -> PortfolioRead | None:
+    def snapshot(self, *, now: datetime) -> PortfolioRead | None:
         document = self._document()
         if document is None:
             return None
-        now = datetime.now().astimezone()
         try:
             snapshot = current_portfolio(document, sqlite_path=self._market_path, now=now)
         except UnresolvedHoldingQuantityError as error:

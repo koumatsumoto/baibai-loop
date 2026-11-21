@@ -8,8 +8,6 @@ from collections.abc import Sequence
 _KEYS = {
     "jpx_source_bundles": ("bundle_id",),
     "jpx_source_responses": ("bundle_id", "resource_name"),
-    "edinet_list_responses": ("receipt_id",),
-    "edinet_source_archives": ("doc_id", "source_type"),
 }
 
 
