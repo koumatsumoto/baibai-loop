@@ -15,6 +15,10 @@ from baibai_engine.investment_judgment.market_assessment.query import (
     latest_assessment,
     latest_assessment_from_connection,
 )
+from baibai_engine.investment_judgment.market_assessment.service import (
+    AssessmentConflictError,
+    AssessmentService,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import initialize_database
@@ -35,7 +39,7 @@ def authored(suffix, declared):
 
 
 def envelope(db, document, receipt, *, supersedes=None):
-    # Independent fixture: writer is deliberately unchanged in the reader-only stage.
+    # Build headers independently to exercise how readers handle mixed or damaged history.
     initialize_database(db)
     with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute(
@@ -143,3 +147,68 @@ def test_strict_does_not_inspect_unknown_edition_for_a_future_business_date(tmp_
     seed_history(db, future)
     assert strict(db) is None
     assert assessment_by_id(db, context_id=future["context_id"]).document == future
+
+
+def test_default_writer_samples_wall_clock_and_retry_never_retimes(tmp_path):
+    db = tmp_path / "app"
+    old_time = datetime(2001, 1, 1, 12, tzinfo=UTC)
+    doc = MarketContextAssessment(
+        context_id="market-context-assessment-2001-01-01-measured",
+        as_of=old_time.date(),
+        known_at=old_time,
+        published_at=old_time,
+        summary="合成",
+        inputs=(),
+    )
+    before = datetime.now(UTC)
+    AssessmentService(db).publish(doc, expected_head=None)
+    after = datetime.now(UTC)
+    saved = assessment_by_id(db, context_id=doc.context_id)
+    assert before <= saved.recorded_at <= after
+    assert saved.document == doc.payload()
+    with closing(sqlite3.connect(db)) as conn:
+        assert conn.execute("SELECT payload FROM market_context_assessment").fetchone()[0] == (
+            canonical_json(doc.payload())
+        )
+
+    def no_clock():
+        pytest.fail("idempotence and CAS must be decided before sampling receipt")
+
+    writer = AssessmentService(db, clock=no_clock)
+    intact = db.read_bytes()
+    assert writer.publish(doc, expected_head=None) == doc
+    with pytest.raises(AssessmentConflictError, match="head changed"):
+        writer.publish(authored("other", C), expected_head=None)
+    assert db.read_bytes() == intact
+
+
+@pytest.mark.parametrize("delta", [-1, 0, 1])
+def test_new_receipt_must_follow_the_last_receipted_ancestor(tmp_path, delta):
+    db = tmp_path / "app"
+    first, legacy, fresh = (authored(x, C - 2 * TICK) for x in ("first", "legacy", "fresh"))
+    AssessmentService(db, clock=lambda: C).publish(first, expected_head=None)
+    seed_history(db, legacy.payload(), supersedes=first.context_id)
+    before = db.read_bytes()
+    writer = AssessmentService(db, clock=lambda: C.astimezone(UTC) + delta * TICK)
+    assert writer.publish(legacy, expected_head=first.context_id) == legacy
+    assert assessment_by_id(db, context_id=legacy.context_id).recorded_at is None
+    assert db.read_bytes() == before
+    if delta > 0:
+        writer.publish(fresh, expected_head=legacy.context_id)
+        assert assessment_by_id(db, context_id=fresh.context_id).recorded_at == C + TICK
+    else:
+        with pytest.raises(AssessmentConflictError, match="receipt did not advance"):
+            writer.publish(fresh, expected_head=legacy.context_id)
+        assert db.read_bytes() == before
+
+
+def test_future_author_stamp_does_not_displace_head(tmp_path):
+    db = tmp_path / "app"
+    prior = authored("prior", C - 2 * TICK)
+    writer = AssessmentService(db, clock=lambda: C)
+    writer.publish(prior, expected_head=None)
+    before = db.read_bytes()
+    with pytest.raises(ValueError, match="follows its actual receipt"):
+        writer.publish(authored("future", C + 2 * TICK), expected_head=prior.context_id)
+    assert writer.head_id() == prior.context_id
+    assert db.read_bytes() == before

@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
 from pydantic import ValidationError
 from tests.helpers.assessment_history import historical_context_payload as historical_payload
-from tests.helpers.assessment_history import seed_history
+from tests.helpers.assessment_history import publish_at_declared_time, seed_history
 
 from baibai_engine.cli.market_assessment import main
 from baibai_engine.investment_judgment.market_assessment.models import (
@@ -49,7 +50,7 @@ def document(
 
 
 def stored(doc):
-    return StoredAssessment.from_payload(doc.payload())
+    return replace(StoredAssessment.from_payload(doc.payload()), recorded_at=doc.published_at)
 
 
 def test_small_judgment_does_not_require_chapters_scenarios_or_scorecard():
@@ -139,8 +140,8 @@ def test_writer_revalidates_updated_models_before_touching_store(tmp_path, exist
 
 def test_writer_valid_copy_keeps_canonical_retry_and_publication_identity(tmp_path):
     db = tmp_path / "app.sqlite"
-    service = AssessmentService(db)
     original = document()
+    service = AssessmentService(db, clock=lambda: original.published_at)
     copied = original.model_copy(update={"summary": "追加の反証を確認した。"})
     expected = document(summary=copied.summary)
     assert service.publish(copied, expected_head=None) == expected
@@ -170,8 +171,10 @@ def test_known_at_normal_historical_and_weekend_selection(tmp_path):
     db = tmp_path / "app.sqlite"
     service = AssessmentService(db)
     for record in (friday, weekend):
-        service.publish(
-            MarketContextAssessment.model_validate(record.document), expected_head=service.head_id()
+        publish_at_declared_time(
+            db,
+            MarketContextAssessment.model_validate(record.document),
+            expected_head=service.head_id(),
         )
     assert (
         latest_assessment(
@@ -213,8 +216,10 @@ def test_selector_orders_real_instants_not_iso_strings(tmp_path):
     db = tmp_path / "app.sqlite"
     service = AssessmentService(db)
     for record in (early, late):
-        service.publish(
-            MarketContextAssessment.model_validate(record.document), expected_head=service.head_id()
+        publish_at_declared_time(
+            db,
+            MarketContextAssessment.model_validate(record.document),
+            expected_head=service.head_id(),
         )
     assert (
         latest_assessment(
@@ -350,7 +355,7 @@ def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions(
 def test_latest_does_not_decode_unselected_bodies(tmp_path, unused):
     db = tmp_path / "app.sqlite"
     chosen = document()
-    AssessmentService(db).publish(chosen, expected_head=AssessmentService(db).head_id())
+    publish_at_declared_time(db, chosen, expected_head=AssessmentService(db).head_id())
     other = chosen.payload()
     other["context_id"] = "market-context-assessment-2026-07-17-other"
     other["published_at"] = "2026-07-17T18:00:00+00:00"
@@ -380,9 +385,9 @@ def test_latest_broken_selected_body_does_not_fall_back(tmp_path):
         context_id="market-context-assessment-2026-07-17-older",
         published_at="2026-07-17T18:00:00+00:00",
     )
-    AssessmentService(db).publish(older, expected_head=None)
+    publish_at_declared_time(db, older, expected_head=None)
     chosen = document()
-    AssessmentService(db).publish(chosen, expected_head=AssessmentService(db).head_id())
+    publish_at_declared_time(db, chosen, expected_head=AssessmentService(db).head_id())
     with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute(
             "UPDATE market_context_assessment SET payload='[]' WHERE context_id=?",
@@ -411,7 +416,7 @@ def test_latest_orders_offset_and_microsecond_publications_at_exact_cutoffs(tmp_
         ),
     ]
     for item in documents:
-        AssessmentService(db).publish(item, expected_head=AssessmentService(db).head_id())
+        publish_at_declared_time(db, item, expected_head=AssessmentService(db).head_id())
     for cutoff, expected in (
         ("2026-07-17T08:00:00.000001+00:00", documents[1]),
         ("2026-07-17T08:00:00.000002+00:00", documents[2]),
