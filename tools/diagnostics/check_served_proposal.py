@@ -131,16 +131,21 @@ def main(argv: list[str] | None = None) -> int:
             ):
                 raise ValueError
             # 履歴全体のApp本文を再投影しないが、IDだけ残った壊れた表示を成功にしない。
+            publication_times = [proposal.published_at]
             for row in rows:
                 if row["proposal_id"] != fixed:
-                    SavedProposalView.model_validate_json(encode_json(row))
+                    saved = SavedProposalView.model_validate_json(encode_json(row))
+                    publication_times.append(saved.published_at)
             print(f"PASS {stage}")
             stage = "matching_view_timestamps"
             stamp = datetime.fromisoformat(latest["generated_at"])
             if (
                 stamp.utcoffset() is None
                 or history["generated_at"] != latest["generated_at"]
-                or stamp < proposal.published_at
+                or any(
+                    published.utcoffset() is None or stamp < published
+                    for published in publication_times
+                )
             ):
                 raise ValueError
             print(f"PASS {stage}")

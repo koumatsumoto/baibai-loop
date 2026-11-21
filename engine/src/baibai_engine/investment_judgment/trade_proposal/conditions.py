@@ -93,10 +93,7 @@ def no_action_blocker(
     if (
         thesis.status == "broken"
         and pair.review.primary_source_check == "verified"
-        and any(
-            source.source_tier == "primary" and source.source_id in thesis.source_ids
-            for source in assessment.input_snapshot.sources
-        )
+        and assessment.has_primary_case_source()
     ):
         return None  # 確認済みの事業反証は、株価や数値評価を必要としない。
     finding = assessment.price_value_case

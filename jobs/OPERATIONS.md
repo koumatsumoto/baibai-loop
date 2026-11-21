@@ -634,7 +634,9 @@ uv run baibai-jobs edinet-archives-native commit-stage --bucket <BUCKET> --direc
 uv run baibai-jobs rebuild-edinet-metrics --saved-input <INPUT.json> --output <NEW.sqlite> --asof <DATE> --lookback-days <N>
 ```
 
-TOBは`maintain-market build-tender-offer-exits --saved-input <INPUT.json>`で保存pairと必要type=5だけを使う。別の一覧/SQL ZIP/最新headで補わず、原本欠損/破損/decode失敗なら既存退出値を保つ。--asofは提出日/上場廃止日のcutoffで受領時点PITではない。引数なし旧SQL readerと明示refreshは別経路として残す。
+手動TOB退出値の再計算には `maintain-market build-tender-offer-exits --saved-input <INPUT.json> --asof <DATE> --sqlite-path <MARKET.sqlite>` を使う。EDINETは保存pairの一覧と必要なtype=5だけを読み、別の一覧・SQL ZIP・最新headで補わない。JPX上場廃止一覧は指定のSQLiteから読むため、当時の結果を再計算するには同じJPX投影も用意する。EDINET原本の欠損・破損・decode失敗時は既存の退出値を保つ。`--asof`は提出日と上場廃止日のcutoffで、受領時点の再現ではない。`--saved-input`なしの旧SQL読取と明示refreshは別経路として残す。
+
+手動TOB退出値と東証の資本政策一覧は任意の補助資料で、現行提案の入力ではない。[提案に使う監理・整理指定とEDINET書類参照](../docs/reference/trade-proposal.md#listing-and-price-basis)は別経路。
 
 旧SQL原本を含む作業copyは固定pairのkey・内容・初回保存日・scopeが照合できた時だけ原本cacheを除く。範囲外のZIP/scopeやnativeより早いSQL受領日は捨てずに停止する。全ZIPの再取得は不要。旧一覧cacheのあるhydrateには`--bucket`が必要で、初回の全体確認・必要なcompactの容量を確保する。新releaseの日次は固定一覧を一度読んで投影し、raw SQL複写/Parquet再exportはしない。単独publisherで固定pairを使う場合は`--saved-edinet-input`を明示する。
 

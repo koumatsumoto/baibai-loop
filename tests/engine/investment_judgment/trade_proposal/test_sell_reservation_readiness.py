@@ -7,7 +7,10 @@ from decimal import Decimal
 from functools import partial
 
 import pytest
+from tests.helpers.assessment_v1 import assessment_id, review_id, update_review_hash
+from tests.helpers.operation_proposal import seed_proposal
 from tests.helpers.proposal import (
+    PREPARED,
     PROPOSAL_ID,
     PUBLISHED,
     backend_case,
@@ -16,9 +19,11 @@ from tests.helpers.proposal import (
     reviewed_proposal,
 )
 
+from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
     ProposalError,
+    TradeProposal,
     order_readiness,
 )
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
@@ -49,6 +54,75 @@ RESERVATION_REASON = {
     "code": "active_reservation_exists",
     "message": "同銘柄の既存注文の処理確認が必要です。",
 }
+
+
+@pytest.mark.parametrize("link_primary", [False, True])
+def test_invalidation_sale_requires_primary_evidence_for_its_own_thesis(tmp_path, link_primary):
+    case = backend_case(tmp_path, holding=True, broken=True)
+    document = case.pair.document.model_dump(mode="json")
+    review = case.pair.review.model_dump(mode="json")
+    sources = document["input_snapshot"]["sources"]
+    annual = next(source for source in sources if source["source_id"] == "annual")
+    for source_id, tier in (("news-claim", "secondary"), ("new-filing", "primary")):
+        sources.append(
+            dict(
+                annual,
+                source_id=source_id,
+                source_tier=tier,
+                ref=f"https://example.invalid/{source_id}",
+            )
+        )
+        review["checked_source_ids"].append(source_id)
+    document["investment_case"]["source_ids"] = ["news-claim"] + (
+        ["new-filing"] if link_primary else []
+    )
+    review["review_id"] = review_id(8)
+    update_review_hash(document, review)
+    case.pair = AssessmentStoreService(
+        case.app, clock=lambda: PREPARED - timedelta(minutes=1)
+    ).publish_reviewed_assessment(
+        assessment_id(8), document, review, supersedes_id=case.pair.assessment_id
+    )
+    case.operations.record_assessment(
+        case.operation.operation_id, case.pair.assessment_id, now=PREPARED
+    )
+    raw = reviewed_proposal(case, action="sell").payload()
+    raw["items"][0].update(
+        terms=SELL_TERMS,
+        terms_unavailable_reasons=[],
+        case_reassessment_reason="合成：査読済み仮説の根拠を再確認した。",
+    )
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    ledger = LedgerStoreService(case.app)
+    ledger_before = ledger.load_with_head()
+    before = case.app.read_bytes()
+    result = service.check(proposal)
+    assert result.valid is link_primary
+    if link_primary:
+        saved = service.publish(proposal)
+    else:
+        assert "primary_evidence_requires_verification" in {r.code for r in result.blockers}
+        with pytest.raises(ProposalError, match="破綻"):
+            service.publish(proposal)
+        assert case.app.read_bytes() == before
+        saved = TradeProposal.model_validate({**proposal.payload(), "published_at": PUBLISHED})
+        seed_proposal(case.app, saved)
+    before_preview = case.app.read_bytes()
+    preview = preview_current_terms(
+        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+    )
+    assert preview.status == ("unchanged" if link_primary else "blocked")
+    row = preview.items[0]
+    assert row["saved_action"] == "sell"
+    assert row["saved_terms"] == saved.items[0].terms.model_dump(mode="json")
+    assert row["saved_limit_revalidation"]["quantity"] == (100 if link_primary else None)
+    if not link_primary:
+        assert "primary_evidence_requires_verification" in {r["code"] for r in row["blockers"]}
+        assert service.publish(proposal) == saved  # Exact retry, not a new publication.
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    assert case.app.read_bytes() == before_preview
+    assert ledger.load_with_head() == ledger_before
 
 
 @pytest.mark.parametrize("side", ["sell", "buy"])

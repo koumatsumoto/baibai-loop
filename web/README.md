@@ -21,6 +21,7 @@ Webは[エンジン](../docs/architecture.md#変更する場所)が保存した�
 
 - [表示生成](backend/src/baibai_web/materialize.py)は[読取元](backend/src/baibai_web/sources/)から[表示モデル](backend/src/baibai_web/readmodel/)を作る。生成、公開、認証済みレスポンスの読戻しは別の段階である。
 - [履歴画面](frontend/src/pages/ProposalHistoryPage.tsx)は発行履歴を使う。`/api/proposal/latest` は履歴の先頭ではない。訂正対象を除き、提案基準日を優先して選ぶ正式な最新一件で、[配信照合](../tools/diagnostics/check_served_proposal.py)も区別して検証する。
+- 提案の「表示データ生成」は一つのAppスナップショットを読んで二つの表示を作った時刻であり、提案発行時刻や過去時点の絞り込みではない。配信照合では、訂正された提案も含め、表示の生成が履歴内の発行より前でないことを確認する。
 - [生成ツール](backend/src/baibai_web/contracts_export.py)がPython表示モデルからschema・TypeScriptを作る。生成物は手編集しない。[Worker](edge/src/index.ts)は[配信経路](contracts/routes.json)の全viewに共通認証を適用する。
 
 環境準備とViteで確認できる範囲は[開発手順](../docs/development.md#webの確認)、本番での生成・公開・読戻し・Worker配備は[運用手順](../jobs/OPERATIONS.md#web-serving)へ。
