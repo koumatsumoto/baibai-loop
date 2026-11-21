@@ -327,11 +327,7 @@ def build_financial_snapshot(
         shares_outstanding,
         shares_prior.shares_outstanding if shares_prior else None,
     )
-    # 同じ前年行を、自己株式を除いた株数で測り直したもの。日本の自社株買いは取得した株式を
-    # 自己株式へ入れるだけで発行済株式総数を減らさないので、上の量が動くのは主に消却年で
-    # あって取得年ではない。当時の比較は既存 carry を維持する結論だった
-    # (docs/reference/estimate-calibration.md#carry-policy)。ここでは両方の fact を出し、
-    # carry の計算は変えない。
+    # 自社株を取得しても消却前は発行総数が減らない。自己株控除前後を分けて比べる。
     tradable_share_change_yoy = _yoy_ratio(
         shares_ex_treasury,
         _shares_excluding_treasury(

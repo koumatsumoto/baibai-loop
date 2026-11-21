@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.observations.economic_indicators.documents i
 SEP = date(2026, 9, 1)
 END = date(2026, 10, 29)
 WHEN = datetime(2026, 10, 29, tzinfo=UTC)
-URL = te.BASE_URL + "/japan/manufacturing-pmi/news/100"
+URL = "https://tradingeconomics.com/japan/manufacturing-pmi/news/100"
 FINAL = "S&P Global Japan Manufacturing PMI was confirmed at 54.1 in September 2026."
 FLASH = (
     "S&P Global Japan Manufacturing PMI rose to 54.1 in September 2026, "
@@ -56,7 +56,7 @@ def document(body, *, url=URL, stream="jp_manufacturing", when=WHEN):
     article = te.parse_article(body, stream=stream, url=url)
     return SourceDocument(
         source_id=source_id,
-        request_key=te.request_key(url),
+        request_key="te:" + url.rsplit("/", 1)[-1],
         source_url=url,
         content_type="text/html",
         fetched_at=when,
