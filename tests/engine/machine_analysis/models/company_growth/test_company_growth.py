@@ -812,6 +812,52 @@ def test_ttm_tied_prior_ends_do_not_resolve_conflicting_actual_starts():
     assert annual.metrics["sales"].reason == "accounting_periods_incomparable"
 
 
+@pytest.mark.parametrize("shift", [-46, -45, 45, 46])
+def test_ttm_skips_unrelated_end_dates_before_the_full_comparison(shift):
+    end = date(2024, 12, 31) + timedelta(days=shift)
+    # A shifted start keeps this period within the duration tolerance. At ±45
+    # days it remains a candidate, but cannot be combined with the prior FY.
+    start = date(2024, 4, 1) + timedelta(days=-30 if shift < 0 else 30)
+    prior = document(
+        2024,
+        3,
+        300,
+        CurPerSt=start.isoformat(),
+        CurPerEn=end.isoformat(),
+        DiscDate=(end + timedelta(days=30)).isoformat(),
+    )
+    current = document(2025, 3, 350)
+    with patch.object(
+        calculations, "prior_year_period_matches", wraps=prior_year_period_matches
+    ) as compare:
+        periods = states([document(2020, 3, 200), prior, document(2024, 4, 400), current])
+    checked = {
+        left.period_end
+        for (left, right), _ in compare.call_args_list
+        if right.period_end == date(2025, 12, 31)
+    }
+    inside = abs(shift) == 45
+    assert checked == ({end} if inside else set())
+    reason = "accounting_periods_incomparable" if inside else "matching_period_not_observed"
+    ttm = observation(periods[-1], "annual_ttm")
+    assert ttm.period_status == reason
+    assert ttm.metrics["sales"].reason == reason
+
+
+def test_equal_distance_ttm_priors_are_not_reduced_to_one_end_date():
+    earlier = document(2024, 1, 100, CurPerEn="2024-06-25", DiscNo="earlier")
+    later = document(2024, 1, 100, CurPerEn="2024-07-05", DiscNo="later")
+    tail = [document(2024, 4, 400), document(2025, 1, 130)]
+    for single in (earlier, later):
+        result = amount(states([single, *tail])[-1], "annual_ttm", "sales")
+        assert result.value == 430
+        assert result.reason is None
+    for order in ((earlier, later), (later, earlier)):
+        result = amount(states([*order, *tail])[-1], "annual_ttm", "sales")
+        assert result.value is None
+        assert result.reason == "accounting_periods_incomparable"
+
+
 @pytest.mark.parametrize(
     ("measurement", "quarter"), [("quarter", 2), ("quarter", 4), ("annual_ttm", 1)]
 )

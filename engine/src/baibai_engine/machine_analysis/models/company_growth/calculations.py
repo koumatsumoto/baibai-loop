@@ -274,36 +274,40 @@ def _derived(
             {metric: reported[metric] for metric, _ in _AMOUNT_FIELDS},
             "available",
         )
-    start = (
-        add_months_clamped(anchor.period_end, -12) + timedelta(days=1)
-        if ttm
-        else max(anchor.period_start, add_months_clamped(anchor.period_end, -3) + timedelta(days=1))
-    )
+    expected_end = add_months_clamped(anchor.period_end, -12 if ttm else -3)
+    start = expected_end + timedelta(days=1)
     selected_groups: list[list[Sequence[JQuantsFinancialSummary]]] = []
     if ttm:
+        tolerance_days = 45
+        expected_ordinal = expected_end.toordinal()
         prior_same = _closest_groups(
             [
                 g
                 for g in groups
-                if prior_year_period_matches(
-                    g[0], anchor, length_tolerance_ratio=0.1, end_tolerance_days=45
+                # 同じ期末許容幅の外は、開始日や期間長を比べるまでもない。
+                if (end := g[0].period_end) is not None
+                and abs(end.toordinal() - expected_ordinal) <= tolerance_days
+                and prior_year_period_matches(
+                    g[0], anchor, length_tolerance_ratio=0.1, end_tolerance_days=tolerance_days
                 )
             ],
-            expected_end=add_months_clamped(anchor.period_end, -12),
+            expected_end=expected_end,
         )
+        prior_fy_end = anchor.period_start - timedelta(days=1)
         prior_fy = _closest_groups(
             [
                 g
                 for g in groups
-                if g[0].fiscal_year_end == anchor.period_start - timedelta(days=1)
+                if g[0].fiscal_year_end == prior_fy_end
                 and (n := period_days(g[0])) is not None
                 and 330 <= n <= 371
             ],
-            expected_end=anchor.period_start - timedelta(days=1),
+            expected_end=prior_fy_end,
         )
         if prior_same and prior_fy:
             selected_groups = [prior_fy, prior_same]
     else:
+        start = max(anchor.period_start, start)
         previous = _closest_groups(
             [
                 g
@@ -313,7 +317,7 @@ def _derived(
                 and g[0].fiscal_year_end == anchor.fiscal_year_end
                 and 70 <= (anchor.period_end - g[0].period_end).days <= 110
             ],
-            expected_end=add_months_clamped(anchor.period_end, -3),
+            expected_end=expected_end,
         )
         if previous:
             selected_groups = [previous]
