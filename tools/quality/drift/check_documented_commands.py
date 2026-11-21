@@ -103,13 +103,13 @@ def _option_arity(parser: argparse.ArgumentParser, token: str) -> tuple[int, boo
     return None
 
 
-def _looks_like_option(parser: argparse.ArgumentParser, token: str) -> bool:
-    if not token.startswith("-") or token == "-":
+def _looks_like_option(parser: argparse.ArgumentParser, word: str) -> bool:
+    if not word.startswith("-") or word == "-":
         return False
-    if " " in token:
+    if " " in word:
         # An exact --option=value still wins over the quoted-space value rule.
-        return _option_arity(parser, token.partition("=")[0]) is not None
-    return _NEGATIVE_NUMBER.fullmatch(token) is None
+        return _option_arity(parser, word.partition("=")[0]) is not None
+    return _NEGATIVE_NUMBER.fullmatch(word) is None
 
 
 def _lacks_values(
