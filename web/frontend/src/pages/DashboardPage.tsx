@@ -249,7 +249,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
             {unrealizedPnl.yen === null && holdings.some((holding) => holding.market_value_yen === null)
               ? <span className="font-semibold text-muted-foreground">未評価</span>
               : <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />}
-            <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
+            <PctBadge className="text-xs" value={unrealizedPnl.pct} />
           </div>
           <div className="flex flex-col items-end gap-1">
             <TradingViewWatchlistExportButton
@@ -298,7 +298,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
                     : <YenAmount className="text-sm font-medium" value={holding.market_value_yen} />}
                   <span className="mt-1 flex items-center justify-end gap-2 text-xs">
                     <YenAmount sign tone="pnl" value={holding.unrealized_pnl_yen} />
-                    <PctBadge className="text-xs" tone="pnl" value={holding.unrealized_pnl_pct} />
+                    <PctBadge className="text-xs" value={holding.unrealized_pnl_pct} />
                   </span>
                 </TableCell>
                 <TableCell className="pr-5 text-right sm:pr-6"><TradingViewButton ticker={holding.ticker} /></TableCell>
@@ -340,8 +340,8 @@ export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) 
               <p className="break-all text-xs text-muted-foreground">{item.outcome_id}</p>
               {/* Use the same gain/loss colors for the comparison. */}
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                <span>ポート TWR <PctBadge className="text-xs" tone="pnl" value={item.portfolio_twr_pct} /></span>
-                <span>ベンチマーク <PctBadge className="text-xs" tone="pnl" value={item.benchmark_cumulative_return_pct} /></span>
+                <span>ポート TWR <PctBadge className="text-xs" value={item.portfolio_twr_pct} /></span>
+                <span>ベンチマーク <PctBadge className="text-xs" value={item.benchmark_cumulative_return_pct} /></span>
               </div>
               {item.reason && <p className="text-xs text-muted-foreground">{item.reason}</p>}
             </div>

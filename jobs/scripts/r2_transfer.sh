@@ -2,7 +2,6 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-(cd "${repo_root}" && uv run python -m baibai_jobs.observability.repository_layout)
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
 generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 # The lake mirror is a fetch-through cache of immutable objects, so it is named next to
@@ -782,8 +781,7 @@ pull_app() {
   pull_keys baibai.sqlite
 }
 
-# The new dashboard has its own serving key: publishing before the UI cutover
-# must not remove fields still read by the old deployed dashboard. Old keys stay untouched.
+# Only refresh the current views; a serving upload does not clean up other keys.
 upload_portfolio_views() {
   local directory="$1" name
   for name in portfolio-dashboard outcomes latest-proposal proposal-history; do
@@ -826,13 +824,41 @@ usage() {
   printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR|--daily-notice FILE]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
-if [[ "${2:-}" == "--daily-notice" ]]; then
-  [[ "${1:-}" == "push-machine" && $# -eq 3 && -n "$3" ]] || { usage; exit 2; }
+validate_command() {
+  local command="${1:-}"
+  case "$command" in
+    push-machine)
+      [[ $# -eq 1 || ( $# -eq 3 && ( "$2" == "--daily-notice" || "$2" == "--evidence-dir" ) && -n "$3" && "$3" != -* ) ]]
+      ;;
+    push-indicators)
+      shift
+      while [[ $# -gt 0 ]]; do
+        [[ $# -ge 2 && "$1" == "--recheck-source" && -n "$2" && "$2" != -* ]] || return 1
+        shift 2
+      done
+      ;;
+    upload-portfolio-views)
+      [[ $# -eq 2 && -n "$2" && "$2" != -* ]]
+      ;;
+    pull-app|pull-machine|pull-market|pull-runs|pull-indicators|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|seed-all|publish-lake|push-market|push-runs|push-app)
+      [[ $# -eq 1 ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# A mistyped argument must not turn a fixed-release or maintenance request into
+# a different operation. Refuse it before running helpers or reading credentials.
+validate_command "$@" || { usage; exit 2; }
+(cd "${repo_root}" && uv run python -m baibai_jobs.observability.repository_layout)
+
+if [[ "${1:-}" == "push-machine" && "${2:-}" == "--daily-notice" ]]; then
   # Check the producer's successful notice and local lake origin before any remote write.
   daily_origin="$(cd "${repo_root}" && uv run python -m baibai_jobs.publication.machine_origin "$3")"
   [[ -n "${daily_origin}" ]] || { printf 'daily machine origin is absent\n' >&2; exit 1; }
-elif [[ "${1:-}" == "push-machine" && $# -ne 1 ]]; then
-  [[ $# -eq 3 && "$2" == "--evidence-dir" && -n "$3" ]] || { usage; exit 2; }
+elif [[ "${1:-}" == "push-machine" && "${2:-}" == "--evidence-dir" ]]; then
   evidence_dir="$3"
   umask 077
   transfer_evidence started
@@ -866,7 +892,6 @@ case "${1:-}" in
     hydrate_market hydrate-portfolio
     ;;
   publish-lake)
-    [[ $# -eq 1 ]] || { usage; exit 2; }
     publish_lake
     ;;
   # A pass that only writes the market store round-trips the other two for nothing,
@@ -891,18 +916,12 @@ case "${1:-}" in
     ;;
   push-runs)
     # Explicit model-store maintenance; never re-upload unrelated machine stores.
-    [[ $# -eq 1 ]] || { usage; exit 2; }
     verify_publication_lease
     push_pulled_keys runs.sqlite
     ;;
   push-market)
     verify_publication_lease
-    # Deep history is fetched where there is time for it — hours of provider calls for a
-    # decade of bars — while the daily batch keeps adding recent days the deep copy has
-    # never seen. So the local store is only publishable once it contains the cloud copy:
-    # pull it, merge it in, and let the merge refuse the upload if any cloud row would be
-    # left behind. That check is what makes this safe to run outside GitHub Actions,
-    # where an unconditional upload would roll the daily batch back.
+    # A local copy can miss newer cloud rows. Merge them before the conditional PUT.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
     market_version="$(remote_version market.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/market.sqlite" "${transfer_staging}/market.sqlite"
@@ -915,15 +934,6 @@ case "${1:-}" in
     ;;
   push-indicators)
     shift
-    recheck_args=("$@")
-    while [[ $# -gt 0 ]]; do
-      if [[ $# -lt 2 || "$1" != "--recheck-source" || -z "$2" ]]; then
-        usage
-        exit 2
-      fi
-      shift 2
-    done
-    set -- "${recheck_args[@]}"
     verify_publication_lease
     # Compare local receipts with fresh canonical before combining original rows.
     # A local same-value recheck may be a real A→B→A change against the cloud.
@@ -955,7 +965,6 @@ case "${1:-}" in
     fi
     ;;
   upload-portfolio-views)
-    [[ $# -eq 2 ]] || { usage; exit 2; }
     [[ "${GITHUB_ACTIONS:-}" == "true" ]] || {
       printf 'refusing serving upload outside GitHub Actions\n' >&2
       exit 2

@@ -904,12 +904,6 @@ def value_replayed_state(
 def reservation_snapshots(state: ReplayedPortfolioState) -> tuple[ReservationSnapshot, ...]:
     """Expose active reservation facts from price-free event replay."""
 
-    return _reservation_snapshots(state.active_reservations)
-
-
-def _reservation_snapshots(
-    active: Mapping[str, _Reservation],
-) -> tuple[ReservationSnapshot, ...]:
     return tuple(
         ReservationSnapshot(
             reservation_id=item.reservation_id,
@@ -934,7 +928,7 @@ def _reservation_snapshots(
             expiry_label=item.expiry_label,
             route_label=item.route_label,
         )
-        for item in sorted(active.values(), key=lambda item: item.reservation_id)
+        for item in sorted(state.active_reservations.values(), key=lambda item: item.reservation_id)
     )
 
 
@@ -1201,27 +1195,7 @@ def estimated_exit_tax_yen(
         for holding in holdings
         if holding.market_value_yen is not None
     )
-    return estimated_exit_tax_for_gain_yen(
-        gross_unrealized_gain_yen=unrealized_gain,
-        rate_bps=rate_bps,
-        basis=basis,
-    )
-
-
-def estimated_exit_tax_for_gain_yen(
-    *,
-    gross_unrealized_gain_yen: int,
-    rate_bps: int | None,
-    basis: str | None,
-) -> int | None:
-    """Apply the ledger's configured future-exit-tax estimate to one gain."""
-    if rate_bps is None or basis is None:
-        return None
-    if gross_unrealized_gain_yen < 0:
-        raise ValueError("gross unrealized gain must not be negative")
-    if basis != "ledger_fifo_gross_unrealized_gain":
-        raise ValueError(f"unsupported estimated exit tax basis: {basis}")
-    return gross_unrealized_gain_yen * rate_bps // 10_000
+    return unrealized_gain * rate_bps // 10_000
 
 
 def active_human_overrides(

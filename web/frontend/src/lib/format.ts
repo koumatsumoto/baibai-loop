@@ -68,14 +68,12 @@ export function formatUnitPriceYen(value: number): string {
 }
 
 interface PctOptions {
-  readonly fraction?: boolean
   readonly digits?: number
   readonly sign?: boolean
 }
 
-/** Percentage text, e.g. `+12.3%`. `fraction` scales a 0–1 ratio to percent. */
-export function formatPct(value: number, { fraction = false, digits = 1, sign = false }: PctOptions = {}): string {
-  const percentage = fraction ? value * 100 : value
-  const prefix = sign && percentage > 0 ? '+' : ''
-  return `${prefix}${percentage.toFixed(digits)}%`
+/** Format a value already in percent, e.g. 12.3 as `12.3%`. */
+export function formatPct(value: number, { digits = 1, sign = false }: PctOptions = {}): string {
+  const prefix = sign && value > 0 ? '+' : ''
+  return `${prefix}${value.toFixed(digits)}%`
 }

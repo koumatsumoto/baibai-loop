@@ -11,28 +11,28 @@ description: 人間の明示開始から市場入力を固定し、重要な環�
 
 ## 入力・作成・発行
 
-開始/再開・発行ID読戻し・クラウド反映は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)へ。push-indicatorsではL3は反映されない。
+[applicationの作業DBと反映手順](../../../jobs/OPERATIONS.md#application-db-を反映する)を使う。確認と発行は同じ作業DBを指定し、L2の指標公開ではL3の判断を反映しない。
 
 1. 対象日as_ofと入力確定時刻known_atを固定し、保存Reading・市場/業種/個社状態と一次資料を読む。[補助観測](../../../jobs/OPERATIONS.md#判断直前の多市場補助観測)も時点/用途を守り、同じsource-handoffをreviewerへ渡す。
 2. 個社への含意を記し、別sessionのreviewerがsource・因果・反証を確認する。数値/単位/日付/限定を保ち、新根拠/判断は再Review。最大3巡で未解決なら発行せず人間へ上げる。
-3. Review PASSまたは人間のdraft承認後、known_atを保ち、初回発行直前の実時刻をpublished_atにしてcheck→head確認→CAS発行する。
+3. Review PASSまたは人間のdraft承認後、known_atを保ち、初回発行直前の実時刻を本文のpublished_atに記録する。check→head確認→CAS発行。checkは本文の構造確認だけで、headや独立検証の代わりではない。
 
 ```bash
-uv run baibai-engine investment-judgment market-context publish <DRAFT> --check
-uv run baibai-engine investment-judgment market-context head
-uv run baibai-engine investment-judgment market-context publish <DRAFT> --expected-head <CONTEXT_ID>
+uv run baibai-engine investment-judgment market-context --db <APP_DB> publish <DRAFT> --check
+uv run baibai-engine investment-judgment market-context --db <APP_DB> head
+uv run baibai-engine investment-judgment market-context --db <APP_DB> publish <DRAFT> --expected-head <CONTEXT_ID>
 ```
 
 expected-head省略はheadがnullの場合だけ。再送は同ID/内容/published_atを保つ。結果不明はIDで読戻し、CAS競合でheadだけ差替えない。発行後は本文を読戻して反映する。
 
 ```bash
-uv run baibai-engine investment-judgment market-context show --context-id <CONTEXT_ID>
-uv run baibai-engine investment-judgment market-context latest --asof <YYYY-MM-DD> --known-at <AWARE_DATETIME>
+uv run baibai-engine investment-judgment market-context --db <APP_DB> show --context-id <CONTEXT_ID>
+uv run baibai-engine investment-judgment market-context --db <APP_DB> latest --asof <YYYY-MM-DD> --known-at <AWARE_DATETIME>
 ```
 
 ## 選択と履歴
 
-as_of以下かつknown_atまでの実発行一件を選び、週末発行を対象日末cutoffで落とさない。provider公表時計をavailable_atへ捏造せず、新判断は実発行後のSelectionに固定する。
+新しい保存形式では、対象日がas_of以前で、実際の発行受付が照会のknown_atまでに済んだ一件を選ぶ。本文のpublished_atを前に書いても、発行受付を早めた扱いにはならない。旧本文はlatestの履歴照会に出ても、実受領時刻の証明ではなく新規選定には使わない。週末の受付を対象日末で切らず、提供元の公表時刻を取得時刻に読み替えない。
 
 個社判断へ渡す保存判断の情報締切は、その発行時刻や今回Selectionの締切とは別に読む。未収録の旧本文では不明のままとし、発行までの新情報を確認済みへ補完しない。旧Selectionの再開は元の固定投影を保持する。
 

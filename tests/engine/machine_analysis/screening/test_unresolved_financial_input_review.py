@@ -7,11 +7,13 @@ from tests.engine.machine_analysis.screening.test_financial_input_review import 
     case,
     change,
     current,
-    observations,
+    models,
     project_unchanged,
 )
 from tests.engine.machine_analysis.screening.test_stale_price_input_review import stale_case
+from tests.helpers.technical_discovery import _metadata
 
+from baibai_engine.machine_analysis.screening.policies.financial_growth import read_growth_discovery
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     financial_screening_lane,
 )
@@ -59,13 +61,19 @@ def test_unresolved_preserves_supported_input_reason_and_all_other_states(
     no_reason = deepcopy(data)
     no_reason["company_financials"]["earnings_price"]["unavailable_reason"] = "other"
     row, control = project_unchanged(data), project_unchanged(no_reason)
-    _, gate, coordinates, _ = observations(data)
+    gate, _ = read_growth_discovery(
+        "1234",
+        models=tuple(
+            model
+            for model in models(data)
+            if model.model_id in {"company_financials", "company_growth"}
+        ),
+        metadata=_metadata(),
+    )
     assert row["financial_state"] == control["financial_state"] == "input_unresolved"
     assert row["technical_state"] == control["technical_state"]
     assert row["screening_lane"] == "input_review"
     assert row["matched_paths"]["financial"] == row["coordinates"] == []
-    assert not any(p.eligible for p in coordinates.paths)
-    assert all(p.price_value is None for p in coordinates.paths)
     reason = "stale_price" if stale else "missing_capital_basis"
     assert f"financial:{reason}" in row["missing"]
     assert gate.state == "input_unresolved"

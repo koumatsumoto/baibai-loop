@@ -9,9 +9,6 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
-    normalize_financial_summaries,
-)
 from baibai_engine.machine_analysis.observations.normalization import (
     NormalizedRows,
     code_quality,
@@ -38,61 +35,6 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
     record_source_coverage,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-
-
-def store_jquants_fin_summaries(
-    db_path: Path,
-    records: Iterable[Mapping[str, Any]],
-    *,
-    requested_start: date,
-    requested_end: date,
-    fetched_at_utc: str | None = None,
-    connection: sqlite3.Connection | None = None,
-) -> int:
-    if requested_start > requested_end:
-        raise ValueError("financial request start must not follow end")
-    normalized = normalize_financial_summaries(records)
-    rows = normalized.rows
-    if any(
-        not requested_start.isoformat() <= str(row[1]) <= requested_end.isoformat() for row in rows
-    ):
-        raise ValueError("financial payload contains a disclosure date outside the request")
-    conn = connection if connection is not None else open_connection(db_path)
-    try:
-        delete_date_range(
-            conn,
-            "jquants_fin_summaries",
-            "disclosed_at",
-            requested_start,
-            requested_end,
-        )
-        if rows:
-            conn.executemany(
-                """
-                INSERT INTO jquants_fin_summaries(
-                  ticker, disclosed_at, disclosure_number, document_payload
-                ) VALUES (?, ?, ?, ?)
-                """,
-                rows,
-            )
-        persisted_count = record_range_source_coverage(
-            conn,
-            source="jquants_fin_summaries",
-            operation="get_fin_summary_range",
-            table="jquants_fin_summaries",
-            date_column="disclosed_at",
-            requested_start=requested_start,
-            requested_end=requested_end,
-            status=normalized.status,
-            error=normalized.error,
-            fetched_at_utc=fetched_at_utc,
-        )
-        if connection is None:
-            conn.commit()
-        return persisted_count
-    finally:
-        if connection is None:
-            conn.close()
 
 
 def store_jquants_weekly_margin(

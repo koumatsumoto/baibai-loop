@@ -22,7 +22,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.models.company_growth.reading import CompanyGrowthReader
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pages
-from baibai_engine.machine_analysis.screening.policies.discovery import read_discovery_observations
+from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
 from baibai_engine.primitives.json import canonical_json
 
 
@@ -70,10 +70,9 @@ def discovery_paths(generated):
             "market": InputSnapshot(kind="lake_release", reference="synthetic", sha256="a" * 64)
         },
     )
-    _, _, coordinates, _ = read_discovery_observations(
-        "9268", models=(*generated, market), metadata=metadata
-    )
-    return coordinates.paths
+    return project_discovery_row("9268", models=(*generated, market), metadata=metadata)[
+        "coordinates"
+    ]
 
 
 @pytest.mark.parametrize("prior_basis", ["IFRS", "JP", None])
@@ -141,12 +140,11 @@ def test_annual_growth_path_cannot_use_old_increase_instead_of_restated_decline(
     docs, pdf = annual_inputs()
     generated = models(documents=docs, pdfs=[pdf])
     paths = discovery_paths(generated)
-    path = next(p for p in paths if p.path_id == "business_expansion" and p.variant == "annual_ttm")
-    assert path.business_value == pytest.approx((315_507 - 400_000) / 400_000)
-    assert not path.eligible
+    assert not any(p["path_id"] == "business_expansion" for p in paths)
     # The correction is not a new company veto or an investment decision.
-    assert any(p.path_id == "earning_power" and p.eligible for p in paths)
+    assert any(p["path_id"] == "earning_power" for p in paths)
     change = comparisons(generated[1], "annual_ttm")["sales"]
+    assert change["rate"] == pytest.approx((315_507 - 400_000) / 400_000)
     assert (change["from_value"], change["to_value"]) == (400_000_000_000, 315_507_000_000)
     assert (change["from_end"], change["to_end"]) == ("2025-03-31", "2026-03-31")
     assert change["source_sha256"] == pdf.source_sha256

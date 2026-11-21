@@ -56,6 +56,17 @@ describe('Dashboard valuation display', () => {
     expect(outcomes).toContain('未報告分は含みません')
   })
 
+  it('shows the two stored returns as percentage points without rescaling or conflating their sign', () => {
+    const html = renderToStaticMarkup(createElement(OutcomeCard, { outcomes: [{
+      outcome_id: 'synthetic-outcome', horizon: '1y',
+      period_start_date: '2025-09-24', period_end_date: '2026-09-24',
+      status: 'resolved', reason: null,
+      portfolio_twr_pct: 0.4, benchmark_cumulative_return_pct: -2.5,
+    }] }))
+    expect(html).toMatch(/ポート TWR <span[^>]*text-profit[^>]*>\+0\.4%/)
+    expect(html).toMatch(/ベンチマーク <span[^>]*text-loss[^>]*>-2\.5%/)
+  })
+
   it('shows pending buy and sell orders without treating sell proceeds as reserved cash', () => {
     const reservations: ReservationView[] = [
       { reservation_id: 'buy', side: 'buy', ticker: '1111', sector: '情報・通信業', remaining_quantity: 200, price_guard_yen: '1000', reserved_yen: 200000, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中', route_label: '取引所（自動振分）' },

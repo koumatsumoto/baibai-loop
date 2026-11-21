@@ -459,8 +459,41 @@ def test_classification_uses_native_product_not_sector(tmp_path, product_categor
         sqlite_path=case.market,
         now=PREPARED,
     )
-    assert context.calculations["1234"]["maximum_common_grid_price_yen"] == (
-        "1000" if expected_common else None
+    row = context.calculations["1234"]
+    assert row["maximum_common_grid_price_yen"] == ("1000" if expected_common else None)
+    if not expected_common:
+        _assert_buy_context_keeps_price_math_without_terms(
+            row, "security_classification_unavailable"
+        )
+
+
+def _assert_buy_context_keeps_price_math_without_terms(row, code):
+    assert row["current_quote_projection"]["price_yen"] == 1100
+    assert row["maximum_common_grid_price_yen"] is None
+    for key in ("buy_at_actual_quote", "calculation_at_maximum_price"):
+        result = row[key]
+        assert Decimal(result["maximum_price_yen"]) == 1000
+        assert result["limit_price_projection"] is not None
+        assert code in {reason["code"] for reason in result["hard_blockers"]}
+        assert result["quantity"] == 0
+        assert result["maximum_quantity"] is None
+        assert result["capital_comparison"] is None
+
+
+def test_unknown_order_session_keeps_per_share_arithmetic_in_authoring(tmp_path):
+    case = backend_case(tmp_path)
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("DELETE FROM jquants_market_calendar WHERE day = '2026-10-15'")
+    context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
+        operation_id=case.operation.operation_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PREPARED,
+    )
+    assert context.next_order_session is None
+    _assert_buy_context_keeps_price_math_without_terms(
+        context.calculations["1234"], "order_session_unknown"
     )
 
 

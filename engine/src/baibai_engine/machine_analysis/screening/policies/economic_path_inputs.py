@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import date, timedelta
 from math import isclose, isfinite
 from typing import cast
 
 from pydantic import JsonValue
 
-from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
+from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 from baibai_engine.machine_analysis.models.company_financials.earnings import read_earnings_price
 from baibai_engine.machine_analysis.models.company_growth.models import (
     Change,
@@ -24,17 +23,14 @@ from baibai_engine.machine_analysis.models.company_growth.reading import (
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     is_annual_period,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_paths import (
-    CompanyCoordinates,
-    PathCoordinates,
-)
-from baibai_engine.primitives.stocks import sector_33_peer_key
+from baibai_engine.machine_analysis.screening.discovery_contract import EconomicCoordinate
 
 _PATH_METRICS: tuple[Metric, ...] = (
     "sales",
     "operating_profit",
     "operating_margin",
 )
+_RECOVERY_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin")
 _INCOME_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin", "parent_profit")
 
 
@@ -42,153 +38,120 @@ def read_policy_growth(model: GeneratedModel | None) -> CompanyGrowthReader:
     return CompanyGrowthReader(_growth_policy_inputs(model.payload if model is not None else None))
 
 
-def _project_economic_paths(
-    ticker: str,
+def project_economic_coordinates(
+    financial_model: dict[str, JsonValue],
     *,
-    index: dict[str, GeneratedModel],
-    metadata: GenerationMetadata,
-    growth_read: CompanyGrowthReader,
-) -> tuple[CompanyCoordinates, str | None]:
-    payloads = {key: model.payload for key, model in index.items()}
-    valuation = payloads.get("company_financials", {})
-    financial = _object(valuation.get("financial"))
-    earnings = _object(valuation.get("earnings_price"))
+    sector: str | None,
+    as_of: date,
+    growth: CompanyGrowthReader,
+) -> tuple[list[EconomicCoordinate], str | None]:
+    financial = _object(financial_model.get("financial"))
+    earnings = _object(financial_model.get("earnings_price"))
     earnings_read = read_earnings_price(earnings) if earnings else None
-    market = payloads.get("market_context", {})
-    master = _object(market.get("master"))
-    sector = sector_33_peer_key(master.get("sector_33"))
-    sector_group = sector or "unknown_sector"
+    # 業種不明は比較群ではない。元の財務モデルは照会できるが、座標は公表しない。
+    if sector is None:
+        return [], None
     cap = _positive(earnings.get("market_cap_yen"))
+    expected = financial_model.get("expected_price_date")
+    price_on_expected_day = isinstance(expected, str) and earnings.get("price_date") == expected
     pricing_valid = (
         cap is not None
         and _positive(earnings.get("price_yen")) is not None
         and _positive(earnings.get("shares_ex_treasury")) is not None
-        and _text(valuation.get("expected_price_date")) is not None
-        and earnings.get("price_date") == valuation.get("expected_price_date")
+        and price_on_expected_day
     )
     if not pricing_valid:
         cap = None
-    share_input_gap = (
-        sector is not None
-        and earnings_read is not None
-        and earnings_read.unavailable_reason
-        in {
-            "missing_capital_basis",
-            "indeterminate_treasury_after_later_issued_observation",
-            "indeterminate_treasury_after_capital_action",
-        }
-        and earnings_read.shares_ex_treasury is None
-        and earnings_read.market_cap_yen is None
-        and _positive(earnings_read.price_yen) is not None
-        and _text(valuation.get("expected_price_date")) is not None
-        and earnings.get("price_date") == valuation.get("expected_price_date")
-    )
-    expected_price_date = _date(valuation.get("expected_price_date"))
-    stale_price_gap = (
-        sector is not None
-        and earnings_read is not None
-        and earnings_read.unavailable_reason == "stale_price"
-        and _positive(earnings_read.price_yen) is not None
-        and _positive(earnings_read.shares_ex_treasury) is not None
-        and _positive(earnings_read.market_cap_yen) is not None
-        and earnings_read.price_date is not None
-        and expected_price_date is not None
-        and earnings_read.price_date < expected_price_date <= metadata.as_of
-    )
-    price_input_reason = (
-        earnings_read.unavailable_reason
-        if earnings_read is not None and (share_input_gap or stale_price_gap)
-        else None
-    )
-    review_reason = None
     y = _number(earnings.get("earnings_yield")) if pricing_valid else None
-    anchor = growth_read.latest_period
-    annual = growth_read.observation(anchor, "annual_ttm")
-    quarter = growth_read.observation(anchor, "quarter")
-    reported = growth_read.observation(anchor, "reported")
-    full_fy = growth_read.latest_full_fy
+    price_input_reason = None
+    if earnings_read is not None and _positive(earnings_read.price_yen) is not None:
+        share_gap = (
+            earnings_read.unavailable_reason
+            in {
+                "missing_capital_basis",
+                "indeterminate_treasury_after_later_issued_observation",
+                "indeterminate_treasury_after_capital_action",
+            }
+            and earnings_read.shares_ex_treasury is None
+            and earnings_read.market_cap_yen is None
+            and price_on_expected_day
+        )
+        expected_date = _date(expected)
+        stale_price = (
+            earnings_read.unavailable_reason == "stale_price"
+            and _positive(earnings_read.shares_ex_treasury) is not None
+            and _positive(earnings_read.market_cap_yen) is not None
+            and earnings_read.price_date is not None
+            and expected_date is not None
+            and earnings_read.price_date < expected_date <= as_of
+        )
+        if share_gap or stale_price:
+            price_input_reason = earnings_read.unavailable_reason
+
+    anchor = growth.latest_period
+    annual = growth.observation(anchor, "annual_ttm")
+    full_fy = growth.latest_full_fy
     use_full_fy = _can_use_full_fy(anchor, annual, full_fy)
     annual_variant = "full_fy" if use_full_fy else "annual_ttm"
-    annual_observations: dict[str, Observation | None] = {"annual_ttm": annual}
-    if full_fy is not None:
-        annual_observations["full_fy"] = full_fy
-    changes: dict[str, dict[str, dict[str, JsonValue]]] = {
-        variant: {
-            metric: _change(
-                growth_read,
-                observation,
-                metric,
-                disclosed_by=metadata.as_of if variant == "full_fy" else None,
+    if use_full_fy:
+        annual = full_fy
+    quarter = growth.observation(anchor, "quarter")
+    annual_cutoff = as_of if use_full_fy else None
+
+    coordinates: list[EconomicCoordinate] = []
+    review_reason = None
+    margin = metric_value(annual, "operating_margin", disclosed_by=annual_cutoff)
+    if use_full_fy:
+        # 古い好業績で、既知の直近の赤字・ゼロを埋めない。
+        reported = growth.observation(anchor, "reported")
+        adverse = any(
+            value is not None and value <= 0
+            for metric in _INCOME_METRICS
+            for value in (
+                metric_value(quarter, metric, disclosed_by=as_of),
+                metric_value(reported, metric, disclosed_by=as_of),
             )
-            for metric in _PATH_METRICS
-        }
-        for variant, observation in {"quarter": quarter, **annual_observations}.items()
-    }
-    # A historical FY cannot restore positive earning power after observed newer weakness.
-    full_fy_income_adverse = use_full_fy and any(
-        value is not None and value <= 0
-        for metric in _INCOME_METRICS
-        for value in (
-            metric_value(quarter, metric, disclosed_by=metadata.as_of),
-            metric_value(reported, metric, disclosed_by=metadata.as_of),
         )
-    )
-    earnings_period = earnings_read.profit_period if earnings_read is not None else (None, None)
-    paths = []
-    for variant, observation in annual_observations.items():
-        fy = variant == "full_fy"
-        profit_yield = (
-            _ratio(metric_value(observation, "parent_profit", disclosed_by=metadata.as_of), cap)
-            if fy
-            else y
-        )
-        margin = metric_value(
-            observation, "operating_margin", disclosed_by=metadata.as_of if fy else None
-        )
-        income_aligned = observation is not None and (
-            observation.statement_basis == "consolidated"
-            if fy
-            else earnings_period == (observation.period_start, observation.period_end)
+        income_aligned = annual is not None and annual.statement_basis == "consolidated"
+        profit = metric_value(annual, "parent_profit", disclosed_by=as_of)
+        profit_yield = _ratio(profit, cap)
+    else:
+        adverse = False
+        income_aligned = (
+            annual is not None
             and earnings_read is not None
+            and earnings_read.profit_period == (annual.period_start, annual.period_end)
             and earnings_read.statement_basis in {"consolidated", "nonconsolidated"}
-            and earnings_read.statement_basis == observation.statement_basis
+            and earnings_read.statement_basis == annual.statement_basis
             and earnings_read.accounting_standard is not None
-            and earnings_read.accounting_standard == observation.accounting_standard
+            and earnings_read.accounting_standard == annual.accounting_standard
         )
         profit = (
-            metric_value(observation, "parent_profit", disclosed_by=metadata.as_of)
-            if fy
-            else earnings_read.profit_ttm_yen
-            if earnings_read is not None
-            and all(item.disclosed_at <= metadata.as_of for item in earnings_read.profit_components)
+            earnings_read.profit_ttm_yen
+            if price_input_reason is not None
+            and earnings_read is not None
+            and all(item.disclosed_at <= as_of for item in earnings_read.profit_components)
             else None
         )
-        if (
-            price_input_reason is not None
-            and variant == annual_variant
-            and income_aligned
-            and _is_positive(profit)
-            and _is_positive(margin)
-            and (not fy or not full_fy_income_adverse)
-        ):
+        profit_yield = y
+    if income_aligned and _is_positive(margin) and not adverse:
+        if price_input_reason is not None and _is_positive(profit):
             review_reason = price_input_reason
-        paths.append(
-            PathCoordinates(
-                path_id="earning_power",
-                variant=variant,
-                price_value=profit_yield,
-                business_value=margin,
-                price_group=f"market:reported_{variant}_earnings",
-                business_group=f"{sector_group}:{variant}_margin",
-                eligible=variant == annual_variant
-                and income_aligned
-                and _is_positive(profit_yield)
-                and _is_positive(margin)
-                and (not fy or not full_fy_income_adverse),
+        if _is_positive(profit_yield):
+            coordinates.append(
+                EconomicCoordinate(
+                    path_id="earning_power",
+                    variant=annual_variant,
+                    price_value=profit_yield,
+                    business_value=margin,
+                    price_group=f"market:reported_{annual_variant}_earnings",
+                    business_group=f"{sector}:{annual_variant}_margin",
+                )
             )
-        )
-    # Do not escape an observed deterioration through a missing companion metric.
-    quarter_sales = changes["quarter"]["sales"]
+
+    # 既知の四半期悪化を、もう一つの指標の欠測や好調な年次で隠さない。
+    quarter_changes = {metric: _change(growth, quarter, metric) for metric in _PATH_METRICS}
+    quarter_sales = quarter_changes["sales"]
     quarter_sales_difference = _number(quarter_sales.get("difference"))
     expansion_variant = (
         "quarter"
@@ -199,106 +162,88 @@ def _project_economic_paths(
     quarter_deterioration = any(
         value is not None and value <= 0
         for value in (
-            _number(changes["quarter"][metric].get("difference"))
+            _number(quarter_changes[metric].get("difference"))
             for metric in ("operating_profit", "operating_margin")
         )
     )
     recovery_variant = (
         "quarter"
-        if _recovery_available(changes["quarter"]) or quarter_deterioration
+        if _recovery_available(quarter_changes) or quarter_deterioration
         else annual_variant
     )
-    for variant in changes:
-        sales_variant = annual_variant if variant == "quarter" else variant
-        sales_observation = annual_observations[sales_variant]
-        sales = metric_value(
-            sales_observation,
-            "sales",
-            disclosed_by=metadata.as_of if sales_variant == "full_fy" else None,
-        )
-        sales_price = _ratio(sales, cap)
-        change = changes[variant]
-        sales_change = change["sales"]
-        rate = _number(sales_change.get("rate"))
-        if (
-            price_input_reason is not None
-            and variant == expansion_variant
-            and _is_positive(sales)
-            and _is_positive(rate)
-        ):
-            review_reason = price_input_reason
-        paths.append(
-            PathCoordinates(
-                path_id="business_expansion",
-                variant=variant,
-                price_value=sales_price,
-                business_value=rate,
-                price_group=f"{sector_group}:{sales_variant}_sales_price",
-                business_group=f"{sector_group}:{variant}:sales_growth",
-                eligible=variant == expansion_variant
-                and _is_positive(sales_price)
-                and _is_positive(rate),
+    # 先に採用期間を選び、保存しない期間の座標は計算しない。公開配列は従来の期間順を保つ。
+    for variant in ("quarter", annual_variant):
+        if variant == expansion_variant:
+            sale_change = (
+                quarter_sales
+                if variant == "quarter"
+                else _change(growth, annual, "sales", disclosed_by=annual_cutoff)
             )
-        )
-        op_change = change["operating_profit"]
-        margin_change = change["operating_margin"]
-        improvement = _number(op_change.get("difference"))
-        margin_improvement = _number(margin_change.get("difference"))
-        recovery_price = _ratio(improvement, cap)
-        paths.append(
-            PathCoordinates(
-                path_id="operating_recovery",
-                variant=variant,
-                price_value=recovery_price,
-                business_value=margin_improvement,
-                price_group=f"{sector_group}:{variant}:operating_change_price",
-                business_group=f"{sector_group}:{variant}:margin_change",
-                eligible=variant == recovery_variant
-                and _recovery_available(change)
-                and _is_positive(improvement)
-                and _is_positive(margin_improvement)
-                and _is_positive(recovery_price),
+            rate = _number(sale_change.get("rate"))
+            if _is_positive(rate):
+                sales = metric_value(annual, "sales", disclosed_by=annual_cutoff)
+                if price_input_reason is not None and _is_positive(sales):
+                    review_reason = price_input_reason
+                sales_price = _ratio(sales, cap)
+                if _is_positive(sales_price):
+                    coordinates.append(
+                        EconomicCoordinate(
+                            path_id="business_expansion",
+                            variant=variant,
+                            price_value=sales_price,
+                            business_value=rate,
+                            price_group=f"{sector}:{annual_variant}_sales_price",
+                            business_group=f"{sector}:{variant}:sales_growth",
+                        )
+                    )
+        if variant == recovery_variant:
+            changes = (
+                quarter_changes
+                if variant == "quarter"
+                else {
+                    metric: _change(growth, annual, metric, disclosed_by=annual_cutoff)
+                    for metric in _RECOVERY_METRICS
+                }
             )
-        )
-    # 選択した分母の出典があっても、利益と同期間の普通株/平均資本とは限らない。
+            if _recovery_available(changes):
+                improvement = _number(changes["operating_profit"].get("difference"))
+                margin_improvement = _number(changes["operating_margin"].get("difference"))
+                if _is_positive(improvement) and _is_positive(margin_improvement):
+                    recovery_price = _ratio(improvement, cap)
+                    if _is_positive(recovery_price):
+                        coordinates.append(
+                            EconomicCoordinate(
+                                path_id="operating_recovery",
+                                variant=variant,
+                                price_value=recovery_price,
+                                business_value=margin_improvement,
+                                price_group=f"{sector}:{variant}:operating_change_price",
+                                business_group=f"{sector}:{variant}:margin_change",
+                            )
+                        )
+
+    # 利益と同じ期間の普通株/平均資本を実測したROEではない。
     pbr = _positive(financial.get("pbr"))
     financial_cap = _positive(financial.get("market_cap"))
-    capital_pricing_aligned = (
-        cap is not None
+    if (
+        pbr is not None
+        and y is not None
+        and cap is not None
         and financial_cap is not None
         and isclose(cap, financial_cap, rel_tol=1e-12, abs_tol=0)
-    )
-    book_price = _ratio(1.0, pbr) if capital_pricing_aligned else None
-    implied_profit_book = (
-        _number(pbr * y) if pbr is not None and y is not None and capital_pricing_aligned else None
-    )
-    paths.append(
-        PathCoordinates(
-            path_id="capital_productivity",
-            variant="reported_profit_latest_book",
-            price_value=book_price,
-            business_value=implied_profit_book,
-            price_group=f"{sector_group}:book_price",
-            business_group=f"{sector_group}:reported_profit_book",
-            eligible=book_price is not None and _is_positive(implied_profit_book),
-        )
-    )
-    if sector is None:
-        paths = [
-            replace(
-                item,
-                price_value=item.price_value if item.path_id == "earning_power" else None,
-                business_value=None,
-                eligible=False,
+    ):
+        book_price, implied_profit_book = _ratio(1.0, pbr), _number(pbr * y)
+        if book_price is not None and _is_positive(implied_profit_book):
+            coordinates.append(
+                EconomicCoordinate(
+                    path_id="capital_productivity",
+                    variant="reported_profit_latest_book",
+                    price_value=book_price,
+                    business_value=implied_profit_book,
+                    price_group=f"{sector}:book_price",
+                    business_group=f"{sector}:reported_profit_book",
+                )
             )
-            for item in paths
-        ]
-    coordinates = CompanyCoordinates(
-        ticker=ticker,
-        name=_text(master.get("name")),
-        sector=sector,
-        paths=tuple(paths),
-    )
     return coordinates, review_reason
 
 
@@ -445,7 +390,7 @@ def _change(
     return saved
 
 
-def _recovery_available(changes: dict[str, dict[str, JsonValue]]) -> bool:
+def _recovery_available(changes: dict[Metric, dict[str, JsonValue]]) -> bool:
     op = changes["operating_profit"]
     margin = changes["operating_margin"]
     dates = ("from_start", "from_end", "to_start", "to_end")

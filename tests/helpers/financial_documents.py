@@ -2,7 +2,50 @@
 
 from __future__ import annotations
 
+from contextlib import closing
+from datetime import date
+from pathlib import Path
 from typing import Any
+
+from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
+    normalize_financial_summaries,
+)
+from baibai_engine.storage.sqlite.source_cache.coverage import (
+    delete_date_range,
+    record_range_source_coverage,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+
+
+def seed_legacy_financial_sqlite(
+    path: Path, records, *, requested_start: date, requested_end: date, fetched_at_utc=None
+) -> int:
+    """Arrange prior-release rows for read, merge and restore tests, not new financial input."""
+    batch = normalize_financial_summaries(records)
+    assert requested_start <= requested_end
+    assert all(
+        requested_start.isoformat() <= row[1] <= requested_end.isoformat() for row in batch.rows
+    )
+    with closing(open_connection(path)) as connection, connection:
+        delete_date_range(
+            connection, "jquants_fin_summaries", "disclosed_at", requested_start, requested_end
+        )
+        connection.executemany(
+            "INSERT INTO jquants_fin_summaries(ticker, disclosed_at, disclosure_number, document_payload) VALUES (?, ?, ?, ?)",
+            batch.rows,
+        )
+        return record_range_source_coverage(
+            connection,
+            source="jquants_fin_summaries",
+            operation="get_fin_summary_range",
+            table="jquants_fin_summaries",
+            date_column="disclosed_at",
+            requested_start=requested_start,
+            requested_end=requested_end,
+            status=batch.status,
+            error=batch.error,
+            fetched_at_utc=fetched_at_utc,
+        )
 
 
 def document(

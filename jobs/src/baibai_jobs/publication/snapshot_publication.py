@@ -1,9 +1,8 @@
 """Export the market store into the lake, seal a release, and publish it to R2.
 
-This is the write half of the daily cutover. Its read half is
-``baibai-jobs snapshots hydrate``. Publication requires the serving release to remain
-the one the store was filled from. That identity lives in the SQLite file itself:
-a sidecar can be restored or copied independently and cannot prove the exported rows.
+Publication requires the serving release to remain the one ``snapshots hydrate``
+filled the store from. SQLite records that origin with the rows; a separate
+sidecar cannot establish their origin after copying or restoration.
 
 Native source projections use fixed L1 identities; other datasets use the store snapshot.
 The serving release supplies the required store origin and history floor; its partitions

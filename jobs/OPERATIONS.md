@@ -83,7 +83,7 @@ uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores --fo
 <a id="local-release-hydrate"></a>
 ### 完全local mirrorからのhydrate
 
-固定したreleaseの値を調べるには、[`snapshots hydrate`](src/baibai_jobs/publication/snapshot_write_cli.py)へそのIDと同じmanifestのSHA-256を**両方**渡す。`r2_transfer.sh hydrate-market`はcurrent用で、release指定を受け渡さない。過去releaseの代用にしない。
+固定したreleaseの値を調べるには、[`snapshots hydrate`](src/baibai_jobs/publication/snapshot_write_cli.py)へそのIDと同じmanifestのSHA-256を**両方**渡す。current専用の `r2_transfer.sh hydrate-market` は引数を受け付けない。
 
 ```bash
 uv run baibai-jobs snapshots hydrate \

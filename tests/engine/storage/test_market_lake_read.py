@@ -1901,16 +1901,7 @@ def test_obsolete_market_store_is_rejected_before_lake_work(tmp_path: Path) -> N
 
 
 class TestOperatorDerivedRetraction:
-    """A derivation that drops a row must not have it come back through the lake.
-
-    `jpx_delistings` and `tender_offer_exit_values` were kept out of the lake precisely
-    because a key-wise merge would reinstate a row a later derivation retracted — an
-    offer that turned out to have a second bidder, a company the exchange removed from
-    its list — and put a price into the calibration forward that the current rules say
-    cannot be established. Lake ownership answers that rather than working around it:
-    hydrate empties the table before it fills, so absence in the newer generation is
-    what the store ends up holding. This is the test that says so.
-    """
+    """Hydration must not revive a tender-offer exit value absent in the newer release."""
 
     @pytest.fixture(autouse=True)
     def _policy(self, _small_pilot_release_policy: None, monkeypatch: pytest.MonkeyPatch) -> None:

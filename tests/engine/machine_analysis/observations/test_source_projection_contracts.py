@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 from tests.helpers.edinet_documents import store_edinet_documents
+from tests.helpers.financial_documents import seed_legacy_financial_sqlite
 
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
@@ -32,7 +33,6 @@ from baibai_engine.machine_analysis.observations.jquants_decode import (
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
-    store_jquants_fin_summaries,
     store_jquants_margin_alerts,
     store_jquants_weekly_margin,
 )
@@ -42,7 +42,6 @@ from baibai_engine.machine_analysis.observations.normalization import (
     to_str_or_none,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _earnings_snapshot(on_date: date = date(2026, 5, 15)) -> JPXEarningsCalendarSnapshot:
@@ -89,46 +88,10 @@ class SourceProjectionTests(unittest.TestCase):
         self.assertEqual(to_float(0), 0.0)
         self.assertEqual(to_str_or_none(0), "0")
 
-    def test_fin_summaries_source_coverage_counts_persisted_unique_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            rows = store_jquants_fin_summaries(
-                db,
-                [
-                    {
-                        "Code": "72030",
-                        "DiscDate": "2026-05-08",
-                        "Sales": 100,
-                        "DiscNo": "synthetic-document",
-                    },
-                    {
-                        "Code": "72030",
-                        "DiscDate": "2026-05-08",
-                        "Sales": 100,
-                        "DiscNo": "synthetic-document",
-                    },
-                ],
-                requested_start=date(2026, 5, 8),
-                requested_end=date(2026, 5, 8),
-            )
-            conn = sqlite3.connect(db)
-            try:
-                table_count = conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()
-                coverage = conn.execute(
-                    "SELECT record_count FROM source_coverage WHERE source = ?",
-                    ("jquants_fin_summaries",),
-                ).fetchone()
-            finally:
-                conn.close()
-
-            self.assertEqual(rows, 1)
-            self.assertEqual(table_count[0], 1)
-            self.assertEqual(coverage, (1,))
-
     def test_fin_summaries_do_not_alias_average_shares_to_gross_issued(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -160,7 +123,7 @@ class SourceProjectionTests(unittest.TestCase):
         # Period selection belongs to L2; storage keeps both provider slots intact.
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -197,7 +160,7 @@ class SourceProjectionTests(unittest.TestCase):
     def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -245,7 +208,7 @@ class SourceProjectionTests(unittest.TestCase):
     def test_pandas_missing_current_forecasts_do_not_cross_periods(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -281,7 +244,7 @@ class SourceProjectionTests(unittest.TestCase):
     def test_fin_summaries_keep_zero_current_forecasts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -318,7 +281,7 @@ class SourceProjectionTests(unittest.TestCase):
         # Storage retains both slots; the reader projects the applicable fiscal period.
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -369,7 +332,7 @@ class SourceProjectionTests(unittest.TestCase):
             self.assertEqual(by_ticker["9715"].forecast_profit, 2000000000.0)
             self.assertEqual(by_ticker["9715"].forecast_ordinary_profit, 2500000000.0)
 
-    def test_fin_summaries_shifted_chunk_refetch_keeps_coverage_contiguous(self) -> None:
+    def test_range_coverage_merges_shifted_complete_chunks(self) -> None:
         """A later bootstrap anchors chunk boundaries at a new asof, so a re-fetch only
         partially overlaps an existing window. Recording it must merge into the union,
         not delete-and-shrink the window and orphan its earlier part -- otherwise
@@ -377,7 +340,7 @@ class SourceProjectionTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -396,7 +359,7 @@ class SourceProjectionTests(unittest.TestCase):
                 requested_start=date(2026, 5, 12),
                 requested_end=date(2026, 5, 29),
             )
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -438,7 +401,7 @@ class SourceProjectionTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -463,7 +426,7 @@ class SourceProjectionTests(unittest.TestCase):
                 requested_start=date(2021, 8, 2),
                 requested_end=date(2026, 7, 16),
             )
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {"Code": "", "DiscDate": "2025-03-05", "Sales": 400},
@@ -516,13 +479,13 @@ class SourceProjectionTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [{"Code": "", "DiscDate": "2025-03-05", "Sales": 400}],
                 requested_start=date(2025, 3, 1),
                 requested_end=date(2025, 3, 31),
             )
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [
                     {
@@ -552,13 +515,13 @@ class SourceProjectionTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [{"Code": "", "DiscDate": "2025-02-05"}],
                 requested_start=date(2025, 2, 1),
                 requested_end=date(2025, 4, 30),
             )
-            store_jquants_fin_summaries(
+            seed_legacy_financial_sqlite(
                 db,
                 [{"Code": "", "DiscDate": "2025-03-05"}],
                 requested_start=date(2025, 3, 1),
@@ -775,42 +738,6 @@ class SourceProjectionTests(unittest.TestCase):
                             }
                         ],
                     )
-
-
-class EmptyPayloadReplacementTest(unittest.TestCase):
-    """A complete empty fetch replaces only its requested range."""
-
-    def test_an_empty_fin_payload_replaces_stored_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            window = (date(2020, 12, 1), date(2020, 12, 31))
-            store_jquants_fin_summaries(
-                db,
-                [
-                    {
-                        "DiscNo": "synthetic-72030-2020-12-15",
-                        "Code": "72030",
-                        "DiscDate": "2020-12-15",
-                        "EPS": "10",
-                    }
-                ],
-                requested_start=window[0],
-                requested_end=window[1],
-            )
-
-            self.assertEqual(
-                store_jquants_fin_summaries(
-                    db, [], requested_start=window[0], requested_end=window[1]
-                ),
-                0,
-            )
-
-            conn = open_connection(db)
-            try:
-                remaining = conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()[0]
-            finally:
-                conn.close()
-            self.assertEqual(remaining, 0)
 
 
 class RepeatedObservationTest(unittest.TestCase):

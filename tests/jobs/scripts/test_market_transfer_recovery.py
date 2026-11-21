@@ -9,11 +9,10 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from tests.helpers.financial_documents import documents
+from tests.helpers.financial_documents import documents, seed_legacy_financial_sqlite
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.model_generation import empty_selection, generation, publish_generation
 
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
@@ -67,7 +66,7 @@ def published_market(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         ),
     )
     store = tmp_path / "market.sqlite"
-    store_jquants_fin_summaries(
+    seed_legacy_financial_sqlite(
         store,
         documents(),
         requested_start=date(2026, 8, 10),

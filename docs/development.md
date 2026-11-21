@@ -33,7 +33,7 @@ uv run lint-imports
 | 探索索引の問いとページ送り | [入力不足・分類・固定した個社比較を区別する](../tests/engine/investment_judgment/workflow/test_discovery_questions.py) |
 | 提案の指値・価格・数量 | [観測価格と指値を分け、未確定の根拠で数量を作らない](../tests/engine/investment_judgment/trade_proposal/test_conditional_buy_terms.py) |
 
-PR全体の検査は[Python CI](../.github/workflows/ci.yml)と[Web CI](../.github/workflows/web.yml)が正本。通常testは実networkを禁止し、CIの緑やfixtureの成功を本番受入には数えない。R2 integration testだけは明示有効化時に書込・削除するため、依頼された専用の空bucketでのみ `-n 0` で行う。
+PR全体の検査は[Python CI](../.github/workflows/ci.yml)と[Web CI](../.github/workflows/web.yml)が正本。通常のPythonテストは[fixture](../tests/conftest.py)で実通信を止め、公開や配備を検証しない。[R2実通信の受入テスト](../tests/integration/test_lake_r2_acceptance.py)は通常スキップする。明示依頼された時だけ、書込・削除が許可された専用の空bucketで `-n 0` を使う。mock・CI・実データ受入の結果を混同しない。
 
 <a id="webの確認"></a>
 ## Webの確認

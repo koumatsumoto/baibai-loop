@@ -17,21 +17,18 @@ from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoverySelection,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-    _project_economic_paths,
+    project_economic_coordinates,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_paths import CompanyCoordinates
 from baibai_engine.machine_analysis.screening.policies.financial_growth import (
-    GrowthDiscovery,
     read_growth_discovery,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
-    TechnicalDiscovery,
     evaluate_technical_strategy,
 )
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     financial_screening_lane,
 )
-from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.primitives.stocks import normalize_ticker, sector_33_peer_key
 
 
 def _object(value: JsonValue | None) -> dict[str, JsonValue]:
@@ -42,9 +39,9 @@ def _text(value: JsonValue | None) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def read_discovery_observations(
+def project_discovery_row(
     ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
-) -> tuple[TechnicalDiscovery, GrowthDiscovery, CompanyCoordinates, str | None]:
+) -> DiscoveryRow:
     technical = evaluate_technical_strategy(ticker, models=models, metadata=metadata)
     # 財務による独立発見をTAの合否・欠測で止めない。
     gate, path_growth = read_growth_discovery(
@@ -54,32 +51,22 @@ def read_discovery_observations(
         ),
         metadata=metadata,
     )
-    coordinates, review_reason = _project_economic_paths(
-        ticker,
-        index={model.model_id: model for model in models},
-        metadata=metadata,
-        growth_read=path_growth,
-    )
-    return technical, gate, coordinates, review_reason
-
-
-def project_discovery_row(
-    ticker: str, *, models: tuple[GeneratedModel, ...], metadata: GenerationMetadata
-) -> DiscoveryRow:
-    technical, gate, coordinates, review_reason = read_discovery_observations(
-        ticker, models=models, metadata=metadata
-    )
     source = {model.model_id: model.payload for model in models}
-    price = _object(source.get("market_context", {}).get("price"))
+    market = source.get("market_context", {})
+    financial = source.get("company_financials", {})
+    master = _object(market.get("master"))
+    sector = sector_33_peer_key(master.get("sector_33"))
+    coordinates, review_reason = project_economic_coordinates(
+        financial, sector=sector, as_of=metadata.as_of, growth=path_growth
+    )
+    price = _object(market.get("price"))
     close = price.get("close")
     amount = close if isinstance(close, (int, float)) and not isinstance(close, bool) else None
-    earnings = _object(source.get("company_financials", {}).get("earnings_price"))
-    financial = source.get("company_financials", {})
+    earnings = _object(financial.get("earnings_price"))
     book = _object(financial.get("financial")).get("book_equity")
     actions = financial.get("capital_action_evidence")
     adjustments = earnings.get("share_basis_adjustments")
-    f_paths = [path for path in coordinates.paths if path.eligible]
-    f_routes: list[str] = sorted({path.path_id for path in f_paths})
+    f_routes = sorted({path["path_id"] for path in coordinates})
     g_state, t_state = gate.state, technical.state
     financial_gap = (
         review_reason if g_state in {"input_unresolved", "not_selected"} and not f_routes else None
@@ -93,8 +80,8 @@ def project_discovery_row(
     return DiscoveryRow(
         ticker=ticker,
         models_recorded=bool(models),
-        name=coordinates.name,
-        sector=coordinates.sector,
+        name=_text(master.get("name")),
+        sector=sector,
         screening_lane=financial_screening_lane(
             growth_state=g_state,
             technical_match=t_state == "matched",
@@ -105,17 +92,7 @@ def project_discovery_row(
         technical_state=t_state,
         matched_paths={"financial": f_routes, "growth": list(gate.matched_paths)},
         missing=sorted(missing),
-        coordinates=[
-            {
-                "path_id": path.path_id,
-                "variant": path.variant,
-                "price_group": path.price_group,
-                "business_group": path.business_group,
-                "price_value": path.price_value,
-                "business_value": path.business_value,
-            }
-            for path in f_paths
-        ],
+        coordinates=coordinates,
         price=amount,
         price_date=day,
         expected_price_date=expected,

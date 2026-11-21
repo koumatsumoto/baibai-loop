@@ -25,6 +25,7 @@ from baibai_engine.investment_judgment.trade_proposal.conditions import (
     assessment_quote_basis,
     buy_evaluation_payload,
     buy_evaluator,
+    proposal_classification,
     terms_unavailable_reasons,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -135,9 +136,7 @@ def _preview_buy(
     quote = next((quote for quote in inputs.quotes if quote.ticker == item.ticker), None)
     trial: dict[str, object] | None = None
     if quote is not None:
-        classification = next(
-            (row for row in inputs.security_classification if row.ticker == item.ticker), None
-        )
+        classification = proposal_classification(inputs, item.ticker)
         grid = (
             None
             if classification is None or session is None
