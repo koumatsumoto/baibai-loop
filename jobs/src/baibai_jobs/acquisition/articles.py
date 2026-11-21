@@ -81,7 +81,7 @@ GROUPS = {
 }
 
 
-# New world indexes get their own budget; they cannot consume existing sources' allowance.
+# World indexes have a separate budget; they cannot consume the public group's allowance.
 GROUP_BYTES = {
     "public": 80 * 1024 * 1024,
     "world": 4 * 1024 * 1024,
@@ -91,8 +91,8 @@ GROUP_BYTES["scheduled"] = GROUP_BYTES["public"]
 
 
 def cooldown_key(source: str) -> str:
-    # Match the existing shared quota across article/equity workflows. Public
-    # providers keep independent waits; the two TSR streams share one provider.
+    # Keep provider waits independent; the two TSR streams share one deadline.
+    # Preserve the Rakuten key used by Toushiru and the original source identities.
     quota = {
         "minkabu_news": "minkabu",
         "rakuten_news": "rakuten",

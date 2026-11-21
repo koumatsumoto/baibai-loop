@@ -6,10 +6,10 @@ import sqlite3
 from datetime import date
 
 import pytest
+from tests.helpers.financial_documents import seed_legacy_financial_sqlite
 from tests.helpers.price_native import project_price_records
 
 from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -26,9 +26,9 @@ def database(tmp_path):
     return path
 
 
-def test_rejected_financial_quality_does_not_claim_coverage(database):
+def test_legacy_financial_reader_does_not_claim_partial_coverage(database):
     target = day("2026-05-15")
-    store_jquants_fin_summaries(
+    seed_legacy_financial_sqlite(
         database,
         [{"Code": "", "DiscDate": target.isoformat()}],
         requested_start=target,
@@ -42,10 +42,10 @@ def test_rejected_financial_quality_does_not_claim_coverage(database):
     assert read_fin_summaries(database, target, target) is None
 
 
-def test_partial_financial_refetch_preserves_empty_outer_windows(database):
+def test_legacy_financial_reader_keeps_covered_empty_days_outside_partial_window(database):
     start, end, bad_day = day("2026-05-01"), day("2026-05-31"), day("2026-05-15")
-    store_jquants_fin_summaries(database, [], requested_start=start, requested_end=end)
-    store_jquants_fin_summaries(
+    seed_legacy_financial_sqlite(database, [], requested_start=start, requested_end=end)
+    seed_legacy_financial_sqlite(
         database,
         [{"Code": "", "DiscDate": bad_day.isoformat()}],
         requested_start=bad_day,
@@ -55,6 +55,9 @@ def test_partial_financial_refetch_preserves_empty_outer_windows(database):
         assert range_covered(conn, "jquants_fin_summaries", start, day("2026-05-14"))
         assert not range_covered(conn, "jquants_fin_summaries", bad_day, bad_day)
         assert range_covered(conn, "jquants_fin_summaries", day("2026-05-16"), end)
+    assert read_fin_summaries(database, start, day("2026-05-14")) == []
+    assert read_fin_summaries(database, bad_day, bad_day) is None
+    assert read_fin_summaries(database, day("2026-05-16"), end) == []
 
 
 def test_partial_daily_bar_response_does_not_satisfy_coverage(database):

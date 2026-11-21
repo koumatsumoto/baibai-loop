@@ -32,13 +32,18 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     PeriodState,
     Value,
 )
+from baibai_engine.machine_analysis.models.company_growth.reading import CompanyGrowthReader
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.discovery_contract import discovery_publication_id
 from baibai_engine.machine_analysis.screening.policies import economic_path_inputs
-from baibai_engine.machine_analysis.screening.policies.discovery import read_discovery_observations
+from baibai_engine.machine_analysis.screening.policies.discovery import (
+    evaluate_discovery_rows,
+    project_discovery_row,
+)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
@@ -157,11 +162,11 @@ def models(data):
 
 
 def project(data):
-    return read_discovery_observations("1234", models=models(data), metadata=metadata())[2]
+    return project_discovery_row("1234", models=models(data), metadata=metadata())
 
 
 def active(row, name):
-    return next((path for path in row.paths if path.path_id == name and path.eligible), None)
+    return next((path for path in row["coordinates"] if path["path_id"] == name), None)
 
 
 def test_valid_paths_use_fixed_observations_and_periods():
@@ -172,9 +177,11 @@ def test_valid_paths_use_fixed_observations_and_periods():
         "operating_recovery": (0.001, 0.02),
         "capital_productivity": (2.0, 0.05),
     }
-    observed = {p.path_id: (p.price_value, p.business_value) for p in result.paths if p.eligible}
+    observed = {
+        p["path_id"]: (p["price_value"], p["business_value"]) for p in result["coordinates"]
+    }
     assert observed == expected
-    assert active(result, "business_expansion").variant == "quarter"
+    assert active(result, "business_expansion")["variant"] == "quarter"
 
 
 def test_growth_policy_bounds_history_without_changing_coordinates_or_saved_payload(monkeypatch):
@@ -210,9 +217,8 @@ def test_growth_policy_bounds_history_without_changing_coordinates_or_saved_payl
     )
     result = project(data)
     assert not any(
-        p.eligible
-        for p in result.paths
-        if (p.path_id, p.variant) == ("operating_recovery", "quarter")
+        (p["path_id"], p["variant"]) == ("operating_recovery", "quarter")
+        for p in result["coordinates"]
     )
     monkeypatch.setattr(economic_path_inputs, "_growth_policy_inputs", lambda payload: payload)
     assert project(data) == result
@@ -239,10 +245,10 @@ def test_retained_v4_selection_has_its_original_canonical_hash_and_absences():
 
 def test_price_change_moves_price_axes_not_business_axes():
     before, after = project(payloads()), project(payloads(price=200.0))
-    for name in {path.path_id for path in before.paths}:
+    for name in {path["path_id"] for path in before["coordinates"]}:
         a, b = active(before, name), active(after, name)
-        assert b.price_value == pytest.approx(a.price_value / 2)
-        assert b.business_value == pytest.approx(a.business_value)
+        assert b["price_value"] == pytest.approx(a["price_value"] / 2)
+        assert b["business_value"] == pytest.approx(a["business_value"])
 
 
 def test_missing_earnings_and_negative_cash_do_not_remove_growth_or_recovery():
@@ -260,9 +266,11 @@ def test_stale_price_disables_price_coordinates_but_preserves_business_data():
     data = payloads()
     data["company_financials"]["expected_price_date"] = "2026-01-06"
     result = project(data)
-    assert not any(path.eligible for path in result.paths)
-    assert any(path.business_value is not None for path in result.paths)
-    assert all(path.price_value is None for path in result.paths)
+    assert result["coordinates"] == []
+    # The observations remain in the L2 owner, not discarded partial Discovery coordinates.
+    growth = CompanyGrowthReader(data["company_growth"])
+    annual = growth.observation(growth.latest_period, "annual_ttm")
+    assert annual.metrics["operating_margin"].value == 0.1
 
 
 @pytest.mark.parametrize(("difference", "rate"), [(-1.0, -0.1), (0.0, 0.0)])
@@ -275,12 +283,6 @@ def test_latest_nonpositive_quarter_does_not_choose_positive_annual(difference, 
     result = project(data)
     assert active(result, "business_expansion") is None
     assert active(result, "operating_recovery") is None
-    assert all(
-        not path.eligible
-        for path in result.paths
-        if path.variant == "annual_ttm"
-        and path.path_id in {"business_expansion", "operating_recovery"}
-    )
 
 
 def test_zero_quarter_sales_comparison_does_not_use_positive_annual():
@@ -306,9 +308,9 @@ def test_missing_quarter_uses_same_anchor_annual_not_old_good_quarter():
     old.update(to_end="2025-09-30", to_start="2025-07-01", rate=100.0)
     data["company_growth"]["changes"].append(old)
     result = project(data)
-    assert active(result, "business_expansion").variant == "annual_ttm"
-    assert active(result, "business_expansion").business_value == 0.2
-    assert active(result, "operating_recovery").variant == "annual_ttm"
+    assert active(result, "business_expansion")["variant"] == "annual_ttm"
+    assert active(result, "business_expansion")["business_value"] == 0.2
+    assert active(result, "operating_recovery")["variant"] == "annual_ttm"
 
 
 def test_loss_narrowing_difference_remains_valid_with_nonpositive_base():
@@ -347,10 +349,9 @@ def test_unknown_sector_is_not_an_industry_peer_group(sector):
     data = payloads()
     data["market_context"]["master"]["sector_33"] = sector
     result = project(data)
-    assert not any(path.eligible for path in result.paths)
-    income = next(path for path in result.paths if path.path_id == "earning_power")
-    assert income.price_value == 0.1
-    assert income.business_value is None
+    assert result["sector"] is None
+    assert result["coordinates"] == []
+    assert data["company_financials"]["earnings_price"]["earnings_yield"] == 0.1
 
 
 @pytest.mark.parametrize(
@@ -372,11 +373,10 @@ def test_price_gate_requires_all_positive_price_inputs_on_expected_date(field, v
     data = payloads()
     data["company_financials"]["earnings_price"][field] = value
     result = project(data)
-    assert not any(path.eligible for path in result.paths)
-    assert all(path.price_value is None for path in result.paths)
-    assert (
-        next(path for path in result.paths if path.path_id == "earning_power").business_value == 0.1
-    )
+    assert result["coordinates"] == []
+    growth = CompanyGrowthReader(data["company_growth"])
+    annual = growth.observation(growth.latest_period, "annual_ttm")
+    assert annual.metrics["operating_margin"].value == 0.1
 
 
 def test_income_uses_actual_composite_ttm_interval_not_earliest_component_start():
@@ -399,11 +399,11 @@ def test_income_uses_actual_composite_ttm_interval_not_earliest_component_start(
         period_end="2025-09-30",
     )
     income = active(project(data), "earning_power")
-    assert (income.price_value, income.business_value) == (0.1, 0.1)
+    assert (income["price_value"], income["business_value"]) == (0.1, 0.1)
     annual["period_start"] = "2024-04-01"
     result = project(data)
     assert active(result, "earning_power") is None
-    assert next(path for path in result.paths if path.path_id == "earning_power").price_value == 0.1
+    assert data["company_financials"]["earnings_price"]["earnings_yield"] == 0.1
 
 
 @pytest.mark.parametrize(
@@ -426,18 +426,32 @@ def test_income_requires_known_matching_financial_bases(field, profit_basis, gro
     assert active(result, "capital_productivity") is not None
 
 
-def test_period_variants_retain_both_reference_coordinates_before_selection():
+def test_each_comparison_publishes_only_its_selected_variant_in_saved_order():
     result = project(payloads())
-    for name in ("business_expansion", "operating_recovery"):
-        variants = {path.variant: path for path in result.paths if path.path_id == name}
-        assert set(variants) == {"quarter", "annual_ttm"}
-        assert variants["quarter"].eligible
-        assert not variants["annual_ttm"].eligible
-        assert variants["annual_ttm"].business_value is not None
-        assert variants["annual_ttm"].price_value is not None
-    expansion = [path for path in result.paths if path.path_id == "business_expansion"]
-    assert expansion[0].price_group == expansion[1].price_group
-    assert expansion[0].price_value == expansion[1].price_value
+    assert [(p["path_id"], p["variant"]) for p in result["coordinates"]] == [
+        ("earning_power", "annual_ttm"),
+        ("business_expansion", "quarter"),
+        ("operating_recovery", "quarter"),
+        ("capital_productivity", "reported_profit_latest_book"),
+    ]
+    expansion = active(result, "business_expansion")
+    assert expansion["price_group"] == "情報・通信業:annual_ttm_sales_price"
+    assert expansion["business_group"] == "情報・通信業:quarter:sales_growth"
+
+
+def test_current_selection_id_and_digest_preserve_published_rows():
+    meta = metadata()
+    row = project(payloads())
+    selection = evaluate_discovery_rows(meta, tickers=("1234", "9999"), rows={"1234": row})
+    assert (
+        discovery_publication_id(meta.generation_id)
+        == "selection-economic-fixed-opportunity-discovery-v1"
+    )
+    payload = TypeAdapter(ScreeningSelection).dump_python(selection, mode="json")
+    assert (
+        sha256(canonical_json(payload).encode()).hexdigest()
+        == "592d88d04649a84c07122126f3060ba46c9eebe3b937e4bbb96cf9322b639e7f"
+    )
 
 
 def test_newest_anchor_does_not_search_older_complete_observations():
@@ -468,15 +482,14 @@ def test_recovery_requires_both_changes_from_same_comparison_interval():
     assert active(result, "business_expansion") is not None
 
 
-def test_negative_reported_profit_is_retained_in_capital_proxy_not_called_roe():
+def test_negative_reported_profit_does_not_create_a_capital_productivity_coordinate():
     data = payloads()
     data["company_financials"]["earnings_price"]["earnings_yield"] = -0.1
     data["company_financials"]["earnings_price"]["profit_components"][0]["amount_yen"] = -1000.0
     result = project(data)
     assert active(result, "earning_power") is None
     assert active(result, "capital_productivity") is None
-    capital = next(path for path in result.paths if path.path_id == "capital_productivity")
-    assert capital.business_value == pytest.approx(-0.05)
+    assert data["company_financials"]["earnings_price"]["earnings_yield"] == -0.1
     assert active(result, "business_expansion") is not None
 
 
@@ -496,10 +509,8 @@ def test_overflowing_derived_coordinates_are_missing_not_nonfinite():
     assert active(result, "business_expansion") is None
     assert active(result, "operating_recovery") is None
     assert active(result, "capital_productivity") is None
-    assert (
-        next(path for path in result.paths if path.path_id == "capital_productivity").business_value
-        is None
-    )
+    # The surviving row remains valid for publication.
+    evaluate_discovery_rows(metadata(), tickers=("1234",), rows={"1234": result})
 
 
 def test_new_or_unbuilt_models_do_not_cast_votes_or_create_coordinates():
@@ -517,8 +528,8 @@ def test_new_or_unbuilt_models_do_not_cast_votes_or_create_coordinates():
             },
         }
     )
-    after = read_discovery_observations("1234", models=models(data), metadata=planned)[2]
-    assert after.paths == before.paths
+    after = project_discovery_row("1234", models=models(data), metadata=planned)
+    assert after["coordinates"] == before["coordinates"]
 
 
 @pytest.mark.parametrize("missing_shares", [False, True])
@@ -553,10 +564,10 @@ def test_foreign_provider_or_later_forecast_does_not_change_yen_coordinates(miss
     )
     source = canonical_json(data)
     after = project(data)
-    assert after.paths == before.paths
+    assert after["coordinates"] == before["coordinates"]
     assert canonical_json(data) == source
     if missing_shares:
-        assert not any(p.eligible or p.price_value is not None for p in after.paths)
+        assert after["coordinates"] == []
 
 
 def test_capital_proxy_uses_pbr_not_unselected_equity_or_edinet_scope():
@@ -565,7 +576,7 @@ def test_capital_proxy_uses_pbr_not_unselected_equity_or_edinet_scope():
         same_state_equity_yen=999999.0, consolidation_basis="standalone"
     )
     capital = active(project(data), "capital_productivity")
-    assert capital.business_value == pytest.approx(0.05)
+    assert capital["business_value"] == pytest.approx(0.05)
     data["company_financials"]["financial"]["market_cap"] = 999.0
     assert active(project(data), "capital_productivity") is None
 
@@ -588,7 +599,7 @@ def test_identical_growth_date_matches_collapse_without_duplicate_votes():
     data = payloads()
     before = project(data)
     data["company_growth"]["changes"] += deepcopy(data["company_growth"]["changes"])
-    assert project(data).paths == before.paths
+    assert project(data)["coordinates"] == before["coordinates"]
 
 
 def test_conflicting_growth_date_matches_only_make_that_metric_unavailable():
@@ -597,12 +608,7 @@ def test_conflicting_growth_date_matches_only_make_that_metric_unavailable():
     duplicate["difference"] = 999.0
     data["company_growth"]["changes"].append(duplicate)
     result = project(data)
-    assert active(result, "operating_recovery").variant == "annual_ttm"
-    quarter = next(
-        p for p in result.paths if (p.path_id, p.variant) == ("operating_recovery", "quarter")
-    )
-    assert not quarter.eligible
-    assert quarter.price_value is None
+    assert active(result, "operating_recovery")["variant"] == "annual_ttm"
     assert active(result, "business_expansion") is not None
     assert active(result, "earning_power") is not None
 
@@ -613,7 +619,7 @@ def test_different_saved_comparison_shapes_remain_ambiguous_even_when_typed_valu
     duplicate.pop("margin_points")
     data["company_growth"]["changes"].append(duplicate)
     result = project(data)
-    assert active(result, "operating_recovery").variant == "annual_ttm"
+    assert active(result, "operating_recovery")["variant"] == "annual_ttm"
     assert active(result, "business_expansion") is not None
 
 
@@ -627,8 +633,8 @@ def test_missing_comparison_field_does_not_create_a_match_from_the_owner_default
     assert after == before
     data["company_growth"]["changes"][1].pop("comparison")
     result = project(data)
-    assert active(result, "operating_recovery").variant == "annual_ttm"
-    assert active(result, "business_expansion").variant == "quarter"
+    assert active(result, "operating_recovery")["variant"] == "annual_ttm"
+    assert active(result, "business_expansion")["variant"] == "quarter"
 
 
 @pytest.mark.parametrize("metric", ["operating_profit", "operating_margin"])
@@ -648,8 +654,8 @@ def test_positive_quarter_with_missing_companion_uses_only_available_annual_comp
         if change["measurement"] == "quarter" and change["metric"] == "operating_margin":
             change["difference"] = None
     result = project(data)
-    assert active(result, "operating_recovery").variant == "annual_ttm"
-    assert active(result, "operating_recovery").business_value == 0.02
+    assert active(result, "operating_recovery")["variant"] == "annual_ttm"
+    assert active(result, "operating_recovery")["business_value"] == 0.02
 
 
 def owner_generation(
@@ -764,34 +770,31 @@ def owner_generation(
 
 def test_owner_fy_and_cumulative_quarter_reach_economic_coordinates():
     generation = owner_generation()
-    row = read_discovery_observations("1001", models=generation.models, metadata=generation)[2]
-    paths = {item.path_id: item for item in row.paths if item.eligible}
+    row = project_discovery_row("1001", models=generation.models, metadata=generation)
+    paths = {item["path_id"]: item for item in row["coordinates"]}
     assert set(paths) >= {"earning_power", "business_expansion", "operating_recovery"}
     income = paths["earning_power"]
-    assert income.price_value == pytest.approx(110.0 / 800.0)
-    assert income.business_value == pytest.approx(120.0 / 1350.0)
+    assert income["price_value"] == pytest.approx(110.0 / 800.0)
+    assert income["business_value"] == pytest.approx(120.0 / 1350.0)
     expansion = paths["business_expansion"]
-    assert expansion.variant == "quarter"
-    assert expansion.price_value == pytest.approx(1350.0 / 800.0)
-    assert expansion.business_value == pytest.approx(0.6)
+    assert expansion["variant"] == "quarter"
+    assert expansion["price_value"] == pytest.approx(1350.0 / 800.0)
+    assert expansion["business_value"] == pytest.approx(0.6)
     recovery = paths["operating_recovery"]
-    assert recovery.price_value == pytest.approx(20.0 / 800.0)
-    assert recovery.business_value == pytest.approx(30.0 / 400.0 - 10.0 / 250.0)
+    assert recovery["price_value"] == pytest.approx(20.0 / 800.0)
+    assert recovery["business_value"] == pytest.approx(30.0 / 400.0 - 10.0 / 250.0)
 
 
 def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity():
     generation = owner_generation(alternate_quarter_profit=50.0)
     growth = generation.result("company_growth", "1001").payload
     assert growth["periods"][-1]["fiscal_year_end"] == "2027-06-30"
-    row = read_discovery_observations("1001", models=generation.models, metadata=generation)[2]
-    quarter = next(
-        item
-        for item in row.paths
-        if item.path_id == "operating_recovery" and item.variant == "quarter"
+    row = project_discovery_row("1001", models=generation.models, metadata=generation)
+    assert not any(
+        (item["path_id"], item["variant"]) == ("operating_recovery", "quarter")
+        for item in row["coordinates"]
     )
-    assert not quarter.eligible
-    assert quarter.price_value is None
-    assert active(row, "business_expansion").business_value == pytest.approx(0.6)
+    assert active(row, "business_expansion")["business_value"] == pytest.approx(0.6)
     fixed_quarter = next(
         x for x in growth["periods"][-1]["observations"] if x["measurement"] == "quarter"
     )
@@ -825,17 +828,17 @@ def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
         item["metrics"]["operating_profit"]["documents"][0]["disclosure_number"]
         for item in quarters
     ] == ["owner-2025-1Q", "owner-prior-fy-end-change"]
-    row = read_discovery_observations("1001", models=generation.models, metadata=generation)[2]
-    reversed_row = read_discovery_observations(
+    row = project_discovery_row("1001", models=generation.models, metadata=generation)
+    reversed_row = project_discovery_row(
         "1001", models=reversed_generation.models, metadata=reversed_generation
-    )[2]
+    )
     assert row == reversed_row
     # The same reported-period ends but different FYs do not create another vote.
-    assert active(row, "business_expansion").business_value == pytest.approx(0.6)
+    assert active(row, "business_expansion")["business_value"] == pytest.approx(0.6)
     recovery = active(row, "operating_recovery")
     if alternate_prior_profit == 50.0:
         assert recovery is None
     else:
-        assert recovery.price_value == pytest.approx(20.0 / 800.0)
-        assert recovery.business_value == pytest.approx(30.0 / 400.0 - 10.0 / 250.0)
+        assert recovery["price_value"] == pytest.approx(20.0 / 800.0)
+        assert recovery["business_value"] == pytest.approx(30.0 / 400.0 - 10.0 / 250.0)
     assert canonical_json(growth) == before

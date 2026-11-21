@@ -14,7 +14,10 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
     DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease, Observation
-from baibai_engine.machine_analysis.models.company_growth.reading import CompanyGrowthReader
+from baibai_engine.machine_analysis.models.company_growth.reading import (
+    CompanyGrowthReader,
+    metric_value,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -25,7 +28,6 @@ from baibai_engine.machine_analysis.screening.policies import economic_path_inpu
 from baibai_engine.machine_analysis.screening.policies.discovery import (
     evaluate_discovery_rows,
     project_discovery_row,
-    read_discovery_observations,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
@@ -101,7 +103,7 @@ def generation(rows):
 
 def project(fixed):
     stock = tuple(m for m in fixed.models if m.subject == "1001")
-    return read_discovery_observations("1001", models=stock, metadata=fixed)[2]
+    return project_discovery_row("1001", models=stock, metadata=fixed)
 
 
 def growth_reader(fixed):
@@ -114,12 +116,7 @@ def latest(fixed, measurement):
 
 
 def active(row, path_id):
-    return next((path for path in row.paths if path.path_id == path_id and path.eligible), None)
-
-
-def coordinate(row, path_id, variant):
-    (match,) = (p for p in row.paths if (p.path_id, p.variant) == (path_id, variant))
-    return match
+    return next((path for path in row["coordinates"] if path["path_id"] == path_id), None)
 
 
 def with_growth(fixed, update):
@@ -170,14 +167,15 @@ def test_missing_ttm_uses_same_complete_fy_and_preserves_short_history_compariso
 
 
 def test_available_ttm_never_chooses_the_more_attractive_fy():
-    row = project(generation(documents(prior_quarter=True)))
+    fixed = generation(documents(prior_quarter=True))
+    row = project(fixed)
     income = active(row, "earning_power")
-    assert income.variant == "annual_ttm"
-    assert income.price_value == pytest.approx(120.0 / 800.0)
-    fy = coordinate(row, "earning_power", "full_fy")
-    assert fy.price_value > income.price_value
-    assert fy.business_value > income.business_value
-    assert not any(path.eligible for path in row.paths if path.variant == "full_fy")
+    assert income["variant"] == "annual_ttm"
+    assert income["price_value"] == pytest.approx(120.0 / 800.0)
+    fy = growth_reader(fixed).latest_full_fy
+    assert fy.metrics["parent_profit"].value / 800.0 > income["price_value"]
+    assert fy.metrics["operating_margin"].value > income["business_value"]
+    assert not any(path["variant"] == "full_fy" for path in row["coordinates"])
 
 
 def test_missing_profit_operand_is_not_a_missing_ttm_interval():
@@ -189,7 +187,7 @@ def test_missing_profit_operand_is_not_a_missing_ttm_interval():
     assert ttm.period_status == "available"
     assert ttm.metrics["parent_profit"].value is None
     assert active(row, "earning_power") is None
-    assert not any(path.eligible for path in row.paths if path.variant == "full_fy")
+    assert not any(path["variant"] == "full_fy" for path in row["coordinates"])
 
 
 def test_old_jp_full_fy_cannot_bypass_new_ifrs_quarter():
@@ -201,7 +199,7 @@ def test_old_jp_full_fy_cannot_bypass_new_ifrs_quarter():
     assert ttm.period_status == "matching_period_not_observed"
     assert ttm.accounting_standard == "IFRS"
     assert growth_reader(fixed).latest_full_fy.accounting_standard == "JP"
-    assert not any(path.eligible for path in row.paths if path.variant == "full_fy")
+    assert not any(path["variant"] == "full_fy" for path in row["coordinates"])
 
 
 def test_all_current_amounts_missing_does_not_hide_the_missing_interval():
@@ -211,7 +209,7 @@ def test_all_current_amounts_missing_does_not_hide_the_missing_interval():
     row = project(fixed)
     assert latest(fixed, "annual_ttm").period_status == "matching_period_not_observed"
     assert latest(fixed, "quarter").metrics["parent_profit"].value is None
-    assert active(row, "earning_power").variant == "full_fy"
+    assert active(row, "earning_power")["variant"] == "full_fy"
 
 
 @pytest.mark.parametrize("bad_value", [-1.0, 0.0])
@@ -237,7 +235,7 @@ def test_known_quarter_deterioration_or_zero_cannot_escape_through_full_fy(bad_v
     assert active(row, "business_expansion") is None
     assert active(row, "operating_recovery") is None
     # Earning power is not a growth claim: newer positive actuals remain relevant.
-    assert active(row, "earning_power").variant == "full_fy"
+    assert active(row, "earning_power")["variant"] == "full_fy"
     reader = growth_reader(fixed)
     for metric in ("sales", "operating_profit"):
         (change,) = reader.year_over_year(
@@ -258,7 +256,7 @@ def test_positive_current_earning_power_does_not_require_growth_or_margin_improv
 
     fixed = with_growth(generation(documents()), update)
     row = project(fixed)
-    assert active(row, "earning_power").variant == "full_fy"
+    assert active(row, "earning_power")["variant"] == "full_fy"
     assert active(row, "operating_recovery") is None
     (change,) = growth_reader(fixed).year_over_year(latest(fixed, "quarter"), "operating_margin")
     assert change.difference == 0.0
@@ -276,9 +274,9 @@ def test_nonconsolidated_profit_is_not_silently_parent_profit(both):
     result = project(generation(rows))
     assert active(result, "earning_power") is None
     if both:
-        assert active(result, "business_expansion").variant == "full_fy"
+        assert active(result, "business_expansion")["variant"] == "full_fy"
     else:
-        assert not any(path.eligible for path in result.paths if path.variant == "full_fy")
+        assert not any(path["variant"] == "full_fy" for path in result["coordinates"])
 
 
 def test_latest_fy_missing_parent_profit_does_not_use_eps_or_older_profit():
@@ -288,7 +286,7 @@ def test_latest_fy_missing_parent_profit_does_not_use_eps_or_older_profit():
     row = project(fixed)
     assert active(row, "earning_power") is None
     assert active(row, "capital_productivity") is None
-    assert active(row, "business_expansion").variant == "full_fy"
+    assert active(row, "business_expansion")["variant"] == "full_fy"
     reader = growth_reader(fixed)
     fy = reader.latest_full_fy
     assert fy.period_end == date(2025, 3, 31)
@@ -328,8 +326,6 @@ def test_bounded_fy_read_keeps_every_matching_prior_source_for_the_cutoff(monkey
         for doc in prior.metrics["sales"].documents
     )
     assert active(row, "business_expansion") is None
-    expansion = coordinate(row, "business_expansion", "full_fy")
-    assert expansion.business_value is None
     assert active(row, "earning_power") is not None
     monkeypatch.setattr(economic_path_inputs, "_growth_policy_inputs", lambda payload: payload)
     assert project(fixed) == row
@@ -340,7 +336,7 @@ def test_changed_calendar_does_not_reuse_a_prior_fy_as_current_annual_basis():
     rows = documents()
     rows[2] = replace(rows[2], fiscal_year_end=date(2026, 4, 30))
     row = project(generation(rows))
-    assert not any(path.eligible for path in row.paths if path.variant == "full_fy")
+    assert not any(path["variant"] == "full_fy" for path in row["coordinates"])
 
 
 @pytest.mark.parametrize(
@@ -373,10 +369,10 @@ def test_full_fy_fallback_accepts_adjacent_52_and_53_week_years(
     fixed = generation(rows)
     result = project(fixed)
     income = active(result, "earning_power")
-    assert income.variant == "full_fy"
+    assert income["variant"] == "full_fy"
     assert growth_reader(fixed).latest_full_fy.period_end == fy_end
-    assert active(result, "business_expansion").variant == "full_fy"
-    assert active(result, "operating_recovery").variant == "full_fy"
+    assert active(result, "business_expansion")["variant"] == "full_fy"
+    assert active(result, "operating_recovery")["variant"] == "full_fy"
 
 
 @pytest.mark.parametrize("start_shift", [-1, 1])
@@ -384,7 +380,7 @@ def test_full_fy_fallback_still_requires_exact_interval_adjacency(start_shift):
     rows = documents()
     rows[2] = replace(rows[2], period_start=date(2025, 4, 1) + timedelta(days=start_shift))
     result = project(generation(rows))
-    assert not any(path.eligible for path in result.paths if path.variant == "full_fy")
+    assert not any(path["variant"] == "full_fy" for path in result["coordinates"])
 
 
 def test_latest_short_fy_does_not_search_back_to_an_older_complete_year():
@@ -394,7 +390,7 @@ def test_latest_short_fy_does_not_search_back_to_an_older_complete_year():
     fixed = generation(rows)
     row = project(fixed)
     assert growth_reader(fixed).latest_full_fy is None
-    assert not any(path.variant == "full_fy" for path in row.paths)
+    assert not any(path["variant"] == "full_fy" for path in row["coordinates"])
 
 
 @pytest.mark.parametrize("known_by_as_of", [False, True])
@@ -411,8 +407,11 @@ def test_new_fy_income_veto_uses_disclosure_cutoff_but_keeps_retrospective_conte
     )
     fixed = generation([*rows, correction])
     result = project(fixed)
-    income = coordinate(result, "earning_power", "full_fy")
-    assert income.eligible is (not known_by_as_of)
+    income = active(result, "earning_power")
+    if known_by_as_of:
+        assert income is None
+    else:
+        assert income["variant"] == "full_fy"
     # The retained release can still report the correction; its date governs the FY veto.
     metric = "parent_profit" if field == "profit" else "operating_profit"
     reader = growth_reader(fixed)
@@ -423,8 +422,8 @@ def test_new_fy_income_veto_uses_disclosure_cutoff_but_keeps_retrospective_conte
         (document,) = value.documents
         assert document.disclosure_number == correction.disclosure_number
         assert document.disclosed_at == correction.disclosed_at
-    assert active(result, "business_expansion").variant == "full_fy"
-    assert active(result, "operating_recovery").variant == "full_fy"
+    assert active(result, "business_expansion")["variant"] == "full_fy"
+    assert active(result, "operating_recovery")["variant"] == "full_fy"
 
 
 def test_quarter_and_ttm_keep_retrospective_corrections_without_a_disclosure_cutoff():
@@ -441,20 +440,25 @@ def test_quarter_and_ttm_keep_retrospective_corrections_without_a_disclosure_cut
     saved = canonical_json(fixed.model_dump(mode="json"))
     result = project(fixed)
     income = active(result, "earning_power")
-    assert income.variant == "annual_ttm"
+    assert income["variant"] == "annual_ttm"
     # EarningsPrice retains its own as_of contract; growth retains the release's correction.
-    assert income.price_value == pytest.approx(120.0 / 800.0)
-    assert income.business_value == pytest.approx(260.0 / 1500.0)
+    assert income["price_value"] == pytest.approx(120.0 / 800.0)
+    assert income["business_value"] == pytest.approx(260.0 / 1500.0)
     expansion = active(result, "business_expansion")
-    assert expansion.variant == "quarter"
-    assert expansion.price_value == pytest.approx(1500.0 / 800.0)
-    assert expansion.business_value == pytest.approx(0.6)
+    assert expansion["variant"] == "quarter"
+    assert expansion["price_value"] == pytest.approx(1500.0 / 800.0)
+    assert expansion["business_value"] == pytest.approx(0.6)
     recovery = active(result, "operating_recovery")
-    assert recovery.variant == "quarter"
-    assert recovery.price_value == pytest.approx(80.0 / 800.0)
-    assert recovery.business_value == pytest.approx(180.0 / 800.0 - 100.0 / 500.0)
-    annual = coordinate(result, "business_expansion", "annual_ttm")
-    assert annual.business_value == pytest.approx(0.25)
+    assert recovery["variant"] == "quarter"
+    assert recovery["price_value"] == pytest.approx(80.0 / 800.0)
+    assert recovery["business_value"] == pytest.approx(180.0 / 800.0 - 100.0 / 500.0)
+    reader = growth_reader(fixed)
+    (annual_sales,) = reader.year_over_year(latest(fixed, "annual_ttm"), "sales")
+    assert annual_sales.rate == pytest.approx(0.25)
+    assert not any(
+        p["path_id"] == "business_expansion" and p["variant"] == "annual_ttm"
+        for p in result["coordinates"]
+    )
     raw = fixed.result("company_growth", "1001").payload
     quarter = next(
         item for item in raw["periods"][-1]["observations"] if item["measurement"] == "quarter"
@@ -481,7 +485,7 @@ def test_legacy_growth_does_not_gain_an_inferred_interval_status():
     fixed = with_growth(generation(documents()), update)
     row = project(fixed)
     assert latest(fixed, "annual_ttm").period_status is None
-    assert not any(path.eligible for path in row.paths if path.variant == "full_fy")
+    assert not any(path["variant"] == "full_fy" for path in row["coordinates"])
 
 
 @pytest.mark.parametrize("corrected_index", [0, 1])
@@ -497,10 +501,8 @@ def test_future_fy_correction_is_context_not_a_coordinate(corrected_index):
     )
     fixed = generation([*rows, correction])
     future = project(fixed)
-    fy_paths = [path for path in future.paths if path.variant == "full_fy"]
     if corrected_index == 1:
-        assert all(path.price_value is None and path.business_value is None for path in fy_paths)
-        assert not any(path.eligible for path in future.paths)
+        assert future["coordinates"] == []
         # Keep the selected corrected FY, never fall back to the older pre-correction FY.
         fy = growth_reader(fixed).latest_full_fy
         assert fy.period_end == date(2025, 3, 31)
@@ -514,7 +516,7 @@ def test_future_fy_correction_is_context_not_a_coordinate(corrected_index):
 
 
 @pytest.mark.parametrize("future_profit", [True, False])
-def test_future_fy_source_removes_only_its_axis_not_the_independent_coordinate(future_profit):
+def test_future_fy_source_cannot_publish_earning_power_with_only_one_observable_axis(future_profit):
     rows = documents()
     correction = replace(
         rows[1],
@@ -524,8 +526,9 @@ def test_future_fy_source_removes_only_its_axis_not_the_independent_coordinate(f
         operating_profit=None if future_profit else 900000.0,
         profit=900000.0 if future_profit else None,
     )
-    future = project(generation([*rows, correction]))
-    income = coordinate(future, "earning_power", "full_fy")
-    assert (income.price_value is None) == future_profit
-    assert (income.business_value is None) != future_profit
-    assert not income.eligible
+    fixed = generation([*rows, correction])
+    future = project(fixed)
+    assert active(future, "earning_power") is None
+    fy = growth_reader(fixed).latest_full_fy
+    assert (metric_value(fy, "parent_profit", disclosed_by=fixed.as_of) is None) == future_profit
+    assert (metric_value(fy, "operating_margin", disclosed_by=fixed.as_of) is None) != future_profit

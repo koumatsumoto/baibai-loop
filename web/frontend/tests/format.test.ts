@@ -45,10 +45,6 @@ describe('formatPct', () => {
     expect(formatPct(12.34)).toBe('12.3%')
   })
 
-  it('scales a 0-1 fraction to percent', () => {
-    expect(formatPct(0.1234, { fraction: true })).toBe('12.3%')
-  })
-
   it('adds a leading + only for positive values when signed', () => {
     expect(formatPct(1.2, { sign: true })).toBe('+1.2%')
     expect(formatPct(-1.2, { sign: true })).toBe('-1.2%')

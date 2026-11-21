@@ -18,10 +18,7 @@ from baibai_engine.machine_analysis.models.company_financials.earnings import (
     EarningsPrice,
     ProfitComponent,
 )
-from baibai_engine.machine_analysis.screening.policies.discovery import (
-    project_discovery_row,
-    read_discovery_observations,
-)
+from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
 
 
 def case(*, expansion=False, reason=None, technical=True):
@@ -97,10 +94,6 @@ def project_unchanged(data):
     result = project_discovery_row("1234", models=models(data), metadata=_metadata())
     assert data == before
     return result
-
-
-def observations(data):
-    return read_discovery_observations("1234", models=models(data), metadata=_metadata())
 
 
 @pytest.mark.parametrize("technical", [False, True])

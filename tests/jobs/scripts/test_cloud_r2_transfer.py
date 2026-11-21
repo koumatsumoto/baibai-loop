@@ -1364,14 +1364,53 @@ def test_a_failed_publish_does_not_touch_a_legacy_sidecar(
     assert record.read_bytes() == before
 
 
-def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "args",
+    [
+        (),
+        ("unknown-command",),
+        ("pull-app", "extra"),
+        ("pull-machine", "extra"),
+        ("pull-market", "extra"),
+        ("pull-runs", "extra"),
+        ("pull-indicators", "extra"),
+        ("hydrate-market", "--release", "historical"),
+        ("hydrate-market-for-daily", "extra"),
+        ("hydrate-portfolio", "extra"),
+        ("seed-all", "extra"),
+        ("publish-lake", "incremental-please"),
+        ("push-market", "extra"),
+        ("push-runs", "extra"),
+        ("push-app", "extra"),
+        ("push-machine", "--daily-notice"),
+        ("push-machine", "--evidence-dir", "--daily-notice"),
+        ("push-machine", "--daily-notice", "notice.json", "extra"),
+        ("push-indicators", "--recheck-source"),
+        ("push-indicators", "--recheck-source", "--unknown-option"),
+        ("push-indicators", "--unknown-option", "fred-payems"),
+        ("upload-portfolio-views", ""),
+        ("upload-portfolio-views", "--daily-notice"),
+        ("upload-portfolio-views", "views", "extra"),
+    ],
+)
+def test_invalid_transfer_arguments_stop_before_helpers_or_credentials(
+    tmp_path: Path, args: tuple[str, ...]
+) -> None:
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    for name in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"):
+        env.pop(name)
+    (root / ".env").write_text('printf "credentials loaded\n" >> "$AWS_LOG"\n', encoding="utf-8")
+    uv = bin_dir / "uv"
+    uv.write_text(
+        '#!/bin/bash\nprintf "helper called\n" >> "$AWS_LOG"\nexit 11\n', encoding="utf-8"
+    )
 
     completed = subprocess.run(
-        [root / "jobs/scripts/r2_transfer.sh", "publish-lake", "incremental-please"],
+        [root / "jobs/scripts/r2_transfer.sh", *args],
         cwd=tmp_path,
-        env=_environment(bin_dir, log),
+        env=env,
         check=False,
         capture_output=True,
         text=True,
@@ -1379,6 +1418,7 @@ def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:
 
     assert completed.returncode == 2
     assert "usage:" in completed.stderr
+    assert not log.exists()
 
 
 @pytest.mark.parametrize(

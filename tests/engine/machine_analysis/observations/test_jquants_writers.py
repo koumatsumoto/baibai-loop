@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime
@@ -12,6 +11,7 @@ from functools import partial
 import pyarrow.parquet as pq
 import pytest
 import requests
+from tests.helpers.financial_documents import seed_legacy_financial_sqlite
 from tests.helpers.jquants_receipts import (
     DAY,
     FIRST_AT,
@@ -35,7 +35,6 @@ from baibai_engine.machine_analysis.observations.financials.reader import read_f
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
-    store_jquants_fin_summaries,
     store_jquants_margin_alerts,
     store_jquants_short_sale_reports,
     store_jquants_weekly_margin,
@@ -202,16 +201,6 @@ def test_legacy_source_only_fixed_release_retains_raw_pages_without_projecting(
     ("source", "writer", "scope", "target", "outside", "table", "date_column", "coverage_source"),
     [
         (
-            "financial_summaries",
-            store_jquants_fin_summaries,
-            ("requested_start", "requested_end"),
-            DAY,
-            "2026-10-09",
-            "jquants_fin_summaries",
-            "disclosed_at",
-            "jquants_fin_summaries",
-        ),
-        (
             "short_sale_reports",
             store_jquants_short_sale_reports,
             ("requested_start", "requested_end"),
@@ -252,7 +241,7 @@ def test_legacy_source_only_fixed_release_retains_raw_pages_without_projecting(
             "jquants_margin_alerts",
         ),
     ],
-    ids=("financial", "short-sale", "weekly-margin", "daily-margin", "margin-alert"),
+    ids=("short-sale", "weekly-margin", "daily-margin", "margin-alert"),
 )
 def test_complete_empty_receipt_projects_identically_with_or_without_old_rows(
     tmp_path, source, writer, scope, target, outside, table, date_column, coverage_source
@@ -296,99 +285,6 @@ def test_complete_empty_receipt_projects_identically_with_or_without_old_rows(
         assert selected[0][3:] == (CORRECTION_CLOCK, 0, "ok", None)
         target_coverage.append(selected[0])
     assert target_coverage[0] == target_coverage[1]
-
-
-def test_financial_correction_and_same_receipt_replay_are_stable(db_path):
-    write = partial(
-        store_jquants_fin_summaries,
-        db_path,
-        requested_start=date.fromisoformat(DAY),
-        requested_end=date.fromisoformat(DAY),
-    )
-    original = {
-        "Code": "13010",
-        "DiscDate": DAY,
-        "DiscNo": "document-one",
-        "CurPerType": "FY",
-        "EPS": 10.0,
-        "Unknown": None,
-    }
-    corrected = {**original, "EPS": 12.5}
-    original_body = body([original])
-    correction_body = body([corrected])
-    original_id = receive(db_path, "financial_summaries", {"date": DAY}, original_body, FIRST_AT)
-    correction_id = receive(
-        db_path, "financial_summaries", {"date": DAY}, correction_body, CORRECTION_AT
-    )
-
-    assert write(retained_records(db_path, original_id), fetched_at_utc=FIRST_CLOCK) == 1
-    assert write(retained_records(db_path, correction_id), fetched_at_utc=CORRECTION_CLOCK) == 1
-    with sqlite3.connect(db_path) as conn:
-        corrected_rows = conn.execute(
-            "SELECT ticker, disclosed_at, disclosure_number, document_payload "
-            "FROM jquants_fin_summaries ORDER BY ticker"
-        ).fetchall()
-    corrected_coverage = coverage(db_path, "jquants_fin_summaries")
-    assert len(corrected_rows) == 1
-    assert corrected_rows[0][:3] == ("1301", DAY, "document-one")
-    assert json.loads(corrected_rows[0][3])["EPS"] == 12.5
-    assert corrected_coverage == [
-        (
-            f"get_fin_summary_range:{DAY}..{DAY}",
-            DAY,
-            DAY,
-            CORRECTION_CLOCK,
-            1,
-            "ok",
-            None,
-        )
-    ]
-
-    assert write(retained_records(db_path, correction_id), fetched_at_utc=CORRECTION_CLOCK) == 1
-    with sqlite3.connect(db_path) as conn:
-        assert (
-            conn.execute(
-                "SELECT ticker, disclosed_at, disclosure_number, document_payload "
-                "FROM jquants_fin_summaries ORDER BY ticker"
-            ).fetchall()
-            == corrected_rows
-        )
-        assert [page.body for page in read_request_pages(conn, original_id)] == [original_body]
-    assert coverage(db_path, "jquants_fin_summaries") == corrected_coverage
-
-
-def test_invalid_financial_record_keeps_partial_coverage_after_raw_projection(db_path):
-    write = partial(
-        store_jquants_fin_summaries,
-        db_path,
-        requested_start=date.fromisoformat(DAY),
-        requested_end=date.fromisoformat(DAY),
-    )
-    original_id = receive(
-        db_path,
-        "financial_summaries",
-        {"date": DAY},
-        body([source_record("financial_summaries", DAY)]),
-        FIRST_AT,
-    )
-    assert write(retained_records(db_path, original_id), fetched_at_utc=FIRST_CLOCK) == 1
-    invalid_body = body([{"Code": "", "DiscDate": DAY, "DiscNo": "invalid-code"}])
-    invalid_id = receive(db_path, "financial_summaries", {"date": DAY}, invalid_body, CORRECTION_AT)
-    assert write(retained_records(db_path, invalid_id), fetched_at_utc=CORRECTION_CLOCK) == 0
-    with sqlite3.connect(db_path) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone() == (0,)
-        assert read_request_pages(conn, invalid_id)[0].body == invalid_body
-    assert coverage(db_path, "jquants_fin_summaries") == [
-        (
-            f"get_fin_summary_range:{DAY}..{DAY}",
-            DAY,
-            DAY,
-            CORRECTION_CLOCK,
-            0,
-            "partial",
-            "1 rejected records during normalization",
-        )
-    ]
 
 
 def test_offline_readers_report_missing_input_without_store_or_http(tmp_path, monkeypatch):
@@ -446,7 +342,7 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
     )
     with sqlite3.connect(db_path) as conn:
         request = read_complete_request(conn, financial_id)
-        store_jquants_fin_summaries(
+        seed_legacy_financial_sqlite(
             db_path,
             request.records(),
             requested_start=day,

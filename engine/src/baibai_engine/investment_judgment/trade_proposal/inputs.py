@@ -565,6 +565,8 @@ def _context_calculations(
         assessment_quote_basis,
         buy_evaluation_payload,
         buy_evaluator,
+        order_market_unavailable_reasons,
+        proposal_classification,
     )
     from baibai_engine.portfolio.holdings.price_grid import floor_common_stock_limit
 
@@ -607,19 +609,20 @@ def _context_calculations(
             at_quote = evaluate(quote.price_yen, None)
             # 次の立会で新たに取得できない給付を終価に入れない。元評価の値はそのまま。
             row["current_quote_projection"] = at_quote.current_price_projection
-            row["buy_at_actual_quote"] = buy_evaluation_payload(at_quote)
+            classification = proposal_classification(inputs, outcome.ticker)
+            order_blockers = order_market_unavailable_reasons(classification, session)
+            row["buy_at_actual_quote"] = buy_evaluation_payload(
+                at_quote, order_blockers=order_blockers
+            )
             maximum = at_quote.maximum_price_yen
             if maximum is not None and maximum > 0:
                 row["calculation_at_maximum_price"] = buy_evaluation_payload(
-                    evaluate(maximum, None)
-                )
-                classification = next(
-                    (row for row in inputs.security_classification if row.ticker == outcome.ticker),
-                    None,
+                    evaluate(maximum, None),
+                    order_blockers=order_blockers,
                 )
                 grid = (
                     None
-                    if classification is None or session is None
+                    if classification is None or session is None or order_blockers
                     else floor_common_stock_limit(
                         maximum,
                         target_session=session,

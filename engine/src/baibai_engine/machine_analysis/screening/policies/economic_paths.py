@@ -1,4 +1,4 @@
-"""現行の事業座標と旧経済政策の保存型。過去の順位は再計算しない。"""
+"""旧経済政策の保存型。過去の順位・参照群・値は再計算しない。"""
 
 from __future__ import annotations
 
@@ -24,25 +24,6 @@ class EconomicPathPolicy(BaseModel):
         "best-economic-path-v4",
     ] = "best-economic-path-v4"
     candidate_limit: Annotated[int, Field(ge=0, le=36)] = 36
-
-
-@dataclass(frozen=True, slots=True)
-class PathCoordinates:
-    path_id: PathId
-    variant: str
-    price_value: CoordinateValue | None
-    business_value: CoordinateValue | None
-    price_group: str
-    business_group: str
-    eligible: bool
-
-
-@dataclass(frozen=True, slots=True)
-class CompanyCoordinates:
-    ticker: str
-    name: str | None
-    sector: str | None
-    paths: tuple[PathCoordinates, ...]
 
 
 @dataclass(frozen=True, slots=True)

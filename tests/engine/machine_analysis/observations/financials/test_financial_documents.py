@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.helpers.financial_documents import document, documents
+from tests.helpers.financial_documents import document, documents, seed_legacy_financial_sqlite
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _resolve_capital_basis,
@@ -37,12 +37,14 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
+    normalize_financial_summaries,
+)
 from baibai_engine.machine_analysis.observations.financials.reader import (
     read_fin_summaries,
     read_financial_documents,
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -69,15 +71,7 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
 
     db = tmp_path / "market.sqlite"
     records = documents()
-    # Repeated complete-range replacement preserves documents and coverage.
-    store_jquants_fin_summaries(db, records, requested_start=date(2026, 8, 10), requested_end=ASOF)
-    for _ in range(2):
-        store_jquants_fin_summaries(
-            db,
-            records,
-            requested_start=date(2026, 8, 10),
-            requested_end=ASOF,
-        )
+    seed_legacy_financial_sqlite(db, records, requested_start=date(2026, 8, 10), requested_end=ASOF)
     before = db.read_bytes()
     stored = read_fin_summaries(db, date(2026, 8, 10), ASOF)
     assert stored is not None
@@ -200,7 +194,7 @@ def test_covered_projection_keeps_cross_company_disclosure_tie_order(tmp_path):
     ]
     path = tmp_path / "market.sqlite"
     start = date(2026, 8, 10)
-    store_jquants_fin_summaries(path, records, requested_start=start, requested_end=ASOF)
+    seed_legacy_financial_sqlite(path, records, requested_start=start, requested_end=ASOF)
     sql_order = sorted(
         records, key=lambda record: (record["Code"], record["DiscDate"], record["DiscNo"])
     )
@@ -313,7 +307,7 @@ def test_f_and_next_slots_are_retained_without_mixing() -> None:
 def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> None:
     db = tmp_path / "market.sqlite"
     records = [document("issued", ShOutFY="1000"), document("treasury", TrShFY="100")]
-    store_jquants_fin_summaries(db, records, requested_start=date(2026, 9, 14), requested_end=ASOF)
+    seed_legacy_financial_sqlite(db, records, requested_start=date(2026, 9, 14), requested_end=ASOF)
     conn = open_connection(db)
     try:
         rows = read_financial_documents(conn, start=date(2026, 9, 14), end=ASOF)
@@ -344,7 +338,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
     narrow_release_policy(monkeypatch, datasets=("jquants.fin_summaries",))
     db = tmp_path / "source.sqlite"
     mirror = tmp_path / "mirror"
-    store_jquants_fin_summaries(
+    seed_legacy_financial_sqlite(
         db, documents(), requested_start=date(2026, 8, 10), requested_end=ASOF
     )
     with sealed_sqlite_snapshot(sqlite_path=db, mirror_root=mirror) as sealed:
@@ -775,31 +769,6 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
     assert _reported_dividend(rows, (), ASOF).amount == 7
 
 
-@pytest.mark.parametrize("outside_day", ["2026-08-09", "2026-10-14"])
-def test_outside_financial_payload_preserves_rows_and_coverage(
-    tmp_path: Path, outside_day: str
-) -> None:
-    db = tmp_path / "market.sqlite"
-    start = date(2026, 8, 10)
-    store_jquants_fin_summaries(db, documents(), requested_start=start, requested_end=ASOF)
-    before = db.read_bytes()
-    with pytest.raises(ValueError, match="outside the request"):
-        store_jquants_fin_summaries(
-            db,
-            [document("unexpected", day=outside_day)],
-            requested_start=start,
-            requested_end=ASOF,
-        )
-    assert db.read_bytes() == before
-
-
-def test_reversed_financial_range_does_not_create_store(tmp_path: Path) -> None:
-    db = tmp_path / "absent.sqlite"
-    with pytest.raises(ValueError, match="start must not follow end"):
-        store_jquants_fin_summaries(db, [], requested_start=ASOF, requested_end=date(2026, 8, 10))
-    assert not db.exists()
-
-
 def test_financial_store_keeps_uninterpreted_provider_fields(tmp_path: Path) -> None:
     db = tmp_path / "market.sqlite"
     record = document(
@@ -810,7 +779,9 @@ def test_financial_store_keeps_uninterpreted_provider_fields(tmp_path: Path) -> 
         NxFEPS="20",
         ProviderExtraField="uninterpreted",
     )
-    store_jquants_fin_summaries(db, [record], requested_start=date(2026, 9, 14), requested_end=ASOF)
+    seed_legacy_financial_sqlite(
+        db, [record], requested_start=date(2026, 9, 14), requested_end=ASOF
+    )
     with closing(sqlite3.connect(db)) as conn:
         payload = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchone()[0]
     assert json.loads(payload) == record
@@ -822,19 +793,12 @@ def test_financial_store_keeps_uninterpreted_provider_fields(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize("reverse", [False, True])
-def test_conflicting_same_document_identity_preserves_store(tmp_path, reverse):
-    db = tmp_path / "market.sqlite"
-    start = date(2026, 9, 14)
-    store_jquants_fin_summaries(
-        db, [document("held", FEPS="10")], requested_start=start, requested_end=ASOF
-    )
-    before = db.read_bytes()
+def test_conflicting_same_document_identity_does_not_choose_a_forecast(reverse):
     records = [document("duplicate", FEPS="20"), document("duplicate", FEPS="30")]
     if reverse:
         records.reverse()
     with pytest.raises(ValueError, match="conflicting financial document identity"):
-        store_jquants_fin_summaries(db, records, requested_start=start, requested_end=ASOF)
-    assert db.read_bytes() == before
+        normalize_financial_summaries(records)
 
 
 @pytest.mark.parametrize("late_old_correction", [False, True])
@@ -943,7 +907,7 @@ def test_native_primary_financial_values_reach_l2_without_nc_substitution(tmp_pa
     )
     path = tmp_path / "market.sqlite"
     start = date(2026, 8, 10)
-    store_jquants_fin_summaries(path, [record], requested_start=start, requested_end=ASOF)
+    seed_legacy_financial_sqlite(path, [record], requested_start=start, requested_end=ASOF)
     rows = read_fin_summaries(path, start, ASOF)
     assert rows is not None
     assert len(rows) == 1
@@ -979,12 +943,7 @@ def test_native_primary_financial_values_reach_l2_without_nc_substitution(tmp_pa
 
 
 @pytest.mark.parametrize("number", [None, "", "   "])
-def test_native_identity_is_required_before_replacing_history(tmp_path, number):
-    db = tmp_path / "market.sqlite"
-    store_jquants_fin_summaries(
-        db, documents(), requested_start=date(2026, 8, 10), requested_end=ASOF
-    )
-    before = db.read_bytes()
+def test_native_identity_is_required_in_raw_and_normalized_financial_rows(number):
     record = document("unused", FNCEPS="30")
     if number is None:
         record.pop("DiscNo")
@@ -993,10 +952,7 @@ def test_native_identity_is_required_before_replacing_history(tmp_path, number):
     with pytest.raises(JQuantsProviderError, match="native DiscNo"):
         normalize_financial_summary(record)
     with pytest.raises(JQuantsProviderError, match="native DiscNo"):
-        store_jquants_fin_summaries(
-            db, [record], requested_start=date(2026, 8, 10), requested_end=ASOF
-        )
-    assert db.read_bytes() == before
+        normalize_financial_summaries([record])
 
 
 @pytest.mark.parametrize("missing_field", ["CurPerSt", "CurPerEn"])
@@ -1570,7 +1526,7 @@ def test_boolean_native_financial_values_remain_raw_but_not_numeric(tmp_path, va
         FDivAnn=value,
     )
     start = date(2026, 8, 10)
-    store_jquants_fin_summaries(path, [record], requested_start=start, requested_end=ASOF)
+    seed_legacy_financial_sqlite(path, [record], requested_start=start, requested_end=ASOF)
     rows = read_fin_summaries(path, start, ASOF)
     assert rows is not None
     assert len(rows) == 1
@@ -1752,7 +1708,7 @@ def test_next_year_annual_revision_reaches_generated_financials(tmp_path):
 
     records = _next_year_earnings_records(NxFSales="1000", NxFOP="100")
     db = tmp_path / "market.sqlite"
-    store_jquants_fin_summaries(db, records, requested_start=date(2026, 8, 1), requested_end=ASOF)
+    seed_legacy_financial_sqlite(db, records, requested_start=date(2026, 8, 1), requested_end=ASOF)
     before = db.read_bytes()
     with closing(sqlite3.connect(db)) as conn:
         rows = read_financial_documents(conn, start=date.min, end=ASOF)

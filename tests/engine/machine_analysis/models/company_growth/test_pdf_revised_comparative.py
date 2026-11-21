@@ -169,11 +169,10 @@ def test_l3_and_financial_path_keep_unverified_comparison_without_a_company_veto
     for metric in ("sales", "operating_profit", "parent_profit", "operating_margin"):
         assert by_metric[metric]["reason"] == REASON
         assert by_metric[metric]["from_value"] is None
+        assert by_metric[metric]["rate"] is None
     paths = discovery_paths(generated)
-    path = next(p for p in paths if p.path_id == "business_expansion" and p.variant == "annual_ttm")
-    assert not path.eligible
-    assert path.business_value is None
-    assert any(p.path_id == "earning_power" and p.eligible for p in paths)
+    assert not any(p["path_id"] == "business_expansion" for p in paths)
+    assert any(p["path_id"] == "earning_power" for p in paths)
 
 
 @pytest.mark.parametrize("published", [date(2026, 5, 15), date(2026, 6, 1)])

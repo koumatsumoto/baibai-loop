@@ -19,7 +19,6 @@ import { AssessmentSources } from '../components/AssessmentSources'
 import { AssessmentHypotheses } from '../components/AssessmentHypotheses'
 import { AssessmentValueGap } from '../components/AssessmentValueGap'
 import { ModelPerspectives } from '../components/ModelPerspectives'
-import { ReportSummary } from '../components/ReportSummary'
 import { PriceValueFinding } from '../components/PriceValueFinding'
 import { ProposalWarnings } from '../components/ProposalWarnings'
 import { SavedBuySession } from '../components/SavedBuySession'
@@ -494,7 +493,9 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
     </div>} padded title={item.ticker}>
       <div className="grid min-w-0 gap-5">
         <PriceValueFinding assessment={item.assessment} />
-        <ReportSummary text={item.rationale} />
+        <div className="grid gap-2" data-report-summary>
+          <p className="whitespace-pre-wrap break-words text-base leading-8">{item.rationale}</p>
+        </div>
         {item.assessment !== null && <ModelPerspectives assessment={item.assessment} />}
         <details className="rounded-lg border p-4" data-proposal-details>
           <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">価格・条件と判断の詳細を読む</summary>

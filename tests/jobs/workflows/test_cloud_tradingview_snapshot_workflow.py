@@ -27,7 +27,13 @@ def test_metadata_order_and_exclusive_writer():
     data = workflow()
     from baibai_jobs.schedule import TRADINGVIEW_SLOTS
 
-    assert [item["cron"] for item in declared_schedule(PATH.read_text())] == list(TRADINGVIEW_SLOTS)
+    source = PATH.read_text(encoding="utf-8")
+    assert not [
+        old
+        for old in ("accept-observations", "observations_json", "observations_sha256")
+        if old in source
+    ]
+    assert [item["cron"] for item in declared_schedule(source)] == list(TRADINGVIEW_SLOTS)
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
         "interval",
         "observation_master_asof",
@@ -109,13 +115,8 @@ def test_notification_uses_job_result_and_only_retained_outputs():
         ("2026-10-09", "refs/heads/other", False),
     ],
 )
-def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref, runs):
+def test_master_asof_override_requires_main(basis, ref, runs):
     data = workflow()
-    assert set(data["jobs"]) == {"snapshot", "notify"}
-    assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
-        "interval",
-        "observation_master_asof",
-    }
     condition = data["jobs"]["snapshot"]["if"]
     assert (
         condition
@@ -129,9 +130,6 @@ def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref,
         .replace("||", " or ")
     )
     assert eval(expression, {"__builtins__": {}}, {}) is runs
-    source = PATH.read_text(encoding="utf-8")
-    for obsolete in ("accept-observations", "observations_json", "observations_sha256"):
-        assert obsolete not in source
 
 
 def test_private_partial_receipts_survive_failed_cooldown_until_common_integration(tmp_path):

@@ -62,9 +62,10 @@ def test_equal_time_conflict_does_not_pick_a_winner() -> None:
         )[DAY]
 
 
-def test_rejects_rows_outside_the_native_request_date() -> None:
+@pytest.mark.parametrize("wrong_day", ["2026-11-01", "2026-11-03"])
+def test_rejects_rows_outside_the_native_request_date(wrong_day: str) -> None:
     at = datetime(2026, 11, 2, tzinfo=UTC)
-    row = {**record(1), "DiscDate": "2026-11-01"}
+    row = {**record(1), "DiscDate": wrong_day}
     with pytest.raises(ValueError, match="outside"):
         rebuild_financial_days([receipt("a", at, [row])], days=(DAY,))[DAY]
 
@@ -152,33 +153,27 @@ def test_rejected_native_rows_remain_visible_as_partial() -> None:
         ).fetchone() == ("partial", 1)
 
 
-def test_duckdb_rebuild_matches_current_projection_for_same_receipt(tmp_path) -> None:
-    import sqlite3
-
+def test_duckdb_financial_projection_deduplicates_keys_without_rewriting_provider_fields() -> None:
     import duckdb
 
     from baibai_engine.machine_analysis.observations.financials.from_l1 import (
         materialize_financial_days,
     )
-    from baibai_engine.machine_analysis.observations.jquants_writer import (
-        store_jquants_fin_summaries,
-    )
 
     at = datetime(2026, 11, 2, tzinfo=UTC)
-    native = [record(2), {"Code": "99990", "DiscDate": "2026-11-02", "DiscNo": "b"}]
+    first = {**record(2), "FEPS": "", "NxFEPS": "0", "Uninterpreted": "provider value"}
+    second = {"Code": "99990", "DiscDate": "2026-11-02", "DiscNo": "b"}
+    native = [first, second, first.copy()]
     result = rebuild_financial_days([receipt("full", at, native)], days=(DAY,))[DAY]
-    path = tmp_path / "existing.sqlite"
-    store_jquants_fin_summaries(path, native, requested_start=DAY, requested_end=DAY)
-    with sqlite3.connect(path) as old:
-        expected = set(
-            old.execute(
-                "SELECT ticker, disclosed_at, disclosure_number, document_payload FROM jquants_fin_summaries"
-            )
-        )
     with duckdb.connect(":memory:") as new:
-        materialize_financial_days(new, [result], l1_coverage_status="partial")
-        actual = set(new.execute("SELECT * FROM financial_summaries").fetchall())
-    assert actual == expected
+        materialize_financial_days(new, [result], l1_coverage_status="complete")
+        rows = new.execute("SELECT * FROM financial_summaries ORDER BY ticker").fetchall()
+    assert [
+        (ticker, date, number, json.loads(payload)) for ticker, date, number, payload in rows
+    ] == [
+        ("1301", "2026-11-02", "a", first),
+        ("9999", "2026-11-02", "b", second),
+    ]
 
 
 def test_multiple_days_are_built_in_one_pass_and_missing_is_not_empty() -> None:

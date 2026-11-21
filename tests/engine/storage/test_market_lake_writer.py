@@ -10,10 +10,10 @@ from types import SimpleNamespace
 
 import pyarrow.parquet as pq
 import pytest
+from tests.helpers.financial_documents import seed_legacy_financial_sqlite
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import export_market_fixture, market_store
 
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.snapshots import identity as identity_module
 from baibai_engine.storage.snapshots import writer as writer_module
 from baibai_engine.storage.snapshots.contracts import PROJECTION_REVISION_METADATA_KEY
@@ -747,7 +747,7 @@ def test_gc_keeps_source_and_processed_objects_in_current_market_release(
                 gzip.compress(b"{}"),
             ),
         )
-    store_jquants_fin_summaries(
+    seed_legacy_financial_sqlite(
         sqlite_path,
         [{"Code": "13010", "DiscDate": "2026-01-05", "DiscNo": "gc-source"}],
         requested_start=date(2026, 1, 5),
