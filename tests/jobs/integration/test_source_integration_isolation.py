@@ -203,6 +203,131 @@ def test_invalid_receipt_sqlite_is_local_and_other_source_still_integrates(tmp_p
     assert report["handoffs"][1]["failed"] is False
 
 
+@pytest.mark.parametrize(
+    ("empty", "malformed", "fault"),
+    [
+        ("calendar", None, None),
+        ("master", None, None),
+        (None, "calendar", "clock"),
+        (None, "master", "clock"),
+        ("calendar", "master", "clock"),
+        ("master", "calendar", "clock"),
+        ("calendar", "master", "shape"),
+        ("master", "calendar", "shape"),
+    ],
+)
+def test_only_empty_tradingview_native_context_is_source_local(tmp_path, empty, malformed, fault):
+    from tests.helpers.jpx_earnings import DAY as JPX_DAY
+    from tests.helpers.jpx_earnings import STAMP, earnings
+    from tests.helpers.tradingview import (
+        DAY,
+        NOW,
+        _sdk,
+        native_inputs,
+        payload,
+        retain_result,
+        store,
+    )
+
+    from baibai_engine.data_collection.providers.jquants.calendar_native import HEAD_KEY as CALENDAR
+    from baibai_engine.data_collection.providers.jquants.master_native import HEAD_KEY as MASTER
+    from baibai_jobs.integration.jpx_handoff import export_handoff as export_jpx
+    from baibai_jobs.integration.tradingview_handoff import export_handoff as export_tv
+
+    tv_source = store(tmp_path / "tv-source.sqlite", 1)
+    retain_result(tv_source, _sdk(payload(["TSE:1000"])))
+    remote, master, calendar = native_inputs(tv_source, tmp_path, day=DAY)
+    tv = tmp_path / "tv-packet"
+    tv.mkdir()
+    handoff = export_tv(
+        tv_source,
+        tv / "receipts.sqlite",
+        day=DAY,
+        since=NOW,
+        master_input=master,
+        calendar_input=calendar,
+    )
+    (tv / "result.json").write_text(
+        json.dumps(
+            {
+                "source": "tradingview",
+                "started_at": NOW.isoformat(),
+                "asof": DAY.isoformat(),
+                **handoff.to_json(),
+            }
+        )
+    )
+    save_handoff(remote, "tradingview-ready", tv, market=True)
+
+    jpx = tmp_path / "jpx-packet"
+    jpx.mkdir()
+    jpx_source = tmp_path / "jpx-source.sqlite"
+    earnings(jpx_source, STAMP, "2026-10-20", "130A")
+    bundles = export_jpx(
+        jpx_source, jpx / "receipts.sqlite", since=STAMP, collection="earnings_calendar"
+    )
+    (jpx / "result.json").write_text(
+        json.dumps(
+            {
+                "source": "jpx-earnings",
+                "started_at": STAMP.isoformat(),
+                "asof": JPX_DAY.isoformat(),
+                "bundle_ids": bundles,
+            }
+        )
+    )
+    save_handoff(remote, "manual-jpx", jpx, market=True)
+    work = tmp_path / "integration"
+    work.mkdir()
+    (work / "plan.json").write_text(
+        json.dumps(
+            {
+                "handoffs": available_handoffs(remote, market=True),
+                "edinet_input": empty_edinet_input(remote, tmp_path).model_dump(mode="json"),
+            }
+        )
+    )
+
+    # Change the current heads only; the older packet retains its exact inputs.
+    for owner, key, fields in (
+        ("calendar", CALENDAR, ("days", "ranges", "receipts")),
+        ("master", MASTER, ("scopes", "receipts")),
+    ):
+        head = json.loads(remote.values[key].body)
+        if owner == empty:
+            head.update({field: {} for field in fields})
+        elif owner == malformed:
+            if fault == "shape":
+                head[fields[0]] = []
+            else:
+                next(iter(head[fields[0]].values()))["confirmed_at"] = "bad-clock"
+        else:
+            continue
+        remote.store_object(key, json.dumps(head).encode())
+    market = tmp_path / "market.sqlite"
+    with closing(open_connection(market)):
+        pass
+    if malformed is not None:
+        before = market.read_bytes()
+        reason = "must be an object" if fault == "shape" else "Invalid isoformat string"
+        with pytest.raises(ValueError, match=reason):
+            apply_market(remote, work, market=market, asof=DAY)
+        assert market.read_bytes() == before
+        return
+
+    result = apply_market(remote, work, market=market, asof=DAY)
+    good, unavailable = result["handoffs"]
+    assert good["applied"] is True
+    assert good["failed"] is False
+    assert unavailable["result"] == {"reason": "tradingview_native_context_unavailable"}
+    assert unavailable["applied"] is False
+    assert unavailable["failed"] is unavailable["recovery"] is True
+    with closing(open_connection(market)) as conn:
+        assert conn.execute("SELECT ticker FROM jpx_earnings_calendar").fetchall() == [("130A",)]
+        assert not conn.execute("SELECT 1 FROM tradingview_source_receipts").fetchone()
+    assert "coordination/market-sources/tradingview-ready/integrated.json" not in remote.values
+
+
 @pytest.mark.parametrize("field", ["receipt_sha256", "receipt_bytes", "receipt_key"])
 def test_incomplete_handoff_manifest_is_local_and_other_source_still_integrates(
     tmp_path, monkeypatch, field

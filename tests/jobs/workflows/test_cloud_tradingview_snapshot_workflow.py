@@ -87,7 +87,7 @@ def test_notification_uses_job_result_and_only_retained_outputs():
     assert notify["needs"] == "snapshot"
     assert " ".join(notify["if"].split()) == (
         "${{ always() && (cancelled() || github.event_name != 'schedule' || "
-        "needs.snapshot.result != 'success' || needs.snapshot.outputs.handoff == '' || "
+        "needs.snapshot.result != 'success' || "
         "needs.snapshot.outputs.summary != 'success') }}"
     )
     env = next(step for step in notify["steps"] if step.get("id") == "notify")["env"]

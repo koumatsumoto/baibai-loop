@@ -464,8 +464,7 @@ jobs:
     # A failed best-effort summary still needs its separate receipt log.
     if: >-
       ${{ always() && (cancelled() || github.event_name != 'schedule' ||
-          needs.snapshot.result != 'success' || needs.snapshot.outputs.handoff == '' ||
-          needs.snapshot.outputs.summary != 'success') }}
+          needs.snapshot.result != 'success' || needs.snapshot.outputs.summary != 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -144,21 +144,21 @@ def _copy_raw(
 ) -> int:
     inserted = 0
     for identity in identities:
-        rows = source.execute(
+        row = source.execute(
             "SELECT * FROM tradingview_source_receipts WHERE receipt_id = ?", (identity,)
-        )
-        names = tuple(item[0] for item in rows.description or ())
-        for row in rows:
-            existing = conn.execute(
-                "SELECT * FROM tradingview_source_receipts WHERE receipt_id = ?", (identity,)
-            ).fetchone()
-            if existing is not None:
-                if tuple(existing) != tuple(row):
-                    raise SourceDataError("TradingView handoff receipt identity conflicts")
-                continue
-            placeholders = ",".join("?" for _ in names)
-            conn.execute(f"INSERT INTO tradingview_source_receipts VALUES ({placeholders})", row)  # nosec B608
-            inserted += 1
+        ).fetchone()
+        if row is None:
+            raise SourceDataError("TradingView handoff receipt is missing from its packet")
+        existing = conn.execute(
+            "SELECT * FROM tradingview_source_receipts WHERE receipt_id = ?", (identity,)
+        ).fetchone()
+        if existing is not None:
+            if tuple(existing) != tuple(row):
+                raise SourceDataError("TradingView handoff receipt identity conflicts")
+            continue
+        placeholders = ",".join("?" for _ in row)
+        conn.execute(f"INSERT INTO tradingview_source_receipts VALUES ({placeholders})", row)  # nosec B608
+        inserted += 1
     return inserted
 
 

@@ -543,7 +543,7 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 独立原本の内容でなく旧releaseの日足投影そのものを調べるときは、対象releaseを指定した通常の `hydrate-market` を使う。
 
 <a id="financial-native-l1"></a>
-**財務。** [固定reader](src/baibai_jobs/integration/financial_native.py)は旧inline/共有固定入力も読む。旧SQL/Parquetの明示reader・cold再構築は保持する。現在の財務取得はnative headへ保存し、財務handoffを作成しない。固定済みSelectionを再署名しない。Operation再開とcold計算を混同しない。
+**財務。** [`rebuild-financial-native --saved-input`](src/baibai_jobs/integration/financial_native.py)は保存済みの固定native入力から財務の派生表を再構築する。公開済みの投影を確認するときは[そのreleaseを指定](#fixed-release-read)して読む。再構築はOperationの再開ではなく、保存済みSelectionを置き換えない。
 
 定期財務取得は平日18:13 JSTの`financial-edinet-facts`枠へ置き、価格等の16:43枠と分ける。Standard等の[公式更新目安](https://jpx-jquants.com/ja/spec/data-update)は18:00速報・翌00:30確報で、18:13の完全到着や22:43統合への間に合いを保証しない。確報は次回overlapで取り込むため、17時頃の臨時統合では前回取得後の確報が未反映の場合がある。早期更新が必要なら既存受領と進行中runを確認し、不足する財務だけ次で明示取得する。
 

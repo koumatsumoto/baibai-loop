@@ -240,7 +240,13 @@ def test_economic_workflow_passes_notice_classification_without_hiding_job_failu
     )
     steps = source["jobs"]["acquire"]["steps"]
     assert "continue-on-error" not in next(step for step in steps if step.get("id") == "acquire")
-    notice = source["jobs"]["notify"]["steps"][-1]
+    notify = source["jobs"]["notify"]
+    assert " ".join(notify["if"].split()) == (
+        "${{ always() && (github.event_name != 'schedule' || needs.acquire.outputs.handoff == '' "
+        "|| (needs.acquire.result != 'success' && "
+        "!(needs.acquire.result == 'failure' && needs.acquire.outputs.expected_unavailable == 'true'))) }}"
+    )
+    notice = notify["steps"][-1]
     assert (
         notice["env"]["EXPECTED_UNAVAILABLE"] == "${{ needs.acquire.outputs.expected_unavailable }}"
     )

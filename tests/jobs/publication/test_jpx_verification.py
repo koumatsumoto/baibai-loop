@@ -7,11 +7,11 @@ from datetime import timedelta
 
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
+from tests.helpers.jpx_earnings import DAY, STAMP, earnings, regulations
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master_calendar_native import seed_calendar, seed_master
 from tests.helpers.r2_store import MemoryR2Store
-from tests.jobs.integration.test_jpx_handoff import DAY, STAMP, earnings, regulations
 
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
 from baibai_engine.storage.objects.r2 import LakePublishError

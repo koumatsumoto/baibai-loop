@@ -26,6 +26,10 @@ from baibai_engine.storage.objects.r2 import (
 )
 
 
+class EmptyFullDayInput(ValueError):
+    """An initialized full-day selection has no retained dates."""
+
+
 @dataclass(slots=True)
 class _VerifiedReads:
     store: ObjectStore

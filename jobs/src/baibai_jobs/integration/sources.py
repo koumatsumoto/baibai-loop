@@ -10,7 +10,7 @@ import re
 import sqlite3
 import sys
 import time
-from contextlib import closing
+from contextlib import closing, suppress
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -125,22 +125,21 @@ def apply(
     ):
         from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
         from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+        from baibai_engine.machine_analysis.generation.full_day_inputs import EmptyFullDayInput
         from baibai_jobs.integration.calendar_native import fixed_input as fixed_calendar_input
         from baibai_jobs.integration.master_native import fixed_input as fixed_master_input
 
         evaluated_at = datetime.now(UTC)
-        calendar_input = fixed_calendar_input(
-            store,
-            CalendarL1(store, directory / "calendar-native").fixed(),
-            as_of=asof,
-            evaluated_at=evaluated_at,
-        )
-        master_input = fixed_master_input(
-            store,
-            MasterL1(store, directory / "master-native").fixed(),
-            as_of=asof,
-            evaluated_at=evaluated_at,
-        )
+        calendar = CalendarL1(store, directory / "calendar-native").fixed()
+        master = MasterL1(store, directory / "master-native").fixed()
+        # An initialized empty head blocks only TV. Validate both authorities
+        # independently so an empty head cannot hide corruption in the other one.
+        with suppress(EmptyFullDayInput):
+            calendar_input = fixed_calendar_input(
+                store, calendar, as_of=asof, evaluated_at=evaluated_at
+            )
+        with suppress(EmptyFullDayInput):
+            master_input = fixed_master_input(store, master, as_of=asof, evaluated_at=evaluated_at)
     # Only this owner's canonical corruption is global and fatal.
     with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_market_schema(conn)
@@ -160,6 +159,9 @@ def apply(
                 if entry.get("invalid")
                 else "older_than_integrated_source_watermark"
             }
+            failed = recovery = True
+        elif entry["source"] == "tradingview" and (master_input is None or calendar_input is None):
+            result = {"reason": "tradingview_native_context_unavailable"}
             failed = recovery = True
         else:
             try:
@@ -463,6 +465,12 @@ def main(argv: list[str] | None = None) -> int:
         print("--group is only valid with inputs", file=sys.stderr)
         return 1
     try:
+        if (
+            args.group is not None
+            and args.group not in SOURCE_INPUT_GROUPS
+            and args.group not in COLLECTION_SOURCES
+        ):
+            raise ValueError("unknown market acquisition input group")
         if args.recover_jpx_stage and args.command != "plan":
             raise ValueError("--recover-jpx-stage is only valid with plan")
         if args.quality_output and args.command != "check":
@@ -613,21 +621,13 @@ def main(argv: list[str] | None = None) -> int:
                         raise ValueError("--identity and --asof are required")
                     input_report: dict[str, Any] = {"updated": [], "failed": []}
                     groups = (
-                        tuple(
-                            group
-                            for group in SOURCE_INPUT_GROUPS
-                            if not group.startswith("edinet-")
-                        )
+                        SOURCE_INPUT_GROUPS
                         if args.group is None
                         else (args.group,)
+                        if args.group in SOURCE_INPUT_GROUPS
+                        else ()
                     )
                     for group in groups:
-                        if group in ARTICLE_SOURCES:
-                            continue
-                        if group not in SOURCE_INPUT_GROUPS:
-                            raise ValueError(
-                                "economic inputs are published by economic L1 integration"
-                            )
                         result = publish_inputs(
                             guarded,
                             market=args.market,
@@ -643,7 +643,7 @@ def main(argv: list[str] | None = None) -> int:
                         COLLECTION_SOURCES
                         if args.group is None
                         else (args.group,)
-                        if args.group in ARTICLE_SOURCES
+                        if args.group in COLLECTION_SOURCES
                         else ()
                     ):
                         try:

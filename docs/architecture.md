@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | 取得範囲、受領、失敗後の再開 | [provider・受領](../engine/src/baibai_engine/data_collection/)／[取得Jobs](../jobs/src/baibai_jobs/acquisition/) | L1は受領内容と時計を持つ。規格化した値で原本を置き換えない。 |
 | 原本の抽出・比較値 | [観測](../engine/src/baibai_engine/machine_analysis/observations/)／[解析モデル](../engine/src/baibai_engine/machine_analysis/models/) | 観測は出典・期間・範囲・精度を持ち、モデルが計算する。[値の読み方](reference/model-observations.md)には経済的な意味と限界を置く。 |
-| 日次で何を固定し、何を発行するか | [日次workflow](../.github/workflows/cloud-daily-batch.yml) → [統合](../jobs/src/baibai_jobs/integration/models.py) → [Generationの入力](../engine/src/baibai_engine/machine_analysis/generation/inputs.py)・[探索索引の生成](../engine/src/baibai_engine/machine_analysis/screening/policies/discovery.py) | 生成中に外部取得しない。表示・個社照会から再選抜しない。[探索の使い方](reference/screening-runtime.md) |
+| 日次で何を固定し、何を発行するか | [日次workflow](../.github/workflows/cloud-daily-batch.yml) → [受領の固定・適用](../jobs/src/baibai_jobs/integration/sources.py) → [モデル・索引の発行](../jobs/src/baibai_jobs/integration/models.py)。[固定入力](../engine/src/baibai_engine/machine_analysis/generation/inputs.py)と[索引の構築](../engine/src/baibai_engine/machine_analysis/screening/policies/discovery.py)は別。 | 生成中に外部取得しない。表示・個社照会から再選抜しない。[探索の使い方](reference/screening-runtime.md) |
 | 調査対象・判断・提案 | [企業判断CLI](../engine/src/baibai_engine/cli/investment_judgment.py) → [調査の固定と進捗](../engine/src/baibai_engine/investment_judgment/workflow/)・[評価](../engine/src/baibai_engine/investment_judgment/stock_assessment/)・[提案](../engine/src/baibai_engine/investment_judgment/trade_proposal/) | [評価の根拠とReview](reference/stock-assessment.md)、[提案時の経済比較](reference/trade-proposal.md)。価値を支持するかと、今この資金を使うかは別の判断。 |
 | 約定・cash・保有・成績 | [台帳](../engine/src/baibai_engine/portfolio/ledger/) → [保有](../engine/src/baibai_engine/portfolio/holdings/)・[成績](../engine/src/baibai_engine/portfolio/performance/) | 報告された事実を保ち、提案の採否や調査完了と混ぜない。 |
 | 保存・公開・表示 | [保存機構](../engine/src/baibai_engine/storage/)／[公開Jobs](../jobs/src/baibai_jobs/publication/)／[Web](../web/README.md) | storageはSQLite・snapshot・条件付き転送を担当し、採否や業務規則を決めない。 |
@@ -24,7 +24,13 @@
 
 ## 現在の解析モデル
 
-[企業財務・企業成長・市場環境・外部評価・テクニカル分析・産業動向・社会動向](../engine/src/baibai_engine/machine_analysis/models/)が、個社・業種共有・市場共有の対象を別々に扱う。企業財務は株価と利益・資本を比べ、企業成長は実績の状態と変化を測る。産業や社会の記事は対象と期間を保ち、取得した全記事に意味抽出・業種対応があるわけではない。将来の株主利益・因果・重要性はL3で判断する。
+[Generationの実装](../engine/src/baibai_engine/machine_analysis/generation/assembly.py)が、次の[モデル](../engine/src/baibai_engine/machine_analysis/models/)の担当単位とモデルIDを決める。個々の値の意味・不足理由は[観測リファレンス](reference/model-observations.md)へ。
+
+- **個社**：企業財務 `company_financials`、企業成長 `company_growth`、テクニカル分析 `technical_analysis`、外部評価 `external_assessment`。
+- **個社と市場**：市場環境 `market_context`。個社の相対・価格観測と市場全体の観測は別の対象に保存する。
+- **共有**：産業動向 `industry_trends` は業種ごと、社会動向 `social_trends` は共通。取得した全記事に意味抽出・業種対応があるわけではない。
+
+将来の株主利益・因果・重要性はここでは決めず、L3で判断する。
 
 <a id="store-authority"></a>
 ## 何を正本として再開するか

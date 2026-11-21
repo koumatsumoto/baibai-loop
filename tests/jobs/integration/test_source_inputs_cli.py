@@ -241,6 +241,19 @@ def test_daily_inputs_leave_on_demand_news_planning_untouched(tmp_path, monkeypa
     assert {key: remote.values[key] for key in keys} == previous
 
 
+@pytest.mark.parametrize("source", ["minkabu_news", "rakuten_news"])
+def test_explicit_input_does_not_recreate_retired_article_planning(
+    tmp_path, monkeypatch, capsys, source
+):
+    remote, _, command = _input_cli(tmp_path, monkeypatch)
+    remote.head_keys.clear()
+    remote.get_keys.clear()
+    assert sources.main([*command, "--group", source]) == 1
+    assert "ValueError" in capsys.readouterr().err
+    assert not (remote.head_keys + remote.get_keys + remote.put_keys)
+    assert source_key(source) not in remote.values
+
+
 @pytest.mark.parametrize("changed_key", ["market.sqlite", "runs.sqlite"])
 def test_native_cli_does_not_publish_inputs_against_a_partial_machine_bundle(
     tmp_path, monkeypatch, capsys, changed_key

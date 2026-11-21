@@ -1,4 +1,5 @@
 from contextlib import closing
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -111,6 +112,28 @@ def test_new_canonical_universe_refuses_the_old_handoff_before_receiving_rows(tm
         import_handoff(stage, canonical, selected, store=remote)
     with closing(open_connection(canonical)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM tradingview_source_receipts").fetchone()[0] == 0
+
+
+def test_declared_receipt_must_exist_in_packet_even_if_canonical_has_it(tmp_path):
+    source = store(tmp_path / "source.sqlite", 2)
+    canonical = store(tmp_path / "canonical.sqlite", 2)
+    prior = retain_result(canonical, _sdk(payload(["TSE:1000"])))
+    received = retain_result(source, _sdk(payload(["TSE:1001"])), symbols=("TSE:1001",))
+    stage = tmp_path / "stage.sqlite"
+    remote, master, calendar = native_inputs(source, tmp_path, day=DAY)
+    handoff = export_handoff(
+        source, stage, day=DAY, master_input=master, calendar_input=calendar, since=NOW
+    )
+    assert handoff.receipt_ids == (received,)
+    with pytest.raises(SourceDataError, match="missing from its packet"):
+        import_handoff(
+            stage, canonical, replace(handoff, receipt_ids=(received, prior)), store=remote
+        )
+    with closing(open_connection(canonical)) as conn:
+        assert conn.execute("SELECT receipt_id FROM tradingview_source_receipts").fetchall() == [
+            (prior,)
+        ]
+    assert stored(canonical) == []
 
 
 def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_path):

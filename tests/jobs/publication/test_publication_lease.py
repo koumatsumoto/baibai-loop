@@ -610,6 +610,28 @@ def test_handle_save_failure_releases_remote(
     assert lease._decode(store.body or b"").state == "released"
 
 
+@pytest.mark.parametrize("release_fails", [False, True])
+def test_output_failure_allows_retry_only_after_confirmed_release(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, release_fails: bool
+) -> None:
+    store = MemoryStore()
+    monkeypatch.setattr(lease, "Boto3R2Store", lambda **_: store)
+    path = tmp_path / "handle.json"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path))  # Opening a directory fails.
+    if release_fails:
+
+        def lost_release(_store: object, _handle: object) -> None:
+            raise lease.LeaseError("publication lease release outcome unknown")
+
+        monkeypatch.setattr(lease, "release", lost_release)
+    args = ["acquire", "--purpose", "operator", "--handle", str(path)]
+    assert lease.main(args) == 1
+    assert path.exists() is release_fails
+    assert lease._decode(store.body or b"").state == ("held" if release_fails else "released")
+    monkeypatch.delenv("GITHUB_OUTPUT")
+    assert lease.main(args) == int(release_fails)
+
+
 def test_cli_uses_module_path_and_existing_bucket_env(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

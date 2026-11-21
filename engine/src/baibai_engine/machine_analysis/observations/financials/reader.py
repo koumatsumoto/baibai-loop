@@ -16,43 +16,8 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.storage.sqlite.source_cache.coverage import covered_intervals, range_covered
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
-
-
-def fin_summaries_readable_from(sqlite_path: Path, asof: date) -> date | None:
-    """Where the store's **continuous** history ending at `asof` begins.
-
-    The rows the store holds and the range it may serve are two different facts, and
-    the subscription window moves. A filing fetched while the window still reached
-    that far back keeps its row after the window passes it, so the oldest row can sit
-    outside the coverage. A caller that takes its floor from the oldest row then asks
-    for a range `read_fin_summaries` refuses, and a handful of rows at the far edge of
-    the history takes every read down.
-
-    Answering only for a continuous history is what keeps that relief from covering a
-    real hole. A store that simply does not reach further back has one window and
-    gets its floor; a store missing months in the middle has an older window too, and
-    gets None so the caller keeps its own floor and the read reports the range it
-    cannot serve. Silently starting after a gap would turn an outage into a quietly
-    shorter history, which no diagnostic distinguishes from a young store.
-
-    None also covers "no window holds `asof`" -- the same outage seen from the other
-    end.
-    """
-    if not sqlite_path.exists():
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        intervals = covered_intervals(conn, "jquants_fin_summaries")
-    finally:
-        conn.close()
-    for index, (interval_start, interval_end) in enumerate(intervals):
-        if interval_start <= asof <= interval_end:
-            return interval_start if index == 0 else None
-    return None
 
 
 def read_fin_summaries(

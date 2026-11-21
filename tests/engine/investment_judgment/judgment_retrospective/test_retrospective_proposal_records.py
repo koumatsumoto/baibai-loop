@@ -3,14 +3,15 @@
 from copy import deepcopy
 from datetime import UTC, timedelta
 
-from tests.engine.investment_judgment.trade_proposal.test_proposal_records import (
-    records_case as records_case,
-)
-from tests.engine.investment_judgment.trade_proposal.test_proposal_records import (
+from tests.helpers.proposal import PUBLISHED
+from tests.helpers.proposal_records import (
+    not_purchased_report,
     ref,
     snapshot,
 )
-from tests.helpers.proposal import PUBLISHED
+from tests.helpers.proposal_records import (
+    records_case as records_case,
+)
 
 from baibai_engine.investment_judgment.judgment_retrospective.document import RetrospectiveDraft
 from baibai_engine.investment_judgment.judgment_retrospective.query import (
@@ -18,9 +19,6 @@ from baibai_engine.investment_judgment.judgment_retrospective.query import (
     scaffold_retrospective,
 )
 from baibai_engine.investment_judgment.judgment_retrospective.store import RetrospectiveStoreService
-from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
-    HumanProposalReportDraft,
-)
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 
 NOW = PUBLISHED + timedelta(hours=2)
@@ -39,21 +37,6 @@ def _scaffold(case, proposal=None, *, now=NOW, identity="synthetic-records-retro
     )
 
 
-def _report(
-    proposal, *, identity="synthetic-report", reported_at=PUBLISHED + timedelta(minutes=10)
-):
-    return HumanProposalReportDraft(
-        report_id=identity,
-        proposal_ref=ref(proposal),
-        outcome="not_purchased",
-        statement="今回は購入しなかった。",
-        reason_quote="予定支出に備えて現金を残した。",
-        context_summary="担当者による合成の文脈要約。企業価値を否定したとは扱わない。",
-        reported_at=reported_at,
-        subject_at=None,
-    )
-
-
 def _save(case, scaffold, *, now=NOW):
     raw = deepcopy(scaffold["draft"])
     raw["document"]["lesson"] = {
@@ -69,7 +52,7 @@ def test_normal_reports_corrections_scaffold_and_exact_revisit_keep_separate_mea
     case, original, wrong, service, correction = records_case
     before = snapshot(case.app)
     corrected = service.correct(correction, expected_latest_ref=ref(wrong))
-    report = service.report(_report(original))
+    report = service.report(not_purchased_report(original))
     scaffold = _scaffold(case, original)
     origin = scaffold["context"]["origin"]
     supplement = origin["proposal_records"]
@@ -115,7 +98,7 @@ def test_later_receipts_never_backfill_old_revisit_and_do_not_replace_erroneous_
     late = NOW + timedelta(days=1)
     writer = ProposalRecordService(case.app, clock=lambda: late)
     corrected = writer.correct(correction, expected_latest_ref=ref(wrong))
-    report = writer.report(_report(wrong, reported_at=late - timedelta(hours=1)))
+    report = writer.report(not_purchased_report(wrong, reported_at=late - timedelta(hours=1)))
     stored = get_retrospective(retrospective_id=saved.reference.retrospective_id, db_path=case.app)
     assert stored["record"] == saved.model_dump(mode="json")
     assert stored["context"]["origin"]["proposal_records"]["records"] == {
@@ -140,10 +123,12 @@ def test_exact_origin_receipt_cutoff_preserves_offset_microseconds_and_unknown_s
     late = NOW + timedelta(days=2)
     # Receipt time and the report's target/information time are not interchangeable.
     writer = ProposalRecordService(case.app, clock=lambda: late)
-    old_report = writer.report(_report(original, reported_at=late - timedelta(hours=1)))
-    writer.report(_report(wrong, identity="other-proposal"))
+    old_report = writer.report(
+        not_purchased_report(original, reported_at=late - timedelta(hours=1))
+    )
+    writer.report(not_purchased_report(wrong, identity="other-proposal"))
     future = ProposalRecordService(case.app, clock=lambda: late + timedelta(microseconds=1))
-    future.report(_report(original, identity="one-microsecond-later"))
+    future.report(not_purchased_report(original, identity="one-microsecond-later"))
     equivalent_cutoff = late.astimezone(UTC)
     result = _scaffold(case, original, now=equivalent_cutoff, as_of=PUBLISHED.date())
     records = result["context"]["origin"]["proposal_records"]["records"]

@@ -25,6 +25,14 @@ uv run mypy
 uv run lint-imports
 ```
 
+よく変更する境界は、まず次の合成データのテストで確認できる。
+
+| 変更した契約 | 最初のテスト |
+| --- | --- |
+| 受領の読戻しとseal | [公開前は消費せず、同じ原本と投影でsealする](../tests/jobs/publication/test_tradingview_verification.py) |
+| 探索索引の問いとページ送り | [入力不足・分類・固定した個社比較を区別する](../tests/engine/investment_judgment/workflow/test_discovery_questions.py) |
+| 提案の指値・価格・数量 | [観測価格と指値を分け、未確定の根拠で数量を作らない](../tests/engine/investment_judgment/trade_proposal/test_conditional_buy_terms.py) |
+
 PR全体の検査は[Python CI](../.github/workflows/ci.yml)と[Web CI](../.github/workflows/web.yml)が正本。通常testは実networkを禁止し、CIの緑やfixtureの成功を本番受入には数えない。R2 integration testだけは明示有効化時に書込・削除するため、依頼された専用の空bucketでのみ `-n 0` で行う。
 
 <a id="webの確認"></a>

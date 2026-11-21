@@ -7,6 +7,7 @@ from baibai_jobs.observability import source_discord
     ("acquired", "staged", "expected_calls"),
     [
         ("success", "success", 0),
+        ("success", "skipped", 0),
         ("skipped", "success", 0),
         ("skipped", "failure", 1),
         ("failure", "failure", 1),

@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.proposal_records import SECOND_PROPOSAL_ID, ref, snapshot
+from tests.helpers.proposal_records import records_case as records_case
 
 from baibai_engine.cli import investment_judgment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -19,62 +21,13 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
     HumanProposalReportDraft,
     ProposalCorrectionDraft,
-    ProposalReference,
 )
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.sources.proposal import read_proposal_views
 
-B = "investment-proposal-00000000-0000-4000-8000-000000000004"
 C = "investment-proposal-00000000-0000-4000-8000-000000000005"
-
-
-def ref(p):
-    return ProposalReference(proposal_id=p.proposal_id, draft_sha256=proposal_draft_sha256(p))
-
-
-def snapshot(path):
-    with closing(sqlite3.connect(path)) as c:
-        return {
-            n: c.execute('SELECT * FROM "' + n + '"').fetchall()
-            for n in [
-                "investment_proposal",
-                "investment_proposal_item",
-                "stock_assessment",
-                "stock_assessment_review",
-                "operation_session",
-                "ledger_event",
-                "ledger_meta",
-                "position_decision_reference",
-            ]
-        }
-
-
-@pytest.fixture
-def records_case(tmp_path):
-    case = backend_case(tmp_path)
-    original = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
-    ).publish(reviewed_proposal(case))
-    wrong = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
-    ).publish(reviewed_proposal(case, action="no_action", proposal_id=B))
-    case.operations.complete(
-        case.operation.operation_id,
-        proposal_id=wrong.proposal_id,
-        result="合成の有限判断完了",
-        next="人間の判断と実取引は別",
-        completed_at=PUBLISHED + timedelta(minutes=2),
-    )
-    service = ProposalRecordService(case.app, clock=lambda: PUBLISHED + timedelta(hours=1))
-    correction = ProposalCorrectionDraft(
-        correction_id="synthetic-correction",
-        erroneous_ref=ref(wrong),
-        replacement_ref=ref(original),
-        reason="合成の担当者が人間の非購入報告を投資判断へ誤変換したため。",
-    )
-    return case, original, wrong, service, correction
 
 
 def test_correction_report_serving_and_preview_preserve_originals_and_ledger(records_case):
@@ -354,7 +307,7 @@ def test_active_completion_validates_exact_correction_as_of_and_never_redirects(
     ).publish(reviewed_proposal(case))
     wrong = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
-    ).publish(reviewed_proposal(case, action="no_action", proposal_id=B))
+    ).publish(reviewed_proposal(case, action="no_action", proposal_id=SECOND_PROPOSAL_ID))
     instant = PUBLISHED + timedelta(minutes=2)
     correction_time = instant if already_corrected else instant + timedelta(microseconds=1)
     ProposalRecordService(case.app, clock=lambda: correction_time).correct(

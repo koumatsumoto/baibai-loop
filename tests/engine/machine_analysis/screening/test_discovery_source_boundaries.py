@@ -82,3 +82,34 @@ def test_action_observation_counts_are_not_inferred_share_or_right_evidence(
             else {"observations": expected[0], "share_basis_adjustments": expected[1]}
         ),
     }
+
+
+@pytest.mark.parametrize(
+    ("basis", "price_day", "ready"),
+    [
+        ("price_adjusted_close", "2026-11-13", True),
+        ("raw_close", "2026-11-13", False),
+        (None, "2026-11-13", False),
+        ("price_adjusted_close", "2026-11-12", False),
+    ],
+)
+def test_index_requires_the_market_price_own_basis_and_session(basis, price_day, ready):
+    from tests.helpers.technical_discovery import _metadata, _models
+
+    from baibai_engine.machine_analysis.screening.policies.discovery import evaluate_discovery_rows
+
+    meta, source = _metadata(), _models()
+    market = next(model for model in source if model.model_id == "market_context")
+    market.payload["price"].update(close=110.0, resolved_date=price_day, price_basis=basis)
+    row = project_discovery_row("1234", models=source, metadata=meta)
+    # Keep the observed value and its stated basis even when unusable as an adjusted close.
+    assert (row["price"], row["price_date"], row["basis"]) == (110.0, price_day, basis)
+    assert row["price_ready"] is ready
+    report = evaluate_discovery_rows(
+        meta, tickers=("1234", "5678"), rows={"1234": row}
+    ).price_inputs
+    assert (report["universe_count"], report["valid_count"], report["invalid_count"]) == (
+        2,
+        int(ready),
+        2 - int(ready),
+    )

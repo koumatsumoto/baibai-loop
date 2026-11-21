@@ -11,11 +11,11 @@ from tests.engine.investment_judgment.judgment_retrospective.test_judgment_retro
     _assessment,
     _publish,
 )
-from tests.engine.investment_judgment.trade_proposal.test_proposal_records import (
+from tests.helpers.proposal import PUBLISHED, backend_case
+from tests.helpers.proposal_records import (
     records_case as records_case,
 )
-from tests.engine.investment_judgment.trade_proposal.test_proposal_records import ref
-from tests.helpers.proposal import PUBLISHED, backend_case
+from tests.helpers.proposal_records import ref
 
 from baibai_engine.cli import investment_judgment
 from baibai_engine.investment_judgment.company_research.store import ResearchStoreService

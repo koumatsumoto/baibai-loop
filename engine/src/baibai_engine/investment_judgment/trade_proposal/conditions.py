@@ -104,12 +104,16 @@ def no_action_blocker(
         )
     ):
         limit = finding.acquisition_limit
-        earliest = (
-            order_sessions().earliest_possible_day
+        bounds = (
+            order_sessions()
             if limit is not None and limit.last_eligible_trade_date is not None
             else None
         )
-        if issue := acquisition_blocker(assessment, earliest):
+        if issue := acquisition_blocker(
+            assessment,
+            None if bounds is None else bounds.confirmed_session,
+            earliest_possible_day=None if bounds is None else bounds.earliest_possible_day,
+        ):
             return GateReason(
                 code="no_action_reviewed_quote_mismatch",
                 message=(

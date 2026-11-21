@@ -15,14 +15,11 @@ from tests.engine.investment_judgment.judgment_retrospective.test_judgment_retro
     _publish,
     _save,
 )
-from tests.engine.investment_judgment.judgment_retrospective.test_retrospective_proposal_records import (
-    _report,
-)
-from tests.engine.investment_judgment.trade_proposal.test_proposal_records import (
+from tests.helpers.proposal import PUBLISHED, backend_case
+from tests.helpers.proposal_records import not_purchased_report, ref
+from tests.helpers.proposal_records import (
     records_case as records_case,
 )
-from tests.engine.investment_judgment.trade_proposal.test_proposal_records import ref
-from tests.helpers.proposal import PUBLISHED, backend_case
 
 from baibai_engine.cli import investment_judgment
 from baibai_engine.investment_judgment.judgment_retrospective.coverage import (
@@ -137,7 +134,7 @@ def test_all_items_and_recorded_conclusions_are_not_new_evidence_or_execution(tm
 def test_erroneous_publication_and_human_receipt_are_not_item_outcomes(records_case):
     case, earlier, wrong, recorder, correction = records_case
     cutoff = recorder.correct(correction, expected_latest_ref=ref(wrong)).recorded_at
-    recorder.report(_report(wrong))
+    recorder.report(not_purchased_report(wrong))
     raw = _draft(case.app, proposal_id=earlier.proposal_id, ticker="1234")
     raw["document"]["comparisons"] = []
     raw["document"]["lesson"] = LESSON
