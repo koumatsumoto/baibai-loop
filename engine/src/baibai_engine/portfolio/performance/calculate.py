@@ -224,7 +224,7 @@ def compute_portfolio_outcome(
             if not any(lot.quantity > 0 for lot in lots):
                 continue
             bar = bars_by_ticker_day.get((ticker, valuation_day))
-            if bar is None:
+            if bar is None or bar.close <= 0:
                 return _unresolved(benchmark, "missing_market_price")
             prices[ticker] = MarketPrice.model_validate(
                 {
