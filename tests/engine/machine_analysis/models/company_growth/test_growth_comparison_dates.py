@@ -5,6 +5,7 @@ import pytest
 
 from baibai_engine.machine_analysis.models.company_growth.calculations import build_changes
 from baibai_engine.machine_analysis.models.company_growth.models import (
+    FINANCIAL_SECTOR_INAPPLICABLE,
     Observation,
     PeriodState,
     Value,
@@ -97,3 +98,25 @@ def test_same_prior_end_and_value_do_not_resolve_conflicting_actual_starts():
         assert change.from_value == 100
         assert change.difference is None
         assert change.reason == "ambiguous_growth_comparison"
+
+
+def test_sector_inapplicability_never_overrides_a_missing_or_incomparable_prior():
+    def margin_period(year, reason, *, basis="consolidated"):
+        item = period(date(year, 4, 1), date(year, 6, 30), None)
+        observation = item.observations[0].model_copy(
+            update={"statement_basis": basis, "metrics": {"operating_margin": Value(reason=reason)}}
+        )
+        return item.model_copy(update={"observations": (observation,)})
+
+    na = FINANCIAL_SECTOR_INAPPLICABLE
+    current = margin_period(2026, na)
+    known, unknown = margin_period(2025, na), margin_period(2025, "sector_unverified")
+    for priors, reason in (
+        ((), "comparable_prior_period_not_observed"),
+        ((known,), na),
+        ((unknown,), "operand_unavailable"),
+        ((known, unknown), "operand_unavailable"),
+        ((margin_period(2025, na, basis="nonconsolidated"),), "statement_basis_incomparable"),
+    ):
+        comparison = build_changes((*priors, current))[-1]
+        assert (comparison.difference, comparison.reason) == (None, reason)
