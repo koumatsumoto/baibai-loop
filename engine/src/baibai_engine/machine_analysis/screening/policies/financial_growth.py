@@ -9,7 +9,11 @@ from typing import Literal
 from pydantic import JsonValue
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
-from baibai_engine.machine_analysis.models.company_growth.models import Metric, Observation
+from baibai_engine.machine_analysis.models.company_growth.models import (
+    FINANCIAL_SECTOR_INAPPLICABLE,
+    Metric,
+    Observation,
+)
 from baibai_engine.machine_analysis.models.company_growth.reading import (
     CompanyGrowthReader,
     metric_value,
@@ -111,7 +115,8 @@ def read_growth_discovery(
     matched = tuple(route for route, values in states.items() if values == {"met"})
     if matched:
         return GrowthDiscovery("research_candidate", matched, ()), reader
-    if all("not_met" in values for values in states.values()):
+    # 非該当の条件は、追加の入力を取得しても成立しない。
+    if all("not_met" in values or "not_applicable" in values for values in states.values()):
         return GrowthDiscovery("not_selected", (), ()), reader
     # In an unresolved company, an input can be missing even on the other,
     # already-failed route. A sector N/A is not a failed data acquisition.
@@ -141,7 +146,7 @@ def _metric_check(
             "not_applicable"
             if item is not None
             and item.value is None
-            and item.reason == "not_applicable_to_financial_sector"
+            and item.reason == FINANCIAL_SECTOR_INAPPLICABLE
             else "missing"
         )
     return "met" if not positive or value > 0 else "not_met"
@@ -151,9 +156,7 @@ def _change_check(change: dict[str, JsonValue]) -> _Check:
     value = change.get("difference")
     if not isinstance(value, (float, int)) or isinstance(value, bool):
         return (
-            "not_applicable"
-            if change.get("reason") == "not_applicable_to_financial_sector"
-            else "missing"
+            "not_applicable" if change.get("reason") == FINANCIAL_SECTOR_INAPPLICABLE else "missing"
         )
     # A nonpositive denominator can invalidate the rate, not the observed difference.
     return "met" if value > 0 else "not_met"

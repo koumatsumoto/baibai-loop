@@ -546,7 +546,7 @@ def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(cha
     )
     assert "v18-pdf-jp-interim" in financial.calculation_revision
     assert growth.payload["calculation_method"] == (
-        "company_growth_retrospective_v23-pdf-jp-interim"
+        "company_growth_retrospective_v24-pdf-jp-interim"
     )
 
 

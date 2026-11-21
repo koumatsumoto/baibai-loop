@@ -15,6 +15,8 @@ from baibai_engine.machine_analysis.observations.financials.pdf_selection import
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfSupplement
 
+FINANCIAL_SECTOR_INAPPLICABLE = "not_applicable_to_financial_sector"
+
 type Metric = Literal[
     "sales",
     "operating_profit",

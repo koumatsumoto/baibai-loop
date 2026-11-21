@@ -6,7 +6,10 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Literal
 
-from baibai_engine.machine_analysis.models.company_growth.calculations import _margin
+from baibai_engine.machine_analysis.models.company_growth.calculations import (
+    _margin,
+    _missing_change_reason,
+)
 from baibai_engine.machine_analysis.models.company_growth.models import (
     Change,
     Measurement,
@@ -242,7 +245,9 @@ def apply_pdf_changes(
                     )
                     if prior is not None and value is not None
                     else None,
-                    "reason": "operand_unavailable"
+                    "reason": _missing_change_reason(
+                        current_metrics[change.metric], prior_metrics[change.metric]
+                    )
                     if difference is None
                     else "nonpositive_base"
                     if prior is not None and prior <= 0

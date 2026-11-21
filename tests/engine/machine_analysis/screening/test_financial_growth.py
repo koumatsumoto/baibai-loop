@@ -1,22 +1,29 @@
 """財務発見の2経路と、未確定時に次に確かめる事項。詳細数値は元の成長モデルにある。"""
 
 from copy import deepcopy
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.technical_discovery import _models as technical_models
 
+from baibai_engine.investment_judgment.workflow.discovery import _members
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
     InputSnapshot,
 )
+from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
 from baibai_engine.machine_analysis.models.company_growth.models import (
     Change,
     CompanyGrowth,
+    InputRelease,
     Observation,
     PeriodState,
     SourceDocument,
     Value,
+)
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
 from baibai_engine.machine_analysis.screening.policies.financial_growth import read_growth_discovery
@@ -338,8 +345,82 @@ def test_explicitly_inapplicable_margin_neither_vetoes_growth_nor_becomes_a_data
         )
     change(data, "operating_profit")["reason"] = "not_applicable_to_financial_sector"
     all_inapplicable = evaluate(data)
-    assert all_inapplicable.state == "input_unresolved"
+    assert all_inapplicable.state == "not_selected"
     assert all_inapplicable.missing == ()
+
+
+@pytest.mark.parametrize(
+    ("sector", "sales", "profit", "state", "route", "gap"),
+    [
+        ("銀行業", 90, 25, "not_selected", None, False),
+        ("証券・商品先物取引業", 90, 25, "not_selected", None, False),
+        ("保険業", 90, 25, "not_selected", None, False),
+        ("その他金融業", 90, 25, "not_selected", None, False),
+        ("銀行業", 110, 25, "research_candidate", "profit_growth", False),
+        ("銀行業", 110, None, "input_unresolved", None, True),
+        ("情報・通信業", 90, 25, "research_candidate", "operating_recovery", False),
+    ],
+)
+def test_generated_sector_margin_only_leads_to_a_gap_for_a_missing_viable_route(
+    sector, sales, profit, state, route, gap
+):
+    meta = metadata()
+    docs = []
+    for end, revenue, op in (
+        (date(2025, 3, 31), 100, 20),
+        (date(2025, 12, 31), 450, 85),
+        (date(2026, 3, 31), sales, profit),
+    ):
+        period = "FY" if end.month == 12 else "1Q"
+        docs.append(
+            JQuantsFinancialSummary(
+                ticker="1234",
+                disclosed_at=end + timedelta(days=20),
+                disclosure_number=f"synthetic-{end}",
+                document_type=f"{period}FinancialStatements_Consolidated_JP",
+                fiscal_period=period,
+                fiscal_year_end=date(end.year, 12, 31),
+                period_start=date(end.year, 1, 1),
+                period_end=end,
+                sales=revenue,
+                operating_profit=op,
+                equity=500,
+            )
+        )
+    growth = generate_company_growth(
+        docs,
+        ticker="1234",
+        sector=sector,
+        as_of=meta.as_of,
+        input_release=InputRelease(release_id="fixture", manifest_sha256="a" * 64),
+    )
+    margin = next(
+        c
+        for c in growth.changes
+        if c.metric == "operating_margin"
+        and c.measurement == "quarter"
+        and c.to_end == docs[-1].period_end
+    )
+    if sector != "情報・通信業":
+        assert margin.difference is None
+        assert margin.reason == "not_applicable_to_financial_sector"
+    ta, market = technical_models()
+    market.payload["master"]["sector_33"] = sector
+    market.payload["price"].update(
+        close=110, resolved_date=str(meta.as_of), price_basis="price_adjusted_close"
+    )
+    row = project_discovery_row(
+        "1234",
+        models=(*models({"company_growth": growth.model_dump(mode="json")}), ta, market),
+        metadata=meta,
+    )
+    assert row["price_ready"]
+    assert row["financial_state"] == state
+    assert row["matched_paths"]["growth"] == ([route] if route else [])
+    assert ("input_gap" in _members(row)) == gap
+    assert "growth:quarter_operating_margin_increase" not in row["missing"]
+    if gap:
+        assert "growth:quarter_operating_profit_increase" in row["missing"]
 
 
 @pytest.mark.parametrize("reason", ["nonpositive_sales", "future_reason_not_yet_classified"])
