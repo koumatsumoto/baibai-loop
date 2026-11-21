@@ -160,20 +160,60 @@ def test_one_source_refusal_stops_its_unattempted_pairs_while_other_source_acqui
     assert len(available.calls) == 1
 
 
-@pytest.mark.parametrize("http_status", [200, 404])
-def test_completed_failed_attempts_are_not_success_but_keep_handoff(monkeypatch, http_status):
+@pytest.mark.parametrize("http_status", [200, 404, 503])
+def test_completed_failed_attempts_are_not_success_but_keep_handoff(
+    monkeypatch, tmp_path, capsys, http_status
+):
     timer = Clock()
     monkeypatch.setattr(sources.time, "monotonic", timer.monotonic)
     monkeypatch.setattr(sources.time, "sleep", timer.sleep)
-    client = Session(timer, [(http_status, "<html>no issuer</html>", {})])
+    client = Session(
+        timer,
+        [
+            (http_status, "<html>private-response-body</html>", {}),
+            (200, kabumap_html("7203", missing=True), {"Content-Type": "text/html; charset=utf-8"}),
+        ],
+    )
     monkeypatch.setattr(sources.requests, "Session", lambda: client)
     store = FakeObjectStore()
-    p = replace(plan(), run_id="monex-failed-complete")
-    report = sources.acquire_source(store, p, source="monex")
-    assert report["status"] == "acquired_with_failures"
-    assert report["attempted_completeness"] is True
-    assert report["success_completeness"] is False
-    assert report["state_counts"]["failure"] == 1
+    p = replace(
+        plan(sources=("kabumap",), tickers=("6758", "7203")),
+        run_id="external-assessment-daily-kabumap-2026-10-11",
+    )
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: store)
+    monkeypatch.setattr(daily, "initialize", lambda *args, **kwargs: p)
+    args = [
+        "acquire",
+        "--source",
+        "kabumap",
+        "--run-id",
+        p.run_id,
+        "--master-asof",
+        "2026-10-11",
+        "--directory",
+        str(tmp_path),
+    ]
+    for requests_made in (2, 0):
+        assert sources.main(args) == 1
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert "private-response-body" not in captured.out
+        report = json.loads(captured.out)
+        assert report["status"] == "acquired_with_failures"
+        assert report["attempted_completeness"] is True
+        assert report["success_completeness"] is False
+        assert report["state_counts"] == {
+            "failure": 1,
+            "normal_null": 1,
+            "success": 0,
+            "unattempted": 0,
+        }
+        assert report["reason_counts"]["all_values_missing"] == 1
+        assert report["provider_requests"] == requests_made
+        assert report["failed_http_status_counts"] == (
+            {} if http_status == 200 else {str(http_status): 1}
+        )
+        assert len(client.calls) == 2
     assert len(staging.read_stages(store, p)) == 1
 
 

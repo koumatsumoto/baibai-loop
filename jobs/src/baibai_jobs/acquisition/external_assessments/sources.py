@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import time
+from collections import Counter
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast, get_args
@@ -187,6 +188,14 @@ def acquire_source(
         else "acquired"
         if accounting["attempted_completeness"]
         else "incomplete",
+        "failed_http_status_counts": dict(
+            Counter(
+                str(entry.http_status)
+                for result in results
+                for entry in result.entries
+                if entry.state == "failure" and entry.http_status not in {None, 200}
+            )
+        ),
         "stop_reason": stop_reason,
         "provider_requests": requests_made,
         "elapsed_seconds": round(time.monotonic() - started, 3),
