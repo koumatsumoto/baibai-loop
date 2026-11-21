@@ -28,11 +28,9 @@ from baibai_engine.machine_analysis.observations.trading_activity.jquants_contra
     SHORT_SALE_REPORT_SOURCE,
     WEEKLY_MARGIN_SOURCE,
     all_issues_daily_margin_coverage_key,
-    weekly_margin_coverage_key,
-)
-from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,
+    weekly_margin_coverage_key,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     delete_date_range,

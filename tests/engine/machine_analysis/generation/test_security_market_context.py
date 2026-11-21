@@ -10,13 +10,9 @@ from pathlib import Path
 import pytest
 from tests.helpers.market_context import security_context_from_store
 from tests.helpers.master import insert_master_rows
-from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
+from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    read_jpx_regulations,
-    read_next_earnings_dates,
-)
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
@@ -27,43 +23,13 @@ def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: da
     insert_daily_bars_from_closes(sqlite_path, ticker, closes, end_date=end, turnover_value=2.0e8)
 
 
-def _insert_reference_rows(sqlite_path: Path) -> None:
+def _insert_master_rows(sqlite_path: Path) -> None:
     conn = open_connection(sqlite_path)
     try:
         insert_master_rows(
             conn, [("2026-05-28", "AAAA", "テスト製作所", "プライム", "機械", "011")]
         )
         insert_master_rows(conn, [("2026-05-28", "BBBB", "同業ペア", "プライム", "機械", "011")])
-        conn.execute(
-            "INSERT OR REPLACE INTO jpx_earnings_calendar"
-            "(announcement_date, ticker) VALUES ('2026-06-10', 'AAAA')"
-        )
-        conn.execute(
-            "INSERT OR REPLACE INTO source_coverage("
-            "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
-            "record_count, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                "jpx_earnings_calendar",
-                "get_earnings_calendar_snapshot:current",
-                "2026-06-10",
-                "2026-06-10",
-                "2026-05-29T00:00:00+09:00",
-                1,
-                "ok",
-            ),
-        )
-        conn.execute(
-            "INSERT OR REPLACE INTO jpx_regulation_flags"
-            "(asof_date, source_name, ticker, flag)"
-            " VALUES ('2026-05-29', '特別注意銘柄', 'AAAA', '特別注意銘柄')"
-        )
-        add_source_coverage(
-            conn,
-            source="jpx_regulation_flags",
-            coverage_key="2026-05-29",
-            min_date="2026-05-29",
-            max_date="2026-05-29",
-        )
         conn.commit()
     finally:
         conn.close()
@@ -77,25 +43,6 @@ class SecurityMarketContextTests(unittest.TestCase):
             as_of=_ASOF,
         )
 
-    def test_legacy_jquants_earnings_rows_are_not_reported_as_jpx_fact(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            sqlite_path = root / "market.sqlite"
-            with closing(open_connection(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) "
-                    "VALUES ('2026-06-10', 'AAAA')"
-                )
-                conn.execute(
-                    "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
-                    "coverage_end, fetched_at_utc, record_count, status) "
-                    "VALUES ('jpx_earnings_calendar', 'legacy', '2026-05-29', "
-                    "'2026-08-27', '2026-05-29T00:00:00+09:00', 1, 'ok')"
-                )
-                conn.commit()
-
-            self.assertIsNone(read_next_earnings_dates(sqlite_path, _ASOF))
-
     def test_security_and_technical_owners_preserve_price_and_relative_facts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -104,7 +51,7 @@ class SecurityMarketContextTests(unittest.TestCase):
             _insert_bars(sqlite_path, "AAAA", [100 * 1.01**i for i in range(30)], end=_ASOF)
             _insert_bars(sqlite_path, "1321", [200.0] * 30, end=_ASOF)
             _insert_bars(sqlite_path, "BBBB", [300 * 0.99**i for i in range(30)], end=_ASOF)
-            _insert_reference_rows(sqlite_path)
+            _insert_master_rows(sqlite_path)
 
             profile = self._build(root, "AAAA")
 
@@ -134,33 +81,6 @@ class SecurityMarketContextTests(unittest.TestCase):
             self.assertEqual(sector["peer_count"], 1)
             assert isinstance(sector["peer_median_return_20d"], float)
             self.assertLess(sector["peer_median_return_20d"], 0)
-            self.assertEqual(
-                read_next_earnings_dates(sqlite_path, _ASOF)["AAAA"], date(2026, 6, 10)
-            )
-            self.assertEqual(
-                read_jpx_regulations(sqlite_path, _ASOF).flags_by_ticker["AAAA"], ("特別注意銘柄",)
-            )
-
-    def test_empty_regulation_snapshot_replaces_older_flags(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            sqlite_path = root / "market.sqlite"
-            _insert_reference_rows(sqlite_path)
-            with closing(open_connection(sqlite_path)) as conn, conn:
-                add_source_coverage(
-                    conn,
-                    source="jpx_regulation_flags",
-                    coverage_key="2026-05-30",
-                    min_date="2026-05-30",
-                    max_date="2026-05-30",
-                    record_count=0,
-                )
-            self.assertEqual(
-                read_jpx_regulations(sqlite_path, date(2026, 5, 30)).flags_by_ticker, {}
-            )
-            self.assertEqual(
-                read_jpx_regulations(sqlite_path, _ASOF).flags_by_ticker["AAAA"], ("特別注意銘柄",)
-            )
 
     def test_price_series_keeps_an_action_event_without_a_close(self) -> None:
         """売買停止日のfactorを落とさず、前後価格を同じ株式基準へ揃える。"""
@@ -227,7 +147,7 @@ class SecurityMarketContextTests(unittest.TestCase):
             _insert_bars(sqlite_path, "AAAA", [100.0] * 30, end=_ASOF)
             _insert_bars(sqlite_path, "BBBB", [300 * 0.99**i for i in range(30)], end=_ASOF)
             _insert_bars(sqlite_path, "CCCC", [200 * 1.01**i for i in range(30)], end=_ASOF)
-            _insert_reference_rows(sqlite_path)
+            _insert_master_rows(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
                 insert_master_rows(
@@ -276,7 +196,7 @@ def _security_context(root, asof):
 
 
 @pytest.mark.parametrize("store", ["absent-file", "empty-file", "unwritten-header"])
-def test_unwritten_market_store_has_no_price_or_earnings_observation(tmp_path, store):
+def test_unwritten_market_store_has_no_price_observation(tmp_path, store):
     path = tmp_path / "market.sqlite"
     if store == "empty-file":
         sqlite3.connect(path).close()
@@ -285,36 +205,11 @@ def test_unwritten_market_store_has_no_price_or_earnings_observation(tmp_path, s
             connection.execute("PRAGMA user_version = 0")
     before = path.read_bytes() if path.exists() else None
     profile = _security_context(tmp_path, _ASOF)
-    assert read_next_earnings_dates(path, _ASOF) is None
     assert profile["price"] is None
     assert technical_analysis(path, ticker="AAAA", as_of=_ASOF)["bar_count"] == 0
     assert (path.read_bytes() if path.exists() else None) == before
     assert not (tmp_path / "runs.sqlite").exists()
     assert not (tmp_path / "app.sqlite").exists()
-
-
-@pytest.mark.parametrize("state", ["missing", "stale"])
-def test_unavailable_earnings_schedule_preserves_price_and_technical_facts(tmp_path, state):
-    path = tmp_path / "market.sqlite"
-    _insert_bars(path, "AAAA", [100.0] * 30, end=_ASOF)
-    _insert_reference_rows(path)
-    with closing(open_connection(path)) as connection, connection:
-        if state == "missing":
-            connection.execute("DELETE FROM source_coverage WHERE source = 'jpx_earnings_calendar'")
-        else:
-            connection.execute(
-                "UPDATE source_coverage SET fetched_at_utc = '2026-05-01T00:00:00Z' "
-                "WHERE source = 'jpx_earnings_calendar'"
-            )
-    profile = _security_context(tmp_path, _ASOF)
-    assert read_next_earnings_dates(path, _ASOF) is None
-    assert profile["price"]["bar_count"] == 30
-    assert (
-        technical_analysis(path, ticker="AAAA", as_of=_ASOF)["moving_averages"]["sma_20bar"][
-            "status"
-        ]
-        == "available"
-    )
 
 
 @pytest.mark.parametrize("missing", [None, "start", "end"])
@@ -375,7 +270,7 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
     start = end - timedelta(days=180)
     target = [(start, 100)] + [(end - timedelta(days=19 - i), 110) for i in range(20)]
     _insert_dated_bars(sqlite_path, "AAAA", target[-target_count:])
-    _insert_reference_rows(sqlite_path)
+    _insert_master_rows(sqlite_path)
     peers = {
         "BBBB": [(start, 100), (end, 120)],
         "CCCC": [(start, 100), (end, 140)],

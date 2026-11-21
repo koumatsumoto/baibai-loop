@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -20,9 +21,6 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
     resolve_earnings_calendar_urls,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    read_jpx_regulations,
-)
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
     rebuild_jpx_snapshot,
 )
@@ -112,7 +110,10 @@ def test_regulation_rebuild_rejects_incomplete_policy_or_format(
         JPXProviderError, match=r"four required sources|unsupported JPX regulation source format"
     ):
         rebuild_jpx_snapshot(path, bundle_id)
-    assert read_jpx_regulations(path, ASOF) is None
+    with closing(sqlite3.connect(path)) as conn:
+        checks = conn.execute("SELECT source FROM source_coverage").fetchall()
+        assert ("jpx_regulation_flags",) not in checks
+        assert conn.execute("SELECT 1 FROM jpx_regulation_flags").fetchone() is None
 
 
 def test_calendar_manifest_must_equal_retained_index_links(tmp_path: Path) -> None:

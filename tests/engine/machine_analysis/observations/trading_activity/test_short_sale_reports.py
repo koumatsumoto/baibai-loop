@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
 from datetime import date
 
 import pytest
 
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_short_sale_reports,
-)
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
-    read_short_sale_reports,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
@@ -58,23 +57,10 @@ def test_same_date_reporter_rows_preserve_distinct_values(tmp_path) -> None:
         requested_end=date(2019, 1, 31),
     )
 
-    stored = read_short_sale_reports(sqlite_path, date(2019, 1, 1), date(2019, 1, 31))
-
-    assert stored is not None
-    assert len(stored) == 3
-    assert [row.source_ordinal for row in stored if row.ticker == "7203"] == [0, 1]
-    assert [row.short_ratio for row in stored if row.ticker == "7203"] == [0.006, 0.008]
-    assert [row.short_ratio for row in stored if row.ticker == "6758"] == [0.007]
-
-
-def test_short_sale_range_read_distinguishes_empty_coverage_from_missing(tmp_path) -> None:
-    sqlite_path = tmp_path / "market.sqlite"
-    start = date(2019, 1, 1)
-    end = date(2019, 1, 2)
-    store_jquants_short_sale_reports(sqlite_path, [], requested_start=start, requested_end=end)
-
-    assert read_short_sale_reports(sqlite_path, start, end) == []
-    assert read_short_sale_reports(sqlite_path, start, date(2019, 1, 3)) is None
+    with closing(sqlite3.connect(sqlite_path)) as conn:
+        assert conn.execute(
+            "SELECT ticker, source_ordinal, short_ratio FROM jquants_short_sale_reports ORDER BY source_ordinal"
+        ).fetchall() == [("7203", 0, 0.006), ("7203", 1, 0.008), ("6758", 2, 0.007)]
 
 
 def test_empty_refetch_replaces_short_sale_rows(tmp_path) -> None:
@@ -99,7 +85,6 @@ def test_empty_refetch_replaces_short_sale_rows(tmp_path) -> None:
     finally:
         conn.close()
     assert count == 0
-    assert read_short_sale_reports(sqlite_path, start, end) == []
 
 
 def test_provider_nan_values_are_normalized_as_missing(tmp_path) -> None:
@@ -119,12 +104,11 @@ def test_provider_nan_values_are_normalized_as_missing(tmp_path) -> None:
         requested_end=date(2019, 1, 10),
     )
 
-    rows = read_short_sale_reports(sqlite_path, date(2019, 1, 10), date(2019, 1, 10))
-
-    assert rows is not None
-    assert rows[0].discretionary_investment_contractor_name == ""
-    assert rows[0].investment_fund_name == ""
-    assert rows[0].previous_reported_at is None
+    with closing(sqlite3.connect(sqlite_path)) as conn:
+        assert conn.execute(
+            "SELECT discretionary_investment_contractor_name, investment_fund_name, previous_reported_at "
+            "FROM jquants_short_sale_reports"
+        ).fetchone() == ("", "", None)
 
 
 @pytest.mark.parametrize("ratio", [None, -0.001])
@@ -142,11 +126,10 @@ def test_unusable_latest_ratio_is_not_inferred_as_zero(tmp_path, ratio, notes) -
         requested_start=date(2019, 1, 1),
         requested_end=date(2019, 1, 31),
     )
-    stored = read_short_sale_reports(path, date(2019, 1, 12), date(2019, 1, 12))
-    assert stored is not None
-    row = next(row for row in stored if row.ticker == "7203")
-    assert row.short_ratio == ratio
-    assert row.notes == notes
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute(
+            "SELECT short_ratio, notes FROM jquants_short_sale_reports WHERE ticker='7203' AND disclosed_at='2019-01-12'"
+        ).fetchone() == (ratio, notes)
 
 
 @pytest.mark.parametrize("ratio", [0.0, 0.003, 0.007])
@@ -167,11 +150,10 @@ def test_numeric_correction_uses_reported_value_not_notes(tmp_path, ratio) -> No
         requested_start=date(2019, 1, 1),
         requested_end=date(2019, 1, 31),
     )
-    stored = read_short_sale_reports(path, date(2019, 1, 1), date(2019, 1, 31))
-    assert stored is not None
-    assert len(stored) == 2
-    assert stored[0].short_ratio == 0.006
-    assert stored[1].short_ratio == ratio
-    assert stored[1].calculated_at == date(2019, 1, 8)
-    assert stored[1].disclosed_at == date(2019, 1, 12)
-    assert stored[1].notes == "correction of the earlier report"
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute(
+            "SELECT disclosed_at, calculated_at, short_ratio, notes FROM jquants_short_sale_reports ORDER BY disclosed_at"
+        ).fetchall() == [
+            ("2019-01-10", "2019-01-08", 0.006, None),
+            ("2019-01-12", "2019-01-08", ratio, "correction of the earlier report"),
+        ]

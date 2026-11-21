@@ -1,6 +1,8 @@
 """L1 acquisition and saved-input consumer operate with no previous market release."""
 
 import json
+import sqlite3
+from contextlib import closing
 from datetime import timedelta
 
 import pytest
@@ -18,9 +20,6 @@ from baibai_engine.data_collection.providers.jquants.margin_alerts_native import
     MarginAlertsL1,
 )
 from baibai_engine.machine_analysis.generation.margin_alerts_inputs import INPUT_PREFIX
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
-    read_margin_alerts,
-)
 from baibai_jobs.acquisition.jquants_margin_alerts_native import acquire_margin_alerts_native
 from baibai_jobs.integration.margin_alerts_native import fixed_input, materialize_saved_input
 
@@ -113,14 +112,15 @@ def test_fixed_consumer_keeps_pubdate_appdate_subset_and_original_identity(tmp_p
     assert result["rows"] == 3
     assert result["coverage_status"] == "complete"
     assert HEAD_KEY not in store.get_keys[before:]
-    rows = read_margin_alerts(output, DAY, DAY + timedelta(days=1))
-    assert len(rows) == 3
-    assert [(row.publication_date, row.applied_date) for row in rows] == [
-        (DAY, yesterday),
-        (DAY, DAY),
-        (DAY + timedelta(days=1), yesterday),
-    ]
-    assert rows[-1].long_outstanding == 2400
+    with closing(sqlite3.connect(output)) as conn:
+        assert conn.execute(
+            "SELECT publication_date, applied_date, long_outstanding FROM jquants_margin_alerts "
+            "ORDER BY publication_date, applied_date"
+        ).fetchall() == [
+            (DAY.isoformat(), yesterday.isoformat(), 2000),
+            (DAY.isoformat(), DAY.isoformat(), 2000),
+            ((DAY + timedelta(days=1)).isoformat(), yesterday.isoformat(), 2400),
+        ]
     owner.commit([attempt("withdrawn", at=AT + timedelta(hours=3), rows=[])])
     assert materialize_saved_input(store, saved, output=tmp_path / "cold.sqlite")["rows"] == 3
     with pytest.raises(FileExistsError):
@@ -139,7 +139,6 @@ def test_partial_observation_and_failed_receipt_do_not_become_successful_empty(t
     result = materialize_saved_input(store, saved, output=output)
     assert result["rows"] == 1
     assert result["partial_days"] == result["unavailable_days"] == 1
-    assert read_margin_alerts(output, DAY, DAY) is None
     # The L1 request is complete regardless of the projection's rejected row.
     assert owner.fixed().plan(start=DAY, end=DAY + timedelta(days=20), revision_overlap_days=0)[
         0
@@ -154,7 +153,7 @@ def test_partial_observation_and_failed_receipt_do_not_become_successful_empty(t
     )
 
 
-def test_normal_empty_is_readable_and_missing_is_not(tmp_path):
+def test_normal_empty_is_covered_but_missing_is_not(tmp_path):
     store = MemoryR2Store()
     owner = MarginAlertsL1(store, tmp_path / "raw")
     owner.initialize()
@@ -163,9 +162,15 @@ def test_normal_empty_is_readable_and_missing_is_not(tmp_path):
         store, owner.fixed(), start=DAY, end=DAY + timedelta(days=1), evaluated_at=AT
     )
     output = tmp_path / "empty.sqlite"
-    materialize_saved_input(store, saved, output=output)
-    assert read_margin_alerts(output, DAY, DAY) == []
-    assert read_margin_alerts(output, DAY + timedelta(days=1), DAY + timedelta(days=1)) is None
+    assert materialize_saved_input(store, saved, output=output)["rows"] == 0
+    with closing(sqlite3.connect(output)) as conn:
+        assert conn.execute(
+            "SELECT coverage_start, status, record_count FROM source_coverage "
+            "WHERE source='jquants_margin_alerts' ORDER BY coverage_start"
+        ).fetchall() == [
+            (DAY.isoformat(), "ok", 0),
+            ((DAY + timedelta(days=1)).isoformat(), "unavailable", 0),
+        ]
 
 
 def test_monthly_fixed_input_reuses_old_metadata_and_no_whole_history_body(tmp_path):
@@ -278,4 +283,7 @@ def test_cli_end_to_end_uses_saved_input_after_head_disappears(tmp_path, monkeyp
         )
         == 0
     )
-    assert len(read_margin_alerts(tmp_path / "cold" / "margin-alerts.sqlite", DAY, DAY)) == 1
+    with closing(sqlite3.connect(tmp_path / "cold" / "margin-alerts.sqlite")) as conn:
+        assert conn.execute("SELECT publication_date FROM jquants_margin_alerts").fetchall() == [
+            (DAY.isoformat(),)
+        ]

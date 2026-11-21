@@ -154,7 +154,7 @@ Company Research factsは年次/訂正と比較年度の任意入力。外部/�
 
 全銘柄週次/日次と選別subsetのmargin-alertは別母集団。非掲載を0/全銘柄欠測の補完にせず、公表前の空・失敗・対象なしを分ける。公表日と残高日は別で、規制開始日ではない。金額欠測を株数×価格で作らない。
 
-[reader](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_reader.py)は明示公表日を優先し、なければ週次2/日次1営業日lagを使う。公表当日は含めず、実配信時刻の証明とはしない。株数/出来高は確定分割/併合だけで揃え、換算不能は依存比率/差へ局所化する。同一残高のlong/short比まで消さず、残高÷平均出来高を解消日数予測としない。
+[固定した信用残・取引暦の読み戻し](../../jobs/OPERATIONS.md#margin-interest-native-l1)で残高日と原典の公表日を確認する。公表日がない行の実配信日時は断定できない。株数/出来高は確定分割/併合だけで揃え、換算不能は依存比率/差へ局所化する。同一残高のlong/short比まで消さず、残高÷平均出来高を解消日数予測としない。
 
 <a id="reading"></a>
 ## 経済Reading

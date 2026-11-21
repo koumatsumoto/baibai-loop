@@ -48,9 +48,6 @@ from baibai_engine.machine_analysis.observations.prices.price_reader import (
     read_daily_bars,
 )
 from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
-    read_margin_alerts,
-)
 from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
     JQUANTS_MARGIN_ALERTS,
 )
@@ -559,16 +556,16 @@ def test_margin_alert_offline_replay_keeps_distinct_application_dates(db_path, m
     monkeypatch.setattr(requests.Session, "get", no_http)
     assert write(retained_records(db_path, request_id), fetched_at_utc=FIRST_CLOCK) == 2
     assert write(retained_records(db_path, request_id), fetched_at_utc=FIRST_CLOCK) == 2
-    alerts = read_margin_alerts(db_path, date(2018, 8, 10), date(2018, 8, 10))
-    assert alerts is not None
-    assert [(row.ticker, row.applied_date, row.short_outstanding) for row in alerts] == [
-        ("1309", date(2018, 8, 8), 1123.0),
-        ("1309", date(2018, 8, 9), 1086.0),
-    ]
-    assert all(row.publication_reason == str(records[0]["PubReason"]) for row in alerts)
-    assert all(row.short_ratio is None and row.long_ratio is None for row in alerts)
     with sqlite3.connect(db_path) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_margin_alerts").fetchone() == (2,)
+        rows = conn.execute(
+            "SELECT ticker, applied_date, short_outstanding, publication_reason, "
+            "short_ratio, long_ratio FROM jquants_margin_alerts ORDER BY applied_date"
+        ).fetchall()
+    reason = str(records[0]["PubReason"])
+    assert rows == [
+        ("1309", "2018-08-08", 1123.0, reason, None, None),
+        ("1309", "2018-08-09", 1086.0, reason, None, None),
+    ]
 
 
 def test_margin_alert_later_publication_retains_correction_to_old_application(db_path):
@@ -600,12 +597,15 @@ def test_margin_alert_later_publication_retains_correction_to_old_application(db
         )
         == 3
     )
-    alerts = read_margin_alerts(db_path, date(2018, 8, 10), date(2018, 8, 11))
-    assert alerts is not None
-    assert [(row.publication_date, row.applied_date, row.long_outstanding) for row in alerts] == [
-        (date(2018, 8, 10), date(2018, 8, 8), 3127.0),
-        (date(2018, 8, 10), date(2018, 8, 9), 3130.0),
-        (date(2018, 8, 11), date(2018, 8, 8), 3131.0),
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT publication_date, applied_date, long_outstanding FROM jquants_margin_alerts "
+            "ORDER BY publication_date, applied_date"
+        ).fetchall()
+    assert rows == [
+        ("2018-08-10", "2018-08-08", 3127.0),
+        ("2018-08-10", "2018-08-09", 3130.0),
+        ("2018-08-11", "2018-08-08", 3131.0),
     ]
 
 

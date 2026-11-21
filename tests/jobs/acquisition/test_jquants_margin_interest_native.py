@@ -400,42 +400,6 @@ def test_commit_work_never_calls_empty_balance_success_and_uses_saved_calendar(
     assert module.main(["commit-work", "--directory", str(owner.directory)]) == 0
 
 
-def test_native_calendar_does_not_replace_saved_price_days_in_history(tmp_path):
-    from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
-        published_margin_balance_dates,
-    )
-
-    store, owner, cal = setup(tmp_path, end=date(2026, 9, 30))
-    owner.commit([attempt("one")])
-    saved = fixed_input(store, owner.fixed(), cal, start=DAY, end=DAY, evaluated_at=AT)
-    db = tmp_path / "history.sqlite"
-    materialize_saved_input(store, saved, output=db)
-    assert published_margin_balance_dates(db, date(2026, 9, 30)) == []
-    with sqlite3.connect(db) as conn:
-        conn.execute(
-            "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES ('1301','2026-09-29',1)"
-        )
-    # The calendar knew Sept 28, but this frozen historical view did not have its bar.
-    assert published_margin_balance_dates(db, date(2026, 9, 29)) == []
-    assert published_margin_balance_dates(db, date(2026, 9, 30)) == [(DAY, "daily")]
-    owner.commit(
-        [
-            attempt(
-                "publication",
-                at=AT + timedelta(hours=1),
-                rows=records(publication=date(2026, 9, 28)),
-            )
-        ]
-    )
-    saved = fixed_input(
-        store, owner.fixed(), cal, start=DAY, end=DAY, evaluated_at=AT + timedelta(hours=1)
-    )
-    explicit = tmp_path / "explicit.sqlite"
-    materialize_saved_input(store, saved, output=explicit)
-    assert published_margin_balance_dates(explicit, date(2026, 9, 28)) == []
-    assert published_margin_balance_dates(explicit, date(2026, 9, 29)) == [(DAY, "daily")]
-
-
 def test_cli_fixed_calendar_and_saved_input_work_without_current_heads(tmp_path, monkeypatch):
     from baibai_jobs import cli
     from baibai_jobs.acquisition import jquants_margin_interest_native as acquisition

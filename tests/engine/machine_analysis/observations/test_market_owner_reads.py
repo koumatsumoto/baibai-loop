@@ -6,16 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
-    JPXEarningsCalendarEntry,
-    JPXEarningsCalendarSnapshot,
-)
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    read_next_earnings_dates,
-)
-from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
-    store_jpx_earnings_calendar_snapshot,
-)
 from baibai_engine.machine_analysis.observations.prices import calendar_reader
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.portfolio.holdings.market_observations import (
@@ -24,58 +14,6 @@ from baibai_engine.portfolio.holdings.market_observations import (
     read_unadjusted_close,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-
-
-def _seed_bars(path: Path, rows: list[tuple[str, str, float | None]]) -> None:
-    connection = open_connection(path)
-    try:
-        connection.executemany(
-            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
-            rows,
-        )
-        connection.commit()
-    finally:
-        connection.close()
-
-
-def _seed_earnings(path: Path, rows: list[tuple[str, str]]) -> None:
-    store_jpx_earnings_calendar_snapshot(
-        path,
-        JPXEarningsCalendarSnapshot(
-            entries=tuple(
-                JPXEarningsCalendarEntry(ticker, date.fromisoformat(announcement_date))
-                for ticker, announcement_date in rows
-            ),
-            source_urls=(),
-            raw_record_count=len(rows),
-            excluded_record_count=0,
-            superseded_record_count=0,
-        ),
-        fetched_at_utc="2026-07-21T00:00:00+00:00",
-    )
-
-
-def test_next_earnings_dates_marks_missing_or_expired_schedule_unavailable(
-    tmp_path: Path,
-) -> None:
-    missing = tmp_path / "missing.sqlite"
-    assert read_next_earnings_dates(missing, date(2026, 7, 21)) is None
-
-    database = tmp_path / "market.sqlite"
-    _seed_earnings(database, [("2331", "2026-07-15")])
-    assert read_next_earnings_dates(database, date(2026, 7, 21)) is None
-
-
-def test_optional_earnings_dates_do_not_require_coverage_for_unrelated_market_reads(
-    tmp_path: Path,
-) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_bars(database, [("2331", "2026-07-21", 1000.0)])
-    assert read_next_earnings_dates(database, date(2026, 7, 21)) is None
-    quote = read_unadjusted_close(
-        sqlite_path=database, ticker="2331", at=datetime.fromisoformat("2026-07-21T16:00:00+09:00")
-    )
-    assert quote.close_yen == 1000.0
 
 
 def _seed_bars_with_factors(

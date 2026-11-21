@@ -47,9 +47,7 @@ def test_market_readers_do_not_load_provider_or_writer_implementations():
 import sys
 from baibai_engine.machine_analysis.observations import jquants_decode
 from baibai_engine.machine_analysis.observations.financials import jquants_models
-from baibai_engine.machine_analysis.observations.disclosures import jpx_reader, jpx_models
 from baibai_engine.machine_analysis.observations.financials import edinet_models
-from baibai_engine.machine_analysis.observations.trading_activity import margin_reader, models as margin_models
 from baibai_engine.machine_analysis.observations.financials import reader as financial_reader
 from baibai_engine.machine_analysis.observations.prices import calendar_reader, price_reader
 from baibai_engine.machine_analysis.observations.stocks import reader as master_reader
@@ -60,7 +58,6 @@ for prefix in (
     'baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
-assert jpx_reader.JPXEarningsCalendarEntry is jpx_models.JPXEarningsCalendarEntry
 assert callable(financial_reader.read_fin_summaries)
 assert callable(calendar_reader.read_market_calendar)
 assert callable(price_reader.read_daily_bars)

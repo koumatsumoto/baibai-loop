@@ -1,6 +1,7 @@
 """Normal short-sale input preserves row order while reusing disposable projections."""
 
 import sqlite3
+from contextlib import closing
 from datetime import timedelta
 
 import pytest
@@ -15,9 +16,6 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
     HEAD_KEY,
     PREFIX,
     ShortSaleReportsL1,
-)
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
-    read_short_sale_reports,
 )
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration.short_sale_reports_native import materialize_saved_input, model_input
@@ -111,13 +109,13 @@ def test_equal_recheck_keeps_order_duplicates_and_reuses_objects(tmp_path):
     assert not [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
     assert HEAD_KEY not in store.get_keys
     assert {obj.key for part in newer.partitions for obj in part.objects} == old_objects
-    reports = read_short_sale_reports(market, DAY, DAY)
-    assert [(item.source_ordinal, item.short_seller_name) for item in reports] == [
-        (0, "B"),
-        (1, "A"),
-        (2, "A"),
-    ]
-    assert all(item.calculated_at == DAY - timedelta(days=2) for item in reports)
+    early = (DAY - timedelta(days=2)).isoformat()
+    with closing(sqlite3.connect(market)) as conn:
+        assert conn.execute(
+            "SELECT source_ordinal, short_seller_name, calculated_at "
+            "FROM jquants_short_sale_reports WHERE disclosed_at=? ORDER BY source_ordinal",
+            (DAY.isoformat(),),
+        ).fetchall() == [(0, "B", early), (1, "A", early), (2, "A", early)]
     cold = tmp_path / "cold.sqlite"
     materialize_saved_input(store, saved, output=cold)
     assert rows(cold) == rows(market)
@@ -141,7 +139,11 @@ def test_old_boolean_projection_is_rebuilt_once_then_reused(tmp_path, monkeypatc
         )
         old.setattr(projection, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v1")
         before, previous = build(store, fixed, market, mirror, at=AT + timedelta(hours=1))
-    assert read_short_sale_reports(market, DAY, DAY)[0].short_ratio == float(boolean)
+    with closing(sqlite3.connect(market)) as conn:
+        assert conn.execute(
+            "SELECT short_ratio FROM jquants_short_sale_reports WHERE disclosed_at=?",
+            (DAY.isoformat(),),
+        ).fetchall() == [(float(boolean),)]
     store.get_keys.clear()
     saved, current = build(
         store, fixed, market, mirror, at=AT + timedelta(hours=1), previous=previous
@@ -151,7 +153,11 @@ def test_old_boolean_projection_is_rebuilt_once_then_reused(tmp_path, monkeypatc
     materialize_saved_input(store, saved, output=cold)
     assert rows(market) == rows(cold)
     assert coverage(market) == coverage(cold)
-    assert read_short_sale_reports(market, DAY, DAY)[0].short_ratio is None
+    with closing(sqlite3.connect(market)) as conn:
+        assert conn.execute(
+            "SELECT short_ratio FROM jquants_short_sale_reports WHERE disclosed_at=?",
+            (DAY.isoformat(),),
+        ).fetchall() == [(None,)]
     assert saved.descriptor["selection_sha256"] == before.descriptor["selection_sha256"]
     assert saved.sha256 != before.sha256
     assert {source for part in current.partitions for source in part.sources} == {
@@ -237,11 +243,12 @@ def test_reordering_is_changed_and_empty_replaces_only_discdate(tmp_path):
     saved, next_manifest = build(
         store, owner.fixed(), market, mirror, at=AT + timedelta(hours=1), previous=previous
     )
-    assert [item.short_seller_name for item in read_short_sale_reports(market, DAY, DAY)] == [
-        "A",
-        "B",
-        "A",
-    ]
+    with closing(sqlite3.connect(market)) as conn:
+        assert conn.execute(
+            "SELECT short_seller_name FROM jquants_short_sale_reports WHERE disclosed_at=? "
+            "ORDER BY source_ordinal",
+            (DAY.isoformat(),),
+        ).fetchall() == [("A",), ("B",), ("A",)]
     assert saved != old_saved
     old_keys = {
         obj.key
@@ -257,11 +264,14 @@ def test_reordering_is_changed_and_empty_replaces_only_discdate(tmp_path):
     }
     assert new_keys == old_keys
     owner.commit([attempt("withdraw", at=AT + timedelta(hours=2), rows=[])])
-    saved, _ = build(
+    saved, manifest = build(
         store, owner.fixed(), market, mirror, at=AT + timedelta(hours=2), previous=next_manifest
     )
-    assert read_short_sale_reports(market, DAY, DAY) == []
-    assert len(rows(market)) == 1
+    assert manifest.coverage_status == "complete"
+    with closing(sqlite3.connect(market)) as conn:
+        assert conn.execute("SELECT disclosed_at FROM jquants_short_sale_reports").fetchall() == [
+            (early.isoformat(),)
+        ]
     assert materialize_saved_input(store, old_saved, output=tmp_path / "old.sqlite")["rows"] == 4
 
 
@@ -330,7 +340,12 @@ def test_normal_publication_and_paired_hydrate_keep_coverage(tmp_path, monkeypat
         )
     assert rows(market) == expected_rows
     assert coverage(market) == expected_coverage
-    assert read_short_sale_reports(market, DAY, DAY) == ([] if disposition == "empty" else None)
+    with closing(sqlite3.connect(market)) as conn:
+        assert conn.execute(
+            "SELECT status, record_count FROM source_coverage "
+            "WHERE source='jquants_short_sale_reports' AND coverage_start=?",
+            (DAY.isoformat(),),
+        ).fetchall() == [("ok", 0) if disposition == "empty" else ("partial", 3)]
 
 
 def test_missing_changed_original_rolls_back_cache_and_day_coverage(tmp_path):

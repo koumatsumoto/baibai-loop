@@ -4,23 +4,12 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
-from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
-    JPXEarningsCalendarEntry,
-    JPXEarningsCalendarSnapshot,
-    JPXProviderError,
-)
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    read_jpx_earnings_calendar_snapshot,
-)
-from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
-    store_jpx_earnings_calendar_snapshot,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     EDINETMetricBaselineError,
     read_edinet_metric_baseline,
@@ -296,67 +285,6 @@ class FinSummariesReadableFromTests(unittest.TestCase):
             self.assertIsNone(
                 fin_summaries_readable_from(Path(tmp) / "missing.sqlite", date(2025, 6, 30))
             )
-
-
-class ReadJPXEarningsCalendarTests(unittest.TestCase):
-    def test_returns_none_when_earnings_calendar_not_imported(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                conn.execute(
-                    "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
-                    ("2026-05-15", "1301"),
-                )
-
-            self.assertIsNone(read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8)))
-
-    def test_returns_records_from_covered_sparse_whole_list_import(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jpx_earnings_calendar_snapshot(
-                db,
-                JPXEarningsCalendarSnapshot(
-                    entries=(
-                        JPXEarningsCalendarEntry(
-                            ticker="1301", announcement_date=date(2026, 5, 15)
-                        ),
-                    ),
-                    source_urls=("https://www.jpx.co.jp/kessan.xlsx",),
-                    raw_record_count=2,
-                    excluded_record_count=1,
-                    superseded_record_count=None,
-                ),
-                fetched_at_utc="2026-05-08T00:00:00+00:00",
-            )
-
-            snapshot = read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8))
-
-            self.assertIsNotNone(snapshot)
-            assert snapshot is not None
-            self.assertEqual(snapshot.entries[0].ticker, "1301")
-            self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 5, 15))
-
-    def test_rejects_successful_whole_list_coverage_with_zero_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                conn.execute(
-                    "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
-                    "coverage_end, fetched_at_utc, record_count, status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        "jpx_earnings_calendar",
-                        "get_earnings_calendar_snapshot:current",
-                        "2026-05-08",
-                        "2026-08-06",
-                        datetime.now(UTC).isoformat(),
-                        0,
-                        "ok",
-                    ),
-                )
-
-            with self.assertRaisesRegex(JPXProviderError, "row count mismatch"):
-                read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8))
 
 
 class ReadEDINETMetricBaselineTests(unittest.TestCase):

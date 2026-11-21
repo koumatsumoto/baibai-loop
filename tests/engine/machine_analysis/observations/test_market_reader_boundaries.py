@@ -4,19 +4,13 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import date, timedelta
-from pathlib import Path
+from datetime import date
 
 import pytest
 from tests.helpers.screening_sqlite import insert_financial_record
 
-import baibai_engine.machine_analysis.observations.disclosures.jpx_reader as jpx_reader
 import baibai_engine.machine_analysis.observations.prices.price_reader as price_reader
-import baibai_engine.machine_analysis.observations.trading_activity.margin_reader as margin_reader
 from baibai_engine.machine_analysis.observations.disclosures import edinet_document_store
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    read_next_earnings_dates,
-)
 from baibai_engine.machine_analysis.observations.financials import reader as financial_reader
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics import (
     store as edinet_store,
@@ -31,44 +25,8 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
 )
 from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
-    SQLiteSchemaError,
     open_connection,
 )
-
-
-@pytest.mark.parametrize(
-    "filename", ["market?copy.sqlite", "market#copy.sqlite", "market%20.sqlite"]
-)
-def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) -> None:
-    path = tmp_path / filename
-    with closing(open_connection(path)) as conn, conn:
-        conn.executemany(
-            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES ('1301', ?, 100)",
-            [("2026-01-30",), ("2026-02-02",)],
-        )
-        insert_financial_record(
-            conn, {"Code": "13010", "DiscDate": "2026-01-30", "DiscNo": "statement"}
-        )
-        conn.execute("INSERT INTO jpx_earnings_calendar VALUES ('2026-02-03', '1301')")
-        record_source_coverage(
-            conn,
-            source="jpx_earnings_calendar",
-            coverage_key="get_earnings_calendar_snapshot:current",
-            coverage_start="2026-02-03",
-            coverage_end="2026-02-03",
-            fetched_at_utc="2026-02-02T00:00:00Z",
-            record_count=1,
-        )
-    before = path.read_bytes()
-    end = date(2026, 2, 2)
-
-    assert read_next_earnings_dates(path, end) == {"1301": date(2026, 2, 3)}
-    assert path.read_bytes() == before
-
-    with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
-    with pytest.raises(SQLiteSchemaError, match=f"user_version={SQLITE_SCHEMA_VERSION - 1},"):
-        read_next_earnings_dates(path, end)
 
 
 @pytest.mark.parametrize("corrupt", [False, True])
@@ -114,8 +72,6 @@ def test_daily_bars_keep_volume_and_reject_corrupt_closes(tmp_path, corrupt):
     [
         (edinet_document_store, "read_edinet_documents", "edinet_documents"),
         (edinet_store, "read_edinet_metrics", "edinet_metrics"),
-        (jpx_reader, "read_jpx_regulations", "jpx_regulation_flags"),
-        (jpx_reader, "read_jpx_earnings_calendar_snapshot", "jpx_earnings_calendar"),
     ],
 )
 def test_snapshot_query_failure_is_not_a_cache_miss(
@@ -133,7 +89,7 @@ def test_snapshot_query_failure_is_not_a_cache_miss(
             "INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?, 1, 'ok')",
             (
                 source,
-                "get_earnings_calendar_snapshot:current",
+                "2026-10-15",
                 "2026-10-15",
                 "2026-10-15",
                 "2026-10-15T00:00:00+00:00",
@@ -258,120 +214,6 @@ def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeyp
     assert rows is not None
     assert len(rows) == 1
     assert reader(path, day, day) is None
-
-
-@pytest.mark.parametrize(
-    ("source", "table", "day", "reader_name"),
-    [
-        ("margin_interest", "jquants_weekly_margin", "2026-09-18", "read_weekly_margin"),
-        (
-            "margin_interest",
-            "jquants_all_issues_daily_margin",
-            "2026-10-02",
-            "read_all_issues_daily_margin",
-        ),
-        ("margin_alerts", "jquants_margin_alerts", "2026-10-02", "read_margin_alerts"),
-        ("margin_interest", "jquants_weekly_margin", "2026-09-18", "published_margin_week_ends"),
-        (
-            "margin_interest",
-            "jquants_all_issues_daily_margin",
-            "2026-10-02",
-            "_published_all_issues_daily_balance_dates",
-        ),
-        (
-            "short_sale_reports",
-            "jquants_short_sale_reports",
-            "2026-10-02",
-            "read_short_sale_reports",
-        ),
-    ],
-)
-def test_margin_coverage_and_observations_share_a_snapshot(
-    tmp_path, monkeypatch, source, table, day, reader_name
-):
-    from tests.helpers.jquants_receipts import FIRST_AT, source_record
-
-    from baibai_engine.machine_analysis.observations.jquants_writer import (
-        store_jquants_all_issues_daily_margin,
-        store_jquants_margin_alerts,
-        store_jquants_short_sale_reports,
-        store_jquants_weekly_margin,
-    )
-
-    path = tmp_path / "market.sqlite"
-    writer, scope = {
-        "jquants_weekly_margin": (store_jquants_weekly_margin, ("week_end",)),
-        "jquants_all_issues_daily_margin": (
-            store_jquants_all_issues_daily_margin,
-            ("balance_date",),
-        ),
-        "jquants_margin_alerts": (
-            store_jquants_margin_alerts,
-            ("requested_start", "requested_end"),
-        ),
-        "jquants_short_sale_reports": (
-            store_jquants_short_sale_reports,
-            ("requested_start", "requested_end"),
-        ),
-    }[table]
-    writer(
-        path,
-        [source_record(source, day)],
-        fetched_at_utc=FIRST_AT.isoformat(timespec="microseconds"),
-        **dict.fromkeys(scope, date.fromisoformat(day)),
-    )
-    with closing(sqlite3.connect(path)) as conn:
-        conn.execute("PRAGMA journal_mode = WAL")
-    if "published" in reader_name:
-        with closing(sqlite3.connect(path)) as conn, conn:
-            conn.executemany(
-                "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES ('1301', ?, 100)",
-                [
-                    ((date.fromisoformat(day) + timedelta(days=offset)).isoformat(),)
-                    for offset in range(1, 8)
-                ],
-            )
-    original_connect = margin_reader.connect_current
-    changed = False
-
-    class ConcurrentRead:
-        def __init__(self, conn):
-            self.conn = conn
-
-        def execute(self, sql, parameters=()):
-            nonlocal changed
-            if not changed and f"FROM {table} " in sql:
-                changed = True
-                with closing(sqlite3.connect(path)) as writer, writer:
-                    writer.execute(f"DELETE FROM {table}")
-                    writer.execute("UPDATE source_coverage SET status = 'partial'")
-            return self.conn.execute(sql, parameters)
-
-        def close(self):
-            self.conn.close()
-
-    monkeypatch.setattr(
-        margin_reader, "connect_current", lambda path: ConcurrentRead(original_connect(path))
-    )
-    reader = getattr(margin_reader, reader_name)
-    on_date = date.fromisoformat(day)
-    args = (
-        (path, on_date, on_date)
-        if source in {"margin_alerts", "short_sale_reports"}
-        else (path, on_date)
-    )
-    if "published" in reader_name:
-        args = (path, on_date + timedelta(days=7))
-    rows = reader(*args)
-    assert changed
-    assert rows is not None
-    assert len(rows) == 1
-    if "published" in reader_name:
-        assert rows == [on_date]
-        assert reader(*args) == []
-    else:
-        assert rows[0].ticker == "1301"
-        assert reader(*args) is None
 
 
 @pytest.mark.parametrize("reader_kind", ["baseline", "metrics", "documents"])
