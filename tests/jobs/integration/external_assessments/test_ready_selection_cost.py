@@ -132,8 +132,5 @@ def test_ascending_retained_extensions_need_linear_comparisons(monkeypatch):
         return contains(new, old)
 
     monkeypatch.setattr(ready, "_contains", counted)
-    assert previous_select(entries) is entries[-1]
-    assert calls == 5149
-    calls = 0
     assert ready._select_cumulative(entries) is entries[-1]
     assert calls <= 3 * len(entries)

@@ -200,39 +200,6 @@ def test_known_at_normal_historical_and_weekend_selection(tmp_path):
     )
 
 
-def test_selector_orders_real_instants_not_iso_strings(tmp_path):
-    early = stored(
-        document(
-            context_id="market-context-assessment-2026-07-17-early",
-            published_at="2026-07-17T16:00:00+09:00",
-        )
-    )
-    late = stored(
-        document(
-            context_id="market-context-assessment-2026-07-17-late",
-            published_at="2026-07-17T08:00:00+00:00",
-        )
-    )
-    db = tmp_path / "app.sqlite"
-    service = AssessmentService(db)
-    for record in (early, late):
-        publish_at_declared_time(
-            db,
-            MarketContextAssessment.model_validate(record.document),
-            expected_head=service.head_id(),
-        )
-    assert (
-        latest_assessment(
-            db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 9, tzinfo=UTC)
-        )
-        == late
-    )
-    with pytest.raises(ValueError, match="timezone"):
-        latest_assessment(
-            db, as_of=date(2026, 7, 17), known_at=datetime.fromisoformat("2026-07-17T00:00:00")
-        )
-
-
 def test_history_id_access_has_no_analytical_cutoff(tmp_path):
     db = tmp_path / "app.sqlite"
     payload = {
@@ -418,8 +385,13 @@ def test_latest_orders_offset_and_microsecond_publications_at_exact_cutoffs(tmp_
     for item in documents:
         publish_at_declared_time(db, item, expected_head=AssessmentService(db).head_id())
     for cutoff, expected in (
+        ("2026-07-17T07:00:00+00:00", documents[0]),
         ("2026-07-17T08:00:00.000001+00:00", documents[1]),
         ("2026-07-17T08:00:00.000002+00:00", documents[2]),
     ):
         known_at = datetime.fromisoformat(cutoff)
         assert latest_assessment(db, as_of=date(2026, 7, 17), known_at=known_at) == stored(expected)
+    with pytest.raises(ValueError, match="timezone"):
+        latest_assessment(
+            db, as_of=date(2026, 7, 17), known_at=datetime.fromisoformat("2026-07-17T00:00:00")
+        )

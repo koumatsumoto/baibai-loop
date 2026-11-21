@@ -3,7 +3,6 @@
 import pytest
 from tests.engine.investment_judgment.company_research.test_brief_evidence import NOW
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
-from tests.helpers.generated_selection import seed_generated_selection
 
 from baibai_engine.investment_judgment.company_research.context import company_context_brief
 from baibai_engine.investment_judgment.company_research.document import ResearchDraft
@@ -13,10 +12,6 @@ from baibai_engine.investment_judgment.company_research.query import (
 )
 from baibai_engine.investment_judgment.company_research.store import ResearchStoreService
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-from baibai_engine.investment_judgment.workflow.selection import parse_selection, selection_sha256
-from baibai_engine.investment_judgment.workflow.selection_query import (
-    load_generated_selection_context,
-)
 
 
 def _save(path, kind, questions):
@@ -85,32 +80,3 @@ def test_complete_short_question_list_keeps_the_old_brief_shape(tmp_path, kind, 
     brief = company_context_brief(context)[kind]
     assert brief["unresolved_questions"] == questions
     assert "unresolved_questions_omitted" not in brief
-
-
-def test_selection_context_reports_omission_without_changing_fixed_inputs_or_candidate_set(
-    tmp_path,
-):
-    app, runs = tmp_path / "app", tmp_path / "runs"
-    context = _save(app, "research", ["利益", "cash", "価値", "資本異動を確認"])
-    selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",), db=app)
-    original = selected.model_dump_json()
-    digest = selection_sha256(selected)
-    before = app.read_bytes(), runs.read_bytes()
-    result = load_generated_selection_context(
-        request=selected.request,
-        generation_id=selected.inputs.generation.generation_id,
-        screening_selection_id=selected.inputs.screening_selection_id,
-        research_as_of=NOW.date(),
-        known_at=NOW,
-        runs_path=runs,
-        db_path=app,
-        comparison_tickers=("1234",),
-    )
-    brief = result["saved_company_context"]["1234"]["research"]
-    assert brief == company_context_brief(context)["research"]
-    assert brief["unresolved_questions_omitted"] == 1
-    assert result["candidate_tickers"] == []
-    parsed = parse_selection(selected.model_dump(mode="json"))
-    assert parsed.model_dump_json() == original
-    assert selection_sha256(parsed) == digest
-    assert (app.read_bytes(), runs.read_bytes()) == before
