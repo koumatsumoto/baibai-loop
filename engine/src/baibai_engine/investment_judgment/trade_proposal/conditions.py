@@ -162,7 +162,7 @@ def buy_evaluator(
     pair: ReviewedAssessment,
     *,
     inputs: ProposalInputs,
-    target_session: date | None,
+    sessions: OrderSessionBounds,
     latest: bool,
     sqlite_path: Path,
     now: datetime,
@@ -176,7 +176,8 @@ def buy_evaluator(
         latest=latest,
         as_of=now.astimezone(JST).date(),
         quote=quote,
-        target_session=target_session,
+        target_session=sessions.confirmed_session,
+        earliest_possible_day=sessions.earliest_possible_day,
         basis_confirmed=assessment_quote_basis(
             pair.document,
             quote,

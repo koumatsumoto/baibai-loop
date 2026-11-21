@@ -14,24 +14,30 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.article_planning import load_planning, source_key
 from baibai_jobs.integration import sources
 from baibai_jobs.publication import machine_bundle
+from baibai_jobs.publication.lease import _save_handle, acquire
 
 MACHINE_KEYS = ("market.sqlite", "runs.sqlite", "indicators.sqlite")
 
 
-def _remote_bundle() -> MemoryR2Store:
-    remote = MemoryR2Store()
+def _publish_pointer(remote: MemoryR2Store, release_id: str, digest: str) -> None:
     remote.store_object(
         current_release_pointer_key(),
         json.dumps(
             {
-                "release_id": "published",
-                "manifest_key": release_manifest_key(release_id="published"),
-                "manifest_sha256": "a" * 64,
+                "release_id": release_id,
+                "manifest_key": release_manifest_key(release_id=release_id),
+                "manifest_sha256": digest,
             }
         ).encode(),
     )
+
+
+def _remote_bundle() -> MemoryR2Store:
+    remote = MemoryR2Store()
+    _publish_pointer(remote, "published", "a" * 64)
     for key in MACHINE_KEYS:
         remote.store_object(key, f"initial {key}".encode())
     _publish_receipt(remote)
@@ -117,6 +123,54 @@ def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
     assert len(published) == 1
 
 
+@pytest.mark.parametrize(
+    ("release_id", "digest"),
+    [("successor", "b" * 64), ("successor", "a" * 64), ("published", "b" * 64)],
+)
+def test_scoped_inputs_refuse_an_unpaired_daily_release(tmp_path, monkeypatch, release_id, digest):
+    remote = _remote_bundle()
+    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
+    handle, _ = acquire(remote, "operator")
+    lease = tmp_path / "lease.json"
+    _save_handle(lease, handle)
+    command = [
+        "inputs",
+        "--directory",
+        str(tmp_path / "integration"),
+        "--lease-handle",
+        str(lease),
+        "--asof",
+        "2026-10-30",
+        "--identity",
+        "synthetic",
+        "--group",
+        "boj_news",
+    ]
+
+    # model-integration can publish the lake before the machine transfer completes.
+    # Both old store ETags still match their receipt, but neither proves this release.
+    _publish_pointer(remote, release_id, digest)
+    prior = dict(remote.values)
+    remote.put_keys.clear()
+    assert sources.main(command) == 1
+    assert not remote.put_keys
+    assert remote.values == prior
+
+    for key in ("market.sqlite", "runs.sqlite"):
+        remote.store_object(key, f"successor {key}".encode())
+    _publish_receipt(
+        remote,
+        origin={"run": "12346-1", "release_id": release_id, "release_manifest_sha256": digest},
+    )
+    assert sources.main(command) == 0
+    assert remote.put_keys == [source_key("boj_news")]
+    assert load_planning(remote, "boj_news")[0].generations == {
+        "lake_release_id": release_id,
+        "lake_manifest_sha256": digest,
+    }
+
+
 def test_economic_change_does_not_invalidate_market_bundle():
     remote = _remote_bundle()
     before = sources.canonical_generations(remote)
@@ -143,8 +197,12 @@ def test_current_receipt_digest_cannot_impersonate_the_original_daily_run(
         origin["release_manifest_sha256"] = "b" * 64
     remote.store_object("runs.sqlite", b"later coherent pair")
     _publish_receipt(remote, origin=origin if other else False)
-    # Generic consumers keep reading legacy receipts without a daily origin.
-    machine_bundle.read_published_machine(remote)
+    if other in {"wrong-lake", "wrong-digest"}:
+        with pytest.raises(LakePublishError, match="receipt differs from the current lake release"):
+            machine_bundle.read_published_machine(remote)
+    else:
+        # Ordinary reads do not require an original attempt or a daily stamp.
+        machine_bundle.read_published_machine(remote)
     digest = hashlib.sha256(remote.values["machine-manifest.json"].body).hexdigest()
     monkeypatch.setattr(remote, "close", lambda: None, raising=False)
     monkeypatch.setattr(machine_bundle, "Boto3R2Store", lambda **_: remote)

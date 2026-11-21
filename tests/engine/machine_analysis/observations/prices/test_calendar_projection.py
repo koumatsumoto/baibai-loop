@@ -10,7 +10,6 @@ from tests.engine.data_collection.providers.jquants.test_calendar_native import 
 
 from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
-    market_calendar_business_day,
     observation_calendar_context,
     read_price_calendar,
 )
@@ -38,21 +37,24 @@ def _project(database, start, end, records):
 def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(tmp_path):
     start = date(2026, 1, 1)
     end = start + timedelta(days=3)
+    divisions = ("1", "0", "2", "3")
     records = [
-        {"Date": (start + timedelta(days=i)).isoformat(), "HolDiv": str(i)} for i in range(4)
+        {"Date": (start + timedelta(days=i)).isoformat(), "HolDiv": division}
+        for i, division in enumerate(divisions)
     ]
     database = tmp_path / "market.sqlite"
     _project(database, start, end, records)
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute(
             "SELECT holiday_division FROM jquants_market_calendar ORDER BY day"
-        ).fetchall() == [("0",), ("1",), ("2",), ("3",)]
+        ).fetchall() == [(division,) for division in divisions]
+        half_day = start + timedelta(days=2)
+        assert [
+            observation_calendar_context(connection, start + timedelta(days=i)) for i in range(4)
+        ] == [(start, True), (start, False), (half_day, True), (half_day, False)]
     days = read_market_calendar(database, start, end)
     assert days is not None
-    assert [day.is_business_day for day in days] == [False, True, True, False]
-    assert [
-        market_calendar_business_day(database, start + timedelta(days=i)) for i in range(4)
-    ] == [False, True, True, False]
+    assert [day.is_business_day for day in days] == [True, False, True, False]
 
     mirror = tmp_path / "lake"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot:
@@ -107,7 +109,6 @@ def test_unknown_calendar_category_is_not_treated_as_a_closed_day(tmp_path):
             (unknown.isoformat(),),
         )
         assert range_covered(connection, "jquants_market_calendar", start, end)
-    assert market_calendar_business_day(database, unknown) is None
     assert read_market_calendar(database, start, end) is None
     with closing(sqlite3.connect(database)) as connection:
         calendar = read_price_calendar(connection, as_of=end)

@@ -3,21 +3,28 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 import time
-from collections.abc import Collection, Iterable, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from threading import Lock
-from typing import TextIO
+from typing import Any, TextIO
 
 from pydantic import JsonValue
 
 from baibai_engine.data_collection.providers.edinet.annual_filings import (
+    annual_filing_lineage,
     usable_document,
 )
 from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
-from baibai_engine.data_collection.providers.edinet.fields import parse_sec_code
+from baibai_engine.data_collection.providers.edinet.fields import (
+    filing_submitted_at,
+    is_usable_filing_status,
+    parse_sec_code,
+)
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     ObservedFilingHistory,
 )
@@ -32,6 +39,37 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparisons i
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
     filing_identity,
 )
+
+
+def _annual_parent_ticker(
+    doc_id: str, by_id: Mapping[str, dict[str, Any]], blocked_ids: set[str | None]
+) -> str | None:
+    """A sparse annual correction may name its security through an unambiguous prior family."""
+    lineage = annual_filing_lineage(doc_id, by_id)
+    if not lineage or not (root_code := lineage[-1].get("secCode")):
+        return None
+    issuers = {str(doc["edinetCode"]) for doc in lineage if doc.get("edinetCode")}
+    if len(issuers) > 1:
+        return None
+    try:
+        ticker = parse_sec_code(root_code)
+        submitted = filing_submitted_at(str(lineage[0].get("submitDateTime") or ""))
+        for ancestor in lineage[1:]:
+            if str(ancestor["docID"]) in blocked_ids or not is_usable_filing_status(
+                ancestor.get("legalStatus"),
+                ancestor.get("disclosureStatus"),
+                ancestor.get("withdrawalStatus"),
+            ):
+                return None
+            if (code := ancestor.get("secCode")) and parse_sec_code(code) != ticker:
+                return None
+            parent_submitted = filing_submitted_at(str(ancestor.get("submitDateTime") or ""))
+            if parent_submitted > submitted:
+                return None
+            submitted = parent_submitted
+    except (ValueError, EDINETProviderError):
+        return None
+    return ticker
 
 
 def read_comparison_population(
@@ -69,15 +107,21 @@ def read_comparison_population(
     blocked_ids = {value for event in quarantined for value in (event.doc_id, event.target_doc_id)}
     observations: dict[str, FilingComparisons] = {}
     ready: dict[str, str] = {}
-    retained_ids = {str(doc["docID"]) for doc in documents}
+    by_id = {str(doc["docID"]): doc for doc in documents}
     for doc in documents:
         kind = str(doc.get("docTypeCode"))
-        if kind not in {"120", "130", "160", "170"} or not doc.get("secCode"):
-            continue
-        ticker = parse_sec_code(doc["secCode"])
-        if selected is not None and ticker not in selected:
+        if kind not in {"120", "130", "160", "170"}:
             continue
         doc_id = str(doc["docID"])
+        ticker: str | None
+        if code := doc.get("secCode"):
+            ticker = parse_sec_code(code)
+        elif kind == "130":
+            ticker = _annual_parent_ticker(doc_id, by_id, blocked_ids)
+        else:
+            ticker = None
+        if ticker is None or (selected is not None and ticker not in selected):
+            continue
         submitted = str(doc.get("submitDateTime") or "")
         try:
             identity = filing_identity(ticker, doc_id, submitted)
@@ -91,7 +135,7 @@ def read_comparison_population(
             reason = "comparison_document_events_unresolved"
         elif not usable_document(doc):
             reason = "comparison_document_unavailable"
-        elif kind in {"130", "170"} and doc.get("parentDocID") not in retained_ids:
+        elif kind in {"130", "170"} and doc.get("parentDocID") not in by_id:
             reason = "comparison_correction_ancestry_unknown"
         else:
             ready[doc_id] = submitted
@@ -241,9 +285,9 @@ def _archive_contents(
     statement = "SELECT doc_id, zip_content FROM edinet_source_archives WHERE source_type = 1"
     parameters: tuple[str, ...] = ()
     if tickers is not None and len(tickers) == 1:
-        # Eligibility comes from the folded observations, not this byte-read filter.
-        statement += " AND doc_id IN (SELECT doc_id FROM edinet_documents WHERE sec_code = ?)"
-        parameters = (tickers[0] + "0",)
+        # Use the folded filing IDs: sparse corrections need not carry their own security code.
+        statement += " AND doc_id IN (SELECT value FROM json_each(?))"
+        parameters = (json.dumps(list(doc_ids)),)
     cursor = connection.execute(statement, parameters)
     while batch := cursor.fetchmany(8):
         for doc_id, content in batch:

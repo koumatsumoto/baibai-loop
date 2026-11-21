@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from datetime import datetime
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.portfolio.ledger.events import round_valuation_yen
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_web.readmodel.builders.presentation import (
@@ -69,12 +70,12 @@ def build_dashboard(
             holding,
             security_name=security_names.get(holding.ticker),
         )
-        for holding in snapshot.holdings
+        for holding in sorted(
+            snapshot.holdings,
+            key=lambda item: (item.market_value_yen is not None, item.market_value_yen or 0),
+            reverse=True,
+        )
     ]
-    holdings.sort(
-        key=lambda item: (item.market_value_yen is not None, item.market_value_yen or 0),
-        reverse=True,
-    )
     reservations = [
         ReservationView(
             reservation_id=item.reservation_id,
@@ -128,10 +129,10 @@ def build_dashboard(
         valuation_error=portfolio.valuation_error,
         holding_quantity_unresolved=portfolio.holding_quantity_unresolved,
         valuation_as_of=valuation_as_of,
-        total_capital_yen=total,
+        total_capital_yen=round_valuation_yen(total),
         available_cash_yen=available_cash,
         reserved_cash_yen=reserved_cash,
-        holdings_market_value_yen=holdings_market_value,
+        holdings_market_value_yen=round_valuation_yen(holdings_market_value),
         deployed_cost_yen=snapshot.deployed_cost_yen,
         realized_gross_pnl_yen=snapshot.realized_gross_pnl_yen,
         cash_pct=percentage(available_cash, total, digits=1),

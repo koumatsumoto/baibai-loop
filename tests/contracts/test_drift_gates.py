@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,8 @@ from tools.quality.drift import (
     check_repository_paths,
 )
 
+from baibai_engine.cli.operation import build_parser as build_operation_parser
+from baibai_jobs.maintenance.market.cli import build_parser as build_market_parser
 from baibai_web.contracts_export import generated_files
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -250,6 +253,80 @@ def test_documented_command_gate_accepts_a_complete_command(tmp_path: Path) -> N
     assert check_documented_commands.check(tmp_path) == []
 
 
+@pytest.mark.parametrize("options", ["--asof", "--asof --lookback-days 540", "--asof -- <A>"])
+def test_documented_command_gate_rejects_a_named_option_with_no_value(tmp_path, options):
+    args = f"extract-edinet-metrics {options}"
+    command = f"uv run baibai-jobs maintain-market {args}"
+    _skill(tmp_path, f"```bash\n{command}\n```\n")
+
+    with pytest.raises(SystemExit) as result:
+        build_market_parser().parse_args(shlex.split(args))
+    assert result.value.code == 2
+    assert check_documented_commands.check(tmp_path) == [
+        f".agents/skills/demo/SKILL.md: `{command}` omits value for --asof"
+    ]
+
+
+@pytest.mark.parametrize("other_option", ["--format json", "'--format=json with spaces'"])
+def test_documented_command_gate_rejects_a_parent_option_missing_its_value(tmp_path, other_option):
+    args = f"--db {other_option} show"
+    _skill(tmp_path, f"```bash\nuv run baibai-engine operation {args}\n```\n")
+
+    with pytest.raises(SystemExit) as result:
+        build_operation_parser().parse_args(shlex.split(args))
+    assert result.value.code == 2
+    assert check_documented_commands.check(tmp_path) == [
+        ".agents/skills/demo/SKILL.md: baibai-engine operation: omits value for --db"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("entry", "build_parser", "args", "path_attribute"),
+    [
+        ("baibai-engine operation", build_operation_parser, "--db {path} --format json show", "db"),
+        (
+            "baibai-jobs maintain-market",
+            build_market_parser,
+            "extract-edinet-metrics --asof 2026-11-19 --sqlite-path {path}",
+            "sqlite_path",
+        ),
+    ],
+)
+def test_documented_command_gate_matches_argparse_for_quoted_dash_leading_paths(
+    tmp_path, entry, build_parser, args, path_attribute
+):
+    path = "- archive.sqlite"
+    args = args.format(path=shlex.quote(path))
+    _skill(tmp_path, f"```bash\nuv run {entry} {args}\n```\n")
+
+    parsed = build_parser().parse_args(shlex.split(args))
+    assert Path(getattr(parsed, path_attribute)) == Path(path)
+    assert check_documented_commands.check(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("relative", "args"),
+    [
+        ("docs/reference/screening-runtime.md", "operation --db <APP> --format json show"),
+        (
+            "docs/reference/trade-proposal.md",
+            "investment-judgment trade-proposal-compare-holdings cases.yaml --draft proposal.yaml",
+        ),
+    ],
+)
+def test_documented_command_gate_checks_the_reference_owner_examples(tmp_path, relative, args):
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    command = f"uv run baibai-engine {args}"
+    path.write_text(f"```bash\n{command}\n```\n")
+    assert check_documented_commands.check(tmp_path) == []
+
+    path.write_text(f"```bash\n{command} --removed-option\n```\n")
+    assert check_documented_commands.check(tmp_path) == [
+        f"{relative}: `{command} --removed-option` has unknown options --removed-option"
+    ]
+
+
 def _transfer_script(root: Path, *names: str) -> None:
     """A stand-in for `r2_transfer.sh` carrying only the dispatch the gate reads."""
 
@@ -372,14 +449,32 @@ def test_leaf_options_keep_parent_alias_repeatable_negative_and_placeholder_valu
     child = parser.add_subparsers().add_parser("run")
     child.add_argument("--ticker", "-t", action="append", required=True)
     child.add_argument("--offset")
-    resolved, rest = check_documented_commands._descend(
-        parser,
-        "example",
-        ["--db", "<DB>", "run", "-t", "2331", "--ticker=0001", "--offset", "-1.5"],
-    )
+    argv = ["--db=<DB>", "run", "-t", "2331", "--ticker=0001", "--offset", "-.5e+1"]
+    assert parser.parse_args(argv).offset == "-.5e+1"
+    resolved, rest = check_documented_commands._descend(parser, "example", argv)
     assert check_documented_commands._unknown_options(resolved, rest) == []
     assert check_documented_commands._missing_required(resolved, rest) == []
+    assert check_documented_commands._missing_option_values(resolved, rest) == []
     assert check_documented_commands._unknown_options(resolved, ["--typo"]) == ["--typo"]
+
+
+@pytest.mark.parametrize(
+    "argv", [["--pair", "<ID>"], ["--pair", "<ID>", "--"], ["--pair=<ID>", "<SHA>"]]
+)
+def test_fixed_arity_option_has_every_value(argv):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pair", nargs=2)
+    parser.add_argument("--other")
+    assert (
+        check_documented_commands._missing_option_values(parser, ["--pair", "<ID>", "<SHA>"]) == []
+    )
+    option_as_value = ["--pair", "<ID>", "--other"]
+    assert parser.parse_args(option_as_value).pair == ["<ID>", "--other"]
+    assert check_documented_commands._missing_option_values(parser, option_as_value) == []
+    with pytest.raises(SystemExit) as result:
+        parser.parse_args(argv)
+    assert result.value.code == 2
+    assert check_documented_commands._missing_option_values(parser, argv) == ["--pair"]
 
 
 @pytest.mark.parametrize(

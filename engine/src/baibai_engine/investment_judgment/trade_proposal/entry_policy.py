@@ -111,6 +111,7 @@ def prepare_buy_terms(
     budget_max_yen: Decimal,
     board_lot: int,
     target_session: date | None = None,
+    earliest_possible_day: date | None = None,
 ) -> Callable[[Decimal, int | None], BuyTermsEvaluation]:
     """同じ査読済み評価・実quote・資金に対し、指値だけを変えて比較できる。"""
     if quote is not None and quote.ticker != assessment.input_snapshot.ticker:
@@ -173,7 +174,9 @@ def prepare_buy_terms(
             block("price_value_undetermined", "割安判断が参照した一株の実価格を確認できません。")
         else:
             condition_ceiling = finite_decimal(reference.value)
-    acquisition_issue = acquisition_blocker(assessment, target_session)
+    acquisition_issue = acquisition_blocker(
+        assessment, target_session, earliest_possible_day=earliest_possible_day
+    )
     if acquisition_issue is not None:
         blockers.append(acquisition_issue)
     valuation = assessment.valuation

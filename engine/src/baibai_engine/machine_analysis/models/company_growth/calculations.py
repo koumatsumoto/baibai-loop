@@ -33,6 +33,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     ACTUAL_FIELDS,
+    annual_cumulative_periods,
     annual_ttm_start,
     comparable_period_lengths,
     compose_ttm_amount,
@@ -277,22 +278,10 @@ def _derived(
     expected_end = add_months_clamped(anchor.period_end, -12 if ttm else -3)
     start = expected_end + timedelta(days=1)
     selected_groups: list[list[Sequence[JQuantsFinancialSummary]]] = []
+    period_reason: PeriodStatus | None = None
     if ttm:
         tolerance_days = 45
         expected_ordinal = expected_end.toordinal()
-        prior_same = _closest_groups(
-            [
-                g
-                for g in groups
-                # 同じ期末許容幅の外は、開始日や期間長を比べるまでもない。
-                if (end := g[0].period_end) is not None
-                and abs(end.toordinal() - expected_ordinal) <= tolerance_days
-                and prior_year_period_matches(
-                    g[0], anchor, length_tolerance_ratio=0.1, end_tolerance_days=tolerance_days
-                )
-            ],
-            expected_end=expected_end,
-        )
         prior_fy_end = anchor.period_start - timedelta(days=1)
         prior_fy = _closest_groups(
             [
@@ -304,8 +293,26 @@ def _derived(
             ],
             expected_end=prior_fy_end,
         )
-        if prior_same and prior_fy:
-            selected_groups = [prior_fy, prior_same]
+        if prior_fy:
+            date_matches = [
+                g
+                for g in groups
+                # 同じ期末許容幅の外は、開始日や期間長を比べるまでもない。
+                if (end := g[0].period_end) is not None
+                and abs(end.toordinal() - expected_ordinal) <= tolerance_days
+                and prior_year_period_matches(
+                    g[0], anchor, length_tolerance_ratio=0.1, end_tolerance_days=tolerance_days
+                )
+            ]
+            eligible = annual_cumulative_periods([g[0] for g in date_matches], prior_fy[0][0])
+            prior_same = _closest_groups(
+                [g for g in date_matches if accounting_period_identity(g[0]) in eligible],
+                expected_end=expected_end,
+            )
+            if prior_same:
+                selected_groups = [prior_fy, prior_same]
+            elif date_matches:
+                period_reason = "accounting_periods_incomparable"
     else:
         start = max(anchor.period_start, start)
         previous = _closest_groups(
@@ -321,9 +328,8 @@ def _derived(
         )
         if previous:
             selected_groups = [previous]
-    period_reason: PeriodStatus | None = None
     if not selected_groups:
-        period_reason = "matching_period_not_observed"
+        period_reason = period_reason or "matching_period_not_observed"
     elif any(
         len({(group[0].period_start, group[0].period_end) for group in candidates}) != 1
         for candidates in selected_groups

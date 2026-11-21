@@ -19,6 +19,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     ACTUAL_FIELDS,
+    annual_cumulative_periods,
     annual_ttm_start,
     compose_ttm_amount,
     is_annual_period,
@@ -335,13 +336,16 @@ def _ttm_components(
         return (latest,) if is_annual_period(latest.period_start, latest.period_end) else ()
     prior_fy_end = latest.period_start - timedelta(days=1)
     prior_fy = _latest_full_year_summary(actuals, prior_fy_end, ttm_rules, field_name=field)
+    if prior_fy is None:
+        return ()
     prior_same = _matched_prior_period_summary(
         actuals,
         latest,
         ttm_rules,
         value_field=field,
+        annual_operand=prior_fy,
     )
-    if prior_fy is None or prior_same is None:
+    if prior_same is None:
         return ()
     if annual_ttm_start(latest, prior_fy, prior_same) is None:
         return ()
@@ -381,6 +385,7 @@ def _matched_prior_period_summary(
     *,
     field_name: str | None = None,
     value_field: str | None = None,
+    annual_operand: JQuantsFinancialSummary | None = None,
 ) -> JQuantsFinancialSummary | None:
     if latest.period_start is None or latest.period_end is None:
         return None
@@ -399,9 +404,14 @@ def _matched_prior_period_summary(
         ):
             continue
         candidates.append(summary)
-    if not candidates:
+    period = max(
+        annual_cumulative_periods(candidates, annual_operand)
+        if annual_operand is not None
+        else map(accounting_period_identity, candidates),
+        default=None,
+    )
+    if period is None:
         return None
-    period = max(map(accounting_period_identity, candidates))
     period_rows = [row for row in candidates if accounting_period_identity(row) == period]
     comparison_field = value_field or field_name
     # YoY keeps the last observed field within its fixed prior period. TTM

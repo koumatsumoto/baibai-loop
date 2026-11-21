@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 from typing import Literal
@@ -114,7 +114,7 @@ def _preview_buy(
     *,
     latest: bool,
     order_blockers: tuple[GateReason, ...],
-    session: date | None,
+    sessions: OrderSessionBounds,
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
@@ -125,7 +125,7 @@ def _preview_buy(
     evaluate = buy_evaluator(
         pair,
         inputs=inputs,
-        target_session=session,
+        sessions=sessions,
         latest=latest,
         sqlite_path=sqlite_path,
         now=now,
@@ -137,6 +137,7 @@ def _preview_buy(
     trial: dict[str, object] | None = None
     if quote is not None:
         classification = proposal_classification(inputs, item.ticker)
+        session = sessions.confirmed_session
         grid = (
             None
             if classification is None or session is None
@@ -364,11 +365,16 @@ def preview_current_terms(
                     saved_ceiling_calculation=None,
                 )
             order_blockers: tuple[GateReason, ...] = ()
-            session = None
+            sessions = None
             if item.action in {"buy", "sell"}:
                 if item.action == "buy" or item.conditional_recovery is None:
-                    session = order_sessions().confirmed_session
-                order_blockers = terms_unavailable_reasons(item, inputs, now=now, session=session)
+                    sessions = order_sessions()
+                order_blockers = terms_unavailable_reasons(
+                    item,
+                    inputs,
+                    now=now,
+                    session=None if sessions is None else sessions.confirmed_session,
+                )
                 if item.terms is None:
                     order_blockers += (
                         GateReason(
@@ -393,13 +399,14 @@ def preview_current_terms(
                         )
                     )
                 if item.action == "buy" and not corrected:
+                    assert sessions is not None
                     calculation, blockers = _preview_buy(
                         item,
                         pair,
                         inputs,
                         latest=latest,
                         order_blockers=order_blockers,
-                        session=session,
+                        sessions=sessions,
                         sqlite_path=sqlite_path,
                         now=now,
                         market_connection=market_connection,

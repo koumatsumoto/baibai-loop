@@ -19,7 +19,6 @@ from baibai_engine.machine_analysis.generation.calendar_inputs import (
     read_calendar_input,
 )
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
-    market_calendar_business_day,
     observation_calendar_context,
 )
 from baibai_engine.storage.objects.r2 import LakePublishError
@@ -116,7 +115,6 @@ def test_new_bad_day_removes_stale_holiday_without_touching_other_sources(tmp_pa
         store, source.fixed(), as_of=DAY, evaluated_at=AT + timedelta(hours=1), market=market
     )
     assert rows(market) == []
-    assert market_calendar_business_day(market, DAY) is None
     with sqlite3.connect(market) as connection:
         assert connection.execute("SELECT * FROM jquants_daily_bars").fetchall() == untouched
         assert (

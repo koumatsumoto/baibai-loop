@@ -1,5 +1,3 @@
-import type { HoldingView } from '../api/types'
-
 export interface UnrealizedPnlTotal {
   yen: number | null
   pct: number | null
@@ -11,10 +9,10 @@ export function pnlTone(value: number | null): string {
   return value > 0 ? 'text-profit' : 'text-loss'
 }
 
-export function totalUnrealizedPnl(holdings: readonly HoldingView[]): UnrealizedPnlTotal {
-  if (holdings.some((holding) => holding.unrealized_pnl_yen === null)) return { yen: null, pct: null }
-  const yen = holdings.reduce((total, holding) => total + (holding.unrealized_pnl_yen ?? 0), 0)
-  const deployedCostYen = holdings.reduce((total, holding) => total + holding.deployed_cost_yen, 0)
+export function totalUnrealizedPnl(marketValueYen: number | null, deployedCostYen: number | null): UnrealizedPnlTotal {
+  if (marketValueYen === null || deployedCostYen === null) return { yen: null, pct: null }
+  // The server rounds the exact aggregate independently of the displayed holding rows.
+  const yen = marketValueYen - deployedCostYen
   return {
     yen,
     pct: deployedCostYen > 0 ? yen / deployedCostYen * 100 : null,

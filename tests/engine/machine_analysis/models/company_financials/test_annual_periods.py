@@ -84,6 +84,95 @@ def test_week_calendar_ttm_uses_adjoining_52_or_53_week_fy(prior_start):
     assert len(annual.metrics["parent_profit"].documents) == 3
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_ttm_subtracts_the_cumulative_of_the_selected_fiscal_year(reverse):
+    rows = weekly_documents(date(2023, 2, 19))
+    prior, full_year, current = rows
+    conflicting_year = replace(
+        prior,
+        fiscal_year_end=date(2024, 4, 30),
+        profit=160.0,
+        disclosure_number="different-fiscal-year",
+    )
+    inputs = [prior, conflicting_year, full_year, current]
+    if reverse:
+        inputs.reverse()
+    assert _ttm_value(inputs, "profit", DEFAULT_TTM_RULES) == (120.0, TTMQuality.EXACT)
+    period = _ttm_period(inputs, "profit", DEFAULT_TTM_RULES)
+    assert period is not None
+    assert period["components"][-1]["disclosure_number"] == prior.disclosure_number
+    annual = growth_annual(inputs)
+    assert annual.period_status == "available"
+    assert annual.metrics["parent_profit"].value == 120.0
+    assert "different-fiscal-year" not in {
+        source.disclosure_number for source in annual.metrics["parent_profit"].documents
+    }
+
+
+def test_ttm_neither_borrows_a_different_year_nor_revives_a_missing_operand():
+    prior, full_year, current = weekly_documents(date(2023, 2, 19))
+    conflicting_year = replace(prior, fiscal_year_end=date(2024, 4, 30))
+    incompatible = [conflicting_year, full_year, current]
+    assert _ttm_value(incompatible, "profit", DEFAULT_TTM_RULES) == (
+        None,
+        TTMQuality.UNAVAILABLE,
+    )
+    annual = growth_annual(incompatible)
+    assert annual.period_status == "accounting_periods_incomparable"
+    assert annual.metrics["parent_profit"].value is None
+    assert growth_annual([full_year, current]).period_status == "matching_period_not_observed"
+    incomplete_correction = replace(
+        prior,
+        disclosed_at=prior.disclosed_at + timedelta(days=1),
+        disclosure_number="same-fiscal-year-missing-profit",
+        profit=None,
+    )
+    assert _ttm_value(
+        [prior, incomplete_correction, conflicting_year, full_year, current],
+        "profit",
+        DEFAULT_TTM_RULES,
+    ) == (None, TTMQuality.UNAVAILABLE)
+
+
+def test_ttm_retains_compatible_actual_dates_when_comparative_year_is_unrecorded():
+    prior, full_year, current = weekly_documents(date(2023, 2, 19))
+    prior = replace(prior, fiscal_year_end=None)
+    assert _ttm_value([prior, full_year, current], "profit", DEFAULT_TTM_RULES) == (
+        120.0,
+        TTMQuality.EXACT,
+    )
+    assert growth_annual([prior, full_year, current]).metrics["parent_profit"].value == 120.0
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("case", ["unknown_conflicts", "explicit_match", "different_interval"])
+def test_ttm_never_promotes_an_unrecorded_year_to_resolve_a_conflicting_interval(case, reverse):
+    prior, full_year, current = weekly_documents(date(2023, 2, 19))
+    unknown = replace(prior, fiscal_year_end=None, disclosure_number="year-unrecorded")
+    other_year = replace(
+        prior,
+        fiscal_year_end=date(2024, 3, 30),
+        period_end=date(2023, 5, 21) if case == "different_interval" else prior.period_end,
+        profit=160.0,
+        disclosure_number="other-year",
+    )
+    rows = [unknown, other_year, full_year, current]
+    if case == "explicit_match":
+        rows.append(replace(prior, profit=35.0))
+    if reverse:
+        rows.reverse()
+    annual = growth_annual(rows)
+    if case == "unknown_conflicts":
+        assert _ttm_value(rows, "profit", DEFAULT_TTM_RULES) == (None, TTMQuality.UNAVAILABLE)
+        assert annual.period_status == "accounting_periods_incomparable"
+        assert annual.metrics["parent_profit"].reason == "accounting_periods_incomparable"
+    else:
+        expected = 105.0 if case == "explicit_match" else 120.0
+        assert _ttm_value(rows, "profit", DEFAULT_TTM_RULES) == (expected, TTMQuality.EXACT)
+        assert annual.period_status == "available"
+        assert annual.metrics["parent_profit"].value == expected
+
+
 @pytest.mark.parametrize(
     ("start", "expected"),
     [(date(2024, 2, 25), 100.0), (date(2024, 2, 18), 100.0), (date(2024, 3, 23), None)],

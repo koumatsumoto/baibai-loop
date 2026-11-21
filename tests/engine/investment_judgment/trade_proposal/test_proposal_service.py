@@ -1308,6 +1308,88 @@ def test_dated_no_action_distinguishes_expiry_from_unconfirmed_acquisition(
     assert _ledger_snapshot(case.app) == ledger
 
 
+@pytest.mark.parametrize(
+    ("closing_days", "expected"),
+    [
+        (("2026-10-15", "2026-10-16"), "right_acquisition_expired"),
+        (("2026-10-15",), "right_acquisition_unconfirmed"),
+    ],
+)
+def test_buy_uses_calendar_lower_bound_only_to_prove_right_expiry(tmp_path, closing_days, expected):
+    case = backend_case(tmp_path)
+    document, review = pair_payload(review_number=90)
+    deadline = "2026-10-16"
+    document["input_snapshot"]["facts"].append(
+        {
+            "fact_id": "last-session",
+            "fact_kind": "last_eligible_trade_date",
+            "value": deadline,
+            "unit": "date",
+            "as_of": "2026-10-14",
+            "source_ids": ["annual"],
+        }
+    )
+    document["price_value_case"]["value_fact_ids"].append("last-session")
+    document["price_value_case"]["acquisition_limit"] = {
+        "value_fact_id": "last-session",
+        "last_eligible_trade_date": deadline,
+    }
+    update_review_hash(document, review)
+    case.pair = AssessmentStoreService(
+        case.app, clock=lambda: PREPARED - timedelta(minutes=1)
+    ).publish_reviewed_assessment(
+        assessment_id(90), document, review, supersedes_id=case.pair.assessment_id
+    )
+    case.operations.record_assessment(
+        case.operation.operation_id, case.pair.assessment_id, now=PREPARED
+    )
+    ledger = _ledger_snapshot(case.app)
+    writer = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    original = reviewed_proposal(case)
+    saved = writer.publish(original)
+    assert saved.items[0].terms is not None
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute("DELETE FROM jquants_market_calendar WHERE day > '2026-10-14'")
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar VALUES (?,'0')", [(day,) for day in closing_days]
+        )
+    before = (case.app.read_bytes(), case.market.read_bytes())
+    new_id = PROPOSAL_ID[:-2] + "79"
+    context = build_proposal_context(
+        operation_id=case.operation.operation_id,
+        proposal_id=new_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PREPARED,
+    )
+    assert context.next_order_session is None
+    calculation = context.calculations["1234"]["buy_at_actual_quote"]
+    assert {reason["code"] for reason in calculation["hard_blockers"]} == {
+        expected,
+        "order_session_unknown",
+    }
+    draft = reviewed_proposal(case, proposal_id=new_id)
+    assert {reason.code for reason in writer.check(draft).blockers} == {
+        expected,
+        "order_session_unknown",
+    }
+    with pytest.raises(ProposalError):
+        writer.publish(draft)
+    preview = preview_current_terms(
+        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+    )
+    assert preview.status == "blocked"
+    row = preview.items[0]
+    assert {reason["code"] for reason in row["blockers"]} == {expected, "order_session_unknown"}
+    assert row["saved_terms"] == saved.items[0].terms.model_dump(mode="json")
+    for projection in (calculation, row["saved_limit_revalidation"]):
+        assert projection["quantity"] == 0
+        assert projection["capital_comparison"] is None
+    assert writer.publish(original) == saved
+    assert (case.app.read_bytes(), case.market.read_bytes()) == before
+    assert _ledger_snapshot(case.app) == ledger
+
+
 def test_old_uncertain_no_action_keeps_exact_read_and_retry(tmp_path):
     case = backend_case(tmp_path, valuation_unresolved=True)
     proposal = reviewed_proposal(case, action="no_action")

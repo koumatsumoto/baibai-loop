@@ -24,7 +24,7 @@ from baibai_engine.machine_analysis.observations.economic_indicators.service imp
     IndicatorsService,
 )
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
-    market_calendar_business_day,
+    observation_calendar_context,
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_case_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -38,6 +38,9 @@ from baibai_engine.storage.sqlite.machine_analysis import (
     initialize_run_store,
 )
 from baibai_engine.storage.sqlite.read import read_rows
+from baibai_engine.storage.sqlite.source_cache.read import (
+    connect_read_only as connect_market_read_only,
+)
 
 
 @pytest.mark.parametrize("store", ["absent-file", "empty-file"])
@@ -51,16 +54,17 @@ def test_unwritten_stores_return_absence_without_initializing(tmp_path: Path, st
     assert (path.read_bytes() if path.exists() else None) == original
 
 
-def test_the_daily_batch_gates_report_an_unwritten_store_instead_of_degrading(
+def test_observation_calendar_resolver_reports_unreadable_store_not_a_closed_day(
     tmp_path: Path,
 ) -> None:
-    """Skipping a run because the calendar was unreadable must stay impossible."""
-
     empty = tmp_path / "empty.sqlite"
-    sqlite3.connect(empty).close()
-
-    with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        market_calendar_business_day(empty, date(2026, 7, 29))
+    empty.touch()
+    with (
+        closing(connect_market_read_only(empty)) as connection,
+        pytest.raises(sqlite3.OperationalError, match="no such table: jquants_market_calendar"),
+    ):
+        observation_calendar_context(connection, date(2026, 7, 29))
+    assert empty.stat().st_size == 0
 
 
 def test_screening_read_helpers_accept_the_current_run_store(tmp_path: Path) -> None:

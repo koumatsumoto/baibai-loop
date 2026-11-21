@@ -39,7 +39,7 @@ function holdingQuantityNotice(unresolved: DashboardPayload['holding_quantity_un
 
 const HINT = {
   allocation: '台帳で未予約の現金と、これまでの判断が実際に効いているかを 1 か所で確かめる。売却代金は約定時に計上し、受渡済み資金や証券会社の発注可能額とは照合していない。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
-  holdings: '保有中の各銘柄の取得原価・保存終値・評価損益。未評価とゼロを区別して示す。',
+  holdings: '保有中の各銘柄の取得原価・保存終値・評価損益。未評価とゼロを区別して示す。各銘柄と合計はそれぞれ円に丸めるため、表示額を足すと合計と異なる場合がある。',
   reservations: '報告済みの未約定注文。買付だけ資金を予約し、売付の見込代金は現金に加えません。約定・取消・失効は次の明示報告で更新します。',
   outcomes: '記録済みの税・費用を反映した return を、同じ期間の配当込み TOPIX と比べた結果。未報告の税・費用は含まない。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
@@ -80,7 +80,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardPayload }) {
     : []
   const hasAllocation = allocation.some((item) => item.value > 0)
   const unvaluedHoldings = data.holdings.filter((holding) => holding.market_value_yen === null)
-  const pnl = totalUnrealizedPnl(data.holdings)
+  const pnl = totalUnrealizedPnl(holdingsValue, data.deployed_cost_yen)
   const hasPnl = data.holdings.length > 0
   const holdingDetail = data.ledger_exists
     ? holdingQuantityNotice(data.holding_quantity_unresolved) ?? `${data.holdings.length} 銘柄を保有`
@@ -222,11 +222,13 @@ function PortfolioWarnings({ warnings }: { warnings: WarningView[] }) {
   )
 }
 
-export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityUnresolved }: {
+export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityUnresolved, holdingsMarketValueYen, deployedCostYen }: {
   holdings: HoldingView[]
   warnings: WarningView[]
   ledgerAsOf?: string | null
   quantityUnresolved: DashboardPayload['holding_quantity_unresolved']
+  holdingsMarketValueYen: number | null
+  deployedCostYen: number | null
 }) {
   const quantityNotice = holdingQuantityNotice(quantityUnresolved)
   const recordedOnly = quantityNotice !== null
@@ -234,7 +236,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
     const values = Array.from(new Set(holdings.map((holding) => holding.market_price_as_of)))
     return values.length === 1 ? values[0] : null
   }, [holdings])
-  const unrealizedPnl = useMemo(() => totalUnrealizedPnl(holdings), [holdings])
+  const unrealizedPnl = totalUnrealizedPnl(holdingsMarketValueYen, deployedCostYen)
 
   return (
     // The asset card states the shared valuation basis. Per-row dates show a mixed basis.
@@ -424,7 +426,7 @@ export function DashboardPage() {
       {data !== null && data.ledger_error === null && (!data.ledger_exists ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
       ) : data.holdings.length > 0 ? (
-        <HoldingsTable holdings={data.holdings} ledgerAsOf={data.ledger_as_of} quantityUnresolved={data.holding_quantity_unresolved} warnings={data.warnings} />
+        <HoldingsTable holdings={data.holdings} holdingsMarketValueYen={data.holdings_market_value_yen} deployedCostYen={data.deployed_cost_yen} ledgerAsOf={data.ledger_as_of} quantityUnresolved={data.holding_quantity_unresolved} warnings={data.warnings} />
       ) : (
         <Card className="gap-0 overflow-hidden border-dashed py-0 shadow-none">
           <CardContent className="py-8 text-center text-sm text-muted-foreground">

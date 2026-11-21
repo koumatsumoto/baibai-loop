@@ -39,6 +39,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import discovery_publication_id
+from baibai_engine.machine_analysis.screening.discovery_index import read_discovery_index
 from baibai_engine.machine_analysis.screening.policies import economic_path_inputs
 from baibai_engine.machine_analysis.screening.policies.discovery import (
     evaluate_discovery_rows,
@@ -659,7 +660,11 @@ def test_positive_quarter_with_missing_companion_uses_only_available_annual_comp
 
 
 def owner_generation(
-    *, alternate_quarter_profit=None, alternate_prior_quarter_profit=None, reverse_documents=False
+    *,
+    alternate_quarter_profit=None,
+    alternate_prior_quarter_profit=None,
+    prior_fiscal_year_unrecorded=False,
+    reverse_documents=False,
 ):
     as_of = date(2026, 8, 31)
     release = InputRelease(release_id="owner-economic-fixture", manifest_sha256="b" * 64)
@@ -729,6 +734,8 @@ def owner_generation(
                 disclosure_number="owner-prior-fy-end-change",
             )
         )
+    if prior_fiscal_year_unrecorded:
+        documents[0] = replace(documents[0], fiscal_year_end=None)
     if reverse_documents:
         documents.reverse()
     stream = generate_models(
@@ -785,6 +792,54 @@ def test_owner_fy_and_cumulative_quarter_reach_economic_coordinates():
     assert recovery["business_value"] == pytest.approx(30.0 / 400.0 - 10.0 / 250.0)
 
 
+def test_published_annual_coordinate_keeps_the_selected_fiscal_year(tmp_path):
+    generation = owner_generation(alternate_prior_quarter_profit=50.0)
+    financial = generation.result("company_financials", "1001").payload["financial"]
+    assert financial["operating_profit_ttm"] == 120.0
+    row = project_discovery_row("1001", models=generation.models, metadata=generation)
+    control = owner_generation()
+    control_row = project_discovery_row("1001", models=control.models, metadata=control)
+    comparison = active(row, "earning_power")
+    assert comparison is not None
+    assert comparison == active(control_row, "earning_power")
+    assert active(row, "operating_recovery") is None  # 独立した四半期比較の曖昧さは残す。
+
+    path = tmp_path / "runs"
+    publish_generation(generation, path=path)
+    identity = discovery_publication_id(generation.generation_id)
+    selection = evaluate_discovery_rows(generation, tickers=("1001",), rows={"1001": row})
+    store = ScreeningSelectionStore(path)
+    assert store.publish(identity, selection)
+    assert read_discovery_index(path=path, selection_id=identity).rows == (row,)
+    assert not store.publish(identity, selection)
+
+
+def test_unrecorded_fiscal_year_cannot_supply_a_published_coordinate_when_its_period_conflicts(
+    tmp_path,
+):
+    kwargs = dict(prior_fiscal_year_unrecorded=True, alternate_prior_quarter_profit=50.0)
+    generation = owner_generation(**kwargs)
+    assert generation == owner_generation(**kwargs, reverse_documents=True)
+    path = tmp_path / "runs"
+    publish_generation(generation, path=path)
+
+    row = project_discovery_row("1001", models=generation.models, metadata=generation)
+    identity = discovery_publication_id(generation.generation_id)
+    selection = evaluate_discovery_rows(generation, tickers=("1001",), rows={"1001": row})
+    assert ScreeningSelectionStore(path).publish(identity, selection)
+    saved = read_discovery_index(path=path, selection_id=identity).rows[0]
+    assert saved == row
+    assert active(saved, "earning_power") is None
+
+    control = owner_generation(prior_fiscal_year_unrecorded=True)
+    assert (
+        active(
+            project_discovery_row("1001", models=control.models, metadata=control), "earning_power"
+        )
+        is not None
+    )
+
+
 def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity():
     generation = owner_generation(alternate_quarter_profit=50.0)
     growth = generation.result("company_growth", "1001").payload
@@ -811,7 +866,7 @@ def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
     )
     growth_model = generation.result("company_growth", "1001")
     assert growth_model == reversed_generation.result("company_growth", "1001")
-    assert growth_model.calculation_revision == "company_growth_retrospective_v24"
+    assert growth_model.calculation_revision == "company_growth_retrospective_v25"
     growth = growth_model.payload
     before = canonical_json(growth)
     priors = [state for state in growth["periods"] if state["period_end"] == "2025-06-30"]

@@ -144,6 +144,68 @@ def test_publication_scope_clocks_values_and_old_body_is_never_opened(tmp_path, 
     assert store.read("historic") == legacy
 
 
+@pytest.mark.parametrize("alteration", ["omit", "extra", "replace"])
+def test_first_discovery_publication_must_cover_the_saved_stock_plan(tmp_path, alteration):
+    runs = tmp_path / "runs"
+    _, _, compact, identity = fixed(runs)
+    rows = compact.result.rows
+    unplanned = {**rows[-1], "ticker": "901A"}
+    changed_rows = {
+        "omit": rows[:-1],
+        "extra": (*rows, unplanned),
+        "replace": (*rows[:-1], unplanned),
+    }[alteration]
+    wrong_scope = replace(
+        compact,
+        universe_tickers=tuple(row["ticker"] for row in changed_rows),
+        result=replace(compact.result, rows=changed_rows),
+    )
+    store = ScreeningSelectionStore(runs)
+    before = runs.read_bytes()
+    with pytest.raises(ValueError, match="saved stock plan"):
+        store.publish(identity, wrong_scope)
+    assert runs.read_bytes() == before
+    assert discovery_index.read_discovery_index(path=runs).status == "no_publication"
+    assert store.publish(identity, compact)
+    assert store.read(identity) == compact
+
+
+def test_retained_discovery_scope_still_reads_and_retries_exactly(tmp_path):
+    from pydantic import TypeAdapter
+
+    from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+
+    runs = tmp_path / "runs"
+    _, _, compact, identity = fixed(runs)
+    historical = replace(
+        compact,
+        universe_tickers=compact.universe_tickers[:-1],
+        result=replace(compact.result, rows=compact.result.rows[:-1]),
+    )
+    payload = encode_json(TypeAdapter(ScreeningSelection).dump_python(historical, mode="json"))
+    with sqlite3.connect(runs) as connection:
+        connection.execute(
+            "INSERT INTO screening_selection VALUES (?,?,?,?)",
+            (
+                identity,
+                compact.generation_id,
+                "2026-11-21T00:00:00+00:00",
+                gzip.compress(payload.encode()),
+            ),
+        )
+    store = ScreeningSelectionStore(runs)
+    before = runs.read_bytes()
+    assert store.read(identity) == historical
+    assert (
+        discovery_index.read_discovery_index(path=runs).universe_tickers
+        == historical.universe_tickers
+    )
+    assert store.publish(identity, historical) is False
+    with pytest.raises(ValueError, match="selection identity has different content"):
+        store.publish(identity, compact)
+    assert runs.read_bytes() == before
+
+
 def test_missing_source_is_an_explicit_member_not_an_absent_or_duplicate_row(tmp_path):
     path = tmp_path / "runs"
     meta, _, compact, identity = fixed(path)

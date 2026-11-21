@@ -2,7 +2,7 @@
 
 from datetime import date, datetime, timedelta
 
-from baibai_engine.portfolio.ledger.events import HoldingSnapshot
+from baibai_engine.portfolio.ledger.events import HoldingSnapshot, ValuationYen, round_valuation_yen
 from baibai_engine.primitives.time import JST as _JST
 from baibai_web.readmodel.models import HoldingView
 
@@ -14,7 +14,7 @@ def reservation_last_valid_day(expires_at: datetime) -> date:
 
 def holding_view(holding: HoldingSnapshot, *, security_name: str | None) -> HoldingView:
     value = holding.market_value_yen
-    pnl = None if value is None else value - holding.deployed_cost_yen
+    displayed_value = round_valuation_yen(value)
     return HoldingView(
         ticker=holding.ticker,
         company_name=security_name,
@@ -25,13 +25,21 @@ def holding_view(holding: HoldingSnapshot, *, security_name: str | None) -> Hold
         if holding.market_price_yen is None
         else str(holding.market_price_yen),
         market_price_as_of=holding.market_price_as_of,
-        market_value_yen=value,
-        unrealized_pnl_yen=pnl,
-        unrealized_pnl_pct=percentage(pnl, holding.deployed_cost_yen, digits=2),
+        market_value_yen=displayed_value,
+        unrealized_pnl_yen=None
+        if displayed_value is None
+        else displayed_value - holding.deployed_cost_yen,
+        unrealized_pnl_pct=percentage(
+            None if value is None else value - holding.deployed_cost_yen,
+            holding.deployed_cost_yen,
+            digits=2,
+        ),
     )
 
 
-def percentage(numerator: int | None, denominator: int | None, *, digits: int) -> float | None:
+def percentage(
+    numerator: ValuationYen | None, denominator: ValuationYen | None, *, digits: int
+) -> float | None:
     if numerator is None or denominator is None or denominator == 0:
         return None
-    return round(numerator / denominator * 100, digits)
+    return round(float(numerator / denominator * 100), digits)
