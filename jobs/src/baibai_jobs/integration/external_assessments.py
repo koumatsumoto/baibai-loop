@@ -124,25 +124,26 @@ def receipt_date_coverage(
     return dict(sorted(coverage.items()))
 
 
-def unchanged_objects(
+def _unchanged_external_objects(
     release: LakeFixedRelease, changed: set[tuple[str, int, int]]
-) -> dict[str, object]:
+) -> dict[str, tuple[LakeObject, ...]]:
+    """Compare exact immutable object identities only inside this owner's scope."""
     changed_datasets = {name for name, _, _ in changed}
-    return {
-        name: [
-            obj.model_dump()
+    result = {}
+    for name in _EXCLUSIVE_DATASETS:
+        manifest = release.dataset_manifests.get(name)
+        if manifest is None:
+            continue
+        objects = tuple(
+            obj
             for part in manifest.partitions
             if name not in changed_datasets
             or (name, part.values["year"], part.values["month"]) not in changed
             for obj in part.objects
-        ]
-        for name, manifest in release.dataset_manifests.items()
-        if name not in changed_datasets
-        or any(
-            (name, part.values["year"], part.values["month"]) not in changed
-            for part in manifest.partitions
         )
-    }
+        if objects:
+            result[name] = objects
+    return result
 
 
 def _import_confirmed_originals(
@@ -385,17 +386,7 @@ def verify_and_seal(
         ),
     )
     changed = {(str(name), int(year), int(month)) for name, year, month in state["changed"]}
-    old = {
-        key: value
-        for key, value in unchanged_objects(before, changed).items()
-        if key in _EXCLUSIVE_DATASETS
-    }
-    new = {
-        key: value
-        for key, value in unchanged_objects(after, changed).items()
-        if key in _EXCLUSIVE_DATASETS
-    }
-    if old != new:
+    if _unchanged_external_objects(before, changed) != _unchanged_external_objects(after, changed):
         raise LakePublishError(
             "common integration changed unrelated external assessment partitions"
         )
