@@ -430,12 +430,25 @@ class OperationService:
         )
 
     def active(self) -> OperationSession | None:
-        rows = read_rows(
-            database_path(self._db_path),
-            "SELECT * FROM operation_session WHERE status='active'",
-            connector=connect_read_only,
-        )
-        return _from_row(rows[0]) if rows else None
+        path = database_path(self._db_path)
+        if not path.is_file():
+            return None
+        with closing(connect_read_only(path)) as connection:
+            connection.execute("BEGIN")
+            if connection.execute("PRAGMA user_version").fetchone()[0] == 0:
+                # prepare may initialize this file next; an unused version header
+                # alone does not make another SQLite database safe to initialize.
+                if (
+                    connection.execute("PRAGMA application_id").fetchone()[0] != 0
+                    or connection.execute("SELECT 1 FROM sqlite_schema LIMIT 1").fetchone()
+                    is not None
+                ):
+                    raise RuntimeError("version-zero database is not an empty application database")
+                return None
+            row = connection.execute(
+                "SELECT * FROM operation_session WHERE status='active'"
+            ).fetchone()
+        return None if row is None else _from_row(row)
 
     def _edit_active(
         self, operation_id: str, edit: _Edit, *, now: datetime | None

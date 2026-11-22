@@ -316,19 +316,45 @@ def test_operation_list_does_not_create_an_unwritten_database(tmp_path: Path) ->
     assert db.stat().st_size == 0
 
 
-@pytest.mark.parametrize("app_state", ["zero_byte", "empty_sqlite", "missing_required_table"])
-def test_prepare_distinguishes_unwritten_app_from_incomplete_schema(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], app_state: str
+@pytest.mark.parametrize(
+    ("schema_setup", "failure"),
+    [
+        pytest.param(None, None, id="zero-byte"),
+        pytest.param("VACUUM", None, id="empty-sqlite"),
+        pytest.param(
+            f"PRAGMA user_version={APPLICATION_SCHEMA_VERSION}",
+            "no such table: operation_session",
+            id="missing-required-table",
+        ),
+        pytest.param(
+            "CREATE VIEW outsider AS SELECT 41",
+            "not an empty application database",
+            id="foreign-view",
+        ),
+        pytest.param(
+            "PRAGMA application_id=123456",
+            "not an empty application database",
+            id="foreign-application-id",
+        ),
+        pytest.param(
+            "CREATE TABLE sqliteCache (value)",
+            "not an empty application database",
+            id="foreign-sqlite-prefix",
+        ),
+    ],
+)
+def test_prepare_initializes_only_an_unwritten_application_database(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    schema_setup: str | None,
+    failure: str | None,
 ) -> None:
     db = tmp_path / "app.sqlite"
-    if app_state == "zero_byte":
+    if schema_setup is None:
         db.touch()
     else:
         with closing(sqlite3.connect(db)) as connection:
-            if app_state == "empty_sqlite":
-                connection.execute("VACUUM")
-            else:
-                connection.execute(f"PRAGMA user_version={APPLICATION_SCHEMA_VERSION}")
+            connection.execute(schema_setup)  # nosec B608 — static test fixture only
     before_db = db.read_bytes()
     runs = tmp_path / "runs.sqlite"
     selected = seed_generated_selection(
@@ -353,10 +379,10 @@ def test_prepare_distinguishes_unwritten_app_from_incomplete_schema(
     result = investment_judgment_main(args, now=NOW)
     body = json.loads(capsys.readouterr().out)
     assert (runs.read_bytes(), draft.read_bytes()) == input_bytes
-    if app_state == "missing_required_table":
+    if failure is not None:
         assert result == 3
         assert body["status"] == "invalid_source"
-        assert "no such table: operation_session" in body["reason"]
+        assert failure in body["reason"]
         assert db.read_bytes() == before_db
         assert not workspace.exists()
         return
