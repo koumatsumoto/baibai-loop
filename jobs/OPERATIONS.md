@@ -553,6 +553,8 @@ masterは明示した日付を取得し、過去L2を使わない。`maintain-ma
 
 日付不正で利用できないcalendar原本も残す。新しい価格の休場証拠は対象日・日別内容SHA・区分を採用原本と照合し、旧固定selectionは当時の判定で再生する。日付契約の切替時は、既存headを固定して有効な採用日をすべて原本と照合する。価格の休場候補だけでなく、取引日を使う信用・銘柄マスター等の経路も同じ暦を参照するため。旧取得処理が残っていないこととhead同一性を確認し、不一致があれば該当期間だけ新しい受領として明示訂正する。通常dailyで全期間は再取得しない。
 
+新しく固定する暦の投影は、採用rangeの同じ読取で対象日・内容SHA・区分・受領時計を照合する。不一致は元の受領を保ち、休場ではなく不明とする。日次の価格証明・信用残の対象日判定は同じ検証結果を使い、信用残は週内の金曜まで必要な場合だけ参照する。TradingView等の新規計画も固定する範囲を同じ規則で検証し、現在headを訂正しない。版記録のない既存の固定暦は明示再生で当時の採用値を保つ。
+
 ```bash
 uv run baibai-jobs maintain-market backfill-master --asof <DATE> --asof <DATE>
 uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --output <NEW_OUTPUT>

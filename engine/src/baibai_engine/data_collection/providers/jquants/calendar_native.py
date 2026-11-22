@@ -190,34 +190,7 @@ class FixedCalendarL1:
 
     def index(self) -> NativeMarketIndex:
         """Derived planning evidence uses confirmations, never retimed raw pages."""
-        receipts, failures = [], []
-        for raw_day, state in sorted(self.value()["days"].items()):
-            day = date.fromisoformat(raw_day)
-            if identity := state.get("adopted"):
-                division = state.get("division")
-                receipts.append(
-                    ReceiptEvidence(
-                        identity,
-                        "market_calendar",
-                        day,
-                        day,
-                        datetime.fromisoformat(state["confirmed_at"]),
-                        int(state["valid"]),
-                        (day,) if state["valid"] else (),
-                        ((day, division),) if cash_equity_open(division) is not None else (),
-                        (),
-                        bool(state["valid"]),
-                    )
-                )
-            if identity := state.get("failure") or state.get("held"):
-                failures.append(
-                    IncompleteReceipt(
-                        identity,
-                        (("from", raw_day), ("to", raw_day)),
-                        datetime.fromisoformat(state["last_attempt_at"]),
-                    )
-                )
-        return NativeMarketIndex("market_calendar", tuple(receipts), tuple(failures))
+        return calendar_index(self.value()["days"])
 
     def plan(self, *, start: date, end: date) -> tuple[date, ...]:
         return plan_calendar(self.index(), start=start, end=end).days
@@ -238,6 +211,40 @@ class FixedCalendarL1:
             if (identity := state.get(field))
         }
         yield from read_calendar_attempts(store, receipts=value["receipts"], identities=ids)
+
+
+def calendar_index(scopes: Mapping[str, Mapping[str, Any]]) -> NativeMarketIndex:
+    """Interpret specified day state for planning or a checked in-memory projection."""
+    receipts, failures = [], []
+    for raw_day, state in sorted(scopes.items()):
+        day = date.fromisoformat(raw_day)
+        if (identity := state.get("adopted")) and (confirmed := state.get("confirmed_at")):
+            division = state.get("division")
+            receipts.append(
+                ReceiptEvidence(
+                    identity,
+                    "market_calendar",
+                    day,
+                    day,
+                    datetime.fromisoformat(confirmed),
+                    int(state["valid"]),
+                    (day,) if state["valid"] else (),
+                    ((day, division),)
+                    if isinstance(division, str) and cash_equity_open(division) is not None
+                    else (),
+                    (),
+                    bool(state["valid"]),
+                )
+            )
+        if identity := state.get("failure") or state.get("held"):
+            failures.append(
+                IncompleteReceipt(
+                    identity,
+                    (("from", raw_day), ("to", raw_day)),
+                    datetime.fromisoformat(state["last_attempt_at"]),
+                )
+            )
+    return NativeMarketIndex("market_calendar", tuple(receipts), tuple(failures))
 
 
 def read_calendar_attempts(
@@ -263,32 +270,84 @@ def read_calendar_attempts(
             raise LakePublishError("calendar pack lacks a selected receipt")
 
 
-def matching_calendar_days(
+def _matching_calendar_request_days(
+    request: JQuantsRequest, *, scopes: Mapping[str, Mapping[str, Any]]
+) -> set[str]:
+    """Compare day claims to this already completed request, without fetching its pack again."""
+    _, actual = _content(request, days=map(date.fromisoformat, scopes))
+    return {
+        day
+        for day, scope in scopes.items()
+        if (content := actual.get(day))
+        and content["valid"]
+        and scope.get("valid") is True
+        and content["content_id"] == scope.get("content_id")
+        and content["division"] == scope.get("division")
+    }
+
+
+def _validate_clock(scopes: Mapping[str, Any], evaluated_at: datetime) -> None:
+    if evaluated_at.utcoffset() is None:
+        raise ValueError("calendar evaluation clock requires a timezone")
+    for scope in scopes.values():
+        for field in ("confirmed_at", "last_attempt_at", "changed_at"):
+            if value := scope.get(field):
+                stamp = datetime.fromisoformat(value)
+                if stamp.utcoffset() is None or stamp > evaluated_at:
+                    raise ValueError(
+                        "calendar input contains receipts later than the evaluation clock"
+                    )
+
+
+def verify_calendar_selection(
     store: ObjectStore,
     *,
-    scopes: Mapping[str, Mapping[str, Any]],
+    scopes: dict[str, Any],
     receipts: dict[str, Any],
-) -> set[str]:
-    """Bind current day evidence to its adopted original before creating a new proof."""
-    by_receipt: dict[str, dict[str, Mapping[str, Any]]] = defaultdict(dict)
+    evaluated_at: datetime,
+    verify_current_days: bool = True,
+) -> dict[str, Any]:
+    """Prove day claims in one pack walk; only explicit old replay skips reinterpretation."""
+    _validate_clock(scopes, evaluated_at)
+    by_adopted: dict[str, dict[str, Any]] = defaultdict(dict)
     for day, scope in scopes.items():
-        by_receipt[scope["adopted"]][day] = scope
-    matched: set[str] = set()
-    for attempt in read_calendar_attempts(store, receipts=receipts, identities=set(by_receipt)):
-        expected = by_receipt[attempt.request_id]
-        _, actual = _content(
-            complete_request(attempt.pages), days=map(date.fromisoformat, expected)
-        )
-        for day, scope in expected.items():
-            if (
-                (content := actual.get(day))
-                and content["valid"]
-                and scope.get("valid") is True
-                and content["content_id"] == scope.get("content_id")
-                and content["division"] == scope.get("division")
-            ):
-                matched.add(day)
-    return matched
+        if identity := scope.get("adopted"):
+            by_adopted[identity][day] = scope
+    identities = {
+        identity
+        for scope in scopes.values()
+        for field in ("adopted", "failure", "held")
+        if (identity := scope.get(field))
+    }
+    projected = dict(scopes)
+    # In either edition transport integrity and dates are checked before SQLite changes.
+    # Only a new projection re-evaluates a usable day against today's native rules.
+    for attempt in read_calendar_attempts(store, receipts=receipts, identities=identities):
+        clocks = [page.received_at for page in attempt.pages]
+        if attempt.attempted_at is not None:
+            clocks.append(attempt.attempted_at)
+        latest_clock = max(clocks)
+        if latest_clock > evaluated_at:
+            raise ValueError("calendar input contains receipts later than the evaluation clock")
+        if (adopted := by_adopted.get(attempt.request_id)) is None:
+            continue
+        request = complete_request(attempt.pages)
+        if any(not attempt.start <= date.fromisoformat(day) <= attempt.end for day in adopted):
+            raise ValueError("adopted calendar request differs from its fixed dates")
+        claims = {day: scope for day, scope in adopted.items() if scope.get("valid")}
+        if verify_current_days and claims:
+            matches = _matching_calendar_request_days(request, scopes=claims)
+            for day, scope in claims.items():
+                confirmed = scope.get("confirmed_at")
+                if (
+                    day not in matches
+                    or not confirmed
+                    or datetime.fromisoformat(confirmed) < latest_clock
+                ):
+                    # Retain the actual selected receipt, hash and clocks. An unproved
+                    # claim is neither an open session nor a confirmed closure.
+                    projected[day] = {**scope, "valid": False}
+    return projected
 
 
 class CalendarL1:

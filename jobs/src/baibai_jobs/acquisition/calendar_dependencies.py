@@ -15,6 +15,7 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
     interval,
 )
 from baibai_engine.machine_analysis.generation.calendar_inputs import (
+    VerifiedCalendarInput,
     calendar_day_session,
     read_calendar_input,
 )
@@ -22,8 +23,9 @@ from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import ObjectStore
 from baibai_jobs.integration.calendar_native import (
-    fixed_input,
+    materialize_prepared_input,
     materialize_saved_input,
+    prepare_input,
     saved_interval,
 )
 
@@ -44,19 +46,30 @@ def _context(scopes: Mapping[str, Any], observation_date: date) -> tuple[date, b
         day -= timedelta(days=1)
 
 
-def fix_calendar_dependency(
+def _prepare_dependency(
     store: ObjectStore, *, directory: Path, observation_date: date
-) -> InputSnapshot:
-    """Fix only the contiguous dates that prove this observation's master basis."""
+) -> VerifiedCalendarInput:
     fixed = CalendarL1(cast(CalendarObjectStore, store), directory).fixed()
     basis, _ = _context(fixed.value()["days"], observation_date)
-    return fixed_input(
+    prepared = prepare_input(
         store,
         fixed,
         as_of=observation_date,
         evaluated_at=datetime.now(UTC),
         days=interval(basis, observation_date),
     )
+    # The head can bound the search, but cannot establish the next dependency by itself.
+    _context(prepared.scopes, observation_date)
+    return prepared
+
+
+def fix_calendar_dependency(
+    store: ObjectStore, *, directory: Path, observation_date: date
+) -> InputSnapshot:
+    """Fix only the proved contiguous dates used by a new observation."""
+    return _prepare_dependency(
+        store, directory=directory, observation_date=observation_date
+    ).snapshot
 
 
 def saved_calendar_context(
@@ -78,20 +91,22 @@ def prepare_tradingview_calendar(
     report = json.loads((directory / "result.json").read_bytes())
     retained = report.pop("calendar_native_input", None)
     try:
-        saved = (
-            InputSnapshot.model_validate(retained)
-            if retained is not None
-            else fix_calendar_dependency(
+        if retained is None:
+            prepared = _prepare_dependency(
                 store, directory=directory / "calendar-native", observation_date=observation_date
             )
-        )
-        if (
-            saved.descriptor is None
-            or saved.descriptor.get("as_of") != observation_date.isoformat()
-        ):
-            raise CalendarDependencyUnavailable("fixed calendar observation date changed")
-        saved_calendar_context(store, saved, observation_date=observation_date)
-        materialize_saved_input(store, saved, market=market)
+            saved = prepared.snapshot
+            materialize_prepared_input(prepared, market=market)
+        else:
+            # Recovery replays its saved edition; it does not choose a new master basis.
+            saved = InputSnapshot.model_validate(retained)
+            if (
+                saved.descriptor is None
+                or saved.descriptor.get("as_of") != observation_date.isoformat()
+            ):
+                raise CalendarDependencyUnavailable("fixed calendar observation date changed")
+            saved_calendar_context(store, saved, observation_date=observation_date)
+            materialize_saved_input(store, saved, market=market)
     except CalendarDependencyUnavailable:
         # This disposable input must not use an older release's holiday proof.
         with sqlite3.connect(market) as connection:
