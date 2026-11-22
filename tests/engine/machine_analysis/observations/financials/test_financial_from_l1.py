@@ -133,6 +133,33 @@ def test_incomplete_request_for_another_day_does_not_block_this_day() -> None:
         assert connection.execute("SELECT count(*) FROM financial_summaries").fetchone() == (1,)
 
 
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        pytest.param({"Code": True}, id="boolean-code"),
+        pytest.param({"Code": 13010}, id="integer-code"),
+        pytest.param({"Code": 13010.0}, id="float-code"),
+        pytest.param({"Code": ["13010"]}, id="array-code"),
+        pytest.param({"Code": ""}, id="missing-code"),
+        pytest.param({"DiscDate": "2026-11-02junk"}, id="date-suffix"),
+        pytest.param({"DiscDate": "2026-02-30"}, id="impossible-date"),
+        pytest.param({"DiscDate": "2026-11-02T00:00:00Z"}, id="timestamp-not-date"),
+        pytest.param({"DiscDate": "20261102"}, id="query-format-not-response-date"),
+        pytest.param({"DiscDate": 20261102}, id="nontext-date"),
+    ],
+)
+def test_bad_native_identity_does_not_hide_good_disclosures(malformed) -> None:
+    at = datetime(2026, 11, 2, tzinfo=UTC)
+    genuine = {**record(1), "Code": "130A0", "DiscDate": "2026-11-02T00:00:00"}
+    secondary = {**record(8), "Code": "130A1"}
+    bad = {**record(9), "DiscNo": "bad", **malformed}
+    day = rebuild_financial_days([receipt("one", at, [genuine, secondary, bad])], days=(DAY,))[DAY]
+    assert day.status == "partial"
+    assert day.rejected_count == day.excluded_count == 1
+    assert [row[:3] for row in day.rows] == [("130A", DAY.isoformat(), "a")]
+    assert json.loads(day.rows[0][3]) == genuine
+
+
 def test_rejected_native_rows_remain_visible_as_partial() -> None:
     import duckdb
 
@@ -151,6 +178,12 @@ def test_rejected_native_rows_remain_visible_as_partial() -> None:
         assert connection.execute(
             "SELECT projection_status, rejected_count FROM financial_receipt_status"
         ).fetchone() == ("partial", 1)
+
+
+def test_conflicting_financial_document_identity_still_stops_projection() -> None:
+    at = datetime(2026, 11, 2, tzinfo=UTC)
+    with pytest.raises(ValueError, match="conflicting financial document identity"):
+        rebuild_financial_days([receipt("one", at, [record(1), record(2)])], days=(DAY,))
 
 
 def test_duckdb_financial_projection_deduplicates_keys_without_rewriting_provider_fields() -> None:

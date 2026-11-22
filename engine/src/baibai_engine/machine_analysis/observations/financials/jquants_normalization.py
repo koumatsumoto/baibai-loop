@@ -11,7 +11,6 @@ from baibai_engine.machine_analysis.observations.jquants_decode import provider_
 from baibai_engine.machine_analysis.observations.normalization import (
     NormalizedRows,
     code_quality,
-    date_iso,
 )
 
 
@@ -21,18 +20,14 @@ def normalize_financial_summaries(records: Iterable[Mapping[str, Any]]) -> Norma
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, quality = code_quality(record.get("Code"))
-        if quality == "rejected":
-            rejected_count += 1
-            continue
+        ticker, quality = code_quality(record.get("Code"), require_text=True)
         if quality == "excluded":
             excluded_count += 1
             continue
-        disclosed_at = date_iso(record.get("DiscDate"))
+        disclosed_at = _disclosure_day(record.get("DiscDate"))
         if ticker is None or disclosed_at is None:
             rejected_count += 1
             continue
-        disclosed_at = date.fromisoformat(disclosed_at).isoformat()
         # Store provider fields, not selected forecasts or a second numeric truth.
         # Source record JSON is not the original HTTP response or Bulk CSV bytes.
         key = (ticker, disclosed_at, required_disclosure_number(record))
@@ -44,3 +39,16 @@ def normalize_financial_summaries(records: Iterable[Mapping[str, Any]]) -> Norma
         seen[key] = payload
         rows.append((*key, payload))
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+
+
+def _disclosure_day(raw: object) -> str | None:
+    """A TDnet disclosure date, not a timestamp or an accounting period end."""
+    if not isinstance(raw, str):
+        return None
+    value = raw.removesuffix("T00:00:00")
+    if len(value) != 10 or value[4] != "-" or value[7] != "-":
+        return None
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError:
+        return None

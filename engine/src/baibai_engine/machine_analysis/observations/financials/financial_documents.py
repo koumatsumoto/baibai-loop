@@ -76,24 +76,37 @@ def accounting_period_identity(
 
 
 def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSummary | None:
-    """Decode native provider fields; select forecast period and basis only in L2 projection."""
-    return _decode_summary(record, None)
-
-
-def read_canonical_financial_summary(payload: str) -> JQuantsFinancialSummary | None:
-    """Reuse the complete record text just produced by the native day normalizer."""
-    return _decode_summary(json.loads(payload), payload)
-
-
-def _decode_summary(
-    record: Mapping[str, Any], canonical_payload: str | None
-) -> JQuantsFinancialSummary | None:
+    """Decode stored provider fields without changing historical observation semantics."""
     ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
+    return _decode_summary(record, ticker=ticker, disclosed_at=parse_date(record.get("DiscDate")))
+
+
+def read_canonical_financial_summary(
+    payload: str, *, ticker: str, disclosed_at: str, disclosure_number: str
+) -> JQuantsFinancialSummary:
+    """Use the identity already established by the native day normalizer."""
+    return _decode_summary(
+        json.loads(payload),
+        ticker=ticker,
+        disclosed_at=date.fromisoformat(disclosed_at),
+        disclosure_number=disclosure_number,
+        canonical_payload=payload,
+    )
+
+
+def _decode_summary(
+    record: Mapping[str, Any],
+    *,
+    ticker: str,
+    disclosed_at: date,
+    disclosure_number: str | None = None,
+    canonical_payload: str | None = None,
+) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=ticker,
-        disclosed_at=parse_date(record.get("DiscDate")),
+        disclosed_at=disclosed_at,
         cumulative_eps=to_float(record.get("EPS")),
         bps=to_float(record.get("BPS")),
         shares_outstanding=to_float(record.get("ShOutFY")),
@@ -118,7 +131,9 @@ def _decode_summary(
         dividend_year_end=to_float(record.get("DivFY")),
         dividend_total_annual=to_float(record.get("DivTotalAnn")),
         average_shares=to_float(record.get("AvgSh")),
-        disclosure_number=required_disclosure_number(record),
+        disclosure_number=(
+            required_disclosure_number(record) if disclosure_number is None else disclosure_number
+        ),
         disclosed_time=_disclosed_time(record.get("DiscTime")),
         document_type=_text(record.get("DocType")),
         document_payload=(

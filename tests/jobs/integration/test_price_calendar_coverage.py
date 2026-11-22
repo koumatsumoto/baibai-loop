@@ -15,13 +15,18 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.data_collection.providers.jquants import calendar_native as native_calendar
 from baibai_engine.data_collection.providers.jquants.calendar_native import (
     CalendarAttempt,
     CalendarL1,
 )
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
-from baibai_engine.machine_analysis.generation.calendar_inputs import read_calendar_input
+from baibai_engine.machine_analysis.generation import price_inputs
+from baibai_engine.machine_analysis.generation.calendar_inputs import (
+    read_calendar_input,
+    retain_calendar_input,
+)
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.price_inputs import (
     PRICE_PROJECTION_REVISION,
@@ -34,6 +39,7 @@ from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration.calendar_native import fixed_input
+from baibai_jobs.integration.calendar_native import rebuild_saved_input as rebuild_saved_calendar
 from baibai_jobs.integration.price_native import model_input, rebuild, rebuild_saved_input
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_price_export import export_prices_from_native_input
@@ -347,7 +353,18 @@ def test_cold_price_closure_requires_intact_calendar_original_pack(tmp_path, pro
 
 @pytest.mark.parametrize(
     "problem",
-    ["open-1", "open-2", "unknown", "blank", "duplicate", "missing", "partial", "failure", "held"],
+    [
+        "open-1",
+        "open-2",
+        "unknown",
+        "blank",
+        "duplicate",
+        "missing",
+        "partial",
+        "failure",
+        "held",
+        "malformed-date",
+    ],
 )
 def test_unsafe_calendar_never_hides_an_unrequested_price_day(tmp_path, problem):
     store, price, calendar, market = source_fixture(tmp_path)
@@ -361,6 +378,8 @@ def test_unsafe_calendar_never_hides_an_unrequested_price_day(tmp_path, problem)
         rows.append(dict(rows[1]))
     elif problem == "missing":
         rows.pop(1)
+    elif problem == "malformed-date":
+        rows[1]["Date"] += "junk"
     elif problem == "held":
         rows[1]["HolDiv"] = "1"
     if problem == "failure":
@@ -383,6 +402,99 @@ def test_unsafe_calendar_never_hides_an_unrequested_price_day(tmp_path, problem)
     assert saved.descriptor["summary"]["unavailable_days"] == 2
     scopes = read_price_input(store, saved.descriptor, days=DAYS)["scopes"]
     assert "closed_calendar" not in scopes[SATURDAY.isoformat()]
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("content_id", None),  # Swap in another date's plausible, well-formed SHA.
+        ("division", "3"),  # Both codes are closed for cash equities, but not the same fact.
+        ("valid", "true"),
+    ],
+)
+def test_fresh_price_proof_requires_the_exact_adopted_day(tmp_path, field, replacement):
+    store, price, calendar, market = source_fixture(tmp_path)
+    retained = fixed_input(store, calendar.fixed(), as_of=LAST, evaluated_at=AT)
+    selected = read_calendar_input(store, retained.descriptor, days=DAYS)
+    saturday, sunday = SATURDAY.isoformat(), SUNDAY.isoformat()
+    selected["scopes"][saturday][field] = (
+        selected["scopes"][sunday][field] if replacement is None else replacement
+    )
+    descriptor = retain_calendar_input(store, {**retained.descriptor, **selected})
+    inconsistent = InputSnapshot(
+        kind="native_l1",
+        reference=retained.reference,
+        sha256=hashlib.sha256(canonical_json(descriptor).encode()).hexdigest(),
+        descriptor=descriptor,
+    )
+    store.get_keys.clear()
+    saved = model_input(
+        store,
+        price.fixed(),
+        as_of=LAST,
+        evaluated_at=AT,
+        market=market,
+        calendar_input=inconsistent,
+    )
+    assert saved.descriptor["summary"]["coverage_status"] == "partial"
+    assert saved.descriptor["summary"]["closed_unrequested_days"] == 1
+    scopes = read_price_input(store, saved.descriptor, days=(SATURDAY, SUNDAY))["scopes"]
+    assert scopes[saturday] == {}
+    assert scopes[sunday]["closed_calendar"]
+    assert len([key for key in store.get_keys if "market-calendar/v1/packs/" in key]) == 1
+
+
+def test_historical_closure_replays_but_cannot_be_minted_again(tmp_path, monkeypatch):
+    store, price, calendar, market = source_fixture(tmp_path)
+    rows = [
+        {"Date": day.isoformat(), "HolDiv": "0" if day in (SATURDAY, SUNDAY) else "1"}
+        for day in DAYS
+    ]
+    rows[1]["Date"] += "junk"
+    recorded_at = AT + timedelta(hours=1)
+    old_attempt = calendar_attempt(identity="pre-fix", at=recorded_at, rows=rows)
+    with monkeypatch.context() as old:
+        # Produce an actual v1 selection and price proof with the former admission rule.
+        old.setattr(native_calendar, "_response_day", lambda raw: date.fromisoformat(raw[:10]))
+        old.setattr(
+            price_inputs, "matching_calendar_days", lambda store, *, scopes, receipts: set(scopes)
+        )
+        calendar.commit([old_attempt])
+        retained, saved = build(store, price, calendar, market, at=recorded_at)
+    assert saved.descriptor["summary"]["coverage_status"] == "complete"
+    legacy_head = calendar.fixed()
+    assert calendar.commit([old_attempt])["retried"] == ["pre-fix"]
+    assert calendar.fixed().payload == legacy_head.payload
+
+    new_price = model_input(
+        store,
+        price.fixed(),
+        as_of=LAST,
+        evaluated_at=recorded_at,
+        market=market,
+        calendar_input=retained,
+    )
+    assert new_price.descriptor["summary"]["coverage_status"] == "partial"
+    assert new_price.descriptor["summary"]["closed_unrequested_days"] == 0
+
+    new_attempt = calendar_attempt(
+        identity="post-fix", at=recorded_at + timedelta(hours=1), rows=rows
+    )
+    assert calendar.commit([new_attempt])["changed"] == ["post-fix"]
+    current = calendar.fixed()
+    assert (
+        current.value()["ranges"][f"{FIRST}/{LAST}"]["content_id"]
+        == (legacy_head.value()["ranges"][f"{FIRST}/{LAST}"]["content_id"])
+    )
+    assert current.plan(start=FIRST, end=LAST) == DAYS
+    assert next(current.requests(store)).value() == new_attempt.value()
+    assert next(legacy_head.requests(store)).value() == old_attempt.value()
+
+    store.values.pop(native_calendar.HEAD_KEY)
+    assert rebuild_saved_calendar(store, retained, output=tmp_path / "old-calendar")["rows"] == 4
+    result = rebuild_saved_input(store, saved, start=FIRST, end=LAST, output=tmp_path / "old")
+    assert result["coverage_status"] == "complete"
+    assert result["closed_unrequested"] == 2
 
 
 @pytest.mark.parametrize("problem", ["failed", "partial", "held", "invalid-row"])

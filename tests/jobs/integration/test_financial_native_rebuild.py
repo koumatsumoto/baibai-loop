@@ -24,10 +24,13 @@ DAY = date(2026, 11, 2)
 AT = datetime(2026, 11, 3, tzinfo=UTC)
 
 
-def attempt(identity, value=1, *, at=AT, partial=False):
+def attempt(identity, value=1, *, at=AT, partial=False, extra=()):
     body = json.dumps(
         {
-            "data": [{"Code": "13010", "DiscDate": DAY.isoformat(), "DiscNo": "1", "Sales": value}],
+            "data": [
+                {"Code": "13010", "DiscDate": DAY.isoformat(), "DiscNo": "1", "Sales": value},
+                *extra,
+            ],
             **({"pagination_key": "next"} if partial else {}),
         }
     ).encode()
@@ -36,6 +39,16 @@ def attempt(identity, value=1, *, at=AT, partial=False):
         DAY,
         at,
         (JQuantsPage("financial_summaries", {"date": DAY.isoformat()}, at, body),),
+    )
+
+
+def snapshot_from_descriptor(descriptor):
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    return InputSnapshot(
+        kind="native_l1",
+        reference="jquants-financial-" + digest,
+        sha256=digest,
+        descriptor=descriptor,
     )
 
 
@@ -48,11 +61,28 @@ def test_saved_input_cli_rebuilds_same_rows_and_shortages_without_latest_head(
     store.close = lambda: None
     owner = FinancialL1(store, tmp_path / "native")
     owner.initialize()
-    owner.commit([attempt("first"), attempt("partial", at=AT + timedelta(hours=1), partial=True)])
+    first = attempt(
+        "first",
+        extra=(
+            {"Code": True, "DiscDate": DAY.isoformat(), "DiscNo": "bad-code"},
+            {"Code": "13010", "DiscDate": f"{DAY}junk", "DiscNo": "bad-date"},
+            {"Code": "13011", "DiscDate": DAY.isoformat(), "DiscNo": "secondary"},
+        ),
+    )
+    owner.commit([first, attempt("partial", at=AT + timedelta(hours=1), partial=True)])
     fixed = owner.fixed()
     end = DAY + timedelta(days=2)
-    saved = job.model_input(store, fixed, as_of=end, evaluated_at=AT + timedelta(hours=1)).identity
+    original_objects = {key: item.body for key, item in store.values.items()}
+    observed = job.model_input(store, fixed, as_of=end, evaluated_at=AT + timedelta(hours=1))
+    saved = observed.identity
+    assert [(row.ticker, row.disclosed_at) for row in observed.documents] == [("1301", DAY)]
+    assert saved.descriptor["summary"]["partial_days"] == 1
+    assert next(fixed.requests(store, days=(DAY,))).request.pages == first.pages
+    assert all(store.values[key].body == body for key, body in original_objects.items())
     job.rebuild(store, fixed, start=DAY, end=end, output=tmp_path / "baseline")
+    raw_rebuild = json.loads((tmp_path / "baseline" / "input.json").read_bytes())
+    assert raw_rebuild["projection_revision"] == saved.descriptor["summary"]["projection_revision"]
+    assert "saved_input" not in raw_rebuild
     owner.commit([attempt("later", value=2, at=AT + timedelta(hours=2))])
     assert owner.fixed().payload != fixed.payload
     del store.values[HEAD_KEY]
@@ -89,6 +119,16 @@ def test_saved_input_cli_rebuilds_same_rows_and_shortages_without_latest_head(
     metadata = json.loads((tmp_path / "rebuilt" / "input.json").read_bytes())
     assert metadata["source_head_sha256"] == fixed.content_id
     assert metadata["saved_input"] == saved.model_dump(mode="json")
+    status = next(
+        row
+        for row in pq.read_table(tmp_path / "rebuilt/financial_receipt_status.parquet").to_pylist()
+        if row["day"] == DAY
+    )
+    assert (status["projection_status"], status["rejected_count"], status["excluded_count"]) == (
+        "partial",
+        2,
+        1,
+    )
     # Changing a saved descriptor without its matching identity never falls back.
     raw = json.loads(file.read_bytes())
     raw["descriptor"]["head_sha256"] = "f" * 64
@@ -114,6 +154,67 @@ def test_saved_input_cli_rebuilds_same_rows_and_shortages_without_latest_head(
     assert store.get_keys == []
 
 
+@pytest.mark.parametrize(
+    "kind", ["compact-unversioned", "inline-unversioned", "other-revision", "foreign"]
+)
+def test_finalized_financial_replay_rejects_other_recipes_before_io(
+    tmp_path, kind, monkeypatch, capsys
+):
+    store = MemoryR2Store()
+    owner = FinancialL1(store, tmp_path / "native")
+    owner.initialize()
+    owner.commit([attempt("first")])
+    current = job.model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT).identity
+    descriptor = current.model_dump(mode="json")["descriptor"]
+    message = "projection revision"
+    if kind == "inline-unversioned":
+        fixed_fields = read_financial_input(store, descriptor, days=(DAY,))
+        descriptor.update(
+            fixed_fields, receipt_status={DAY.isoformat(): {"status": "ok", "incomplete": 0}}
+        )
+        del descriptor["selection_sha256"], descriptor["format"]
+    if kind in {"compact-unversioned", "inline-unversioned"}:
+        descriptor["summary"].pop("projection_revision", None)
+    elif kind == "other-revision":
+        descriptor["summary"]["projection_revision"] = "different"
+    else:
+        descriptor["format"] = "jquants-price-input-v2"
+        message = "unsupported fixed financial input format"
+    saved = snapshot_from_descriptor(descriptor)
+    store.get_keys.clear()
+    store.head_keys.clear()
+    store.put_keys.clear()
+    output = tmp_path / "rejected"
+    with pytest.raises(ValueError, match=message):
+        job.rebuild_saved_input(store, saved, start=DAY, end=DAY, output=output)
+    assert store.get_keys == store.head_keys == store.put_keys == []
+    assert not output.exists()
+    if kind == "compact-unversioned":
+        file = tmp_path / "unversioned.json"
+        file.write_text(saved.model_dump_json())
+        monkeypatch.setattr(job, "Boto3R2Store", lambda **_: pytest.fail("configured an R2 store"))
+        assert (
+            job.main(
+                [
+                    "--saved-input",
+                    str(file),
+                    "--start",
+                    DAY.isoformat(),
+                    "--end",
+                    DAY.isoformat(),
+                    "--work-directory",
+                    str(tmp_path / "work"),
+                    "--output",
+                    str(output),
+                ]
+            )
+            == 1
+        )
+        assert "verified producer commit" in capsys.readouterr().err
+        assert store.get_keys == store.head_keys == store.put_keys == []
+        assert not output.exists()
+
+
 def test_saved_input_verifies_pack_fingerprint_and_does_not_expand_its_scope(tmp_path):
     store = MemoryR2Store()
     owner = FinancialL1(store, tmp_path / "native")
@@ -124,15 +225,10 @@ def test_saved_input_verifies_pack_fingerprint_and_does_not_expand_its_scope(tmp
         job.rebuild_saved_input(
             store, saved, start=DAY - timedelta(days=1), end=DAY, output=tmp_path / "outside"
         )
-    raw = saved.model_dump(mode="json")
-    # Historical inline descriptors remain independently rebuildable and verified.
-    raw["descriptor"] = {
-        **read_financial_input(store, saved.descriptor, days=(DAY,)),
-        "head_sha256": saved.descriptor["head_sha256"],
-    }
-    raw["descriptor"]["receipts"]["first"]["fingerprint"] = "f" * 64
-    raw["sha256"] = hashlib.sha256(canonical_json(raw["descriptor"]).encode()).hexdigest()
-    altered = InputSnapshot.model_validate(raw)
+    raw = {**saved.descriptor, **read_financial_input(store, saved.descriptor, days=(DAY,))}
+    raw["receipts"]["first"]["fingerprint"] = "f" * 64
+    # The tagged descriptor and its month/root remain valid; only the receipt fingerprint differs.
+    altered = snapshot_from_descriptor(job.retain_financial_input(store, raw))
     with pytest.raises(LakePublishError, match="receipt differs"):
         job.rebuild_saved_input(
             store, altered, start=DAY, end=DAY, output=tmp_path / "changed-fingerprint"

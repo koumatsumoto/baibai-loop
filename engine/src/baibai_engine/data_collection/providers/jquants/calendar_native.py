@@ -9,7 +9,8 @@ from __future__ import annotations
 import base64
 import gzip
 import json
-from collections.abc import Iterator, Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -120,7 +121,20 @@ class CalendarAttempt:
         )
 
 
-def _content(request: JQuantsRequest) -> tuple[str, dict[str, dict[str, Any]]]:
+def _response_day(raw: object) -> date | None:
+    # Unlike from/to, the provider's response has only the dashed date form.
+    if not isinstance(raw, str) or len(raw) != 10:
+        return None
+    try:
+        day = date.fromisoformat(raw)
+    except ValueError:
+        return None
+    return day if day.isoformat() == raw else None
+
+
+def _content(
+    request: JQuantsRequest, *, days: Iterable[date] | None = None
+) -> tuple[str, dict[str, dict[str, Any]]]:
     start, end = (
         date.fromisoformat(request.params["from"]),
         date.fromisoformat(request.params["to"]),
@@ -139,12 +153,8 @@ def _content(request: JQuantsRequest) -> tuple[str, dict[str, dict[str, Any]]]:
     divisions: dict[date, str] = {}
     valid_range = True
     for row in rows:
-        try:
-            day = date.fromisoformat(str(row.get("Date", ""))[:10])
-        except ValueError:
-            valid_range = False
-            continue
-        if not start <= day <= end:
+        day = _response_day(row.get("Date"))
+        if day is None or not start <= day <= end:
             valid_range = False
             continue
         grouped.setdefault(day, []).append(row)
@@ -152,7 +162,8 @@ def _content(request: JQuantsRequest) -> tuple[str, dict[str, dict[str, Any]]]:
         if raw is not None and (division := str(raw).strip()):
             divisions.setdefault(day, division)
     states = {}
-    for day in interval(start, end):
+    selected_days = interval(start, end) if days is None else (d for d in days if start <= d <= end)
+    for day in selected_days:
         day_rows = grouped.get(day, [])
         states[day.isoformat()] = {
             "content_id": _digest(_json([FORMAT, day.isoformat(), day_rows, extras, valid_range])),
@@ -250,6 +261,34 @@ def read_calendar_attempts(
             yield CalendarAttempt.from_value(raw)
         if found != wanted:
             raise LakePublishError("calendar pack lacks a selected receipt")
+
+
+def matching_calendar_days(
+    store: ObjectStore,
+    *,
+    scopes: Mapping[str, Mapping[str, Any]],
+    receipts: dict[str, Any],
+) -> set[str]:
+    """Bind current day evidence to its adopted original before creating a new proof."""
+    by_receipt: dict[str, dict[str, Mapping[str, Any]]] = defaultdict(dict)
+    for day, scope in scopes.items():
+        by_receipt[scope["adopted"]][day] = scope
+    matched: set[str] = set()
+    for attempt in read_calendar_attempts(store, receipts=receipts, identities=set(by_receipt)):
+        expected = by_receipt[attempt.request_id]
+        _, actual = _content(
+            complete_request(attempt.pages), days=map(date.fromisoformat, expected)
+        )
+        for day, scope in expected.items():
+            if (
+                (content := actual.get(day))
+                and content["valid"]
+                and scope.get("valid") is True
+                and content["content_id"] == scope.get("content_id")
+                and content["division"] == scope.get("division")
+            ):
+                matched.add(day)
+    return matched
 
 
 class CalendarL1:

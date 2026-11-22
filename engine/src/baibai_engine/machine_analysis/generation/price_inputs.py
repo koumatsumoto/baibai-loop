@@ -10,7 +10,10 @@ from typing import Any
 
 from pydantic import JsonValue
 
-from baibai_engine.data_collection.providers.jquants.calendar_native import read_calendar_attempts
+from baibai_engine.data_collection.providers.jquants.calendar_native import (
+    matching_calendar_days,
+    read_calendar_attempts,
+)
 from baibai_engine.data_collection.providers.jquants.contracts import complete_request
 from baibai_engine.machine_analysis.generation.calendar_inputs import (
     INPUT_FORMAT as CALENDAR_INPUT_FORMAT,
@@ -94,9 +97,13 @@ def with_calendar_closures(
     if not days:
         return scopes
     selected = read_calendar_input(store, descriptor, days=days)
+    candidates = {
+        day: scope for day, scope in selected["scopes"].items() if calendar_day_closed(scope)
+    }
+    proved = matching_calendar_days(store, scopes=candidates, receipts=selected["receipts"])
     months: dict[str, dict[str, Any]] = defaultdict(dict)
-    for day, scope in selected["scopes"].items():
-        if calendar_day_closed(scope):
+    for day, scope in candidates.items():
+        if day in proved:
             months[day[:7]][day] = scope
     closed = {}
     for month_scopes in months.values():
@@ -108,7 +115,7 @@ def with_calendar_closures(
 
 
 def read_closed_price_days(store: ObjectStore, scopes: dict[str, Any]) -> set[date]:
-    """Verify retained holiday evidence without reading a mutable head or L2."""
+    """Verify retained evidence without reinterpreting the original selection's dates."""
     by_calendar: dict[str, list[date]] = defaultdict(list)
     for day, scope in scopes.items():
         if "closed_calendar" not in scope:
