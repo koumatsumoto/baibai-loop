@@ -1,10 +1,16 @@
 import hashlib
+import json
+import subprocess
+import sys
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.storage.objects.r2 import LakeCASConflict, R2Error
+from baibai_jobs.maintenance import application_backup_retention
 from baibai_jobs.maintenance.application_backup import preserve_application
+from baibai_jobs.maintenance.application_backup_retention import expired_backup_keys
 
 
 def seeded():
@@ -106,3 +112,45 @@ def test_source_head_failure_never_authorizes_backup_or_put(tmp_path, monkeypatc
         preserve_application(store, expected_etag=expected, directory=tmp_path, day="20261118")
     assert not store.get_keys
     assert not store.put_keys
+
+
+def test_retention_turns_over_at_midnight_jst_not_utc():
+    history = [f"baibai.sqlite.bak-202402{day:02d}" for day in range(1, 15)]
+    keys = {
+        *history,
+        "baibai.sqlite.bak",
+        "baibai.sqlite.bak-20240229",
+        "baibai.sqlite.bak-20240301",
+    }
+    midnight_jst = datetime(2024, 2, 28, 15, tzinfo=UTC)
+    assert expired_backup_keys(keys, as_of=midnight_jst - timedelta(seconds=1)) == []
+    assert expired_backup_keys(keys, as_of=midnight_jst) == [history[0]]
+
+
+def test_retention_list_timeout_emits_no_candidates_from_an_earlier_page(monkeypatch, capsys):
+    keys = [f"baibai.sqlite.bak-200008{day:02d}" for day in range(1, 17)]
+    first_page = {
+        "Prefix": "baibai.sqlite.bak-",
+        "KeyCount": len(keys),
+        "Contents": [{"Key": key} for key in keys],
+        "IsTruncated": True,
+        "NextContinuationToken": "next",
+    }
+    calls = []
+
+    def list_page(argv, *, timeout):
+        assert argv[:4] == ["aws", "s3api", "list-objects-v2", "--no-paginate"]
+        assert timeout > 0
+        calls.append(argv)
+        if len(calls) == 1:
+            return json.dumps(first_page).encode()
+        assert json.loads(argv[-1]) == {"ContinuationToken": "next"}
+        raise subprocess.TimeoutExpired(argv, timeout)
+
+    monkeypatch.setattr(subprocess, "check_output", list_page)
+    monkeypatch.setattr(sys, "argv", ["retention", "--bucket", "stores", "--endpoint-url", "test"])
+    assert application_backup_retention.main() == 1
+    assert len(calls) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "application backup key listing failed" in captured.err

@@ -10,8 +10,6 @@ generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
 copy_read_timeout=300
 # The machine receipt prevents a partial sequential push from looking like a coherent pair.
-# The non-regenerable application store keeps all generations from 14 backup dates.
-app_backup_generations=14
 machine_receipt_key="machine-manifest.json"
 machine_bundle_keys=(market.sqlite runs.sqlite)
 transfer_staging=""
@@ -673,46 +671,22 @@ backup_key_for() {
 }
 
 prune_app_backups() {
-  # Only keys this script writes are considered, and each delete names one exact key.
-  # A prefix delete would take whatever else happened to sit under the prefix, and the
-  # pattern is what keeps the single pre-dated `baibai.sqlite.bak` out of the set.
-  local listing key
-  local -a generations=()
-  listing="$(aws s3api list-objects-v2 \
-    --bucket "${stores_bucket}" \
-    --prefix "baibai.sqlite.bak-" \
-    --query 'Contents[].Key' \
-    --output text \
-    --endpoint-url "${endpoint}")"
-  for key in ${listing}; do
-    if [[ "${key}" == "None" ]]; then
-      continue
-    fi
-    if [[ ! "${key}" =~ ^baibai\.sqlite\.bak-[0-9]{8}(-[0-9a-f]{64})?$ ]]; then
-      printf 'leaving an unrecognised key under the application backup prefix: %s\n' \
-        "${key}" >&2
-      continue
-    fi
-    generations+=("${key}")
-  done
-  local index=0 previous_day="" day
-  while read -r key; do
+  local candidates key
+  candidates="$(cd "${repo_root}" && uv run python -m baibai_jobs.maintenance.application_backup_retention \
+    --bucket "${stores_bucket}" --endpoint-url "${endpoint}")" || {
+    local status=$?
+    printf 'application DB already uploaded; no backup was pruned. Do not repeat the App upload.\n' >&2
+    return "${status}"
+  }
+  while IFS= read -r key; do
     [[ -n "${key}" ]] || continue
-    day="${key:18:8}"
-    if [[ "${day}" != "${previous_day}" ]]; then
-      index=$((index + 1))
-      previous_day="${day}"
-    fi
-    if [[ ${index} -le ${app_backup_generations} ]]; then
-      continue
-    fi
     aws s3api delete-object \
       --bucket "${stores_bucket}" \
       --key "${key}" \
       --endpoint-url "${endpoint}" \
       >/dev/null
     printf 'pruned application store backup: %s\n' "${key}"
-  done < <(printf '%s\n' ${generations+"${generations[@]}"} | sort -r)
+  done <<< "${candidates}"
 }
 
 backup_remote_key() {

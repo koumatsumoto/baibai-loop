@@ -201,10 +201,12 @@ R2_APP_BACKUP_PRUNE=skip jobs/scripts/publish.sh
 | backupの扱い | 条件 |
 | --- | --- |
 | 作成（標準） | 元Appを読戻し、実行JST日と本文SHAに結びつくkeyへcreate-onlyで保持して読戻す。同日同SHAは本文一致時だけ再利用し、旧日付だけのkeyを置換しない。正規の単一PUT由来ETagがない、競合・拒否・結果不明なら本体を上書きしない。 |
-| 旧backupを残す | 上例の`R2_APP_BACKUP_PRUNE=skip`を使う。通常整理は直近14のbackup日付に属する全世代を残す。反映回数によって保管量・読戻し転送量・一時容量も増える。 |
+| 旧backupを残す | 上例の`R2_APP_BACKUP_PRUNE=skip`を使う。通常整理は、`baibai.sqlite.bak-YYYYMMDD`またはその末尾に`-`と小文字SHA-256を付けた名前だけを対象に、実行時のJST日付以前に実在するbackup日のうち新しい14日分の全世代を残す。未来日・存在しない日付・固定`.bak`・規則外の手動退避は数えず、削除もしない。反映回数によって保管量・読戻し転送量・一時容量も増える。 |
 | 新backupを作らない（例外） | `R2_APP_BACKUP_CREATE=skip`は本人の明示指示があり、追加専用で旧提案・評価・台帳等の全旧行が残ることを旧新の正規copyで照合した時だけ。ETag/最終If-Matchは省略しない。旧backup削除の停止は別の`PRUNE=skip`。 |
 
 成功は正本から対象Proposal/評価等のIDで読戻す。競合したら未公開差分を保ち、fresh正本へ正規serviceで再適用する。非0・応答不明では元世代と対象IDを確認し、盲再送しない。PUT済みで表示runがない時だけ`cloud-materialize`を再依頼する。旧schemaや未公開の事実のあるDBは原copyを保ち、正本へ丸ごと戻さない。
+
+backup一覧は全ページを確認してから整理する。取得失敗・不完全なページ・不正応答では一件も削除しない。この時点ではApp本体のPUTとETagの記録は済んでいるが、表示生成は未依頼。上記の正本確認を行い、必要な表示生成だけを再依頼する。
 
 ### application DB を復元する
 

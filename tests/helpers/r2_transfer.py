@@ -113,10 +113,23 @@ if [[ "$1 $2" == "s3api delete-object" ]]; then
   exit 0
 fi
 if [[ "$1 $2" == "s3api list-objects-v2" ]]; then
-  # `--query Contents[].Key --output text` prints the keys on one tab-separated line,
-  # and `None` when the prefix matches nothing.
-  printf '%s\n' "${AWS_FAKE_LIST_KEYS:-None}"
-  exit 0
+  [[ " $* " == *" --output json "* && " $* " != *" --query "* ]] || exit 2
+  [[ " $* " == *" --no-paginate "* ]] || exit 2
+  for argument in "$@"; do
+    case "$argument" in
+      '{"ContinuationToken": "-next+/%="}')
+        [[ -v AWS_FAKE_NEXT_LIST_OUTPUT ]] || exit 2
+        printf '%s\\n' "${AWS_FAKE_NEXT_LIST_OUTPUT}"
+        exit "${AWS_FAKE_NEXT_LIST_EXIT:-0}" ;;
+      *ContinuationToken*|--continuation-token*) exit 2 ;;
+    esac
+  done
+  if [[ -v AWS_FAKE_LIST_OUTPUT ]]; then
+    printf '%s\\n' "${AWS_FAKE_LIST_OUTPUT}"
+  else
+    printf '%s\\n' '{"Prefix":"baibai.sqlite.bak-","KeyCount":0,"IsTruncated":false}'
+  fi
+  exit "${AWS_FAKE_LIST_EXIT:-0}"
 fi
 if [[ "$1 $2" == "s3api get-object" ]]; then
   key=""
@@ -254,7 +267,9 @@ if [[ "$1 $2 $3" == "run python -c" ]]; then
   shift
   exec "$@"
 fi
-if [[ "$1 $2 $3 $4" == "run python -m baibai_jobs.publication.machine_origin" ]]; then
+if [[ "$1 $2 $3 $4" == "run baibai-engine portfolio ledger" ]]; then exit 0; fi
+if [[ "$1 $2 $3 $4" == "run python -m baibai_jobs.publication.machine_origin" \
+   || "$1 $2 $3 $4" == "run python -m baibai_jobs.maintenance.application_backup_retention" ]]; then
   shift 3
   exec python3 -m "$@"
 fi
