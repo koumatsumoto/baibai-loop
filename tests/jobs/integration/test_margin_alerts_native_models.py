@@ -17,6 +17,9 @@ from baibai_engine.data_collection.providers.jquants.margin_alerts_native import
     PREFIX,
     MarginAlertsL1,
 )
+from baibai_engine.machine_analysis.generation.margin_alerts_inputs import (
+    INPUT_PREFIX,
+)
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.coverage import uncovered_days
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -74,7 +77,7 @@ def rows(path):
 
 def test_equal_recheck_uses_existing_l2_but_not_old_confirmation(tmp_path):
     store, owner, market, mirror = fixture(tmp_path, earlier=date(2026, 10, 1))
-    _, first = build(store, owner, market, mirror)
+    prior_saved, first = build(store, owner, market, mirror)
     owner.commit([attempt("equal", at=AT + timedelta(hours=1))])
     fixed = owner.fixed()
     store.get_keys.clear()
@@ -89,6 +92,8 @@ def test_equal_recheck_uses_existing_l2_but_not_old_confirmation(tmp_path):
     )
     assert not [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
     assert HEAD_KEY not in store.get_keys
+    prior_selection = prior_saved.descriptor["selection_sha256"]
+    assert store.get_keys.count(f"{INPUT_PREFIX}selections/{prior_selection}.json") == 1
     assert second.new_objects == 0
     cold = tmp_path / "cold.sqlite"
     materialize_saved_input(store, saved, output=cold)

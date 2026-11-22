@@ -38,7 +38,6 @@ from baibai_engine.machine_analysis.generation.calendar_inputs import VerifiedCa
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.margin_interest_inputs import (
     INPUT_FORMAT,
-    margin_interest_input_interval,
     read_margin_interest_input,
     retain_margin_interest_input,
 )
@@ -482,7 +481,7 @@ def model_input(
                 read_margin_interest_input(
                     store,
                     descriptor,
-                    days=_days(*margin_interest_input_interval(store, descriptor)),
+                    days=None,
                 )["scopes"],
             ),
         )
