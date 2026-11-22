@@ -34,6 +34,9 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
     store_snapshot,
 )
 from baibai_engine.data_collection.transport.context import FetchContext
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+)
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 
 SOURCES = sorted(
@@ -130,7 +133,14 @@ def _seed(path):
 @pytest.fixture
 def source(monkeypatch):
     control = SimpleNamespace(
-        clock=WHEN, serial=0, changes={}, failures=set(), calls=[], plans=[], current=None
+        clock=WHEN,
+        serial=0,
+        changes={},
+        failures=set(),
+        calls=[],
+        plans=[],
+        current=None,
+        api_bodies={},
     )
     monkeypatch.setenv("ESTAT_APP_ID", "synthetic-estat-app-id")
 
@@ -161,6 +171,8 @@ def source(monkeypatch):
                 assert params == {"TimeFrom": "19480100", "TimeTo": f"{end:%Y%m}00"}
             control.calls.append((item.source_id, url, params.copy()))
             control.clock += timedelta(seconds=1)
+            if (body := control.api_bodies.get(item.source_id)) is not None:
+                return _FakeResponse(body)
             if item.source_id in control.failures:
                 payload = (
                     {"GET_STATS_DATA": {"RESULT": {"STATUS": 100, "ERROR_MSG": "unavailable"}}}
@@ -348,6 +360,50 @@ def test_both_estat_providers_preserve_group_requests_receipts_and_recovery(
             assert len(changed) == 3  # initial A, corrected B, and actual return to A
             results.append(phases)
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("mode", ["full", "planning"])
+@pytest.mark.parametrize("annual_only", [False, True], ids=["empty-cells", "annual-only"])
+def test_api_without_monthly_cells_does_not_withdraw_existing_cpi(
+    tmp_path, source, monkeypatch, mode, annual_only
+):
+    canonical = tmp_path / "canonical.sqlite"
+    _seed(canonical)
+    series = "jp.cpi.headline"
+    service = IndicatorsService(canonical)
+    before = service.get_range(series, start=MONTH, end=MONTH)
+    assert [row.value for row in before.observations] == [20.0]
+
+    source.clock = WHEN + timedelta(days=1)
+    owner = next(item for item in SOURCES if item.source_id == CPI)
+    rows = [{**_native(owner, MONTH), "@time": "2026100000"}] if annual_only else []
+    source.api_bodies[CPI] = json.dumps(
+        {
+            "GET_STATS_DATA": {
+                "RESULT": {"STATUS": 0},
+                "STATISTICAL_DATA": {
+                    "RESULT_INF": {"TOTAL_NUMBER": len(rows)},
+                    "DATA_INF": {"VALUE": rows},
+                },
+            }
+        }
+    ).encode()
+
+    with tempfile.TemporaryDirectory(dir=tmp_path) as work:
+        directory = Path(work)
+        raw, status, report = _acquire(directory, canonical, mode, source, monkeypatch)
+        assert status == 1
+        assert {row["source_id"] for row in report["sources"] if row["status"] == "failed"} == {CPI}
+        receipts = _state(raw)
+        assert {row[0] for row in receipts["economic_source_records"]} == {
+            item.source_id for item in SOURCES if item.source_id != CPI
+        }
+        failed = [row for row in receipts["economic_source_runs"] if row[1] == CPI]
+        assert len(failed) == 1
+        assert failed[0][6:8] == ("failed", 0)
+        assert "response contains no monthly cells" in failed[0][8]
+        _integrate(raw, canonical, directory / "accepted.sqlite")
+    assert service.get_range(series, start=MONTH, end=MONTH) == before
 
 
 @pytest.mark.parametrize("hour", [1, 2])
