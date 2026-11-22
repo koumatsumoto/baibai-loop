@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable, Iterator
 from datetime import date
 
 from pydantic import TypeAdapter
@@ -57,6 +58,20 @@ def _require_event_identity(stored_id: object, payload_id: object) -> None:
         raise LedgerConflictError("ledger event identity differs from payload")
 
 
+def _checked_replay_rows(rows: Iterable[sqlite3.Row]) -> Iterator[sqlite3.Row]:
+    """Validate the derived tie order without changing the stored replay sequence."""
+    previous_at: str | None = None
+    previous_seq = 0
+    for row in rows:
+        occurred_at, append_seq = row[-2], row[-1]
+        if occurred_at == previous_at and append_seq <= previous_seq:
+            raise LedgerConflictError(
+                "ledger same-instant replay order conflicts with append order"
+            )
+        previous_at, previous_seq = occurred_at, append_seq
+        yield row
+
+
 def load_ledger_document(connection: sqlite3.Connection) -> PortfolioLedgerDocument | None:
     """Read one canonical replay document; only an unimported ledger is absent."""
     if not _require_schema(connection):
@@ -71,11 +86,13 @@ def load_ledger_document(connection: sqlite3.Connection) -> PortfolioLedgerDocum
     if not isinstance(raw, dict):
         raise LedgerConflictError("ledger metadata payload must be an object")
     events = []
-    for event_id, payload in connection.execute(
-        """
-        SELECT event_id,payload FROM ledger_event
-        ORDER BY occurred_at ASC, same_instant_order ASC, append_seq ASC
-        """
+    for event_id, payload, _occurred_at, _append_seq in _checked_replay_rows(
+        connection.execute(
+            """
+            SELECT event_id,payload,occurred_at,append_seq FROM ledger_event
+            ORDER BY occurred_at ASC, same_instant_order ASC, append_seq ASC
+            """
+        )
     ):
         event = json.loads(str(payload))
         if not isinstance(event, dict):
@@ -117,14 +134,18 @@ def load_ledger_events(
     if append_head < 0 or append_head > ledger_append_head(connection):
         raise LedgerConflictError("ledger snapshot head is outside the recorded prefix")
     adapter: TypeAdapter[LedgerEvent] = TypeAdapter(LedgerEvent)
+    rows: Iterable[sqlite3.Row]
     if event_ids is None:
-        rows = connection.execute(
-            "SELECT event_id,payload FROM ledger_event WHERE append_seq<=? "
-            "ORDER BY occurred_at,same_instant_order,append_seq",
-            (append_head,),
-        ).fetchall()
+        rows = _checked_replay_rows(
+            connection.execute(
+                "SELECT event_id,payload,occurred_at,append_seq "
+                "FROM ledger_event WHERE append_seq<=? "
+                "ORDER BY occurred_at,same_instant_order,append_seq",
+                (append_head,),
+            ).fetchall()
+        )
     else:
-        rows = []
+        selected = []
         for identity in event_ids:
             row = connection.execute(
                 "SELECT event_id,payload FROM ledger_event WHERE event_id=? AND append_seq<=?",
@@ -132,7 +153,8 @@ def load_ledger_events(
             ).fetchone()
             if row is None:
                 raise LedgerConflictError(f"ledger snapshot event is unavailable: {identity}")
-            rows.append(row)
+            selected.append(row)
+        rows = selected
     events: list[LedgerEvent] = []
     for row in rows:
         event = adapter.validate_json(str(row[1]))
