@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -41,6 +42,7 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_offer import
     store_tender_offer_exit_values,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+from baibai_jobs.cli import main as jobs_main
 from baibai_jobs.integration.edinet_archive_native import materialize_archives
 from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.maintenance.market import cli, delisting_cli
@@ -448,4 +450,66 @@ def test_missing_jpx_market_is_not_created_or_treated_as_successful_empty(
     assert not case.market.exists()
     delisting_cli.Boto3R2Store.assert_not_called()
     assert not case.store.get_keys
+    assert not case.store.put_keys
+
+
+@pytest.mark.parametrize("mode", ["saved", "legacy", "refresh"])
+def test_missing_jpx_projection_does_not_retract_established_exits(
+    tmp_path, monkeypatch, capsys, mode
+):
+    case = _case(tmp_path, monkeypatch)
+    case.market = tmp_path / "market-without-jpx.sqlite"
+    store_tender_offer_exit_values(case.market, case.expected[0])
+    if mode != "saved":
+        materialize_lists(case.lists, case.market)
+        materialize_archives(case.archives, case.market)
+    before = case.market.read_bytes()
+    _clear_trace(case)
+    argv = _argv(case) if mode == "saved" else _argv(case)[:-2]
+    if mode == "refresh":
+        argv[0] = "refresh-tender-offer-exits"
+        provider = Mock()
+        monkeypatch.setattr(cli, "EDINETRefresh", Mock(return_value=provider))
+    result = jobs_main(["maintain-market", *argv])
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert not captured.out
+    assert "JPX delistings are not available" in captured.err
+    assert case.market.read_bytes() == before
+    assert read_tender_offer_exit_values(case.market) == case.expected[0]
+    assert not any(key.endswith(".zip") for key in case.store.get_keys)
+    assert not case.store.put_keys
+    if mode == "refresh":
+        provider.download_csv_zip.assert_not_called()
+        provider.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize("outside_cutoff", [False, True])
+def test_nonempty_jpx_projection_can_establish_zero_exits(
+    tmp_path, monkeypatch, capsys, outside_cutoff
+):
+    case = _case(tmp_path, monkeypatch)
+    store_tender_offer_exit_values(case.market, case.expected[0])
+    row = DelistingRecord(
+        delisted_on=ASOF, ticker="2000", name="fixture", market="プライム", reason="公開買付け"
+    )
+    store_jpx_delistings(
+        case.market,
+        (
+            replace(row, delisted_on=ASOF + timedelta(days=1))
+            if outside_cutoff
+            else replace(row, reason="吸収合併"),
+        ),
+    )
+    _clear_trace(case)
+
+    assert jobs_main(["maintain-market", *_argv(case)]) == 0
+    captured = capsys.readouterr()
+    assert not captured.err
+    assert (
+        f"delistings={int(not outside_cutoff)}, candidates=0, resolved=0, reads=0" in captured.out
+    )
+    assert read_tender_offer_exit_values(case.market) == ()
+    assert not any(key.endswith(".zip") for key in case.store.get_keys)
     assert not case.store.put_keys

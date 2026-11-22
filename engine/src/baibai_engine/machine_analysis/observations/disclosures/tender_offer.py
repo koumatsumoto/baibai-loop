@@ -276,7 +276,11 @@ def derive_tender_offer_exit_values(
         filings = read_tender_offer_filings(connection, through=asof)
     finally:
         connection.close()
-    delistings = [row for row in read_jpx_delistings(sqlite_path) if row.delisted_on <= asof]
+    observed_delistings = read_jpx_delistings(sqlite_path)
+    if not observed_delistings:
+        # A JPX projection must have rows. Only filtering that projection can establish zero.
+        raise TenderOfferError("JPX delistings are not available in the market store")
+    delistings = [row for row in observed_delistings if row.delisted_on <= asof]
     candidates = [
         row
         for row in delistings

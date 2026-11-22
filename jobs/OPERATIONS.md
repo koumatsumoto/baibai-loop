@@ -641,7 +641,7 @@ uv run baibai-jobs edinet-archives-native commit-stage --bucket <BUCKET> --direc
 uv run baibai-jobs rebuild-edinet-metrics --saved-input <INPUT.json> --output <NEW.sqlite> --asof <DATE> --lookback-days <N>
 ```
 
-手動TOB退出値の再計算には `maintain-market build-tender-offer-exits --saved-input <INPUT.json> --asof <DATE> --sqlite-path <MARKET.sqlite>` を使う。EDINETは保存pairの一覧と必要なtype=5だけを読み、別の一覧・SQL ZIP・最新headで補わない。JPX上場廃止一覧は指定のSQLiteから読むため、当時の結果を再計算するには同じJPX投影も用意する。EDINET原本の欠損・破損・decode失敗時は既存の退出値を保つ。`--asof`は提出日と上場廃止日のcutoffで、受領時点の再現ではない。`--saved-input`なしの旧SQL読取と明示refreshは別経路として残す。
+手動TOB退出値の再計算には `maintain-market build-tender-offer-exits --saved-input <INPUT.json> --asof <DATE> --sqlite-path <MARKET.sqlite>` を使う。EDINETは保存pairの一覧と必要なtype=5だけを読み、別の一覧・SQL ZIP・最新headで補わない。JPX上場廃止一覧は指定のSQLiteから読むため、当時の結果を再計算するには同じJPX投影も用意する。EDINET原本の欠損・破損・decode失敗や、JPX一覧が未投影なら停止し、既存の退出値を保つ。投影済み一覧に対象が0件なら正常に0件へ置換する。`--asof`は提出日と上場廃止日のcutoffで、受領時点の再現ではない。`--saved-input`なしの旧SQL読取と明示refreshは別経路として残す。
 
 手動TOB退出値と東証の資本政策一覧は任意の補助資料で、現行提案の入力ではない。[提案に使う監理・整理指定とEDINET書類参照](../docs/reference/trade-proposal.md#listing-and-price-basis)は別経路。
 
