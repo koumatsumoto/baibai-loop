@@ -17,6 +17,10 @@ from tests.helpers.technical_financial import _seed
 
 from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.screening import discovery_index
+from baibai_engine.machine_analysis.screening.discovery_contract import (
+    DiscoveryPolicy,
+    discovery_publication_id,
+)
 from baibai_engine.machine_analysis.screening.policies.discovery import (
     evaluate_discovery_rows,
     project_discovery_row,
@@ -57,6 +61,10 @@ def fixed(path):
     }
     compact = evaluate_discovery_rows(meta, tickers=subjects, rows=rows)
     identity = f"selection-{meta.generation_id}-opportunity-discovery-v1"
+    compact = replace(
+        compact,
+        result=replace(compact.result, policy=DiscoveryPolicy(method="opportunity-discovery-v1")),
+    )
     return meta, legacy, compact, identity
 
 
@@ -208,7 +216,9 @@ def test_retained_discovery_scope_still_reads_and_retries_exactly(tmp_path):
 
 def test_missing_source_is_an_explicit_member_not_an_absent_or_duplicate_row(tmp_path):
     path = tmp_path / "runs"
-    meta, _, compact, identity = fixed(path)
+    meta, _, compact, _ = fixed(path)
+    identity = discovery_publication_id(meta.generation_id)
+    compact = replace(compact, result=replace(compact.result, policy=DiscoveryPolicy()))
     t = compact.universe_tickers[1]
     sparse = evaluate_discovery_rows(
         meta,
@@ -318,3 +328,39 @@ def test_non_numbers_and_nonfinite_amounts_never_become_observed_value(tmp_path,
     )
     with pytest.raises(ValidationError):
         store.publish(identity, require)
+
+
+def test_saved_v1_and_new_v3_require_exact_policy_identity(tmp_path):
+    runs = tmp_path / "runs"
+    meta, _, v1, old_id = fixed(runs)
+    store = ScreeningSelectionStore(runs)
+    assert store.publish(old_id, v1)
+    with sqlite3.connect(runs) as connection:
+        (old_blob,) = connection.execute(
+            "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (old_id,)
+        ).fetchone()
+    new_id = discovery_publication_id(meta.generation_id)
+    v3 = replace(v1, result=replace(v1.result, policy=DiscoveryPolicy()))
+    assert new_id.endswith("-opportunity-discovery-v3")
+    # The unrelated sealed-price v2 prototype's ID must not be repurposed.
+    with pytest.raises(ValueError, match="unknown discovery publication version"):
+        store.publish(new_id.removesuffix("v3") + "v2", v3)
+    assert new_id != old_id
+    with pytest.raises(ValueError, match="identity differs from its policy"):
+        store.publish(old_id, v3)
+    with pytest.raises(ValueError, match="identity differs from its policy"):
+        store.publish(new_id, v1)
+    assert store.publish(new_id, v3)
+    assert store.read(old_id) == v1
+    assert store.read(new_id) == v3
+    assert (
+        discovery_index.read_discovery_index(path=runs, selection_id=old_id).rows == v1.result.rows
+    )
+    assert (
+        discovery_index.read_discovery_index(path=runs, selection_id=new_id).rows == v3.result.rows
+    )
+    with sqlite3.connect(runs) as connection:
+        (retained_blob,) = connection.execute(
+            "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (old_id,)
+        ).fetchone()
+    assert retained_blob == old_blob

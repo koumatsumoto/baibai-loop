@@ -34,6 +34,13 @@ _PATH_METRICS: tuple[Metric, ...] = (
 )
 _RECOVERY_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin")
 _INCOME_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin", "parent_profit")
+_AFTER_AS_OF = "financial_sources_not_observed_by_as_of"
+_COMPARISON_AFTER_AS_OF = "comparison_sources_not_observed_by_as_of"
+_UNRESOLVED_REVISIONS = (
+    "conflicting_revisions",
+    "inconsistent_cumulative_revision",
+    "cumulative_revision_order_unresolved",
+)
 
 
 def read_policy_growth(model: GeneratedModel | None) -> CompanyGrowthReader:
@@ -99,10 +106,14 @@ def project_economic_coordinates(
     if use_full_fy:
         annual = full_fy
     quarter = growth.observation(anchor, "quarter")
-    annual_cutoff = as_of if use_full_fy else None
+    # 現行Growthは採用operandを固定する。旧rawにない比較元を現在の値で補わない。
+    # 保存した回顧Growth自体は変更せず、価格座標の根拠だけ基準日で確かめる。
+    cutoff = as_of if growth.cohort_bound else None
+    annual_cutoff = as_of if use_full_fy else cutoff
 
     coordinates: list[EconomicCoordinate] = []
     review_reason = None
+    uncertainty = _unconfirmed_source(annual, "operating_margin", as_of=as_of)
     margin = metric_value(annual, "operating_margin", disclosed_by=annual_cutoff)
     if use_full_fy:
         # 古い好業績で、既知の直近の赤字・ゼロを埋めない。
@@ -114,6 +125,22 @@ def project_economic_coordinates(
                 metric_value(quarter, metric, disclosed_by=as_of),
                 metric_value(reported, metric, disclosed_by=as_of),
             )
+        )
+        # 採用済みの回顧値が後発訂正・矛盾なら、当時の赤字有無を推定しない。
+        # 本当に観測がないだけなら従来の完全FY代替条件を変えない。
+        quarter_uncertainty = next(
+            (
+                reason
+                for observation in (quarter, reported)
+                for metric in _INCOME_METRICS
+                if (reason := _unconfirmed_source(observation, metric, as_of=as_of)) is not None
+            ),
+            None,
+        )
+        uncertainty = (
+            quarter_uncertainty
+            or uncertainty
+            or _unconfirmed_source(annual, "parent_profit", as_of=as_of)
         )
         income_aligned = annual is not None and annual.statement_basis == "consolidated"
         profit = metric_value(annual, "parent_profit", disclosed_by=as_of)
@@ -137,7 +164,7 @@ def project_economic_coordinates(
             else None
         )
         profit_yield = y
-    if income_aligned and _is_positive(margin) and not adverse:
+    if income_aligned and _is_positive(margin) and not adverse and uncertainty is None:
         if price_input_reason is not None and _is_positive(profit):
             review_reason = price_input_reason
         if _is_positive(profit_yield):
@@ -153,7 +180,20 @@ def project_economic_coordinates(
             )
 
     # 既知の四半期悪化を、もう一つの指標の欠測や好調な年次で隠さない。
-    quarter_changes = {metric: _change(growth, quarter, metric) for metric in _PATH_METRICS}
+    quarter_changes = {
+        metric: _change(growth, quarter, metric, disclosed_by=cutoff) for metric in _PATH_METRICS
+    }
+    quarter_issues = {
+        metric: _unconfirmed_source(quarter, metric, as_of=as_of)
+        or (
+            _AFTER_AS_OF
+            if quarter_changes[metric].get("reason") == _COMPARISON_AFTER_AS_OF
+            else None
+        )
+        for metric in _PATH_METRICS
+    }
+    expansion_issue = quarter_issues["sales"] or _unconfirmed_source(annual, "sales", as_of=as_of)
+    recovery_issue = quarter_issues["operating_profit"] or quarter_issues["operating_margin"]
     quarter_sales = quarter_changes["sales"]
     quarter_sales_difference = _number(quarter_sales.get("difference"))
     expansion_variant = (
@@ -177,12 +217,14 @@ def project_economic_coordinates(
     )
     # 先に採用期間を選び、保存しない期間の座標は計算しない。公開配列は従来の期間順を保つ。
     for variant in ("quarter", annual_variant):
-        if variant == expansion_variant:
+        if variant == expansion_variant and expansion_issue is None:
             sale_change = (
                 quarter_sales
                 if variant == "quarter"
                 else _change(growth, annual, "sales", disclosed_by=annual_cutoff)
             )
+            if sale_change.get("reason") == _COMPARISON_AFTER_AS_OF:
+                expansion_issue = _AFTER_AS_OF
             rate = _number(sale_change.get("rate"))
             if _is_positive(rate):
                 sales = metric_value(annual, "sales", disclosed_by=annual_cutoff)
@@ -200,7 +242,7 @@ def project_economic_coordinates(
                             business_group=f"{sector}:{variant}:sales_growth",
                         )
                     )
-        if variant == recovery_variant:
+        if variant == recovery_variant and recovery_issue is None:
             changes = (
                 quarter_changes
                 if variant == "quarter"
@@ -209,6 +251,8 @@ def project_economic_coordinates(
                     for metric in _RECOVERY_METRICS
                 }
             )
+            if any(change.get("reason") == _COMPARISON_AFTER_AS_OF for change in changes.values()):
+                recovery_issue = _AFTER_AS_OF
             if _recovery_available(changes, cohort_bound=growth.cohort_bound):
                 improvement = _number(changes["operating_profit"].get("difference"))
                 margin_improvement = _number(changes["operating_margin"].get("difference"))
@@ -259,7 +303,20 @@ def project_economic_coordinates(
                     business_group=f"{sector}:reported_profit_book",
                 )
             )
-    return coordinates, review_reason
+    return coordinates, review_reason or uncertainty or expansion_issue or recovery_issue
+
+
+def _unconfirmed_source(
+    observation: Observation | None, metric: Metric, *, as_of: date
+) -> str | None:
+    value = observation.metrics.get(metric) if observation is not None else None
+    if value is None:
+        return None
+    if value.reason in _UNRESOLVED_REVISIONS:
+        return value.reason
+    if any(document.disclosed_at > as_of for document in value.documents):
+        return _AFTER_AS_OF
+    return None
 
 
 def _growth_policy_inputs(payload: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
@@ -384,7 +441,7 @@ def _comparison_with_available_evidence(
             metric_value(item, change.metric, disclosed_by=disclosed_by) is None for item in prior
         )
     ):
-        reason = "comparison_sources_not_observed_by_as_of"
+        reason = _COMPARISON_AFTER_AS_OF
     if reason is not None:
         return {
             **saved,
