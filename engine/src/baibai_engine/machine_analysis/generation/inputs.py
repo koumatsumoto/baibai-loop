@@ -80,8 +80,7 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
     price_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.price_observation_reader import (
-    read_price_day_states,
-    read_turnover_values,
+    read_price_day_inputs,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
     _adjustment_events_from_rows,
@@ -151,24 +150,17 @@ def _read_market_price_inputs(
                     "close_yen": close,
                     "market_cap_million_yen": market_cap,
                 }
-        day_states = read_price_day_states(
+        turnover_start = min(
+            (window[0] for size in (20, 60) if (window := path_calendar.windows[size]) is not None),
+            default=path_calendar.expected_price_date or as_of,
+        )
+        day_states, turnover_values = read_price_day_inputs(
             connection,
             start=state_start,
             end=as_of,
             tickers=(*subjects, NIKKEI225_ETF_PROXY),
-        )
-        turnover_values = read_turnover_values(
-            connection,
-            start=min(
-                (
-                    window[0]
-                    for size in (20, 60)
-                    if (window := path_calendar.windows[size]) is not None
-                ),
-                default=path_calendar.expected_price_date or as_of,
-            ),
-            end=as_of,
-            tickers=subjects,
+            turnover_start=turnover_start,
+            turnover_tickers=subjects,
         )
         action_rows = connection.execute(
             "SELECT ticker,traded_at,adjustment_factor,ex_right_type FROM jquants_daily_bars "
