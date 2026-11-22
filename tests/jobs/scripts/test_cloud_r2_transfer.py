@@ -2421,6 +2421,48 @@ def test_application_pull_preserves_a_local_target_even_after_preflight(tmp_path
     assert not any("put-object" in command or "delete-object" in command for command in commands)
 
 
+def test_overlapping_application_pulls_keep_the_winning_copy_and_its_origin(tmp_path):
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    env = _environment(bin_dir, log)
+    generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
+    generation.write_text('"orphan"\n')
+    command = root / "jobs/scripts/r2_transfer.sh"
+    result_file = tmp_path / "other-pull-status"
+    # Run a real second pull after the first has found no App, just before it
+    # retires the orphan. Without local exclusion it deletes the winner's origin.
+    remove = bin_dir / "rm"
+    remove.write_text(
+        """#!/usr/bin/env bash
+if [[ -z "${SECOND_PULL:-}" && "$*" == "-f -- $R2_GENERATION_DIR/baibai.sqlite.etag" ]]; then
+  SECOND_PULL=1 "$PULL_COMMAND" pull-app
+  printf '%s\\n' "$?" > "$SECOND_STATUS"
+fi
+exec /bin/rm "$@"
+"""
+    )
+    remove.chmod(0o755)
+    outer = subprocess.run(
+        [command, "pull-app"],
+        cwd=root,
+        env={**env, "PULL_COMMAND": str(command), "SECOND_STATUS": str(result_file)},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert {outer.returncode, int(result_file.read_text())} == {0, 2}
+    assert (root / "stores/application/baibai.sqlite").read_bytes() == b"x"
+    assert generation.is_file(), "the losing pull removed the winning copy's origin"
+    assert generation.read_text() == '"etag-stable"\n'
+    assert [command.split()[:2] for command in _transfer_commands(log)] == [
+        ["s3api", "get-object"],
+        ["s3api", "head-object"],
+    ]
+    assert not list(root.glob(".r2-transfer.*"))
+
+
 def test_application_pull_installs_complete_copy_and_generation(tmp_path):
     bin_dir, log = _fake_aws(tmp_path)
     root = _fake_repo(tmp_path)

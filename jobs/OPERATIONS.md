@@ -188,7 +188,7 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
 
 ## application DB を反映する
 
-空の作業領域へpullし、DBとstores/.r2-generations/baibai.sqlite.etagを同じ組で使う。版は取得した本文と同じ応答から取り、配置前に現正本と異なれば中止する。更新済みの組があれば再pullしない。
+空の作業領域へpullし、DBとstores/.r2-generations/baibai.sqlite.etagを同じ組で使う。版は取得した本文と同じ応答から取り、配置前に現正本と異なれば中止する。同じ作業領域に対する `pull-app` が重なった場合、後から来た取得はDB・取得世代を変えずに停止する。別の作業領域やR2側のwriterを止めるロックではない。更新済みの組があれば再pullしない。
 
 ```bash
 jobs/scripts/r2_transfer.sh pull-app
