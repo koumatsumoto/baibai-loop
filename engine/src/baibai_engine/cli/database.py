@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
             print(yaml.safe_dump({"path": str(path), "exists": False}))
             return 0
         with closing(connect_read_only(path)) as connection:
+            connection.execute("BEGIN")  # Read the schema and all counts at one snapshot.
             tables = connection.execute(
                 "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
                 "ORDER BY name"
