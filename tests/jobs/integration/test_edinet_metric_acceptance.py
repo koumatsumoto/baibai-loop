@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 from copy import deepcopy
+from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -24,10 +25,15 @@ from baibai_engine.machine_analysis.observations.financials.edinet_integration i
     extract_saved_edinet,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
+    DEFERRED_CSV_REASON,
     EDINET_METRIC_REVISION,
+    PARTIAL_CSV_COVERAGE,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     read_edinet_metric_baseline,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
+    store_edinet_metrics,
 )
 from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.integration.edinet_metric_acceptance import (
@@ -105,6 +111,49 @@ def test_exact_saved_results_and_sources_are_read_only(compared, status):
     assert len(store.get_keys) == 3  # Fixed metadata only; no new source acquisition.
     assert "samples" not in result
     assert "cash" not in result
+
+
+def test_partial_sample_cannot_borrow_completed_coverage_from_another_commit(compared, monkeypatch):
+    from baibai_engine.machine_analysis.observations.financials.edinet_metrics import (
+        store as reader,
+    )
+
+    _store, database, _, _ = compared
+    row = read_edinet_metric_baseline(database, DAY).rows["7203"]
+    sample = {
+        **asdict(row.record),
+        "source_document_revision": row.source_document_revision,
+        "extractor_revision": EDINET_METRIC_REVISION,
+    }
+    deferred = {
+        "ticker": "8306",
+        "source_doc_id": "S100LATE",
+        "extractor_revision": EDINET_METRIC_REVISION,
+        "failure_reasons": [DEFERRED_CSV_REASON],
+    }
+    store_edinet_metrics(
+        database,
+        DAY,
+        [sample, deferred],
+        status="partial",
+        error=json.dumps({"reason": PARTIAL_CSV_COVERAGE, "doc_ids": ["S100LATE"]}),
+    )
+    with pytest.raises(ValueError, match="partial"):
+        verify(compared)
+
+    def read_then_complete(path, day):
+        snapshot = read_edinet_metric_baseline(path, day)
+        # The first commit has the requested sample but is partial; the second
+        # is complete but the sample differs. Neither can pass the fixed gate.
+        store_edinet_metrics(path, day, [{**sample, "cash": sample["cash"] + 1}])
+        return snapshot
+
+    with monkeypatch.context() as patch:
+        patch.setattr(reader, "read_edinet_metric_baseline", read_then_complete)
+        with pytest.raises(ValueError, match="partial"):
+            verify(compared)
+    with pytest.raises(ValueError, match="sample"):
+        verify(compared)
 
 
 @pytest.mark.parametrize("status", ["deferred_input", "partial", "failed", "prepared", None])
