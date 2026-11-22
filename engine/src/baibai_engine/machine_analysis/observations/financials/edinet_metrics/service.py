@@ -467,11 +467,9 @@ def _record_edinet_extraction_failure(
 ) -> None:
     """Record a failed attempt without destroying a usable target-day snapshot.
 
-    Recording the failure deletes the day's rows, so the check for an existing
-    snapshot is what stands between a failed attempt and the loss of a good one.
-    If an existing store is unreadable or its baseline is inconsistent, the check
-    cannot establish that replacement is safe, so nothing is written. This path
-    does not migrate a store. An absent store has no snapshot to preserve.
+    Do not open a writer if the baseline is unreadable or already covers the
+    target day. The writer separately checks for a concurrent commit before
+    recording an empty failure marker; it never deletes metric rows.
     """
     try:
         baseline = read_edinet_metric_baseline(sqlite_path, asof_date)
