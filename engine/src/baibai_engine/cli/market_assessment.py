@@ -10,8 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from baibai_engine.investment_judgment.draft_files import parse_authored_yaml
 from baibai_engine.investment_judgment.market_assessment.models import MarketContextAssessment
 from baibai_engine.investment_judgment.market_assessment.query import (
     assessment_by_id,
@@ -20,7 +19,6 @@ from baibai_engine.investment_judgment.market_assessment.query import (
 )
 from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
 from baibai_engine.primitives.time import JST
-from baibai_engine.primitives.yaml import safe_load
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,7 +47,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         result: Any
         service = AssessmentService(args.db, clock=(lambda: now) if now is not None else None)
         if args.command == "publish":
-            document = MarketContextAssessment.model_validate(safe_load(args.draft.read_text()))
+            document = MarketContextAssessment.model_validate(
+                parse_authored_yaml(
+                    args.draft.read_text(encoding="utf-8"), label="market assessment"
+                )
+            )
             if args.check:
                 if args.expected_head is not None:
                     raise ValueError("--check does not inspect or change the head")
@@ -68,6 +70,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             result = None if record is None else record.document
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
-    except (OSError, ValueError, sqlite3.Error, KeyError, yaml.YAMLError) as error:
+    except (OSError, ValueError, sqlite3.Error, KeyError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

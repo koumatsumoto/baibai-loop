@@ -10,9 +10,8 @@ from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
-import yaml
-
 from baibai_engine.investment_judgment.contracts import _datetime
+from baibai_engine.investment_judgment.draft_files import parse_authored_yaml
 from baibai_engine.investment_judgment.judgment_retrospective.changes import review_changes
 from baibai_engine.investment_judgment.judgment_retrospective.coverage import (
     proposal_review_coverage,
@@ -28,7 +27,6 @@ from baibai_engine.investment_judgment.judgment_retrospective.store import (
     RetrospectiveStoreService,
 )
 from baibai_engine.primitives.time import JST
-from baibai_engine.primitives.yaml import safe_load
 from baibai_engine.storage.filesystem import write_text_new
 
 
@@ -94,7 +92,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     known_at=instant,
                 )
             case "save":
-                authored = safe_load(args.draft.read_text(encoding="utf-8"))
+                authored = parse_authored_yaml(
+                    args.draft.read_text(encoding="utf-8"), label="retrospective draft"
+                )
                 # The context is read-only authoring material, not a second input authority.
                 if isinstance(authored, dict) and "draft" in authored:
                     authored = authored["draft"]
@@ -162,6 +162,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     except RetrospectiveConflictError as error:
         print(f"error: {error}", file=sys.stderr)
         return 4
-    except (ValueError, RuntimeError, OSError, sqlite3.Error, yaml.YAMLError) as error:
+    except (ValueError, RuntimeError, OSError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 3

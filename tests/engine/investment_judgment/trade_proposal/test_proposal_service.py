@@ -1669,3 +1669,39 @@ def test_selected_buy_quantity_publication_uses_existing_ceiling(tmp_path, quant
     changed["items"][0]["terms"].update(quantity=replacement, notional_yen=str(replacement * 1000))
     with pytest.raises(ProposalConflictError, match="content review"):
         service.check(load_proposal_draft(changed))
+
+
+@pytest.mark.parametrize("entry", ["trade-proposal-check", "trade-proposal-publish", "service"])
+@pytest.mark.parametrize("bad_yaml", ["duplicate", "malformed"])
+def test_authored_proposal_yaml_fails_before_check_or_publish(
+    case, tmp_path, capsys, entry, bad_yaml
+):
+    reviewed = reviewed_proposal(case, action="no_action").model_dump(mode="json")
+    private = "private-synthetic-proposal-text"
+    complete = yaml.safe_dump(reviewed, sort_keys=False, allow_unicode=True)
+    text = f"headline: {private}\n{complete}" if bad_yaml == "duplicate" else f"{private}: [\n"
+    draft = tmp_path / "ambiguous.yaml"
+    draft.write_text(text, encoding="utf-8")
+    before = case.app.read_bytes()
+    if entry == "service":
+        service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        with pytest.raises(ValueError, match=r"^invalid proposal YAML$"):
+            service.publish(text)
+    else:
+        assert (
+            main(
+                [entry, str(draft), "--db", str(case.app), "--sqlite-path", str(case.market)],
+                now=PUBLISHED,
+            )
+            == 3
+        )
+        result = capsys.readouterr()
+        assert result.err == ""
+        assert yaml.safe_load(result.out) == {
+            "status": "invalid_source",
+            "operation_id": None,
+            "reason": "invalid proposal YAML",
+        }
+        assert private not in result.out
+    assert case.app.read_bytes() == before
+    assert draft.read_text(encoding="utf-8") == text

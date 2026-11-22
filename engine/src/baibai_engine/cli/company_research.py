@@ -11,8 +11,6 @@ from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
-import yaml
-
 from baibai_engine.investment_judgment.company_research.context import AvailableResearch, Unreadable
 from baibai_engine.investment_judgment.company_research.document import (
     ResearchDraft,
@@ -28,10 +26,10 @@ from baibai_engine.investment_judgment.company_research.store import (
     load_research,
 )
 from baibai_engine.investment_judgment.contracts import _datetime
+from baibai_engine.investment_judgment.draft_files import parse_authored_yaml
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.time import JST
-from baibai_engine.primitives.yaml import safe_load
 from baibai_engine.storage.filesystem import write_text_new
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
@@ -84,7 +82,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         match args.command:
             case "save":
                 draft = ResearchDraft.model_validate(
-                    safe_load(args.draft.read_text(encoding="utf-8"))
+                    parse_authored_yaml(
+                        args.draft.read_text(encoding="utf-8"), label="research draft"
+                    )
                 )
                 saved = (
                     ResearchStoreService(args.db, clock=lambda: instant)
@@ -187,6 +187,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     except ResearchConflictError as error:
         print(f"error: {error}", file=sys.stderr)
         return 4
-    except (ValueError, RuntimeError, OSError, sqlite3.Error, yaml.YAMLError) as error:
+    except (ValueError, RuntimeError, OSError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 3

@@ -219,3 +219,39 @@ def test_conflicting_save_keeps_old_record_without_a_saved_acknowledgment(tmp_pa
     assert not output.exists()
     assert _count(db, table) == 1
     assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("domain", ["company-research", "judgment-retrospective"])
+@pytest.mark.parametrize("bad_yaml", ["duplicate", "nested_duplicate", "malformed"])
+def test_authored_record_parse_errors_do_not_create_records_or_exports(
+    tmp_path, capsys, domain, bad_yaml
+):
+    db, draft, table, identity = _case(tmp_path, domain)
+    before = db.read_bytes() if db.exists() else None
+    out = tmp_path / "export.json"
+    text = draft.read_text(encoding="utf-8")
+    if bad_yaml == "duplicate":
+        text = f'{{"{identity}": "{PRIVATE}",' + text[1:]
+    elif bad_yaml == "nested_duplicate":
+        # Same-value duplicate under a legitimate draft key has no single authoring interpretation.
+        key = "investigated_scope" if domain == "company-research" else "milestone"
+        value = json.dumps(json.loads(text)["document"][key], ensure_ascii=False)
+        text = text.replace('"document": {', f'"document": {{"{key}": {value},', 1)
+    else:
+        text = f"{PRIVATE}: [\n"
+    draft.write_text(text, encoding="utf-8")
+    assert (
+        main(
+            ["investment-judgment", domain, "save", str(draft), "--db", str(db), "--out", str(out)]
+        )
+        == 3
+    )
+    result = capsys.readouterr()
+    assert result.out == ""
+    expected = "research draft" if domain == "company-research" else "retrospective draft"
+    assert result.err == f"error: invalid {expected} YAML\n"
+    assert PRIVATE not in result.err
+    assert _count(db, table) == 0
+    assert (db.read_bytes() if db.exists() else None) == before
+    assert not out.exists()
+    assert draft.read_text(encoding="utf-8") == text

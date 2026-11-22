@@ -395,3 +395,27 @@ def test_latest_orders_offset_and_microsecond_publications_at_exact_cutoffs(tmp_
         latest_assessment(
             db, as_of=date(2026, 7, 17), known_at=datetime.fromisoformat("2026-07-17T00:00:00")
         )
+
+
+@pytest.mark.parametrize("check", [False, True])
+def test_market_assessment_rejects_duplicate_authored_summary(tmp_path, capsys, check):
+    db, draft = tmp_path / "app.sqlite", tmp_path / "assessment.yaml"
+    private = "private-synthetic-market-summary"
+    body = json.dumps(document().payload(), ensure_ascii=False, indent=2)
+    # An explicitly named JSON file is also accepted as ordinary YAML; both keys survive this
+    # author's text but disappear in a last-value-wins parser.
+    text = f'{{"summary": "{private}",' + body[1:]
+    draft.write_text(text, encoding="utf-8")
+    assert (
+        main(
+            ["--db", str(db), "publish", str(draft), *(["--check"] if check else [])],
+            now=datetime(2026, 7, 19, tzinfo=UTC),
+        )
+        == 1
+    )
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert result.err == "error: invalid market assessment YAML\n"
+    assert private not in result.err
+    assert not db.exists()
+    assert draft.read_text(encoding="utf-8") == text

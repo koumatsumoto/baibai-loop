@@ -1336,3 +1336,44 @@ def test_scaffold_export_keeps_its_canonical_draft_and_force(
         assert output.read_bytes() == canonical.read_bytes()
     assert identifiers[0] == identifiers[1]
     assert (db.read_bytes(), (root / "domain-inputs.yaml").read_bytes()) == before
+
+
+@pytest.mark.parametrize(
+    ("target", "entry"),
+    [
+        ("assessment", "evaluate"),
+        ("assessment", "promote"),
+        ("assessment", "independent-review-scaffold"),
+        ("review", "evaluate"),
+        ("review", "promote"),
+    ],
+)
+def test_ambiguous_authored_pair_is_not_evaluated_or_saved(case, capsys, target, entry):
+    db, workspace, _ = case
+    author(case)
+    pair_dir = workspace / "1234"
+    document = pair_dir / "assessment-draft.yaml"
+    review = pair_dir / "assessment-review.yaml"
+    broken = document if target == "assessment" else review
+    key = "kind" if target == "assessment" else "review_id"
+    private = "private-synthetic-assessment-text"
+    text = f"{key}: {private}\n" + broken.read_text(encoding="utf-8")
+    broken.write_text(text, encoding="utf-8")
+    before = db.read_bytes()
+    files = {path: path.read_bytes() for path in workspace.rglob("*.yaml")}
+    common = ["--workspace", str(workspace), "--db", str(db), "--ticker", "1234"]
+    if entry == "evaluate":
+        assert (
+            main(["stock-assessment-evaluate", str(document), "--review", str(review)], now=NOW)
+            == 2
+        )
+    elif entry == "promote":
+        assert main(["stock-assessment-promote", *common], now=NOW) == 3
+    else:
+        assert main([entry, *common, "--force"], now=NOW) == 3
+    result = capsys.readouterr()
+    label = "assessment" if target == "assessment" else "Assessment Review"
+    assert f"invalid {label} YAML" in result.err + result.out
+    assert private not in result.err + result.out
+    assert db.read_bytes() == before
+    assert {path: path.read_bytes() for path in workspace.rglob("*.yaml")} == files
