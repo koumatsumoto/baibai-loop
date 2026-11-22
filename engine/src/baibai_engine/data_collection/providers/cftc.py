@@ -83,8 +83,11 @@ def parse_cftc_records(
                 f"CFTC row code {code!r} does not match requested {series.provider_series_id!r}"
             )
         observed_at = _parse_date(row.get("report_date_as_yyyy_mm_dd"))
-        if start <= observed_at <= end:
-            by_date[observed_at].append(row)
+        if not start <= observed_at <= end:
+            raise IndicatorsProviderError(
+                f"CFTC report date {observed_at} is outside the requested range {start}..{end}"
+            )
+        by_date[observed_at].append(row)
     return dict(by_date)
 
 
