@@ -19,6 +19,7 @@ from typing import TextIO
 import yaml
 from pydantic import ValidationError
 
+from baibai_engine.investment_judgment.draft_files import parse_authored_yaml
 from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalConflictError
 from baibai_engine.investment_judgment.workflow.discovery import (
     DISCOVERY_QUESTIONS,
@@ -44,7 +45,6 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     scaffold_review,
 )
 from baibai_engine.primitives.time import JST
-from baibai_engine.primitives.yaml import safe_load
 from baibai_engine.storage.filesystem import paths_refer_to_same_file
 from baibai_engine.storage.paths import (
     MARKET_DB_PATH,
@@ -468,16 +468,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     clock=None if now is None else lambda: resolved_now,
                 )
                 publishing = args.command == "trade-proposal-publish"
-                try:
-                    if publishing:
-                        published = service.publish(document)
-                    else:
-                        proposal = load_proposal_draft(safe_load(document))
-                except yaml.YAMLError as error:
-                    raise ValueError(f"invalid proposal YAML: {args.draft}: {error}") from error
                 if publishing:
+                    published = service.publish(document)
                     _emit(published.model_dump(mode="json"), out)
                     return 0
+                proposal = load_proposal_draft(parse_authored_yaml(document, label="proposal"))
                 validation = service.check(proposal, require_review=False)
                 expected = validation.draft_sha256
                 binding = (

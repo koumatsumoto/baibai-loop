@@ -8,8 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import cast
 
-import yaml
-
+from baibai_engine.investment_judgment.draft_files import read_authored_mapping
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
@@ -100,17 +99,17 @@ def _read_case(workspace: Path, ticker: str, asof: date) -> _CaseDraft:
         assessment_errors.append("assessment draft missing")
     else:
         try:
-            assessment_payload = _load_mapping(assessment_path, label="assessment")
+            assessment_payload = read_authored_mapping(assessment_path, label="assessment")
             assessment = StockAssessmentDocument.model_validate(assessment_payload)
-        except (OSError, yaml.YAMLError, ValueError, ResearchWorkspaceDataError) as error:
+        except ValueError as error:
             assessment_errors.append(str(error))
     if not has_review:
         review_errors.append("review draft missing")
     else:
         try:
-            review_payload = _load_mapping(review_path, label="Assessment Review")
+            review_payload = read_authored_mapping(review_path, label="Assessment Review")
             review = AssessmentReview.model_validate(review_payload)
-        except (OSError, yaml.YAMLError, ValueError, ResearchWorkspaceDataError) as error:
+        except ValueError as error:
             review_errors.append(str(error))
     if assessment is not None:
         if assessment.input_snapshot.ticker != ticker:

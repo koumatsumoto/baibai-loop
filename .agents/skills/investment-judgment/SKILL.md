@@ -9,6 +9,8 @@ description: 人間の依頼に合わせて調査対象を選び、普通株一�
 
 以下の省略コマンドはinvestment-judgment配下。引数は`--help`、pathは返却値を使う。`<APP_DB>`の準備と保存後の反映は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
 
+判断・査読の執筆YAMLでは同じmapping内に同名キーを置かない。読取エラー時は原稿の構文や重複を直してから再確認し、保存済み本文は書き換えない。
+
 ## 開始と固定対象
 
 既存Operationは旧形式も[IDで再開](#完了と再開)する。新しい依頼は、新規発見・銘柄指定・保有点検の範囲を決めて始める。旧draft/runを新Selectionにせず、人間による事前の銘柄選定や全社の査定を前提にしない。

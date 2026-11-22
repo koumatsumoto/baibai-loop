@@ -11,6 +11,7 @@ from decimal import Decimal
 from functools import cache
 from pathlib import Path
 
+from baibai_engine.investment_judgment.draft_files import parse_authored_yaml
 from baibai_engine.investment_judgment.stock_assessment.store import (
     ReviewedAssessment,
     latest_assessment_id,
@@ -63,7 +64,6 @@ from baibai_engine.portfolio.holdings.market_observations import (
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
-from baibai_engine.primitives.yaml import safe_load
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import connect_existing
@@ -468,7 +468,11 @@ class TradeProposalService:
         if not isinstance(proposal, (str, TradeProposalDraft)):
             raise TypeError("proposal publication requires authored YAML or a TradeProposalDraft")
         # YAMLに未検証の子modelは入らない。typed draftはload_proposal_draftで全体を再検証する。
-        raw = safe_load(proposal) if isinstance(proposal, str) else proposal
+        raw = (
+            parse_authored_yaml(proposal, label="proposal")
+            if isinstance(proposal, str)
+            else proposal
+        )
         proposal = load_proposal_draft(raw)
         with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
