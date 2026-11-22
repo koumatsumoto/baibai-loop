@@ -370,6 +370,24 @@ def _release_already_recorded(
     return True
 
 
+def _require_date_only_expiry_reached(
+    *,
+    reservation_id: str,
+    expires_at: datetime | None,
+    occurred_on: date | None,
+    reported_at: datetime,
+) -> None:
+    # The day can match even before a known actual deadline on that day.
+    if (
+        occurred_on is not None
+        and expires_at is not None
+        and reported_at.astimezone(UTC) < expires_at.astimezone(UTC)
+    ):
+        raise BrokerFactRecordingError(
+            f"date-only expired report predates expires_at: {reservation_id}"
+        )
+
+
 def _release_addition(
     reservation: ReservationSnapshot,
     *,
@@ -387,14 +405,12 @@ def _release_addition(
         raise BrokerFactRecordingError(
             f"{status} decision_reference does not match the active reservation"
         )
-    if (
-        status == "expired"
-        and occurred_on is not None
-        and reservation.expires_at is not None
-        and reported_at < reservation.expires_at
-    ):
-        raise BrokerFactRecordingError(
-            f"date-only expired report predates expires_at: {reservation.reservation_id}"
+    if status == "expired":
+        _require_date_only_expiry_reached(
+            reservation_id=reservation.reservation_id,
+            expires_at=reservation.expires_at,
+            occurred_on=occurred_on,
+            reported_at=reported_at,
         )
     suffix = _event_suffix(decision_reference, status, event_identity, occurred_at, occurred_on)
     prefix = "human-cancel" if status == "cancelled" else "human-expire"
