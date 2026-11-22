@@ -11,9 +11,10 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from tests.helpers.db_seed import seed_historical_operation
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.research_selection import historical_operation, selection
 
+from baibai_engine.cli.investment_judgment import main as investment_judgment_main
 from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.investment_judgment.workflow.operation import service as operation_service
 from baibai_engine.investment_judgment.workflow.operation.models import (
@@ -28,6 +29,7 @@ from baibai_engine.investment_judgment.workflow.operation.service import (
 )
 from baibai_engine.investment_judgment.workflow.selection import selection_sha256
 from baibai_engine.primitives.time import JST
+from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
@@ -312,6 +314,66 @@ def test_operation_list_does_not_create_an_unwritten_database(tmp_path: Path) ->
     db.touch()
     assert OperationService(db).list() == []
     assert db.stat().st_size == 0
+
+
+@pytest.mark.parametrize("app_state", ["zero_byte", "empty_sqlite", "missing_required_table"])
+def test_prepare_distinguishes_unwritten_app_from_incomplete_schema(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], app_state: str
+) -> None:
+    db = tmp_path / "app.sqlite"
+    if app_state == "zero_byte":
+        db.touch()
+    else:
+        with closing(sqlite3.connect(db)) as connection:
+            if app_state == "empty_sqlite":
+                connection.execute("VACUUM")
+            else:
+                connection.execute(f"PRAGMA user_version={APPLICATION_SCHEMA_VERSION}")
+    before_db = db.read_bytes()
+    runs = tmp_path / "runs.sqlite"
+    selected = seed_generated_selection(
+        runs=runs, now=NOW, tickers=("1234",), scope="specified_stocks"
+    )
+    draft = tmp_path / "selection.json"
+    draft.write_text(generated_draft_for(selected).model_dump_json(), encoding="utf-8")
+    input_bytes = runs.read_bytes(), draft.read_bytes()
+    workspace = tmp_path / "workspace"
+    args = [
+        "prepare",
+        "--selection-file",
+        str(draft),
+        "--db",
+        str(db),
+        "--runs-path",
+        str(runs),
+        "--workspace",
+        str(workspace),
+    ]
+
+    result = investment_judgment_main(args, now=NOW)
+    body = json.loads(capsys.readouterr().out)
+    assert (runs.read_bytes(), draft.read_bytes()) == input_bytes
+    if app_state == "missing_required_table":
+        assert result == 3
+        assert body["status"] == "invalid_source"
+        assert "no such table: operation_session" in body["reason"]
+        assert db.read_bytes() == before_db
+        assert not workspace.exists()
+        return
+
+    assert result == 0, body
+    assert body["status"] == "prepared"
+    active = OperationService(db).active()
+    assert active is not None
+    assert active.operation_id == body["operation_id"]
+    assert (workspace / "domain-inputs.yaml").is_file()
+    saved = db.read_bytes()
+    assert investment_judgment_main(args, now=NOW) == 0
+    retried = json.loads(capsys.readouterr().out)
+    assert retried["status"] == "resumed"
+    assert retried["operation_id"] == body["operation_id"]
+    assert retried["selection_sha256"] == body["selection_sha256"]
+    assert db.read_bytes() == saved
 
 
 def test_operation_lists_sort_by_instant_not_offset_text(tmp_path: Path) -> None:

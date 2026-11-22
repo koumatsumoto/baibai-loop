@@ -430,14 +430,12 @@ class OperationService:
         )
 
     def active(self) -> OperationSession | None:
-        path = database_path(self._db_path)
-        if not path.is_file():
-            return None
-        with closing(connect_read_only(path)) as connection:
-            row = connection.execute(
-                "SELECT * FROM operation_session WHERE status='active'"
-            ).fetchone()
-        return None if row is None else _from_row(row)
+        rows = read_rows(
+            database_path(self._db_path),
+            "SELECT * FROM operation_session WHERE status='active'",
+            connector=connect_read_only,
+        )
+        return _from_row(rows[0]) if rows else None
 
     def _edit_active(
         self, operation_id: str, edit: _Edit, *, now: datetime | None
