@@ -464,3 +464,56 @@ def test_nested_or_malformed_templates_do_not_leak_score_markup(inert):
 def test_completed_template_does_not_change_following_visible_zero():
     intra_template = "<section><template></section><span>placeholder</span></template></section>"
     assert observation(text=intra_template + html(cheap="0/10")).undervaluation_score == 0
+
+
+@pytest.mark.parametrize("marker", ["<script>", "<SCRIPT / >", "<ScRiPt	>"])
+def test_double_escaped_script_cannot_release_inert_template_scores(marker):
+    page = html(cheap="9/10")
+    prefix, _, scores = page.partition("</span>")
+    inert = f"<template><script><!--{marker}</script></template>{scores}</script></template>"
+    with pytest.raises(ParseError, match="ambiguous_inert_template_script"):
+        observation(text=prefix + "</span>" + inert)
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "const sample = '<script>';",
+        "<!--",
+        "<!--> <script>",
+        "<!-- --> <script>",
+        "<!--<script> -->",
+        "<!--<scripture>",
+    ],
+)
+def test_unambiguous_template_script_does_not_discard_real_following_score(script):
+    inert = f"<template><script>{script}</script></template>"
+    result = observation(text=inert + html(cheap="0/10"))
+    assert result.undervaluation_score == 0
+    assert result.availability == "available"
+
+
+def test_daily_keeps_the_ambiguous_receipt_without_publishing_a_score(connect):
+    prefix, _, scores = html(cheap="9/10").partition("</span>")
+    body = (
+        prefix
+        + "</span><template><script><!--<script></script></template>"
+        + scores
+        + "</script></template>"
+    ).encode("shift_jis")
+    session = Session([(200, body, "SHIFT_JIS")])
+    connect(session)
+    p, store = plan(tickers=("130A",), sources=("kabumap",)), FakeObjectStore()
+    external_assessment_daily.acquire_cohort(store, p, 0)
+    saved = stage(store, p)
+    (entry,) = saved.result.entries
+    assert entry.state == "failure"
+    # Stage summaries keep the existing public reason allowlist. The direct parser
+    # tests retain the precise internal diagnostic for this receipt.
+    assert entry.reason == "unclassified_parse_failure"
+    assert entry.http_status == 200
+    assert saved.result.observations == ()
+    (_, (original,)) = read_raw_bundle(store, saved.raw_bundle_keys[0])
+    assert original.body == body
+    assert original.attempt_id == entry.attempt_id
+    assert len(session.calls) == 1
