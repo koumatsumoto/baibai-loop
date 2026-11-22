@@ -18,10 +18,10 @@ class JQuantsProviderError(RuntimeError):
     """Raised when a required J-Quants fetch or normalization fails."""
 
 
-def parse_jquants_code_parts(code: Any) -> tuple[str, bool]:
+def parse_jquants_code_parts(code: object, *, require_text: bool = False) -> tuple[str, bool]:
     """Decode the primary issue suffix; ETF/REIT classification requires master ProdCat."""
     try:
-        return parse_security_code_parts(code)
+        return parse_security_code_parts(code, require_text=require_text)
     except SecurityCodeError as exc:
         raise JQuantsProviderError(f"invalid J-Quants code: {code!r}") from exc
 

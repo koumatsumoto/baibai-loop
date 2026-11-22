@@ -71,13 +71,13 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
 from baibai_engine.portfolio.holdings.market_observations import (
     OrderSessionBounds,
     read_order_session_bounds,
-    read_unadjusted_close,
+    read_unadjusted_closes,
 )
 from baibai_engine.portfolio.holdings.valuation import (
     UnresolvedHoldingQuantityError,
     holding_episode,
     holding_market_price,
-    holding_quote,
+    holding_quote_basis_is_confirmed,
     require_closed_holding_basis,
 )
 from baibai_engine.portfolio.ledger.events import (
@@ -215,10 +215,18 @@ def collect_proposal_inputs(
                 require_closed_holding_basis(ledger, now=now, connection=market_connection)
             except UnresolvedHoldingQuantityError as error:
                 raise ProposalError(str(error)) from error
+            observed_quotes = read_unadjusted_closes(
+                sqlite_path=sqlite_path,
+                tickers=relevant_tickers,
+                at=now,
+                connection=market_connection,
+            )
             for ticker in relevant_tickers:
+                observed = observed_quotes.get(ticker)
                 if ticker in held_tickers:
-                    observed, confirmed = holding_quote(
+                    confirmed = holding_quote_basis_is_confirmed(
                         ledger,
+                        quote=observed,
                         ticker=ticker,
                         sqlite_path=sqlite_path,
                         now=now,
@@ -230,10 +238,6 @@ def collect_proposal_inputs(
                     )
                     if price is not None:
                         prices[ticker] = price
-                else:
-                    observed = read_unadjusted_close(
-                        sqlite_path=sqlite_path, ticker=ticker, at=now, connection=market_connection
-                    )
                 if observed is not None:
                     quotes.append(
                         QuoteInput(

@@ -8,8 +8,14 @@ import pyarrow.parquet as pq
 import pytest
 from tests.engine.data_collection.providers.jquants.test_calendar_native import AT, attempt, owner
 
+from baibai_engine.data_collection.providers.jquants.native_index import calendar_sessions
+from baibai_engine.machine_analysis.generation.calendar_inputs import (
+    calendar_day_closed,
+    read_calendar_input,
+)
 from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
+    confirmed_closed_master_bases,
     observation_calendar_context,
     read_price_calendar,
 )
@@ -31,30 +37,50 @@ def _project(database, start, end, records):
     store, source = owner(database.parent / "native")
     source.commit([attempt("calendar", start, end, rows=records)])
     open_connection(database).close()
-    model_input(store, source.fixed(), as_of=end, evaluated_at=AT, market=database)
+    fixed = source.fixed()
+    saved = model_input(store, fixed, as_of=end, evaluated_at=AT, market=database)
+    return store, fixed, saved
 
 
 def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(tmp_path):
     start = date(2026, 1, 1)
     end = start + timedelta(days=3)
     divisions = ("1", "0", "2", "3")
+    days = tuple(start + timedelta(days=i) for i in range(4))
+    raw_by_day = dict(zip(days, divisions, strict=True))
     records = [
-        {"Date": (start + timedelta(days=i)).isoformat(), "HolDiv": division}
-        for i, division in enumerate(divisions)
+        {"Date": day.isoformat(), "HolDiv": division} for day, division in raw_by_day.items()
     ]
     database = tmp_path / "market.sqlite"
-    _project(database, start, end, records)
+    store, fixed, saved = _project(database, start, end, records)
+    expected_sessions = dict(zip(days, (True, False, True, False), strict=True))
+    assert calendar_sessions(fixed.index(), start=start, end=end) == (expected_sessions, ())
+    scopes = read_calendar_input(store, saved.descriptor, days=days)["scopes"]
+    assert [calendar_day_closed(scopes[day.isoformat()]) for day in days] == [
+        False,
+        True,
+        False,
+        True,
+    ]
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute(
             "SELECT holiday_division FROM jquants_market_calendar ORDER BY day"
         ).fetchall() == [(division,) for division in divisions]
-        half_day = start + timedelta(days=2)
-        assert [
-            observation_calendar_context(connection, start + timedelta(days=i)) for i in range(4)
-        ] == [(start, True), (start, False), (half_day, True), (half_day, False)]
-    days = read_market_calendar(database, start, end)
-    assert days is not None
-    assert [day.is_business_day for day in days] == [True, False, True, False]
+        half_day = days[2]
+        assert [observation_calendar_context(connection, day) for day in days] == [
+            (start, True),
+            (start, False),
+            (half_day, True),
+            (half_day, False),
+        ]
+        assert read_price_calendar(connection, as_of=end) == expected_sessions
+    assert confirmed_closed_master_bases(raw_by_day, coverage=[(start, end)]) == {
+        days[1]: start,
+        end: half_day,
+    }
+    report_days = read_market_calendar(database, start, end)
+    assert report_days is not None
+    assert [day.is_business_day for day in report_days] == [True, False, True, False]
 
     mirror = tmp_path / "lake"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot:

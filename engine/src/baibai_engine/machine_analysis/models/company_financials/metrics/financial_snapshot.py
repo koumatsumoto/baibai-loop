@@ -30,8 +30,8 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _latest_non_null_row,
     _latest_summary,
     _prior_year_summary,
+    _reported_ttm,
     _ttm_components,
-    _ttm_period,
     _ttm_value,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
@@ -186,7 +186,8 @@ def build_financial_snapshot(
         operating_profit_ttm = pdf_selection.amounts_yen.get("operating_profit")
         sales_ttm = pdf_selection.amounts_yen.get("sales")
         sales_quality = TTMQuality.APPROXIMATED if sales_ttm is not None else TTMQuality.UNAVAILABLE
-    ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", ttm_rules)
+    reported_ocf_ttm = _reported_ttm(summaries, "cfo", ttm_rules)
+    ocf_ttm, ocf_quality = reported_ocf_ttm.value_and_quality()
     # EDINETと短信の大きな規模差を検出する。通過しても同一時点・範囲の証明にはならない。
     edinet_usable = _edinet_passes_entity_scale_check(edinet, total_assets)
     edinet_metrics = edinet if edinet_usable else None
@@ -296,7 +297,7 @@ def build_financial_snapshot(
     )
     current_assets_row = _latest_actual_row(summaries, field_names=("total_assets",))
     profit_rows = _ttm_components(summaries, "profit", ttm_rules)
-    ocf_rows = _ttm_components(summaries, "cfo", ttm_rules)
+    ocf_rows = reported_ocf_ttm.components
     accrual_basis_rows = (
         *profit_rows,
         *ocf_rows,
@@ -355,7 +356,7 @@ def build_financial_snapshot(
         dps_forecast_annual=dividend_forecast.dps_forecast_annual if dividend_forecast else None,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
-        ocf_ttm_period=_ttm_period(summaries, "cfo", ttm_rules),
+        ocf_ttm_period=reported_ocf_ttm.period_payload(),
         sales=sales_row.sales if sales_row else None,
         cfo=cfo_row.cfo if cfo_row else None,
         cfo_source=_reported_source(cfo_row, "cfo"),

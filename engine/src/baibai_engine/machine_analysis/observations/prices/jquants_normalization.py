@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from datetime import date
 from math import isfinite
 from typing import Any
 
@@ -10,7 +11,6 @@ from baibai_engine.machine_analysis.observations.jquants_decode import normalize
 from baibai_engine.machine_analysis.observations.normalization import (
     NormalizedRows,
     code_quality,
-    date_iso,
     distinct_source_rows,
     to_float,
     to_str_or_none,
@@ -22,14 +22,14 @@ def normalize_daily_bars(records: Iterable[Mapping[str, Any]]) -> NormalizedRows
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, code_status = code_quality(record.get("Code"))
+        ticker, code_status = code_quality(record.get("Code"), require_text=True)
         if code_status == "rejected":
             rejected_count += 1
             continue
         if code_status == "excluded":
             excluded_count += 1
             continue
-        traded_at = date_iso(record.get("Date"))
+        traded_at = _daily_bar_date(record.get("Date"))
         if ticker is None or traded_at is None:
             rejected_count += 1
             continue
@@ -40,7 +40,7 @@ def normalize_daily_bars(records: Iterable[Mapping[str, Any]]) -> NormalizedRows
         rows.append(
             (
                 ticker,
-                traded_at,
+                traded_at.isoformat(),
                 *prices,
                 to_float(record.get("AdjFactor")),
                 to_str_or_none(record.get("UL")),
@@ -54,6 +54,19 @@ def normalize_daily_bars(records: Iterable[Mapping[str, Any]]) -> NormalizedRows
         rejected_count=rejected_count,
         excluded_count=excluded_count,
     )
+
+
+def _daily_bar_date(raw: object) -> date | None:
+    """Read a session date, including the retained ISO midnight representation."""
+    if not isinstance(raw, str):
+        return None
+    value = raw.removesuffix("T00:00:00")
+    if len(value) != 10 or value[4] != "-" or value[7] != "-":
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _price_values(record: Mapping[str, Any]) -> tuple[float | None, ...] | None:

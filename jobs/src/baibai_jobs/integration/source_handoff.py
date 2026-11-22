@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.primitives.jquants_calendar import cash_equity_open
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
@@ -438,7 +439,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             for day, division in item.calendar_divisions
             if day == asof
         }
-        if divisions and divisions <= {"0", "3"}:
+        if divisions and all(cash_equity_open(division) is False for division in divisions):
             master_ok = True
             master_result = {**master_result, "status": "not_required_non_business_day"}
     write_json_atomic(

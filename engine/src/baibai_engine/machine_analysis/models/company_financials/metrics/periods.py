@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
@@ -248,57 +249,62 @@ def _prior_year_summary(
     return prior
 
 
-def _ttm_value(
-    summaries: Sequence[JQuantsFinancialSummary],
-    field: str,
-    ttm_rules: TTMRules,
-) -> tuple[float | None, TTMQuality]:
-    """`直近累計 + 前期通期 - 前年同期間累計` で 12 か月へ直す。
+@dataclass(frozen=True, slots=True)
+class _ReportedTTM:
+    """額・期間・原典のすべてが、同じ選択済みの開示行を参照する。"""
 
-    この合成は各項が同じ単位で加減できることを前提にする。円の総額は満たすが、1 株当たり
-    の値は各項が自分の期の株数で割られているので満たさない。株数が動いた会社では黒字が
-    赤字に見える。per-share の field を渡すのは呼び出し側の誤りなので受け付けない。
-    """
-    components = _ttm_components(summaries, field, ttm_rules)
-    if not components:
-        return None, TTMQuality.UNAVAILABLE
-    values = [getattr(row, field) for row in components]
-    if len(values) == 1:
-        return values[0], TTMQuality.EXACT
-    return compose_ttm_amount(*values), TTMQuality.EXACT
+    field: str
+    components: tuple[JQuantsFinancialSummary, ...]
+
+    def value_and_quality(self) -> tuple[float | None, TTMQuality]:
+        if not self.components:
+            return None, TTMQuality.UNAVAILABLE
+        values = [getattr(row, self.field) for row in self.components]
+        if len(values) == 1:
+            return values[0], TTMQuality.EXACT
+        return compose_ttm_amount(*values), TTMQuality.EXACT
+
+    def period_payload(self) -> dict[str, object] | None:
+        """構成要素が実際に覆う区間。最新開示日や年度末で代用しない。"""
+        if not self.components:
+            return None
+        latest = self.components[0]
+        reported_annual = len(self.components) == 1
+        start = latest.period_start if reported_annual else annual_ttm_start(*self.components)
+        return {
+            "start": start.isoformat() if start is not None else None,
+            "end": latest.period_end.isoformat() if latest.period_end is not None else None,
+            "method": "reported_annual"
+            if reported_annual
+            else "fy_plus_current_ytd_minus_prior_ytd",
+            "statement_basis": statement_basis(latest),
+            "accounting_standard": accounting_standard(latest),
+            "components": [
+                {
+                    "coefficient": -1 if index == 2 else 1,
+                    "amount_yen": getattr(row, self.field),
+                    "period_start": row.period_start.isoformat() if row.period_start else None,
+                    "period_end": row.period_end.isoformat() if row.period_end else None,
+                    "disclosed_at": row.disclosed_at.isoformat(),
+                    "disclosed_time": row.disclosed_time,
+                    "disclosure_number": row.disclosure_number,
+                    "document_type": row.document_type,
+                }
+                for index, row in enumerate(self.components)
+            ],
+        }
 
 
-def _ttm_period(
+def _reported_ttm(
     summaries: Sequence[JQuantsFinancialSummary], field: str, ttm_rules: TTMRules
-) -> dict[str, object] | None:
-    """値と同じ構成要素が実際に覆う区間。最新開示日や年度末で代用しない。"""
-    components = _ttm_components(summaries, field, ttm_rules)
-    if not components:
-        return None
-    latest = components[0]
-    start = latest.period_start if len(components) == 1 else annual_ttm_start(*components)
-    return {
-        "start": start.isoformat() if start is not None else None,
-        "end": latest.period_end.isoformat() if latest.period_end is not None else None,
-        "method": "reported_annual"
-        if len(components) == 1
-        else "fy_plus_current_ytd_minus_prior_ytd",
-        "statement_basis": statement_basis(latest),
-        "accounting_standard": accounting_standard(latest),
-        "components": [
-            {
-                "coefficient": -1 if index == 2 else 1,
-                "amount_yen": getattr(row, field),
-                "period_start": row.period_start.isoformat() if row.period_start else None,
-                "period_end": row.period_end.isoformat() if row.period_end else None,
-                "disclosed_at": row.disclosed_at.isoformat(),
-                "disclosed_time": row.disclosed_time,
-                "disclosure_number": row.disclosure_number,
-                "document_type": row.document_type,
-            }
-            for index, row in enumerate(components)
-        ],
-    }
+) -> _ReportedTTM:
+    return _ReportedTTM(field, _ttm_components(summaries, field, ttm_rules))
+
+
+def _ttm_value(
+    summaries: Sequence[JQuantsFinancialSummary], field: str, ttm_rules: TTMRules
+) -> tuple[float | None, TTMQuality]:
+    return _reported_ttm(summaries, field, ttm_rules).value_and_quality()
 
 
 def _ttm_components(
@@ -306,7 +312,10 @@ def _ttm_components(
     field: str,
     ttm_rules: TTMRules,
 ) -> tuple[JQuantsFinancialSummary, ...]:
-    """実際に用いた年間額、または直近累計・前期通期・前年同期の原典を返す。"""
+    """実際に用いた年間額、または直近累計・前期通期・前年同期の原典を返す。
+
+    期ごとに株数の異なる一株当たりの値は加減できない。円の総額を合成してから株数で割る。
+    """
     if field in _PER_SHARE_FIELDS:
         raise ValueError(f"{field} is per share; compose the yen line and convert once at the end")
     # 非実績開示は過去の実績を取り消さない。必要fieldの欠損は選択後に判定する。

@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from datetime import date
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.machine_analysis.observations.financials.metric_quality import (
     OperatingProfitSource,
     TTMQuality,
 )
-from baibai_engine.machine_analysis.observations.prices.price_models import validate_finite
 
-_MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False, validate_assignment=False)
+_MODEL_CONFIG = ConfigDict(
+    strict=True, arbitrary_types_allowed=False, validate_assignment=False, allow_inf_nan=False
+)
 UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"
 UNRESOLVED_ACTUAL_DIVIDEND_BASIS = "unresolved_actual_dividend"
 
@@ -97,7 +98,7 @@ class FinancialSnapshot:
     ocf_yield: float | None = None
     net_cash: float | None = None
     net_cash_to_market_cap: float | None = None
-    investment_securities: float | None = None
+    investment_securities: float | None = Field(default=None, ge=0)
     fcf_yield: float | None = None
     debt: float | None = None
     cash: float | None = None
@@ -134,50 +135,3 @@ class FinancialSnapshot:
     tradable_share_change_yoy: float | None = None
     # 会社予想の経常利益・純利益に基づく。EPSの符号から推定しない。
     forecast_full_year_loss_flag: bool | None = None
-
-    @field_validator(
-        "per_forward",
-        "per_trailing",
-        "pbr",
-        "ev_ebitda",
-        "p_s",
-        "pcfr",
-        "dps_actual_annual",
-        "dps_forecast_annual",
-        "dividend_split_factor",
-        "sales_ttm",
-        "ocf_ttm",
-        "sales",
-        "cfo",
-        "cash_eq",
-        "total_assets",
-        "same_state_equity_yen",
-        "market_price_yen",
-        "shares_ex_treasury",
-        "market_cap",
-        "cash_to_market_cap",
-        "equity_ratio",
-        "ocf_yield",
-        "net_cash",
-        "net_cash_to_market_cap",
-        "investment_securities",
-        "fcf_yield",
-        "debt",
-        "cash",
-        "operating_profit",
-        "operating_profit_ttm",
-        "shares_outstanding",
-        "accruals_to_assets",
-        "net_share_change_yoy",
-        "tradable_share_change_yoy",
-    )
-    @classmethod
-    def _finite_numeric_fields(cls, value: float | None) -> float | None:
-        return validate_finite(value)
-
-    @field_validator("investment_securities")
-    @classmethod
-    def _nonnegative_investment_securities(cls, value: float | None) -> float | None:
-        if value is not None and value < 0:
-            raise ValueError("investment_securities must be nonnegative")
-        return value

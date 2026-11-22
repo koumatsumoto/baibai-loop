@@ -26,6 +26,7 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 from baibai_engine.cli import investment_judgment as judgment_cli
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal import contracts as proposal_contracts
 from baibai_engine.investment_judgment.trade_proposal import service as proposal_service
 from baibai_engine.investment_judgment.trade_proposal.conditions import no_action_blocker
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -387,7 +388,7 @@ def test_author_can_retain_a_source_caution_without_using_a_scaffold_as_the_deci
 
 @pytest.mark.parametrize("legacy_publication_time", [False, True])
 def test_one_context_authored_unsigned_check_later_review_publish_and_exact_retry(
-    case, tmp_path, capsys, legacy_publication_time
+    case, tmp_path, capsys, monkeypatch, legacy_publication_time
 ):
     draft = tmp_path / "proposal.yaml"
     common = ["--db", str(case.app), "--sqlite-path", str(case.market)]
@@ -451,8 +452,17 @@ def test_one_context_authored_unsigned_check_later_review_publish_and_exact_retr
     assert checked_again["review_binding"] == "match"
     assert checked_again["draft_sha256"] == checked["draft_sha256"]
 
+    parsed_types = []
+
+    def parse(payload):
+        parsed_types.append(type(payload))
+        return load_proposal_draft(payload)
+
+    monkeypatch.setattr(proposal_contracts, "load_proposal_draft", parse)
+    monkeypatch.setattr(proposal_service, "load_proposal_draft", parse)
     published_at = PUBLISHED + timedelta(minutes=1)
     assert main(["trade-proposal-publish", str(draft), *common], now=published_at) == 0
+    assert parsed_types == [dict]
     published = TradeProposal.model_validate(yaml.safe_load(capsys.readouterr().out))
     assert published.prepared_at == PREPARED
     assert published.review.reviewed_at == reviewed_at
@@ -480,6 +490,25 @@ def test_future_review_is_rejected_even_with_a_later_caller_publication_time(cas
     assert "proposal_time_after_publish" in {reason.code for reason in validation.blockers}
     with pytest.raises(ProposalError, match="現在発行時刻"):
         service.publish(proposal)
+    assert case.app.read_bytes() == before
+
+
+def test_service_boundaries_reject_an_invalid_nested_typed_draft(case):
+    proposal = reviewed_proposal(case)
+    invalid = proposal.model_copy(
+        update={"review": proposal.review.model_copy(update={"open_findings": ("unresolved",)})}
+    )
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    before = case.app.read_bytes()
+    with pytest.raises(ValidationError, match="cannot carry open findings"):
+        service.check(invalid)
+    with pytest.raises(ValidationError, match="cannot carry open findings"):
+        service.publish(invalid)
+    # A loose mapping may contain model_copy'd children; it is not authored YAML.
+    with pytest.raises(TypeError, match="requires a TradeProposalDraft"):
+        service.check(dict(invalid))
+    with pytest.raises(TypeError, match="requires authored YAML or a TradeProposalDraft"):
+        service.publish(dict(invalid))
     assert case.app.read_bytes() == before
 
 
@@ -651,7 +680,7 @@ def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gate
     def current_inputs_are_not_used(*args, **kwargs):
         pytest.fail("same-ID retry must not sample a clock or revalidate using market data")
 
-    monkeypatch.setattr(proposal_service, "check_proposal", current_inputs_are_not_used)
+    monkeypatch.setattr(proposal_service, "_check_validated_proposal", current_inputs_are_not_used)
     monkeypatch.setattr(proposal_service, "proposal_market_snapshot", current_inputs_are_not_used)
     later = TradeProposalService(
         case.app, sqlite_path=case.market, clock=current_inputs_are_not_used

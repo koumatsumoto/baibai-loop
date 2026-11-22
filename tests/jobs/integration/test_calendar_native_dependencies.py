@@ -66,14 +66,15 @@ def native_context(tmp_path, monkeypatch, *, days=None):
     return store, master, calendar, market, directory
 
 
+@pytest.mark.parametrize("opening", ["1", "2"])
 def test_external_scheduled_holiday_fixes_native_calendar_without_release_or_ready(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, opening
 ):
     import baibai_jobs.acquisition.external_assessments.daily as daily
 
     observed = DAY + timedelta(days=1)
     store, _master, calendar, _market, directory = native_context(
-        tmp_path, monkeypatch, days=[(DAY, "1"), (observed, "3")]
+        tmp_path, monkeypatch, days=[(DAY, opening), (observed, "3")]
     )
     plan = daily.initialize(
         store,

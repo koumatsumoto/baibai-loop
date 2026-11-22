@@ -5,6 +5,13 @@ from datetime import date, timedelta
 
 import pytest
 
+from baibai_engine.machine_analysis.generation.financial_models import (
+    generate_financial_and_price_models,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics import (
+    financial_snapshot,
+    periods,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
 )
@@ -16,14 +23,16 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _latest_actual_row_by_field_priority,
     _latest_non_null_row,
     _prior_year_summary,
-    _ttm_period,
+    _reported_ttm,
     _ttm_value,
 )
 from baibai_engine.machine_analysis.models.company_growth.calculations import build_period_states
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 
 
 def document(start, end, amount, *, fiscal_period="FY", fiscal_year_end=None):
@@ -71,8 +80,9 @@ def growth_annual(rows):
 @pytest.mark.parametrize("prior_start", [date(2023, 2, 19), date(2023, 2, 12)])
 def test_week_calendar_ttm_uses_adjoining_52_or_53_week_fy(prior_start):
     rows = weekly_documents(prior_start)
-    assert _ttm_value(rows, "profit", DEFAULT_TTM_RULES) == (120.0, TTMQuality.EXACT)
-    period = _ttm_period(rows, "profit", DEFAULT_TTM_RULES)
+    selected = _reported_ttm(rows, "profit", DEFAULT_TTM_RULES)
+    assert selected.value_and_quality() == (120.0, TTMQuality.EXACT)
+    period = selected.period_payload()
     assert period is not None
     assert period["start"] == "2023-05-21"
     assert period["end"] == "2024-05-18"
@@ -97,8 +107,9 @@ def test_ttm_subtracts_the_cumulative_of_the_selected_fiscal_year(reverse):
     inputs = [prior, conflicting_year, full_year, current]
     if reverse:
         inputs.reverse()
-    assert _ttm_value(inputs, "profit", DEFAULT_TTM_RULES) == (120.0, TTMQuality.EXACT)
-    period = _ttm_period(inputs, "profit", DEFAULT_TTM_RULES)
+    selected = _reported_ttm(inputs, "profit", DEFAULT_TTM_RULES)
+    assert selected.value_and_quality() == (120.0, TTMQuality.EXACT)
+    period = selected.period_payload()
     assert period is not None
     assert period["components"][-1]["disclosure_number"] == prior.disclosure_number
     annual = growth_annual(inputs)
@@ -343,6 +354,85 @@ def test_fy_cfo_survives_a_newer_quarter_without_cfo():
         "disclosed_time": None,
         "document_type": current.document_type,
     }
+
+
+@pytest.mark.parametrize(
+    ("case", "cfo", "ocf_ttm", "accruals", "start", "end", "method", "amounts"),
+    [
+        ("annual", 40.0, 40.0, 0.2, "2023-02-19", "2024-02-17", "reported_annual", [40.0]),
+        (
+            "composed",
+            15.0,
+            50.0,
+            70 / 300,
+            "2023-05-21",
+            "2024-05-18",
+            "fy_plus_current_ytd_minus_prior_ytd",
+            [15.0, 40.0, -5.0],
+        ),
+        ("missing", 40.0, None, None, None, None, None, []),
+    ],
+)
+def test_generation_resolves_operating_cash_flow_operands_once(
+    monkeypatch, case, cfo, ocf_ttm, accruals, start, end, method, amounts
+):
+    selector = periods._ttm_components
+    selected = []
+
+    def count_cfo(summaries, field, rules):
+        components = selector(summaries, field, rules)
+        if field == "cfo":
+            selected.append(components)
+        return components
+
+    monkeypatch.setattr(periods, "_ttm_components", count_cfo)
+    monkeypatch.setattr(financial_snapshot, "_ttm_components", count_cfo)
+    rows = [
+        replace(row, cfo=value, total_assets=assets, shares_outstanding=100.0, treasury_shares=0.0)
+        for row, value, assets in zip(
+            weekly_documents(date(2023, 2, 19)),
+            (5.0, 40.0, 15.0),
+            (200.0, 300.0, 400.0),
+            strict=True,
+        )
+    ]
+    if case == "annual":
+        rows = rows[1:2]
+    if case == "missing":
+        rows[-1] = replace(rows[-1], cfo=None)
+    as_of = date(2024, 7, 15)
+    financial, _, _ = generate_financial_and_price_models(
+        ticker="1001",
+        documents=rows,
+        adjusted_bars=[PriceBar(as_of, 10.0, None)],
+        adjustment_events=(),
+        trading_dates=[as_of],
+        expected_price_date=as_of,
+        sector="情報・通信業",
+        as_of=as_of,
+        input_release=InputRelease(release_id="synthetic", manifest_sha256="a" * 64),
+        ttm_rules=DEFAULT_TTM_RULES,
+    )
+    result = financial.payload["financial"]
+    assert result["cfo"] == cfo
+    reported = rows[1] if case == "missing" else rows[-1]
+    assert result["cfo_source"]["disclosure_number"] == reported.disclosure_number
+    assert result["ocf_ttm"] == ocf_ttm
+    assert result["accruals_to_assets"] == accruals
+    assert result["ocf_yield"] == (None if ocf_ttm is None else ocf_ttm / 1000.0)
+    expected_quality = "unavailable" if ocf_ttm is None else "exact"
+    assert result["ttm_quality_pcfr"] == result["ttm_quality_ocf_yield"] == expected_quality
+    period = result["ocf_ttm_period"]
+    if ocf_ttm is None:
+        assert period is None
+    else:
+        assert (period["start"], period["end"], period["method"]) == (start, end, method)
+        components = period["components"]
+        assert [part["coefficient"] * part["amount_yen"] for part in components] == amounts
+        assert [part["disclosure_number"] for part in components] == [
+            row.disclosure_number for row in selected[0]
+        ]
+    assert len(selected) == 1
 
 
 @pytest.mark.parametrize("revision_standard", ["JP", "IFRS"])

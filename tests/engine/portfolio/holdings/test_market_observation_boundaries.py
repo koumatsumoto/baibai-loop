@@ -14,9 +14,11 @@ import pytest
 from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 from baibai_engine.portfolio.holdings.market_observations import (
+    UnadjustedCloseObservation,
     market_basis_is_confirmed,
     next_order_session,
     read_unadjusted_close,
+    read_unadjusted_closes,
 )
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.source_cache.schema import (
@@ -76,6 +78,45 @@ def test_market_close_source_never_uses_older_ticker_bar_when_market_wide_date_i
     )
 
     assert resolved is None
+
+
+def test_bulk_market_close_is_exact_and_reads_one_market_date_across_chunks(tmp_path):
+    sqlite_path = tmp_path / "market.sqlite"
+    day = date(2026, 7, 13)
+    tickers = tuple(str(number) for number in range(5000, 5501))
+    seed_daily_bars(
+        sqlite_path,
+        [
+            *((ticker, day.isoformat(), 1000.0, 1.0) for ticker in tickers),
+            ("12340", day.isoformat(), 700.0, 1.0),
+            ("2331", "2026-07-10", 900.0, 1.0),
+            ("2331", day.isoformat(), None, 1.0),
+            ("2332", "2026-07-10", 800.0, 1.0),
+            ("2333", day.isoformat(), 0.0, 1.0),
+            ("2334", day.isoformat(), float("inf"), 1.0),
+            ("5000", "2026-07-14", 9999.0, 1.0),
+        ],
+    )
+    statements: list[str] = []
+    with closing(sqlite3.connect(sqlite_path)) as reader:
+        reader.execute("BEGIN")
+        reader.set_trace_callback(statements.append)
+        quotes = read_unadjusted_closes(
+            sqlite_path=sqlite_path,
+            tickers=("1234", "2331", "2332", "2333", "2334", *tickers, "5000"),
+            at=datetime(2026, 7, 13, 15, 30, tzinfo=JST),
+            connection=reader,
+        )
+        assert reader.in_transaction
+
+    assert quotes == {ticker: UnadjustedCloseObservation(1000.0, day) for ticker in tickers}
+    assert len(statements) == 4
+    assert statements[0] == "PRAGMA user_version"
+    assert statements[1].startswith("SELECT MAX(traded_at)")
+    assert all(
+        statement.startswith("SELECT ticker, close FROM jquants_daily_bars")
+        for statement in statements[2:]
+    )
 
 
 @pytest.mark.parametrize("factor", [None, 0.0, 0.5, 1.0, 2.0])

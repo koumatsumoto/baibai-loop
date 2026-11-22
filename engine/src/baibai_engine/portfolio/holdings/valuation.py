@@ -13,6 +13,7 @@ from baibai_engine.portfolio.holdings.market_observations import (
     has_received_share_action,
     market_basis_is_confirmed,
     read_unadjusted_close,
+    read_unadjusted_closes,
 )
 from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
@@ -106,23 +107,43 @@ def holding_quote(
         quote = read_unadjusted_close(
             sqlite_path=sqlite_path, ticker=ticker, at=now, connection=connection
         )
-        first_buy, last_trade = holding_episode(ledger, ticker, now)
-        conversions = share_conversions(
-            tuple(event for event in ledger.events if event.occurred_at <= now)
-        )
-        return quote, _quote_matches_holding_basis(
-            quote,
+        return quote, holding_quote_basis_is_confirmed(
+            ledger,
+            quote=quote,
             ticker=ticker,
             sqlite_path=sqlite_path,
             now=now,
             connection=connection,
-            first_buy=first_buy,
-            last_trade=last_trade,
-            conversions=conversions,
         )
     finally:
         if owns_connection:
             connection.close()
+
+
+def holding_quote_basis_is_confirmed(
+    ledger: PortfolioLedgerDocument,
+    *,
+    quote: UnadjustedCloseObservation | None,
+    ticker: str,
+    sqlite_path: Path,
+    now: datetime,
+    connection: sqlite3.Connection,
+) -> bool:
+    """Check held share units using a quote from the caller's read snapshot."""
+    first_buy, last_trade = holding_episode(ledger, ticker, now)
+    conversions = share_conversions(
+        tuple(event for event in ledger.events if event.occurred_at <= now)
+    )
+    return _quote_matches_holding_basis(
+        quote,
+        ticker=ticker,
+        sqlite_path=sqlite_path,
+        now=now,
+        connection=connection,
+        first_buy=first_buy,
+        last_trade=last_trade,
+        conversions=conversions,
+    )
 
 
 def _quote_matches_holding_basis(
@@ -203,13 +224,13 @@ def current_portfolio(
             conversions = share_conversions(events)
             _require_closed_holding_basis(episodes, conversions, connection=connection)
             open_episodes = {item.first_buy.ticker: item for item in episodes if not item.closed}
-            for ticker, lots in state.lots.items():
-                if not lots:
-                    continue
+            tickers = tuple(ticker for ticker, lots in state.lots.items() if lots)
+            quotes = read_unadjusted_closes(
+                sqlite_path=sqlite_path, tickers=tickers, at=now, connection=connection
+            )
+            for ticker in tickers:
                 episode = open_episodes.get(ticker)
-                quote = read_unadjusted_close(
-                    sqlite_path=sqlite_path, ticker=ticker, at=now, connection=connection
-                )
+                quote = quotes.get(ticker)
                 confirmed = _quote_matches_holding_basis(
                     quote,
                     ticker=ticker,
