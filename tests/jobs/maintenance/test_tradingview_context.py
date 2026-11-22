@@ -6,11 +6,13 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.master import insert_master_rows
-from tests.helpers.tradingview import DAY, NOW, seed_snapshot, store
+from tests.helpers.tradingview import DAY, NOW, _sdk, payload, retain_result, seed_snapshot, store
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance import tradingview_context
 from baibai_jobs.maintenance.tradingview_context import snapshot_state, universe, validate_time
+from baibai_jobs.maintenance.tradingview_rebuild import rebuild_from_receipts
 from baibai_jobs.observability.tradingview import SourceDataError, TimeGuardError
 
 
@@ -76,3 +78,26 @@ def test_native_product_category_does_not_depend_on_sector_spelling(tmp_path):
             "SET record_json=json_set(record_json,'$.S33Nm','新業種')"
         )
         assert universe(conn, DAY) == ["TSE:1000"]
+
+
+def test_completeness_and_quality_describe_one_committed_snapshot(tmp_path, monkeypatch):
+    path = store(tmp_path / "market.sqlite", 1)
+    with closing(open_connection(path)) as conn:
+        assert conn.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    receipt = retain_result(path, _sdk(payload(["TSE:1000"], missing=["TSE:1000"])))
+    quality = tradingview_context.stored_quality
+
+    def publish_before_quality(reader, day):
+        # A real writer commits after the reader counted rows but before its quality query.
+        rebuilt = rebuild_from_receipts(path, day, [receipt])
+        assert (rebuilt["rows"], rebuilt["remaining"], rebuilt["unresolved"]) == (1, 0, 1)
+        return quality(reader, day)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(tradingview_context, "stored_quality", publish_before_quality)
+        before = snapshot_state(path, DAY)
+    after = snapshot_state(path, DAY)
+    assert (before["rows"], before["remaining"], before["unresolved"]) == (0, 1, 0)
+    assert before["first_fetched_at_utc"] is None
+    assert (after["rows"], after["remaining"], after["unresolved"]) == (1, 0, 1)
+    assert after["first_fetched_at_utc"] == NOW.isoformat()

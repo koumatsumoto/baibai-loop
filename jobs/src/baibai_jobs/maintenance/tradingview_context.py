@@ -89,6 +89,8 @@ def calendar_context(conn: sqlite3.Connection, day: date) -> tuple[date, bool]:
 def snapshot_state(path: Path, day: date) -> dict[str, object]:
     """Read historical completeness without treating missing rows as an acquisition plan."""
     with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        # Row counts, universe and quality must describe one committed version.
+        conn.execute("BEGIN")
         validate_current_schema(conn)
         basis, business = calendar_context(conn, day)
         symbols = universe(conn, basis)
