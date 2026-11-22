@@ -39,6 +39,29 @@ def _case(**overrides):
     return payload
 
 
+def test_cli_rejects_ambiguous_cb_terms_without_output(tmp_path, capsys):
+    raw = json.dumps(_case())
+    term = '"settlement_vwap_yen": "2518"'
+    assert raw.count(term) == 1
+    contradictory = raw.replace(term, term + ', "settlement_vwap_yen": "1518"')
+    path = tmp_path / "issuer-terms.json"
+    path.write_text(contradictory, encoding="utf-8")
+    before = path.read_bytes()
+    args = ["calculate", "--cash-share-cb", str(path)]
+    assert workspace_cli.main(args) == 2
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert "invalid calculation inputs YAML" in result.err
+    assert "1518" not in result.err
+    assert path.read_bytes() == before
+
+    path.write_text(raw, encoding="utf-8")
+    assert workspace_cli.main(args) == 0
+    assert (
+        json.loads(capsys.readouterr().out)["separate_settlement_vwap"]["gross_excess_shares"] > 0
+    )
+
+
 def test_contract_rounding_with_assumed_adjusted_conversion_price():
     result = calculate_cash_share_cb(CashShareCBInput.model_validate(_case()))
     assert result["face_cash_yen"] == "4999960000"
