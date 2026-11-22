@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict, cast
 
+import yaml
 from pydantic import ValidationError
 
 from baibai_engine.investment_judgment.stock_assessment.store import (
@@ -36,11 +39,33 @@ from baibai_engine.investment_judgment.workflow.workspace.validation import (
     _research_ticker_dir,
     _validate_editable_drafts,
 )
+from baibai_engine.primitives.yaml import strict_safe_load
 from baibai_engine.storage.sqlite.application.write import connect_existing
 
-# --------------------------------------------------------------------------- #
-# promote
-# --------------------------------------------------------------------------- #
+
+class _PublicationIdentity(TypedDict):
+    assessment_id: str
+    supersedes_id: str | None
+
+
+def _read_publication_identity(path: Path) -> _PublicationIdentity:
+    """Read the IDs shared by scaffold reuse and immutable publication."""
+    if not path.exists():
+        raise ResearchWorkspaceDataError(f"assessment publication not found: {path}")
+    try:
+        raw = strict_safe_load(path.read_text(encoding="utf-8"))
+    except (yaml.YAMLError, ValueError):
+        raise ResearchWorkspaceDataError("invalid assessment publication YAML") from None
+    if not isinstance(raw, Mapping):
+        raise ResearchWorkspaceDataError(f"assessment publication root must be a mapping: {path}")
+    if set(raw) != {"assessment_id", "supersedes_id"}:
+        raise ResearchWorkspaceDataError("assessment publication identity fields differ")
+    if not isinstance(raw["assessment_id"], str):
+        raise ResearchWorkspaceDataError("assessment publication ID must be a string")
+    supersedes_id = raw["supersedes_id"]
+    if supersedes_id is not None and not isinstance(supersedes_id, str):
+        raise ResearchWorkspaceDataError("assessment supersedes ID must be a string or null")
+    return cast("_PublicationIdentity", dict(raw))
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,15 +122,7 @@ def promote(
     if assessment_errors or review_errors:
         raise ResearchWorkspaceDataError("; ".join([*assessment_errors, *review_errors]))
     identity_path = _research_ticker_dir(workspace, ticker) / "assessment-publication.yaml"
-    identity = _load_mapping(identity_path, label="assessment publication")
-    if set(identity) != {"assessment_id", "supersedes_id"}:
-        raise ResearchWorkspaceDataError("assessment publication identity fields differ")
-    resolved_assessment_id = identity["assessment_id"]
-    if not isinstance(resolved_assessment_id, str):
-        raise ResearchWorkspaceDataError("assessment publication ID must be a string")
-    saved_supersedes = identity["supersedes_id"]
-    if saved_supersedes is not None and not isinstance(saved_supersedes, str):
-        raise ResearchWorkspaceDataError("assessment supersedes ID must be a string or null")
+    identity = _read_publication_identity(identity_path)
     try:
         with closing(connect_existing(db_path)) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -116,11 +133,11 @@ def promote(
             )
             pair = publish_reviewed_assessment(
                 connection,
-                resolved_assessment_id,
+                identity["assessment_id"],
                 case.assessment_payload,
                 case.review_payload,
                 published_at=now,
-                supersedes_id=saved_supersedes,
+                supersedes_id=identity["supersedes_id"],
             )
     except ResearchConflictError as error:
         raise ResearchWorkspaceConflictError(str(error)) from error

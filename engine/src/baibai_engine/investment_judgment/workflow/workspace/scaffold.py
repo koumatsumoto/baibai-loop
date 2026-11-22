@@ -37,6 +37,9 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
     _dump_yaml,
     _load_mapping,
 )
+from baibai_engine.investment_judgment.workflow.workspace.publication import (
+    _read_publication_identity,
+)
 from baibai_engine.investment_judgment.workflow.workspace.validation import (
     _research_ticker_dir,
     _review_draft_path,
@@ -277,12 +280,10 @@ def scaffold_assessment(
             "refresh": None,
         }
     path.parent.mkdir(parents=True, exist_ok=True)
-    identity = (
-        _load_mapping(identity_path, label="assessment publication")
-        if identity_path.exists()
-        else {}
+    previous_identity = (
+        _read_publication_identity(identity_path) if identity_path.exists() else None
     )
-    previous_identity = identity
+    identity = previous_identity
     same_material = True
     if path.exists():
         previous = _load_mapping(path, label="assessment draft")
@@ -295,7 +296,7 @@ def scaffold_assessment(
         refresh = payload.get("refresh")
         current_ref = refresh.get("prior_assessment_ref") if isinstance(refresh, dict) else None
         same_material = previous_ref == current_ref
-    if not identity or identity.get("supersedes_id") != supersedes_id or not same_material:
+    if identity is None or identity["supersedes_id"] != supersedes_id or not same_material:
         identity = {
             "assessment_id": f"stock-assessment-{uuid4()}",
             "supersedes_id": supersedes_id,
@@ -324,7 +325,7 @@ def scaffold_assessment(
     # concurrently created identity without explicit force.
     if force:
         write_text_atomic(identity_path, _dump_yaml(identity))
-    elif not previous_identity:
+    elif previous_identity is None:
         _write_draft(identity_path, _dump_yaml(identity), force=False)
     elif identity != previous_identity:
         raise ResearchWorkspaceConflictError("publication identity changed; use --force")
