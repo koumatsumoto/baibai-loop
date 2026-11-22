@@ -18,7 +18,6 @@ from baibai_engine.data_collection.receipts.articles.store import (
     connect_read_only,
     copy_receipt_closure,
     open_receipt_store,
-    read_body,
     read_receipt,
 )
 from baibai_engine.storage.json import write_json_atomic
@@ -98,7 +97,6 @@ def register_discovery(
             receipt = read_receipt(raw, identity)
             if receipt.source != source or receipt.body_ref is None:
                 raise ValueError("recovery receipt has no exact source original")
-            read_body(raw, receipt.body_ref)
             copy_receipt_closure(raw, retained, identity)
             kinds[identity] = "document"
             link = original_report.get("document_evidence", {}).get(identity)
