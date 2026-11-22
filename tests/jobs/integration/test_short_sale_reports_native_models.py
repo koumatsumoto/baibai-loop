@@ -17,6 +17,9 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
     PREFIX,
     ShortSaleReportsL1,
 )
+from baibai_engine.machine_analysis.generation.short_sale_reports_inputs import (
+    INPUT_PREFIX,
+)
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration.short_sale_reports_native import (
     fixed_input,
@@ -95,7 +98,7 @@ def build(store, fixed, market, mirror, *, at=AT, previous=None):
 
 
 def test_equal_recheck_keeps_order_duplicates_and_reuses_objects(tmp_path):
-    store, owner, market, mirror, _, previous = fixture(tmp_path)
+    store, owner, market, mirror, prior_saved, previous = fixture(tmp_path)
     expected_rows = rows(market)
     old_objects = {obj.key for part in previous.partitions for obj in part.objects}
     current_rows = [
@@ -112,6 +115,8 @@ def test_equal_recheck_keeps_order_duplicates_and_reuses_objects(tmp_path):
     assert rows(market) == expected_rows
     assert not [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
     assert HEAD_KEY not in store.get_keys
+    prior_selection = prior_saved.descriptor["selection_sha256"]
+    assert store.get_keys.count(f"{INPUT_PREFIX}selections/{prior_selection}.json") == 1
     assert {obj.key for part in newer.partitions for obj in part.objects} == old_objects
     early = (DAY - timedelta(days=2)).isoformat()
     with closing(sqlite3.connect(market)) as conn:

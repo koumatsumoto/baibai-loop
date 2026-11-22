@@ -19,6 +19,9 @@ from baibai_engine.data_collection.providers.jquants.margin_interest_native impo
     PREFIX,
     MarginInterestL1,
 )
+from baibai_engine.machine_analysis.generation.margin_interest_inputs import (
+    INPUT_PREFIX,
+)
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration import margin_interest_native as projection
@@ -84,11 +87,16 @@ def build(store, fixed, cal, market, mirror, *, at=AT, previous=None):
     return saved, {name: report.manifest for name, report in reports.items()}
 
 
-def test_equal_confirmation_reuses_both_tables_and_recomputes_coverage(
-    tmp_path, monkeypatch, capsys
+@pytest.mark.parametrize("prior_usable", [True, False])
+def test_equal_confirmation_reuses_both_proofs_or_recomputes_from_originals(
+    tmp_path, monkeypatch, capsys, prior_usable
 ):
     store, owner, cal, market, mirror = setup(tmp_path, monkeypatch)
-    _, previous = build(store, owner.fixed(), cal, market, mirror)
+    prior_saved, previous = build(store, owner.fixed(), cal, market, mirror)
+    prior_selection = prior_saved.descriptor["selection_sha256"]
+    prior_key = f"{INPUT_PREFIX}selections/{prior_selection}.json"
+    if not prior_usable:
+        store.store_object(prior_key, b"{}", sha256=prior_selection)
     owner.commit(
         [attempt("equal", at=AT + timedelta(hours=1), rows=records(publication=date(2026, 9, 28)))]
     )
@@ -113,9 +121,10 @@ def test_equal_confirmation_reuses_both_tables_and_recomputes_coverage(
         }
         assert all(float(value) >= 0 for value in times.values())
     assert diagnostics[0].endswith("adopted_days=2 reused_days=0")
-    assert diagnostics[1].endswith("adopted_days=2 reused_days=2")
-    assert not [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
+    assert diagnostics[1].endswith(f"adopted_days=2 reused_days={2 if prior_usable else 0}")
+    assert any(key.startswith(PREFIX + "packs/") for key in store.get_keys) != prior_usable
     assert HEAD_KEY not in store.get_keys
+    assert store.get_keys.count(prior_key) == 2
     assert all(manifest.coverage_status == "complete" for manifest in published.values())
     assert all(
         {obj.key for part in previous[name].partitions for obj in part.objects}

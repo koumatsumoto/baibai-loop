@@ -24,7 +24,6 @@ from baibai_engine.data_collection.providers.jquants.margin_alerts_native import
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.margin_alerts_inputs import (
     INPUT_FORMAT,
-    margin_alerts_input_interval,
     read_margin_alerts_input,
     retain_margin_alerts_input,
 )
@@ -294,7 +293,7 @@ def _verified_cached_scopes(
             read_margin_alerts_input(
                 store,
                 descriptor,
-                days=_days(*margin_alerts_input_interval(store, descriptor)),
+                days=None,
             )["scopes"],
         ),
     )

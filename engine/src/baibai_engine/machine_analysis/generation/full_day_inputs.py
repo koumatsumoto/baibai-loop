@@ -10,7 +10,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -260,21 +260,6 @@ def retain_full_day_input(
     }
 
 
-def full_day_input_interval(
-    store: ObjectStore, descriptor: dict[str, JsonValue], *, contract: FullDayInputContract
-) -> tuple[date, date]:
-    """Read a compact immutable selection's bounds without loading its months."""
-    if descriptor.get("format") != contract.input_format:
-        raise ValueError("unsupported fixed full-day input format")
-    digest = descriptor.get("selection_sha256")
-    if not isinstance(digest, str):
-        raise ValueError("fixed full-day input requires its selection digest")
-    root = _Selection.model_validate(_read(store, _key("selections", digest, contract), digest))
-    if root.format != contract.selection_format:
-        raise ValueError("unsupported fixed selection format")
-    return root.start, root.end
-
-
 def _bounded_input(
     scopes: dict[str, Any],
     receipts: dict[str, Any],
@@ -295,15 +280,17 @@ def read_full_day_input(
     store: ObjectStore,
     descriptor: dict[str, JsonValue],
     *,
-    days: Sequence[date],
+    days: Sequence[date] | None,
     contract: FullDayInputContract,
 ) -> dict[str, Any]:
     """Resolve a fixed selection, including old inline inputs, without latest/head/runs.
 
-    Read only requested months. Receipt statuses are rebuilt from the original
-    packs by the observation owner, not retained as another daily L2 copy.
+    Read only requested months, or the entire compact interval when days is
+    None. Receipt statuses still come from the original packs.
     """
     if "format" not in descriptor and contract.allow_legacy_inline:
+        if days is None:
+            raise ValueError("a complete selection requires its compact fixed interval")
         legacy_scopes, legacy_receipts = descriptor["scopes"], descriptor["receipts"]
         if not isinstance(legacy_scopes, dict) or not isinstance(legacy_receipts, dict):
             raise ValueError("saved full-day input lacks its fixed selection")
@@ -318,7 +305,11 @@ def read_full_day_input(
     root = _Selection.model_validate(_read(store, _key("selections", digest, contract), digest))
     if root.format != contract.selection_format:
         raise ValueError("unsupported fixed selection format")
-    if any(not root.start <= day <= root.end for day in days):
+    if days is None:
+        days = tuple(
+            root.start + timedelta(days=i) for i in range((root.end - root.start).days + 1)
+        )
+    elif any(not root.start <= day <= root.end for day in days):
         raise ValueError("requested interval is outside the saved full-day selection")
     scopes: dict[str, Any] = {day.isoformat(): {} for day in days}
     receipts: dict[str, Any] = {}
