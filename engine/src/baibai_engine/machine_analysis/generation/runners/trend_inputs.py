@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.observations.trends.inputs import (
 from baibai_engine.machine_analysis.observations.trends.reader import read_trend_source
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
-SELECTION_REVISION = "trend-parser-selection-v1"
+SELECTION_REVISION = "trend-parser-selection-v2-exact-clock"
 SCOPE_REVISION = "industry-scopes-v1"
 WINDOW_DAYS = 180
 

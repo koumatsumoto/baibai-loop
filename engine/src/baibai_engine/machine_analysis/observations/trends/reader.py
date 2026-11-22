@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime
 from baibai_engine.data_collection.receipts.articles.store import read_receipt
 from baibai_engine.machine_analysis.observations.articles.contracts import ArticleObservation
 from baibai_engine.machine_analysis.observations.articles.store import read_observations
+from baibai_engine.machine_analysis.observations.trends.clock import ensure_trend_clock
 from baibai_engine.machine_analysis.observations.trends.contracts import (
     ExtractionArtifact,
     SelectedArtifact,
@@ -37,8 +38,9 @@ def _choose(
     observation: ArticleObservation,
     *,
     cutoff: datetime,
+    receipt_before: datetime | None = None,
 ) -> tuple[ExtractionArtifact | None, str | None]:
-    candidates = matching_artifacts(conn, observation, cutoff=cutoff)
+    candidates = matching_artifacts(conn, observation, cutoff=cutoff, receipt_before=receipt_before)
     if not candidates:
         return None, f"extraction_pending:{observation.content_scope}"
     # Ignore generation clocks when comparing semantic results. Different results
@@ -77,8 +79,8 @@ def _latest_document(
         "OR date(substr(json_extract(o.observation_json,'$.published.value'),1,10))<=?) "
         "AND (json_extract(o.observation_json,'$.updated.value') IS NULL "
         "OR date(substr(json_extract(o.observation_json,'$.updated.value'),1,10))<=?) "
-        "AND julianday(json_extract(r.receipt_json,'$.received_at'))<=julianday(?) "
-        "ORDER BY julianday(json_extract(r.receipt_json,'$.received_at')) DESC, "
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))<=trend_clock_us(?) "
+        "ORDER BY trend_clock_us(json_extract(r.receipt_json,'$.received_at')) DESC, "
         "o.observation_id DESC LIMIT 1",
         (article_id, start.isoformat(), as_of.isoformat(), as_of.isoformat(), cutoff.isoformat()),
     ).fetchone()
@@ -111,13 +113,13 @@ def _index_change(
         "FROM article_observations o JOIN article_source_receipts r ON r.receipt_id=o.receipt_id "
         "WHERE o.article_id=? "
         "AND json_extract(o.observation_json,'$.content_scope') IN ('headline','summary') "
-        "AND julianday(json_extract(r.receipt_json,'$.received_at'))<=julianday(?) "
-        "AND julianday(json_extract(r.receipt_json,'$.received_at'))<=julianday(?) "
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))<=trend_clock_us(?) "
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))<=trend_clock_us(?) "
         "AND (json_extract(o.observation_json,'$.published.value') IS NULL "
         "OR date(substr(json_extract(o.observation_json,'$.published.value'),1,10))<=?) "
         "AND (json_extract(o.observation_json,'$.updated.value') IS NULL "
         "OR date(substr(json_extract(o.observation_json,'$.updated.value'),1,10))<=?) "
-        "ORDER BY julianday(json_extract(r.receipt_json,'$.received_at')) DESC LIMIT 1",
+        "ORDER BY trend_clock_us(json_extract(r.receipt_json,'$.received_at')) DESC LIMIT 1",
         (
             document.article_id,
             _receipt_time(conn, document),
@@ -160,15 +162,15 @@ def _failed_newer_document(
         "json_extract(original.receipt_json,'$.representation') "
         "AND json_extract(r.receipt_json,'$.status')='ok' "
         "AND r.received_on<=? "
-        "AND julianday(json_extract(r.receipt_json,'$.received_at'))>julianday(?) "
-        "AND julianday(json_extract(r.receipt_json,'$.received_at'))<=julianday(?) "
-        "AND julianday(json_extract(p.run_json,'$.generated_at'))<=julianday(?) "
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))>trend_clock_us(?) "
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))<=trend_clock_us(?) "
+        "AND trend_clock_us(json_extract(p.run_json,'$.generated_at'))<=trend_clock_us(?) "
         "AND json_extract(p.run_json,'$.status') IN ('parse_failed','unsupported') "
         "AND NOT EXISTS (SELECT 1 FROM article_observations newer "
         "WHERE newer.receipt_id=r.receipt_id "
         "AND json_extract(newer.observation_json,'$.content_scope') "
         "IN ('full_text','partial_text')) "
-        "ORDER BY julianday(json_extract(r.receipt_json,'$.received_at')) DESC LIMIT 1",
+        "ORDER BY trend_clock_us(json_extract(r.receipt_json,'$.received_at')) DESC LIMIT 1",
         (
             document.receipt_id,
             as_of.isoformat(),
@@ -192,8 +194,8 @@ def _index_publication(
         "AND date(substr(json_extract(o.observation_json,'$.published.value'),1,10))<=? "
         "AND (json_extract(o.observation_json,'$.updated.value') IS NULL "
         "OR date(substr(json_extract(o.observation_json,'$.updated.value'),1,10))<=?) "
-        "AND julianday(json_extract(r.receipt_json,'$.received_at'))<=julianday(?) "
-        "ORDER BY julianday(json_extract(r.receipt_json,'$.received_at')) DESC LIMIT 1",
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))<=trend_clock_us(?) "
+        "ORDER BY trend_clock_us(json_extract(r.receipt_json,'$.received_at')) DESC LIMIT 1",
         (article_id, as_of.isoformat(), as_of.isoformat(), cutoff.isoformat()),
     ).fetchone()
     return None if row is None else date.fromisoformat(row[0][:10])
@@ -209,12 +211,13 @@ def read_trend_source(
     title_terms: tuple[str, ...] = (),
     scope_id: str | None = None,
 ) -> tuple[tuple[SelectedArtifact, ...], TrendCoverage]:
+    ensure_trend_clock(conn)
     source_placeholders = ",".join("?" for _ in sources)
     receipt_rows = conn.execute(
         "SELECT source, json_extract(receipt_json,'$.status'), count(*) "
         f"FROM article_source_receipts WHERE source IN ({source_placeholders}) "  # nosec B608
         "AND received_on>=? "
-        "AND julianday(json_extract(receipt_json,'$.received_at'))<=julianday(?) "
+        "AND trend_clock_us(json_extract(receipt_json,'$.received_at'))<=trend_clock_us(?) "
         "GROUP BY source, json_extract(receipt_json,'$.status') ORDER BY 1,2",
         (*sources, start.isoformat(), cutoff.isoformat()),
     ).fetchall()
@@ -222,8 +225,8 @@ def read_trend_source(
         "SELECT json_extract(receipt_json,'$.received_at') FROM article_source_receipts "
         f"WHERE source IN ({source_placeholders}) "  # nosec B608
         "AND received_on>=? "
-        "AND julianday(json_extract(receipt_json,'$.received_at'))<=julianday(?) "
-        "ORDER BY julianday(json_extract(receipt_json,'$.received_at')) DESC LIMIT 1",
+        "AND trend_clock_us(json_extract(receipt_json,'$.received_at'))<=trend_clock_us(?) "
+        "ORDER BY trend_clock_us(json_extract(receipt_json,'$.received_at')) DESC LIMIT 1",
         (*sources, start.isoformat(), cutoff.isoformat()),
     ).fetchone()
     future_publications = conn.execute(
@@ -231,7 +234,7 @@ def read_trend_source(
         "JOIN article_source_receipts r ON r.receipt_id=o.receipt_id "
         f"WHERE r.source IN ({source_placeholders}) "  # nosec B608: constants only
         "AND o.received_on>=? "
-        "AND julianday(json_extract(r.receipt_json,'$.received_at'))<=julianday(?) "
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))<=trend_clock_us(?) "
         "AND date(substr(json_extract(o.observation_json,'$.published.value'),1,10))>?",
         (*sources, start.isoformat(), cutoff.isoformat(), as_of.isoformat()),
     ).fetchone()[0]
@@ -240,7 +243,7 @@ def read_trend_source(
         "JOIN article_source_receipts r ON r.receipt_id=o.receipt_id "
         f"WHERE r.source IN ({source_placeholders}) "  # nosec B608: constants only
         "AND o.received_on>=? "
-        "AND julianday(json_extract(r.receipt_json,'$.received_at'))<=julianday(?) "
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))<=trend_clock_us(?) "
         "AND date(substr(json_extract(o.observation_json,'$.updated.value'),1,10))>?",
         (*sources, start.isoformat(), cutoff.isoformat(), as_of.isoformat()),
     ).fetchone()[0]
@@ -283,7 +286,7 @@ def read_trend_source(
         "JOIN article_extraction_artifacts a ON a.observation_id=qo.observation_id "
         f"WHERE qr.source IN ({source_placeholders}) "  # nosec B608: constants only
         "AND qo.received_on>=? "
-        "AND julianday(json_extract(qr.receipt_json,'$.received_at'))<=julianday(?) "
+        "AND trend_clock_us(json_extract(qr.receipt_json,'$.received_at'))<=trend_clock_us(?) "
         "AND (json_extract(qo.observation_json,'$.published.value') IS NULL "
         "OR date(substr(json_extract(qo.observation_json,'$.published.value'),1,10))<=?) "
         "AND (json_extract(qo.observation_json,'$.updated.value') IS NULL "
@@ -293,7 +296,7 @@ def read_trend_source(
         "AND json_extract(a.artifact_json,'$.payload.schema')='trend-claims-v1' "
         "AND json_extract(a.artifact_json,'$.payload.family')=? "
         "AND json_extract(a.artifact_json,'$.status')='extracted' "
-        "AND julianday(json_extract(a.artifact_json,'$.generated_at'))<=julianday(?) "
+        "AND trend_clock_us(json_extract(a.artifact_json,'$.generated_at'))<=trend_clock_us(?) "
         "AND EXISTS (SELECT 1 FROM json_each(a.artifact_json,'$.payload.claims') c WHERE "
         + claim_filter
         + ")), eligible AS (SELECT candidate.article_id, "
@@ -303,7 +306,7 @@ def read_trend_source(
         "LEFT JOIN qualified q ON q.observation_id=candidate.observation_id "
         f"WHERE cr.source IN ({source_placeholders}) "  # nosec B608: constants only
         "AND candidate.received_on>=? "
-        "AND julianday(json_extract(cr.receipt_json,'$.received_at'))<=julianday(?)"
+        "AND trend_clock_us(json_extract(cr.receipt_json,'$.received_at'))<=trend_clock_us(?)"
         " AND (json_extract(candidate.observation_json,'$.published.value') IS NULL "
         "OR date(substr(json_extract(candidate.observation_json,'$.published.value'),1,10))<=?)"
         " AND (json_extract(candidate.observation_json,'$.updated.value') IS NULL "
@@ -314,11 +317,12 @@ def read_trend_source(
         + "), ranked AS ("
         "SELECT o.observation_id, o.article_id, o.received_on, e.confirmed, "
         "row_number() OVER (PARTITION BY o.article_id ORDER BY "
-        "julianday(json_extract(r.receipt_json,'$.received_at')) DESC, o.observation_id) AS rank "
+        "trend_clock_us(json_extract(r.receipt_json,'$.received_at')) DESC, "
+        "o.observation_id) AS rank "
         "FROM article_observations o JOIN article_source_receipts r ON r.receipt_id=o.receipt_id "
         "JOIN eligible e ON e.article_id=o.article_id "
         f"WHERE r.source IN ({source_placeholders}) "  # nosec B608: constants only
-        "AND julianday(json_extract(r.receipt_json,'$.received_at'))<=julianday(?) "
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))<=trend_clock_us(?) "
         "AND (json_extract(o.observation_json,'$.published.value') IS NULL "
         "OR date(substr(json_extract(o.observation_json,'$.published.value'),1,10))<=?) "
         "AND (json_extract(o.observation_json,'$.updated.value') IS NULL "
@@ -425,8 +429,9 @@ def read_trend_source(
             reasons.append(f"publication_date_unknown:{observation.observation_id}")
             if current.evidence.received_at.date() > as_of:
                 continue  # A late receipt cannot establish historical availability.
-        # Read an explicit previous representation of this article, not inferred
-        # event identity. Distinct BOJ decisions can coexist without auto-merging.
+        # Keep the strict original receipt boundary when matching same-version
+        # artifacts. The extraction clock still uses the generation cutoff.
+        prior_receipt_before = current.evidence.received_at
         earlier = conn.execute(
             "SELECT o.observation_id FROM article_extraction_artifacts a "
             "JOIN article_observations o ON o.observation_id=a.observation_id "
@@ -442,10 +447,10 @@ def read_trend_source(
             "OR date(substr(json_extract(o.observation_json,'$.published.value'),1,10))<=?) "
             "AND (json_extract(o.observation_json,'$.updated.value') IS NULL "
             "OR date(substr(json_extract(o.observation_json,'$.updated.value'),1,10))<=?) "
-            "AND julianday(json_extract(r.receipt_json,'$.received_at'))"
-            "<julianday(?) "
-            "AND julianday(json_extract(a.artifact_json,'$.generated_at'))<=julianday(?) "
-            "ORDER BY julianday(json_extract(r.receipt_json,'$.received_at')) DESC, "
+            "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))"
+            "<trend_clock_us(?) "
+            "AND trend_clock_us(json_extract(a.artifact_json,'$.generated_at'))<=trend_clock_us(?) "
+            "ORDER BY trend_clock_us(json_extract(r.receipt_json,'$.received_at')) DESC, "
             "o.observation_id LIMIT 65",
             (
                 observation.article_id,
@@ -453,7 +458,7 @@ def read_trend_source(
                 expected_revision(observation.source),
                 as_of.isoformat(),
                 as_of.isoformat(),
-                current.evidence.received_at.isoformat(),
+                prior_receipt_before.isoformat(),
                 cutoff.isoformat(),
             ),
         ).fetchall()
@@ -464,7 +469,9 @@ def read_trend_source(
             for candidate in read_observations(conn, [row[0] for row in earlier]):
                 if candidate.article_version_id == observation.article_version_id:
                     continue
-                baseline, baseline_reason = _choose(conn, candidate, cutoff=cutoff)
+                baseline, baseline_reason = _choose(
+                    conn, candidate, cutoff=cutoff, receipt_before=prior_receipt_before
+                )
                 if baseline_reason is not None:
                     reasons.append(f"baseline_{baseline_reason}:{candidate.observation_id}")
                 break

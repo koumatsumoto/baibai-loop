@@ -22,6 +22,7 @@ from baibai_engine.machine_analysis.observations.articles.store import (
     read_observations,
     save_artifact,
 )
+from baibai_engine.machine_analysis.observations.trends.clock import ensure_trend_clock
 from baibai_engine.machine_analysis.observations.trends.contracts import (
     DocumentText,
     ExtractionArtifact,
@@ -162,7 +163,10 @@ def matching_artifacts(
     observation: ArticleObservation,
     *,
     cutoff: datetime,
+    receipt_before: datetime | None = None,
 ) -> tuple[ArticleExtractionArtifact, ...]:
+    ensure_trend_clock(conn)
+    before = None if receipt_before is None else receipt_before.isoformat()
     rows = conn.execute(
         "SELECT a.artifact_id FROM article_extraction_artifacts a "
         "JOIN article_observations o ON o.observation_id=a.observation_id "
@@ -170,7 +174,10 @@ def matching_artifacts(
         "AND json_extract(a.artifact_json,'$.method')='parser' "
         "AND json_extract(a.artifact_json,'$.payload.schema')=? "
         "AND json_extract(a.artifact_json,'$.payload.article_version_id')=? "
-        "AND julianday(json_extract(a.artifact_json,'$.generated_at'))<=julianday(?) "
+        "AND trend_clock_us(json_extract(a.artifact_json,'$.generated_at'))<=trend_clock_us(?) "
+        "AND (? IS NULL OR EXISTS (SELECT 1 FROM article_source_receipts r "
+        "WHERE r.receipt_id=o.receipt_id "
+        "AND trend_clock_us(json_extract(r.receipt_json,'$.received_at'))<trend_clock_us(?))) "
         "ORDER BY a.artifact_id LIMIT 65",
         (
             observation.article_id,
@@ -178,6 +185,8 @@ def matching_artifacts(
             PAYLOAD_SCHEMA,
             observation.article_version_id,
             cutoff.isoformat(),
+            before,
+            before,
         ),
     ).fetchall()
     if len(rows) > 64:
