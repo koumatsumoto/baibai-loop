@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -165,14 +166,22 @@ def validate_packet(directory: Path, *, canonical: Path | None = None) -> dict[s
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("prepare", "stage", "download", "read"))
-    parser.add_argument("--capture", type=Path, action="append", default=[])
-    parser.add_argument("--expected-captures", type=int)
+    parser.add_argument("--capture", type=Path, action="append", default=[], help="prepare only")
+    parser.add_argument("--expected-captures", type=int, help="prepare only")
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("--stage-id")
-    parser.add_argument("--receipt-id")
-    parser.add_argument("--sha256")
-    parser.add_argument("--manifest-sha256")
+    parser.add_argument("--stage-id", help="stage and download only")
+    parser.add_argument("--receipt-id", help="read only")
+    parser.add_argument("--sha256", help="read only: exact market capture digest")
+    parser.add_argument("--manifest-sha256", help="download only: exact handoff manifest digest")
     args = parser.parse_args(argv)
+    if args.command != "prepare" and (args.capture or args.expected_captures is not None):
+        parser.error("--capture and --expected-captures are only valid for prepare")
+    if args.command not in ("stage", "download") and args.stage_id is not None:
+        parser.error("--stage-id is only valid for stage and download")
+    if args.command != "download" and args.manifest_sha256 is not None:
+        parser.error("--manifest-sha256 is only valid for download")
+    if args.command != "read" and (args.receipt_id is not None or args.sha256 is not None):
+        parser.error("--receipt-id and --sha256 are only valid for read")
     if args.command == "prepare":
         report = prepare(args.capture, args.directory, expected_captures=args.expected_captures)
     elif args.command == "read":
@@ -182,19 +191,20 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if not args.stage_id or not args.stage_id.startswith(MARKET_GROUP + "-"):
             parser.error("stage/download requires --stage-id with tradingview_market- prefix")
+        if args.command == "download":
+            if not args.manifest_sha256 or not re.fullmatch(r"[0-9a-f]{64}", args.manifest_sha256):
+                parser.error("download requires --manifest-sha256 with the exact SHA-256")
+            if args.directory.exists() or args.directory.is_symlink():
+                raise FileExistsError(args.directory)
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         key = stage_prefix(args.stage_id) + "/handoff.json"
         if args.command == "stage":
             validate_packet(args.directory)
             save_handoff(store, args.stage_id, args.directory)
         else:
-            if not args.manifest_sha256:
-                parser.error("download requires --manifest-sha256")
             saved = read_private(store, key)
             if saved is None or hashlib.sha256(saved.payload).hexdigest() != args.manifest_sha256:
                 raise ValueError("fixed market handoff manifest differs")
-            if args.directory.exists():
-                raise FileExistsError(args.directory)
             load_handoff(store, args.stage_id, args.directory)
             validate_packet(args.directory)
         saved = read_private(store, key)

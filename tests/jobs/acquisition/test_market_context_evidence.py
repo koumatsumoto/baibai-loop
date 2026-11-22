@@ -96,6 +96,102 @@ def test_stage_download_exact_manifest_and_read_without_refetch(tmp_path, monkey
         restored / "receipts.sqlite", value.receipt_id, value.digest()
     ) == evidence.read_exact(directory / "receipts.sqlite", value.receipt_id, value.digest())
     assert store.values == before
+    # The ordinary read uses only the resolved local packet and the exact capture digest.
+    monkeypatch.setattr(evidence, "Boto3R2Store", lambda **kwargs: pytest.fail("unexpected R2"))
+    arguments = [
+        "--directory",
+        str(restored),
+        "read",
+        "--receipt-id",
+        value.receipt_id,
+        "--sha256",
+        value.digest(),
+    ]
+    assert evidence.main(arguments) == 0
+    assert json.loads(capsys.readouterr().out) == evidence.read_exact(
+        restored / "receipts.sqlite", value.receipt_id, value.digest()
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "option", "value"),
+    [
+        ("prepare", "--receipt-id", "elsewhere"),
+        ("read", "--stage-id", "tradingview_market-elsewhere"),
+        ("read", "--manifest-sha256", "b" * 64),
+        ("stage", "--manifest-sha256", "b" * 64),
+        ("stage", "--expected-captures", "3"),
+        ("download", "--capture", "not-read.json"),
+        ("download", "--sha256", "b" * 64),
+    ],
+)
+def test_market_command_rejects_options_it_would_otherwise_ignore(
+    tmp_path, monkeypatch, capsys, command, option, value
+):
+    from baibai_jobs import cli
+
+    original, directory, _ = packet(tmp_path)
+    app = directory / "receipts.sqlite"
+    intact = app.read_bytes()
+    monkeypatch.setattr(evidence, "Boto3R2Store", lambda **kwargs: pytest.fail("unexpected R2"))
+    path = directory if command in ("read", "stage") else tmp_path / "output"
+    args = ["market-evidence", command, "--directory", str(path)]
+    if command == "prepare":
+        args += ["--capture", str(tmp_path / "first.json")]
+    if command == "read":
+        args += ["--receipt-id", original.receipt_id, "--sha256", original.digest()]
+    if command in ("stage", "download"):
+        args += ["--stage-id", MARKET_GROUP + "-valid"]
+    if command == "download":
+        args += ["--manifest-sha256", "a" * 64]
+    with pytest.raises(SystemExit) as caught:
+        cli.main([*args, option, value])
+    assert caught.value.code == 2
+    response = capsys.readouterr()
+    assert option in response.err
+    assert "only valid for" in response.err
+    assert response.out == ""
+    assert not (tmp_path / "output").exists()
+    assert app.read_bytes() == intact
+
+
+@pytest.mark.parametrize("digest", [None, "not-a-sha256", "F" * 64])
+def test_download_requires_valid_manifest_pin_before_constructing_store(
+    tmp_path, monkeypatch, capsys, digest
+):
+    target = tmp_path / "download"
+    monkeypatch.setattr(evidence, "Boto3R2Store", lambda **kwargs: pytest.fail("unexpected R2"))
+    command = ["download", "--directory", str(target), "--stage-id", MARKET_GROUP + "-fixed"]
+    if digest is not None:
+        command += ["--manifest-sha256", digest]
+    with pytest.raises(SystemExit) as caught:
+        evidence.main(command)
+    assert caught.value.code == 2
+    assert "requires --manifest-sha256" in capsys.readouterr().err
+    assert not target.exists()
+
+
+def test_download_cannot_reuse_an_existing_destination_before_constructing_store(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "download"
+    target.mkdir()
+    kept = target / "retained.json"
+    kept.write_text("do not replace", encoding="utf-8")
+    monkeypatch.setattr(evidence, "Boto3R2Store", lambda **kwargs: pytest.fail("unexpected R2"))
+    with pytest.raises(FileExistsError):
+        evidence.main(
+            [
+                "download",
+                "--directory",
+                str(target),
+                "--stage-id",
+                MARKET_GROUP + "-fixed",
+                "--manifest-sha256",
+                "a" * 64,
+            ]
+        )
+    assert kept.read_text(encoding="utf-8") == "do not replace"
 
 
 def test_common_integration_preserves_exact_market_receipts_without_schema_migration(
