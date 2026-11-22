@@ -25,18 +25,13 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _accounting_observation_key,
     _carry_forward,
     _latest_actual_row,
-    _latest_actual_row_by_field_priority,
     _latest_complete_row,
     _latest_non_null_row,
+    _latest_period_operating_profit,
     _latest_summary,
     _prior_year_summary,
     _reported_ttm,
-    _ttm_components,
     _ttm_value,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
-    _accruals_to_assets,
-    _select_operating_profit,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.ratios import (
     _safe_positive_ratio,
@@ -48,7 +43,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     FinancialDocumentsAt,
     accounting_standard,
-    comparable_reporting_basis,
     forecast_source_trace,
     latest_forecast_source,
     statement_basis,
@@ -67,7 +61,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v60-ttm-fiscal-year-anchor"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v61-ttm-fiscal-year-anchor"
 
 
 def _reported_source(
@@ -159,11 +153,6 @@ def build_financial_snapshot(
         if latest_price is not None and forecast_eps is not None and forecast_eps > 0
         else None
     )
-    operating_row = _latest_actual_row_by_field_priority(
-        summaries,
-        ("operating_profit", "ordinary_profit", "profit"),
-    )
-    operating_profit, operating_profit_source = _select_operating_profit(operating_row)
     capital_basis = _resolve_capital_basis(
         summaries,
         capital_basis_barrier=capital_basis_barrier,
@@ -289,40 +278,6 @@ def build_financial_snapshot(
             ),
         }
     pbr = _safe_positive_ratio(latest_market_cap, None if equity is None else equity[0])
-    prior_total_assets_row = _prior_year_summary(
-        summaries,
-        ttm_rules,
-        field_name="total_assets",
-        require_basis=False,
-    )
-    current_assets_row = _latest_actual_row(summaries, field_names=("total_assets",))
-    profit_rows = _ttm_components(summaries, "profit", ttm_rules)
-    ocf_rows = reported_ocf_ttm.components
-    accrual_basis_rows = (
-        *profit_rows,
-        *ocf_rows,
-        *((current_assets_row,) if current_assets_row is not None else ()),
-    )
-    prior_assets_comparable = prior_total_assets_row is not None and comparable_reporting_basis(
-        (*accrual_basis_rows, prior_total_assets_row)
-    )
-    accruals_to_assets = _accruals_to_assets(
-        net_income=(
-            profit_ttm
-            if profit_rows
-            and ocf_rows
-            and current_assets_row is not None
-            and comparable_reporting_basis(accrual_basis_rows)
-            else None
-        ),
-        ocf_ttm=ocf_ttm,
-        total_assets=total_assets,
-        prior_total_assets=(
-            prior_total_assets_row.total_assets
-            if prior_assets_comparable and prior_total_assets_row is not None
-            else None
-        ),
-    )
     shares_prior = _prior_year_summary(summaries, ttm_rules, field_name="shares_outstanding")
     net_share_change_yoy = _yoy_ratio(
         shares_outstanding,
@@ -391,9 +346,8 @@ def build_financial_snapshot(
         edinet_source_period_end=edinet.source_period_end if edinet else None,
         edinet_capex_source=edinet.capex_source if edinet else None,
         edinet_failure_reasons=edinet_failure_reasons or None,
-        operating_profit=operating_profit,
+        operating_profit=_latest_period_operating_profit(summaries),
         operating_profit_ttm=operating_profit_ttm,
-        operating_profit_source=operating_profit_source,
         ttm_quality_ev_ebitda=(edinet_metrics.ttm_quality_ev_ebitda if edinet_metrics else None),
         ttm_quality_per_trailing=profit_quality,
         ttm_quality_p_s=sales_quality,
@@ -402,7 +356,6 @@ def build_financial_snapshot(
         ttm_quality_sales=sales_quality,
         ttm_quality_fcf_yield=(edinet_metrics.ttm_quality_fcf if edinet_metrics else None),
         shares_outstanding=shares_outstanding,
-        accruals_to_assets=accruals_to_assets,
         net_share_change_yoy=net_share_change_yoy,
         tradable_share_change_yoy=tradable_share_change_yoy,
         bs_carry_forward_fields=bs_carry_forward_fields or None,
