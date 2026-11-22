@@ -8,7 +8,7 @@ from pydantic import Field, JsonValue
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoverySelection as DiscoverySelection,
 )
-from baibai_engine.machine_analysis.screening.discovery_contract import is_discovery_publication
+from baibai_engine.machine_analysis.screening.discovery_contract import discovery_publication_method
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.technical_financial import (
     TechnicalFinancialSelection,
@@ -40,11 +40,13 @@ def validate_selection_source(
 ) -> None:
     if selection.generation_id != generation_id:
         raise ValueError("screening selection differs from the chosen generation")
-    indexed = is_discovery_publication(selection_id, generation_id)
-    if indexed != isinstance(selection.result, DiscoverySelection):
+    method = discovery_publication_method(selection_id, generation_id)
+    if isinstance(selection.result, DiscoverySelection):
+        if method != selection.result.policy.method:
+            raise ValueError("discovery publication identity differs from its policy")
+        if selection.result.tickers != selection.universe_tickers or len(
+            set(selection.universe_tickers)
+        ) != len(selection.universe_tickers):
+            raise ValueError("discovery result differs from the exact stock universe")
+    elif method is not None:
         raise ValueError("discovery publication identity differs from its format")
-    if isinstance(selection.result, DiscoverySelection) and (
-        selection.result.tickers != selection.universe_tickers
-        or len(set(selection.universe_tickers)) != len(selection.universe_tickers)
-    ):
-        raise ValueError("discovery result differs from the exact stock universe")
