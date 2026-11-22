@@ -883,8 +883,16 @@ pull_app() {
   # cloud へ反映する)。未公開変更を失わないよう、既存の作業copyは置換しない。
   # ファイルがあれば止める。publish 済みで未 push の判断は再生成できず、上書きすると
   # 復元手段が無い。CI は checkout 直後で stores/application/ が空なので素通りする。
-  local key=baibai.sqlite target body response version length current
+  local key=baibai.sqlite target body response version length current pull_fd
   target="$(store_path "${key}")"
+  # Another pull must not retire our marker after our App and marker are installed.
+  # Lock the stable local directory, not either file; process exit releases the lock.
+  mkdir -p "${target%/*}"
+  exec {pull_fd}<"${target%/*}"
+  if ! flock -n "${pull_fd}"; then
+    printf 'cannot lock application work directory for pull; existing copy and origin left alone\n' >&2
+    return 2
+  fi
   if [[ -e "${target}" || -L "${target}" ]]; then
     printf 'refusing application store download overwrite: %s\n' "${target}" >&2
     return 2
@@ -915,7 +923,6 @@ pull_app() {
     printf 'refusing to replace local stores: %s changed on R2 during the pull. Pull again.\n' "${key}" >&2
     return 1
   fi
-  mkdir -p "$(dirname "${target}")"
   # A concurrent local author may have created the target during the download.
   # Link create-only; -T also refuses a directory that appeared at the target.
   if ! ln -T -- "${body}" "${target}"; then
