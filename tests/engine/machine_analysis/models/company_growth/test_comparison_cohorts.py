@@ -146,6 +146,92 @@ def test_unreceived_correction_blocks_only_its_cohort_not_other_native_ttm():
     )
 
 
+@pytest.mark.parametrize("witness", ["short_fy", "unbound", "earlier_other_standard"])
+def test_same_range_pdf_needs_the_current_native_cohort_to_block_ttm(witness):
+    quarter, short_year = current_quarters("Consolidated_IFRS")
+    short_year = replace(short_year, disclosure_number="20260804509999")
+    documents = [document(True), prior_quarter(), short_year, quarter]
+    source_id = short_year.disclosure_number
+    pdf_day, standard = short_year.disclosed_at, "IFRS"
+    if witness == "unbound":
+        source_id = "20260804509998"
+    elif witness == "earlier_other_standard":
+        source_id, pdf_day, standard = "20260804509997", date(2026, 8, 6), "JP"
+        documents.append(
+            replace(
+                quarter,
+                disclosure_number=source_id,
+                disclosed_at=pdf_day,
+                document_type="1QFinancialStatements_Consolidated_JP",
+            )
+        )
+    cousin = statement().model_copy(
+        update={
+            "disclosure_number": source_id,
+            "published_on": pdf_day,
+            "accounting_standard": standard,
+            "source_sha256": "f" * 64,
+            "source_url": f"https://www2.jpx.co.jp/disc/92680/1401{source_id}.pdf",
+        }
+    )
+    annual_pdf = statement(True)
+    baseline = models(documents=documents, pdfs=(annual_pdf,))
+    with_cousin = models(documents=documents[::-1], pdfs=(cousin, annual_pdf))
+    for financial, growth, _ in (baseline, with_cousin):
+        assert financial.payload["earnings_price"]["profit_ttm_yen"] == 2_793_246_000
+        assert financial.payload["financial"]["sales_ttm"] == 353_037_246_000
+        reader = CompanyGrowthReader(growth.payload)
+        latest = reader.observation(reader.latest_period, "annual_ttm")
+        assert latest.metrics["sales"].value == 353_037_246_000
+        assert growth.payload["pdf_selection"]["current"] is None
+        assert growth.payload["pdf_selection"]["blocks_legacy_ttm"] is False
+    assert with_cousin[0].payload["earnings_price"] == baseline[0].payload["earnings_price"]
+    assert with_cousin[1].payload["periods"] == baseline[1].payload["periods"]
+    assert with_cousin[1].payload["changes"] == baseline[1].payload["changes"]
+    assert any(
+        item["source_sha256"] == cousin.source_sha256
+        for item in with_cousin[1].payload["pdf_supplement"]["statements"]
+    )
+
+
+@pytest.mark.parametrize("same_cohort", [False, True])
+def test_unchanged_annual_pdf_requires_the_same_fiscal_cohort(same_cohort):
+    earlier = document(True)
+    latest = replace(
+        earlier,
+        disclosure_number="reconfirmed-native-fy",
+        disclosed_at=date(2026, 6, 15),
+        fiscal_year_end=earlier.fiscal_year_end if same_cohort else date(2026, 6, 30),
+    )
+    pdf = statement(True)
+    baseline, base_growth, _ = models(documents=(earlier, latest), pdfs=())
+    financial, growth, _ = models(documents=(latest, earlier), pdfs=(pdf,))
+    selected = growth.payload["pdf_selection"]
+    reader = CompanyGrowthReader(growth.payload)
+    annual = reader.observation(reader.latest_period, "annual_ttm")
+    if same_cohort:
+        assert selected["current"]["disclosure_number"] == earlier.disclosure_number
+        assert selected["annual_latest_disclosure_number"] == latest.disclosure_number
+        assert selected["annual_revision_basis"] == "latest_reconfirmed_unchanged_amounts"
+        assert selected["comparative_verified"] is False
+        assert financial.payload["earnings_price"]["profit_ttm_yen"] == 2_469_000_000
+        assert financial.payload["financial"]["sales_ttm"] == 315_507_000_000
+        assert annual.metrics["sales"].documents[0].source_sha256 == pdf.source_sha256
+        assert annual.metrics["sales"].value == 315_507_000_000
+    else:
+        assert selected["current"] is None
+        assert not selected["blocks_legacy_ttm"]
+        earnings = financial.payload["earnings_price"]
+        assert earnings == baseline.payload["earnings_price"]
+        assert earnings["profit_ttm_yen"] == 2_469_123_000
+        assert earnings["profit_components"][0]["disclosure_number"] == latest.disclosure_number
+        assert financial.payload["financial"]["sales_ttm"] == 315_507_123_000
+        assert annual.metrics["sales"].documents[0].disclosure_number == latest.disclosure_number
+        assert annual.metrics["sales"].value == 315_507_123_000
+        assert growth.payload["periods"] == base_growth.payload["periods"]
+    assert growth.payload["pdf_supplement"]["statements"][0]["source_sha256"] == pdf.source_sha256
+
+
 def test_no_pdf_incompatible_sibling_cannot_remove_supported_screening_coordinates():
     quarter, short_year = current_quarters("NonConsolidated_JP")
     documents = (document(True), prior_quarter(), quarter)

@@ -149,6 +149,31 @@ def _matching_pdf(
     return item, None
 
 
+def _has_retained_cohort_pdf(
+    current: JQuantsFinancialSummary,
+    rows: Sequence[JQuantsFinancialSummary],
+    statements: Sequence[PdfStatement],
+) -> bool:
+    # 現在ID自身の矛盾は保留する。過去のPDFは同じ会計期・基準の訂正系列だけを見る。
+    period = (current.period_start, current.period_end)
+    cohort = accounting_period_identity(current)
+    basis, standard = statement_basis(current), accounting_standard(current)
+    disclosures = {current.disclosure_number}
+    if basis in {"consolidated", "nonconsolidated"} and standard is not None:
+        disclosures.update(
+            row.disclosure_number
+            for row in rows
+            if (row.period_start, row.period_end) == period
+            and accounting_period_identity(row) == cohort
+            and statement_basis(row) == basis
+            and accounting_standard(row) == standard
+        )
+    return any(
+        item.disclosure_number in disclosures and (item.current_start, item.current_end) == period
+        for item in statements
+    )
+
+
 def _unchanged_annual_pdf(
     latest: JQuantsFinancialSummary,
     rows: Sequence[JQuantsFinancialSummary],
@@ -164,10 +189,12 @@ def _unchanged_annual_pdf(
     ):
         return None
     candidates = {}
+    cohort = accounting_period_identity(latest)
     for row in rows:
         if (
             row.disclosure_number == latest.disclosure_number
             or (row.period_start, row.period_end) != (latest.period_start, latest.period_end)
+            or accounting_period_identity(row) != cohort
             or accounting_standard(row) != accounting_standard(latest)
             or statement_basis(row) != statement_basis(latest)
             or not certainly_disclosed_by(row, latest)
@@ -354,10 +381,8 @@ def _select_for_current(
     if current is None and current_is_annual:
         current = _unchanged_annual_pdf(current_row, rows, retained)
     if current is None:
-        current_pdf_retained = any(
-            (item.current_start, item.current_end)
-            == (current_row.period_start, current_row.period_end)
-            for item in retained
+        current_pdf_retained = not current_is_annual and _has_retained_cohort_pdf(
+            current_row, rows, retained
         )
         conflict = (
             _known_annual_conflict(current_row, rows, retained, projected)
@@ -382,7 +407,7 @@ def _select_for_current(
             reason=reason,
             period_start=current_row.period_start,
             period_end=current_row.period_end,
-            blocks_legacy_ttm=not current_is_annual and current_pdf_retained,
+            blocks_legacy_ttm=current_pdf_retained,
         )
     assert current.current_start is not None
     assert current.current_end is not None
