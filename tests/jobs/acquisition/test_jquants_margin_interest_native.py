@@ -1,5 +1,6 @@
 """Source-specific fulfillment stays independent from L2 and fixed historical rules."""
 
+import hashlib
 import json
 import sqlite3
 from datetime import date, timedelta
@@ -13,8 +14,12 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
     HEAD_KEY as CALENDAR_HEAD,
 )
 from baibai_engine.data_collection.providers.jquants.calendar_native import (
+    PREFIX as CALENDAR_PREFIX,
+)
+from baibai_engine.data_collection.providers.jquants.calendar_native import (
     CalendarAttempt,
     CalendarL1,
+    FixedCalendarL1,
 )
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsPage,
@@ -27,6 +32,9 @@ from baibai_engine.data_collection.providers.jquants.margin_interest_native impo
     balance_days,
     plan_margin_interest_days,
 )
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.acquisition.jquants_margin_interest_native import acquire_margin_interest_native
 from baibai_jobs.integration.margin_interest_native import fixed_input, materialize_saved_input
 
@@ -201,7 +209,7 @@ def test_daily_empty_retries_and_nonempty_malformed_l2_is_not_refetched(tmp_path
 def test_force_backfill_is_finite_and_includes_last_day(tmp_path):
     _, owner, cal = setup(tmp_path)
     owner.commit([attempt("one")])
-    assert balance_days(cal, start=DAY, end=DAY)[0] == (DAY,)
+    assert balance_days(cal.index(), start=DAY, end=DAY)[0] == (DAY,)
     assert plan_margin_interest_days(owner.fixed(), cal, asof=DAY, start=DAY, end=DAY).days == ()
     assert plan_margin_interest_days(
         owner.fixed(), cal, asof=DAY, start=DAY, end=DAY, force=True
@@ -214,14 +222,14 @@ def test_force_backfill_is_finite_and_includes_last_day(tmp_path):
 def test_weekly_backfill_does_not_treat_midweek_range_end_as_week_end(tmp_path):
     monday, friday = date(2026, 9, 14), date(2026, 9, 18)
     _, _, cal = setup(tmp_path, start=monday, end=friday)
-    assert balance_days(cal, start=monday, end=monday) == ((), (), ())
-    assert balance_days(cal, start=monday, end=friday)[0] == (friday,)
+    assert balance_days(cal.index(), start=monday, end=monday) == ((), (), ())
+    assert balance_days(cal.index(), start=monday, end=friday)[0] == (friday,)
 
 
 def test_weekly_backfill_reports_missing_later_calendar_days(tmp_path):
     thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
     store, owner, cal = setup(tmp_path, start=thursday, end=thursday)
-    expected, unknown, _ = balance_days(cal, start=thursday, end=thursday)
+    expected, unknown, _ = balance_days(cal.index(), start=thursday, end=thursday)
     assert expected == ()
     assert unknown == (friday,)
 
@@ -233,7 +241,7 @@ def test_weekly_backfill_reports_missing_later_calendar_days(tmp_path):
 def test_weekly_backfill_keeps_thursday_when_friday_is_closed(tmp_path):
     thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
     _, _, cal = setup(tmp_path, start=thursday, end=friday, closed=(friday,))
-    assert balance_days(cal, start=thursday, end=thursday) == ((thursday,), (), ())
+    assert balance_days(cal.index(), start=thursday, end=thursday) == ((thursday,), (), ())
 
 
 def test_fixed_input_retains_the_calendar_evidence_after_selection_end(tmp_path):
@@ -242,6 +250,78 @@ def test_fixed_input_retains_the_calendar_evidence_after_selection_end(tmp_path)
     saved = fixed_input(store, owner.fixed(), cal, start=thursday, end=thursday, evaluated_at=AT)
     calendar_input = saved.descriptor["summary"]["calendar_input"]
     assert calendar_input["descriptor"]["summary"]["selection_end"] == friday.isoformat()
+
+
+def test_weekly_expected_balance_uses_checked_later_day_not_the_head_claim(tmp_path):
+    thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
+    store, owner, honest = setup(tmp_path, start=thursday, end=friday, closed=(friday,))
+    head = honest.value()
+    head["days"][friday.isoformat()]["division"] = "1"  # Not the stored closed response.
+    disputed = FixedCalendarL1(json.dumps(head).encode(), honest.etag)
+
+    def prepare(calendar):
+        return fixed_input(
+            store, owner.fixed(), calendar, start=thursday, end=thursday, evaluated_at=AT
+        )
+
+    control = prepare(honest)
+    assert control.descriptor["summary"]["expected_days"] == [thursday.isoformat()]
+    assert control.descriptor["summary"]["unknown_calendar_days"] == []
+
+    saved = prepare(disputed)
+    assert saved.descriptor["summary"]["expected_days"] == []
+    assert saved.descriptor["summary"]["unknown_calendar_days"] == [friday.isoformat()]
+    result = materialize_saved_input(store, saved, output=tmp_path / "unknown-friday.sqlite")
+    assert result["weekly_coverage_status"] == "partial"
+    assert result["calendar_unavailable_days"] == 1
+    assert result["unresolved_days"] == []  # Unknown Friday does not claim Thursday was due.
+
+
+def test_current_weekly_cold_replay_verifies_friday_pack_outside_output_but_legacy_does_not(
+    tmp_path,
+):
+    thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
+    store, owner, _ = setup(tmp_path, start=thursday, end=thursday)
+    native = CalendarL1(store, tmp_path / "calendar")
+    page = JQuantsPage(
+        "market_calendar",
+        {"from": friday.isoformat(), "to": friday.isoformat()},
+        AT,
+        body([{"Date": friday.isoformat(), "HolDiv": "0"}]),
+    )
+    native.commit([CalendarAttempt("friday", friday, friday, AT, (page,))])
+    selected = native.fixed()
+    saved = fixed_input(
+        store, owner.fixed(), selected, start=thursday, end=thursday, evaluated_at=AT
+    )
+    healthy = tmp_path / "current-healthy.sqlite"
+    materialize_saved_input(store, saved, output=healthy)
+    with sqlite3.connect(healthy) as conn:
+        assert conn.execute("SELECT day FROM jquants_market_calendar").fetchall() == [
+            (thursday.isoformat(),)
+        ]
+    # Simulate a legitimately retained, pre-day-proof edition, whose exact old
+    # calendar replay verified only the requested output interval.
+    old = saved.model_dump(mode="json")
+    nested = old["descriptor"]["summary"]["calendar_input"]
+    nested["descriptor"]["summary"].pop("projection_revision")
+    nested["sha256"] = hashlib.sha256(canonical_json(nested["descriptor"]).encode()).hexdigest()
+    old["sha256"] = hashlib.sha256(canonical_json(old["descriptor"]).encode()).hexdigest()
+    legacy = InputSnapshot.model_validate(old)
+
+    pack = selected.value()["receipts"]["friday"]["pack"]
+    del store.values[CALENDAR_PREFIX + "packs/" + pack + ".json.gz"]
+    del store.values[CALENDAR_HEAD]
+    out = tmp_path / "current-missing-original.sqlite"
+    with pytest.raises(LakePublishError, match="calendar pack"):
+        materialize_saved_input(store, saved, output=out)
+    assert not out.exists()
+    assert (
+        materialize_saved_input(store, legacy, output=tmp_path / "legacy-missing-original.sqlite")[
+            "weekly_coverage_status"
+        ]
+        == "partial"
+    )
 
 
 def test_fixed_input_rejects_later_calendar_evidence_from_the_future(tmp_path):

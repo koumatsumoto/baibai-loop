@@ -11,14 +11,15 @@ from typing import Any
 from pydantic import JsonValue
 
 from baibai_engine.data_collection.providers.jquants.calendar_native import (
-    matching_calendar_days,
     read_calendar_attempts,
+    verify_calendar_selection,
 )
 from baibai_engine.data_collection.providers.jquants.contracts import complete_request
 from baibai_engine.machine_analysis.generation.calendar_inputs import (
     INPUT_FORMAT as CALENDAR_INPUT_FORMAT,
 )
 from baibai_engine.machine_analysis.generation.calendar_inputs import (
+    VerifiedCalendarInput,
     calendar_day_closed,
     read_calendar_input,
     retain_calendar_input,
@@ -64,7 +65,7 @@ def _price_selection_contract(input_format: object) -> FullDayInputContract:
 def with_calendar_closures(
     store: ObjectStore,
     scopes: dict[str, Any],
-    calendar: InputSnapshot | None,
+    calendar: InputSnapshot | VerifiedCalendarInput | None,
     *,
     evaluated_at: datetime,
 ) -> dict[str, Any]:
@@ -75,6 +76,9 @@ def with_calendar_closures(
     """
     if calendar is None:
         return scopes
+    prepared = None
+    if isinstance(calendar, VerifiedCalendarInput):
+        prepared, calendar = calendar, calendar.snapshot
     calendar = InputSnapshot.model_validate_json(calendar.model_dump_json())
     descriptor = calendar.descriptor
     if descriptor is None or descriptor.get("format") != CALENDAR_INPUT_FORMAT:
@@ -83,7 +87,10 @@ def with_calendar_closures(
     if not isinstance(summary, dict) or not isinstance(digest, str):
         raise ValueError("price closure requires its calendar interval and digest")
     clock = summary.get("evaluated_at")
-    if not isinstance(clock, str) or datetime.fromisoformat(clock) > evaluated_at:
+    if not isinstance(clock, str):
+        raise ValueError("price closure requires its calendar evaluation clock")
+    calendar_clock = datetime.fromisoformat(clock)
+    if calendar_clock.utcoffset() is None or calendar_clock > evaluated_at:
         raise ValueError("price closure calendar is later than its evaluation clock")
     first, last = summary.get("selection_start"), summary.get("selection_end")
     if not isinstance(first, str) or not isinstance(last, str):
@@ -100,10 +107,16 @@ def with_calendar_closures(
     candidates = {
         day: scope for day, scope in selected["scopes"].items() if calendar_day_closed(scope)
     }
-    proved = matching_calendar_days(store, scopes=candidates, receipts=selected["receipts"])
+    if prepared is None:
+        candidates = verify_calendar_selection(
+            store, scopes=candidates, receipts=selected["receipts"], evaluated_at=calendar_clock
+        )
+    elif any(prepared.scopes.get(day) != scope for day, scope in candidates.items()):
+        # Only this preparation's exact matched day may replace reading its raw pack.
+        raise ValueError("prepared calendar day differs from its immutable selection")
     months: dict[str, dict[str, Any]] = defaultdict(dict)
     for day, scope in candidates.items():
-        if day in proved:
+        if scope["valid"]:
             months[day[:7]][day] = scope
     closed = {}
     for month_scopes in months.values():

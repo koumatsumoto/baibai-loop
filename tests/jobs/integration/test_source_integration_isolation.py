@@ -214,9 +214,14 @@ def test_invalid_receipt_sqlite_is_local_and_other_source_still_integrates(tmp_p
         ("master", "calendar", "clock"),
         ("calendar", "master", "shape"),
         ("master", "calendar", "shape"),
+        (None, "calendar", "older-pack"),
+        (None, "calendar", "required-pack"),
+        (None, "calendar", "required-transport"),
     ],
 )
-def test_only_empty_tradingview_native_context_is_source_local(tmp_path, empty, malformed, fault):
+def test_tradingview_calendar_keeps_source_local_scope_and_fatal_root_checks(
+    tmp_path, monkeypatch, empty, malformed, fault
+):
     from tests.helpers.jpx_earnings import DAY as JPX_DAY
     from tests.helpers.jpx_earnings import STAMP, earnings
     from tests.helpers.tradingview import (
@@ -288,10 +293,92 @@ def test_only_empty_tradingview_native_context_is_source_local(tmp_path, empty, 
         )
     )
 
-    # Change the current heads only; the older packet retains its exact inputs.
+    # Current source-root structure is global; packed evidence is requested only
+    # for the actual dated evidence from this verified TradingView packet.
+    corrupt_key = None
+    if fault in {"older-pack", "required-pack", "required-transport"}:
+        from tests.engine.data_collection.providers.jquants.test_calendar_native import attempt
+
+        from baibai_engine.data_collection.providers.jquants.calendar_native import (
+            PREFIX,
+            CalendarL1,
+        )
+
+        fixed = CalendarL1(remote, tmp_path / "mutable-calendar")
+        raw_date = DAY
+        if fault == "older-pack":
+            raw_date -= timedelta(days=366)
+            fixed.commit([attempt("unrelated-calendar", raw_date)])
+        root = fixed.fixed().value()
+        adopted = root["days"][raw_date.isoformat()]["adopted"]
+        digest = root["receipts"][adopted]["pack"]
+        corrupt_key = PREFIX + "packs/" + digest + ".json.gz"
+        if fault == "required-transport":
+            get = remote.get_bytes
+
+            def fail_required_pack(key):
+                if key == corrupt_key:
+                    raise R2Error("transport unavailable")
+                return get(key)
+
+            monkeypatch.setattr(remote, "get_bytes", fail_required_pack)
+        else:
+            remote.values[corrupt_key].body = b"not the expected original"
+    else:
+        _corrupt_tradingview_heads(remote, CALENDAR, MASTER, empty, malformed, fault)
+
+    market = tmp_path / "market.sqlite"
+    with closing(open_connection(market)):
+        pass
+    if fault in {"shape", "clock"}:
+        before = market.read_bytes()
+        reason = "must be an object" if fault == "shape" else "Invalid isoformat string"
+        with pytest.raises(ValueError, match=reason):
+            apply_market(remote, work, market=market, asof=DAY)
+        assert market.read_bytes() == before
+        return
+
+    remote.get_keys.clear()
+    remote.head_keys.clear()
+    if fault == "required-transport":
+        with pytest.raises(R2Error, match="transport unavailable"):
+            apply_market(remote, work, market=market, asof=DAY)
+        with closing(open_connection(market)) as conn:
+            assert not conn.execute("SELECT 1 FROM tradingview_source_receipts").fetchone()
+        return
+
+    result = apply_market(remote, work, market=market, asof=DAY)
+    good, tradingview = result["handoffs"]
+    assert good["applied"] is True
+    assert good["failed"] is False
+    if fault == "older-pack":
+        assert corrupt_key not in remote.get_keys
+        assert corrupt_key not in remote.head_keys
+        assert tradingview["applied"] is True
+        assert tradingview["failed"] is False
+    else:
+        assert tradingview["result"] == {
+            "reason": (
+                "LakePublishError"
+                if fault == "required-pack"
+                else "tradingview_native_context_unavailable"
+            )
+        }
+        assert tradingview["applied"] is False
+        assert tradingview["failed"] is tradingview["recovery"] is True
+    with closing(open_connection(market)) as conn:
+        assert conn.execute("SELECT ticker FROM jpx_earnings_calendar").fetchall() == [("130A",)]
+        assert bool(conn.execute("SELECT 1 FROM tradingview_source_receipts").fetchone()) is (
+            fault == "older-pack"
+        )
+    assert "coordination/market-sources/tradingview-ready/integrated.json" not in remote.values
+
+
+def _corrupt_tradingview_heads(remote, calendar, master, empty, malformed, fault):
+    # Change mutable head structure independently of the packet's fixed histories.
     for owner, key, fields in (
-        ("calendar", CALENDAR, ("days", "ranges", "receipts")),
-        ("master", MASTER, ("scopes", "receipts")),
+        ("calendar", calendar, ("days", "ranges", "receipts")),
+        ("master", master, ("scopes", "receipts")),
     ):
         head = json.loads(remote.values[key].body)
         if owner == empty:
@@ -304,28 +391,6 @@ def test_only_empty_tradingview_native_context_is_source_local(tmp_path, empty, 
         else:
             continue
         remote.store_object(key, json.dumps(head).encode())
-    market = tmp_path / "market.sqlite"
-    with closing(open_connection(market)):
-        pass
-    if malformed is not None:
-        before = market.read_bytes()
-        reason = "must be an object" if fault == "shape" else "Invalid isoformat string"
-        with pytest.raises(ValueError, match=reason):
-            apply_market(remote, work, market=market, asof=DAY)
-        assert market.read_bytes() == before
-        return
-
-    result = apply_market(remote, work, market=market, asof=DAY)
-    good, unavailable = result["handoffs"]
-    assert good["applied"] is True
-    assert good["failed"] is False
-    assert unavailable["result"] == {"reason": "tradingview_native_context_unavailable"}
-    assert unavailable["applied"] is False
-    assert unavailable["failed"] is unavailable["recovery"] is True
-    with closing(open_connection(market)) as conn:
-        assert conn.execute("SELECT ticker FROM jpx_earnings_calendar").fetchall() == [("130A",)]
-        assert not conn.execute("SELECT 1 FROM tradingview_source_receipts").fetchone()
-    assert "coordination/market-sources/tradingview-ready/integrated.json" not in remote.values
 
 
 @pytest.mark.parametrize("field", ["receipt_sha256", "receipt_bytes", "receipt_key"])

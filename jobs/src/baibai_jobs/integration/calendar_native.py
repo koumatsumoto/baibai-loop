@@ -11,8 +11,10 @@ import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -22,11 +24,13 @@ from pydantic import JsonValue
 from baibai_engine.data_collection.providers.jquants.calendar_native import (
     FixedCalendarL1,
     interval,
-    read_calendar_attempts,
+    validate_calendar_scope_clock,
+    verify_calendar_selection,
 )
-from baibai_engine.data_collection.providers.jquants.contracts import complete_request
 from baibai_engine.machine_analysis.generation.calendar_inputs import (
+    CALENDAR_PROJECTION_REVISION,
     INPUT_FORMAT,
+    VerifiedCalendarInput,
     calendar_day_usable,
     read_calendar_input,
     retain_calendar_input,
@@ -44,19 +48,6 @@ from baibai_engine.storage.sqlite.source_cache.coverage import record_source_cov
 from baibai_engine.storage.sqlite.source_cache.storage_contracts import SOURCE_COVERAGE_DDL
 
 CALENDAR_SOURCE = "jquants_market_calendar"
-
-
-def _validate_clock(scopes: Mapping[str, Any], evaluated_at: datetime) -> None:
-    if evaluated_at.utcoffset() is None:
-        raise ValueError("calendar evaluation clock requires a timezone")
-    for scope in scopes.values():
-        for field in ("confirmed_at", "last_attempt_at", "changed_at"):
-            if value := scope.get(field):
-                stamp = datetime.fromisoformat(value)
-                if stamp.utcoffset() is None or stamp > evaluated_at:
-                    raise ValueError(
-                        "calendar input contains receipts later than the evaluation clock"
-                    )
 
 
 def _summary(scopes: Mapping[str, Any]) -> dict[str, Any]:
@@ -94,6 +85,163 @@ def _summary(scopes: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _freeze(evidence: dict[str, Any]) -> Mapping[str, Mapping[str, Any]]:
+    return MappingProxyType(
+        {identity: MappingProxyType(value) for identity, value in evidence.items()}
+    )
+
+
+def _verification_clock(descriptor: dict[str, JsonValue]) -> str:
+    summary = descriptor["summary"]
+    if not isinstance(summary, dict) or not isinstance(clock := summary.get("evaluated_at"), str):
+        raise ValueError("native calendar selection requires its evaluation clock")
+    return clock
+
+
+def _head_scopes(fixed: FixedCalendarL1) -> tuple[dict[str, Any], dict[str, Any]]:
+    head = fixed.value()
+    scopes = head["days"]
+    if not isinstance(scopes, dict):
+        raise ValueError("native calendar L1 days must be an object")
+    receipts = head["receipts"]
+    if scopes and not isinstance(receipts, dict):
+        raise ValueError("native calendar L1 receipts must be an object")
+    return scopes, receipts
+
+
+def _receipt_ids(scopes: Mapping[str, Mapping[str, Any]]) -> set[str]:
+    return {
+        identity
+        for scope in scopes.values()
+        for field in ("adopted", "failure", "held", "confirmation_id")
+        if (identity := scope.get(field))
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class CurrentCalendarHead:
+    """Frozen acquisition authority for one apply; its scoped raw proof is still pending."""
+
+    scopes: dict[str, Any]
+    receipts: dict[str, Any]
+    evaluated_at: datetime
+    first: date
+    last: date
+
+    def materialize(
+        self, store: ObjectStore, *, market: Path, days: Sequence[date]
+    ) -> dict[str, Any]:
+        if any(not self.first <= day <= self.last for day in days):
+            raise ValueError("requested interval is outside the saved full-day selection")
+        scopes = {
+            day: self.scopes.get(day, {}) for day in (selected.isoformat() for selected in days)
+        }
+        projected = verify_calendar_selection(
+            store, scopes=scopes, receipts=self.receipts, evaluated_at=self.evaluated_at
+        )
+        return _materialize(
+            market, projected, clock=self.evaluated_at.isoformat(), replace_all=False
+        )
+
+
+def current_calendar_head(fixed: FixedCalendarL1, *, evaluated_at: datetime) -> CurrentCalendarHead:
+    """Validate the global head shape, not the unrequested packs of a later local handoff."""
+    scopes, receipts = _head_scopes(fixed)
+    if not scopes:
+        raise EmptyFullDayInput("native calendar L1 has no retained days")
+    validate_calendar_scope_clock(scopes, evaluated_at)
+    if not _receipt_ids(scopes).issubset(receipts):
+        raise ValueError("native calendar head lacks its receipt identities")
+    return CurrentCalendarHead(
+        scopes,
+        receipts,
+        evaluated_at,
+        date.fromisoformat(min(scopes)),
+        date.fromisoformat(max(scopes)),
+    )
+
+
+def prepare_input(
+    store: ObjectStore,
+    fixed: FixedCalendarL1 | VerifiedCalendarInput,
+    *,
+    as_of: date,
+    evaluated_at: datetime,
+    days: Sequence[date] | None = None,
+) -> VerifiedCalendarInput:
+    """Prove a selection or restrict this operation's already verified full-head evidence."""
+    prepared = isinstance(fixed, VerifiedCalendarInput)
+    raw_scopes: Mapping[str, Mapping[str, Any]]
+    raw_receipts: Mapping[str, Mapping[str, Any]]
+    if isinstance(fixed, VerifiedCalendarInput):
+        original = _descriptor(fixed.snapshot)
+        head_sha256 = original["head_sha256"]
+        if not isinstance(head_sha256, str):
+            raise ValueError("prepared calendar requires its head digest")
+        previous = datetime.fromisoformat(_verification_clock(original))
+        if evaluated_at.utcoffset() is None or evaluated_at < previous:
+            raise ValueError("prepared calendar is later than the evaluation clock")
+        raw_scopes, raw_receipts = fixed.scopes, fixed.receipts
+        full_head = fixed.full_head
+    else:
+        raw_scopes, raw_receipts = _head_scopes(fixed)
+        head_sha256 = fixed.content_id
+        full_head = True
+    requested = None if days is None else {day.isoformat() for day in days}
+    retained = sorted(raw_scopes if requested is None else requested)
+    if not retained:
+        raise EmptyFullDayInput("native calendar L1 has no retained days")
+    selected_days = interval(date.fromisoformat(retained[0]), date.fromisoformat(retained[-1]))
+    if not full_head and any(day.isoformat() not in raw_scopes for day in selected_days):
+        raise ValueError("requested interval is outside the prepared calendar proof")
+    scopes = {
+        day: dict(raw_scopes.get(day, {})) if requested is None or day in requested else {}
+        for day in (value.isoformat() for value in selected_days)
+    }
+    receipts = {identity: dict(raw_receipts[identity]) for identity in _receipt_ids(scopes)}
+    if not prepared:
+        scopes = verify_calendar_selection(
+            store, scopes=scopes, receipts=receipts, evaluated_at=evaluated_at
+        )
+    descriptor = retain_calendar_input(
+        store,
+        {
+            "head_sha256": head_sha256,
+            "as_of": as_of.isoformat(),
+            "scopes": scopes,
+            "receipts": receipts,
+            "summary": {
+                "selection_start": retained[0],
+                "selection_end": retained[-1],
+                "as_of": as_of.isoformat(),
+                "evaluated_at": evaluated_at.isoformat(),
+                "projection_revision": CALENDAR_PROJECTION_REVISION,
+                **_summary(scopes),
+            },
+        },
+        immediate_full_replay=True,
+    )
+    # Read back every selected immutable month as before, even when price will use
+    # only some of them. A matching HEAD declaration does not prove stored bytes.
+    if read_calendar_input(store, descriptor, days=selected_days) != {
+        "scopes": scopes,
+        "receipts": receipts,
+    }:
+        raise ValueError("retained calendar selection differs from its verified scopes")
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    return VerifiedCalendarInput(
+        InputSnapshot(
+            kind="native_l1",
+            reference="jquants-market-calendar-" + digest,
+            sha256=digest,
+            descriptor=descriptor,
+        ),
+        _freeze(scopes),
+        _freeze(receipts),
+        full_head=full_head and days is None,
+    )
+
+
 def fixed_input(
     store: ObjectStore,
     fixed: FixedCalendarL1,
@@ -101,53 +249,9 @@ def fixed_input(
     as_of: date,
     evaluated_at: datetime,
     days: Sequence[date] | None = None,
-    immediate_full_replay: bool = False,
 ) -> InputSnapshot:
-    """Retain all selected day evidence; neither as-of nor calendar year trims history."""
-    head = fixed.value()
-    scopes = head["days"]
-    if not isinstance(scopes, dict):
-        raise ValueError("native calendar L1 days must be an object")
-    if days is not None:
-        scopes = {day.isoformat(): scopes.get(day.isoformat(), {}) for day in days}
-    if not scopes:
-        raise EmptyFullDayInput("native calendar L1 has no retained days")
-    _validate_clock(scopes, evaluated_at)
-    retained = sorted(scopes)
-    scopes = {
-        day.isoformat(): scopes.get(day.isoformat(), {})
-        for day in interval(date.fromisoformat(retained[0]), date.fromisoformat(retained[-1]))
-    }
-    identities = {
-        identity
-        for scope in scopes.values()
-        for field in ("adopted", "failure", "held", "confirmation_id")
-        if (identity := scope.get(field))
-    }
-    descriptor = retain_calendar_input(
-        store,
-        {
-            "head_sha256": fixed.content_id,
-            "as_of": as_of.isoformat(),
-            "scopes": scopes,
-            "receipts": {identity: head["receipts"][identity] for identity in identities},
-            "summary": {
-                "selection_start": retained[0],
-                "selection_end": retained[-1],
-                "as_of": as_of.isoformat(),
-                "evaluated_at": evaluated_at.isoformat(),
-                **_summary(scopes),
-            },
-        },
-        immediate_full_replay=immediate_full_replay,
-    )
-    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
-    return InputSnapshot(
-        kind="native_l1",
-        reference="jquants-market-calendar-" + digest,
-        sha256=digest,
-        descriptor=descriptor,
-    )
+    """Save a verified current calendar; the working proof does not escape to disk."""
+    return prepare_input(store, fixed, as_of=as_of, evaluated_at=evaluated_at, days=days).snapshot
 
 
 def _descriptor(saved: InputSnapshot) -> dict[str, JsonValue]:
@@ -181,47 +285,68 @@ def materialize_saved_input(
     market: Path,
     days: Sequence[date] | None = None,
     replace_all: bool = True,
+    additional_evidence_days: Sequence[date] = (),
 ) -> dict[str, Any]:
-    """Cold projection reads only fixed monthly metadata and original range packs."""
+    """Read only the saved edition and its original packs, never a current head."""
     first, last = saved_interval(saved)
     descriptor = _descriptor(saved)
-    selected = read_calendar_input(
-        store, descriptor, days=interval(first, last) if days is None else days
-    )
-    scopes = selected["scopes"]
     summary = descriptor["summary"]
     assert isinstance(summary, dict)
-    clock = summary.get("evaluated_at")
-    if not isinstance(clock, str):
-        raise ValueError("native calendar selection requires its evaluation clock")
-    evaluated_at = datetime.fromisoformat(clock)
-    _validate_clock(scopes, evaluated_at)
-    adopted = {scope["adopted"] for scope in scopes.values() if scope.get("adopted")}
-    identities = {
-        identity
-        for scope in scopes.values()
-        for field in ("adopted", "failure", "held")
-        if (identity := scope.get(field))
-    }
-    # Verify intact source bytes before replacing any execution rows. Day selection
-    # is already resolved by L1; replaying whole ranges would reapply a partial
-    # request to days that a later, narrower request has successfully recovered.
-    for attempt in read_calendar_attempts(
-        store, receipts=selected["receipts"], identities=identities
+    clock = _verification_clock(descriptor)
+    versioned = "projection_revision" in summary
+    if versioned and summary["projection_revision"] != CALENDAR_PROJECTION_REVISION:
+        raise ValueError("saved calendar projection revision does not match this reader")
+    requested = interval(first, last) if days is None else days
+    # Some consumers need native evidence after the last projected day (e.g. a
+    # weekly balance resolved by Friday). Replaying old editions keeps old bounds.
+    verification_days = (
+        sorted(set(requested) | set(additional_evidence_days)) if versioned else requested
+    )
+    selected = read_calendar_input(store, descriptor, days=verification_days)
+    scopes = selected["scopes"]
+    if (
+        verify_calendar_selection(
+            store,
+            scopes=scopes,
+            receipts=selected["receipts"],
+            evaluated_at=datetime.fromisoformat(clock),
+            verify_current_days=versioned,
+        )
+        != scopes
     ):
-        clocks = [page.received_at for page in attempt.pages]
-        if attempt.attempted_at is not None:
-            clocks.append(attempt.attempted_at)
-        if any(stamp > evaluated_at for stamp in clocks):
-            raise ValueError("calendar input contains receipts later than the evaluation clock")
-        if attempt.request_id in adopted:
-            complete_request(attempt.pages)
-            if any(
-                not attempt.start <= date.fromisoformat(day) <= attempt.end
-                for day, scope in scopes.items()
-                if scope.get("adopted") == attempt.request_id
-            ):
-                raise ValueError("adopted calendar request differs from its fixed dates")
+        raise ValueError("saved calendar projection differs from its original day proof")
+    return _materialize(
+        market,
+        {day.isoformat(): scopes[day.isoformat()] for day in requested},
+        clock=clock,
+        replace_all=replace_all,
+    )
+
+
+def materialize_prepared_input(
+    prepared: VerifiedCalendarInput,
+    *,
+    market: Path,
+    days: Sequence[date] | None = None,
+    replace_all: bool = True,
+) -> dict[str, Any]:
+    """Use this operation's checked scopes without repeating pack reads."""
+    clock = _verification_clock(_descriptor(prepared.snapshot))
+    scopes = (
+        prepared.scopes
+        if days is None
+        else {day.isoformat(): prepared.scopes[day.isoformat()] for day in days}
+    )
+    return _materialize(market, scopes, clock=clock, replace_all=replace_all)
+
+
+def _materialize(
+    market: Path,
+    scopes: Mapping[str, Mapping[str, Any]],
+    *,
+    clock: str,
+    replace_all: bool,
+) -> dict[str, Any]:
     with closing(sqlite3.connect(market)) as connection, connection:
         # This is a disposable execution copy. The migrated raw authority lives
         # in native packs, not in a second source_pages export on every run.
@@ -268,11 +393,22 @@ def model_input(
     evaluated_at: datetime,
     market: Path,
 ) -> InputSnapshot:
-    saved = fixed_input(
-        store, fixed, as_of=as_of, evaluated_at=evaluated_at, immediate_full_replay=True
-    )
-    materialize_saved_input(store, saved, market=market)
-    return saved
+    return prepare_model_input(
+        store, fixed, as_of=as_of, evaluated_at=evaluated_at, market=market
+    ).snapshot
+
+
+def prepare_model_input(
+    store: ObjectStore,
+    fixed: FixedCalendarL1,
+    *,
+    as_of: date,
+    evaluated_at: datetime,
+    market: Path,
+) -> VerifiedCalendarInput:
+    prepared = prepare_input(store, fixed, as_of=as_of, evaluated_at=evaluated_at)
+    materialize_prepared_input(prepared, market=market)
+    return prepared
 
 
 def rebuild_saved_input(

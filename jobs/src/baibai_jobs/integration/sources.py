@@ -117,7 +117,7 @@ def apply(
     edinet_input = read_edinet_input(store, InputSnapshot.model_validate(plan["edinet_input"]))
     # Article and JPX replay consume neither a J-Quants head nor a full-history
     # selection. The later model/publication step fixes its own source inputs.
-    master_input = calendar_input = None
+    master_input = calendar_head = None
     if any(
         entry["source"] == "tradingview"
         and not (entry.get("invalid") or entry.get("late_before_integrated"))
@@ -126,7 +126,7 @@ def apply(
         from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
         from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
         from baibai_engine.machine_analysis.generation.full_day_inputs import EmptyFullDayInput
-        from baibai_jobs.integration.calendar_native import fixed_input as fixed_calendar_input
+        from baibai_jobs.integration.calendar_native import current_calendar_head
         from baibai_jobs.integration.master_native import fixed_input as fixed_master_input
 
         evaluated_at = datetime.now(UTC)
@@ -135,9 +135,7 @@ def apply(
         # An initialized empty head blocks only TV. Validate both authorities
         # independently so an empty head cannot hide corruption in the other one.
         with suppress(EmptyFullDayInput):
-            calendar_input = fixed_calendar_input(
-                store, calendar, as_of=asof, evaluated_at=evaluated_at
-            )
+            calendar_head = current_calendar_head(calendar, evaluated_at=evaluated_at)
         with suppress(EmptyFullDayInput):
             master_input = fixed_master_input(store, master, as_of=asof, evaluated_at=evaluated_at)
     # Only this owner's canonical corruption is global and fatal.
@@ -160,7 +158,7 @@ def apply(
                 else "older_than_integrated_source_watermark"
             }
             failed = recovery = True
-        elif entry["source"] == "tradingview" and (master_input is None or calendar_input is None):
+        elif entry["source"] == "tradingview" and (master_input is None or calendar_head is None):
             result = {"reason": "tradingview_native_context_unavailable"}
             failed = recovery = True
         else:
@@ -188,7 +186,7 @@ def apply(
                     packet,
                     store=store,
                     master_input=master_input,
-                    calendar_input=calendar_input,
+                    calendar_head=calendar_head,
                 )
                 result = replay.report
                 failed = recovery = not replay.complete

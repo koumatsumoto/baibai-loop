@@ -27,6 +27,7 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
     prefetch_price_packs,
     read_price_requests,
 )
+from baibai_engine.machine_analysis.generation.calendar_inputs import VerifiedCalendarInput
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.price_inputs import (
     PRICE_PROJECTION_REVISION,
@@ -138,7 +139,7 @@ def model_input(
     as_of: date,
     evaluated_at: datetime,
     market: Path,
-    calendar_input: InputSnapshot | None = None,
+    calendar_input: InputSnapshot | VerifiedCalendarInput | None = None,
 ) -> InputSnapshot:
     """Replace the disposable SQLite projection and retain its exact native identity."""
     if evaluated_at.utcoffset() is None:
