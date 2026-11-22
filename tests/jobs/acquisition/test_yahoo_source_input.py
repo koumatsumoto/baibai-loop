@@ -32,6 +32,9 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
     store_snapshot,
 )
 from baibai_engine.data_collection.transport.context import FetchContext
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+)
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 
 SOURCES = sorted(
@@ -55,7 +58,7 @@ def state(path):
 
 @pytest.fixture
 def source(monkeypatch):
-    control = SimpleNamespace(clock=WHEN, serial=0, changes={}, failures=set(), calls=[])
+    control = SimpleNamespace(clock=WHEN, serial=0, changes={}, meta={}, failures=set(), calls=[])
     by_url = {item.source_url: (index, item) for index, item in enumerate(SOURCES)}
 
     class Clock(datetime):
@@ -79,7 +82,9 @@ def source(monkeypatch):
                 else [int(datetime.combine(DAY, datetime.min.time(), UTC).timestamp())]
             )
             result = {
-                "meta": {"symbol": item.provider_series_id, "currency": "USD"},
+                "meta": control.meta.get(
+                    item.source_id, {"symbol": item.provider_series_id, "currency": "USD"}
+                ),
                 "events": {"splits": {"synthetic": {"numerator": 2, "denominator": 1}}},
                 "timestamp": stamps,
                 "indicators": {
@@ -300,6 +305,44 @@ def test_selected_symbol_late_or_same_clock_response_keeps_group_originals(
             assert raw.read_bytes() == raw_bytes
         assert state(canonical)["economic_source_records"] == before["economic_source_records"]
     assert original.read_bytes() == original_bytes
+
+
+@pytest.mark.parametrize(
+    ("reported_meta", "close"),
+    [
+        ({"symbol": "SI=F", "currency": "USD"}, 999),
+        ({"symbol": "SI=F", "currency": "USD"}, "omit"),
+        (["invalid symbol metadata"], 999),
+    ],
+)
+def test_conflicting_chart_identity_does_not_replace_one_symbols_original(
+    tmp_path, source, monkeypatch, reported_meta, close
+):
+    canonical = tmp_path / "canonical.sqlite"
+    seed(canonical)
+    before = state(canonical)
+    service = IndicatorsService(canonical)
+    assert [x.value for x in service.get_range("gold", start=DAY, end=DAY).observations] == [103.0]
+
+    source.clock += timedelta(hours=1)
+    source.meta = {GOLD: reported_meta}
+    source.changes = {GOLD: close, SOX: 5500}
+    raw, status, report = acquire(tmp_path, canonical, "planning", source, monkeypatch)
+    result = integrate(raw, canonical, tmp_path / "accepted.sqlite")
+    assert not result["late_recovery_required"]
+
+    after = state(canonical)
+    failed = {row["source_id"] for row in report["sources"] if row["status"] == "failed"}
+    assert status == 1
+    assert failed == {GOLD}
+    assert not [row for row in state(raw)["economic_source_records"] if row[0] == GOLD]
+    assert [row for row in after["economic_source_records"] if row[0] == GOLD] == [
+        row for row in before["economic_source_records"] if row[0] == GOLD
+    ]
+    assert [x.value for x in service.get_range("gold", start=DAY, end=DAY).observations] == [103.0]
+    with closing(store.open_read_only_connection(canonical)) as conn:
+        sox = next(read_snapshots(conn, DAY, DAY, source_id=SOX))
+    assert sox.records[0]["indicators"]["quote"][0]["close"] == 5500
 
 
 def test_empty_received_day_of_one_symbol_does_not_cover_another_symbols_outage(tmp_path):

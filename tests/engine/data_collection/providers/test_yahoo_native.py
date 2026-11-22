@@ -14,7 +14,10 @@ import baibai_engine.data_collection.acquisition.refresh as acquisition
 from baibai_engine.data_collection.providers import yahoo
 from baibai_engine.data_collection.providers.yahoo import parse_yahoo_chart
 from baibai_engine.data_collection.receipts.native_sources import store as db
-from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
+from baibai_engine.data_collection.receipts.native_sources.records import (
+    read_snapshots,
+    store_snapshot,
+)
 from baibai_engine.data_collection.transport.context import IndicatorsProviderError
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
@@ -107,27 +110,25 @@ def test_null_close_revision_preserves_source_fields_and_removes_prior_value(tmp
     assert urls == [series.source_url, series.source_url]
 
 
-def test_wrong_symbol_cannot_be_read_as_the_requested_series(tmp_path, monkeypatch):
+def test_wrong_symbol_already_stored_cannot_be_read_as_the_requested_series(tmp_path):
     path = tmp_path / "indicators.sqlite"
     series = load_definitions().by_id()["gold"]
-    day = date(2026, 7, 24)
-    payload = json.dumps(
-        {
-            "chart": {
-                "error": None,
-                "result": [
-                    {
-                        "meta": {"symbol": "OTHER", "currency": "USD"},
-                        "timestamp": [int(datetime(2026, 7, 24, tzinfo=UTC).timestamp())],
-                        "indicators": {"quote": [{"close": [4000]}]},
-                    }
-                ],
-            }
-        }
-    )
-    monkeypatch.setattr(yahoo, "fetch_text", lambda *args, **kwargs: payload)
-    outcome = acquisition.refresh_sources([series.source_id], db_path=path, start=day, end=day)[0]
-    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
+    received = datetime(2026, 7, 24, 15, tzinfo=UTC)
+    day = received.date()
+    with closing(db.initialize_database(path)) as conn, conn:
+        store_snapshot(
+            conn,
+            source_id=series.source_id,
+            observed_at=day,
+            fetched_at=received,
+            records=[
+                {
+                    "metadata": {"meta": {"symbol": "OTHER", "currency": "USD"}},
+                    "timestamp": int(datetime(2026, 7, 24, tzinfo=UTC).timestamp()),
+                    "indicators": {"quote": [{"close": 4000}]},
+                }
+            ],
+        )
     with pytest.raises(ValueError, match="symbol does not match"):
         IndicatorsService(path).get_range(series.series_id, start=day, end=day)
 
