@@ -8,10 +8,7 @@ import pytest
 from baibai_engine.machine_analysis.generation.financial_models import (
     generate_financial_and_price_models,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics import (
-    financial_snapshot,
-    periods,
-)
+from baibai_engine.machine_analysis.models.company_financials.metrics import periods
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
 )
@@ -20,8 +17,8 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
     _latest_actual_row,
-    _latest_actual_row_by_field_priority,
     _latest_non_null_row,
+    _latest_period_operating_profit,
     _prior_year_summary,
     _reported_ttm,
     _ttm_value,
@@ -293,7 +290,7 @@ def test_profit_only_correction_keeps_prior_shares_but_share_correction_wins():
     assert prior.shares_outstanding == 95.0
 
 
-def test_latest_partial_standard_revision_blocks_current_profit_yoy_and_priority():
+def test_latest_partial_standard_revision_blocks_current_profit_yoy_and_operating_line():
     rows = weekly_documents(date(2023, 2, 19))
     revised = replace(
         rows[2],
@@ -306,12 +303,7 @@ def test_latest_partial_standard_revision_blocks_current_profit_yoy_and_priority
     )
     rows.append(revised)
     assert _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="profit") is None
-    assert (
-        _latest_actual_row_by_field_priority(
-            rows, ("operating_profit", "ordinary_profit", "profit")
-        )
-        is None
-    )
+    assert _latest_period_operating_profit(rows) is None
 
 
 def test_fy_cfo_survives_a_newer_quarter_without_cfo():
@@ -357,24 +349,23 @@ def test_fy_cfo_survives_a_newer_quarter_without_cfo():
 
 
 @pytest.mark.parametrize(
-    ("case", "cfo", "ocf_ttm", "accruals", "start", "end", "method", "amounts"),
+    ("case", "cfo", "ocf_ttm", "start", "end", "method", "amounts"),
     [
-        ("annual", 40.0, 40.0, 0.2, "2023-02-19", "2024-02-17", "reported_annual", [40.0]),
+        ("annual", 40.0, 40.0, "2023-02-19", "2024-02-17", "reported_annual", [40.0]),
         (
             "composed",
             15.0,
             50.0,
-            70 / 300,
             "2023-05-21",
             "2024-05-18",
             "fy_plus_current_ytd_minus_prior_ytd",
             [15.0, 40.0, -5.0],
         ),
-        ("missing", 40.0, None, None, None, None, None, []),
+        ("missing", 40.0, None, None, None, None, []),
     ],
 )
 def test_generation_resolves_operating_cash_flow_operands_once(
-    monkeypatch, case, cfo, ocf_ttm, accruals, start, end, method, amounts
+    monkeypatch, case, cfo, ocf_ttm, start, end, method, amounts
 ):
     selector = periods._ttm_components
     selected = []
@@ -386,7 +377,6 @@ def test_generation_resolves_operating_cash_flow_operands_once(
         return components
 
     monkeypatch.setattr(periods, "_ttm_components", count_cfo)
-    monkeypatch.setattr(financial_snapshot, "_ttm_components", count_cfo)
     rows = [
         replace(row, cfo=value, total_assets=assets, shares_outstanding=100.0, treasury_shares=0.0)
         for row, value, assets in zip(
@@ -418,7 +408,7 @@ def test_generation_resolves_operating_cash_flow_operands_once(
     reported = rows[1] if case == "missing" else rows[-1]
     assert result["cfo_source"]["disclosure_number"] == reported.disclosure_number
     assert result["ocf_ttm"] == ocf_ttm
-    assert result["accruals_to_assets"] == accruals
+    assert "accruals_to_assets" not in result
     assert result["ocf_yield"] == (None if ocf_ttm is None else ocf_ttm / 1000.0)
     expected_quality = "unavailable" if ocf_ttm is None else "exact"
     assert result["ttm_quality_pcfr"] == result["ttm_quality_ocf_yield"] == expected_quality
@@ -480,12 +470,7 @@ def test_conflicted_preferred_operating_line_cannot_fall_through_to_ordinary_pro
         disclosure_number="same-time-operating-conflict",
         operating_profit=120.0,
     )
-    assert (
-        _latest_actual_row_by_field_priority(
-            [annual, tied], ("operating_profit", "ordinary_profit", "profit")
-        )
-        is None
-    )
+    assert _latest_period_operating_profit([annual, tied]) is None
 
 
 def test_same_time_standard_disagreement_preserves_agreed_issuer_shares():
@@ -513,34 +498,6 @@ def test_same_time_standard_disagreement_preserves_agreed_issuer_shares():
         asof_date=date(2025, 6, 1),
     )
     assert result.market_cap == 800.0
-
-
-def test_accruals_use_current_assets_when_prior_assets_have_another_standard():
-    prior = replace(
-        document(date(2023, 4, 1), date(2024, 3, 31), 50.0),
-        total_assets=200.0,
-    )
-    current = replace(
-        document(date(2024, 4, 1), date(2025, 3, 31), 40.0),
-        document_type="FYFinancialStatements_Consolidated_IFRS",
-        total_assets=100.0,
-        cfo=10.0,
-    )
-
-    def accruals(rows):
-        return build_financial_snapshot(
-            10.0,
-            rows,
-            None,
-            DEFAULT_TTM_RULES,
-            adjustment_events=(),
-            asof_date=date(2025, 6, 1),
-        ).accruals_to_assets
-
-    assert accruals([prior, current]) == pytest.approx(0.3)
-    assert accruals(
-        [replace(prior, document_type="FYFinancialStatements_Consolidated_IFRS"), current]
-    ) == pytest.approx(0.2)
 
 
 def test_growth_reports_current_partial_standard_revision_and_keeps_issuer_shares():
