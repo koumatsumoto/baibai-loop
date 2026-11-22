@@ -1,5 +1,6 @@
 """Both full and planning inputs use the same acquisition and recovery policy."""
 
+import hashlib
 import json
 import sqlite3
 from contextlib import closing
@@ -28,7 +29,8 @@ from baibai_engine.data_collection.receipts.native_sources.documents import (
 )
 from baibai_engine.data_collection.receipts.native_sources.handoff import export_receipts
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
-from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+from baibai_engine.storage.objects.r2 import R2Error
+from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff, stage_prefix
 from baibai_jobs.acquisition.source_inputs import input_key, load_input, publish_inputs
 from baibai_jobs.integration.economic_handoff import acquire
 
@@ -423,3 +425,39 @@ def test_only_registered_groups_publish_planning_envelopes(tmp_path):
         assert "format" not in manifest
     assert canonical.read_bytes() == before
     assert not any(key.startswith("l1/") for key in remote.put_keys)
+
+
+def test_raw_handoff_download_rejects_head_length_different_from_body(tmp_path):
+    class MisreportedLengthStore(MemoryR2Store):
+        def head(self, key):
+            remote = super().head(key)
+            if key == receipt_key and remote is not None:
+                return replace(remote, size=remote.size + 1)
+            return remote
+
+    stage = "fred_csv-fixed"
+    prefix = stage_prefix(stage)
+    raw = b"synthetic unchanged receipt bytes"
+    digest = hashlib.sha256(raw).hexdigest()
+    receipt_key = f"{prefix}/receipts-{digest}.sqlite"
+    remote = MisreportedLengthStore()
+    remote.store_object(receipt_key, raw)
+    remote.store_object(
+        f"{prefix}/handoff.json",
+        json.dumps(
+            {
+                "result": {"group": "fred_csv"},
+                "receipt_key": receipt_key,
+                "receipt_sha256": digest,
+                "receipt_bytes": len(raw) + 1,
+            }
+        ).encode(),
+    )
+    destination = tmp_path / "packet"
+    destination.mkdir()
+    existing = destination / "receipts.sqlite"
+    existing.write_bytes(b"existing verified copy")
+    with pytest.raises(R2Error, match="size mismatch"):
+        load_handoff(remote, stage, destination)
+    assert existing.read_bytes() == b"existing verified copy"
+    assert not (destination / "result.json").exists()
