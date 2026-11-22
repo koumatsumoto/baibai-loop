@@ -54,7 +54,6 @@ from baibai_engine.investment_judgment.stock_assessment.scenario import (
     valuation_conditions,
 )
 from baibai_engine.investment_judgment.stock_assessment.valuation import Valuation
-from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
 from baibai_engine.primitives.time import JST
@@ -640,10 +639,7 @@ def evaluate_assessment(
             # Historical publications remain exact records, not new authoring attempts.
             if identity is UnpublishedAssessment.DRAFT and fact.postdates_cited_retrievals(sources):
                 errors.append(f"market_price {fact.fact_id} postdates all cited source retrievals")
-            if fact.price_basis in {
-                "last_close_unadjusted",
-                "last_close_adjusted",
-            } and fact.as_of > latest_eligible_close_date(proposed):
+            if fact.close_date_follows_session_cutoff(proposed):
                 errors.append("market_price close date follows the available session")
         if fact.fact_kind == "valuation_metric" and (
             fact.unit not in {"ratio", "percent", "JPY_per_share"}
