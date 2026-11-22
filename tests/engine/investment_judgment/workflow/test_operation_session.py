@@ -11,9 +11,10 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from tests.helpers.db_seed import seed_historical_operation
-from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.research_selection import historical_operation, selection
 
+from baibai_engine.cli.investment_judgment import main as investment_judgment_main
 from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.investment_judgment.workflow.operation import service as operation_service
 from baibai_engine.investment_judgment.workflow.operation.models import (
@@ -28,6 +29,7 @@ from baibai_engine.investment_judgment.workflow.operation.service import (
 )
 from baibai_engine.investment_judgment.workflow.selection import selection_sha256
 from baibai_engine.primitives.time import JST
+from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
@@ -312,6 +314,123 @@ def test_operation_list_does_not_create_an_unwritten_database(tmp_path: Path) ->
     db.touch()
     assert OperationService(db).list() == []
     assert db.stat().st_size == 0
+
+
+@pytest.mark.parametrize(
+    ("schema_setup", "late_sql", "failure"),
+    [
+        pytest.param(None, None, None, id="zero-byte"),
+        pytest.param("VACUUM", None, None, id="empty-sqlite"),
+        pytest.param(
+            f"PRAGMA user_version={APPLICATION_SCHEMA_VERSION}",
+            None,
+            "no such table: operation_session",
+            id="missing-required-table",
+        ),
+        pytest.param(
+            "CREATE VIEW outsider AS SELECT 41",
+            None,
+            "not an empty application database",
+            id="foreign-view",
+        ),
+        pytest.param(
+            "PRAGMA application_id=123456",
+            None,
+            "not an empty application database",
+            id="foreign-application-id",
+        ),
+        pytest.param(
+            "CREATE TABLE sqliteCache (value)",
+            None,
+            "not an empty application database",
+            id="foreign-sqlite-prefix",
+        ),
+        pytest.param(
+            "VACUUM",
+            "CREATE VIEW late_foreign AS SELECT 41",
+            "not an empty application database",
+            id="view-committed-after-active-read",
+        ),
+        pytest.param(
+            "VACUUM",
+            "PRAGMA application_id=654321",
+            "not an empty application database",
+            id="app-id-committed-after-active-read",
+        ),
+    ],
+)
+def test_prepare_initializes_only_an_unwritten_application_database(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    schema_setup: str | None,
+    late_sql: str | None,
+    failure: str | None,
+) -> None:
+    db = tmp_path / "app.sqlite"
+    if schema_setup is None:
+        db.touch()
+    else:
+        with closing(sqlite3.connect(db)) as connection:
+            connection.execute(schema_setup)  # nosec B608 — static test fixture only
+    before_db = db.read_bytes()
+    if late_sql is not None:
+        active = OperationService.active
+        inode = db.stat().st_ino
+
+        def publish_after_active(service: OperationService) -> None:
+            nonlocal before_db
+            assert active(service) is None
+            with closing(sqlite3.connect(db)) as connection, connection:
+                connection.execute(late_sql)
+            assert db.stat().st_ino == inode
+            before_db = db.read_bytes()
+
+        monkeypatch.setattr(OperationService, "active", publish_after_active)
+    runs = tmp_path / "runs.sqlite"
+    selected = seed_generated_selection(
+        runs=runs, now=NOW, tickers=("1234",), scope="specified_stocks"
+    )
+    draft = tmp_path / "selection.json"
+    draft.write_text(generated_draft_for(selected).model_dump_json(), encoding="utf-8")
+    input_bytes = runs.read_bytes(), draft.read_bytes()
+    workspace = tmp_path / "workspace"
+    args = [
+        "prepare",
+        "--selection-file",
+        str(draft),
+        "--db",
+        str(db),
+        "--runs-path",
+        str(runs),
+        "--workspace",
+        str(workspace),
+    ]
+
+    result = investment_judgment_main(args, now=NOW)
+    body = json.loads(capsys.readouterr().out)
+    assert (runs.read_bytes(), draft.read_bytes()) == input_bytes
+    if failure is not None:
+        assert result == 3
+        assert body["status"] == "invalid_source"
+        assert failure in body["reason"]
+        assert db.read_bytes() == before_db
+        assert not workspace.exists()
+        return
+
+    assert result == 0, body
+    assert body["status"] == "prepared"
+    active = OperationService(db).active()
+    assert active is not None
+    assert active.operation_id == body["operation_id"]
+    assert (workspace / "domain-inputs.yaml").is_file()
+    saved = db.read_bytes()
+    assert investment_judgment_main(args, now=NOW) == 0
+    retried = json.loads(capsys.readouterr().out)
+    assert retried["status"] == "resumed"
+    assert retried["operation_id"] == body["operation_id"]
+    assert retried["selection_sha256"] == body["selection_sha256"]
+    assert db.read_bytes() == saved
 
 
 def test_operation_lists_sort_by_instant_not_offset_text(tmp_path: Path) -> None:
