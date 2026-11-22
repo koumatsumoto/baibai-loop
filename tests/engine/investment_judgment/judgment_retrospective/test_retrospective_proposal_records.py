@@ -1,8 +1,11 @@
 """本人の非購入理由と提案訂正を、当時判断/台帳事実から分けて振り返る。"""
 
+import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from datetime import UTC, timedelta
 
+import pytest
 from tests.helpers.proposal import PUBLISHED
 from tests.helpers.proposal_records import (
     not_purchased_report,
@@ -115,6 +118,45 @@ def test_later_receipts_never_backfill_old_revisit_and_do_not_replace_erroneous_
     assert new["context"]["origin"]["proposal"]["proposal_id"] == wrong.proposal_id
     assert new["context"]["origin"]["proposal"]["item"]["action"] == "no_action"
     assert new["context"]["ledger"] == before["context"]["ledger"]
+
+
+@pytest.mark.parametrize("damage", ["body", "clock"])
+def test_exact_revisit_checks_only_receipts_within_the_saved_cutoff(records_case, damage):
+    case, original, _, service, _ = records_case
+    report = service.report(not_purchased_report(original))
+    _, saved = _save(case, _scaffold(case, original))
+    later = NOW + timedelta(microseconds=1)
+    late = ProposalRecordService(case.app, clock=lambda: later.astimezone(UTC)).report(
+        not_purchased_report(original, identity="late-receipt")
+    )
+    with closing(sqlite3.connect(case.app)) as connection, connection:
+        connection.execute("DROP TRIGGER proposal_human_report_no_update")
+        if damage == "body":
+            connection.execute(
+                "UPDATE proposal_human_report SET payload='{}' WHERE report_id=?",
+                (late.report_id,),
+            )
+        else:
+            connection.execute(
+                "UPDATE proposal_human_report SET recorded_at=? WHERE report_id=?",
+                (later.replace(tzinfo=None).isoformat(), late.report_id),
+            )
+    before = case.app.read_bytes()
+    revisited = get_retrospective(
+        retrospective_id=saved.reference.retrospective_id, db_path=case.app
+    )
+    assert revisited["record"] == saved.model_dump(mode="json")
+    old = revisited["context"]["origin"]["proposal_records"]
+    if damage == "body":
+        assert old["status"] == "retained"
+        assert old["records"]["human_reports"] == [report.model_dump(mode="json")]
+    else:
+        assert old["status"] == "unavailable"  # An unreadable clock cannot be excluded as late.
+        assert old["records"] is None
+    at_receipt = _scaffold(case, original, now=later)["context"]["origin"]["proposal_records"]
+    assert at_receipt["status"] == "unavailable"
+    assert at_receipt["records"] is None
+    assert case.app.read_bytes() == before
 
 
 def test_exact_origin_receipt_cutoff_preserves_offset_microseconds_and_unknown_subject(

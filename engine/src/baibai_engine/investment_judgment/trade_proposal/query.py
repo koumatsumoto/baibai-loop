@@ -180,12 +180,16 @@ def _verified_correction(connection: sqlite3.Connection, row: Sequence[str]) -> 
     return record
 
 
-def _read_corrections(connection: sqlite3.Connection) -> Iterator[ProposalCorrection]:
+def _read_corrections(
+    connection: sqlite3.Connection, *, recorded_through: datetime | None
+) -> Iterator[ProposalCorrection]:
     rows = connection.execute(
         "SELECT correction_id,erroneous_proposal_id,replacement_proposal_id,recorded_at,payload "
         "FROM proposal_correction ORDER BY correction_id"
     )
     for row in rows:
+        if recorded_through is not None and _stored_instant(row[3]) > recorded_through:
+            continue
         yield _verified_correction(connection, row)
 
 
@@ -350,13 +354,18 @@ def previous_buy_proposals(
 
 
 class ProposalRecordReader:
-    """同じ読取transaction内でのみ、検証済みの訂正を対象提案ごとに再利用する。"""
+    """同じ読取transaction内で、締切以内の検証済み訂正を再利用する。"""
 
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(
+        self, connection: sqlite3.Connection, *, recorded_through: datetime | None = None
+    ) -> None:
+        if recorded_through is not None and recorded_through.utcoffset() is None:
+            raise ValueError("proposal record cutoff requires a timezone")
         self._connection = connection
+        self._recorded_through = recorded_through
         self.by_erroneous_id: dict[str, ProposalCorrection] = {}
         self._by_replacement: dict[str, list[ProposalCorrection]] = {}
-        for record in _read_corrections(connection):
+        for record in _read_corrections(connection, recorded_through=recorded_through):
             erroneous = record.erroneous_ref.proposal_id
             if erroneous in self.by_erroneous_id:
                 raise ProposalConflictError("duplicate or chained proposal correction")
@@ -399,6 +408,11 @@ class ProposalRecordReader:
             "SELECT report_id,recorded_at,payload FROM proposal_human_report WHERE proposal_id=?",
             (proposal_id,),
         ):
+            if (
+                self._recorded_through is not None
+                and _stored_instant(row[1]) > self._recorded_through
+            ):
+                continue
             reports.append(_verified_report(proposal, row))
         reports.sort(key=lambda report: (report.recorded_at, report.report_id))
         correction = self.by_erroneous_id.get(proposal_id)
@@ -407,8 +421,15 @@ class ProposalRecordReader:
         ), reports
 
 
-def proposal_records(connection: sqlite3.Connection, proposal: TradeProposal) -> ProposalRecords:
-    corrections, reports = ProposalRecordReader(connection).read(proposal)
+def proposal_records(
+    connection: sqlite3.Connection,
+    proposal: TradeProposal,
+    *,
+    recorded_through: datetime | None = None,
+) -> ProposalRecords:
+    corrections, reports = ProposalRecordReader(connection, recorded_through=recorded_through).read(
+        proposal
+    )
     return {
         "corrections": [record.model_dump(mode="json") for record in corrections],
         "human_reports": [report.model_dump(mode="json") for report in reports],

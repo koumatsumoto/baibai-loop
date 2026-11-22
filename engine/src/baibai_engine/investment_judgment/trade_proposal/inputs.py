@@ -418,20 +418,13 @@ def _reported_buy_proposal_records(
             "unavailable_reason": None,
         }
         try:
-            records = proposal_records(connection, proposal)
+            records = proposal_records(connection, proposal, recorded_through=now)
         except (ValueError, FileNotFoundError) as error:
             row.update(status="unavailable", unavailable_reason=str(error))
         else:
             row["records"] = {
-                kind: [
-                    record
-                    for record in values
-                    if datetime.fromisoformat(str(record["recorded_at"])) <= now
-                ]
-                for kind, values in (
-                    ("corrections", records["corrections"]),
-                    ("human_reports", records["human_reports"]),
-                )
+                "corrections": list(records["corrections"]),
+                "human_reports": list(records["human_reports"]),
             }
         holdings.append(row)
     return result
