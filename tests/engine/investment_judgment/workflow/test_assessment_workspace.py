@@ -267,6 +267,359 @@ def test_promote_records_exact_assessment_for_new_target_and_retry_preserves_id(
         assert connection.execute("SELECT COUNT(*) FROM ledger_event").fetchone()[0] == 0
 
 
+def _before_promotion_write(monkeypatch, db, action):
+    """Inject once on either App writer, never on the read-only preflight connection."""
+    connect = sqlite3.connect
+
+    def interleave(database, *args, **kwargs):
+        if str(database) in (str(db), db.resolve().as_uri() + "?mode=rw"):
+            monkeypatch.setattr(sqlite3, "connect", connect)
+            action()
+        return connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", interleave)
+
+
+def _promote_command(db, workspace, ticker="1234"):
+    return [
+        "stock-assessment-promote",
+        "--workspace",
+        str(workspace),
+        "--db",
+        str(db),
+        "--ticker",
+        ticker,
+    ]
+
+
+def _revised_workspace(tmp_path):
+    from tests.helpers.assessment_v1 import review_id
+    from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
+
+    from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+
+    prepared = backend_case(tmp_path)
+    db, operation_id = prepared.app, prepared.operation.operation_id
+    proposal = TradeProposalService(
+        db, sqlite_path=prepared.market, clock=lambda: PUBLISHED
+    ).publish(reviewed_proposal(prepared, action="no_action"))
+    workspace = tmp_path / "workspace"
+    resume_selected_workspace(operation_id=operation_id, workspace=workspace, db_path=db, now=NOW)
+    doc, review = author((db, workspace, operation_id))
+    doc["findings"]["business_understanding"] += "新根拠を確認した独立の評価"
+    review["review_id"] = review_id(10)
+    update_review_hash(doc, review)
+    new_id = assessment_id(9)
+    pair_dir = workspace / "1234"
+    (pair_dir / "assessment-draft.yaml").write_text(yaml.safe_dump(doc))
+    (pair_dir / "assessment-review.yaml").write_text(yaml.safe_dump(review))
+    (pair_dir / "assessment-publication.yaml").write_text(
+        yaml.safe_dump({"assessment_id": new_id, "supersedes_id": prepared.pair.assessment_id})
+    )
+    return prepared, workspace, proposal, new_id
+
+
+@pytest.mark.parametrize("completion_phase", ["before_publication", "before_binding"])
+def test_promote_keeps_completion_on_the_correct_side_of_publication(
+    tmp_path, monkeypatch, capsys, completion_phase
+):
+    from tests.helpers.proposal import PUBLISHED
+
+    from baibai_engine.investment_judgment.stock_assessment.store import latest_assessment_id
+
+    prepared, workspace, proposal, new_id = _revised_workspace(tmp_path)
+    db, operation_id = prepared.app, prepared.operation.operation_id
+    original_id = prepared.pair.assessment_id
+    now = PUBLISHED + timedelta(minutes=2)
+
+    def complete():
+        done = prepared.operations.complete(
+            operation_id,
+            proposal_id=proposal.proposal_id,
+            result="従前の評価と提案で終了",
+            next="人間の判断待ち",
+            completed_at=PUBLISHED + timedelta(minutes=1),
+        )
+        assert done.status == "completed"
+
+    if completion_phase == "before_publication":
+        _before_promotion_write(monkeypatch, db, complete)
+    else:
+        bind = OperationService.record_assessment
+
+        def complete_before_bind(self, *args, **kwargs):
+            # An exact pair must already be readable through another connection.
+            with closing(sqlite3.connect(db)) as connection:
+                assert latest_assessment_id(connection, "1234") == new_id
+            complete()
+            return bind(self, *args, **kwargs)
+
+        monkeypatch.setattr(OperationService, "record_assessment", complete_before_bind)
+
+    assert main(_promote_command(db, workspace), now=now) == 4
+    result = capsys.readouterr()
+    operation = prepared.operations.get(operation_id)
+    assert operation.status == "completed"
+    assert (
+        progress_binding(operation.payload).outcomes[0].assessment_ref.assessment_id == original_id
+    )
+    with closing(sqlite3.connect(db)) as connection:
+        assert connection.execute("SELECT count(*) FROM ledger_event").fetchone()[0] == 1
+        if completion_phase == "before_publication":
+            assert latest_assessment_id(connection, "1234") == original_id
+            assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 1
+            assert (
+                connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0]
+                == 1
+            )
+            assert result.out == ""
+            assert "completed research Operation" in result.err
+        else:
+            assert latest_assessment_id(connection, "1234") == new_id
+            pair = load_reviewed_assessment(connection, new_id)
+            assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 2
+            assert (
+                connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0]
+                == 2
+            )
+            assert yaml.safe_load(result.out) == {
+                "status": "published_binding_unconfirmed",
+                "operation_id": operation_id,
+                "operation_status": "completed",
+                "assessment_id": new_id,
+                "review_id": pair.review.review_id,
+                "assessment_sha256": pair.core_sha256,
+            }
+            assert "completed operation session is immutable" in result.err
+            (status,) = compute_status(workspace, db_path=db, now=now)["cases"]
+            assert status["status"] == "published_not_bound"
+            assert status["next_action"] is None
+
+
+def test_promote_does_not_publish_for_a_holding_sold_after_preflight(tmp_path, monkeypatch, capsys):
+    from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
+    from baibai_engine.portfolio.ledger.store import LedgerStoreService
+
+    db, runs = tmp_path / "app", tmp_path / "runs"
+    seed_ledger(
+        db, load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    )
+    selected = seed_generated_selection(
+        runs=runs, now=NOW, tickers=("2331",), scope="review_positions"
+    )
+    prepared = prepare_selected_workspace(
+        draft=generated_draft_for(selected),
+        workspace=tmp_path / "workspace",
+        runs_path=runs,
+        db_path=db,
+        now=NOW,
+    )
+    child = prepared.workspace / "holdings/2331"
+    author((db, child, prepared.operation_id), ticker="2331")
+    later = NOW + timedelta(days=1)
+    assert main(["status", "--workspace", str(child), "--db", str(db)], now=later) == 0
+    assert yaml.safe_load(capsys.readouterr().out)["cases"][0]["status"] == "ready_for_promotion"
+    ledger = LedgerStoreService(db)
+
+    def sell():
+        # This is the real finite ledger transition over a representative synthetic holding.
+        sale = build_sell_execution_draft(
+            ledger, occurred_at=later, ticker="2331", quantity=200, price_yen=Decimal("1100")
+        )
+        assert sale is not None
+        apply_draft(ledger, sale, human_confirmed=True)
+
+    _before_promotion_write(monkeypatch, db, sell)
+    assert main(_promote_command(db, child, "2331"), now=later) == 4
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert "holding workspace requires a current holding" in result.err
+    operation = OperationService(db).get(prepared.operation_id)
+    assert operation.status == "active"
+    assert not progress_binding(operation.payload).outcomes
+    with closing(sqlite3.connect(db)) as connection:
+        assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0] == 0
+    assert ledger.load().events[-1].ticker == "2331"
+
+
+def test_promote_acknowledges_exact_publication_and_explicit_binding_recovers_after_cas(
+    case, monkeypatch, capsys
+):
+    from baibai_engine.cli.operation import main as operation_main
+    from baibai_engine.investment_judgment.workflow.operation import service as operation_module
+
+    db, workspace, operation_id = case
+    document, review = author(case)
+    operations = OperationService(db)
+    write = operation_module.connect_existing
+
+    def checkpoint_before_bind_writer(path=None):
+        monkeypatch.setattr(operation_module, "connect_existing", write)
+        operations.checkpoint(operation_id, note="別工程が判断メモを追加", now=NOW)
+        return write(path)
+
+    monkeypatch.setattr(operation_module, "connect_existing", checkpoint_before_bind_writer)
+    assert main(_promote_command(db, workspace), now=NOW) == 4
+    issue = capsys.readouterr()
+    assert yaml.safe_load(issue.out) == {
+        "status": "published_binding_unconfirmed",
+        "operation_id": operation_id,
+        "operation_status": "active",
+        "assessment_id": assessment_id(),
+        "review_id": review["review_id"],
+        "assessment_sha256": review["reviewed_assessment_sha256"],
+    }
+    assert "research progress changed" in issue.err
+
+    def saved_rows():
+        with closing(sqlite3.connect(db)) as connection:
+            pair = connection.execute("SELECT * FROM stock_assessment").fetchall()
+            review_rows = connection.execute("SELECT * FROM stock_assessment_review").fetchall()
+            ledger = connection.execute("SELECT * FROM ledger_event").fetchall()
+        return pair, review_rows, ledger
+
+    before = saved_rows()
+    assert len(before[0]) == len(before[1]) == 1
+    assert not before[2]
+    assert not progress_binding(operations.get(operation_id).payload).outcomes
+    assert main(["status", "--workspace", str(workspace), "--db", str(db)], now=NOW) == 0
+    local = yaml.safe_load(capsys.readouterr().out)
+    assert local["cases"][0]["status"] == "published_not_bound"
+    assert "record-assessment" in local["next_action"]
+    assert (
+        operation_main(
+            [
+                "--db",
+                str(db),
+                "--format",
+                "json",
+                "record-assessment",
+                operation_id,
+                "--assessment-id",
+                assessment_id(),
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "active"
+    loaded = operations.get(operation_id)
+    assert loaded.payload.checkpoint == "別工程が判断メモを追加"
+    (outcome,) = progress_binding(loaded.payload).outcomes
+    assert outcome.assessment_ref.core_sha256 == review["reviewed_assessment_sha256"]
+    assert outcome.assessment_ref.review_id == review["review_id"]
+    with closing(sqlite3.connect(db)) as connection:
+        assert (
+            load_reviewed_assessment(connection, assessment_id()).document.model_dump(mode="json")
+            == document
+        )
+    assert saved_rows() == before
+
+
+def test_promote_retains_proposal_conflict_exit_and_reports_exact_saved_pair(tmp_path, capsys):
+    from tests.helpers.proposal import PUBLISHED
+
+    from baibai_engine.investment_judgment.workflow.operation.progress import (
+        ProposalRef,
+        with_progress,
+    )
+    from baibai_engine.storage.sqlite.application.write import connect_existing
+
+    prepared, workspace, proposal, new_id = _revised_workspace(tmp_path)
+    db, operation_id = prepared.app, prepared.operation.operation_id
+    operations = prepared.operations
+    old = operations.get(operation_id)
+    retained_id = "investment-proposal-00000000-0000-4000-8000-000000000098"
+    progress = progress_binding(old.payload).model_copy(
+        update={
+            "proposal_ref": ProposalRef(
+                proposal_id=retained_id, draft_sha256=proposal.review.draft_sha256
+            )
+        }
+    )
+    with closing(connect_existing(db)) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        # A retained active Operation can have a prior Proposal reference. Only this
+        # fixture's copied row is inconsistent; the normal proposal/pair writer is unchanged.
+        connection.execute(
+            "UPDATE operation_session SET payload=? WHERE operation_id=?",
+            (with_progress(old.payload, progress).model_dump_json(), operation_id),
+        )
+        connection.execute(
+            "INSERT INTO investment_proposal "
+            "(proposal_id,as_of,prepared_at,published_at,request_scope,payload,draft_sha256) "
+            "SELECT ?,as_of,prepared_at,published_at,request_scope,payload,draft_sha256 "
+            "FROM investment_proposal WHERE proposal_id=?",
+            (retained_id, proposal.proposal_id),
+        )
+    unchanged = operations.get(operation_id)
+    assert main(_promote_command(db, workspace), now=PUBLISHED + timedelta(minutes=2)) == 4
+    result = capsys.readouterr()
+    assert "stored proposal identity/hash differs from its payload" in result.err
+    assert operations.get(operation_id) == unchanged
+    with closing(sqlite3.connect(db)) as connection:
+        pair = load_reviewed_assessment(connection, new_id)
+        assert load_reviewed_assessment(connection, prepared.pair.assessment_id) == prepared.pair
+    assert yaml.safe_load(result.out) == {
+        "status": "published_binding_unconfirmed",
+        "operation_id": operation_id,
+        "operation_status": "active",
+        "assessment_id": pair.assessment_id,
+        "review_id": pair.review.review_id,
+        "assessment_sha256": pair.core_sha256,
+    }
+
+
+@pytest.mark.parametrize("status_available", [True, False])
+def test_promote_does_not_guess_that_a_lost_bind_ack_means_unbound(
+    case, monkeypatch, capsys, status_available
+):
+    db, workspace, operation_id = case
+    _, review = author(case)
+    record = OperationService.record_assessment
+    get = OperationService.get
+    bound = False
+
+    def lose_ack_after_commit(service, *args, **kwargs):
+        nonlocal bound
+        record(service, *args, **kwargs)
+        bound = True
+        raise OSError("simulated failure after the actual Operation bind")
+
+    def read_operation_status(service, *args, **kwargs):
+        if bound and not status_available:
+            raise sqlite3.OperationalError("simulated status read failure")
+        return get(service, *args, **kwargs)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(OperationService, "record_assessment", lose_ack_after_commit)
+        fault.setattr(OperationService, "get", read_operation_status)
+        assert main(_promote_command(db, workspace), now=NOW) == 3
+    result = capsys.readouterr()
+    assert bound
+    assert "simulated failure after the actual Operation bind" in result.err
+    assert yaml.safe_load(result.out) == {
+        "status": "published_binding_unconfirmed",
+        "operation_id": operation_id,
+        "operation_status": "active" if status_available else None,
+        "assessment_id": assessment_id(),
+        "review_id": review["review_id"],
+        "assessment_sha256": review["reviewed_assessment_sha256"],
+    }
+
+    state = compute_status(workspace, db_path=db, now=NOW)
+    (case_status,) = state["cases"]
+    assert case_status["status"] == "published"
+    assert case_status["assessment_id"] == assessment_id()
+    assert state["next_action"] is None
+    database = db.read_bytes()
+    OperationService(db).record_assessment(
+        operation_id, assessment_id(), now=NOW + timedelta(minutes=1)
+    )
+    assert db.read_bytes() == database
+
+
 def test_clean_resume_reads_only_the_bound_exact_pair_not_the_same_company_head(case, tmp_path):
     db, _, operation_id = case
     store = AssessmentStoreService(db, clock=lambda: NOW)
@@ -386,7 +739,9 @@ def test_clean_resume_distinguishes_unfinished_from_unresearched_without_hiding_
     assert db.read_bytes() == saved
 
 
-def test_legacy_price_clock_pair_remains_readable_and_retryable_but_not_newly_publishable(case):
+def test_legacy_price_clock_pair_remains_readable_and_retryable_but_not_newly_publishable(
+    case, capsys
+):
     db, workspace, _ = case
     scaffold(case)
     document, review = author(case)
@@ -442,6 +797,16 @@ def test_legacy_price_clock_pair_remains_readable_and_retryable_but_not_newly_pu
     promoted = promote(workspace=workspace, ticker="1234", db_path=db, now=NOW)
     assert promote(workspace=workspace, ticker="1234", db_path=db, now=NOW) == promoted
     assert promoted.assessment_sha256 == core_hash
+    bound_database = db.read_bytes()
+    assert main(_promote_command(db, workspace), now=NOW + timedelta(days=1)) == 0
+    result = capsys.readouterr()
+    assert result.err == ""
+    assert yaml.safe_load(result.out) == {
+        "assessment_id": saved_id,
+        "review_id": saved.review.review_id,
+        "assessment_sha256": core_hash,
+    }
+    assert db.read_bytes() == bound_database
     identity_path.write_text(
         yaml.safe_dump({"assessment_id": assessment_id(99), "supersedes_id": saved_id})
     )
@@ -1100,7 +1465,8 @@ def test_promote_releases_validated_selection_before_binding_publication(case, m
 
     def bind_after_release(self, *args, **kwargs):
         gc.collect()
-        assert references[0]() is None
+        assert len(references) == 2  # Early workspace check and locked App write admission.
+        assert all(reference() is None for reference in references)
         return record(self, *args, **kwargs)
 
     monkeypatch.setattr(publication, "require_authoring_selection", observe)

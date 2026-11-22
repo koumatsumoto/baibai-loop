@@ -266,12 +266,7 @@ class OperationService:
         try:
             with closing(connect_existing(self._db_path)) as connection, connection:
                 connection.execute("BEGIN IMMEDIATE")
-                row = connection.execute(
-                    "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
-                ).fetchone()
-                if row is None:
-                    raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
-                before = _from_row(row)
+                before = _from_row(_require_operation_row(connection, operation_id))
                 if completed_at.utcoffset() is None:
                     raise OperationCompletionError("completion instant must include a UTC offset")
                 progress = progress_binding(before.payload)
@@ -401,7 +396,12 @@ class OperationService:
 
         return self._edit_active(operation_id, bind, now=now)
 
-    def get(self, operation_id: str) -> OperationSession:
+    def get(
+        self, operation_id: str, *, connection: sqlite3.Connection | None = None
+    ) -> OperationSession:
+        """Read an exact Operation, borrowing the caller's App transaction when supplied."""
+        if connection is not None:
+            return _from_row(_require_operation_row(connection, operation_id))
         with self._snapshot(operation_id) as (_connection, row):
             return _from_row(row)
 
@@ -411,12 +411,7 @@ class OperationService:
             raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
         with closing(connect_read_only(self._db_path)) as connection:
             connection.execute("BEGIN")
-            row = connection.execute(
-                "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
-            ).fetchone()
-            if row is None:
-                raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
-            yield connection, row
+            yield connection, _require_operation_row(connection, operation_id)
 
     def list(self, *, status: OperationStatus | None = None) -> list[OperationHeader]:
         sql = (
@@ -605,6 +600,15 @@ def _insert(connection: sqlite3.Connection, operation: OperationSession) -> None
             encode_json(operation.payload.model_dump(mode="json")),
         ),
     )
+
+
+def _require_operation_row(connection: sqlite3.Connection, operation_id: str) -> sqlite3.Row:
+    row: sqlite3.Row | None = connection.execute(
+        "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
+    ).fetchone()
+    if row is None:
+        raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
+    return row
 
 
 def _from_row(row: sqlite3.Row) -> OperationSession:

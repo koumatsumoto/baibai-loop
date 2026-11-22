@@ -2,27 +2,32 @@
 
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from pydantic import ValidationError
 
-from baibai_engine.investment_judgment.stock_assessment.document import (
-    assessment_core_hash,
-)
 from baibai_engine.investment_judgment.stock_assessment.store import (
-    AssessmentStoreService,
     ResearchConflictError,
     ResearchValidationError,
+    publish_reviewed_assessment,
 )
-from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalConflictError
+from baibai_engine.investment_judgment.workflow.operation.models import OperationStatus
+from baibai_engine.investment_judgment.workflow.operation.service import (
+    OperationConflictError,
+    OperationService,
+)
 from baibai_engine.investment_judgment.workflow.workspace.admission import (
     require_authoring_selection,
 )
 from baibai_engine.investment_judgment.workflow.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
+    ResearchWorkspaceError,
     _load_mapping,
     _parse_date,
 )
@@ -31,6 +36,7 @@ from baibai_engine.investment_judgment.workflow.workspace.validation import (
     _research_ticker_dir,
     _validate_editable_drafts,
 )
+from baibai_engine.storage.sqlite.application.write import connect_existing
 
 # --------------------------------------------------------------------------- #
 # promote
@@ -44,6 +50,26 @@ class PromoteResult:
     assessment_sha256: str
 
 
+class PromoteBindingError(ResearchWorkspaceError):
+    """The exact pair committed, but this invocation did not confirm its Operation binding."""
+
+    def __init__(
+        self,
+        published: PromoteResult,
+        *,
+        operation_id: str,
+        operation_status: OperationStatus | None,
+        cause: Exception,
+    ) -> None:
+        super().__init__(str(cause))
+        self.published = published
+        self.operation_id = operation_id
+        self.operation_status = operation_status
+        self.exit_code = (
+            4 if isinstance(cause, (OperationConflictError, ProposalConflictError)) else 3
+        )
+
+
 def promote(
     *,
     workspace: Path,
@@ -53,9 +79,8 @@ def promote(
 ) -> PromoteResult:
     """Publish the canonical assessment/review only when everything is ready.
 
-    Gates: assessment evaluates ready against the
-    adjacent review, review hash matches the assessment core hash, schema validity, and
-    path confinement. Reusing an immutable ID with different content is rejected.
+    Pair admission and write share the App transaction. Binding the committed pair is a
+    separate Operation change; its failure does not erase or replace an immutable publication.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = require_authoring_selection(manifest, ticker=ticker, action="promote", db_path=db_path)
@@ -71,10 +96,6 @@ def promote(
     assessment_errors, review_errors = case.assessment_errors, case.review_errors
     if assessment_errors or review_errors:
         raise ResearchWorkspaceDataError("; ".join([*assessment_errors, *review_errors]))
-    document, review = case.assessment, case.review
-    assert document is not None
-    assert review is not None
-    core_hash = assessment_core_hash(document)
     identity_path = _research_ticker_dir(workspace, ticker) / "assessment-publication.yaml"
     identity = _load_mapping(identity_path, label="assessment publication")
     if set(identity) != {"assessment_id", "supersedes_id"}:
@@ -86,21 +107,41 @@ def promote(
     if saved_supersedes is not None and not isinstance(saved_supersedes, str):
         raise ResearchWorkspaceDataError("assessment supersedes ID must be a string or null")
     try:
-        AssessmentStoreService(db_path, clock=lambda: now).publish_reviewed_assessment(
-            resolved_assessment_id,
-            case.assessment_payload,
-            case.review_payload,
-            supersedes_id=saved_supersedes,
-        )
+        with closing(connect_existing(db_path)) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            # The manifest also pins the Selection checked against the local files above.
+            # Recheck it and current holding eligibility on the connection that will publish.
+            require_authoring_selection(
+                manifest, ticker=ticker, action="promote", connection=connection
+            )
+            pair = publish_reviewed_assessment(
+                connection,
+                resolved_assessment_id,
+                case.assessment_payload,
+                case.review_payload,
+                published_at=now,
+                supersedes_id=saved_supersedes,
+            )
     except ResearchConflictError as error:
         raise ResearchWorkspaceConflictError(str(error)) from error
     except (ResearchValidationError, ValidationError) as error:
         raise ResearchWorkspaceDataError(str(error)) from error
-    OperationService(db_path).record_assessment(
-        str(manifest["operation_id"]), resolved_assessment_id, now=now
+    published = PromoteResult(
+        assessment_id=pair.assessment_id,
+        review_id=pair.review.review_id,
+        assessment_sha256=pair.core_sha256,
     )
-    return PromoteResult(
-        assessment_id=resolved_assessment_id,
-        review_id=review.review_id,
-        assessment_sha256=core_hash,
-    )
+    operation_id = str(manifest["operation_id"])
+    operations = OperationService(db_path)
+    try:
+        operations.record_assessment(operation_id, pair.assessment_id, now=now)
+    except (ValueError, RuntimeError, OSError, sqlite3.Error) as error:
+        # A late conflict or unavailable read must not hide the committed pair's identity.
+        try:
+            status = operations.get(operation_id).status
+        except (ValueError, RuntimeError, OSError, sqlite3.Error):
+            status = None
+        raise PromoteBindingError(
+            published, operation_id=operation_id, operation_status=status, cause=error
+        ) from error
+    return published
