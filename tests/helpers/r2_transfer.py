@@ -135,6 +135,7 @@ if [[ "$1 $2" == "s3api get-object" ]]; then
   key=""
   destination=""
   wants_etag=""
+  wants_app_metadata=""
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == "--key" ]]; then
       key="$2"
@@ -142,11 +143,28 @@ if [[ "$1 $2" == "s3api get-object" ]]; then
     if [[ "$1" == "--query" && "$2" == "ETag" ]]; then
       wants_etag=1
     fi
+    if [[ "$1" == "--query" && "$2" == "[ETag, ContentLength]" ]]; then
+      wants_app_metadata=1
+    fi
     destination="$1"
     shift
   done
   slug="$(printf '%s' "$key" | tr / _)"
   stored="${AWS_FAKE_STATE}/put-${slug}"
+  if [[ "$key" == baibai.sqlite && -n "$wants_app_metadata" ]]; then
+    if [[ -n "${AWS_FAKE_APP_GET_ERROR:-}" ]]; then
+      printf 'synthetic-private-value' >&2
+      exit 254
+    fi
+    if [[ -f "$stored" ]]; then cp "$stored" "$destination"; else printf x > "$destination"; fi
+    if [[ -v AWS_FAKE_APP_GET_METADATA ]]; then
+      printf '%s\n' "$AWS_FAKE_APP_GET_METADATA"
+    else
+      printf '%s\t%s\n' "${AWS_FAKE_APP_GET_ETAG:-$(object_etag "$slug")}" \
+        "$(wc -c < "$destination")"
+    fi
+    exit 0
+  fi
   if [[ -n "${AWS_FAKE_OBJECT_BODY:-}" && "$key" == "${AWS_FAKE_OBJECT_KEY:-}" ]]; then
     printf '%s' "$AWS_FAKE_OBJECT_BODY" > "$destination"
   # Otherwise the bucket answers with what was uploaded to that key, so a test can push

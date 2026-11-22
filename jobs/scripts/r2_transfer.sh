@@ -610,8 +610,14 @@ pull_keys() {
     verify_receipt=1
     shift
   fi
-  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   local key target index
+  for key in "$@"; do
+    if [[ "${key}" == "baibai.sqlite" ]]; then
+      printf 'application store must be fetched with pull-app\n' >&2
+      return 2
+    fi
+  done
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   # Verify all generations around the downloads before replacing local stores.
   local -a versions=()
   clear_pulled_versions "$@"
@@ -643,16 +649,7 @@ pull_keys() {
   for key in "$@"; do
     target="$(store_path "${key}")"
     mkdir -p "$(dirname "${target}")"
-    if [[ "${key}" == "baibai.sqlite" ]]; then
-      # Download can outlast a concurrent local author. Link the complete copy
-      # create-only; -T also refuses a directory that appeared at the target.
-      if ! ln -T -- "${transfer_staging}/${key}" "${target}"; then
-        printf 'refusing application store download overwrite: %s\n' "${target}" >&2
-        return 2
-      fi
-    else
-      mv -f "${transfer_staging}/${key}" "${target}"
-    fi
+    mv -f "${transfer_staging}/${key}" "${target}"
   done
   index=0
   for key in "$@"; do
@@ -886,13 +883,48 @@ pull_app() {
   # cloud へ反映する)。未公開変更を失わないよう、既存の作業copyは置換しない。
   # ファイルがあれば止める。publish 済みで未 push の判断は再生成できず、上書きすると
   # 復元手段が無い。CI は checkout 直後で stores/application/ が空なので素通りする。
-  local target
-  target="$(store_path baibai.sqlite)"
+  local key=baibai.sqlite target body response version length current
+  target="$(store_path "${key}")"
   if [[ -e "${target}" || -L "${target}" ]]; then
     printf 'refusing application store download overwrite: %s\n' "${target}" >&2
     return 2
   fi
-  pull_keys baibai.sqlite
+  clear_pulled_versions "${key}"
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  body="${transfer_staging}/${key}"
+  # The same GET must identify the bytes we install. Matching HEADs around an
+  # unpinned copy can miss an intervening version if the original is restored.
+  if ! response="$(aws s3api get-object --bucket "${stores_bucket}" --key "${key}" \
+    --endpoint-url "${endpoint}" --query '[ETag, ContentLength]' --output text "${body}" 2>/dev/null)"; then
+    printf 'application store download failed (details withheld)\n' >&2
+    return 1
+  fi
+  IFS=$'\t' read -r version length <<< "${response}"
+  if [[ "${response}" != "${version}"$'\t'"${length}" || ! "${length}" =~ ^[1-9][0-9]*$ ]] \
+    || [[ ! -f "${body}" || "$(wc -c < "${body}")" != "${length}" ]]; then
+    printf 'application store download length or metadata differs (details withheld)\n' >&2
+    return 1
+  fi
+  etag_body "${version}" >/dev/null || return
+  check_sqlite "${body}"
+  current="$(remote_version "${key}" 2>/dev/null)" || {
+    printf 'application store generation could not be checked (details withheld)\n' >&2
+    return 1
+  }
+  if [[ "${current}" != "${version}" ]]; then
+    printf 'refusing to replace local stores: %s changed on R2 during the pull. Pull again.\n' "${key}" >&2
+    return 1
+  fi
+  mkdir -p "$(dirname "${target}")"
+  # A concurrent local author may have created the target during the download.
+  # Link create-only; -T also refuses a directory that appeared at the target.
+  if ! ln -T -- "${body}" "${target}"; then
+    printf 'refusing application store download overwrite: %s\n' "${target}" >&2
+    return 2
+  fi
+  record_pulled_version "${key}" "${version}"
+  cleanup_staging
+  transfer_staging=""
 }
 
 # Only refresh the current views; a serving upload does not clean up other keys.
