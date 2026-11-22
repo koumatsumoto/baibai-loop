@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -23,6 +23,7 @@ from tests.helpers.ledger import load_portfolio_ledger
 from baibai_engine.cli.app import main as engine_main
 from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.cli.portfolio import main as position_main
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.primitives.yaml import safe_load
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -50,6 +51,61 @@ def _emitted(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
     parsed = yaml.safe_load(capsys.readouterr().out)
     assert isinstance(parsed, dict)
     return parsed
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_apply_draft_rejects_ambiguous_or_invalid_yaml_before_cas(tmp_path, capsys, malformed):
+    db = _ledger_db(tmp_path)
+    service = LedgerStoreService(db)
+    before = service.load_with_head()
+    good, bad = tmp_path / "cost.yaml", tmp_path / "invalid-cost.yaml"
+    assert (
+        engine_main(
+            [
+                "portfolio",
+                "event-draft",
+                "--db",
+                str(db),
+                "--type",
+                "cost",
+                "--kind",
+                "commission",
+                "--event-id",
+                "synthetic-cost",
+                "--amount-yen",
+                "10",
+                "--occurred-at",
+                (before[0].as_of + timedelta(days=1)).isoformat(),
+                "--out",
+                str(good),
+            ]
+        )
+        == 0
+    )
+    assert _emitted(capsys)["status"] == "draft_created"
+    text = good.read_text(encoding="utf-8")
+    assert text.count("    amount_yen: 10\n") == 1
+    if malformed:
+        text += "not_a_valid_mapping: [SYNTHETIC_PRIVATE_LEDGER_VALUE\n"
+    else:
+        text = text.replace("    amount_yen: 10\n", "    amount_yen: 10\n    amount_yen: 25\n")
+    bad.write_text(text, encoding="utf-8")
+    before_bytes = db.read_bytes()
+    args = ["portfolio", "apply-draft", "--db", str(db), "--confirmed"]
+
+    assert engine_main([*args, str(bad)]) == 2
+    emitted = capsys.readouterr()
+    assert emitted.out == ""
+    assert emitted.err == "error: invalid ledger draft YAML\n"
+    assert db.read_bytes() == before_bytes
+    assert service.load_with_head() == before
+
+    assert engine_main([*args, str(good)]) == 0
+    after = _emitted(capsys)
+    assert after["status"] == "applied"
+    assert after["event_ids"] == ["synthetic-cost"]
+    [added] = [event for event in service.load().events if event.event_id == "synthetic-cost"]
+    assert added.model_dump()["amount_yen"] == 10
 
 
 def test_override_draft_cli_writes_the_typed_approval_window(

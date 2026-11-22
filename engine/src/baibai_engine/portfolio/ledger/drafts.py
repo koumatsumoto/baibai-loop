@@ -45,7 +45,7 @@ from baibai_engine.portfolio.ledger.events import (
 )
 from baibai_engine.portfolio.ledger.store import LedgerApplyResult, LedgerStoreService
 from baibai_engine.primitives.time import JST
-from baibai_engine.primitives.yaml import safe_load
+from baibai_engine.primitives.yaml import strict_safe_load
 
 DraftKind = Literal[
     "event", "broker-fact", "sell-execution", "override", "meta", "share-conversion"
@@ -713,7 +713,12 @@ def write_draft(path: Path, draft: LedgerDraft) -> None:
 
 
 def load_draft(path: Path) -> LedgerDraft:
-    raw = safe_load(path.read_text(encoding="utf-8"))
+    authored = path.read_text(encoding="utf-8")
+    try:
+        raw = strict_safe_load(authored)
+    except (yaml.YAMLError, ValueError):
+        # Parser diagnostics may include private keys or values.
+        raise ValueError("invalid ledger draft YAML") from None
     if isinstance(raw, dict) and raw.get("schema_version") != 2:
         raise ValueError("ledger draft schema_version=2 required; prepare a new draft")
     return LedgerDraft.model_validate(raw)
