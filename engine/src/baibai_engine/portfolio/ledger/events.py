@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -383,6 +383,23 @@ class PortfolioLedgerDocument(LedgerMetadata):
         if any(event.occurred_at > self.as_of for event in self.events):
             raise ValueError("events cannot occur after as_of")
         return self
+
+
+def ledger_event_append_payload(
+    document: PortfolioLedgerDocument,
+    additions: Sequence[dict[str, object]],
+    *,
+    occurred_at: datetime,
+) -> dict[str, object]:
+    """Build the ordinary append draft's wire payload, before validation and replay."""
+    payload = document.model_dump(mode="json")
+    # Compare serialized offsets, and preserve the saved order and new append order on ties.
+    payload["events"] = sorted(
+        [*payload["events"], *additions],
+        key=lambda event: datetime.fromisoformat(str(event["occurred_at"])),
+    )
+    payload["as_of"] = max(document.as_of, occurred_at).isoformat()
+    return payload
 
 
 @dataclass(frozen=True, slots=True)

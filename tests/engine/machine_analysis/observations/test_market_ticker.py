@@ -21,8 +21,19 @@ def test_invalid_codes_are_rejected_without_escaping_normalization(code: str) ->
     assert normalize_ticker_or_none(code) is None
 
 
-@pytest.mark.parametrize("code", ["１２３４", "株式銘柄", "12ß", "12!4"])
-def test_ticker_normalization_uses_the_model_ascii_contract(code: str) -> None:
+@pytest.mark.parametrize("code", [True, False, 1301, 13010])
+def test_native_text_code_boundary_rejects_non_strings(code: object) -> None:
+    with pytest.raises(SecurityCodeError):
+        parse_security_code_parts(code, require_text=True)
+    assert code_quality(code, require_text=True) == (None, "rejected")
+
+
+def test_other_projections_keep_the_existing_numeric_code_contract() -> None:
+    assert code_quality(13010) == ("1301", "ok")
+
+
+@pytest.mark.parametrize("code", ["１２３４", "株式銘柄", "12ß", "12!4", True, 1301, None])
+def test_ticker_normalization_uses_the_model_ascii_contract(code: object) -> None:
     with pytest.raises(SecurityCodeError):
         normalize_ticker(code)
 

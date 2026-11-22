@@ -21,9 +21,9 @@ from baibai_engine.data_collection.providers.jquants.full_day_native import (
 )
 from baibai_engine.data_collection.providers.jquants.market_rules import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
-    LEGACY_WEEKLY_LAST_BALANCE_DATE,
-    LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
     WEEKLY_BALANCE_LOOKBACK_DAYS,
+    WEEKLY_SERIES_LAST_BALANCE_DATE,
+    WEEKLY_SERIES_LAST_PUBLICATION_DATE,
 )
 from baibai_engine.data_collection.providers.jquants.native_index import (
     IncompleteReceipt,
@@ -101,7 +101,7 @@ def balance_days(
     weeks: dict[tuple[int, int], list[date]] = {}
     daily = []
     for day, opened in sessions.items():
-        if day <= LEGACY_WEEKLY_LAST_BALANCE_DATE:
+        if day <= WEEKLY_SERIES_LAST_BALANCE_DATE:
             weeks.setdefault(day.isocalendar()[:2], []).append(day)
         elif day >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE and opened is True:
             daily.append(day)
@@ -117,7 +117,7 @@ def balance_days(
             # A selection ending midweek must not turn its final trading day
             # into the week's balance day. Check the rest of the business week.
             friday = min(
-                candidate + timedelta(days=4 - candidate.weekday()), LEGACY_WEEKLY_LAST_BALANCE_DATE
+                candidate + timedelta(days=4 - candidate.weekday()), WEEKLY_SERIES_LAST_BALANCE_DATE
             )
             if candidate < friday:
                 later, incomplete = calendar_sessions(
@@ -163,7 +163,7 @@ def _weekly_empty_rechecks(
         receipt = receipts.get(day)
         if receipt is None or receipt.records:
             continue
-        if day == LEGACY_WEEKLY_LAST_BALANCE_DATE and asof >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE:
+        if day == WEEKLY_SERIES_LAST_BALANCE_DATE and asof >= WEEKLY_SERIES_LAST_PUBLICATION_DATE:
             rechecks.add(day)
             continue
         confirmed = receipt.received_at.astimezone(jst).date()
@@ -206,7 +206,7 @@ def plan_margin_interest_days(
     index = NativeMarketIndex("margin_interest", (), ()) if force else fixed.index()
     if start is not None and end is not None:
         candidates, missing, unknown = balance_days(calendar, start=start, end=end)
-        weekly_days = [day for day in candidates if day <= LEGACY_WEEKLY_LAST_BALANCE_DATE]
+        weekly_days = [day for day in candidates if day <= WEEKLY_SERIES_LAST_BALANCE_DATE]
         old = plan_required_days(
             index,
             days=weekly_days,
@@ -235,8 +235,8 @@ def plan_margin_interest_days(
         calendar.index(),
         start=asof - timedelta(days=WEEKLY_BALANCE_LOOKBACK_DAYS),
         asof=asof,
-        final_balance_date=LEGACY_WEEKLY_LAST_BALANCE_DATE,
-        final_publication_date=LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
+        final_balance_date=WEEKLY_SERIES_LAST_BALANCE_DATE,
+        final_publication_date=WEEKLY_SERIES_LAST_PUBLICATION_DATE,
     )
     daily = plan_daily_margin(
         index,

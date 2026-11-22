@@ -118,8 +118,16 @@ def test_new_empty_response_withdraws_all_old_rows(tmp_path):
     )
 
 
-@pytest.mark.parametrize("invalid", [0.0, -100.0])
-def test_invalid_native_close_does_not_enter_market_model_populations(tmp_path, invalid):
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param({"C": 0.0}, id="zero-close"),
+        pytest.param({"C": -100.0}, id="negative-close"),
+        pytest.param({"Code": True}, id="boolean-code"),
+        pytest.param({"Date": "2026-11-02junk"}, id="junk-date"),
+    ],
+)
+def test_invalid_native_prices_do_not_enter_market_model_populations(tmp_path, invalid):
     from tests.helpers.model_generation import materialize_generation
 
     from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
@@ -142,7 +150,7 @@ def test_invalid_native_close_does_not_enter_market_model_populations(tmp_path, 
                     "Date": day.isoformat(),
                     **dict.fromkeys(
                         ("O", "H", "L", "C"),
-                        invalid
+                        invalid.get("C", 110)
                         if ticker == "1301" and day == as_of
                         else 110
                         if day == as_of
@@ -151,6 +159,7 @@ def test_invalid_native_close_does_not_enter_market_model_populations(tmp_path, 
                     "Vo": 100,
                     "Va": 10000,
                     "AdjFactor": 1,
+                    **(invalid if ticker == "1301" and day == as_of else {}),
                 }
                 for ticker in ("1301", "1302", "1321")
             ]
@@ -176,12 +185,18 @@ def test_invalid_native_close_does_not_enter_market_model_populations(tmp_path, 
             [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in days],
         )
     saved = model_input(store, owner.fixed(), as_of=as_of, evaluated_at=AT, market=market)
-    assert saved.descriptor["summary"]["coverage_status"] == "complete"
+    assert saved.descriptor["summary"]["coverage_status"] == (
+        "complete" if "C" in invalid else "partial"
+    )
     with sqlite3.connect(market) as connection:
+        assert (
+            connection.execute("SELECT 1 FROM jquants_daily_bars WHERE ticker='TRUE'").fetchone()
+            is None
+        )
         assert connection.execute(
             "SELECT close FROM jquants_daily_bars WHERE ticker='1301' AND traded_at=?",
             (as_of.isoformat(),),
-        ).fetchone() == (invalid,)
+        ).fetchone() == ((invalid["C"],) if "C" in invalid else None)
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "mirror") as snapshot:
         generation = materialize_generation(
             read_and_generate_models(
@@ -197,8 +212,16 @@ def test_invalid_native_close_does_not_enter_market_model_populations(tmp_path, 
             )
         )
     broken = generation.result("market_context", "1301").payload
-    assert broken["price"]["resolved_date"] == as_of.isoformat()
-    assert broken["price"]["close"] is None
+    if "C" in invalid:
+        assert broken["price"]["resolved_date"] == as_of.isoformat()
+        assert broken["price"]["close"] is None
+    else:
+        # The historical quote keeps its real date; it cannot fill the current session.
+        assert broken["price"]["resolved_date"] == (as_of - timedelta(days=3)).isoformat()
+        price_path = generation.result("technical_analysis", "1301").payload["price_path"]
+        assert price_path["expected_price_date"] == as_of.isoformat()
+        assert price_path["current_price"] is None
+        assert price_path["current_row_state"] == "absent"
     assert broken["price"]["return_20d"] is None
     assert broken["relative"]["relative_20d"] is None
     good = generation.result("market_context", "1302").payload
@@ -211,7 +234,16 @@ def test_invalid_native_close_does_not_enter_market_model_populations(tmp_path, 
     assert shared["sectors"][0]["median_return_20d"] == pytest.approx(0.1)
 
 
-@pytest.mark.parametrize("bad_fields", [{}, {"C": "invalid"}, {"C": []}])
+@pytest.mark.parametrize(
+    "bad_fields",
+    [
+        {},
+        {"C": "invalid"},
+        {"C": []},
+        pytest.param({"Code": True, "C": 100}, id="boolean-code"),
+        pytest.param({"Date": DAY.isoformat() + "junk", "C": 100}, id="junk-date"),
+    ],
+)
 def test_saved_price_rebuild_keeps_rejections_nulls_and_partial_rows_on_retry(tmp_path, bad_fields):
     from baibai_engine.machine_analysis.observations.prices.price_observation import (
         classify_price_day,
@@ -221,12 +253,13 @@ def test_saved_price_rebuild_keeps_rejections_nulls_and_partial_rows_on_retry(tm
     records = [
         {
             "Code": "13010",
-            "Date": DAY.isoformat(),
+            "Date": DAY.isoformat() + "T00:00:00",
             **dict(zip(fields, (100, 100, 100, 100, 0, 0), strict=True)),
         },
         {"Code": "13020", "Date": DAY.isoformat(), **bad_fields},
         {"Code": "13030", "Date": DAY.isoformat(), **dict.fromkeys(fields)},
         {"Code": "13040", "Date": DAY.isoformat(), "C": 100},
+        {"Code": "13011", "Date": DAY.isoformat(), "C": 200},
     ]
     store = MemoryR2Store()
     owner = PriceL1(store, tmp_path / "native")
@@ -235,6 +268,9 @@ def test_saved_price_rebuild_keeps_rejections_nulls_and_partial_rows_on_retry(tm
         "daily_bars", {"date": DAY.isoformat()}, AT, json.dumps({"data": records}).encode()
     )
     owner.commit([PriceAttempt("fixed", DAY, AT, (page,))])
+    (retained,) = owner.fixed().requests(store, days=(DAY,))
+    assert retained.request is not None
+    assert retained.request.pages[0].body == page.body
     market = market_store(tmp_path / "market.sqlite")
     saved = model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT, market=market)
     assert saved.descriptor["summary"]["partial_days"] == 1
@@ -264,6 +300,7 @@ def test_saved_price_rebuild_keeps_rejections_nulls_and_partial_rows_on_retry(tm
         status = pq.read_table(output / "price_receipt_status.parquet").to_pylist()[0]
         assert status["projection_status"] == "partial"
         assert status["rejected_count"] == 1
+        assert status["excluded_count"] == 1
     assert HEAD_KEY not in store.get_keys
 
 
@@ -488,13 +525,21 @@ def test_saved_price_interval_validates_bounds_without_expanding_history(monkeyp
     import hashlib
 
     from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
-    from baibai_engine.machine_analysis.generation.price_inputs import INPUT_FORMAT
+    from baibai_engine.machine_analysis.generation.price_inputs import (
+        INPUT_FORMAT,
+        PRICE_PROJECTION_REVISION,
+        rehydrate_price_input,
+    )
     from baibai_engine.primitives.json import canonical_json
     from baibai_jobs.integration import price_native
 
     descriptor = {
         "format": INPUT_FORMAT,
-        "summary": {"selection_start": first.isoformat(), "selection_end": last.isoformat()},
+        "summary": {
+            "projection_revision": PRICE_PROJECTION_REVISION,
+            "selection_start": first.isoformat(),
+            "selection_end": last.isoformat(),
+        },
     }
     digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
     saved = InputSnapshot(
@@ -504,7 +549,7 @@ def test_saved_price_interval_validates_bounds_without_expanding_history(monkeyp
         price_native, "_days", lambda *args: pytest.fail("interval validation must not expand days")
     )
     if first <= last:
-        assert price_native.saved_interval(saved) == (first, last)
+        assert rehydrate_price_input(saved)[1] == (first, last)
     else:
         with pytest.raises(ValueError, match="invalid saved price interval"):
-            price_native.saved_interval(saved)
+            rehydrate_price_input(saved)

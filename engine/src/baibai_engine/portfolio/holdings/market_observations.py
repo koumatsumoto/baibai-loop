@@ -24,30 +24,25 @@ import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from itertools import batched
 from math import isfinite
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.machine_analysis.observations.prices.calendar import (
-    JQuantsMarketCalendarDay,
-    cash_equity_open,
-)
 from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
-    _read_calendar,
+    read_market_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.price_basis import share_unit_factor
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
-    JQuantsDailyBar,
 )
-from baibai_engine.machine_analysis.observations.prices.price_reader import _read_ticker_bars
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.portfolio.ledger.events import ShareConversionEvent, matches_share_conversion
+from baibai_engine.primitives.jquants_calendar import cash_equity_open
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
-    connect_current,
 )
 
 
@@ -64,17 +59,32 @@ def read_unadjusted_close(
     at: datetime,
     connection: sqlite3.Connection | None = None,
 ) -> UnadjustedCloseObservation | None:
-    """Return the ticker's raw close on the latest eligible observed market date.
+    """Return one raw close from the same market-wide cutoff as a bulk read."""
+    return read_unadjusted_closes(
+        sqlite_path=sqlite_path, tickers=(ticker,), at=at, connection=connection
+    ).get(ticker)
 
-    ``None`` means no raw close is available (missing store, missing coverage, or an
-    adjusted-only row); the caller must not substitute an adjusted series.
+
+def read_unadjusted_closes(
+    *,
+    sqlite_path: Path,
+    tickers: tuple[str, ...],
+    at: datetime,
+    connection: sqlite3.Connection | None = None,
+) -> dict[str, UnadjustedCloseObservation]:
+    """Read exact ticker quotes on one market-wide date and one read snapshot.
+
+    Missing, adjusted-only or invalid closes are absent, not filled from an
+    earlier ticker date. A supplied connection's transaction belongs to the caller.
     """
+    if not tickers:
+        return {}
     latest_close_date = latest_eligible_close_date(at)
     conn = connection
     owns_connection = conn is None
     if conn is None:
         if not sqlite_path.exists():
-            return None
+            return {}
         conn = connect_read_only(sqlite_path)
     try:
         if owns_connection:
@@ -87,35 +97,34 @@ def read_unadjusted_close(
             (latest_close_date.isoformat(),),
         ).fetchone()
         if market_session_row is None or market_session_row[0] is None:
-            return None
+            return {}
         price_as_of_text = str(market_session_row[0])
-        # Require the selected ticker's row on the exact market-wide date. If
-        # its raw close is missing, defer instead of silently using a stale bar.
-        row = conn.execute(
-            "SELECT traded_at, close FROM jquants_daily_bars WHERE ticker = ? AND traded_at = ?",
-            (ticker, price_as_of_text),
-        ).fetchone()
+        try:
+            price_as_of = date.fromisoformat(price_as_of_text)
+        except ValueError:
+            return {}
+
+        quotes: dict[str, UnadjustedCloseObservation] = {}
+        # Keep each statement within a bounded number of SQLite bindings. Only
+        # the placeholder count is interpolated, never ticker values.
+        for batch in batched(dict.fromkeys(tickers), 500, strict=False):
+            placeholders = ", ".join("?" for _ in batch)
+            rows = conn.execute(
+                "SELECT ticker, close FROM jquants_daily_bars "  # nosec B608
+                f"WHERE traded_at = ? AND ticker IN ({placeholders})",
+                (price_as_of_text, *batch),
+            )
+            for ticker, close in rows:
+                try:
+                    close_yen = float(close)
+                except (TypeError, ValueError):
+                    continue
+                if isfinite(close_yen) and close_yen > 0:
+                    quotes[str(ticker)] = UnadjustedCloseObservation(close_yen, price_as_of)
+        return quotes
     finally:
         if owns_connection:
             conn.close()
-    if row is None:
-        return None
-    traded_at, close = row
-    if close is None:
-        return None
-    try:
-        price_as_of = date.fromisoformat(str(traded_at))
-        close_yen = float(close)
-    except (TypeError, ValueError):
-        return None
-    if not isfinite(close_yen) or close_yen <= 0:
-        # A non-positive close is corrupt; defer rather than sizing on it (a zero
-        # close would otherwise divide by zero in lot sizing).
-        return None
-    return UnadjustedCloseObservation(
-        close_yen=close_yen,
-        price_as_of=price_as_of,
-    )
 
 
 def market_basis_is_confirmed(
@@ -167,7 +176,7 @@ def market_basis_is_confirmed(
             (ticker, from_date.isoformat(), action_cutoff.isoformat()),
         ).fetchall()
         if from_date < through_date:
-            calendar = _read_calendar(conn, start, through_date)
+            calendar = read_market_calendar(sqlite_path, start, through_date, connection=conn)
             if calendar is None:
                 return False
             # Price-row dates cannot prove session completeness: a missing whole
@@ -321,33 +330,3 @@ def next_order_session(
     return read_order_session_bounds(
         sqlite_path=sqlite_path, now=now, connection=connection
     ).confirmed_session
-
-
-def read_portfolio_market_inputs(
-    sqlite_path: Path,
-    tickers: tuple[str, ...],
-    start: date,
-    end: date,
-    *,
-    connection: sqlite3.Connection | None = None,
-) -> tuple[list[JQuantsMarketCalendarDay] | None, list[JQuantsDailyBar] | None]:
-    """Select calendar and scoped prices from one SQLite read snapshot.
-
-    Cash-only outcomes need a calendar, not artificial price coverage. A missing
-    input remains unavailable; this does not create an archive or replay proof.
-    A supplied connection belongs to the caller, including its read transaction.
-    """
-    owns_connection = connection is None
-    conn = connect_current(sqlite_path) if owns_connection else connection
-    if conn is None:
-        return None, None
-    try:
-        if owns_connection:
-            conn.execute("BEGIN")
-        calendar = _read_calendar(conn, start, end)
-        if calendar is None:
-            return None, None
-        return calendar, _read_ticker_bars(conn, tickers, start, end)
-    finally:
-        if owns_connection:
-            conn.close()

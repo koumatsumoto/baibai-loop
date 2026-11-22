@@ -18,7 +18,11 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
     ShortSaleReportsL1,
 )
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
-from baibai_jobs.integration.short_sale_reports_native import materialize_saved_input, model_input
+from baibai_jobs.integration.short_sale_reports_native import (
+    fixed_input,
+    materialize_saved_input,
+    model_input,
+)
 from baibai_jobs.publication.l1_short_sale_reports_export import (
     export_short_sale_reports_from_native_input,
 )
@@ -122,6 +126,18 @@ def test_equal_recheck_keeps_order_duplicates_and_reuses_objects(tmp_path):
     assert coverage(cold) == coverage(market)
 
 
+def test_fixed_raw_short_sale_input_can_rebuild_with_current_code(tmp_path):
+    store, owner, market, _mirror, _saved, _previous = fixture(tmp_path)
+    saved = fixed_input(
+        store, owner.fixed(), start=DAY - timedelta(days=2), end=DAY, evaluated_at=AT
+    )
+    assert "projection_revision" not in saved.descriptor["summary"]
+    assert "coverage_status" not in saved.descriptor["summary"]
+    cold = tmp_path / "raw.sqlite"
+    assert materialize_saved_input(store, saved, output=cold)["input_sha256"] == saved.sha256
+    assert rows(cold) == rows(market)
+
+
 @pytest.mark.parametrize("boolean", [True, False])
 def test_old_boolean_projection_is_rebuilt_once_then_reused(tmp_path, monkeypatch, boolean):
     from baibai_engine.machine_analysis.observations import jquants_writer
@@ -170,6 +186,86 @@ def test_old_boolean_projection_is_rebuilt_once_then_reused(tmp_path, monkeypatc
     assert not [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
     assert {obj for part in reused.partitions for obj in part.objects} == {
         obj for part in current.partitions for obj in part.objects
+    }
+
+
+def test_old_text_coercion_cache_rebuilds_same_fixed_report_without_changing_originals(
+    tmp_path, monkeypatch
+):
+    import pyarrow.parquet as pq
+
+    from baibai_engine.machine_analysis.observations import jquants_writer
+    from baibai_engine.storage.snapshots.contracts import PROJECTION_REVISION_METADATA_KEY
+    from baibai_jobs.integration import short_sale_reports_native as projection
+    from baibai_jobs.publication import l1_short_sale_reports_export as publication
+
+    store, owner, market, mirror, _, _ = fixture(tmp_path)
+    at = AT + timedelta(hours=1)
+    malformed = {**records(name="Malformed native Code")[0], "Code": True}
+    primary = {**records(ratio=0)[0], "Code": "72030"}
+    missing_ratio = {**records(ratio=True)[0], "Code": "83060"}
+    secondary = {**records()[0], "Code": "72031"}
+    owner.commit(
+        [attempt("mixed-code-types", at=at, rows=[malformed, primary, missing_ratio, secondary])]
+    )
+    fixed = owner.fixed()
+    code_quality = jquants_writer.code_quality
+    with monkeypatch.context() as old:
+        old.setattr(jquants_writer, "code_quality", lambda value, **_kwargs: code_quality(value))
+        old.setattr(projection, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v2")
+        old.setattr(publication, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v2")
+        before, previous = build(store, fixed, market, mirror, at=at)
+    assert previous.coverage_status == "complete"
+    assert any(row[3] == "TRUE" for row in rows(market))
+    previous_keys = {obj.key for part in previous.partitions for obj in part.objects}
+    assert previous_keys
+    assert all(
+        pq.read_metadata(mirror / key).metadata[PROJECTION_REVISION_METADATA_KEY]
+        == b"jquants-numeric-v2"
+        for key in previous_keys
+    )
+    retained = {
+        key: value.body
+        for key, value in store.values.items()
+        if key.startswith(PREFIX) or key in previous_keys
+    }
+
+    store.get_keys.clear()
+    old_output = tmp_path / "explicit-v2.sqlite"
+    with pytest.raises(ValueError, match="use the recorded producer commit"):
+        materialize_saved_input(store, before, output=old_output)
+    assert not old_output.exists()
+    assert store.get_keys == []
+
+    store.get_keys.clear()
+    saved, current = build(store, fixed, market, mirror, at=at, previous=previous)
+    raw_gets = [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
+    assert raw_gets
+    assert len(raw_gets) == len(set(raw_gets))
+    assert HEAD_KEY not in store.get_keys
+    cold = tmp_path / "cold-code.sqlite"
+    assert materialize_saved_input(store, saved, output=cold)["input_sha256"] == saved.sha256
+    assert rows(market) == rows(cold)
+    assert coverage(market) == coverage(cold)
+    assert [(row[1], row[3], row[7]) for row in rows(market) if row[0] == DAY.isoformat()] == [
+        (0, "7203", 0.0),
+        (1, "8306", None),
+    ]
+    assert current.coverage_status == "partial"
+    current_keys = {obj.key for part in current.partitions for obj in part.objects}
+    assert current_keys
+    assert current_keys.isdisjoint(previous_keys)
+    assert all(
+        pq.read_metadata(mirror / key).metadata[PROJECTION_REVISION_METADATA_KEY]
+        == projection.JQUANTS_NUMERIC_PROJECTION_REVISION.encode()
+        for key in current_keys
+    )
+    assert saved.descriptor["selection_sha256"] == before.descriptor["selection_sha256"]
+    assert saved.descriptor["format"] == before.descriptor["format"]
+    assert saved.sha256 != before.sha256
+    assert {key: store.values[key].body for key in retained} == retained
+    assert {key for key in store.values if key.startswith(PREFIX)} == {
+        key for key in retained if key.startswith(PREFIX)
     }
 
 

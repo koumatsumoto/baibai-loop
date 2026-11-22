@@ -5,17 +5,22 @@ class SecurityCodeError(ValueError):
     """A source security code cannot establish an ASCII ticker and issue suffix."""
 
 
-def normalize_ticker(value: str) -> str:
-    ticker = value.strip()
-    if len(ticker) != 4 or not ticker.isascii() or not ticker.isalnum():
-        raise SecurityCodeError(
-            f"ticker must be a 4-character ASCII alphanumeric string: {value!r}"
-        )
-    return ticker.upper()
+def normalize_ticker(value: object) -> str:
+    if isinstance(value, str):
+        ticker = value.strip()
+        if len(ticker) == 4 and ticker.isascii() and ticker.isalnum():
+            return ticker.upper()
+    raise SecurityCodeError(f"ticker must be a 4-character ASCII alphanumeric string: {value!r}")
 
 
-def parse_security_code_parts(code: object) -> tuple[str, bool]:
-    """Return the ticker and whether the issue suffix is zero, not its product category."""
+def parse_security_code_parts(code: object, *, require_text: bool = False) -> tuple[str, bool]:
+    """Return the ticker and primary-issue flag, not the product category.
+
+    Strict native projections opt in to JSON text. Keep the existing conversion
+    for callers whose projection contract has not changed.
+    """
+    if require_text and not isinstance(code, str):
+        raise SecurityCodeError(f"invalid security code: {code!r}")
     raw = str(code or "").strip()
     if not raw.isascii():
         raise SecurityCodeError(f"invalid security code: {code!r}")

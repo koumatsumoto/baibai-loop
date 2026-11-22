@@ -9,7 +9,7 @@ from contextlib import closing
 from datetime import date
 
 import pytest
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     FinancialSnapshot,
@@ -29,6 +29,10 @@ def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
         pcfr=None,
         sales_ttm=0.0,
         ocf_ttm=None,
+        forecast_eps_yen=-0.25,
+        forecast_profit_yen=-1.0,
+        forecast_ordinary_profit_yen=None,
+        dps_actual_annual=0.0,
     )
     payload = TypeAdapter(FinancialSnapshot).dump_python(snapshot, mode="json")
     assert payload["latest_financial_disclosure_date"] == "2026-07-01"
@@ -42,6 +46,27 @@ def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
     assert payload["dividend_forecast_source"] is None
     restored = TypeAdapter(FinancialSnapshot).validate_json(json.dumps(payload))
     assert restored == snapshot
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize(
+    "field",
+    ["forecast_eps_yen", "forecast_profit_yen", "forecast_ordinary_profit_yen", "market_price_yen"],
+)
+def test_financial_snapshot_rejects_nonfinite_values(field, value) -> None:
+    with pytest.raises(ValidationError, match=field):
+        FinancialSnapshot(
+            latest_financial_disclosure_date=None,
+            per_forward=None,
+            per_trailing=None,
+            pbr=None,
+            ev_ebitda=None,
+            p_s=None,
+            pcfr=None,
+            sales_ttm=None,
+            ocf_ttm=None,
+            **{field: value},
+        )
 
 
 @pytest.mark.parametrize(

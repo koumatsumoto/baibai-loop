@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from functools import cached_property
 from math import prod
 from zoneinfo import ZoneInfo
 
@@ -27,6 +28,7 @@ from baibai_engine.portfolio.ledger.events import (
     PortfolioLedgerError,
     ReleaseEvent,
     ReservationEvent,
+    ShareConversionEvent,
     ValuationYen,
     WithdrawalEvent,
     estimated_exit_tax_yen,
@@ -123,49 +125,60 @@ def compute_time_weighted_return(
     )
 
 
-def outcome_ledger_at_close(
-    ledger: PortfolioLedgerDocument,
-    *,
-    business_days: tuple[date, ...],
-    start: date,
-    end: date,
-) -> PortfolioLedgerDocument:
-    """Scope quantity checks to the same reported-day/close boundary as the outcome."""
-    effective_dates = _effective_event_dates(ledger.events, business_days, start=start, end=end)
-    return ledger.model_copy(
-        update={
-            "events": tuple(
-                event
-                for event, day in zip(ledger.events, effective_dates, strict=True)
-                if day is not None
-            )
-        }
-    )
+@dataclass(frozen=True)
+class OutcomePeriod:
+    """One ledger and session schedule for market reads, NAV and ending-basis checks."""
 
+    ledger: PortfolioLedgerDocument
+    business_days: tuple[date, ...]
+    start: date
+    end: date
 
-def outcome_market_tickers(
-    ledger: PortfolioLedgerDocument,
-    *,
-    business_days: tuple[date, ...],
-    start: date,
-    end: date,
-) -> tuple[str, ...]:
-    """Select opening holdings and episodes active after the opening close.
+    @cached_property
+    def _event_dates(self) -> tuple[date | None, ...]:
+        return _effective_event_dates(
+            self.ledger.events, self.business_days, start=self.start, end=self.end
+        )
 
-    Include fully sold in-period positions: their final sale still needs a basis
-    check. Exclude positions closed by the opening close and purchases after end.
-    """
-    effective_dates = _effective_event_dates(ledger.events, business_days, start=start, end=end)
-    return tuple(
-        sorted(
-            {
-                ticker
-                for ticker, _, _ in _holding_basis_intervals(
-                    ledger.events, effective_dates, start=start, end=end
+    @cached_property
+    def _basis_intervals(self) -> tuple[tuple[str, date, date], ...]:
+        return _holding_basis_intervals(
+            self.ledger.events, self._event_dates, start=self.start, end=self.end
+        )
+
+    @cached_property
+    def recorded_share_conversions(self) -> tuple[ShareConversionEvent, ...]:
+        # Basis readers still enforce the interval for each ticker.
+        return share_conversions(self.ledger.events)
+
+    def ledger_at_close(self) -> PortfolioLedgerDocument:
+        """Use the same reported-day/close boundary for ending quantity checks."""
+        return self.ledger.model_copy(
+            update={
+                "events": tuple(
+                    event
+                    for event, day in zip(self.ledger.events, self._event_dates, strict=True)
+                    if day is not None
                 )
             }
         )
-    )
+
+    def market_tickers(self) -> tuple[str, ...]:
+        """Include opening holdings and sales after that close; exclude later activity."""
+        return tuple(sorted({ticker for ticker, _, _ in self._basis_intervals}))
+
+    def compute(
+        self,
+        benchmark: BenchmarkObservation,
+        *,
+        bars: tuple[JQuantsDailyBar, ...],
+        confirm_price_basis: Callable[[str, date, date], bool] | None = None,
+    ) -> PortfolioOutcome:
+        if (self.start, self.end) != (benchmark.period_start_date, benchmark.period_end_date):
+            raise ValueError("benchmark dates differ from the selected outcome period")
+        return _compute_portfolio_outcome(
+            self, benchmark, bars=bars, confirm_price_basis=confirm_price_basis
+        )
 
 
 def compute_portfolio_outcome(
@@ -176,6 +189,18 @@ def compute_portfolio_outcome(
     bars: tuple[JQuantsDailyBar, ...],
     confirm_price_basis: Callable[[str, date, date], bool] | None = None,
 ) -> PortfolioOutcome:
+    return OutcomePeriod(
+        ledger, business_days, benchmark.period_start_date, benchmark.period_end_date
+    ).compute(benchmark, bars=bars, confirm_price_basis=confirm_price_basis)
+
+
+def _compute_portfolio_outcome(
+    period: OutcomePeriod,
+    benchmark: BenchmarkObservation,
+    *,
+    bars: tuple[JQuantsDailyBar, ...],
+    confirm_price_basis: Callable[[str, date, date], bool] | None,
+) -> PortfolioOutcome:
     """Compute one official benchmark period without filling missing evidence.
 
     The result is structured as ``unresolved`` for expected data gaps. Ledger
@@ -184,7 +209,8 @@ def compute_portfolio_outcome(
     pre-period holding units without supplying otherwise unused historical closes.
     """
 
-    start, end = benchmark.period_start_date, benchmark.period_end_date
+    ledger, business_days = period.ledger, period.business_days
+    start, end = period.start, period.end
     if start not in business_days or end not in business_days:
         return _unresolved(benchmark, "basis_mismatch")
     valuation_days = tuple(day for day in business_days if start <= day <= end)
@@ -201,9 +227,7 @@ def compute_portfolio_outcome(
         return _unresolved(benchmark, "insufficient_portfolio_history")
 
     bars_by_ticker_day = {(bar.ticker, bar.traded_at): bar for bar in bars}
-    effective_event_dates = _effective_event_dates(
-        ledger.events, business_days, start=start, end=end
-    )
+    effective_event_dates = period._event_dates
     navs: list[DailyNav] = []
     final_value = None
     for valuation_day in valuation_days:
@@ -253,9 +277,7 @@ def compute_portfolio_outcome(
     # Check the whole holding episode, including before the opening NAV and the
     # final sale day. Looking only at end-of-day holdings misses a fully sold name.
     # A purchase already reports quantities on its own session's unit basis.
-    for ticker, acquired_on, through in _holding_basis_intervals(
-        ledger.events, effective_event_dates, start=start, end=end
-    ):
+    for ticker, acquired_on, through in period._basis_intervals:
         if acquired_on == through:
             continue
         if confirm_price_basis is not None:
@@ -263,6 +285,7 @@ def compute_portfolio_outcome(
         else:
             # Supplied in-period bars cannot certify a pre-period quantity basis.
             days = tuple(day for day in business_days if acquired_on < day <= through)
+            conversions = period.recorded_share_conversions
             confirmed = (
                 acquired_on >= start
                 and bool(days)
@@ -274,11 +297,11 @@ def compute_portfolio_outcome(
                             bar.adjustment_factor == 1.0
                             and not any(
                                 conversion.ticker == ticker and conversion.occurred_on == day
-                                for conversion in share_conversions(ledger.events)
+                                for conversion in conversions
                             )
                         )
                         or matches_share_conversion(
-                            share_conversions(ledger.events),
+                            conversions,
                             ticker=ticker,
                             day=day,
                             factor=bar.adjustment_factor,

@@ -77,6 +77,61 @@ def test_collect_preserves_meta_cutoff_and_stable_daily_label(tmp_path):
     assert context.calculations["1234"]["maximum_common_grid_price_yen"] == "1000"
 
 
+def test_collect_uses_one_quote_read_for_holdings_and_candidates(tmp_path):
+    from tests.helpers.screening_sqlite import seed_daily_bars
+
+    from baibai_engine.storage.sqlite.source_cache.read import connect_read_only as connect_market
+
+    case = backend_case(tmp_path, holding=True)
+    seed_daily_bars(
+        case.market,
+        [
+            ("2345", "2026-10-14", 2000.0, 1.0),
+            ("3456", "2026-10-13", 3000.0, 1.0),
+            ("3456", "2026-10-14", None, 1.0),
+            ("4567", "2026-10-13", 4000.0, 1.0),
+            ("2345", "2026-10-15", 9800.0, 1.0),
+        ],
+    )
+    statements: list[str] = []
+    with (
+        closing(connect_read_only(case.app)) as application,
+        closing(connect_market(case.market)) as market,
+    ):
+        application.execute("BEGIN")
+        market.execute("BEGIN")
+        market.set_trace_callback(statements.append)
+        inputs = collect_proposal_inputs(
+            application,
+            tickers=("4567", "3456", "2345", "1234", "2345"),
+            proposal_id=PROPOSAL_ID,
+            now=PREPARED,
+            sqlite_path=case.market,
+            budget_min_yen=200000,
+            budget_max_yen=300000,
+            market_connection=market,
+        )
+        assert application.in_transaction
+        assert market.in_transaction
+
+    assert [(quote.ticker, quote.price_yen, quote.price_as_of) for quote in inputs.quotes] == [
+        ("1234", Decimal(1100), PREPARED.date()),
+        ("2345", Decimal(2000), PREPARED.date()),
+    ]
+    assert inputs.positions[0].quantity_basis_confirmed
+    assert inputs.total_capital_yen == Decimal(320000)
+    assert statements.count("PRAGMA user_version") == 1
+    assert sum("SELECT MAX(traded_at)" in statement for statement in statements) == 1
+    assert (
+        sum(
+            "SELECT ticker, close FROM jquants_daily_bars" in statement
+            or "SELECT traded_at, close FROM jquants_daily_bars" in statement
+            for statement in statements
+        )
+        == 1
+    )
+
+
 def test_null_sell_reference_all_active_and_no_unexecuted_sell_proceeds(tmp_path):
     case = backend_case(tmp_path, holding=True, active_sell=True)
     inputs = _collect(case)
@@ -503,6 +558,7 @@ def test_current_valuation_keeps_quotes_and_share_basis_in_one_snapshot(
 ):
     from tests.helpers.screening_sqlite import seed_daily_bars
 
+    from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
     from baibai_engine.portfolio.holdings import valuation
 
     case = backend_case(tmp_path, holding=True)
@@ -513,21 +569,22 @@ def test_current_valuation_keeps_quotes_and_share_basis_in_one_snapshot(
     with closing(sqlite3.connect(case.market)) as setup:
         assert setup.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
     now = PUBLISHED + timedelta(days=1)
-    read_quote = valuation.read_unadjusted_close
+    owner = valuation if consumer == "current_portfolio" else input_reader
+    read_quotes = owner.read_unadjusted_closes
     commits = 0
 
-    def commit_after_holding_quote(**kwargs):
+    def commit_after_quotes(**kwargs):
         nonlocal commits
-        quote = read_quote(**kwargs)
+        quotes = read_quotes(**kwargs)
         with closing(sqlite3.connect(case.market)) as writer, writer:
             writer.execute(
                 "UPDATE jquants_daily_bars SET close = 9999.0, "
                 "adjustment_factor = 0.5, ex_right_type = '1' WHERE traded_at = '2026-10-15'"
             )
         commits += 1
-        return quote
+        return quotes
 
-    monkeypatch.setattr(valuation, "read_unadjusted_close", commit_after_holding_quote)
+    monkeypatch.setattr(owner, "read_unadjusted_closes", commit_after_quotes)
     if consumer == "current_portfolio":
         portfolio = valuation.current_portfolio(case.ledger, sqlite_path=case.market, now=now)
         assert portfolio.holdings[0].market_value_yen == 100000
@@ -537,13 +594,13 @@ def test_current_valuation_keeps_quotes_and_share_basis_in_one_snapshot(
         inputs = _collect(case, now=now, tickers=("1234", "5678"))
         assert inputs.positions[0].quantity_basis_confirmed
         assert inputs.total_capital_yen == Decimal(310000)
-        # The next candidate's quote also belongs to the holding's pre-commit snapshot.
+        # Both holding and candidate quotes precede the writer commit.
         assert [(quote.ticker, quote.price_yen) for quote in inputs.quotes] == [
             ("1234", Decimal(1000)),
             ("5678", Decimal(1100)),
         ]
     assert commits == 1
-    monkeypatch.setattr(valuation, "read_unadjusted_close", read_quote)
+    monkeypatch.setattr(owner, "read_unadjusted_closes", read_quotes)
     quote, confirmed = valuation.holding_quote(
         case.ledger, ticker="1234", sqlite_path=case.market, now=now
     )
@@ -715,12 +772,12 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
         proposal = service.publish(proposal)
     with closing(sqlite3.connect(case.market)) as setup:
         assert setup.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
-    read_quote = input_reader.read_unadjusted_close
+    read_quotes = input_reader.read_unadjusted_closes
     commits = 0
 
-    def quote_then_correct(**kwargs):
+    def quotes_then_correct(**kwargs):
         nonlocal commits
-        quote = read_quote(**kwargs)
+        quotes = read_quotes(**kwargs)
         with closing(sqlite3.connect(case.market)) as writer, writer:
             writer.execute("UPDATE jquants_daily_bars SET close = 2200")
             writer.execute(
@@ -731,9 +788,9 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
                 "UPDATE jquants_market_calendar SET holiday_division = '0' WHERE day = '2026-10-15'"
             )
         commits += 1
-        return quote
+        return quotes
 
-    monkeypatch.setattr(input_reader, "read_unadjusted_close", quote_then_correct)
+    monkeypatch.setattr(input_reader, "read_unadjusted_closes", quotes_then_correct)
     if consumer == "context":
         context = build_proposal_context(
             proposal_id=PROPOSAL_ID,
@@ -759,7 +816,7 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
         assert preview.items[0]["blockers"] == []
         assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
     assert commits == 1
-    monkeypatch.setattr(input_reader, "read_unadjusted_close", read_quote)
+    monkeypatch.setattr(input_reader, "read_unadjusted_closes", read_quotes)
     # The next independent read sees the whole correction. No reader closes or
     # commits its caller's snapshot, and no saved proposal is rewritten.
     corrected = build_proposal_context(

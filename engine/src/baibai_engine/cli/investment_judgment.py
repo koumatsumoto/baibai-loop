@@ -461,37 +461,42 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     TradeProposalService,
                 )
 
-                try:
-                    payload = safe_load(args.draft.read_text(encoding="utf-8"))
-                except yaml.YAMLError as error:
-                    raise ValueError(f"invalid proposal YAML: {args.draft}: {error}") from error
-                proposal = load_proposal_draft(payload)
+                document = args.draft.read_text(encoding="utf-8")
                 service = TradeProposalService(
                     args.db,
                     sqlite_path=args.sqlite_path,
                     clock=None if now is None else lambda: resolved_now,
                 )
-                if args.command == "trade-proposal-check":
-                    validation = service.check(proposal, require_review=False)
-                    expected = validation.draft_sha256
-                    binding = (
-                        "unreviewed"
-                        if proposal.review is None
-                        else "match"
-                        if proposal.review.draft_sha256 == expected
-                        else "stale"
-                    )
-                    _emit(
-                        {
-                            **validation.payload(),
-                            "proposal_id": proposal.proposal_id,
-                            "check_scope": "authored_draft_precheck",
-                            "review_binding": binding,
-                        },
-                        out,
-                    )
-                    return 0 if validation.valid else 3
-                _emit(service.publish(proposal).model_dump(mode="json"), out)
+                publishing = args.command == "trade-proposal-publish"
+                try:
+                    if publishing:
+                        published = service.publish(document)
+                    else:
+                        proposal = load_proposal_draft(safe_load(document))
+                except yaml.YAMLError as error:
+                    raise ValueError(f"invalid proposal YAML: {args.draft}: {error}") from error
+                if publishing:
+                    _emit(published.model_dump(mode="json"), out)
+                    return 0
+                validation = service.check(proposal, require_review=False)
+                expected = validation.draft_sha256
+                binding = (
+                    "unreviewed"
+                    if proposal.review is None
+                    else "match"
+                    if proposal.review.draft_sha256 == expected
+                    else "stale"
+                )
+                _emit(
+                    {
+                        **validation.payload(),
+                        "proposal_id": proposal.proposal_id,
+                        "check_scope": "authored_draft_precheck",
+                        "review_binding": binding,
+                    },
+                    out,
+                )
+                return 0 if validation.valid else 3
             case "trade-proposal-preview":
                 from baibai_engine.investment_judgment.trade_proposal.preview import (
                     preview_current_terms,

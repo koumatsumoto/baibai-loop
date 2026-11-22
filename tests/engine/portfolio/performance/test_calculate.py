@@ -14,12 +14,13 @@ from baibai_engine.machine_analysis.observations.prices.price_models import JQua
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
+from baibai_engine.portfolio.performance import calculate
 from baibai_engine.portfolio.performance.calculate import (
     DailyNav,
+    OutcomePeriod,
     PortfolioOutcomeError,
     compute_portfolio_outcome,
     compute_time_weighted_return,
-    outcome_market_tickers,
     outcome_to_payload,
 )
 from baibai_engine.portfolio.performance.store import (
@@ -549,6 +550,67 @@ def test_purchase_day_split_does_not_change_the_reported_fill_basis() -> None:
     assert result.portfolio_twr_pct == pytest.approx((1208 / 1100 - 1) * 100)
 
 
+@pytest.mark.parametrize("count", [1, 8])
+def test_outcome_prepares_confirmed_conversions_once_for_all_holding_days(count, mocker):
+    benchmark = _benchmark()
+    start, end = benchmark.period_start_date, benchmark.period_end_date
+    split_day = start + timedelta(days=1)
+    days = (start, split_day, start + timedelta(days=2), end)
+    tickers = tuple(str(1301 + index) for index in range(count))
+    raw = _ledger().model_dump(mode="json")
+    raw["schema_version"] = 4
+    raw["events"] = [
+        dict(raw["events"][0], amount_yen=100000),
+        *(
+            dict(
+                type="execution",
+                event_id=f"buy-{ticker}",
+                execution_id=f"buy-{ticker}",
+                occurred_at=f"{start}T10:00:00+09:00",
+                ticker=ticker,
+                side="buy",
+                quantity=100,
+                price_yen=100,
+                sector="synthetic",
+            )
+            for ticker in tickers
+        ),
+        dict(
+            type="share_conversion",
+            event_id="split",
+            action_id="split",
+            ticker=tickers[0],
+            occurred_at=f"{split_day}T00:00:00+09:00",
+            occurred_on=split_day.isoformat(),
+            confirmed_at=f"{split_day}T17:00:00+09:00",
+            numerator=2,
+            denominator=1,
+            quantity_before=100,
+            quantity_after=200,
+            source_ref="synthetic-confirmation",
+        ),
+    ]
+    bars = tuple(
+        JQuantsDailyBar(
+            ticker,
+            day,
+            50.0 if ticker == tickers[0] and day >= split_day else 100.0,
+            None,
+            adjustment_factor=0.5 if ticker == tickers[0] and day == split_day else 1.0,
+            ex_right_type="1" if ticker == tickers[0] and day == split_day else None,
+        )
+        for ticker in tickers
+        for day in days
+    )
+    collect = mocker.spy(calculate, "share_conversions")
+    period = OutcomePeriod(PortfolioLedgerDocument.model_validate(raw), days, start, end)
+    assert period.market_tickers() == tickers
+    result = period.compute(benchmark, bars=bars)
+    assert result.status == "resolved"
+    assert result.portfolio_twr_pct == 0.0
+    assert collect.call_count == 1
+
+
 def _preperiod_holding() -> PortfolioLedgerDocument:
     raw = _ledger().model_dump(mode="json")
     for event in raw["events"][:3]:
@@ -557,12 +619,12 @@ def _preperiod_holding() -> PortfolioLedgerDocument:
 
 
 def test_opening_holding_requires_evidence_of_its_preperiod_units() -> None:
-    assert outcome_market_tickers(
+    assert OutcomePeriod(
         _preperiod_holding(),
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         start=date(2025, 1, 6),
         end=date(2026, 1, 6),
-    ) == ("1234",)
+    ).market_tickers() == ("1234",)
     result = compute_portfolio_outcome(
         _preperiod_holding(),
         _benchmark(),
@@ -645,12 +707,12 @@ def test_full_sale_does_not_hide_a_corporate_action_on_its_execution_day() -> No
         },
     ]
     ledger = PortfolioLedgerDocument.model_validate(raw)
-    assert outcome_market_tickers(
+    assert OutcomePeriod(
         ledger,
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         start=date(2025, 1, 6),
         end=date(2026, 1, 6),
-    ) == ("1234",)
+    ).market_tickers() == ("1234",)
     result = compute_portfolio_outcome(
         ledger,
         _benchmark(),
@@ -702,12 +764,12 @@ def test_outcome_market_scope_respects_reported_day_at_the_ending_close(date_onl
     if date_only:
         for event in raw["events"][1:]:
             event["occurred_on"] = "2026-01-06"
-    assert outcome_market_tickers(
+    assert OutcomePeriod(
         PortfolioLedgerDocument.model_validate(raw),
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         start=date(2025, 1, 6),
         end=date(2026, 1, 6),
-    ) == (("1234",) if date_only else ())
+    ).market_tickers() == (("1234",) if date_only else ())
 
 
 def _prepare_outcome_cli(tmp_path: Path, ledger: PortfolioLedgerDocument) -> tuple[list[str], Path]:

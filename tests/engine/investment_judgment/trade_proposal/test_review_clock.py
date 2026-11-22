@@ -103,7 +103,7 @@ def test_saved_proposal_predating_assessment_review_keeps_hash_readback_and_retr
     service = proposal_service.TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
     )
-    check = proposal_service.check_proposal
+    check = proposal_service._check_validated_proposal
 
     def legacy_check(*args, **kwargs):
         # 旧writerが受理した本文を再現する。今回の時刻検証以外は全て通す。
@@ -112,7 +112,7 @@ def test_saved_proposal_predating_assessment_review_keeps_hash_readback_and_retr
         return replace(validation, valid=True, blockers=())
 
     with monkeypatch.context() as old_writer:
-        old_writer.setattr(proposal_service, "check_proposal", legacy_check)
+        old_writer.setattr(proposal_service, "_check_validated_proposal", legacy_check)
         saved = service.publish(proposal)
     before = case.app.read_bytes()
     digest = proposal_draft_sha256(proposal)

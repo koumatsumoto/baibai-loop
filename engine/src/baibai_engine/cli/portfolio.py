@@ -20,17 +20,17 @@ import yaml
 from baibai_engine.machine_analysis.observations.prices.benchmark_observation import (
     BenchmarkObservation,
 )
+from baibai_engine.machine_analysis.observations.prices.calendar_reader import read_market_calendar
 from baibai_engine.machine_analysis.observations.prices.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )
-from baibai_engine.portfolio.holdings.market_observations import (
-    market_basis_is_confirmed,
-    read_portfolio_market_inputs,
-)
+from baibai_engine.machine_analysis.observations.prices.price_reader import read_ticker_bars
+from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.portfolio.holdings.valuation import (
     UnresolvedHoldingQuantityError,
     current_portfolio,
+    prepare_holding_history,
     require_closed_holding_basis,
 )
 from baibai_engine.portfolio.ledger.broker_facts import BrokerFactRecordingError
@@ -60,16 +60,13 @@ from baibai_engine.portfolio.ledger.events import (
     WithdrawalEvent,
     replay_events_through,
     require_resolved_expiries,
-    share_conversions,
     snapshot_to_payload,
 )
 from baibai_engine.portfolio.ledger.read import LedgerConflictError
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.performance.calculate import (
-    compute_portfolio_outcome,
+    OutcomePeriod,
     outcome_close_instant,
-    outcome_ledger_at_close,
-    outcome_market_tickers,
     outcome_to_payload,
 )
 from baibai_engine.portfolio.performance.store import (
@@ -501,43 +498,28 @@ def _run_outcome(
         return 2
     connection = connect_read_only(sqlite_path) if sqlite_path.exists() else None
     try:
-        if connection is None:
-            calendar_days, bars = None, None
-        else:
+        period = None
+        bars = None
+        if connection is not None:
             connection.execute("BEGIN")
-            calendar_days, bars = read_portfolio_market_inputs(
-                sqlite_path,
-                (),
-                benchmark.period_start_date,
-                benchmark.period_end_date,
-                connection=connection,
-            )
+            start, end = benchmark.period_start_date, benchmark.period_end_date
+            calendar_days = read_market_calendar(sqlite_path, start, end, connection=connection)
             if calendar_days is not None:
-                tickers = outcome_market_tickers(
+                period = OutcomePeriod(
                     ledger,
-                    business_days=tuple(day.day for day in calendar_days if day.is_business_day),
-                    start=benchmark.period_start_date,
-                    end=benchmark.period_end_date,
+                    tuple(day.day for day in calendar_days if day.is_business_day),
+                    start,
+                    end,
                 )
-                if tickers:
-                    _, bars = read_portfolio_market_inputs(
-                        sqlite_path,
-                        tickers,
-                        benchmark.period_start_date,
-                        benchmark.period_end_date,
-                        connection=connection,
-                    )
-        if calendar_days is None:
+                bars = read_ticker_bars(connection, period.market_tickers(), start, end)
+        if period is None:
             payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
         elif bars is None:
             payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
         else:
             assert connection is not None
-            business_days = tuple(day.day for day in calendar_days if day.is_business_day)
-            outcome = compute_portfolio_outcome(
-                ledger,
+            outcome = period.compute(
                 benchmark,
-                business_days=business_days,
                 bars=tuple(bars),
                 confirm_price_basis=lambda ticker, first, last: market_basis_is_confirmed(
                     basis="price",
@@ -545,22 +527,18 @@ def _run_outcome(
                     ticker=ticker,
                     from_date=first,
                     through_date=last,
-                    conversions=share_conversions(ledger.events),
+                    conversions=period.recorded_share_conversions,
                     connection=connection,
                 ),
             )
             payload = outcome_to_payload(outcome)
             if outcome.status == "resolved":
-                period_ledger = outcome_ledger_at_close(
-                    ledger,
-                    business_days=business_days,
-                    start=benchmark.period_start_date,
-                    end=benchmark.period_end_date,
-                )
                 try:
                     require_closed_holding_basis(
-                        period_ledger,
-                        now=datetime.combine(benchmark.period_end_date, time.max, tzinfo=JST),
+                        prepare_holding_history(
+                            period.ledger_at_close(),
+                            now=datetime.combine(period.end, time.max, tzinfo=JST),
+                        ),
                         connection=connection,
                     )
                 except UnresolvedHoldingQuantityError:

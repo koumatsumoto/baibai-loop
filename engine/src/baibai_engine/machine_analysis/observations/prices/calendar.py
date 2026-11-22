@@ -11,12 +11,3 @@ from baibai_engine.machine_analysis.observations.prices.price_models import MODE
 class JQuantsMarketCalendarDay:
     day: date
     is_business_day: bool
-
-
-def cash_equity_open(holiday_division: object) -> bool | None:
-    """Decode a stored J-Quants schedule day; futures-only is closed for equities."""
-    if holiday_division in ("1", "2"):
-        return True
-    if holiday_division in ("0", "3"):
-        return False
-    return None

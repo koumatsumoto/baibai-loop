@@ -16,6 +16,7 @@ from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
+    master_from_payload,
     masters_from_payloads,
     validate_master_snapshot,
 )
@@ -63,6 +64,8 @@ class MasterSnapshotContractTests(unittest.TestCase):
         holiday_next_business_day = make_master_records(requested + timedelta(days=3))
         invalid_code = copy.deepcopy(base)
         invalid_code[0]["Code"] = "bad-code"
+        boolean_code = copy.deepcopy(base)
+        boolean_code[0]["Code"] = True
         duplicate = copy.deepcopy(base)
         duplicate[1]["Code"] = duplicate[0]["Code"]
         missing_product = copy.deepcopy(base)
@@ -77,6 +80,7 @@ class MasterSnapshotContractTests(unittest.TestCase):
             "requested_mismatch": mismatch,
             "holiday_next_business_day": holiday_next_business_day,
             "invalid_code": invalid_code,
+            "boolean_code": boolean_code,
             "duplicate_ticker": duplicate,
             "small_population": make_master_records(requested, count=2499),
             "missing_product_category": missing_product,
@@ -150,6 +154,18 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                 )
             with self.assertRaisesRegex(JQuantsProviderError, "invalid J-Quants code"):
                 read_master_snapshot(db, as_of=asof)
+
+
+def test_indexed_master_never_stringifies_boolean_code_to_match_its_key():
+    record = {
+        "Code": True,
+        "CoName": "合成企業",
+        "MktNm": "Prime",
+        "S33Nm": "機械",
+        "ProdCat": "011",
+    }
+    with pytest.raises(JQuantsProviderError):
+        master_from_payload(json.dumps(record), expected_code="TRUE")
 
 
 def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():

@@ -19,7 +19,10 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GenerationMetadata,
     InputSnapshot,
 )
-from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
+from baibai_engine.machine_analysis.models.company_growth.models import (
+    FINANCIAL_SECTOR_INAPPLICABLE,
+    CompanyGrowth,
+)
 from baibai_engine.machine_analysis.models.company_growth.reading import CompanyGrowthReader
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pages
 from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
@@ -99,9 +102,18 @@ def test_annual_ttm_uses_same_verified_statement_comparison_without_rewriting_pr
     assert growth.calculation_revision == "company_growth_retrospective_v25-pdf-jp-interim"
 
 
-def test_annual_reader_and_l3_keep_restated_prior_source_and_dates():
+@pytest.mark.parametrize(
+    ("sector", "margin_reason"),
+    [
+        ("卸売業", None),
+        ("銀行業", FINANCIAL_SECTOR_INAPPLICABLE),
+        (None, "sector_unverified"),
+    ],
+)
+def test_annual_reader_and_l3_keep_restated_prior_source_and_dates(sector, margin_reason):
     docs, pdf = annual_inputs()
-    growth = models(documents=docs, pdfs=[pdf])[1]
+    growth = models(documents=docs, pdfs=[pdf], sector=sector)[1]
+    before = canonical_json(growth.payload)
     reader = CompanyGrowthReader(growth.payload)
     annual = reader.observation(reader.latest_period, "annual_ttm")
     change = reader.year_over_year(annual, "sales")[0]
@@ -113,9 +125,17 @@ def test_annual_reader_and_l3_keep_restated_prior_source_and_dates():
     margin_change = reader.year_over_year(annual, "operating_margin")[0]
     (margin_prior,) = reader.comparison_prior(annual, margin_change)
     margin = margin_prior.metrics["operating_margin"]
-    assert margin.value == margin_change.from_value
-    assert margin.precision == "derived_from_truncated_display_amounts"
-    assert margin.documents == prior.metrics["sales"].documents
+    assert annual.metrics["operating_margin"].reason == margin_reason
+    assert margin_prior.metrics["sales"] == prior.metrics["sales"]
+    assert margin_prior.metrics["operating_profit"].value == 20_000_000_000
+    if margin_reason is None:
+        assert margin.value == margin_change.from_value == pytest.approx(0.05)
+        assert margin.precision == "derived_from_truncated_display_amounts"
+        assert margin.documents == prior.metrics["sales"].documents
+    else:
+        assert margin.value is margin_change.from_value is None
+        assert margin.reason == margin_change.reason
+        assert margin.precision is None
     (source,) = prior.metrics["sales"].documents
     assert (source.disclosed_at, source.source_sha256, source.source_url) == (
         pdf.published_on,
@@ -134,6 +154,7 @@ def test_annual_reader_and_l3_keep_restated_prior_source_and_dates():
         )
         == comparisons(growth, "annual_ttm")["sales"]
     )
+    assert canonical_json(growth.payload) == before
 
 
 def test_annual_growth_path_cannot_use_old_increase_instead_of_restated_decline():
@@ -148,6 +169,21 @@ def test_annual_growth_path_cannot_use_old_increase_instead_of_restated_decline(
     assert (change["from_value"], change["to_value"]) == (400_000_000_000, 315_507_000_000)
     assert (change["from_end"], change["to_end"]) == ("2025-03-31", "2026-03-31")
     assert change["source_sha256"] == pdf.source_sha256
+
+
+def test_pdf_prior_refuses_a_copied_change_with_the_same_source_but_different_amount():
+    docs, pdf = annual_inputs()
+    growth = models(documents=docs, pdfs=[pdf], sector="卸売業")[1]
+    reader = CompanyGrowthReader(growth.payload)
+    annual = reader.latest_full_fy
+    assert annual is not None
+    (change,) = reader.year_over_year(annual, "operating_margin")
+    (prior,) = reader.comparison_prior(annual, change)
+    assert prior.metrics["operating_margin"].value == change.from_value == pytest.approx(0.05)
+
+    copied = change.model_copy(update={"from_value": 0.99})
+    assert copied.source_sha256 == change.source_sha256 == pdf.source_sha256
+    assert reader.comparison_prior(annual, copied) == ()
 
 
 @pytest.mark.parametrize("mode", ["no_pdf", "future_pdf"])

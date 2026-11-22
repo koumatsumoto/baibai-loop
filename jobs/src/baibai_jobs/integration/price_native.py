@@ -19,7 +19,6 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
-from pydantic import JsonValue
 
 from baibai_engine.data_collection.providers.jquants.full_day_native import full_day_request_packs
 from baibai_engine.data_collection.providers.jquants.price_native import (
@@ -30,8 +29,11 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.price_inputs import (
+    PRICE_PROJECTION_REVISION,
+    SavedPriceProjectionRevisionMismatch,
     read_closed_price_days,
     read_price_input,
+    rehydrate_price_input,
     retain_price_input,
     with_calendar_closures,
 )
@@ -168,6 +170,7 @@ def model_input(
         "receipts": {identity: head["receipts"][identity] for identity in sorted(identities)},
     }
     summary: dict[str, Any] = {
+        "projection_revision": PRICE_PROJECTION_REVISION,
         "head_sha256": fixed.content_id,
         "retained_source_days": {
             "start": min(retained).isoformat(),
@@ -299,30 +302,6 @@ def model_input(
     return identity
 
 
-def _descriptor(saved: InputSnapshot) -> dict[str, JsonValue]:
-    saved = InputSnapshot.model_validate_json(saved.model_dump_json())
-    if saved.kind != "native_l1" or saved.descriptor is None:
-        raise ValueError("a digest-verified native price input is required")
-    return saved.descriptor
-
-
-def saved_interval(saved: InputSnapshot) -> tuple[date, date]:
-    return _saved_interval(_descriptor(saved))
-
-
-def _saved_interval(descriptor: dict[str, JsonValue]) -> tuple[date, date]:
-    summary = descriptor["summary"]
-    if not isinstance(summary, dict):
-        raise ValueError("native price input requires a selection summary")
-    start, end = summary.get("selection_start"), summary.get("selection_end")
-    if not isinstance(start, str) or not isinstance(end, str):
-        raise ValueError("native price input requires its selected interval")
-    first, last = date.fromisoformat(start), date.fromisoformat(end)
-    if first > last:
-        raise ValueError("invalid saved price interval")
-    return first, last
-
-
 @contextmanager
 def _cold_price_output(output: Path, *, include_head: bool = False) -> Iterator[Path]:
     if output.exists(follow_symlinks=False):
@@ -400,12 +379,13 @@ def _write_cold_price_parquet(
 
 
 def rebuild_saved_input(
-    store: ObjectStore, saved: InputSnapshot, *, start: date, end: date, output: Path
+    store: ObjectStore, saved: InputSnapshot | bytes, *, start: date, end: date, output: Path
 ) -> dict[str, Any]:
     """Cold rebuild from immutable selection metadata and packs, without latest or L2."""
+    fixed, _ = rehydrate_price_input(saved)
     days = _days(start, end)
-    descriptor = _descriptor(saved)
-    _saved_interval(descriptor)
+    record = fixed.as_saved_record()
+    descriptor = record["descriptor"]
     with _cold_price_output(output) as staged:
         selected = read_price_input(store, descriptor, days=days)
         result = _write_cold_price_parquet(
@@ -419,7 +399,7 @@ def rebuild_saved_input(
         write_json_atomic(
             staged / "input.json",
             {
-                "saved_input": saved.model_dump(mode="json"),
+                "saved_input": record,
                 "source_head_sha256": descriptor["head_sha256"],
                 "start": start.isoformat(),
                 "end": end.isoformat(),
@@ -488,14 +468,20 @@ def main(argv: list[str] | None = None) -> int:
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         ) as store:
             if args.saved_input is not None:
-                saved = InputSnapshot.model_validate_json(args.saved_input.read_bytes())
                 result = rebuild_saved_input(
-                    store, saved, start=args.start, end=args.end, output=args.output
+                    store,
+                    args.saved_input.read_bytes(),
+                    start=args.start,
+                    end=args.end,
+                    output=args.output,
                 )
             else:
                 fixed = PriceL1(store, args.work_directory).fixed()
                 result = rebuild(store, fixed, start=args.start, end=args.end, output=args.output)
             print(json.dumps(result))
+    except SavedPriceProjectionRevisionMismatch as error:
+        print(str(error), file=sys.stderr)
+        return 1
     except Exception as error:
         print(f"price native rebuild failed: {type(error).__name__}", file=sys.stderr)
         return 1

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsSource
+from baibai_engine.primitives.jquants_calendar import cash_equity_open
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +178,7 @@ def calendar_sessions(
     while day <= end:
         value = latest.get(day)
         category = value[1] if value is not None else None
-        result[day] = category in {"1", "2"} if category in {"0", "1", "2", "3"} else None
+        result[day] = cash_equity_open(category)
         day += timedelta(days=1)
     return result, plan.unknown_incomplete_requests
 

@@ -19,6 +19,7 @@ from baibai_engine.investment_judgment.judgment_retrospective.query import (
     scaffold_retrospective,
 )
 from baibai_engine.investment_judgment.judgment_retrospective.store import RetrospectiveStoreService
+from baibai_engine.investment_judgment.trade_proposal.query import ProposalRecordReader
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 
 NOW = PUBLISHED + timedelta(hours=2)
@@ -148,10 +149,7 @@ def test_assessment_only_and_unreadable_optional_records_do_not_invent_report_or
     def unavailable(*_args, **_kwargs):
         raise ValueError("synthetic broken supplementary receipt")
 
-    monkeypatch.setattr(
-        "baibai_engine.investment_judgment.judgment_retrospective.context.proposal_records",
-        unavailable,
-    )
+    monkeypatch.setattr(ProposalRecordReader, "read", unavailable)
     before = snapshot(case.app)
     result = _scaffold(case, original)
     assert result["context"]["origin"]["proposal_records"]["status"] == "unavailable"

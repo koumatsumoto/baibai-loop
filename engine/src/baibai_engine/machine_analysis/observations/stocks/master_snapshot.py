@@ -53,7 +53,7 @@ def normalize_master_record(record: Mapping[str, Any]) -> SecurityMaster | None:
     must also be zero. ETFs and REITs may have suffix zero but are not ordinary shares.
     https://jpx-jquants.com/ja/spec/eq-master/product-category
     """
-    ticker, primary_issue = parse_jquants_code_parts(record.get("Code"))
+    ticker, primary_issue = parse_jquants_code_parts(record.get("Code"), require_text=True)
     if not primary_issue:
         return None
     return SecurityMaster(
@@ -73,7 +73,10 @@ def master_from_payload(payload: str, *, expected_code: str | None = None) -> Se
         raise JQuantsProviderError("stored master record is not valid JSON") from exc
     if not isinstance(record, dict) or not _nonempty(record.get("ProdCat")):
         raise JQuantsProviderError("master record has no native product category")
-    if expected_code is not None and str(record.get("Code")).strip().upper() != expected_code:
+    code = record.get("Code")
+    if expected_code is not None and (
+        not isinstance(code, str) or code.strip().upper() != expected_code
+    ):
         raise JQuantsProviderError("stored master record code differs from its key")
     try:
         return normalize_master_record(record)
@@ -114,8 +117,9 @@ def validate_master_snapshot(
                 "J-Quants master response Date does not match requested as-of: "
                 f"requested={requested_asof.isoformat()} response={snapshot_date.isoformat()}"
             )
-        code = str(record["Code"]).strip().upper()
-        _, primary_issue = parse_jquants_code_parts(code)
+        raw_code = record["Code"]
+        _, primary_issue = parse_jquants_code_parts(raw_code, require_text=True)
+        code = raw_code.strip().upper()
         if len(code) != 5:
             raise JQuantsProviderError("native J-Quants master Code must have five characters")
         if code in seen_codes:

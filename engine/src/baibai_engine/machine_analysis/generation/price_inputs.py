@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime
 from typing import Any
@@ -26,10 +26,16 @@ from baibai_engine.machine_analysis.generation.full_day_inputs import (
     read_full_day_input,
     retain_full_day_input,
 )
+from baibai_engine.machine_analysis.generation.native_input import (
+    VerifiedNativeInput,
+    rehydrate_native_input,
+)
 from baibai_engine.storage.objects.r2 import ObjectStore
 
 INPUT_FORMAT = "jquants-price-input-v2"
 INPUT_PREFIX = "fixed-inputs/jquants-price/v1/"
+# The recipe identifies the derived rows and coverage, not the raw selection layout.
+PRICE_PROJECTION_REVISION = "jquants-price-projection-v1"
 _CONTRACT = FullDayInputContract(
     INPUT_PREFIX,
     INPUT_FORMAT,
@@ -37,7 +43,19 @@ _CONTRACT = FullDayInputContract(
     "jquants-price-month-v1",
     allow_legacy_inline=False,
 )
-_LEGACY_CONTRACT = replace(_CONTRACT, input_format="jquants-price-input-v1")
+_PRE_CALENDAR_PROOF_CONTRACT = replace(_CONTRACT, input_format="jquants-price-input-v1")
+
+
+class SavedPriceProjectionRevisionMismatch(ValueError):
+    """This code cannot reproduce the finalized price projection claimed by the input."""
+
+
+def _price_selection_contract(input_format: object) -> FullDayInputContract:
+    if input_format == _CONTRACT.input_format:
+        return _CONTRACT
+    if input_format == _PRE_CALENDAR_PROOF_CONTRACT.input_format:
+        return _PRE_CALENDAR_PROOF_CONTRACT
+    raise ValueError("unsupported fixed price input format")
 
 
 def with_calendar_closures(
@@ -127,10 +145,32 @@ def retain_price_input(store: ObjectStore, selected: dict[str, Any]) -> dict[str
     return retain_full_day_input(store, selected, contract=_CONTRACT)
 
 
+def rehydrate_price_input(
+    saved: InputSnapshot | bytes,
+) -> tuple[VerifiedNativeInput, tuple[date, date]]:
+    """Verify the finalized envelope, projection recipe and interval without reading L1."""
+    fixed = rehydrate_native_input(saved, source="price")
+    _price_selection_contract(fixed.descriptor.get("format"))
+    summary = fixed.descriptor.get("summary")
+    if not isinstance(summary, Mapping):
+        raise ValueError("native price input requires a selection summary")
+    if summary.get("projection_revision") != PRICE_PROJECTION_REVISION:
+        raise SavedPriceProjectionRevisionMismatch(
+            "Saved J-Quants price projection revision is absent or differs from this code; "
+            "use the recorded producer commit to rebuild or read the exact published release."
+        )
+    start, end = summary.get("selection_start"), summary.get("selection_end")
+    if not isinstance(start, str) or not isinstance(end, str):
+        raise ValueError("native price input requires its selected interval")
+    first, last = date.fromisoformat(start), date.fromisoformat(end)
+    if first > last:
+        raise ValueError("invalid saved price interval")
+    return fixed, (first, last)
+
+
 def read_price_input(
     store: ObjectStore, descriptor: dict[str, JsonValue], *, days: Sequence[date]
 ) -> dict[str, Any]:
-    contract = (
-        _LEGACY_CONTRACT if descriptor.get("format") == _LEGACY_CONTRACT.input_format else _CONTRACT
-    )
+    """Read the raw selection independently of the code that projected it."""
+    contract = _price_selection_contract(descriptor.get("format"))
     return read_full_day_input(store, descriptor, days=days, contract=contract)

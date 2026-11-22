@@ -13,6 +13,7 @@ from baibai_engine.machine_analysis.generation.full_day_inputs import (
     read_full_day_input,
     retain_full_day_input,
 )
+from baibai_engine.primitives.jquants_calendar import cash_equity_open
 from baibai_engine.storage.objects.r2 import ObjectStore
 
 INPUT_FORMAT = "jquants-market-calendar-input-v1"
@@ -26,19 +27,24 @@ _CONTRACT = FullDayInputContract(
 )
 
 
-def calendar_day_usable(scope: Mapping[str, Any]) -> bool:
+def calendar_day_session(scope: Mapping[str, Any]) -> bool | None:
     """Only resolved, recognized native day evidence proves a cash-equity session."""
-    return bool(
-        scope.get("adopted")
-        and scope.get("valid")
-        and scope.get("division") in {"0", "1", "2", "3"}
-        and not scope.get("failure")
-        and not scope.get("held")
-    )
+    if (
+        not scope.get("adopted")
+        or not scope.get("valid")
+        or scope.get("failure")
+        or scope.get("held")
+    ):
+        return None
+    return cash_equity_open(scope.get("division"))
+
+
+def calendar_day_usable(scope: Mapping[str, Any]) -> bool:
+    return calendar_day_session(scope) is not None
 
 
 def calendar_day_closed(scope: Mapping[str, Any]) -> bool:
-    return calendar_day_usable(scope) and scope["division"] in {"0", "3"}
+    return calendar_day_session(scope) is False
 
 
 def retain_calendar_input(

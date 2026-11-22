@@ -19,6 +19,16 @@ IDENTITY = {"Code": "13010", "Date": "2026-11-02"}
 PRICED = dict(zip(FIELDS, (100, 100, 100, 100, 0, 0), strict=True))
 
 
+@pytest.mark.parametrize(
+    "bad", [True, 20261102, "2026-11-02junk", "2026-11-02T00:00:00junk", "2026-11-31", "2026-W45-1"]
+)
+def test_invalid_native_session_dates_are_rejected_without_truncating(bad):
+    result = normalize_daily_bars([{**IDENTITY, **PRICED, "Date": bad}])
+    assert result.rows == []
+    assert result.status == "partial"
+    assert result.rejected_count == 1
+
+
 @pytest.mark.parametrize("missing", [None, *FIELDS])
 def test_absent_fields_cannot_become_a_no_trade_row(missing):
     values = {} if missing is None else {key: None for key in FIELDS if key != missing}

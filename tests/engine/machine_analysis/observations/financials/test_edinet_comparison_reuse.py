@@ -16,6 +16,9 @@ from tests.engine.machine_analysis.observations.financials.test_edinet_compariso
     metadata,
 )
 
+from baibai_engine.machine_analysis.models.company_financials.reported_comparisons import (
+    reported_filing_comparisons,
+)
 from baibai_engine.machine_analysis.observations.disclosures import edinet_document_store
 from baibai_engine.machine_analysis.observations.financials import edinet_comparison_reader as owner
 from baibai_engine.machine_analysis.observations.financials import edinet_comparisons as extraction
@@ -459,10 +462,6 @@ def test_numeric_seed_does_not_suppress_transport_failure_and_next_retry(read, m
 
 @pytest.mark.parametrize("partial", ["nil", "missing", "conflict"])
 def test_legitimate_partial_operands_remain_reusable_with_exact_output(read, partial):
-    from baibai_engine.machine_analysis.models.company_growth.calculations import (
-        build_reported_comparison,
-    )
-
     fact = (
         b'<jpigp_cor:NetSalesIFRS contextRef="CurrentYearDuration_NonConsolidatedMember" '
         b'decimals="-3" unitRef="JPY">3525761000</jpigp_cor:NetSalesIFRS>'
@@ -482,4 +481,6 @@ def test_legitimate_partial_operands_remain_reusable_with_exact_output(read, par
     assert counts == {"extract": 0, "xml": 0}
     assert len(gets) == 1
     assert serialized(result) == serialized(cold)
-    assert build_reported_comparison(result["436A"][0]) == build_reported_comparison(before)
+    assert reported_filing_comparisons(
+        result["436A"], ticker="436A", as_of=ASOF
+    ) == reported_filing_comparisons((before,), ticker="436A", as_of=ASOF)

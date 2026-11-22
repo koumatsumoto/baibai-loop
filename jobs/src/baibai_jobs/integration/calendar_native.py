@@ -36,6 +36,7 @@ from baibai_engine.machine_analysis.generation.full_day_inputs import EmptyFullD
 from baibai_engine.machine_analysis.observations.prices.storage_contracts import (
     JQUANTS_MARKET_CALENDAR_DDL,
 )
+from baibai_engine.primitives.jquants_calendar import cash_equity_open
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
@@ -77,7 +78,7 @@ def _summary(scopes: Mapping[str, Any]) -> dict[str, Any]:
             bool(scope.get("adopted") and not scope.get("valid")) for scope in scopes.values()
         ),
         "unknown_division_days": sum(
-            bool(scope.get("valid") and scope.get("division") not in {"0", "1", "2", "3"})
+            bool(scope.get("valid") and cash_equity_open(scope.get("division")) is None)
             for scope in scopes.values()
         ),
         "coverage_status": "complete" if usable == len(scopes) else "partial",

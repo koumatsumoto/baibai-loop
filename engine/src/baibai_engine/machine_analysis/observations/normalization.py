@@ -33,11 +33,11 @@ class NormalizedRows:
         return f"{self.rejected_count} rejected records during normalization"
 
 
-def code_quality(value: Any) -> tuple[str | None, str]:
-    if value in (None, ""):
+def code_quality(value: object, *, require_text: bool = False) -> tuple[str | None, str]:
+    if not require_text and value in (None, ""):
         return None, "rejected"
     try:
-        ticker, common_code = parse_security_code_parts(value)
+        ticker, common_code = parse_security_code_parts(value, require_text=require_text)
     except SecurityCodeError:
         return None, "rejected"
     if not common_code:

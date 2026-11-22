@@ -4,7 +4,7 @@ from datetime import date
 
 from baibai_engine.data_collection.providers.jquants.market_rules import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
-    LEGACY_WEEKLY_LAST_BALANCE_DATE,
+    WEEKLY_SERIES_LAST_BALANCE_DATE,
 )
 
 WEEKLY_MARGIN_SOURCE = "jquants_weekly_margin"
@@ -28,11 +28,11 @@ def all_issues_daily_margin_coverage_key(balance_date: date) -> str:
     return f"{ALL_ISSUES_DAILY_MARGIN_OPERATION}:{iso}..{iso}"
 
 
-def require_legacy_weekly_balance_date(balance_date: date) -> None:
-    if balance_date > LEGACY_WEEKLY_LAST_BALANCE_DATE:
+def require_weekly_series_balance_date(balance_date: date) -> None:
+    if balance_date > WEEKLY_SERIES_LAST_BALANCE_DATE:
         raise ValueError(
             "jquants_weekly_margin accepts only the legacy weekly series through "
-            f"{LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat()}; got {balance_date.isoformat()}"
+            f"{WEEKLY_SERIES_LAST_BALANCE_DATE.isoformat()}; got {balance_date.isoformat()}"
         )
 
 

@@ -25,6 +25,23 @@ from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import LakeBuildError, validate_snapshot_parity
 
 
+class SavedProjectionRevisionMismatch(ValueError):
+    """The saved projection must not be rebuilt with a different interpretation."""
+
+
+def require_current_saved_projection(summary: dict[str, JsonValue]) -> None:
+    # A raw fixed selection carries no projection claim. An explicit revision,
+    # unlike a disposable cache hint, is part of the saved input identity.
+    # All three derived credit/report writers stored projection coverage even
+    # before 1ea707991 added the revision. Raw selections do not have that field.
+    has_projection = "projection_revision" in summary or "coverage_status" in summary
+    if has_projection and summary.get("projection_revision") != JQUANTS_NUMERIC_PROJECTION_REVISION:
+        raise SavedProjectionRevisionMismatch(
+            "Saved J-Quants projection revision is missing or differs from this code; "
+            "use the recorded producer commit to rebuild or read the exact published release."
+        )
+
+
 def verified_cached_scopes(
     store: ObjectStore,
     previous: DatasetManifest | None,

@@ -80,6 +80,11 @@ class CompanyGrowthReader:
         if self.model is None:
             return ()
         if change.source_sha256 is not None:
+            # The PDF hash identifies the source, not the amount in a detached Change.
+            if not any(
+                saved is change for saved in self.year_over_year(observation, change.metric)
+            ):
+                return ()
             prior = pdf_comparison_prior(self.model.pdf_selection, observation, change)
             return (prior,) if prior is not None else ()
         return tuple(

@@ -152,10 +152,12 @@ def _year_members(name: str, text: str) -> Iterator[Member]:
             )
 
 
-def hybrid_root(legacy: dict[str, Any], selections: dict[str, str], proof: str) -> dict[str, Any]:
+def hybrid_root(
+    external_only: dict[str, Any], selections: dict[str, str], proof: str
+) -> dict[str, Any]:
     # Two binary SHA-256 values in one base64 field cost less than the old format
     # tag and hex recipe digest together. Each replaced digest also costs at most 64.
-    root = dict(legacy)
+    root = dict(external_only)
     del root["format"]
     recipe = root.pop("recipe_sha256")
     return {

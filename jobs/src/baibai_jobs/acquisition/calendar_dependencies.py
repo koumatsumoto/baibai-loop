@@ -14,7 +14,10 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
     CalendarObjectStore,
     interval,
 )
-from baibai_engine.machine_analysis.generation.calendar_inputs import read_calendar_input
+from baibai_engine.machine_analysis.generation.calendar_inputs import (
+    calendar_day_session,
+    read_calendar_input,
+)
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import ObjectStore
@@ -33,16 +36,10 @@ def _context(scopes: Mapping[str, Any], observation_date: date) -> tuple[date, b
     day = observation_date
     while True:
         scope = scopes.get(day.isoformat(), {})
-        division = scope.get("division")
-        if (
-            not scope.get("adopted")
-            or not scope.get("valid")
-            or scope.get("failure")
-            or scope.get("held")
-            or division not in {"0", "1", "2", "3"}
-        ):
+        business = calendar_day_session(scope)
+        if business is None:
             raise CalendarDependencyUnavailable("continuous native calendar is unresolved")
-        if division in {"1", "2"}:
+        if business:
             return day, day == observation_date
         day -= timedelta(days=1)
 

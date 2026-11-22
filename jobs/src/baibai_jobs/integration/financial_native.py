@@ -27,6 +27,7 @@ from baibai_engine.machine_analysis.generation.financial_inputs import (
     retain_financial_input,
 )
 from baibai_engine.machine_analysis.generation.inputs import FinancialModelInput
+from baibai_engine.machine_analysis.generation.native_input import rehydrate_native_input
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     read_canonical_financial_summary,
 )
@@ -171,13 +172,11 @@ def rebuild(
 
 
 def rebuild_saved_input(
-    store: ObjectStore, saved: InputSnapshot, *, start: date, end: date, output: Path
+    store: ObjectStore, saved: InputSnapshot | bytes, *, start: date, end: date, output: Path
 ) -> dict[str, int]:
     """Cold rebuild from saved membership only. Never resolve a mutable latest head."""
-    saved = InputSnapshot.model_validate_json(saved.model_dump_json())
-    descriptor = saved.descriptor
-    if saved.kind != "native_l1" or descriptor is None:
-        raise ValueError("a digest-verified native financial input is required")
+    record = rehydrate_native_input(saved, source="financial").as_saved_record()
+    descriptor = record["descriptor"]
     if start > end:
         raise ValueError("invalid financial rebuild interval")
     days = tuple(start + timedelta(days=i) for i in range((end - start).days + 1))
@@ -192,7 +191,7 @@ def rebuild_saved_input(
     write_json_atomic(
         output / "input.json",
         {
-            "saved_input": saved.model_dump(mode="json"),
+            "saved_input": record,
             "source_head_sha256": descriptor["head_sha256"],
             "start": start.isoformat(),
             "end": end.isoformat(),
@@ -253,10 +252,13 @@ def main(argv: list[str] | None = None) -> int:
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         ) as store:
             if args.saved_input is not None:
-                saved = InputSnapshot.model_validate_json(args.saved_input.read_bytes())
                 print(
                     rebuild_saved_input(
-                        store, saved, start=args.start, end=args.end, output=args.output
+                        store,
+                        args.saved_input.read_bytes(),
+                        start=args.start,
+                        end=args.end,
+                        output=args.output,
                     )
                 )
             else:

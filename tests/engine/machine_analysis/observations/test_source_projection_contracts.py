@@ -817,6 +817,37 @@ class RepeatedObservationTest(unittest.TestCase):
                             ("ok",),
                         )
 
+    def test_native_margin_codes_reject_nontext_without_excluding_valid_primary_rows(self):
+        for kind in ("weekly", "daily", "alerts"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                db = Path(tmp) / "market.sqlite"
+                store, record, _, table, _, _ = self._case(kind, db)
+                secondary = dict(record, Code="72031")
+                self.assertEqual(store([record, secondary]), 1)
+                with closing(sqlite3.connect(db)) as connection:
+                    self.assertEqual(
+                        connection.execute("SELECT status FROM source_coverage").fetchone(),
+                        ("ok",),
+                    )
+                self.assertEqual(
+                    store(
+                        [
+                            record,
+                            secondary,
+                            *(dict(record, Code=code) for code in (True, False, 83060)),
+                        ]
+                    ),
+                    1,
+                )
+                with closing(sqlite3.connect(db)) as connection:
+                    self.assertEqual(
+                        connection.execute(f"SELECT ticker FROM {table}").fetchall(), [("7203",)]
+                    )
+                    self.assertEqual(
+                        connection.execute("SELECT status FROM source_coverage").fetchone(),
+                        ("partial",),
+                    )
+
     def test_identical_records_conflicts_and_later_corrections(self):
         for kind in ("weekly", "daily", "alerts"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:

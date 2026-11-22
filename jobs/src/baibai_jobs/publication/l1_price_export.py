@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -26,15 +27,16 @@ def export_prices_from_native_input(
     created_at: datetime | None = None,
 ) -> LakeBuildReport:
     """Export this run's rebuilt seal; never GET/decode native originals a second time."""
-    from baibai_engine.machine_analysis.generation.price_inputs import INPUT_PREFIX
+    from baibai_engine.machine_analysis.generation.price_inputs import (
+        INPUT_PREFIX,
+        rehydrate_price_input,
+    )
     from baibai_engine.storage.snapshots.models import NativeL1SourceRef
-    from baibai_jobs.integration.price_native import saved_interval
 
-    saved_interval(saved)
-    assert saved.descriptor is not None
-    digest = saved.descriptor["selection_sha256"]
-    summary = saved.descriptor["summary"]
-    if not isinstance(digest, str) or not isinstance(summary, dict):
+    fixed, _ = rehydrate_price_input(saved)
+    digest = fixed.descriptor["selection_sha256"]
+    summary = fixed.descriptor["summary"]
+    if not isinstance(digest, str) or not isinstance(summary, Mapping):
         raise ValueError("native price selection requires its digest and summary")
     coverage = summary["coverage_status"]
     if coverage not in {"complete", "partial"}:

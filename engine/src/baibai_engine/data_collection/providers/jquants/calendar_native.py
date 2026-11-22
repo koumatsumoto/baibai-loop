@@ -35,6 +35,7 @@ from baibai_engine.data_collection.providers.jquants.native_objects import (
     _put,
     _read,
 )
+from baibai_engine.primitives.jquants_calendar import cash_equity_open
 from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 
 PREFIX = "l1/jquants/market-calendar/v1/"
@@ -192,7 +193,7 @@ class FixedCalendarL1:
                         datetime.fromisoformat(state["confirmed_at"]),
                         int(state["valid"]),
                         (day,) if state["valid"] else (),
-                        ((day, division),) if division in {"0", "1", "2", "3"} else (),
+                        ((day, division),) if cash_equity_open(division) is not None else (),
                         (),
                         bool(state["valid"]),
                     )

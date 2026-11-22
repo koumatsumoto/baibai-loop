@@ -63,6 +63,7 @@ from baibai_engine.portfolio.holdings.market_observations import (
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
+from baibai_engine.primitives.yaml import safe_load
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import connect_existing
@@ -225,7 +226,7 @@ class ProposalValidation:
         }
 
 
-def check_proposal(
+def _check_validated_proposal(
     connection: sqlite3.Connection,
     proposal: TradeProposalDraft,
     *,
@@ -233,6 +234,7 @@ def check_proposal(
     now: datetime,
     require_review: bool = True,
 ) -> ProposalValidation:
+    """構造を検証済みのdraftと、その時点の保存入力・発行条件を比較する。"""
     with proposal_market_snapshot(sqlite_path) as market_connection:
         return _check_proposal(
             connection,
@@ -253,7 +255,6 @@ def _check_proposal(
     require_review: bool,
     market_connection: sqlite3.Connection | None,
 ) -> ProposalValidation:
-    proposal = load_proposal_draft(proposal)
     validate_proposal_policy(proposal)
     if now.utcoffset() is None:
         raise ProposalError("proposal clock requires a timezone")
@@ -449,9 +450,12 @@ class TradeProposalService:
     def check(
         self, proposal: TradeProposalDraft, *, require_review: bool = True
     ) -> ProposalValidation:
+        if not isinstance(proposal, TradeProposalDraft):
+            raise TypeError("proposal check requires a TradeProposalDraft")
+        proposal = load_proposal_draft(proposal)
         with closing(connect_read_only(self._db_path)) as connection:
             connection.execute("BEGIN")
-            return check_proposal(
+            return _check_validated_proposal(
                 connection,
                 proposal,
                 sqlite_path=self._sqlite_path,
@@ -459,9 +463,13 @@ class TradeProposalService:
                 require_review=require_review,
             )
 
-    def publish(self, proposal: TradeProposalDraft) -> TradeProposal:
-        # Revalidate even callers using model_copy/model_construct; these APIs bypass validators.
-        proposal = load_proposal_draft(proposal)
+    def publish(self, proposal: TradeProposalDraft | str) -> TradeProposal:
+        """作者のYAMLかtyped draftを一度検証し、同じ本文で発行条件とhashを照合する。"""
+        if not isinstance(proposal, (str, TradeProposalDraft)):
+            raise TypeError("proposal publication requires authored YAML or a TradeProposalDraft")
+        # YAMLに未検証の子modelは入らない。typed draftはload_proposal_draftで全体を再検証する。
+        raw = safe_load(proposal) if isinstance(proposal, str) else proposal
+        proposal = load_proposal_draft(raw)
         with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -480,7 +488,7 @@ class TradeProposalService:
                     return stored
                 # Waiting for the writer can cross the JST date or order-session boundary.
                 now = self._clock()
-                validation = check_proposal(
+                validation = _check_validated_proposal(
                     connection, proposal, sqlite_path=self._sqlite_path, now=now
                 )
                 if not validation.valid:

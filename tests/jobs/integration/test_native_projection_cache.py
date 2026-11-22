@@ -7,16 +7,23 @@ import pytest
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.observations.jquants_decode import (
     JQUANTS_NUMERIC_PROJECTION_REVISION,
 )
 from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
     JQUANTS_DAILY_BARS,
 )
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.contracts import PROJECTION_REVISION_METADATA_KEY
 from baibai_engine.storage.snapshots.keys import canonical_object_key
 from baibai_engine.storage.snapshots.models import DatasetManifest, NativeL1SourceRef
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_jobs.integration import (
+    margin_alerts_native,
+    margin_interest_native,
+    short_sale_reports_native,
+)
 from baibai_jobs.integration import native_projection_cache as cache
 
 
@@ -107,6 +114,7 @@ _CURRENT = JQUANTS_NUMERIC_PROJECTION_REVISION.encode()
         ((_CURRENT, _CURRENT), True),
         ((None, None), False),
         ((b"jquants-numeric-v1", b"jquants-numeric-v1"), False),
+        ((b"jquants-numeric-v2", b"jquants-numeric-v2"), False),
         ((_CURRENT, None), False),
         ((_CURRENT, b"jquants-numeric-v1"), False),
         ((_CURRENT, b"corrupt"), False),
@@ -124,6 +132,68 @@ def test_every_verified_object_requires_current_footer(tmp_path, revisions, acce
     assert bool(result) == accepted
     assert bool(calls) == accepted
     assert store.get_keys == []
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [margin_alerts_native, margin_interest_native, short_sale_reports_native],
+    ids=["margin-alerts", "margin-interest", "short-sale-reports"],
+)
+@pytest.mark.parametrize(
+    "revision_marker",
+    [{"projection_revision": "jquants-numeric-v2"}, {}],
+    ids=["older-revision", "before-revision-was-recorded"],
+)
+def test_rebuild_cli_reports_old_projection_revision_before_reading_originals(
+    tmp_path, monkeypatch, capsys, handler, revision_marker
+):
+    day = "2026-11-02"
+    descriptor = {
+        "format": handler.INPUT_FORMAT,
+        "head_sha256": "a" * 64,
+        "selection_sha256": "b" * 64,
+        "as_of": day,
+        "summary": {
+            "selection_start": day,
+            "selection_end": day,
+            "evaluated_at": "2026-11-03T00:00:00Z",
+            # All three model_input writers set this on derived coverage before
+            # they started recording the projection revision.
+            "coverage_status": "complete",
+            **revision_marker,
+        },
+    }
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    saved = InputSnapshot(
+        kind="native_l1", reference="fixture-" + digest, sha256=digest, descriptor=descriptor
+    )
+    path = tmp_path / "previous-input.json"
+    path.write_text(saved.model_dump_json(), encoding="utf-8")
+    output = tmp_path / "out"
+    store = MemoryR2Store()
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
+    monkeypatch.setattr(handler, "Boto3R2Store", lambda **_kwargs: store)
+
+    assert (
+        handler.main(
+            [
+                "--saved-input",
+                str(path),
+                "--work-directory",
+                str(tmp_path / "unused-work"),
+                "--start",
+                day,
+                "--end",
+                day,
+                "--output",
+                str(output),
+            ]
+        )
+        == 1
+    )
+    assert "use the recorded producer commit" in capsys.readouterr().err
+    assert not output.exists() or not tuple(output.iterdir())
+    assert store.get_keys == store.put_keys == store.head_keys == []
 
 
 def test_sha_is_proved_before_footer_is_read(tmp_path, monkeypatch):

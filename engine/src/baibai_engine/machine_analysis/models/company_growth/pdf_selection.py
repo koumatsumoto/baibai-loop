@@ -380,15 +380,17 @@ def pdf_comparison_prior(
         for pair in current.pairs
     }
     if change.metric == "operating_margin":
-        sales, operating = metrics["sales"].value, metrics["operating_profit"].value
-        metrics["operating_margin"] = Value(
-            value=operating / sales
-            if operating is not None and sales is not None and sales > 0
-            else None,
-            documents=source,
-            precision="derived_from_truncated_display_amounts"
-            if current.rounding == "truncate_below_unit"
-            else "derived_from_display_amounts_rounding_unspecified",
+        # The PDF reports amounts; the growth calculation owns margin applicability and value.
+        metrics["operating_margin"] = (
+            Value(
+                value=change.from_value,
+                documents=source,
+                precision="derived_from_truncated_display_amounts"
+                if current.rounding == "truncate_below_unit"
+                else "derived_from_display_amounts_rounding_unspecified",
+            )
+            if change.from_value is not None
+            else Value(reason=change.reason)
         )
     return observation.model_copy(
         update={
