@@ -175,6 +175,73 @@ def test_reference_price_and_settlement_vwap_dates_remain_distinct():
     assert result["terminal_as_of"] == "2028-10-13"
 
 
+@pytest.mark.parametrize(
+    ("settlement_on", "notice_on", "valid"),
+    [
+        ("2028-11-12", None, False),
+        ("2028-11-15", None, False),
+        ("2028-11-16", None, True),
+        ("2028-11-16", "2028-11-16", True),
+        (None, None, True),
+    ],
+)
+def test_known_vwap_end_must_precede_settlement_even_without_notice(
+    settlement_on, notice_on, valid
+):
+    payload = _case(
+        settlement_vwap_window_start="2028-11-01",
+        settlement_vwap_window_end="2028-11-15",
+        settlement_notice_on=notice_on,
+        settlement_on=settlement_on,
+    )
+    if not valid:
+        with pytest.raises(ValueError, match="settlement VWAP window must precede settlement"):
+            CashShareCBInput.model_validate(payload)
+        return
+    result = calculate_cash_share_cb(CashShareCBInput.model_validate(payload))
+    assert result["settlement_vwap_window_end"] == "2028-11-15"
+    assert result["settlement_notice_on"] == notice_on
+    assert result["settlement_on"] == settlement_on
+
+
+@pytest.mark.parametrize(
+    ("effective_on", "record_date", "valid"),
+    [
+        ("2027-05-15", None, False),
+        ("2027-05-20", None, False),
+        ("2027-05-21", None, False),
+        ("2027-05-22", None, True),
+        ("2027-05-22", "2027-05-21", True),
+        (None, None, True),
+    ],
+)
+def test_known_reference_window_and_effective_date_leave_room_for_record_date(
+    effective_on, record_date, valid
+):
+    payload = _case(
+        special_dividend_adjustments=[
+            {
+                "special_dividend_per_share_yen": "38",
+                "reference_close_yen": "2518",
+                "reference_window_start": "2027-05-01",
+                "reference_window_end": "2027-05-20",
+                "final_record_date": record_date,
+                "effective_on": effective_on,
+            }
+        ]
+    )
+    if not valid:
+        with pytest.raises(ValueError, match="reference close window must leave a record date"):
+            CashShareCBInput.model_validate(payload)
+        return
+    result = calculate_cash_share_cb(CashShareCBInput.model_validate(payload))
+    adjustment = result["dividend_adjustments"][0]
+    assert adjustment["reference_window_end"] == "2027-05-20"
+    assert adjustment["final_record_date"] == record_date
+    assert adjustment["effective_on"] == effective_on
+    assert adjustment["conversion_price_yen"] == "2196.8"
+
+
 def test_cli_reuses_research_calculate_without_writing(tmp_path, capsys):
     path = tmp_path / "cb.json"
     path.write_text(json.dumps(_case()))
