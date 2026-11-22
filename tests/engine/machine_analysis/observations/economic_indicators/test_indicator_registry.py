@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from urllib.parse import parse_qsl
 
 import pytest
 from tests.helpers.provider_fixtures import (
@@ -108,14 +109,18 @@ class IndicatorsRegistryTests(unittest.TestCase):
         failing series in the daily batch long after the registry edit.
         """
 
-        empty = _estat_payload([])
+        month = date(2026, 1, 1)
         for series in load_definitions().series:
             if series.provider != "estat":
                 continue
             with self.subTest(series=series.series_id):
                 source = require_source(series.source_id)
                 self.assertEqual(series.reading_key, source.provider_series_id)
-                parse_estat_json(source, empty, start=date(1970, 1, 1), end=date(2100, 1, 1))
+                selectors = parse_qsl(source.provider_series_id.partition("?")[2])
+                cell = {"@time": "2026000101", "$": "100.0"}
+                cell.update({"@" + key[2:].lower(): value for key, value in selectors})
+                parsed = parse_estat_json(source, _estat_payload(cell), start=month, end=month)
+                self.assertEqual(parsed, {month: [cell]})
 
     def test_estat_dashboard_series_pin_one_upstream_series_in_their_source_url(self) -> None:
         """The registry, not a fetch, is where a mis-pinned selector must be caught.
