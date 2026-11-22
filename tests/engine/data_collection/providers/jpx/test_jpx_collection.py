@@ -35,9 +35,17 @@ def _response(url: str = INDEX, body: bytes = b"\x00\xffmalformed") -> JPXRespon
 
 
 class _HTTPResponse:
-    def __init__(self, events: list[str], *, status: int = 200, fail_body: bool = False) -> None:
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        status: int = 200,
+        fail_body: bool = False,
+        url: str | None = FILE,
+    ) -> None:
         self.events = events
         self.status_code = status
+        self.url = url
         self.headers = {"content-type": "application/vnd.ms-excel"}
         self.fail_body = fail_body
 
@@ -105,6 +113,34 @@ def test_http_non_200_closes_without_reading_body(status: int) -> None:
     with pytest.raises(JPXAcquisitionError, match=f"HTTP {status}"):
         jpx_http.JPXHTTP(session).fetch(INDEX)
     assert events == ["response-close"]
+
+
+@pytest.mark.parametrize(
+    "final_url",
+    [
+        "https://other.example/kessan.xlsx",
+        "http://www.jpx.co.jp/kessan.xlsx",
+        "https://www2.jpx.co.jp/another-source.xlsx",
+        None,
+    ],
+)
+def test_http_rejects_unbound_final_delivery_and_closes_response(final_url) -> None:
+    events: list[str] = []
+    session = Mock()
+    session.get.return_value = _HTTPResponse(events, url=final_url)
+    with pytest.raises(JPXAcquisitionError, match=r"must use https://www\.jpx\.co\.jp"):
+        jpx_http.JPXHTTP(session).fetch(FILE)
+    assert events == ["response-close"]
+
+
+def test_http_allows_the_existing_www2_disclosure_url_contract() -> None:
+    url = "https://www2.jpx.co.jp/disc/72030/140120261015120000.pdf"
+    events: list[str] = []
+    session = Mock()
+    session.get.return_value = _HTTPResponse(events, url=url)
+    captured = jpx_http.JPXHTTP(session).fetch(url)
+    assert captured.requested_url == url
+    assert events == ["body", "response-close"]
 
 
 def test_http_body_read_failure_closes_response() -> None:

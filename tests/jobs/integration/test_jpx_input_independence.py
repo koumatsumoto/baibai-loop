@@ -3,24 +3,30 @@
 import json
 import sqlite3
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.http_doubles import FakeSession, html_response, response
-from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook
+from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook, earnings
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jpx.http import JPXHTTP
-from baibai_engine.data_collection.providers.jpx.receipts import read_bundle
+from baibai_engine.data_collection.providers.jpx.receipts import (
+    read_bundle,
+    read_complete_bundle,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
 from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
     JPX_EARNINGS_CALENDAR_INDEX_URL,
     JPX_REGULATION_URLS,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition import jpx_native
 from baibai_jobs.acquisition.receipts import available_handoffs
 from baibai_jobs.integration import source_handoff
+from baibai_jobs.integration.jpx_handoff import import_handoff
 from baibai_jobs.integration.sources import apply
 
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
@@ -68,6 +74,8 @@ def test_actual_acquisition_stage_and_daily_apply(source, failure, tmp_path, mon
             answers[list(answers)[-1]] = html_response(b"not a JPX table")
     if failure in {"first_http", "partial_http"}:
         answers[list(answers)[failure == "partial_http"]] = response(status_code=503)
+    for url, answer in answers.items():
+        answer.url = url
     session = FakeSession(by_url=answers)
     monkeypatch.setattr(
         "baibai_engine.data_collection.providers.jpx.http.JPXHTTP",
@@ -186,3 +194,64 @@ def test_actual_acquisition_stage_and_daily_apply(source, failure, tmp_path, mon
             projected = canonical.execute(f"SELECT COUNT(*) FROM {projection_table}").fetchone()[0]
             assert (projected > 0) is (failure == "none")
     assert session.calls == before_http
+
+
+@pytest.mark.parametrize(
+    ("final_url", "accepted"),
+    [
+        ("https://www.jpx.co.jp/official/moved-kessan.xlsx", True),
+        ("https://other.example/moved-kessan.xlsx", False),
+    ],
+)
+def test_final_delivery_origin_cannot_replace_a_prior_jpx_schedule(
+    final_url, accepted, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(jpx_native, "datetime", Clock)
+    monkeypatch.setattr("baibai_engine.data_collection.providers.jpx.http.datetime", Clock)
+    database = tmp_path / "canonical.sqlite"
+    original_id = earnings(database, STAMP - timedelta(hours=1), "2026-10-19", "7203")
+    rebuild_jpx_snapshot(database, original_id)
+    with closing(open_connection(database)) as conn:
+        original = read_complete_bundle(conn, original_id)
+
+    index = html_response(b"<a href='kessan.xlsx'>daily</a>")
+    index.url = JPX_EARNINGS_CALENDAR_INDEX_URL
+    workbook = response(
+        _workbook("", [["2026-10-20", "7203"]]),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    workbook.url = final_url
+    session = FakeSession(by_url={JPX_EARNINGS_CALENDAR_INDEX_URL: index, FILE_A: workbook})
+    packet = tmp_path / "packet"
+    exit_ok = jpx_native.acquire("jpx-earnings", STAMP.date(), packet, JPXHTTP(session))
+    report = json.loads((packet / "result.json").read_bytes())
+    raw = packet / "receipts.sqlite"
+    raw_bytes = raw.read_bytes()
+    bundle_ids = tuple(report["bundle_ids"])
+    applied = import_handoff(raw, database, bundle_ids, collection="earnings_calendar")
+    with closing(open_connection(database)) as conn:
+        assert read_complete_bundle(conn, original_id) == original
+        bundle = read_bundle(conn, bundle_ids[0])
+        current = conn.execute(
+            "SELECT announcement_date, ticker FROM jpx_earnings_calendar"
+        ).fetchall()
+    assert raw.read_bytes() == raw_bytes
+    assert session.calls == [JPX_EARNINGS_CALENDAR_INDEX_URL, FILE_A]
+    assert workbook.close_count == 1
+    assert (exit_ok, applied.complete, current) == (
+        accepted,
+        accepted,
+        [("2026-10-20" if accepted else "2026-10-19", "7203")],
+    )
+    assert report["acquisition"] == (
+        {"status": "received", "error": None}
+        if accepted
+        else {"status": "failed", "error": "JPXAcquisitionError"}
+    )
+    assert (bundle.completed_at is not None) is accepted
+    assert [item.resource_name for item in bundle.responses] == (
+        ["index", "workbook:0"] if accepted else ["index"]
+    )
+    if accepted:
+        assert bundle.responses[1].response.requested_url == FILE_A
+        assert bundle.responses[1].response.body == workbook.content
