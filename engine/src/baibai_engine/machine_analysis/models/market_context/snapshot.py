@@ -157,14 +157,14 @@ def _sector_table(
                     breadth_sample += 1
                     if prices[-1] > sum(window) / len(window):
                         above += 1
-        if not returns_20d:
+        if not returns_20d and not returns_60d and not breadth_sample:
             continue
         table.append(
             {
                 "sector_33": sector,
                 "observation_date": observation_date.isoformat(),
                 "ticker_count": len(returns_20d),
-                "median_return_20d": statistics.median(returns_20d),
+                "median_return_20d": statistics.median(returns_20d) if returns_20d else None,
                 "median_return_60d": statistics.median(returns_60d) if returns_60d else None,
                 "pct_above_ma20": (above / breadth_sample) if breadth_sample else None,
                 "sample_sizes": {
@@ -178,9 +178,10 @@ def _sector_table(
     return table
 
 
-def _sector_sort_key(row: dict[str, object]) -> float:
+def _sector_sort_key(row: dict[str, object]) -> tuple[bool, float]:
     value = row.get("median_return_20d")
-    return float(value) if isinstance(value, int | float) else 0.0
+    # Missing does not rank above a valid negative return.
+    return (True, float(value)) if isinstance(value, int | float) else (False, 0.0)
 
 
 def calculate_market_snapshot(
