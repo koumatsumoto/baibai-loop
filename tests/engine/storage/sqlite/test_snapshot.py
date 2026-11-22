@@ -178,6 +178,50 @@ def test_snapshot_cli_keeps_create_check_and_version(tmp_path, capsys):
         main(["check", "--path", str(output), "--schema-version", "43"])
 
 
+def test_snapshot_check_does_not_mix_integrity_and_schema_versions(tmp_path, monkeypatch):
+    path = tmp_path / "checked.sqlite"
+    connect = sqlite3.connect
+    with closing(connect(path)) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("PRAGMA user_version=41")
+        writer.execute("CREATE TABLE kept (value INTEGER)")
+        writer.execute("INSERT INTO kept VALUES (1)")
+        writer.commit()
+        assert writer.execute("PRAGMA quick_check").fetchone() == ("ok",)
+        moved = False
+
+        class LateCommit(sqlite3.Connection):
+            def execute(self, sql, *args, **kwargs):
+                nonlocal moved
+                cursor = super().execute(sql, *args, **kwargs)
+                if sql == "PRAGMA quick_check" and not moved:
+                    moved = True
+                    # Leave a real orphaned SQLite page in the disposable WAL fixture.
+                    writer.execute("PRAGMA writable_schema=ON")
+                    writer.execute("DELETE FROM sqlite_schema WHERE name='kept'")
+                    writer.execute("PRAGMA schema_version=2")
+                    writer.execute("PRAGMA user_version=42")
+                    writer.commit()
+                return cursor
+
+        with monkeypatch.context() as probe:
+            probe.setattr(
+                sqlite3,
+                "connect",
+                lambda *args, **kwargs: connect(
+                    *args,
+                    **kwargs,
+                    factory=LateCommit,
+                ),
+            )
+            with pytest.raises(sqlite3.DatabaseError, match="expected=42 actual=41"):
+                main(["check", "--path", str(path), "--schema-version", "42"])
+        assert moved
+        assert database_schema_version(path) == 42
+        with pytest.raises(sqlite3.DatabaseError, match="quick_check failed"):
+            validate_database(path)
+
+
 @pytest.mark.parametrize("failure", [False, True])
 def test_snapshot_closes_owned_connections(tmp_path, monkeypatch, failure):
     from baibai_engine.storage.sqlite import snapshot

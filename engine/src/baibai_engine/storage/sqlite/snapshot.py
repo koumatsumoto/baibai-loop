@@ -37,22 +37,35 @@ def validate_snapshot(path: Path) -> int:
         row = connection.execute("PRAGMA quick_check").fetchone()
         if row is None or row[0] != "ok":
             raise sqlite3.DatabaseError(f"SQLite quick_check failed: {path}")
-        version = connection.execute("PRAGMA user_version").fetchone()
-    if version is None:
+        return _schema_version(connection, path)
+
+
+def _schema_version(connection: sqlite3.Connection, path: Path) -> int:
+    row = connection.execute("PRAGMA user_version").fetchone()
+    if row is None:
         raise sqlite3.DatabaseError(f"SQLite user_version is unavailable: {path}")
-    return int(version[0])
+    return int(row[0])
 
 
-def validate_database(path: Path) -> None:
-    """Fail unless ``path`` is a readable, internally consistent SQLite database."""
+def validate_database(path: Path, *, expected_schema_version: int | None = None) -> None:
+    """Check integrity and any requested schema version against the same SQLite snapshot."""
 
     if not path.is_file():
         raise FileNotFoundError(f"SQLite file does not exist: {path}")
     uri = f"{path.resolve().as_uri()}?mode=ro"
     with closing(sqlite3.connect(uri, uri=True)) as connection:
+        if expected_schema_version is not None:
+            connection.execute("BEGIN")
         result = connection.execute("PRAGMA quick_check").fetchone()
         if result is None or result[0] != "ok":
             raise sqlite3.DatabaseError(f"SQLite quick_check failed for {path}: {result}")
+        if expected_schema_version is not None:
+            actual = _schema_version(connection, path)
+            if actual != expected_schema_version:
+                raise sqlite3.DatabaseError(
+                    f"SQLite schema version mismatch for {path}: "
+                    f"expected={expected_schema_version} actual={actual}"
+                )
 
 
 def database_schema_version(path: Path) -> int:
@@ -61,10 +74,7 @@ def database_schema_version(path: Path) -> int:
         raise FileNotFoundError(f"SQLite file does not exist: {path}")
     uri = f"{path.resolve().as_uri()}?mode=ro"
     with closing(sqlite3.connect(uri, uri=True)) as connection:
-        row = connection.execute("PRAGMA user_version").fetchone()
-    if row is None:
-        raise sqlite3.DatabaseError(f"SQLite user_version is unavailable: {path}")
-    return int(row[0])
+        return _schema_version(connection, path)
 
 
 def _try_smaller_pages(source: Path, output: Path) -> bool:
@@ -152,14 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "version":
         print(database_schema_version(args.path))
     else:
-        validate_database(args.path)
-        if args.schema_version is not None:
-            actual = database_schema_version(args.path)
-            if actual != args.schema_version:
-                raise sqlite3.DatabaseError(
-                    f"SQLite schema version mismatch for {args.path}: "
-                    f"expected={args.schema_version} actual={actual}"
-                )
+        validate_database(args.path, expected_schema_version=args.schema_version)
     return 0
 
 
