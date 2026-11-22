@@ -10,7 +10,12 @@ import pytest
 from tests.helpers.article_acquisition import SLOT, Response, Session, first_packet_market_schema
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.receipts.articles.store import connect_read_only
+from baibai_engine.data_collection.providers.articles.native import parse_index
+from baibai_engine.data_collection.receipts.articles.store import (
+    connect_read_only,
+    read_body,
+    read_receipt,
+)
 from baibai_engine.machine_analysis.observations.articles.store import read_observations
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import articles
@@ -229,6 +234,66 @@ def test_mof_redirect_target_remains_pending_when_body_budget_is_spent(tmp_path,
     assert len(session.urls) == 2
     state, _ = load_planning(store, "mof_news")
     assert load_discovery_cursor(store, state)["pending_urls"] == [target_url]
+
+
+@pytest.mark.parametrize(
+    ("feed", "valid"),
+    [
+        (b"<rss><channel/></rss>", True),
+        (b'<rss xmlns="urn:synthetic:rss"><channel/></rss>', True),
+        (b"<rss/>", False),
+        (b"<rss><metadata><channel/></metadata></rss>", False),
+        (b"<rss><channel/><channel/></rss>", False),
+        (
+            b"<rss><channel/><item><link>https://www.boj.or.jp/synthetic.htm</link></item></rss>",
+            False,
+        ),
+    ],
+)
+def test_boj_rss_structure_distinguishes_empty_from_parse_failure(tmp_path, feed, valid):
+    store = MemoryR2Store()
+    source = "boj_news"
+    publish_planning_input(store, source, {})
+    local = tmp_path / "collected"
+    session = Session([Response(200, feed)])
+    result = articles.acquire_source(
+        store,
+        source=source,
+        slot=SLOT,
+        identity="synthetic",
+        directory=local,
+        session=session,
+    )
+    assert result["status"] == ("completed" if valid else "partial")
+    assert result["failures"] == ([] if valid else ["ValueError"])
+    assert session.urls == [articles.SOURCES[source].entry_url]
+    planning, _ = load_planning(store, source)
+    fixed = tmp_path / "fixed"
+    download_fixed(store, planning.last_stage, fixed)
+    replay = import_handoff(source, tmp_path / "market.sqlite", fixed)
+    assert replay.complete is valid
+    (identity,) = replay.report["receipt_ids"]
+    assert replay.report["projection_failures"] == ([] if valid else [identity])
+    with closing(connect_read_only(fixed / "receipts.sqlite")) as conn:
+        receipt = read_receipt(conn, identity)
+        assert receipt.http_status == 200
+        assert receipt.body_ref is not None
+        assert read_body(conn, receipt.body_ref) == feed
+
+
+def test_rss_shape_check_preserves_existing_item_positions_across_namespaces():
+    source = "boj_news"
+    items = parse_index(
+        source,
+        b'<rss xmlns:ext="urn:synthetic:extension"><channel>'
+        b"<ext:item><ext:link>https://example.invalid/extension</ext:link></ext:item>"
+        b"<item><link>https://www.boj.or.jp/synthetic.htm</link></item></channel></rss>",
+        url=articles.SOURCES[source].entry_url,
+    )
+    assert [(item.locator, item.url) for item in items] == [
+        ("/item/0", "https://example.invalid/extension"),
+        ("/item/1", "https://www.boj.or.jp/synthetic.htm"),
+    ]
 
 
 @pytest.mark.parametrize("first_schema", [49, 50])
@@ -1170,6 +1235,39 @@ def test_toushiru_only_unlisted_carried_404_leaves_pending(
         )
         assert url in session.urls
         assert third["status"] == "completed"
+
+
+def test_toushiru_does_not_retire_carried_work_when_rss_has_no_channel(tmp_path):
+    url = "https://media.rakuten-sec.net/articles/-/1"
+    feed = f"<urlset><url><loc>{url}</loc><title>Synthetic</title></url></urlset>".encode()
+    source = "toushiru"
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {})
+    articles.acquire_source(
+        store,
+        source=source,
+        slot=SLOT,
+        identity="first",
+        directory=tmp_path / "first",
+        session=Session([Response(200, feed), Response(404, b"")]),
+    )
+    before, _ = load_planning(store, source)
+    session = Session([Response(200, b"<rss/>"), Response(404, b"")])
+    result = articles.acquire_source(
+        store,
+        source=source,
+        slot=SLOT + timedelta(hours=4),
+        identity="malformed",
+        directory=tmp_path / "malformed",
+        session=session,
+    )
+    assert result["status"] == "partial"
+    assert result["failures"] == ["ValueError"]
+    assert result["pending_url_count"] == 1
+    assert session.urls == [articles.SOURCES[source].entry_url]
+    after, _ = load_planning(store, source)
+    assert after.cursor["pending_urls"] == before.cursor["pending_urls"] == [url]
+    assert after.cursor["pending_evidence"][url] == before.cursor["pending_evidence"][url]
 
 
 def test_toushiru_retired_404_drops_only_old_validator_and_relisting_fetches(tmp_path):
