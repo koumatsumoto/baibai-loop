@@ -7,7 +7,7 @@ import os
 import re
 import uuid
 from collections.abc import Iterator, Mapping
-from contextlib import closing, contextmanager
+from contextlib import AbstractContextManager, closing, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -330,6 +330,26 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 @contextmanager
+def _open_remote_lake_source(credentials: R2ReadCredentials) -> Iterator[R2ObjectSource]:
+    with closing(R2ObjectSource(credentials)) as source:
+        yield source
+
+
+def open_lake_source(
+    *,
+    mirror: Path,
+    bucket: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> AbstractContextManager[LakeObjectSource]:
+    """Choose a validated exact-key source without opening a lake query session."""
+    mirror_root(mirror)
+    if bucket is None:
+        return nullcontext(LocalMirrorSource(mirror))
+    credentials = R2ReadCredentials.from_env(env, bucket=bucket)
+    return _open_remote_lake_source(credentials)
+
+
+@contextmanager
 def open_lake(
     *,
     mirror: Path,
@@ -345,11 +365,6 @@ def open_lake(
     release already materialized costs nothing to read again.
     """
 
-    mirror_root(mirror)
-    credentials = None if bucket is None else R2ReadCredentials.from_env(env, bucket=bucket)
-    with lake_session() as session:
-        if credentials is None:
-            yield session, LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror))
-        else:
-            with closing(R2ObjectSource(credentials)) as source:
-                yield session, LakeObjectCache(root=mirror, source=source)
+    source_context = open_lake_source(mirror=mirror, bucket=bucket, env=env)
+    with lake_session() as session, source_context as source:
+        yield session, LakeObjectCache(root=mirror, source=source)
