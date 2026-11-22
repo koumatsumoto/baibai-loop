@@ -173,12 +173,14 @@ def hydrate_market_store(
     dataset_names: Sequence[str],
     still_current: Callable[[], tuple[str, str]] | None = None,
     require_empty_dataset: str | None = None,
+    prepare_copy: Callable[[Path], None] | None = None,
 ) -> HydrateReport:
     """Replace the lake-owned tables of ``store`` with the contents of one release.
 
     A caller that asked for "the current release" resolved the pointer before taking the
     lock, so the fill re-asks under it through ``still_current`` and refuses rather than
-    installing a generation the pointer has already moved past.
+    installing a generation the pointer has already moved past. A caller's preparation
+    of independent cache rows applies only to the same disposable copy being filled.
     """
     catalog = freeze_catalog(catalog)
 
@@ -188,13 +190,19 @@ def hydrate_market_store(
     require_still_current(still_current, release)
     with exclusive_lock(store.with_name(f".{store.name}.lock"), subject="market store"):
         require_row_counts_within_release(store, plan, catalog=catalog)
-        require_safe_hydrate_transition(store, release=release, plan=plan, catalog=catalog)
+        if prepare_copy is None:
+            require_safe_hydrate_transition(store, release=release, plan=plan, catalog=catalog)
         require_free_capacity(store.parent, store=store)
         before = cache.transfers.as_dict()
         temporary = store.with_name(f".{store.name}.{os.getpid()}.{uuid.uuid4().hex}.hydrating")
         rows: dict[str, int] = {}
         try:
             schema_version = backup_to_new_file(store, temporary)
+            if prepare_copy is not None:
+                prepare_copy(temporary)
+                require_safe_hydrate_transition(
+                    temporary, release=release, plan=plan, catalog=catalog
+                )
             connection = sqlite3.connect(temporary)
             try:
                 connection.execute("PRAGMA journal_mode=OFF")

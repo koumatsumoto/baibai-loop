@@ -526,13 +526,14 @@ def test_workflow_route_exports_pending_even_when_acquirer_returns_failure(
 
 
 @pytest.mark.parametrize("command", ["hydrate", "dehydrate"])
-def test_snapshot_cli_verifies_native_cache_before_generic_lake_write(
+def test_snapshot_cli_verifies_native_cache_in_the_lake_write_target(
     tmp_path, monkeypatch, command
 ):
     from contextlib import contextmanager
     from types import SimpleNamespace
 
     from baibai_engine.storage.objects import r2
+    from baibai_engine.storage.sqlite.snapshot import backup_to_new_file
     from baibai_jobs.publication import snapshot_write_cli as cli
 
     store, owner = owner_at(tmp_path, [receipt()])
@@ -557,8 +558,14 @@ def test_snapshot_cli_verifies_native_cache_before_generic_lake_write(
     seen = []
 
     def write(*args, **kwargs):
-        assert contents(database)["edinet_list_responses"] == []
-        assert len(contents(database)["edinet_document_lists"]) == 1
+        target = database
+        if command == "hydrate":
+            target = tmp_path / "staged.sqlite"
+            backup_to_new_file(database, target)
+            kwargs["prepare_copy"](target)
+            assert len(contents(database)["edinet_list_responses"]) == 1
+        assert contents(target)["edinet_list_responses"] == []
+        assert len(contents(target)["edinet_document_lists"]) == 1
         seen.append(command)
         return SimpleNamespace(as_dict=lambda: {"status": "ok"})
 
