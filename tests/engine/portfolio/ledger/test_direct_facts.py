@@ -8,8 +8,14 @@ from tests.helpers.manual_facts import NOW, _binding_count, _service
 from baibai_engine.cli.portfolio import main
 from baibai_engine.portfolio.ledger.broker_facts import BrokerFactRecordingError
 from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
-from baibai_engine.portfolio.ledger.drafts import apply_draft, build_broker_fact_draft, load_draft
+from baibai_engine.portfolio.ledger.drafts import (
+    apply_draft,
+    build_broker_fact_draft,
+    build_event_draft,
+    load_draft,
+)
 from baibai_engine.portfolio.ledger.events import (
+    ContributionEvent,
     ExecutionEvent,
     PortfolioLedgerError,
     ReservationEvent,
@@ -373,6 +379,98 @@ def test_date_only_expiry_checks_report_clock_not_replay_key(tmp_path):
     saved = path.read_bytes()
     assert build_broker_fact_draft(service, unavailable, **report, now=just_before) == (None, ())
     assert path.read_bytes() == saved
+    # A later-arriving cash report does not retest the clocks of retained releases.
+    contribution = ContributionEvent(
+        type="contribution",
+        event_id="late-cash",
+        occurred_at=NOW - timedelta(minutes=1),
+        amount_yen=1000,
+    )
+    draft = build_event_draft(service, contribution, now=just_before)
+    apply_draft(service, draft, human_confirmed=True, now=just_before)
+    assert tuple(e for e in service.load().events if e.event_id != "late-cash") == stored.events
+
+
+@pytest.mark.parametrize("date_only", [False, True])
+def test_confirmed_apply_checks_known_expiry_not_a_prepared_files_claim(
+    tmp_path, capsys, date_only
+):
+    service, path = _service(tmp_path)
+    expiry = NOW + timedelta(hours=5)
+    opened, _ = open_direct(service, expires_at=expiry)
+    assert opened is not None
+    apply_draft(service, opened, human_confirmed=True, now=NOW)
+    order = service.load().events[-1]
+    source, head = service.load_with_head()
+    reserve = path.read_bytes()
+    out = tmp_path / "terminal.yaml"
+    just_before = expiry.astimezone(UTC) - timedelta(microseconds=1)
+    boundary = expiry.astimezone(UTC)
+    base = [
+        "broker-fact-draft",
+        "--db",
+        str(path),
+        "--decision-reference",
+        order.decision_reference,
+        "--reservation-id",
+        order.reservation_id,
+    ]
+    date_args = ["--occurred-on", NOW.date().isoformat()]
+    assert main([*base, *date_args, "--status", "expired", "--out", str(out)], now=just_before) == 2
+    assert "date-only expired report predates expires_at" in capsys.readouterr().err
+    assert not out.exists()
+    assert (
+        main([*base, *date_args, "--status", "cancelled", "--out", str(out)], now=just_before) == 0
+    )
+    capsys.readouterr()
+    authored = yaml.safe_load(out.read_text(encoding="utf-8"))
+    release = authored["replacement"]["events"][-1]
+    release["reason"] = "expired"
+    if not date_only:
+        release["occurred_at"] = expiry.isoformat()
+        release["occurred_on"] = None
+        authored["replacement"]["as_of"] = expiry.isoformat()
+    out.write_text(yaml.safe_dump(authored), encoding="utf-8")
+    edited = out.read_bytes()
+    args = ["apply-draft", str(out), "--db", str(path), "--confirmed"]
+    assert main(args, now=just_before) == 2
+    bad = capsys.readouterr()
+    expected = (
+        "date-only expired report predates expires_at"
+        if date_only
+        else "occurred_at must not be in the future"
+    )
+    assert expected in bad.err
+    assert bad.out == ""
+    assert path.read_bytes() == reserve
+    assert out.read_bytes() == edited
+    assert service.load_with_head() == (source, head)
+    assert replay_events_through(source.events, just_before).reserved_cash_yen == 200_000
+    if not date_only:
+        # A later confirmation still cannot make a known pre-deadline exact expiry true.
+        release["occurred_at"] = NOW.isoformat()
+        out.write_text(yaml.safe_dump(authored), encoding="utf-8")
+        assert main(args, now=boundary) == 2
+        assert "expired release predates expires_at" in capsys.readouterr().err
+        assert path.read_bytes() == reserve
+        out.write_bytes(edited)
+
+    assert main(args, now=boundary) == 0
+    assert "status: applied" in capsys.readouterr().out
+    saved, saved_head = service.load_with_head()
+    assert saved.events[:-1] == source.events
+    assert saved_head == head + 1
+    assert replay_events_through(saved.events, boundary).reserved_cash_yen == 0
+    old = path.read_bytes()
+    occurrence = date_args if date_only else ["--occurred-at", boundary.isoformat()]
+    retry = [*base, *occurrence, "--status", "expired", "--out", str(tmp_path / "retry.yaml")]
+    assert main(retry, now=boundary) == 0
+    assert "status: no_change" in capsys.readouterr().out
+    assert not (tmp_path / "retry.yaml").exists()
+    assert path.read_bytes() == old
+    assert main(args, now=boundary) == 2
+    assert "stale ledger draft" in capsys.readouterr().err
+    assert path.read_bytes() == old
 
 
 @pytest.mark.parametrize(
@@ -395,6 +493,8 @@ def test_date_only_terminal_report_does_not_infer_an_expiry(tmp_path, status, ex
     assert released is not None
     release = released.replacement.events[-1]
     assert (release.reason, release.occurred_on) == (status, NOW.date())
+    apply_draft(service, released, human_confirmed=True, now=NOW)
+    assert not replay_events_through(service.load().events, NOW).active_reservations
 
 
 def test_batch_date_only_expiry_waits_for_each_recorded_deadline(tmp_path):
@@ -429,6 +529,13 @@ def test_batch_date_only_expiry_waits_for_each_recorded_deadline(tmp_path):
     )
     assert released is not None
     assert len(ids) == 2
+    with pytest.raises(BrokerFactRecordingError, match="date-only expired report"):
+        apply_draft(
+            service, released, human_confirmed=True, now=boundary - timedelta(microseconds=1)
+        )
+    assert path.read_bytes() == reserved
+    apply_draft(service, released, human_confirmed=True, now=boundary)
+    assert service.load() == released.replacement
     state = replay_events_through(released.replacement.events, released.replacement.as_of)
     assert (state.reserved_cash_yen, state.available_cash_yen) == (0, 300_000)
 

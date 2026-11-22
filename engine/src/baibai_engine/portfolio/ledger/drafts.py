@@ -18,6 +18,7 @@ from baibai_engine.portfolio.ledger.broker_facts import (
     BrokerFactRecordingResult,
     BrokerFactStatus,
     _provided_execution_suffix,
+    _require_date_only_expiry_reached,
     _validate_execution_id,
     _validate_report_time,
     find_reported_execution,
@@ -738,13 +739,31 @@ def apply_draft(
         raise ValueError("ledger draft apply requires explicit human confirmation")
     if not draft.confirmation_required:
         raise ValueError("ledger draft is not eligible for explicit apply")
-    # A prepared file can be edited. Confirmation does not turn scheduled cash
-    # into a reported fact, and a replay key is not an exact occurrence time.
+    # Confirm the actual report clocks on new facts, not on retained events.
+    # Historical replay keys and a date-only report do not prove a deadline passed.
     reported_at = now or datetime.now(JST)
     retained_ids = {event.event_id for event in draft.source.events}
+    expiries = {
+        order.reservation_id: order.expires_at
+        for order in draft.replacement.events
+        if isinstance(order, ReservationEvent)
+    }
     for event in draft.replacement.events:
-        if isinstance(event, HumanEvent) and event.event_id not in retained_ids:
-            _validate_report_time(event.occurred_on or event.occurred_at, now=reported_at)
+        if event.event_id in retained_ids:
+            continue
+        if isinstance(event, ReleaseEvent):
+            if event.reason != "expired":
+                continue
+        elif not isinstance(event, HumanEvent):
+            continue
+        _validate_report_time(event.occurred_on or event.occurred_at, now=reported_at)
+        if isinstance(event, ReleaseEvent):
+            _require_date_only_expiry_reached(
+                reservation_id=event.reservation_id,
+                expires_at=expiries.get(event.reservation_id),
+                occurred_on=event.occurred_on,
+                reported_at=reported_at,
+            )
     active_human_overrides(draft.replacement.overrides, as_of=draft.replacement.as_of)
     replay_events_through(draft.replacement.events, draft.replacement.as_of)
     return service.apply_document(
