@@ -501,7 +501,7 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 
 ### 判断直前の多市場補助観測
 
-[market-evidence](src/baibai_jobs/acquisition/market_context.py)はquote/5分足のprivate原受領で、日次充足・価格master・正式提案終値とは別。prepare→stageで保存する。別sessionではdownloadに`--stage-id`・`--manifest-sha256`、取得した作業copyのreadに`--receipt-id`・`--sha256`を渡し、同じAssessment入力を使う。未保存captureに耐久参照を付けない。
+[market-evidence](src/baibai_jobs/acquisition/market_context.py)はquote/5分足のprivate原受領で、日次充足・価格master・正式提案終値とは別。prepare→stageで保存する。別sessionではdownloadに`--stage-id`・`--manifest-sha256`、取得した作業copyのreadに`--receipt-id`・`--sha256`を渡し、同じAssessment入力を使う。同じ引数名に異なるIDやSHAを重ねる指定は受け付けない。未保存captureに耐久参照を付けない。
 
 日次market-dailyはjob上限15分、capture上限5分（TERM後30秒でKILL）。capture timeoutは失敗のまま、完了分を既存partial handoffへ渡してcooldownを保存する。setupを含むjob期限や外部cancelでは後段も停止し得る。
 

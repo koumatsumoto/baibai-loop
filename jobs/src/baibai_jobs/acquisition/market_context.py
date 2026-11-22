@@ -169,11 +169,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--capture", type=Path, action="append", default=[], help="prepare only")
     parser.add_argument("--expected-captures", type=int, help="prepare only")
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("--stage-id", help="stage and download only")
-    parser.add_argument("--receipt-id", help="read only")
-    parser.add_argument("--sha256", help="read only: exact market capture digest")
-    parser.add_argument("--manifest-sha256", help="download only: exact handoff manifest digest")
+    parser.add_argument("--stage-id", action="append", help="stage and download only")
+    parser.add_argument("--receipt-id", action="append", help="read only")
+    parser.add_argument("--sha256", action="append", help="read only: exact market capture digest")
+    parser.add_argument(
+        "--manifest-sha256", action="append", help="download only: exact handoff manifest digest"
+    )
     args = parser.parse_args(argv)
+    # An explicit identity must not disappear behind a later value from a wrapper.
+    for pin in ("stage_id", "receipt_id", "sha256", "manifest_sha256"):
+        values = getattr(args, pin)
+        if values is not None:
+            if len(set(values)) > 1:
+                parser.error(f"conflicting values for --{pin.replace('_', '-')}")
+            setattr(args, pin, values[0])
     if args.command != "prepare" and (args.capture or args.expected_captures is not None):
         parser.error("--capture and --expected-captures are only valid for prepare")
     if args.command not in ("stage", "download") and args.stage_id is not None:

@@ -60,7 +60,12 @@ def test_stage_download_exact_manifest_and_read_without_refetch(tmp_path, monkey
     assert staged["manifest_sha256"] in ref.reference
     assert value.digest() in ref.reference
     before = dict(store.values)
-    assert evidence.main(["stage", "--directory", str(directory), "--stage-id", stage_id]) == 0
+    assert (
+        evidence.main(
+            ["stage", "--directory", str(directory), "--stage-id", stage_id, "--stage-id", stage_id]
+        )
+        == 0
+    )
     capsys.readouterr()
     assert store.values == before
     restored = tmp_path / "restored"
@@ -87,6 +92,9 @@ def test_stage_download_exact_manifest_and_read_without_refetch(tmp_path, monkey
                 stage_id,
                 "--manifest-sha256",
                 staged["manifest_sha256"],
+                "--stage-id",
+                stage_id,
+                "--manifest-sha256=" + staged["manifest_sha256"],
             ]
         )
         == 0
@@ -106,6 +114,9 @@ def test_stage_download_exact_manifest_and_read_without_refetch(tmp_path, monkey
         value.receipt_id,
         "--sha256",
         value.digest(),
+        "--receipt-id",
+        value.receipt_id,
+        "--sha256=" + value.digest(),
     ]
     assert evidence.main(arguments) == 0
     assert json.loads(capsys.readouterr().out) == evidence.read_exact(
@@ -168,6 +179,48 @@ def test_download_requires_valid_manifest_pin_before_constructing_store(
         evidence.main(command)
     assert caught.value.code == 2
     assert "requires --manifest-sha256" in capsys.readouterr().err
+    assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    ("command", "option", "pinned", "conflicting"),
+    [
+        ("stage", "--stage-id", MARKET_GROUP + "-fixed", MARKET_GROUP + "-other"),
+        ("download", "--stage-id", MARKET_GROUP + "-fixed", MARKET_GROUP + "-other"),
+        ("download", "--manifest-sha256", "a" * 64, "b" * 64),
+        ("read", "--receipt-id", "known", "other"),
+        ("read", "--sha256", "a" * 64, "b" * 64),
+    ],
+)
+@pytest.mark.parametrize("conflicting_first", [False, True])
+def test_market_rejects_conflicting_explicit_pins_before_io(
+    tmp_path, monkeypatch, capsys, command, option, pinned, conflicting, conflicting_first
+):
+    from baibai_jobs import cli
+
+    def fail(*args, **kwargs):
+        pytest.fail("unexpected store or capture access")
+
+    monkeypatch.setattr(evidence, "read_exact", fail)
+    monkeypatch.setattr(evidence, "Boto3R2Store", fail)
+    target = tmp_path / "not-created"
+    args = ["market-evidence", command, "--directory", str(target)]
+    if command in ("stage", "download") and option != "--stage-id":
+        args += ["--stage-id", MARKET_GROUP + "-fixed"]
+    if command == "download" and option != "--manifest-sha256":
+        args += ["--manifest-sha256", "a" * 64]
+    if command == "read":
+        if option != "--receipt-id":
+            args += ["--receipt-id", "known"]
+        if option != "--sha256":
+            args += ["--sha256", "a" * 64]
+    first, last = (conflicting, pinned) if conflicting_first else (pinned, conflicting)
+    with pytest.raises(SystemExit) as caught:
+        cli.main([*args, option + "=" + first, option, last])
+    assert caught.value.code == 2
+    captured = capsys.readouterr()
+    assert f"conflicting values for {option}" in captured.err
+    assert captured.out == ""
     assert not target.exists()
 
 
