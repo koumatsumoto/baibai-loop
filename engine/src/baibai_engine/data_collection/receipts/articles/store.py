@@ -128,8 +128,11 @@ def read_receipt(
 
 
 def read_body(conn: sqlite3.Connection, ref: BodyRef) -> bytes:
-    receipt = read_receipt(conn, ref.receipt_id)
-    if receipt.status != "ok" or receipt.body_ref != ref:
+    return _read_original_body(conn, read_receipt(conn, ref.receipt_id), ref)
+
+
+def _read_original_body(conn: sqlite3.Connection, receipt: ArticleReceipt, ref: BodyRef) -> bytes:
+    if receipt.status != "ok" or receipt.receipt_id != ref.receipt_id or receipt.body_ref != ref:
         raise ArticleStoreError("body reference must name its original 200 receipt")
     row = conn.execute(
         "SELECT body_gzip FROM article_source_receipts WHERE receipt_id=?", (ref.receipt_id,)
@@ -151,9 +154,11 @@ def copy_receipt_closure(
     changed, and replay never selects or rolls back a current article version.
     """
     receipt = read_receipt(source, receipt_id)
-    if receipt.status == "not_modified" and receipt.body_ref is not None:
-        copy_receipt_closure(source, target, receipt.body_ref.receipt_id)
-    body = (
-        read_body(source, receipt.body_ref) if receipt.status == "ok" and receipt.body_ref else None
-    )
+    ref = receipt.body_ref
+    body = None
+    if receipt.status == "not_modified" and ref is not None:
+        original = read_receipt(source, ref.receipt_id)
+        retain_receipt(target, original, body=_read_original_body(source, original, ref))
+    elif receipt.status == "ok" and ref is not None:
+        body = _read_original_body(source, receipt, ref)
     retain_receipt(target, receipt, body=body)
