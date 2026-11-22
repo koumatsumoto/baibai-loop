@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Iterable, Mapping
 from datetime import date
 from math import isfinite
@@ -33,6 +34,11 @@ def store_edinet_metrics(
     conn = open_connection(db_path)
     try:
         records_list = list(records)
+        if status == "failed":
+            if records_list:
+                raise ValueError("failed EDINET metric attempts cannot write metric rows")
+            _record_failed_attempt(conn, asof_date, error)
+            return 0
         rows = _edinet_metric_rows(asof_date.isoformat(), records_list)
         skipped_count = len(records_list) - len(rows)
         stored_status = status
@@ -78,6 +84,33 @@ def store_edinet_metrics(
         return persisted_count
     finally:
         conn.close()
+
+
+def _record_failed_attempt(conn: sqlite3.Connection, asof_date: date, error: str | None) -> None:
+    day = asof_date.isoformat()
+    # Another extraction can finish after the caller's read-only baseline check.
+    # Take the writer lock before testing absence; failure never removes metrics.
+    conn.execute("BEGIN IMMEDIATE")
+    already_retained = conn.execute(
+        "SELECT EXISTS(SELECT 1 FROM edinet_metrics WHERE asof_date = ?) "
+        "OR EXISTS(SELECT 1 FROM source_coverage WHERE source = 'edinet_metrics' "
+        "AND status != 'failed' "
+        "AND (coverage_key = ? OR ? BETWEEN coverage_start AND coverage_end))",
+        (day, day, day),
+    ).fetchone()[0]
+    if already_retained:
+        return
+    record_source_coverage(
+        conn,
+        source="edinet_metrics",
+        coverage_key=day,
+        coverage_start=day,
+        coverage_end=day,
+        record_count=0,
+        status="failed",
+        error=error,
+    )
+    conn.commit()
 
 
 def _edinet_metric_rows(
