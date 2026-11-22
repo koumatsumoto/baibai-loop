@@ -1,5 +1,6 @@
 """新規Researchの観測時計と、旧snapshotの保存・再開契約。"""
 
+import json
 from contextlib import closing
 from datetime import datetime, timedelta
 
@@ -7,6 +8,7 @@ import pytest
 from tests.helpers.assessment_v1 import pair_payload, update_review_hash
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 
+from baibai_engine.cli.company_research import main
 from baibai_engine.investment_judgment.company_research.document import (
     ResearchDraft,
     research_sha256,
@@ -95,6 +97,118 @@ def test_new_research_price_clock_matches_assessment(tmp_path, retrievals, obser
             service.save(draft)
         with closing(connect_read_only(path)) as connection:
             assert connection.execute("SELECT COUNT(*) FROM company_research").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    "session_close", ["2026-10-14T06:30:00+00:00", "2024-11-01T06:00:00+00:00"]
+)
+@pytest.mark.parametrize("basis", ["last_close_unadjusted", "last_close_adjusted"])
+def test_date_only_research_close_waits_for_its_native_session(
+    tmp_path, capsys, session_close, basis
+):
+    boundary = datetime.fromisoformat(session_close)
+    before = boundary - timedelta(microseconds=1)
+    day = boundary.date().isoformat()
+    quote = {
+        "fact_id": "close",
+        "fact_kind": "market_price",
+        "value": 1100,
+        "unit": "JPY_per_share",
+        "as_of": day,
+        "source_ids": ["price"],
+        "price_basis": basis,
+    }
+    source = {
+        "source_id": "price",
+        "source_tier": "primary",
+        "used_for": "合成終値",
+        "ref": "https://example.invalid/market",
+        "ticker": "1234",
+        "as_of": day,
+        "retrieved_at": (before - timedelta(minutes=1)).isoformat(),
+    }
+    raw = {
+        "research_id": "new-date-only-close",
+        "document": {
+            "ticker": "1234",
+            "as_of": day,
+            "investigated_scope": "合成の終値の日付だけを観測",
+            "sources": [source],
+            "facts": [quote],
+        },
+    }
+    app = tmp_path / "app"
+    initialize_database(app)
+    intact = app.read_bytes()
+    draft = tmp_path / "price.json"
+    draft.write_text(json.dumps(raw), encoding="utf-8")
+    call = ["save", str(draft), "--db", str(app)]
+    assert main(call, now=before) == 3
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "market_price close date follows the available session" in output.err
+    assert app.read_bytes() == intact
+
+    assert main(call, now=boundary) == 0
+    published = json.loads(capsys.readouterr().out)
+    body = published["document"]["facts"][0]
+    assert body["as_of"] == day
+    assert (
+        body["observed_at"] is None
+    )  # A date eligibility check, not a fabricated receipt instant.
+    assert body["price_basis"] == basis
+    saved = app.read_bytes()
+    assert main(call, now=boundary + timedelta(days=1)) == 0
+    assert json.loads(capsys.readouterr().out) == published
+    assert app.read_bytes() == saved
+
+
+def test_saved_preclosing_research_is_preserved_and_previous_day_can_still_be_added(tmp_path):
+    draft, _, _ = price_case((BEFORE,), observed_at=None)
+    source = draft.model_dump(mode="json")
+    source["document"]["sources"] = [
+        s for s in source["document"]["sources"] if s["source_id"] == "price"
+    ]
+    draft = ResearchDraft.model_validate(source)
+    app = tmp_path / "app"
+    initialize_database(app)
+    before_close = datetime.fromisoformat(BEFORE)
+    raw = canonical_json(draft.document.model_dump(mode="json"))
+    with closing(connect_rw(app)) as conn, conn:
+        conn.execute(
+            "INSERT INTO company_research(research_id,ticker,as_of,recorded_at,prior_research_id,"
+            "payload,payload_sha256) VALUES (?,?,?,?,?,?,?)",
+            (
+                draft.research_id,
+                "1234",
+                before_close.date().isoformat(),
+                BEFORE,
+                None,
+                raw,
+                research_sha256(draft.document),
+            ),
+        )
+    intact = app.read_bytes()
+    store = ResearchStoreService(app, clock=lambda: before_close)
+    with closing(connect_read_only(app)) as conn:
+        saved = load_research(conn, draft.research_id)
+    assert store.save(draft) == saved
+    assert app.read_bytes() == intact
+    revised = draft.model_dump(mode="json")
+    revised["research_id"] = "zz-previous-native-day"
+    revised["prior_research_ref"] = saved.reference.model_dump(mode="json")
+    revised["document"]["facts"][0]["as_of"] = "2026-10-13"
+    prior_day = store.save(ResearchDraft.model_validate(revised))
+    assert prior_day.document.facts[0].observed_at is None
+    assert prior_day.document.facts[0].as_of.isoformat() == "2026-10-13"
+    with closing(connect_read_only(app)) as conn:
+        assert load_research(conn, draft.research_id) == saved
+        assert (
+            conn.execute(
+                "SELECT payload FROM company_research WHERE research_id=?", (draft.research_id,)
+            ).fetchone()[0]
+            == raw
+        )
 
 
 def test_legacy_price_clock_read_retry_and_fixed_context_are_unchanged(tmp_path):
