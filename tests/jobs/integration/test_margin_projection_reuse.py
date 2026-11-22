@@ -65,6 +65,36 @@ def test_fixed_projection_reuses_selection_and_finalizes_coverage_once(
 
     monkeypatch.setattr(integration, "record_range_source_coverage", record_once)
     market = tmp_path / "market.sqlite"
+    if state == "missing":
+        # An old projection must not fill the gap in today's fixed L1.
+        writer = getattr(integration, f"store_jquants_{name}")
+        assert (
+            writer(
+                market,
+                helpers.records(middle),
+                requested_start=middle,
+                requested_end=middle,
+                fetched_at_utc=AT.isoformat(),
+            )
+            == 1
+        )
+    delete_days = []
+    open_connection = integration.open_connection
+    column = "publication_date" if name == "margin_alerts" else "disclosed_at"
+    delete_where = f"DELETE FROM jquants_{name} WHERE {column}"
+
+    def trace(sql):
+        if sql.startswith((f"{delete_where}=", f"{delete_where} BETWEEN ")):
+            for day in (first, middle, DAY):
+                if f"'{day.isoformat()}'" in sql:
+                    delete_days.append(day)
+
+    def traced_open(path):
+        connection = open_connection(path)
+        connection.set_trace_callback(trace)
+        return connection
+
+    monkeypatch.setattr(integration, "open_connection", traced_open)
     saved = integration.model_input(
         store,
         fixed,
@@ -81,6 +111,7 @@ def test_fixed_projection_reuses_selection_and_finalizes_coverage_once(
         else []
     )
     assert unresolved == expected_unresolved
+    assert Counter(delete_days) == {first: 1, middle: 1, DAY: 1}
     expected = snapshot(market, name)
     assert len(expected[0]) == (0 if state == "empty" else 2)
     with sqlite3.connect(market) as connection:
@@ -104,10 +135,12 @@ def test_fixed_projection_reuses_selection_and_finalizes_coverage_once(
     store.get_keys.clear()
     store.head_keys.clear()
     unresolved.clear()
+    delete_days.clear()
     cold = tmp_path / "cold.sqlite"
     result = integration.materialize_saved_input(store, saved, output=cold)
 
     assert snapshot(cold, name) == expected
+    assert Counter(delete_days) == {first: 1, middle: 1, DAY: 1}
     assert unresolved == expected_unresolved
     assert saved.model_dump_json() == identity
     assert result == {

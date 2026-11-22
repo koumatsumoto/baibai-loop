@@ -221,10 +221,11 @@ def _project_days(
     _validate_clock(scopes, evaluated_at)
     adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
     found = set()
-    # A missing original must remove an untrusted old projection, never preserve it.
+    # The source writer replaces adopted days; clear only days it will not write.
+    replaced_days = set(adopted.values())
     connection.executemany(
         "DELETE FROM jquants_short_sale_reports WHERE disclosed_at=?",
-        ((day.isoformat(),) for day in days),
+        ((day,) for day in scopes if day not in replaced_days),
     )
     for item in read_short_sale_requests(
         store, scopes=scopes, receipts=selected["receipts"], days=days
