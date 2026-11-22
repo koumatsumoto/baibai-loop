@@ -174,7 +174,11 @@ def _validate_action(
             blockers.append(
                 GateReason(
                     code="invalidation_reward_unverified",
-                    message="仮説破綻による売却では残存見返りを算出しません。省略するか未確認としてください。",
+                    message=(
+                        "仮説破綻による売却では残存見返りを算出しません。"
+                        "remaining_reward: null とするか、"
+                        "同じ欄に status: uncertain と理由を指定してください。"
+                    ),
                 )
             )
         if (

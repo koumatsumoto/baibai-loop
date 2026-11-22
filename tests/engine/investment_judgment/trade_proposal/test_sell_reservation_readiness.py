@@ -152,8 +152,11 @@ def test_invalidation_sale_only_records_unconfirmed_remaining_reward(tmp_path, s
     }
     if status in {"sufficient", "insufficient"}:
         assert not validation.valid
-        assert [reason.code for reason in validation.blockers] == ["invalidation_reward_unverified"]
-        with pytest.raises(ProposalError, match="残存見返り"):
+        (reason,) = validation.blockers
+        assert reason.code == "invalidation_reward_unverified"
+        assert "remaining_reward: null" in reason.message
+        assert "status: uncertain" in reason.message
+        with pytest.raises(ProposalError, match="remaining_reward: null"):
             service.publish(proposal)
         assert case.app.read_bytes() == before
         # Older saved content and exact retries are not new authoring.
