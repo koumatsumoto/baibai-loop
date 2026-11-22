@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import TextIO
 
 from baibai_engine.storage.sqlite.source_cache.coverage import (
-    count_overlapping_source_coverage,
-    count_source_coverage,
     delete_overlapping_source_coverage,
     delete_source_coverage,
     source_coverage_sources,
@@ -71,22 +69,18 @@ def invalidate_coverage_command(
             return 1
         if start is not None and end is not None:
             window = f"{start.isoformat()}..{end.isoformat()}"
-            target = count_overlapping_source_coverage(conn, source, start, end)
+            removed = delete_overlapping_source_coverage(conn, source, start, end)
         else:
             window = "all windows"
-            target = count_source_coverage(conn, source)
-        print(
-            f"invalidate-coverage: removing {target} source_coverage row(s) "
-            f"for source={source} ({window})",
-            file=out,
-        )
-        if start is not None and end is not None:
-            delete_overlapping_source_coverage(conn, source, start, end)
-        else:
-            delete_source_coverage(conn, source)
+            removed = delete_source_coverage(conn, source)
         conn.commit()
     finally:
         conn.close()
+    print(
+        f"invalidate-coverage: removed {removed} source_coverage row(s) "
+        f"for source={source} ({window})",
+        file=out,
+    )
     print(
         "invalidate-coverage done; stored observations unchanged",
         file=out,

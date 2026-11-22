@@ -77,8 +77,12 @@ def test_invalidate_does_not_recreate_store_that_disappears_after_precheck(tmp_p
     assert {p.name for p in tmp_path.iterdir()} == (entries - {database.name}) | {moved.name}
 
 
-@pytest.mark.parametrize("window", [False, True])
-def test_invalidate_preserves_other_coverage_and_observations(tmp_path, window):
+@pytest.mark.parametrize(
+    ("year", "remaining"),
+    [(None, []), (2026, [("old",)]), (2024, [("current",), ("old",)])],
+    ids=["whole-source", "overlap", "no-overlap"],
+)
+def test_invalidate_preserves_other_coverage_and_observations(tmp_path, year, remaining):
     database = tmp_path / "market # ?.sqlite"
     with closing(open_connection(database)) as conn:
         for source, key, low, high in (
@@ -100,8 +104,8 @@ def test_invalidate_preserves_other_coverage_and_observations(tmp_path, window):
         cache.invalidate_coverage_command(
             sqlite_path=database,
             source="fixture",
-            start=date(2026, 1, 10) if window else None,
-            end=date(2026, 1, 20) if window else None,
+            start=date(year, 1, 10) if year else None,
+            end=date(year, 1, 20) if year else None,
             stdout=out,
         )
         == 0
@@ -112,11 +116,69 @@ def test_invalidate_preserves_other_coverage_and_observations(tmp_path, window):
         assert (
             conn.execute("SELECT * FROM source_coverage WHERE source = 'other'").fetchall() == other
         )
-        assert conn.execute(
-            "SELECT coverage_key FROM source_coverage WHERE source = 'fixture'"
-        ).fetchall() == ([("old",)] if window else [])
-    assert f"removing {1 if window else 2} source_coverage row(s)" in out.getvalue()
+        assert (
+            conn.execute(
+                "SELECT coverage_key FROM source_coverage WHERE source = 'fixture' ORDER BY coverage_key"
+            ).fetchall()
+            == remaining
+        )
+    assert f"removed {2 - len(remaining)} source_coverage row(s)" in out.getvalue()
     assert "stored observations unchanged" in out.getvalue()
+
+
+def test_invalidate_reports_what_the_delete_removed(tmp_path, monkeypatch):
+    database = tmp_path / "market.sqlite"
+    with closing(open_connection(database)) as conn, conn:
+        add_source_coverage(conn, source="fixture", coverage_key="first")
+    connect = sqlite3.connect
+
+    class WriterArrivesBeforeDelete(sqlite3.Connection):
+        def execute(self, sql, parameters=(), /):
+            if sql.startswith("DELETE FROM source_coverage"):
+                with closing(connect(database)) as writer, writer:
+                    add_source_coverage(writer, source="fixture", coverage_key="second")
+            return super().execute(sql, parameters)
+
+    monkeypatch.setattr(
+        cache.sqlite3,
+        "connect",
+        lambda *a, **kw: connect(*a, factory=WriterArrivesBeforeDelete, **kw),
+    )
+    out = io.StringIO()
+    assert (
+        cache.invalidate_coverage_command(sqlite_path=database, source="fixture", stdout=out) == 0
+    )
+    assert "removed 2 source_coverage row(s)" in out.getvalue()
+    with closing(connect(database)) as conn:
+        assert not conn.execute("SELECT 1 FROM source_coverage WHERE source='fixture'").fetchone()
+
+
+def test_invalidate_does_not_announce_a_rolled_back_delete(tmp_path, monkeypatch):
+    database = tmp_path / "market.sqlite"
+    with closing(open_connection(database)) as conn, conn:
+        add_source_coverage(conn, source="fixture", coverage_key="preserved")
+    connect = sqlite3.connect
+
+    def refuse_commit(*args, **kwargs):
+        conn = connect(*args, **kwargs)
+        conn.set_authorizer(
+            lambda action, arg, *_: (
+                sqlite3.SQLITE_DENY
+                if action == sqlite3.SQLITE_TRANSACTION and arg == "COMMIT"
+                else sqlite3.SQLITE_OK
+            )
+        )
+        return conn
+
+    monkeypatch.setattr(cache.sqlite3, "connect", refuse_commit)
+    out = io.StringIO()
+    with pytest.raises(sqlite3.DatabaseError):
+        cache.invalidate_coverage_command(sqlite_path=database, source="fixture", stdout=out)
+    assert out.getvalue() == ""
+    with closing(connect(database)) as conn:
+        assert conn.execute("SELECT coverage_key FROM source_coverage").fetchall() == [
+            ("preserved",)
+        ]
 
 
 def test_cli_missing_store_stops_without_provider_or_parent_creation(tmp_path, monkeypatch, capsys):

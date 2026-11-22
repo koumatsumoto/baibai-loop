@@ -60,8 +60,8 @@ _COUNT_DATE_RANGE_SQL = {
 }
 
 
-def delete_source_coverage(conn: sqlite3.Connection, source: str) -> None:
-    conn.execute("DELETE FROM source_coverage WHERE source = ?", (source,))
+def delete_source_coverage(conn: sqlite3.Connection, source: str) -> int:
+    return conn.execute("DELETE FROM source_coverage WHERE source = ?", (source,)).rowcount
 
 
 def source_coverage_sources(conn: sqlite3.Connection) -> tuple[str, ...]:
@@ -75,46 +75,18 @@ def source_coverage_sources(conn: sqlite3.Connection) -> tuple[str, ...]:
     return tuple(str(row[0]) for row in rows)
 
 
-def count_source_coverage(conn: sqlite3.Connection, source: str) -> int:
-    """Count all coverage rows for `source` (matches `delete_source_coverage`)."""
-    row = conn.execute(
-        "SELECT COUNT(*) FROM source_coverage WHERE source = ?", (source,)
-    ).fetchone()
-    return int(row[0] or 0)
-
-
-def count_overlapping_source_coverage(
-    conn: sqlite3.Connection,
-    source: str,
-    start: date,
-    end: date,
-) -> int:
-    """Count coverage rows for `source` overlapping `[start, end]`.
-
-    Uses the same predicate as `delete_overlapping_source_coverage`, so the count
-    shown before an invalidate equals the number of rows the delete removes.
-    """
-    row = conn.execute(
-        "SELECT COUNT(*) FROM source_coverage WHERE source = ? "
-        "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
-        "AND coverage_start <= ? AND coverage_end >= ?",
-        (source, end.isoformat(), start.isoformat()),
-    ).fetchone()
-    return int(row[0] or 0)
-
-
 def delete_overlapping_source_coverage(
     conn: sqlite3.Connection,
     source: str,
     start: date,
     end: date,
-) -> None:
-    conn.execute(
+) -> int:
+    return conn.execute(
         "DELETE FROM source_coverage WHERE source = ? "
         "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
         "AND coverage_start <= ? AND coverage_end >= ?",
         (source, end.isoformat(), start.isoformat()),
-    )
+    ).rowcount
 
 
 def record_range_source_coverage(
