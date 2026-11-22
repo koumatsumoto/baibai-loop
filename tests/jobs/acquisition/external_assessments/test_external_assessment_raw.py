@@ -1,5 +1,6 @@
 """Canonical raw bundles are durable prerequisites of typed cohort checkpoints."""
 
+import gzip
 import io
 import json
 import tarfile
@@ -409,6 +410,42 @@ def test_bundle_readback_rejects_changed_body_hash_without_extracting_paths(conn
                 changed.addfile(member, io.BytesIO(body))
     store.seed(key, output.getvalue(), "application/gzip")
     with pytest.raises(LakePublishError, match="body readback mismatch"):
+        external_assessment_raw.read_raw_bundle(store, key)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    ["empty-gzip-member", "small-gzip-member", "excess-padding", "large-member-with-false-size"],
+)
+def test_reader_does_not_drain_unreferenced_gzip_expansion(monkeypatch, extra):
+    store, p = FakeObjectStore(), plan()
+    key = upload_bundle(store, p, 0, pair_responses("monex", "7203", received_at_utc=RECEIVED))
+    original = store.objects[key][0]
+    changed = {
+        "empty-gzip-member": lambda: original + gzip.compress(b""),
+        "small-gzip-member": lambda: original + gzip.compress(b"x"),
+        "excess-padding": lambda: gzip.compress(gzip.decompress(original) + bytes(40000)),
+        # Lie in the unused member's ISIZE so the reader must check the
+        # bounded decompressed tail, not only its final four compressed bytes.
+        "large-member-with-false-size": lambda: (
+            original + gzip.compress(bytes(2 * 1024**2))[:-4] + original[-4:]
+        ),
+    }[extra]()
+    store.seed(key, changed, "application/gzip")
+
+    class BoundedGzip(gzip.GzipFile):
+        def seek(self, offset, whence=io.SEEK_SET):
+            assert whence != io.SEEK_END
+            return super().seek(offset, whence)
+
+        def read(self, size=-1):
+            # Member bodies in this fixture are small; checking unreferenced
+            # data may read at most one record, three blocks, and never all.
+            assert 0 <= size <= tarfile.RECORDSIZE + 3 * tarfile.BLOCKSIZE
+            return super().read(size)
+
+    monkeypatch.setattr(external_assessment_raw.gzip, "GzipFile", BoundedGzip)
+    with pytest.raises(ValueError, match="invalid external assessment raw"):
         external_assessment_raw.read_raw_bundle(store, key)
 
 

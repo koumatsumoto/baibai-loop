@@ -276,7 +276,9 @@ def test_failed_decode_in_another_month_keeps_originals_and_does_not_block_healt
     assert staging.read_terminal(store, staging.read_plan(store, selected[1]["run_id"])) is not None
 
 
-@pytest.mark.parametrize("corruption", ["gzip", "tar", "truncated"])
+@pytest.mark.parametrize(
+    "corruption", ["gzip", "tar", "truncated", "missing-gzip-footer", "wrong-gzip-crc"]
+)
 def test_invalid_raw_container_keeps_retained_originals_and_allows_healthy_source_publication(
     independent_plans, corruption
 ):
@@ -315,10 +317,13 @@ def test_invalid_raw_container_keeps_retained_originals_and_allows_healthy_sourc
     good = ready_references(independent_plans)[1]
     item = load_ready(store, bad)
     key = item.stages[1][0].raw_bundle_keys[0]
+    original = store.values[key].body
     payload = {
         "gzip": b"not a gzip container",
         "tar": gzip.compress(b"not a tar header"),
-        "truncated": store.values[key].body[:10],
+        "truncated": original[:10],
+        "missing-gzip-footer": original[:-8],
+        "wrong-gzip-crc": original[:-8] + bytes([original[-8] ^ 1]) + original[-7:],
     }[corruption]
     store.store_object(key, payload, content_type="application/gzip")
     june = {(VALUATION_DATASET, 2026, 6)}
