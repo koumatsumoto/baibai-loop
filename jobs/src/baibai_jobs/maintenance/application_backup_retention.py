@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
@@ -40,7 +40,9 @@ def _list_backup_keys(bucket: str, endpoint: str) -> set[str]:
             if cursor is not None
             else []
         )
-        page = json.loads(subprocess.check_output([*command, *continuation]))
+        # Fixed read-only AWS command; argv only, no shell, one bounded wait per page.
+        raw = subprocess.check_output([*command, *continuation], timeout=120)  # nosec B603
+        page = json.loads(raw)
         if (
             not isinstance(page, dict)
             or page.get("Prefix") != _PREFIX
@@ -107,7 +109,7 @@ def main() -> int:
     as_of = datetime.now(UTC)
     try:
         keys = _list_backup_keys(args.bucket, args.endpoint_url)
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.SubprocessError):
         print("application backup key listing failed", file=sys.stderr)
         return 1
     except ValueError as exc:
