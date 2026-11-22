@@ -329,6 +329,112 @@ def test_malformed_latest_list_is_reported_while_retaining_usable_prior_archive(
     assert owner.freeze().archive_keys == frozenset({("S100ONE", 5)})
 
 
+def test_failed_annual_initialization_keeps_known_zip_but_does_not_enable_daily(tmp_path):
+    old, new = filing("S100ONE"), filing("S100TWO", "67580")
+    owner, client, list_owner, _ = setup(tmp_path, [old])
+    broken = list_owner.publish(
+        [
+            NativeListReceipt.from_response(
+                DAY, EdinetResponse(AT + timedelta(seconds=2), b"{"), UUID(int=2).hex
+            )
+        ]
+    )
+    report = acquire_archives(
+        owner, client, broken, group="edinet-facts", asof=DAY, initialize_facts=True
+    )
+    assert report["status"] == "failed"
+    assert report["list_failed_days"] == [DAY.isoformat()]
+    client.fetch_archive.assert_called_once_with("S100ONE", 1)
+    partial = owner.freeze()
+    assert partial.scope == FactsScope(doc_ids=frozenset({"S100ONE"}))
+    original = partial.metadata("S100ONE", 1)
+
+    recovered = save_lists(list_owner, [old, new], receipt=3)
+    client.reset_mock()
+    normal = acquire_archives(owner, client, recovered, group="edinet-facts", asof=DAY)
+    assert normal["status"] == "received"
+    assert normal["annual_archive_plan"] == "skipped_not_initialized"
+    client.fetch_archive.assert_not_called()
+    assert owner.freeze().identity == partial.identity
+
+    retry = acquire_archives(
+        owner, client, recovered, group="edinet-facts", asof=DAY, initialize_facts=True
+    )
+    assert retry["status"] == "received"
+    assert retry["retained_archives_reused"] == 1
+    client.fetch_archive.assert_called_once_with("S100TWO", 1)
+    final = owner.freeze()
+    assert final.scope == FactsScope(since=DAY, doc_ids=frozenset({"S100ONE", "S100TWO"}))
+    assert final.metadata("S100ONE", 1) == original
+
+
+@pytest.mark.parametrize("group", ["edinet-facts", "edinet-metrics"])
+def test_future_list_failure_does_not_fail_an_earlier_archive_plan(tmp_path, group):
+    owner, client, list_owner, _ = setup(tmp_path, [filing("S100ONE")])
+    future = DAY + timedelta(days=1)
+    fixed = list_owner.publish(
+        [
+            NativeListReceipt.from_response(
+                future, EdinetResponse(AT + timedelta(days=1), b"{"), UUID(int=2).hex
+            )
+        ]
+    )
+    report = acquire_archives(
+        owner,
+        client,
+        fixed,
+        group=group,
+        asof=DAY,
+        lookback_days=0,
+        initialize_facts=group == "edinet-facts",
+    )
+    assert report["list_failed_days"] == []
+    assert report["status"] == "received"
+    client.fetch_archive.assert_called_once_with("S100ONE", 1 if group == "edinet-facts" else 5)
+    assert owner.freeze().scope.since == (DAY if group == "edinet-facts" else None)
+
+
+@pytest.mark.parametrize("failed_offset", [-2, -1], ids=["before-window", "first-day"])
+def test_metrics_reports_window_failures_without_discarding_earlier_origins(
+    tmp_path, failed_offset
+):
+    origin = DAY - timedelta(days=2)
+    start = DAY - timedelta(days=1)
+    owner, client, list_owner, _ = setup(
+        tmp_path,
+        [
+            filing("S100ONE"),
+            {"docID": "S100OLD", "docInfoEditStatus": "1", "opeDateTime": f"{DAY} 09:00"},
+        ],
+    )
+    save_lists(
+        list_owner,
+        [filing("S100OLD", "67580", submitDateTime=f"{origin} 09:00")],
+        day=origin,
+        receipt=2,
+    )
+    save_lists(list_owner, [], day=start, receipt=3)
+    failed_day = DAY + timedelta(days=failed_offset)
+    fixed = list_owner.publish(
+        [
+            NativeListReceipt.from_response(
+                failed_day, EdinetResponse(AT + timedelta(seconds=4), b"{"), UUID(int=4).hex
+            )
+        ]
+    )
+
+    report = acquire_archives(
+        owner, client, fixed, group="edinet-metrics", asof=DAY, lookback_days=1
+    )
+    assert report["list_unavailable_days"] == []
+    assert report["list_failed_days"] == ([start.isoformat()] if failed_day == start else [])
+    assert report["status"] == ("failed" if failed_day == start else "received")
+    # The older list resolves the edit but its filing is not a candidate in this window.
+    assert report["document_events_quarantined"] == 0
+    client.fetch_archive.assert_called_once_with("S100ONE", 5)
+    assert owner.freeze().archive_keys == frozenset({("S100ONE", 5)})
+
+
 def test_pending_work_blocks_new_http(tmp_path):
     owner, client, _, lists = setup(tmp_path, [filing("S100ONE")])
     (owner.directory / "pending.json").write_text("{}")
