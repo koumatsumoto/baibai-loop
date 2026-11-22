@@ -121,11 +121,15 @@ def save_ready(store: ReceiptStore, item: PreparedPlan) -> dict[str, str]:
     return {"key": key, "sha256": hashlib.sha256(saved.payload).hexdigest()}
 
 
-def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPlan:
+def _read_ready_value(store: ObjectStore, reference: dict[str, str]) -> dict[str, Any]:
     saved = read_fixed_private(store, reference["key"], sha256=reference["sha256"])
     if saved is None:
         raise ValueError("fixed external ready selection changed")
-    value = json.loads(saved.payload)
+    return cast("dict[str, Any]", json.loads(saved.payload))
+
+
+def load_ready(store: ObjectStore, reference: dict[str, str]) -> PreparedPlan:
+    value = _read_ready_value(store, reference)
     plan = _bound_plan(read_plan(store, value["run_id"]), value)
     return _prepare_ready(store, value, plan, {})
 
@@ -314,15 +318,24 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
 def acknowledged_bundles(store: ReceiptStore, plan: RunPlan) -> dict[str, dict[str, str]]:
     """既にcanonical L1へ読戻した原本を、短期bundleの期限と切り離して参照する。"""
     bundles: dict[str, dict[str, str]] = {}
+    confirmed_stages: dict[str, tuple[CohortStage, str]] = {}
+    saved_plan: RunPlan | None = None
     for key, _ in store.iter_objects(prefix(plan.run_id) + "/ack-"):
         saved = read_private(store, key)
         if saved is None:
             raise ValueError("external acknowledgement disappeared")
         value = json.loads(saved.payload)
         reference = value["reference"]
-        item = load_ready(store, reference)
-        if item.plan != plan or key != acknowledgement_key(plan, reference):
+        ready_value = _read_ready_value(store, reference)
+        if saved_plan is None:
+            # The plan and shared hashed stages are fixed for this acknowledgement scan.
+            saved_plan = read_plan(store, plan.run_id)
+            if saved_plan != plan:
+                raise ValueError("external acknowledged plan changed")
+        if key != acknowledgement_key(plan, reference):
             raise ValueError("external acknowledged plan changed")
+        bound_plan = _bound_plan(saved_plan, ready_value)
+        item = _prepare_ready(store, ready_value, bound_plan, confirmed_stages)
         ack = _validate_acknowledgement(plan, reference, value, item)
         allowed = {bundle for stage, _ in item.stages.values() for bundle in stage.raw_bundle_keys}
         receipts = ack.get("bundle_receipts", {})
