@@ -44,7 +44,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
             "read_price_bars",
             "read_financial_documents",
             "read_observation_population",
-            "read_price_day_states",
+            "read_price_day_inputs",
             "read_trend_inputs",
         )
     ]
@@ -160,7 +160,7 @@ def test_shared_price_path_matches_single_query_and_keeps_old_mc_and_adv(
                 (as_of.isoformat(),),
             )
     before = path.read_bytes()
-    reader = mocker.spy(generation_reader, "read_price_day_states")
+    reader = mocker.spy(generation_reader, "read_price_day_inputs")
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
         stream = generation_reader.read_and_generate_models(
             generation_id="price-path-fixture",
@@ -174,6 +174,13 @@ def test_shared_price_path_matches_single_query_and_keeps_old_mc_and_adv(
         )
         result = materialize_generation(stream)
     assert reader.call_count == 1
+    assert reader.call_args.kwargs == {
+        "start": dates[0],
+        "end": as_of,
+        "tickers": ("7800", "1321"),
+        "turnover_start": dates[-61],
+        "turnover_tickers": ("7800",),
+    }
     technical = result.result("technical_analysis", "7800").payload
     assert technical == technical_analysis(path, ticker="7800", as_of=as_of)
     price_path = technical["price_path"]
