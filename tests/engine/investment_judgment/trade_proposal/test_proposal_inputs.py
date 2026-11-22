@@ -4,6 +4,7 @@ import sqlite3
 from contextlib import closing
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from tests.helpers.proposal import (
@@ -830,3 +831,69 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
     assert not corrected.inputs.security_classification[0].is_common_stock
     assert corrected.next_order_session.isoformat() == "2026-10-16"
     assert corrected.calculations["1234"]["maximum_common_grid_price_yen"] is None
+
+
+@pytest.mark.parametrize("phase", ["context", "check", "publish", "preview"])
+def test_arriving_market_waits_for_the_next_proposal_phase(tmp_path, monkeypatch, phase):
+    from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalConflictError
+    from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+
+    case = backend_case(tmp_path)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    draft = reviewed_proposal(case, action="defer" if phase == "publish" else "buy")
+    if phase == "preview":
+        service.publish(draft)
+    before = case.app.read_bytes()
+
+    def read():
+        if phase == "context":
+            return build_proposal_context(
+                operation_id=case.operation.operation_id,
+                proposal_id=PROPOSAL_ID,
+                db_path=case.app,
+                sqlite_path=case.market,
+                now=PUBLISHED,
+            ).payload()
+        if phase == "preview":
+            return preview_current_terms(
+                proposal_id=PROPOSAL_ID, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+            ).payload()
+        with pytest.raises(ProposalConflictError, match="input facts changed"):
+            (service.check if phase == "check" else service.publish)(draft)
+        return None
+
+    pending = case.market.rename(tmp_path / "incoming-market.sqlite")
+    absent = read()
+    if phase == "context":
+        assert absent["inputs"]["quotes"] == []
+        assert absent["next_order_session"] is None
+    if phase == "preview":
+        assert absent["status"] == "blocked"
+
+    exists = Path.exists
+    probes = []
+
+    def arrive_after_probe(path):
+        present = exists(path)
+        if path == case.market:
+            probes.append(present)
+            if not present:
+                pending.replace(path)
+        return present
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "exists", arrive_after_probe)
+        assert read() == absent
+    assert probes == [False]
+    assert case.app.read_bytes() == before
+
+    # New phases see the real file. Do not carry missing/stale market evidence
+    # into a later writer check, or change a proposal already stored for preview.
+    if phase == "context":
+        present = read()
+        assert [q["ticker"] for q in present["inputs"]["quotes"]] == ["1234"]
+        assert present["next_order_session"] == "2026-10-15"
+    elif phase == "preview":
+        assert read()["status"] == "unchanged"
+    else:
+        assert service.check(draft).valid

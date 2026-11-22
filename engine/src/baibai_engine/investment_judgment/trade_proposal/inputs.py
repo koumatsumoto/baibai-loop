@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
+from types import EllipsisType
 
 from pydantic import JsonValue, TypeAdapter
 
@@ -171,10 +172,10 @@ def _original_assessment(
 
 @contextmanager
 def proposal_market_snapshot(
-    sqlite_path: Path, *, connection: sqlite3.Connection | None = None
+    sqlite_path: Path, *, connection: sqlite3.Connection | EllipsisType | None = ...
 ) -> Iterator[sqlite3.Connection | None]:
-    """Keep quotes, classification, calendar and share/assessment basis on one snapshot."""
-    if connection is not None:
+    """Only an omitted connection opens the path. An observed absence is a snapshot too."""
+    if not isinstance(connection, EllipsisType):
         yield connection
     elif sqlite_path.exists():
         with closing(connect_market_read_only(sqlite_path)) as market_connection:
@@ -193,7 +194,7 @@ def collect_proposal_inputs(
     sqlite_path: Path,
     budget_min_yen: int,
     budget_max_yen: int,
-    market_connection: sqlite3.Connection | None = None,
+    market_connection: sqlite3.Connection | EllipsisType | None = ...,
     original_buys: dict[str, _ReportedBuy] | None = None,
 ) -> ProposalInputs:
     """台帳・quoteを一度収集し、保有の起案時だけ対象の照合済み買付元も同じ読取内で渡す。"""
