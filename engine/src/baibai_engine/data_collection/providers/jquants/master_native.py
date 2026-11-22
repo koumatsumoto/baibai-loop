@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -82,16 +82,31 @@ def plan_master_days(
     """
     if start > end:
         raise ValueError("invalid master snapshot interval")
-    days = tuple(start + timedelta(days=offset) for offset in range((end - start).days + 1))
+    return unfulfilled_master_days(
+        store,
+        fixed,
+        days=(start + timedelta(days=offset) for offset in range((end - start).days + 1)),
+    )
+
+
+def unfulfilled_master_days(
+    store: ObjectStore, fixed: FixedMasterL1, *, days: Iterable[date]
+) -> tuple[date, ...]:
+    """Verify only requested master dates, sharing immutable packs within this read."""
+    requested = tuple(sorted(set(days)))
     scopes = fixed.value()["scopes"]
-    complete = {
-        date.fromisoformat(item.request.params["date"])
-        for item in fixed.requests(store, days=days)
-        if item.request is not None and item.request.records()
-    }
+    complete: set[date] = set()
+    for item in fixed.requests(store, days=requested):
+        if (request := item.request) is None:
+            continue
+        day = date.fromisoformat(request.params["date"])
+        # Verifying a shared pack is not proof that its member belongs to every
+        # scope pointing to it. Do not let two dates fulfill one another.
+        if scopes.get(day.isoformat(), {}).get("adopted") == item.request_id and request.records():
+            complete.add(day)
     return tuple(
         day
-        for day in days
+        for day in requested
         if day not in complete
         or scopes.get(day.isoformat(), {}).get("failure")
         or scopes.get(day.isoformat(), {}).get("held")

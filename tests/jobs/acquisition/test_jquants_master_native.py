@@ -82,3 +82,100 @@ def test_commit_work_does_not_turn_saved_empty_into_fulfilled_master(tmp_path, m
     result = json.loads(capsys.readouterr().out)
     assert result["unresolved"] == {DAY.isoformat(): ["nonempty_master_required"]}
     assert len(result["retried"]) == 1
+
+
+def test_commit_work_reads_selected_shared_pack_once(tmp_path, monkeypatch, capsys):
+    import baibai_jobs.acquisition.jquants_master_native as command
+    from baibai_engine.data_collection.providers.jquants.master_native import (
+        HEAD_KEY,
+        PREFIX,
+        MasterAttempt,
+    )
+
+    class Store(MemoryR2Store):
+        def close(self):
+            pass
+
+    store = Store()
+    owner = MasterL1(store, tmp_path)
+    owner.initialize()
+    days = [DAY + timedelta(days=offset) for offset in range(5)]
+
+    def attempt(identity, day, rows):
+        pages = (
+            tuple(Client(rows).pages("master", {"date": day.isoformat()}))
+            if rows is not None
+            else ()
+        )
+        return MasterAttempt(identity, day, AT, pages, None if pages else "interrupted")
+
+    # A sparse saved directory must not consult the unrelated intervening pack.
+    owner.commit([attempt("unrelated", days[1], [{"Code": "13320"}])])
+    unrelated = next(key for key in store.values if key.startswith(PREFIX + "packs/"))
+    originals = [
+        attempt("current", days[0], [{"Code": "13010"}]),
+        attempt("empty", days[2], []),
+        attempt("failed", days[3], None),
+        attempt("adopted", days[4], [{"Code": "13010"}]),
+    ]
+    owner.commit(originals)
+    pack = next(
+        key for key in store.values if key.startswith(PREFIX + "packs/") and key != unrelated
+    )
+    held = attempt("held", days[4], [{"Code": "13020"}])
+    assert owner.commit([held])["held"] == ["held"]
+    for item in [*originals, held]:
+        (tmp_path / f"attempt-{item.request_id}.json").write_text(json.dumps(item.value()))
+    fixed = owner.fixed()
+    writes = store.put_keys.copy()
+    get = store.get_bytes_with_metadata
+
+    def read_selected(key):
+        assert key != unrelated
+        return get(key)
+
+    monkeypatch.setattr(store, "get_bytes_with_metadata", read_selected)
+    monkeypatch.setattr(command, "Boto3R2Store", lambda **_: store)
+    store.get_keys.clear()
+    args = ["commit-work", "--directory", str(tmp_path)]
+    assert command.main(args) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report == {
+        "changed": [],
+        "equal": [],
+        "failed": [],
+        "held": [],
+        "retried": ["adopted", "current", "empty", "failed", "held"],
+        "unresolved": {
+            days[offset].isoformat(): ["nonempty_master_required"] for offset in (2, 3, 4)
+        },
+    }
+    assert [key for key in store.get_keys if key.startswith(PREFIX + "packs/")] == [pack]
+    assert store.put_keys == writes
+    assert owner.fixed().payload == fixed.payload
+
+    # Both pack members and their fingerprints still verify, but neither one
+    # fulfills a scope that points to the other date's request.
+    swapped = fixed.value()
+    first, last = (swapped["scopes"][days[offset].isoformat()] for offset in (0, 4))
+    first["adopted"], last["adopted"] = last["adopted"], first["adopted"]
+    store.store_object(HEAD_KEY, json.dumps(swapped).encode())
+    assert command.main(args) == 1
+    assert json.loads(capsys.readouterr().out)["unresolved"] == {
+        **report["unresolved"],
+        days[0].isoformat(): ["nonempty_master_required"],
+    }
+    assert store.put_keys == writes
+    store.store_object(HEAD_KEY, fixed.payload)
+
+    # A missing selected pack is still an integrity failure, not an empty result.
+    def missing_selected(key):
+        return None if key == pack else read_selected(key)
+
+    monkeypatch.setattr(store, "get_bytes_with_metadata", missing_selected)
+    assert command.main(args) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "LakePublishError" in output.err
+    assert store.put_keys == writes
+    assert owner.fixed().payload == fixed.payload
