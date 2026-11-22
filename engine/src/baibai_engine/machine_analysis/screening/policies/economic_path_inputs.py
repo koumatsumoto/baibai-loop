@@ -36,6 +36,7 @@ _RECOVERY_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin")
 _INCOME_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin", "parent_profit")
 _AFTER_AS_OF = "financial_sources_not_observed_by_as_of"
 _COMPARISON_AFTER_AS_OF = "comparison_sources_not_observed_by_as_of"
+_OUTSIDE_WINDOW = "quarter_operand_outside_saved_window"
 _UNRESOLVED_REVISIONS = (
     "conflicting_revisions",
     "inconsistent_cumulative_revision",
@@ -133,7 +134,8 @@ def project_economic_coordinates(
                 reason
                 for observation in (quarter, reported)
                 for metric in _INCOME_METRICS
-                if (reason := _unconfirmed_source(observation, metric, as_of=as_of)) is not None
+                if (reason := _unconfirmed_quarter_source(growth, observation, metric, as_of=as_of))
+                is not None
             ),
             None,
         )
@@ -184,12 +186,8 @@ def project_economic_coordinates(
         metric: _change(growth, quarter, metric, disclosed_by=cutoff) for metric in _PATH_METRICS
     }
     quarter_issues = {
-        metric: _unconfirmed_source(quarter, metric, as_of=as_of)
-        or (
-            _AFTER_AS_OF
-            if quarter_changes[metric].get("reason") == _COMPARISON_AFTER_AS_OF
-            else None
-        )
+        metric: _unconfirmed_quarter_source(growth, quarter, metric, as_of=as_of)
+        or _comparison_cutoff_issue(quarter_changes[metric])
         for metric in _PATH_METRICS
     }
     expansion_issue = quarter_issues["sales"] or _unconfirmed_source(annual, "sales", as_of=as_of)
@@ -319,6 +317,115 @@ def _unconfirmed_source(
     return None
 
 
+def _comparison_cutoff_issue(change: dict[str, JsonValue]) -> str | None:
+    reason = _text(change.get("reason"))
+    if reason == _COMPARISON_AFTER_AS_OF:
+        return _AFTER_AS_OF
+    return reason if reason in (*_UNRESOLVED_REVISIONS, _OUTSIDE_WINDOW) else None
+
+
+def _prior_cumulative_end(
+    cumulative_start: date | None, observed_end: date | None, quarter_start: date | None
+) -> date | None:
+    if cumulative_start is None or observed_end is None or quarter_start is None:
+        return None
+    if not cumulative_start < quarter_start <= observed_end:
+        return None
+    end = quarter_start - timedelta(days=1)
+    return end if 70 <= (observed_end - end).days <= 110 else None
+
+
+def _unconfirmed_quarter_source(
+    growth: CompanyGrowthReader, observation: Observation | None, metric: Metric, *, as_of: date
+) -> str | None:
+    issue = _unconfirmed_source(observation, metric, as_of=as_of)
+    if issue is not None or observation is None or growth.model is None:
+        return issue
+    value = observation.metrics.get(metric)
+    if (
+        value is None
+        or value.reason != "operand_unavailable"
+        or observation.measurement != "quarter"
+        or observation.period_status != "available"
+        or not growth.cohort_bound
+    ):
+        return None
+    operands: tuple[Metric, ...] = (
+        ("sales", "operating_profit") if metric == "operating_margin" else (metric,)
+    )
+    # The selected discrete quarter records the preceding cumulative's end as
+    # its start minus one day, even when subtraction did not produce a value.
+    # Inspect only those native reports, never a date-near alternative or a value.
+    owner = next(
+        (
+            state
+            for state in growth.model.periods
+            if any(o is observation for o in state.observations)
+        ),
+        None,
+    )
+    if owner is None:
+        return None
+    reports = [growth.observation(owner, "reported")]
+    preceding_end = _prior_cumulative_end(
+        owner.period_start, owner.period_end, observation.period_start
+    )
+    if preceding_end is not None:
+        if (
+            growth.model.requested_start is not None
+            and preceding_end < growth.model.requested_start
+        ):
+            # The discrete interval proves an operand existed when built, unlike
+            # a genuinely unobserved period. Display trimming is not evidence
+            # that it lacked a conflicting correction.
+            return _OUTSIDE_WINDOW
+        reports.extend(
+            growth.observation(state, "reported")
+            for state in growth.model.periods
+            if (state.period_start, state.fiscal_year_end, state.period_end)
+            == (owner.period_start, owner.fiscal_year_end, preceding_end)
+        )
+    return next(
+        (
+            reason
+            for report in reports
+            for operand in operands
+            if (reason := _unconfirmed_source(report, operand, as_of=as_of)) is not None
+        ),
+        None,
+    )
+
+
+def _quarter_predecessors(
+    states: list[dict[str, JsonValue]],
+) -> set[tuple[str | None, str | None, str | None]]:
+    keys: set[tuple[str | None, str | None, str | None]] = set()
+    for state in states:
+        for obs in cast(list[dict[str, JsonValue]], state["observations"]):
+            if obs["measurement"] != "quarter" or obs.get("period_status") != "available":
+                continue
+            metrics = _object(obs.get("metrics"))
+            if not any(
+                _object(metrics.get(metric)).get("reason") == "operand_unavailable"
+                for metric in (*_PATH_METRICS, "parent_profit")
+            ):
+                continue
+            prev = _prior_cumulative_end(
+                _date(state.get("period_start")),
+                _date(state.get("period_end")),
+                _date(obs.get("period_start")),
+            )
+            if prev is not None:
+                keys.add(
+                    (
+                        _text(state.get("period_start")),
+                        _text(state.get("fiscal_year_end")),
+                        prev.isoformat(),
+                    )
+                )
+    return keys
+
+
 def _growth_policy_inputs(payload: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
     if payload is None:
         return None
@@ -352,15 +459,38 @@ def _growth_policy_inputs(payload: dict[str, JsonValue] | None) -> dict[str, Jso
             for item in changes
             for key in cast(list[JsonValue], item.get("native_prior_cohorts") or [])
         ]
-        return {
-            **payload,
-            "periods": [
+        selected = [
+            state
+            for state in periods
+            if state is latest or state is full_fy or state.get("cohort") in priors
+        ]
+        quarter_priors = [
+            key
+            for item in changes
+            if item["measurement"] == "quarter"
+            for key in cast(list[JsonValue], item.get("native_prior_cohorts") or [])
+        ]
+        predecessors = _quarter_predecessors(
+            [
+                state
+                for state in selected
+                if state is latest or state.get("cohort") in quarter_priors
+            ]
+        )
+        if predecessors:
+            retained = {id(state) for state in selected}
+            selected = [
                 state
                 for state in periods
-                if state is latest or state is full_fy or state.get("cohort") in priors
-            ],
-            "changes": list(changes),
-        }
+                if id(state) in retained
+                or (
+                    _text(state.get("period_start")),
+                    _text(state.get("fiscal_year_end")),
+                    _text(state.get("period_end")),
+                )
+                in predecessors
+            ]
+        return {**payload, "periods": list(selected), "changes": list(changes)}
     legacy_targets = {
         (item["measurement"], item["period_start"], item["period_end"])
         for _, item in target_observations
@@ -423,6 +553,20 @@ def _comparison_with_available_evidence(
     disclosed_by: date | None,
 ) -> dict[str, JsonValue]:
     if change.difference is None:
+        if (
+            disclosed_by is not None
+            and change.measurement == "quarter"
+            and change.reason == "operand_unavailable"
+        ):
+            for prior_operand in growth.comparison_prior(observation, change):
+                issue = _unconfirmed_quarter_source(
+                    growth, prior_operand, change.metric, as_of=disclosed_by
+                )
+                if issue is not None:
+                    return {
+                        **saved,
+                        "reason": _COMPARISON_AFTER_AS_OF if issue == _AFTER_AS_OF else issue,
+                    }
         return saved
     prior = growth.comparison_prior(observation, change)
     reason = None

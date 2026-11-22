@@ -68,7 +68,7 @@ def documents(*, prior_quarter=False):
     return rows
 
 
-def generation(rows, *, as_of=AS_OF):
+def generation(rows, *, as_of=AS_OF, growth_start=None):
     release = InputRelease(release_id="fy-fixture-release", manifest_sha256="b" * 64)
     stream = generate_models(
         generation_id="fy-fixture-generation",
@@ -99,6 +99,7 @@ def generation(rows, *, as_of=AS_OF):
         market_context=None,
         securities_context={"1001": {"master": {"sector_33": "情報・通信業"}}},
         market_context_revision="fy-fixture-v1",
+        growth_start=growth_start,
     )
     return materialize_generation(stream)
 
@@ -657,3 +658,143 @@ def test_cumulative_revision_can_erase_a_known_q_loss_without_a_number_or_clock(
     assert active(result, "earning_power") is None
     assert active(result, "operating_recovery") is None
     assert active(result, "business_expansion")["variant"] == "full_fy"
+
+
+def _cumulative_q2(year, sales, operating_profit, parent_profit):
+    return replace(
+        document(year, "1Q", sales, operating_profit, parent_profit),
+        fiscal_period="2Q",
+        document_type="2QFinancialStatements_Consolidated_JP",
+        period_end=date(year, 9, 30),
+        disclosed_at=date(year, 11, 10),
+        disclosed_time="15:30:00",
+        disclosure_number=f"cumulative-h1-{year}",
+    )
+
+
+def _late_q1_revisions(q1, cutoff, *, only_sales=False):
+    first = replace(
+        q1,
+        disclosed_at=cutoff + timedelta(days=3),
+        disclosed_time="15:30:00",
+        disclosure_number=f"{q1.disclosure_number}-late-a",
+        sales=100.0 if only_sales else None,
+        operating_profit=None if only_sales else 5.0,
+        profit=None,
+    )
+    second = replace(
+        first,
+        disclosure_number=f"{q1.disclosure_number}-late-b",
+        sales=380.0 if only_sales else None,
+        operating_profit=None if only_sales else 100.0,
+    )
+    return first, second
+
+
+@pytest.mark.parametrize(
+    "prior_q1",
+    [
+        "clean",
+        "late",
+        "conflict",
+        "only_sales",
+        "absent",
+        "unreported",
+        "unrelated_conflict",
+        "conflict_outside_saved_window",
+        "absent_outside_saved_window",
+    ],
+)
+def test_matching_prior_quarter_uncertainty_cannot_restore_annual_routes(monkeypatch, prior_q1):
+    cutoff = date(2025, 11, 28)
+    reports = [
+        document(2023, "FY", 1000.0, 100.0, 80.0),
+        document(2024, "FY", 1600.0, 350.0, 300.0),
+        document(2023, "1Q", 260.0, 20.0, 15.0),
+        document(2025, "1Q", 450.0, 120.0, 100.0),
+        _cumulative_q2(2023, 520.0, 40.0, 35.0),
+        _cumulative_q2(2024, 700.0, 140.0, 110.0),
+        _cumulative_q2(2025, 800.0, 190.0, 160.0),
+    ]
+    native_prior = document(2024, "1Q", 300.0, 40.0, 30.0)
+    if prior_q1 in {"unreported", "unrelated_conflict"}:
+        reports.append(replace(native_prior, sales=None, operating_profit=None))
+        if prior_q1 == "unrelated_conflict":
+            decoy = replace(native_prior, fiscal_year_end=date(2025, 4, 30))
+            reports.extend(_late_q1_revisions(decoy, cutoff))
+    elif not prior_q1.startswith("absent"):
+        reports.append(native_prior)
+        if prior_q1 in {"late", "conflict", "only_sales", "conflict_outside_saved_window"}:
+            revisions = _late_q1_revisions(
+                native_prior, cutoff, only_sales=prior_q1 == "only_sales"
+            )
+            reports.extend(revisions[:1] if prior_q1 == "late" else revisions)
+
+    growth_start = date(2024, 7, 1) if prior_q1.endswith("outside_saved_window") else None
+    fixed = generation(reports, as_of=cutoff, growth_start=growth_start)
+    reader = growth_reader(fixed)
+    quarter = reader.observation(reader.latest_period, "quarter")
+    (change,) = reader.year_over_year(quarter, "operating_margin")
+    if prior_q1 == "clean":
+        assert change.difference == pytest.approx(-0.05)
+    else:
+        assert change.difference is None
+    if prior_q1 in {"late", "conflict", "only_sales", "unreported", "unrelated_conflict"}:
+        (source,) = reader.comparison_prior(quarter, change)
+        assert source.metrics["operating_margin"].reason == "operand_unavailable"
+        assert source.period_start == date(2024, 7, 1)
+
+    raw = fixed.result("company_growth", "1001").payload
+    unchanged = canonical_json(raw)
+    bounded = economic_path_inputs._growth_policy_inputs(raw)
+    result = project(fixed)
+    if prior_q1 == "conflict":
+        predecessor = [item for item in bounded["periods"] if item["period_end"] == "2024-06-30"]
+        assert {item["fiscal_year_end"] for item in predecessor} == {"2025-03-31"}
+    assert active(result, "earning_power")["variant"] == "annual_ttm"
+    assert active(result, "capital_productivity") is not None
+    for route in ("business_expansion", "operating_recovery"):
+        row = active(result, route)
+        if prior_q1 in {
+            "absent",
+            "absent_outside_saved_window",
+            "unreported",
+            "unrelated_conflict",
+        }:
+            assert row["variant"] == "annual_ttm"
+        else:
+            assert row is None
+    monkeypatch.setattr(economic_path_inputs, "_growth_policy_inputs", lambda payload: payload)
+    assert project(fixed) == result
+    assert canonical_json(raw) == unchanged
+
+
+@pytest.mark.parametrize("current_q1", ["clean", "late", "conflict", "missing_op"])
+def test_current_cumulative_operand_conflict_cannot_restore_fy_earning_power(current_q1):
+    cutoff = date(2025, 11, 28)
+    q1 = document(2025, "1Q", 450.0, 100.0, 20.0)
+    if current_q1 == "missing_op":
+        q1 = replace(q1, operating_profit=None)
+    reports = [
+        document(2023, "FY", 1000.0, 100.0, 80.0),
+        document(2024, "FY", 1600.0, 350.0, 300.0),
+        q1,
+        _cumulative_q2(2025, 700.0, 80.0, 70.0),
+    ]
+    if current_q1 in {"late", "conflict"}:
+        revisions = _late_q1_revisions(q1, cutoff)
+        reports.extend(revisions[:1] if current_q1 == "late" else revisions)
+    fixed = generation(reports, as_of=cutoff)
+    assert latest(fixed, "annual_ttm").period_status == "matching_period_not_observed"
+    quarter_op = latest(fixed, "quarter").metrics["operating_profit"]
+    if current_q1 == "clean":
+        assert quarter_op.value == -20
+    else:
+        assert quarter_op.value is None
+    if current_q1 in {"conflict", "missing_op"}:
+        assert quarter_op.reason == "operand_unavailable"
+    earning_power = active(project(fixed), "earning_power")
+    if current_q1 == "missing_op":
+        assert earning_power["variant"] == "full_fy"
+    else:
+        assert earning_power is None
