@@ -1,7 +1,10 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
+import type { ProposalHistoryView } from '../src/api/types'
+import { ProposalHistory } from '../src/pages/ProposalHistoryPage'
 import { ProposalItemCard, ProposalReport } from '../src/pages/ProposalPage'
 import {
   buyFixture,
@@ -232,4 +235,41 @@ it('システム提案と訂正、人間の非購入報告を分け、未知の�
   for (const text of ['買付（指値） · buy', '合成の訂正理由。', '購入しなかった', '本人の理由（引用）', '会話文脈の要約（担当者）', '今回は待つ。', '合成の担当者要約。', '現在の再推奨や人間の採用ではありません。', '未発注・取消・未約定・永久却下は、この報告からは確認できません。']) expect(html).toContain(text)
   expect(html).toContain(newProposalFixture.headline)
   expect(html).toContain(`dateTime="${newProposalFixture.published_at}"`)
+})
+
+it('銘柄別レポートでも、非購入報告は銘柄別の行動ではなく提案単位で表示する', () => {
+  const statement = `${buyFixture.ticker} は買いませんでした。ほかの銘柄については報告していません。`
+  const proposal = {
+    ...newProposalFixture,
+    human_reports: [{
+      report_id: 'synthetic-scope-report',
+      proposal_ref: { proposal_id: newProposalFixture.proposal_id, draft_sha256: '1'.repeat(64) },
+      outcome: 'not_purchased' as const,
+      statement,
+      reported_at: '2026-10-29T01:00:00Z',
+      subject_at: null,
+      reason_quote: null,
+      context_summary: null,
+      recorded_at: '2026-10-29T02:00:00Z',
+    }],
+  }
+  const data: ProposalHistoryView = {
+    generated_at: '2026-10-29T02:30:03Z', status: 'ready', error: null,
+    proposals: [proposal], unavailable_proposal_ids: [],
+  }
+  const noAction = proposal.items.find(item => item.action === 'no_action')!
+  for (const [item, other] of [[buyFixture, noAction], [noAction, buyFixture]] as const) {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ProposalHistory, {
+      data, proposalId: proposal.proposal_id, ticker: item.ticker,
+    })))
+    const tickerSection = html.indexOf('<section aria-labelledby="proposal-items-heading"')
+    expect(tickerSection).toBeGreaterThan(0)
+    const proposalScope = html.slice(0, tickerSection)
+    expect(proposalScope).toContain('提案単位の人間の報告（取引事実とは別）')
+    expect(proposalScope).toContain('報告はこの提案にひもづきます。どの銘柄について述べたかは、本人の文面で確認してください。')
+    expect(proposalScope).toContain(statement)
+    expect(html.slice(tickerSection)).not.toContain(statement)
+    expect(html).toContain(item.rationale)
+    expect(html).not.toContain(other.rationale)
+  }
 })

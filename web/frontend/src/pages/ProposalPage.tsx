@@ -622,7 +622,7 @@ export function ProposalReport({ proposal, item, generatedAt, above }: {
   return (
     <PageShell above={above} lead={`${item.ticker} · ${item.sector ?? '業種未記録'} · ${formatJstDateTime(proposal.published_at)} JST 発行`} meta={<Badge variant="outline">{SCOPE_LABEL[proposal.request_scope]}</Badge>} title={item.company_name ?? item.ticker} width="reading">
       <p className="text-xs leading-6 text-muted-foreground">保存時点のレポートです。現在の注文条件の再確認・採否・発注は別です。</p>
-      <section aria-labelledby="proposal-items-heading" className="grid min-w-0 gap-4">
+      <div className="grid min-w-0 gap-4">
         {corrections.length > 0 && <SectionCard padded title="提案履歴の訂正">
           {corrections.map((correction) => <div key={correction.correction_id} className="grid gap-2">
             <Prose>{correction.reason}</Prose>
@@ -631,7 +631,11 @@ export function ProposalReport({ proposal, item, generatedAt, above }: {
             <SavedTime value={correction.recorded_at} />
           </div>)}
         </SectionCard>}
-        {(proposal.human_reports ?? []).length > 0 && <SectionCard padded title="人間の報告（提案・取引事実とは別）">
+        {(proposal.human_reports ?? []).length > 0 && <SectionCard
+          description="報告はこの提案にひもづきます。どの銘柄について述べたかは、本人の文面で確認してください。"
+          padded
+          title="提案単位の人間の報告（取引事実とは別）"
+        >
           {(proposal.human_reports ?? []).map((report) => <div key={report.report_id} className="grid gap-2">
             <p className="font-medium">購入しなかった</p>
             <Prose>{report.statement}</Prose>
@@ -642,9 +646,11 @@ export function ProposalReport({ proposal, item, generatedAt, above }: {
             <p>未発注・取消・未約定・永久却下は、この報告からは確認できません。注文・約定・現金の記録は変更していません。</p>
           </div>)}
         </SectionCard>}
-        <h2 className="text-lg font-semibold" id="proposal-items-heading">銘柄別の行動と条件</h2>
-        <ProposalItemCard item={item} />
-      </section>
+        <section aria-labelledby="proposal-items-heading" className="grid min-w-0 gap-4">
+          <h2 className="text-lg font-semibold" id="proposal-items-heading">銘柄別の行動と条件</h2>
+          <ProposalItemCard item={item} />
+        </section>
+      </div>
       <details className="rounded-lg border bg-card p-5 sm:p-6">
         <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">全体の比較・見送りと注意事項</summary>
         <div className="mt-5 grid gap-5">
