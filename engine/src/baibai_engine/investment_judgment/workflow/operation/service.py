@@ -181,7 +181,7 @@ class OperationService:
             item.purpose != "holding" for item in selection.targets
         ):
             raise OperationConflictError("position-review Operation admits only holding targets")
-        initialize_database(self._db_path)
+        initialize_database(self._db_path, require_empty_on_bootstrap=True)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -436,14 +436,7 @@ class OperationService:
         with closing(connect_read_only(path)) as connection:
             connection.execute("BEGIN")
             if connection.execute("PRAGMA user_version").fetchone()[0] == 0:
-                # prepare may initialize this file next; an unused version header
-                # alone does not make another SQLite database safe to initialize.
-                if (
-                    connection.execute("PRAGMA application_id").fetchone()[0] != 0
-                    or connection.execute("SELECT 1 FROM sqlite_schema LIMIT 1").fetchone()
-                    is not None
-                ):
-                    raise RuntimeError("version-zero database is not an empty application database")
+                # A version-zero file has no Operation yet; the writer owns bootstrap admission.
                 return None
             row = connection.execute(
                 "SELECT * FROM operation_session WHERE status='active'"

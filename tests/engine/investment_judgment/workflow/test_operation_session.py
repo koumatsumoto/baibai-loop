@@ -317,36 +317,54 @@ def test_operation_list_does_not_create_an_unwritten_database(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
-    ("schema_setup", "failure"),
+    ("schema_setup", "late_sql", "failure"),
     [
-        pytest.param(None, None, id="zero-byte"),
-        pytest.param("VACUUM", None, id="empty-sqlite"),
+        pytest.param(None, None, None, id="zero-byte"),
+        pytest.param("VACUUM", None, None, id="empty-sqlite"),
         pytest.param(
             f"PRAGMA user_version={APPLICATION_SCHEMA_VERSION}",
+            None,
             "no such table: operation_session",
             id="missing-required-table",
         ),
         pytest.param(
             "CREATE VIEW outsider AS SELECT 41",
+            None,
             "not an empty application database",
             id="foreign-view",
         ),
         pytest.param(
             "PRAGMA application_id=123456",
+            None,
             "not an empty application database",
             id="foreign-application-id",
         ),
         pytest.param(
             "CREATE TABLE sqliteCache (value)",
+            None,
             "not an empty application database",
             id="foreign-sqlite-prefix",
+        ),
+        pytest.param(
+            "VACUUM",
+            "CREATE VIEW late_foreign AS SELECT 41",
+            "not an empty application database",
+            id="view-committed-after-active-read",
+        ),
+        pytest.param(
+            "VACUUM",
+            "PRAGMA application_id=654321",
+            "not an empty application database",
+            id="app-id-committed-after-active-read",
         ),
     ],
 )
 def test_prepare_initializes_only_an_unwritten_application_database(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
     schema_setup: str | None,
+    late_sql: str | None,
     failure: str | None,
 ) -> None:
     db = tmp_path / "app.sqlite"
@@ -356,6 +374,19 @@ def test_prepare_initializes_only_an_unwritten_application_database(
         with closing(sqlite3.connect(db)) as connection:
             connection.execute(schema_setup)  # nosec B608 — static test fixture only
     before_db = db.read_bytes()
+    if late_sql is not None:
+        active = OperationService.active
+        inode = db.stat().st_ino
+
+        def publish_after_active(service: OperationService) -> None:
+            nonlocal before_db
+            assert active(service) is None
+            with closing(sqlite3.connect(db)) as connection, connection:
+                connection.execute(late_sql)
+            assert db.stat().st_ino == inode
+            before_db = db.read_bytes()
+
+        monkeypatch.setattr(OperationService, "active", publish_after_active)
     runs = tmp_path / "runs.sqlite"
     selected = seed_generated_selection(
         runs=runs, now=NOW, tickers=("1234",), scope="specified_stocks"
