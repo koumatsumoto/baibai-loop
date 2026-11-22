@@ -165,6 +165,11 @@ def _read_series(
     # against its own short life and read as an extreme.
     first_observed_at = min(observation.observed_at for observation in observations)
     covers_window = first_observed_at <= _window_coverage_cutoff(start, asof)
+    if covers_window and rule.statistic == "yoy" and sample:
+        # Allow the ordinary one-year warm-up for a rolling source, but an early
+        # raw level with no matching history cannot anchor a distribution of changes.
+        first_yoy_at = max(start, _months_before(first_observed_at, -YOY_LOOKBACK_MONTHS))
+        covers_window = sample[0].observed_at <= _window_coverage_cutoff(first_yoy_at, asof)
     enough_points = len(values) >= MIN_WINDOW_OBSERVATIONS
     dense_enough = expected is None or len(values) >= expected * MIN_WINDOW_COVERAGE
     insufficient = not (covers_window and enough_points and dense_enough)
