@@ -56,28 +56,47 @@ _BACKUP_GLOB = "baibai-*.sqlite"
 
 
 def initialize_database(
-    path: Path | None = None,
+    path: Path | None = None, *, require_empty_on_bootstrap: bool = False
 ) -> int:
-    """Create or open the current schema without migrating it."""
+    """Create or open the current schema; automatic bootstrap may require a blank file."""
     with closing(connect_rw(path)) as connection:
         current = int(connection.execute("PRAGMA user_version").fetchone()[0])
         if current == APPLICATION_SCHEMA_VERSION:
             return current
-        tables = connection.execute(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
-        ).fetchone()
-        if current != 0 or tables is not None:
-            raise RuntimeError(
-                "application database requires an explicit semantic cutover "
-                f"(found user_version={current}, current={APPLICATION_SCHEMA_VERSION})"
-            )
+        # In legacy mode executescript would commit the admission check's write transaction.
+        connection.autocommit = True
+        connection.execute("BEGIN IMMEDIATE")
         try:
-            # executescript commits a pending transaction before executing its SQL.
-            connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA_SQL)
-            connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
-            connection.commit()
+            current = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if current != APPLICATION_SCHEMA_VERSION:
+                schema_rows = (
+                    "SELECT 1 FROM sqlite_schema LIMIT 1"
+                    if require_empty_on_bootstrap
+                    else "SELECT 1 FROM sqlite_schema "
+                    "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+                )
+                if (
+                    current != 0
+                    or (
+                        require_empty_on_bootstrap
+                        and connection.execute("PRAGMA application_id").fetchone()[0] != 0
+                    )
+                    or connection.execute(schema_rows).fetchone() is not None
+                ):
+                    if require_empty_on_bootstrap and current == 0:
+                        raise RuntimeError(
+                            "version-zero database is not an empty application database"
+                        )
+                    raise RuntimeError(
+                        "application database requires an explicit semantic cutover "
+                        f"(found user_version={current}, current={APPLICATION_SCHEMA_VERSION})"
+                    )
+                connection.executescript(SCHEMA_SQL)
+                connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
+            connection.execute("COMMIT")
         except BaseException:
-            connection.rollback()
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
             raise
         return APPLICATION_SCHEMA_VERSION
 
