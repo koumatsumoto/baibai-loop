@@ -288,6 +288,40 @@ def test_input_change_during_preparation_is_not_accepted(snapshots, tmp_path, mo
     assert not (tmp_path / "out").exists()
 
 
+@pytest.mark.parametrize("which", [0, 1], ids=["source", "current"])
+def test_input_with_a_late_wal_commit_is_not_certified(snapshots, tmp_path, monkeypatch, which):
+    path = snapshots[which]
+    execute(path, "PRAGMA journal_mode=WAL")
+    expected = digest(path)
+    assert not list(path.parent.glob(f"{path.name}-*"))
+    append = model_history._append_history
+    connections = []
+
+    def commit_to_input(connection, ids):
+        result = append(connection, ids)
+        # Keep a reader open so reopening the store to publish a real generation
+        # does not checkpoint/remove the WAL before recovery's final proof.
+        reader = sqlite3.connect(path)
+        connections.append(reader)
+        reader.execute("SELECT COUNT(*) FROM model_generation").fetchone()
+        publish(path, "late")
+        assert read_generation("late", path=path) is not None
+        assert path.with_name(f"{path.name}-wal").is_file()
+        assert digest(path) == expected  # The DB file alone has not moved.
+        return result
+
+    monkeypatch.setattr(model_history, "_append_history", commit_to_input)
+    output = tmp_path / "out"
+    try:
+        with pytest.raises(ValueError, match="standalone, inactive"):
+            restore(snapshots, output)
+        assert not list(tmp_path.glob("out*"))
+    finally:
+        for reader in connections:
+            reader.close()
+    assert read_generation("late", path=path) is not None
+
+
 def test_invalid_current_foreign_key_is_not_certified(snapshots, tmp_path):
     execute(
         snapshots[1],

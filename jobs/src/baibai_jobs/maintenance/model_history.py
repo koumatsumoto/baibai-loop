@@ -22,11 +22,15 @@ def _sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def _require_inactive(path: Path) -> None:
+    if any(Path(f"{path}{suffix}").exists() for suffix in ("-wal", "-shm", "-journal")):
+        raise ValueError("history recovery requires standalone, inactive SQLite snapshots")
+
+
 def _check_snapshot(path: Path, expected_sha256: str) -> None:
     if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
         raise ValueError("snapshot SHA256 must be a lowercase hexadecimal digest")
-    if any(Path(f"{path}{suffix}").exists() for suffix in ("-wal", "-shm", "-journal")):
-        raise ValueError("history recovery requires standalone, inactive SQLite snapshots")
+    _require_inactive(path)
     if _sha256(path) != expected_sha256:
         raise ValueError("snapshot SHA256 mismatch")
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
@@ -182,6 +186,9 @@ def restore_model_history(
                     raise ValueError("restored snapshot has invalid foreign keys")
                 if _sha256(source) != source_sha256 or _sha256(current) != current_sha256:
                     raise ValueError("input snapshot changed during recovery")
+                # New WAL commits can leave the verified main-file bytes unchanged.
+                _require_inactive(source)
+                _require_inactive(current)
                 connection.commit()
             except BaseException:
                 connection.rollback()
