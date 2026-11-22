@@ -695,7 +695,11 @@ def test_machine_store_push_reports_where_each_key_spends_its_time(tmp_path: Pat
 
 
 def _push_app(
-    tmp_path: Path, *, listed: str | None = None
+    tmp_path: Path,
+    *,
+    listed: list[str] | None = None,
+    list_output: str | None = None,
+    list_exit: int = 0,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
@@ -704,7 +708,11 @@ def _push_app(
         '"etag-stable"\n', encoding="utf-8"
     )
     if listed is not None:
-        env["AWS_FAKE_LIST_KEYS"] = listed
+        env["AWS_FAKE_LIST_KEYS"] = json.dumps(listed)
+    if list_output is not None:
+        env["AWS_FAKE_LIST_KEYS"] = list_output
+    if list_exit:
+        env["AWS_FAKE_LIST_EXIT"] = str(list_exit)
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "push-app"],
         cwd=REPO_ROOT,
@@ -822,7 +830,7 @@ def test_application_put_without_etag_stops_before_prune(tmp_path: Path) -> None
 
 
 def test_application_store_push_prunes_beyond_the_kept_generations(tmp_path: Path) -> None:
-    listed = "\t".join(f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17))
+    listed = [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)]
 
     completed, commands = _push_app(tmp_path, listed=listed)
     deletes = [command for command in commands if command.startswith("s3api delete-object ")]
@@ -839,8 +847,8 @@ def test_application_store_push_can_skip_backup_pruning(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
-    env["AWS_FAKE_LIST_KEYS"] = "\t".join(
-        f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)
+    env["AWS_FAKE_LIST_KEYS"] = json.dumps(
+        [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)]
     )
     env["R2_APP_BACKUP_PRUNE"] = "skip"
     (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text(
@@ -863,6 +871,30 @@ def test_application_store_push_can_skip_backup_pruning(tmp_path: Path) -> None:
     assert any(command.startswith("s3api put-object ") for command in commands)
     assert not any("list-objects-v2" in command for command in commands)
     assert not any("delete-object" in command for command in commands)
+
+
+def test_manual_backup_names_do_not_consume_application_retention_dates(tmp_path: Path) -> None:
+    dates = [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 15)]
+    manual = [
+        "baibai.sqlite.bak-20260815 before migration",
+        "baibai.sqlite.bak-20260816\tmanual",
+        "baibai.sqlite.bak-20260817\nmanual",
+    ]
+    result, commands = _push_app(tmp_path, listed=dates + manual)
+    assert result.returncode == 0, result.stderr
+    assert not any(command.startswith("s3api delete-object ") for command in commands)
+
+
+def test_prune_stops_before_deleting_on_invalid_or_failed_listing(tmp_path: Path) -> None:
+    dates = [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)]
+    for index, (output, status) in enumerate(
+        ((json.dumps([*dates, 7]), 0), (json.dumps(dates), 2))
+    ):
+        case = tmp_path / str(index)
+        case.mkdir()
+        result, commands = _push_app(case, list_output=output, list_exit=status)
+        assert result.returncode != 0
+        assert not any(command.startswith("s3api delete-object ") for command in commands)
 
 
 def test_application_store_push_rejects_unknown_backup_prune_mode_before_write(
@@ -893,13 +925,11 @@ def test_application_store_prune_leaves_keys_it_did_not_write(tmp_path: Path) ->
     """A prefix delete would take whatever else sits under the prefix. The pre-dated
     single `.bak` is exactly that, and it is still a generation worth having."""
 
-    listed = "\t".join(
-        [
-            "baibai.sqlite.bak",
-            "baibai.sqlite.bak-notadate",
-            *(f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)),
-        ]
-    )
+    listed = [
+        "baibai.sqlite.bak",
+        "baibai.sqlite.bak-notadate",
+        *(f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)),
+    ]
 
     completed, commands = _push_app(tmp_path, listed=listed)
     deleted = [
@@ -2129,7 +2159,7 @@ def test_application_backup_failure_stops_before_live_put_and_prune(tmp_path: Pa
 def test_application_retention_counts_dates_and_keeps_all_versions_of_retained_day(tmp_path):
     dates = [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)]
     extra = [f"baibai.sqlite.bak-202608{day:02d}-{'a' * 64}" for day in (1, 3, 16)]
-    result, commands = _push_app(tmp_path, listed="\t".join(dates + extra))
+    result, commands = _push_app(tmp_path, listed=dates + extra)
     assert result.returncode == 0, result.stderr
     deleted = [
         command.split("--key ")[1].split(" ")[0]

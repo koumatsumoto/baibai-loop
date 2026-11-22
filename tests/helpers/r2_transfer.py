@@ -110,10 +110,9 @@ if [[ "$1 $2" == "s3api delete-object" ]]; then
   exit 0
 fi
 if [[ "$1 $2" == "s3api list-objects-v2" ]]; then
-  # `--query Contents[].Key --output text` prints the keys on one tab-separated line,
-  # and `None` when the prefix matches nothing.
-  printf '%s\n' "${AWS_FAKE_LIST_KEYS:-None}"
-  exit 0
+  [[ " $* " == *" --output json "* ]] || exit 2
+  printf '%s\n' "${AWS_FAKE_LIST_KEYS:-[]}"
+  exit "${AWS_FAKE_LIST_EXIT:-0}"
 fi
 if [[ "$1 $2" == "s3api get-object" ]]; then
   key=""

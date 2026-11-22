@@ -546,46 +546,40 @@ backup_key_for() {
 }
 
 prune_app_backups() {
-  # Only keys this script writes are considered, and each delete names one exact key.
-  # A prefix delete would take whatever else happened to sit under the prefix, and the
-  # pattern is what keeps the single pre-dated `baibai.sqlite.bak` out of the set.
-  local listing key
-  local -a generations=()
-  listing="$(aws s3api list-objects-v2 \
+  # Only whole owned keys count as backup dates. Text output splits manual names
+  # at whitespace and can move a still-retained date into the deletion set.
+  local candidates key
+  candidates="$(aws s3api list-objects-v2 \
     --bucket "${stores_bucket}" \
     --prefix "baibai.sqlite.bak-" \
-    --query 'Contents[].Key' \
-    --output text \
-    --endpoint-url "${endpoint}")"
-  for key in ${listing}; do
-    if [[ "${key}" == "None" ]]; then
-      continue
-    fi
-    if [[ ! "${key}" =~ ^baibai\.sqlite\.bak-[0-9]{8}(-[0-9a-f]{64})?$ ]]; then
-      printf 'leaving an unrecognised key under the application backup prefix: %s\n' \
-        "${key}" >&2
-      continue
-    fi
-    generations+=("${key}")
-  done
-  local index=0 previous_day="" day
-  while read -r key; do
+    --query 'Contents[].Key || `[]`' \
+    --output json \
+    --endpoint-url "${endpoint}" | python3 -c '
+import json, re, sys
+
+keys = json.load(sys.stdin)
+if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
+    sys.exit("invalid application backup key listing")
+keep = int(sys.argv[1])
+dates = set()
+for key in sorted(keys, reverse=True):
+    match = re.fullmatch(r"baibai\.sqlite\.bak-([0-9]{8})(?:-[0-9a-f]{64})?", key)
+    if match is None:
+        print(f"leaving an unrecognised key under the application backup prefix: {key!a}", file=sys.stderr)
+        continue
+    dates.add(match[1])
+    if len(dates) > keep:
+        print(key)
+' "${app_backup_generations}")"
+  while IFS= read -r key; do
     [[ -n "${key}" ]] || continue
-    day="${key:18:8}"
-    if [[ "${day}" != "${previous_day}" ]]; then
-      index=$((index + 1))
-      previous_day="${day}"
-    fi
-    if [[ ${index} -le ${app_backup_generations} ]]; then
-      continue
-    fi
     aws s3api delete-object \
       --bucket "${stores_bucket}" \
       --key "${key}" \
       --endpoint-url "${endpoint}" \
       >/dev/null
     printf 'pruned application store backup: %s\n' "${key}"
-  done < <(printf '%s\n' ${generations+"${generations[@]}"} | sort -r)
+  done <<< "${candidates}"
 }
 
 backup_remote_key() {
