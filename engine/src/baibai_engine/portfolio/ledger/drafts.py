@@ -356,7 +356,10 @@ def known_broker_reference(
 def build_event_draft(
     service: LedgerStoreService,
     event: HumanEvent,
+    *,
+    now: datetime | None = None,
 ) -> LedgerDraft:
+    _validate_report_time(event.occurred_on or event.occurred_at, now=now)
     source, expected_head = service.load_with_head()
     raw = ledger_event_append_payload(
         source, (event.model_dump(mode="json"),), occurred_at=event.occurred_at
@@ -729,11 +732,19 @@ def apply_draft(
     draft: LedgerDraft,
     *,
     human_confirmed: bool,
+    now: datetime | None = None,
 ) -> LedgerApplyResult:
     if not human_confirmed:
         raise ValueError("ledger draft apply requires explicit human confirmation")
     if not draft.confirmation_required:
         raise ValueError("ledger draft is not eligible for explicit apply")
+    # A prepared file can be edited. Confirmation does not turn scheduled cash
+    # into a reported fact, and a replay key is not an exact occurrence time.
+    reported_at = now or datetime.now(JST)
+    retained_ids = {event.event_id for event in draft.source.events}
+    for event in draft.replacement.events:
+        if isinstance(event, HumanEvent) and event.event_id not in retained_ids:
+            _validate_report_time(event.occurred_on or event.occurred_at, now=reported_at)
     active_human_overrides(draft.replacement.overrides, as_of=draft.replacement.as_of)
     replay_events_through(draft.replacement.events, draft.replacement.as_of)
     return service.apply_document(

@@ -319,6 +319,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 LedgerStoreService(args.db),
                 load_draft(args.draft),
                 human_confirmed=args.confirmed,
+                now=now,
             )
         except (OSError, ValueError, LedgerConflictError, PortfolioLedgerError) as error:
             print(f"error: {error}", file=sys.stderr)
@@ -334,7 +335,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         )
         return 0
     if args.command == "event-draft":
-        return _run_event_draft(args)
+        return _run_event_draft(args, now=now)
     if args.command == "override-draft":
         return _run_override_draft(args)
     if args.command == "meta-draft":
@@ -355,7 +356,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     raise AssertionError(f"unreachable command: {args.command!r}")
 
 
-def _run_event_draft(args: argparse.Namespace) -> int:
+def _run_event_draft(args: argparse.Namespace, *, now: datetime | None) -> int:
     common = {
         "event_id": args.event_id,
         "type": args.type,
@@ -384,7 +385,7 @@ def _run_event_draft(args: argparse.Namespace) -> int:
             event = ConfirmedTaxEvent.model_validate(
                 {**common, "ticker": args.ticker, "tax_kind": args.kind}
             )
-        draft = build_event_draft(service, event)
+        draft = build_event_draft(service, event, now=now)
         write_draft(args.out, draft)
     except (OSError, ValueError, LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)

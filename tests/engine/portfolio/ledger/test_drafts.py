@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
@@ -23,6 +24,7 @@ from baibai_engine.primitives.yaml import safe_load
 
 ROOT = Path(__file__).resolve().parents[4]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
+EVENT_CLOCK = datetime.fromisoformat("2026-07-18T00:00:00+00:00")
 
 
 def _seeded_db(tmp_path: Path) -> Path:
@@ -130,13 +132,15 @@ def test_record_broker_fact_apply_preserves_unreported_expired_order(
         ("--occurred-on", "2026-07-18"),
     ],
 )
-def test_event_draft_cli_writes_a_draft_for_every_event_type(
+@pytest.mark.parametrize("future", [False, True])
+def test_event_draft_cli_writes_only_occurred_cash_facts(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     event_type: str,
     extra: list[str],
     occurrence_option: str,
     occurrence: str,
+    future: bool,
 ) -> None:
     """Drive the command, not the model it wraps.
 
@@ -145,7 +149,12 @@ def test_event_draft_cli_writes_a_draft_for_every_event_type(
     while the model-level tests keep passing.
     """
     db = _seeded_db(tmp_path)
+    before = db.read_bytes()
     out = tmp_path / f"{event_type}-draft.yaml"
+    if future:
+        occurrence = (
+            "2026-07-19" if occurrence_option == "--occurred-on" else "2026-07-18T09:00:01+09:00"
+        )
 
     code = position_main(
         [
@@ -163,13 +172,79 @@ def test_event_draft_cli_writes_a_draft_for_every_event_type(
             "--out",
             str(out),
             *extra,
-        ]
+        ],
+        now=EVENT_CLOCK,
     )
 
-    assert code == 0
-    assert capsys.readouterr().out.startswith("status: draft_created")
-    draft = safe_load(out.read_text(encoding="utf-8"))
-    assert draft["kind"] == "event"
+    observed = capsys.readouterr()
+    if future:
+        assert code == 2
+        assert "must not be in the future" in observed.err
+        assert observed.out == ""
+        assert not out.exists()
+    else:
+        assert code == 0
+        assert observed.out.startswith("status: draft_created")
+        draft = safe_load(out.read_text(encoding="utf-8"))
+        assert draft["kind"] == "event"
+    assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("draft_kind", ["event", "broker-fact"])
+@pytest.mark.parametrize("date_only", [False, True])
+def test_apply_rejects_future_cash_even_if_a_prepared_draft_is_edited(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], draft_kind: str, date_only: bool
+) -> None:
+    db = _seeded_db(tmp_path)
+    service = LedgerStoreService(db)
+    before = db.read_bytes()
+    source, head = service.load_with_head()
+    out = tmp_path / "cash.yaml"
+    event_id = "confirmed-other-cash-flow"
+    # JST July 18 begins while the UTC clock still says July 17.
+    now = datetime.fromisoformat("2026-07-17T15:10:00+00:00")
+    prepare = [
+        "event-draft",
+        "--db",
+        str(db),
+        "--out",
+        str(out),
+        "--type",
+        "contribution",
+        "--event-id",
+        event_id,
+        "--amount-yen",
+        "10000",
+        "--occurred-on",
+        "2026-07-18",
+    ]
+    assert position_main(prepare, now=now) == 0
+    capsys.readouterr()
+    authentic = out.read_bytes()
+    authored = safe_load(authentic.decode("utf-8"))
+    authored["kind"] = draft_kind
+    event = next(e for e in authored["replacement"]["events"] if e["event_id"] == event_id)
+    event["occurred_at"] = "2026-07-19T00:00:00+09:00"
+    event["occurred_on"] = "2026-07-19" if date_only else None
+    authored["replacement"]["as_of"] = event["occurred_at"]
+    out.write_text(yaml.safe_dump(authored), encoding="utf-8")
+    edited = out.read_bytes()
+    apply = ["apply-draft", str(out), "--db", str(db), "--confirmed"]
+    assert position_main(apply, now=now) == 2
+    feedback = capsys.readouterr()
+    assert feedback.out == ""
+    assert "must not be in the future" in feedback.err
+    assert out.read_bytes() == edited
+    assert db.read_bytes() == before
+    assert service.load_with_head() == (source, head)
+
+    # The unmodified report is valid on its actual JST day and still applies once.
+    out.write_bytes(authentic)
+    assert position_main(apply, now=now) == 0
+    assert "status: applied" in capsys.readouterr().out
+    saved, new_head = service.load_with_head()
+    assert new_head == head + 1
+    assert any(e.event_id == event_id for e in saved.events)
 
 
 def test_event_rejects_a_timezone_naive_instant() -> None:
