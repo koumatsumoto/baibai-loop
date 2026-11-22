@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import ROUND_DOWN, ROUND_FLOOR, Decimal, localcontext
+from itertools import pairwise
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -186,6 +187,15 @@ class CashShareCBInput(BaseModel):
             raise ValueError("settlement date precedes valuation date")
         if any(price <= 0 for price in self.reference_close_sensitivity_yen):
             raise ValueError("reference close sensitivity prices must be positive")
+        # The deferred difference belongs to the next adjustment, not an earlier effective date.
+        # Undated or same-day events retain the author's assumed order.
+        known_effective_dates = (
+            event.effective_on
+            for event in self.special_dividend_adjustments
+            if event.effective_on is not None
+        )
+        if any(before > after for before, after in pairwise(known_effective_dates)):
+            raise ValueError("dividend adjustment effective dates must be nondecreasing")
         if self.settlement_on and any(
             event.effective_on and event.effective_on > self.settlement_on
             for event in self.special_dividend_adjustments

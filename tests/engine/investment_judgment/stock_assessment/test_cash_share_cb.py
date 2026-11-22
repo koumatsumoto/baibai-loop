@@ -213,3 +213,67 @@ def test_dividend_adjustment_that_rounds_conversion_to_zero_fails_closed():
     )
     with pytest.raises(ValueError, match="no positive conversion price"):
         calculate_cash_share_cb(inputs)
+
+
+def _dated_adjustments():
+    return (
+        {
+            "special_dividend_per_share_yen": "0.4",
+            "reference_close_yen": "100.0",
+            "effective_on": "2027-07-01",
+        },
+        {
+            "special_dividend_per_share_yen": "1.0",
+            "reference_close_yen": "100.0",
+            "effective_on": "2028-07-01",
+        },
+    )
+
+
+@pytest.mark.parametrize("intervening_undated", [False, True])
+def test_reversed_known_dividend_effective_dates_are_rejected(intervening_undated):
+    early, late = _dated_adjustments()
+    unknown = {k: v for k, v in early.items() if k != "effective_on"}
+    with pytest.raises(
+        ValueError, match="dividend adjustment effective dates must be nondecreasing"
+    ):
+        CashShareCBInput.model_validate(
+            _case(
+                special_dividend_adjustments=[
+                    late,
+                    *([unknown] if intervening_undated else []),
+                    early,
+                ]
+            )
+        )
+
+
+@pytest.mark.parametrize("mode", ["chronological", "same_date", "undated", "intervening_undated"])
+def test_dividend_adjustment_keeps_the_authors_valid_sequence(mode):
+    early, late = _dated_adjustments()
+    if mode == "same_date":
+        late["effective_on"] = early["effective_on"]
+    if mode == "undated":
+        del late["effective_on"], early["effective_on"]
+        adjustments, expected = [late, early], "99.0"
+    else:
+        # Zero is an explicit undated event, not grounds to create a date.
+        intervening = (
+            [{"special_dividend_per_share_yen": "0.0", "reference_close_yen": "100.0"}]
+            if mode == "intervening_undated"
+            else []
+        )
+        adjustments, expected = [early, *intervening, late], "98.6"
+    result = calculate_cash_share_cb(
+        CashShareCBInput.model_validate(
+            _case(
+                conversion_price_yen="100.0",
+                special_dividend_adjustments=adjustments,
+                reference_close_sensitivity_yen=[],
+            )
+        )
+    )
+    assert result["conversion_price_yen"] == expected
+    assert [row["effective_on"] for row in result["dividend_adjustments"]] == [
+        event.get("effective_on") for event in adjustments
+    ]
