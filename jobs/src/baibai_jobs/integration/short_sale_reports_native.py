@@ -26,7 +26,6 @@ from baibai_engine.machine_analysis.generation.short_sale_reports_inputs import 
     INPUT_FORMAT,
     read_short_sale_reports_input,
     retain_short_sale_reports_input,
-    short_sale_reports_input_interval,
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import (
     JQUANTS_NUMERIC_PROJECTION_REVISION,
@@ -296,7 +295,7 @@ def _verified_cached_scopes(
             read_short_sale_reports_input(
                 store,
                 descriptor,
-                days=_days(*short_sale_reports_input_interval(store, descriptor)),
+                days=None,
             )["scopes"],
         ),
     )
