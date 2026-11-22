@@ -133,8 +133,13 @@ class ResearchStoreService:
                     f"market_price {fact.fact_id} postdates all cited source retrievals"
                 )
         now = _datetime(self._clock())
-        if any(fact.close_date_follows_session_cutoff(now) for fact in draft.document.facts):
-            raise ValueError("market_price close date follows the available session")
+        for fact in draft.document.facts:
+            if fact.close_date_follows_session_cutoff(now):
+                raise ValueError("market_price close date follows the available session")
+            if fact.date_only_close_postdates_cited_retrievals(sources):
+                raise ValueError(
+                    f"market_price {fact.fact_id} close date postdates all cited source retrievals"
+                )
         # An unbounded header selection enforces one chain, including records after a skewed clock.
         latest = latest_research_id(
             connection,

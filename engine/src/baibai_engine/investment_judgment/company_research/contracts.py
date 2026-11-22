@@ -125,6 +125,17 @@ class ObservedFact(BaseModel):
             "last_close_adjusted",
         } and self.as_of > latest_eligible_close_date(at)
 
+    def date_only_close_postdates_cited_retrievals(self, sources: Mapping[str, Source]) -> bool:
+        """At least one cited retrieval must be late enough to carry the claimed close date."""
+        return (
+            self.observed_at is None
+            and bool(self.source_ids)
+            and all(
+                ref in sources and self.close_date_follows_session_cutoff(sources[ref].retrieved_at)
+                for ref in self.source_ids
+            )
+        )
+
     def postdates_cited_retrievals(self, sources: Mapping[str, Source]) -> bool:
         """価格時刻の矛盾だけを判定し、日付精度・参照の妥当性は別で扱う。"""
         return (

@@ -641,6 +641,12 @@ def evaluate_assessment(
                 errors.append(f"market_price {fact.fact_id} postdates all cited source retrievals")
             if fact.close_date_follows_session_cutoff(proposed):
                 errors.append("market_price close date follows the available session")
+            elif identity is UnpublishedAssessment.DRAFT and (
+                fact.date_only_close_postdates_cited_retrievals(sources)
+            ):
+                errors.append(
+                    f"market_price {fact.fact_id} close date postdates all cited source retrievals"
+                )
         if fact.fact_kind == "valuation_metric" and (
             fact.unit not in {"ratio", "percent", "JPY_per_share"}
             or isinstance(fact.value, (bool, str))

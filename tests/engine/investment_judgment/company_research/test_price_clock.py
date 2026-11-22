@@ -74,9 +74,21 @@ def price_case(retrievals, observed_at=OBSERVED):
         (("2026-10-14T16:00:00+09:00",), OBSERVED, True),
         ((BEFORE, OBSERVED), OBSERVED, True),
         (("2026-10-14T06:30:00+00:00", BEFORE), OBSERVED, True),
-        ((BEFORE,), None, True),
+        ((BEFORE,), None, False),
+        ((BEFORE, OBSERVED), None, True),
+        ((BEFORE,), BEFORE, True),
     ],
-    ids=["before", "all-before", "equal", "after", "one-supports", "utc-equal", "date-only"],
+    ids=[
+        "before",
+        "all-before",
+        "equal",
+        "after",
+        "one-supports",
+        "utc-equal",
+        "date-only-citations-before-close",
+        "date-only-one-citation-at-close",
+        "explicit-timed-close-retains-actual-clock",
+    ],
 )
 def test_new_research_price_clock_matches_assessment(tmp_path, retrievals, observed_at, accepted):
     draft, document, review = price_case(retrievals, observed_at)
@@ -86,7 +98,11 @@ def test_new_research_price_clock_matches_assessment(tmp_path, retrievals, obser
         identity=UnpublishedAssessment.DRAFT,
         now=NOW,
     )
-    error = "market_price close postdates all cited source retrievals"
+    error = (
+        "market_price close close date postdates all cited source retrievals"
+        if observed_at is None
+        else "market_price close postdates all cited source retrievals"
+    )
     assert evaluation.errors == (() if accepted else (error,))
     path = tmp_path / "app"
     service = ResearchStoreService(path, clock=lambda: NOW)
@@ -149,6 +165,16 @@ def test_date_only_research_close_waits_for_its_native_session(
     assert "market_price close date follows the available session" in output.err
     assert app.read_bytes() == intact
 
+    # Waiting alone cannot change what the only existing citation could support.
+    assert main(call, now=boundary) == 3
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "close date postdates all cited source retrievals" in output.err
+    assert app.read_bytes() == intact
+
+    # A genuinely refreshed citation, not an invented timestamp on the fact.
+    source["retrieved_at"] = boundary.isoformat()
+    draft.write_text(json.dumps(raw), encoding="utf-8")
     assert main(call, now=boundary) == 0
     published = json.loads(capsys.readouterr().out)
     body = published["document"]["facts"][0]
