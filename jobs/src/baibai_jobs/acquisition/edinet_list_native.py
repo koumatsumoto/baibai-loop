@@ -51,14 +51,13 @@ def acquire_lists(
         received[item.doc_date].append(item.decoded())
     additions: list[NativeListReceipt] = []
     fetched: set[date] = set()
+    rechecked_rows: dict[date, int] = {}
     failed: list[dict[str, str]] = []
     rows = 0
 
     def obtain(day: date, *, force: bool) -> int:
-        if not force and received[day]:
-            projection = project_document_list(received[day])
-            if projection.error is None:
-                return len(projection.documents)
+        if not force and (count := rechecked_rows.get(day)) is not None:
+            return count
         response = client.fetch_list(day)
         retained = NativeListReceipt.from_response(day, response)
         # Each day is an independently completed source request. Confirm its
@@ -93,6 +92,10 @@ def acquire_lists(
             if document_list_rechecked_asof(projection, proof) is None:
                 active = day
                 rows += obtain(day, force=True)
+            elif day >= start and not force_history:
+                # The count is from the same receipts already proved here.
+                # Report it only when the requested-day pass reaches this date.
+                rechecked_rows[day] = len(projection.documents)
         cursor = start
         while cursor <= end:
             if cursor not in fetched:
