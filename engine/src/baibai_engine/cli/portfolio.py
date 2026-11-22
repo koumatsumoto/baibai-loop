@@ -74,6 +74,7 @@ from baibai_engine.portfolio.performance.store import (
     PortfolioOutcomeStore,
 )
 from baibai_engine.primitives.time import JST
+from baibai_engine.storage.filesystem import write_text_new
 from baibai_engine.storage.paths import DEFAULT_SQLITE_CACHE_DIR, MARKET_DB_PATH
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
@@ -139,6 +140,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="write an optional outcome YAML export; existing paths are never overwritten",
     )
+    outcome_get = subparsers.add_parser(
+        "outcome-get", help="read an exact saved outcome without recalculation"
+    )
+    outcome_get.add_argument("outcome_id")
+    outcome_get.add_argument("--db", type=Path)
+    outcome_get.add_argument("--sha256", help="require this exact stored payload digest")
+    outcome_get.add_argument("--out", type=Path, help="create a new outcome YAML export")
     broker_fact_parser = subparsers.add_parser(
         "broker-fact-draft",
         help="turn a human-reported open/filled/cancelled/expired broker fact into a ledger draft",
@@ -331,6 +339,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         return _run_override_draft(args)
     if args.command == "meta-draft":
         return _run_meta_draft(args)
+    if args.command == "outcome-get":
+        return _get_outcome(args)
     if args.command == "outcome":
         benchmark_path = _root_path(args.root, args.benchmark_observation)
         sqlite_path = _root_path(args.root, args.sqlite)
@@ -470,6 +480,23 @@ def _emit_ledger(document: PortfolioLedgerDocument, *, now: datetime) -> int:
     return 0
 
 
+def _get_outcome(args: argparse.Namespace) -> int:
+    try:
+        saved = PortfolioOutcomeStore(args.db).get(args.outcome_id)
+        if saved is None:
+            raise ValueError("saved portfolio outcome not found")
+        if args.sha256 is not None and args.sha256 != saved.payload_sha256:
+            raise ValueError("saved portfolio outcome payload digest mismatch")
+        content = yaml.safe_dump(saved.payload, sort_keys=False, allow_unicode=True)
+        if args.out is not None:
+            write_text_new(args.out, content)
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
+        print(f"error: failed to read or export saved portfolio outcome: {error}", file=sys.stderr)
+        return 2
+    sys.stdout.write(content)
+    return 0
+
+
 def _run_outcome(
     benchmark_path: Path,
     sqlite_path: Path,
@@ -558,9 +585,10 @@ def _run_outcome(
     if out_path is not None and out_path.exists():
         print(f"error: refusing to overwrite existing outcome: {out_path}", file=sys.stderr)
         return 2
+    receipt = None
     if payload["status"] == "resolved":
         try:
-            PortfolioOutcomeStore(db_path).publish(
+            receipt = PortfolioOutcomeStore(db_path).publish(
                 PortfolioOutcomePublication(
                     outcome_id=outcome_id,
                     horizon=benchmark.horizon,
@@ -573,19 +601,31 @@ def _run_outcome(
         except (ValueError, sqlite3.Error) as error:
             print(f"error: failed to publish portfolio outcome: {error}", file=sys.stderr)
             return 2
-        payload["outcome_id"] = outcome_id
+        payload = {**payload, "outcome_id": receipt.outcome_id}
+    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     if out_path is not None:
         try:
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            # The earlier existence check cannot reserve a path against another writer.
-            # Export is a copy; a failed export must not roll back an immutable publication.
-            with out_path.open("x", encoding="utf-8") as stream:
-                yaml.safe_dump(payload, stream, sort_keys=False, allow_unicode=True)
+            write_text_new(out_path, content)
         except OSError as error:
-            saved = " (application DB publication retained)" if "outcome_id" in payload else ""
-            print(f"error: failed to export portfolio outcome{saved}: {error}", file=sys.stderr)
+            if receipt is None:
+                print(f"error: failed to export portfolio outcome: {error}", file=sys.stderr)
+            else:
+                print(
+                    "error: failed to export portfolio outcome (application DB publication "
+                    f"retained; use portfolio outcome-get): {error}",
+                    file=sys.stderr,
+                )
+                yaml.safe_dump(
+                    {
+                        "status": "saved_output_failed",
+                        "outcome_id": receipt.outcome_id,
+                        "payload_sha256": receipt.payload_sha256,
+                    },
+                    sys.stdout,
+                    sort_keys=False,
+                )
             return 2
-    yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
+    sys.stdout.write(content)
     return 0
 
 

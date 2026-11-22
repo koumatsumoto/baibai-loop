@@ -499,16 +499,16 @@ def test_recalculation_does_not_rewrite_an_outcome_saved_with_the_old_close_rule
     )
     path = tmp_path / "application.sqlite"
     store = PortfolioOutcomeStore(path)
-    assert store.publish(saved)
+    assert store.publish(saved).created
     original = store.list()[0]
     before = path.read_bytes()
-    assert not store.publish(saved)
+    assert not store.publish(saved).created
     corrected = replace(saved, payload={**payload, **outcome_to_payload(current)})
     with pytest.raises(PortfolioOutcomeConflictError):
         store.publish(corrected)
     assert path.read_bytes() == before
     assert store.list() == (original,)
-    assert store.publish(replace(corrected, outcome_id="corrected-close-result"))
+    assert store.publish(replace(corrected, outcome_id="corrected-close-result")).created
     rows = {row["outcome_id"]: row for row in store.list()}
     assert rows[saved.outcome_id] == original
     assert rows["corrected-close-result"]["ending_cash_yen"] == 1000
