@@ -32,6 +32,7 @@ from baibai_engine.storage.snapshots.reader import (
     FixedRelease,
     LakeReadError,
     accepted_dataset,
+    recheck_current_release,
     resolve_current_release,
     resolve_release,
     resolve_release_ref,
@@ -146,15 +147,10 @@ def _resolve_release_target(
         reference = load_lake_model_json(args.release_ref.read_bytes(), LakeReleaseSourceRef)
         return resolve_release_ref(source, reference), None
 
-    def still_current() -> tuple[str, str]:
-        resolved = resolve_current_release(
-            source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
-        )
-        return (resolved.release_id, resolved.manifest_sha256)
-
-    return resolve_current_release(
+    release = resolve_current_release(
         source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
-    ), still_current
+    )
+    return release, lambda: recheck_current_release(source, release)
 
 
 def _clear_independent_list_cache(
