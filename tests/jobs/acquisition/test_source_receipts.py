@@ -239,6 +239,9 @@ def test_receipt_reads_are_parallel_and_remain_deterministic(tmp_path, monkeypat
     [
         {"manifest_sha256": "0" * 64},
         {"source": "other"},
+        {"started_at": "2026-11-20T08:01:00Z"},
+        {"started_at": "2026-11-20T08:02:00"},
+        {"started_at": None},
         {"status": "unknown"},
         {"status": []},
     ],
@@ -278,8 +281,13 @@ def test_invalid_terminal_cannot_consume_or_mark_another_handoff_late(market, da
         seal_integrated(store, entry, generations={}, recovery=False)
     assert not store.put_keys
 
+    # A different valid timezone representation of the same start is not a conflict.
+    equivalent = json.dumps({**marker, "started_at": "2026-11-20T17:02:00+09:00"}).encode()
+    store.store_object(key, equivalent)
+    seal_integrated(store, entry, generations={}, recovery=False)
+    assert not store.put_keys
+    assert store.values[key].body == equivalent
     # Only an actually verified seal can prove that this sibling is late.
-    store.store_object(key, corrected)
     repaired = {item["stage_id"]: item for item in available_handoffs(store, market=market)}
     assert f"{source}-02" not in repaired
     assert repaired[f"{source}-01"]["late_before_integrated"]
