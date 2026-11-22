@@ -10,12 +10,22 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, FiniteFloat
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
 )
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    AccountingPeriodKey,
+)
 from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
     PdfFinancialSelection,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfSupplement
 
 FINANCIAL_SECTOR_INAPPLICABLE = "not_applicable_to_financial_sector"
+COHORT_COMPARISON_REVISION = "company_growth_retrospective_v26"
+COHORT_PDF_COMPARISON_REVISION = f"{COHORT_COMPARISON_REVISION}-pdf-jp-interim"
+
+
+def has_cohort_comparisons(calculation_method: object) -> bool:
+    return calculation_method in (COHORT_COMPARISON_REVISION, COHORT_PDF_COMPARISON_REVISION)
+
 
 type Metric = Literal[
     "sales",
@@ -83,6 +93,7 @@ class PeriodState(Contract):
     period_start: date
     period_end: date
     observations: tuple[Observation, ...]
+    cohort: AccountingPeriodKey | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class Change(Contract):
@@ -109,6 +120,12 @@ class Change(Contract):
     margin_points: FiniteFloat | None = None
     sign_change: str | None = None
     reason: str | None = None
+    target_cohort: AccountingPeriodKey | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    native_prior_cohorts: tuple[AccountingPeriodKey, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class InputRelease(Contract):

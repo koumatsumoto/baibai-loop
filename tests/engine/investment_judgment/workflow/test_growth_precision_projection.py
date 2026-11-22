@@ -55,7 +55,13 @@ def test_reported_changes_keep_precision_and_exact_comparative_source():
     _, growth, _ = models()
     projected = project_company_growth(growth.payload, ticker="9268", periods=1)
     table = projected["reported_yoy"]
-    assert table["columns"] == [*_OLD_CHANGE_COLUMNS, "precision", "source_sha256"]
+    assert table["columns"] == [
+        *_OLD_CHANGE_COLUMNS,
+        "precision",
+        "source_sha256",
+        "target_cohort",
+        "native_prior_cohorts",
+    ]
     for row in table["rows"]:
         fields = dict(zip(table["columns"], row, strict=True))
         change = next(
@@ -105,8 +111,15 @@ def test_recorded_precision_does_not_fill_missing_value_or_other_metric(precisio
 
 def test_unrecorded_legacy_precision_keeps_old_table_shape():
     _, growth, _ = models(pdfs=[])
-    original = deepcopy(growth.payload)
-    projected = project_company_growth(growth.payload, ticker="9268")
+    payload = deepcopy(growth.payload)
+    payload["calculation_method"] = "company_growth_retrospective_v25"
+    for period in payload["periods"]:
+        period.pop("cohort")
+    for change in payload["changes"]:
+        change.pop("target_cohort")
+        change.pop("native_prior_cohorts")
+    original = deepcopy(payload)
+    projected = project_company_growth(payload, ticker="9268")
     rows = [
         *projected["reported"]["rows"],
         *projected["reported_cash_flow"]["rows"],
@@ -115,7 +128,7 @@ def test_unrecorded_legacy_precision_keeps_old_table_shape():
     assert all("metric_precision" not in row for row in rows)
     assert projected["reported_yoy"]["columns"] == _OLD_CHANGE_COLUMNS
     assert all(len(row) == len(_OLD_CHANGE_COLUMNS) for row in projected["reported_yoy"]["rows"])
-    assert growth.payload == original
+    assert payload == original
 
 
 def test_absent_saved_metric_is_not_a_disclosure_reason_or_another_columns_source():

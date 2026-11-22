@@ -11,6 +11,8 @@ from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_period_states,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import (
+    COHORT_COMPARISON_REVISION,
+    COHORT_PDF_COMPARISON_REVISION,
     CompanyGrowth,
     Coverage,
     InputRelease,
@@ -54,11 +56,21 @@ def generate_company_growth(
     if pdf_input is not None and pdf_input.as_of != as_of:
         raise ValueError("PDF financial input has a different as-of date")
     selected_pdf = pdf_input.selection if pdf_input is not None else None
+    native_anchor = pdf_input.native_anchor if pdf_input is not None else None
     # 窓外の前年値や後日訂正を先に落とすと、同じ期の値が表示範囲で変わる。
     states = apply_pdf_periods(
-        build_period_states(documents, sector=sector), selected_pdf, sector=sector
+        build_period_states(documents, sector=sector),
+        selected_pdf,
+        native_anchor=native_anchor,
+        sector=sector,
     )
-    changes = apply_pdf_changes(build_changes(states), selected_pdf, states=states, sector=sector)
+    changes = apply_pdf_changes(
+        build_changes(states),
+        selected_pdf,
+        states=states,
+        native_anchor=native_anchor,
+        sector=sector,
+    )
     observed = tuple(sorted({state.period_end for state in states}))
     displayed = tuple(
         s for s in states if (start is None or start <= s.period_end) and s.period_end <= end
@@ -72,9 +84,9 @@ def generate_company_growth(
             "pdf_supplement": pdf,
             "pdf_selection": selected_pdf,
             "pdf_input_reason": pdf_input_reason,
-            "calculation_method": "company_growth_retrospective_v25-pdf-jp-interim"
+            "calculation_method": COHORT_PDF_COMPARISON_REVISION
             if pdf is not None
-            else "company_growth_retrospective_v25",
+            else COHORT_COMPARISON_REVISION,
             "input_release": input_release,
             "periods": displayed,
             "changes": tuple(

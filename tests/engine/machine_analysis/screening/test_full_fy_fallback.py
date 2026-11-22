@@ -130,6 +130,27 @@ def with_growth(fixed, update):
     return fixed.model_copy(update={"models": tuple(models)})
 
 
+def without_latest_ttm_interval(fixed):
+    """Control just the saved TTM interval; quarter amounts and comparisons are generated."""
+
+    def update(payload):
+        state = payload["periods"][-1]
+        annual = next(item for item in state["observations"] if item["measurement"] == "annual_ttm")
+        assert annual["period_status"] == "available"
+        annual["period_status"] = "matching_period_not_observed"
+        annual["metrics"] = {
+            metric: {"value": None, "reason": "matching_period_not_observed", "documents": []}
+            for metric in annual["metrics"]
+        }
+        payload["changes"] = [
+            item
+            for item in payload["changes"]
+            if item["measurement"] != "annual_ttm" or item["target_cohort"] != state["cohort"]
+        ]
+
+    return with_growth(fixed, update)
+
+
 def test_missing_ttm_uses_same_complete_fy_and_preserves_short_history_comparison(tmp_path):
     fixed = generation(documents())
     path = tmp_path / "runs.sqlite"
@@ -223,42 +244,39 @@ def test_observed_later_loss_or_zero_does_not_restore_old_fy_earning_power(bad_v
 
 @pytest.mark.parametrize("bad_value", [-1.0, 0.0])
 def test_known_quarter_deterioration_or_zero_cannot_escape_through_full_fy(bad_value):
-    def update(payload):
-        for change in payload["changes"]:
-            if change["measurement"] == "quarter" and change["to_end"] == "2025-06-30":
-                change["difference"] = bad_value
-                # In particular, zero with a nonpositive base still has no growth rate.
-                change["rate"] = None
-
-    fixed = with_growth(generation(documents()), update)
+    rows = documents()
+    rows[-1] = replace(rows[-1], sales=bad_value)
+    prior = document(2024, "1Q", 0.0, 80.0 - bad_value, 70.0)
+    fixed = without_latest_ttm_interval(generation([*rows, prior]))
     row = project(fixed)
     assert active(row, "business_expansion") is None
     assert active(row, "operating_recovery") is None
     # Earning power is not a growth claim: newer positive actuals remain relevant.
     assert active(row, "earning_power")["variant"] == "full_fy"
     reader = growth_reader(fixed)
+    quarter = reader.observation(reader.latest_period, "quarter")
     for metric in ("sales", "operating_profit"):
-        (change,) = reader.year_over_year(
-            reader.observation(reader.latest_period, "quarter"), metric
-        )
+        (change,) = reader.year_over_year(quarter, metric)
+        (source,) = reader.comparison_prior(quarter, change)
+        assert source.metrics[metric].documents[0].disclosure_number == prior.disclosure_number
         assert change.difference == bad_value
-        assert change.rate is None
+        if metric == "sales":
+            assert change.rate is None  # Numeric decline/zero and unavailable rate can coexist.
 
 
 def test_positive_current_earning_power_does_not_require_growth_or_margin_improvement():
-    def update(payload):
-        for change in payload["changes"]:
-            if change["measurement"] == "quarter" and change["to_end"] == "2025-06-30":
-                if change["metric"] == "operating_margin":
-                    change["difference"] = 0.0
-                elif change["metric"] in {"operating_profit", "parent_profit"}:
-                    change["difference"] = -1.0
-
-    fixed = with_growth(generation(documents()), update)
+    prior = document(2024, "1Q", 405.0, 81.0, 71.0)
+    fixed = without_latest_ttm_interval(generation([*documents(), prior]))
     row = project(fixed)
     assert active(row, "earning_power")["variant"] == "full_fy"
     assert active(row, "operating_recovery") is None
-    (change,) = growth_reader(fixed).year_over_year(latest(fixed, "quarter"), "operating_margin")
+    reader = growth_reader(fixed)
+    quarter = reader.observation(reader.latest_period, "quarter")
+    (change,) = reader.year_over_year(quarter, "operating_margin")
+    (prior_observation,) = reader.comparison_prior(quarter, change)
+    assert (
+        prior_observation.metrics["sales"].documents[0].disclosure_number == prior.disclosure_number
+    )
     assert change.difference == 0.0
 
 
@@ -295,21 +313,22 @@ def test_latest_fy_missing_parent_profit_does_not_use_eps_or_older_profit():
     assert reader.observation(year, "reported").metrics["reported_basic_eps"].value == 999.0
 
 
-def test_bounded_fy_read_keeps_every_matching_prior_source_for_the_cutoff(monkeypatch):
+def test_bounded_fy_read_keeps_exact_prior_source_for_the_cutoff(monkeypatch):
     def update(payload):
-        prior = deepcopy(payload["periods"][1])
-        prior["fiscal_year_end"] = "2024-06-30"
-        for item in prior["observations"]:
+        source = payload["periods"][1]
+        sibling = deepcopy(source)
+        sibling["fiscal_year_end"] = "2024-06-30"
+        sibling["cohort"][2] = "2024-06-30"
+        for item in source["observations"]:
             if item["measurement"] == "annual_ttm":
                 item["metrics"]["sales"]["documents"][0]["disclosed_at"] = "2025-09-01"
-        payload["periods"].insert(2, prior)
+        payload["periods"].insert(2, sibling)
 
     fixed = with_growth(generation([document(2020, "FY", 500.0, 50.0, 40.0), *documents()]), update)
     payload = fixed.result("company_growth", "1001").payload
     before = canonical_json(payload)
     bounded = economic_path_inputs._growth_policy_inputs(payload)
     assert [item["period_end"] for item in bounded["periods"]] == [
-        "2024-03-31",
         "2024-03-31",
         "2025-03-31",
         "2025-06-30",
@@ -318,13 +337,8 @@ def test_bounded_fy_read_keeps_every_matching_prior_source_for_the_cutoff(monkey
     reader = growth_reader(fixed)
     fy = reader.latest_full_fy
     (change,) = reader.year_over_year(fy, "sales")
-    priors = reader.comparison_prior(fy, change)
-    assert len(priors) == 2
-    assert any(
-        doc.disclosed_at > fixed.as_of
-        for prior in priors
-        for doc in prior.metrics["sales"].documents
-    )
+    (prior,) = reader.comparison_prior(fy, change)
+    assert any(doc.disclosed_at > fixed.as_of for doc in prior.metrics["sales"].documents)
     assert active(row, "business_expansion") is None
     assert active(row, "earning_power") is not None
     monkeypatch.setattr(economic_path_inputs, "_growth_policy_inputs", lambda payload: payload)
@@ -453,7 +467,9 @@ def test_quarter_and_ttm_keep_retrospective_corrections_without_a_disclosure_cut
     assert recovery["price_value"] == pytest.approx(80.0 / 800.0)
     assert recovery["business_value"] == pytest.approx(180.0 / 800.0 - 100.0 / 500.0)
     reader = growth_reader(fixed)
-    (annual_sales,) = reader.year_over_year(latest(fixed, "annual_ttm"), "sales")
+    (annual_sales,) = reader.year_over_year(
+        reader.observation(reader.latest_period, "annual_ttm"), "sales"
+    )
     assert annual_sales.rate == pytest.approx(0.25)
     assert not any(
         p["path_id"] == "business_expansion" and p["variant"] == "annual_ttm"

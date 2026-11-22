@@ -17,6 +17,7 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
 from baibai_engine.machine_analysis.models.company_growth.reading import (
     CompanyGrowthReader,
     metric_value,
+    same_comparison_endpoints,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
     _can_use_full_fy,
@@ -107,8 +108,12 @@ def read_growth_discovery(
         ),
         "balance_quarter_basis": _basis_check(balance, quarter, same_end=True),
         "annual_quarter_basis": _basis_check(annual, quarter, same_end=not uses_fy),
-        "growth_comparison_interval": _interval_check(sales, profit),
-        "recovery_comparison_interval": _interval_check(profit, margin),
+        "growth_comparison_interval": _interval_check(
+            sales, profit, cohort_bound=reader.cohort_bound
+        ),
+        "recovery_comparison_interval": _interval_check(
+            profit, margin, cohort_bound=reader.cohort_bound
+        ),
         "full_fy_without_newer_income_reversal": "not_met" if adverse else "met",
     }
     states = {route: {checks[name] for name in names} for route, names in _ROUTES.items()}
@@ -175,9 +180,7 @@ def _basis_check(left: Observation | None, right: Observation | None, *, same_en
     return "met" if aligned else "missing"
 
 
-def _interval_check(a: dict[str, JsonValue], b: dict[str, JsonValue]) -> _Check:
-    aligned = all(
-        a.get(k) is not None and a.get(k) == b.get(k)
-        for k in ("from_start", "from_end", "to_start", "to_end")
-    )
-    return "met" if aligned else "missing"
+def _interval_check(
+    a: dict[str, JsonValue], b: dict[str, JsonValue], *, cohort_bound: bool
+) -> _Check:
+    return "met" if same_comparison_endpoints(a, b, cohort_bound=cohort_bound) else "missing"

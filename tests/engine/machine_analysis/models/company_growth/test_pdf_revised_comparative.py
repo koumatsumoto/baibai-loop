@@ -10,7 +10,7 @@ from tests.engine.machine_analysis.models.company_growth.test_pdf_annual_compari
     discovery_paths,
 )
 from tests.engine.machine_analysis.observations.financials.test_pdf_selection import models
-from tests.helpers.pdf_statements import base, pages
+from tests.helpers.pdf_statements import ASOF, base, pages
 
 from baibai_engine.investment_judgment.workflow.company_growth_projection import (
     project_company_growth,
@@ -18,6 +18,9 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
 from baibai_engine.machine_analysis.models.company_growth.calculations import build_changes
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.models.company_growth.pdf_selection import apply_pdf_changes
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    prepare_pdf_financials,
+)
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pages
 
 REASON = "restated_comparative_unverified_after_revision"
@@ -209,4 +212,14 @@ def test_unrecorded_prior_source_clock_does_not_become_a_confirmed_older_value()
     )
     states = (without_sources, *g.periods[1:])
     native = build_changes(states)
-    assert apply_pdf_changes(native, g.pdf_selection, states=states, sector="卸売業") == native
+    prepared = prepare_pdf_financials(docs, (pdf,), as_of=ASOF)
+    assert (
+        apply_pdf_changes(
+            native,
+            g.pdf_selection,
+            states=states,
+            native_anchor=prepared.native_anchor,
+            sector="卸売業",
+        )
+        == native
+    )

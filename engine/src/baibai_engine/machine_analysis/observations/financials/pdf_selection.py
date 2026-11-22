@@ -74,6 +74,7 @@ class PdfFinancialInput:
     as_of: date
     selection: PdfFinancialSelection | None
     supplement: PdfSupplement | None
+    native_anchor: JQuantsFinancialSummary | None = None
 
 
 def prepare_pdf_financials(
@@ -82,11 +83,15 @@ def prepare_pdf_financials(
     """財務と成長へ同じ観測を渡し、一方のモデル結果を他方の入力にしない。"""
     if not statements:
         return None
+    selection, native_anchor = _select_pdf_financials_with_anchor(
+        documents, statements, as_of=as_of
+    )
     return PdfFinancialInput(
         ticker=statements[0].ticker,
         as_of=as_of,
-        selection=select_pdf_financials(documents, statements, as_of=as_of),
+        selection=selection,
         supplement=build_pdf_supplement(statements, as_of=as_of),
+        native_anchor=native_anchor,
     )
 
 
@@ -297,8 +302,15 @@ def _known_annual_conflict(
 def select_pdf_financials(
     documents: Sequence[JQuantsFinancialSummary], statements: Sequence[PdfStatement], *, as_of: date
 ) -> PdfFinancialSelection | None:
+    selection, _ = _select_pdf_financials_with_anchor(documents, statements, as_of=as_of)
+    return selection
+
+
+def _select_pdf_financials_with_anchor(
+    documents: Sequence[JQuantsFinancialSummary], statements: Sequence[PdfStatement], *, as_of: date
+) -> tuple[PdfFinancialSelection | None, JQuantsFinancialSummary | None]:
     if not statements:
-        return None
+        return None, None
     tickers = {item.ticker for item in statements} | {row.ticker for row in documents}
     if len(tickers) != 1:
         raise ValueError("PDF financial selection requires one issuer")
@@ -306,7 +318,7 @@ def select_pdf_financials(
         item for item in statements if item.published_on is None or item.published_on <= as_of
     ]
     if not retained:
-        return None
+        return None, None
     projected = project_financial_documents(documents, as_of)
     rows = [
         row
@@ -318,9 +330,21 @@ def select_pdf_financials(
     anchor = max((accounting_period_identity(row) for row in rows), default=None)
     current_row = _latest([row for row in rows if accounting_period_identity(row) == anchor])
     if current_row is None:
-        return PdfFinancialSelection(
-            status="unavailable", reason="latest_disclosure_missing_or_ambiguous"
+        return (
+            PdfFinancialSelection(
+                status="unavailable", reason="latest_disclosure_missing_or_ambiguous"
+            ),
+            None,
         )
+    return _select_for_current(current_row, retained, rows, projected), current_row
+
+
+def _select_for_current(
+    current_row: JQuantsFinancialSummary,
+    retained: Sequence[PdfStatement],
+    rows: Sequence[JQuantsFinancialSummary],
+    projected: Sequence[JQuantsFinancialSummary],
+) -> PdfFinancialSelection:
     current, reason = _matching_pdf(current_row, retained)
     current_is_annual = (
         current_row.period_start is not None
