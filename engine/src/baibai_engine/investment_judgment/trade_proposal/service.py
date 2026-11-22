@@ -166,6 +166,18 @@ def _validate_action(
         }
         blockers.extend(result_holding.hard_blockers)
         if (
+            item.action == "sell"
+            and item.reason_code == "economic_invalidation"
+            and item.remaining_reward is not None
+            and item.remaining_reward.status != "uncertain"
+        ):
+            blockers.append(
+                GateReason(
+                    code="invalidation_reward_unverified",
+                    message="仮説破綻による売却では残存見返りを算出しません。省略するか未確認としてください。",
+                )
+            )
+        if (
             result_holding.action != item.action
             or (
                 item.action == "hold"
