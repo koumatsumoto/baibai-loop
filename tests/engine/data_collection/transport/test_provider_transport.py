@@ -273,6 +273,7 @@ class IndicatorsProviderParserTests(TestCase):
         timed_out, rendered = MagicMock(), MagicMock()
         context.new_page.side_effect = [timed_out, rendered]
         timed_out.goto.side_effect = PlaywrightTimeoutError("navigation timed out")
+        rendered.goto.return_value.status = 200
         rendered.content.return_value = "<html>rendered index</html>"
         url = "https://example.test/index"
 
@@ -283,4 +284,23 @@ class IndicatorsProviderParserTests(TestCase):
         timed_out.content.assert_not_called()
         for page in (timed_out, rendered):
             page.goto.assert_called_once_with(url, wait_until="networkidle", timeout=60_000)
+            page.close.assert_called_once_with()
+
+    def test_browser_http_error_never_returns_rendered_index_contents(self) -> None:
+        from baibai_engine.data_collection.transport.browser import BrowserFetcher
+
+        for status in (403, 404, 429, 503):
+            context = MagicMock()
+            page = context.new_page.return_value
+            page.goto.return_value.status = status
+            page.content.return_value = "<html>old release index</html>"
+            with (
+                self.subTest(status=status),
+                patch.object(BrowserFetcher, "_ensure_context", return_value=context),
+                self.assertRaisesRegex(IndicatorsProviderError, f"HTTP {status}"),
+            ):
+                BrowserFetcher().fetch_html("https://example.test/index")
+            context.new_page.assert_called_once_with()
+            page.goto.assert_called_once()
+            page.content.assert_not_called()
             page.close.assert_called_once_with()

@@ -136,13 +136,17 @@ class BrowserFetcher:
             page = context.new_page()
             try:
                 try:
-                    page.goto(url, wait_until="networkidle", timeout=_NAV_TIMEOUT_MS)
+                    response = page.goto(url, wait_until="networkidle", timeout=_NAV_TIMEOUT_MS)
                 except PlaywrightTimeoutError:
                     last_error = "navigation timed out"
                     continue
                 except PlaywrightError as exc:
                     last_error = str(exc)
                     continue
+                if response is not None and response.status >= 400:
+                    raise IndicatorsProviderError(
+                        f"browser response HTTP {response.status} from {url}"
+                    )
                 return page.content()
             finally:
                 page.close()
