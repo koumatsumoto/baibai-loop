@@ -670,6 +670,26 @@ def test_missing_valuation_has_no_manufactured_projection(unresolved):
     assert result["derived"]["metrics"][0]["value"] == 0.3333333333333333
 
 
+def test_cli_rejects_ambiguous_ratio_document_without_output(tmp_path, capsys):
+    raw = json.dumps(inputs_payload(numerator=120, denominator=3), ensure_ascii=False)
+    original = '"fact_id": "numerator", "fact_kind": "other", "value": 120'
+    assert raw.count(original) == 1
+    contradictory = raw.replace(original, original + ', "value": 360')
+    path = tmp_path / "ratio.yaml"
+    path.write_text(contradictory, encoding="utf-8")
+    before = path.read_bytes()
+    assert workspace_cli.main(["calculate", str(path)]) == 2
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert "invalid calculation inputs YAML" in result.err
+    assert "360" not in result.err
+    assert path.read_bytes() == before
+
+    path.write_text(raw, encoding="utf-8")
+    assert workspace_cli.main(["calculate", str(path)]) == 0
+    assert json.loads(capsys.readouterr().out)["derived"]["metrics"][0]["value"] == 40.0
+
+
 def test_calculation_does_not_return_authored_inputs_as_independent_review():
     assessment, review = pair_payload(as_of="2026-09-07", quote_as_of="2026-09-04")
     inputs = {key: deepcopy(assessment[key]) for key in ("input_snapshot", "valuation")}

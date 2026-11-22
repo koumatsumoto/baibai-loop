@@ -8,8 +8,7 @@ import sys
 from decimal import DecimalException
 from pathlib import Path
 
-import yaml
-
+from baibai_engine.investment_judgment.draft_files import parse_authored_yaml
 from baibai_engine.investment_judgment.stock_assessment.calculation import (
     CalculationInput,
     calculate,
@@ -18,7 +17,6 @@ from baibai_engine.investment_judgment.stock_assessment.cash_share_cb import (
     CashShareCBInput,
     calculate_cash_share_cb,
 )
-from baibai_engine.primitives.yaml import safe_load
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,14 +42,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         path = args.inputs if args.inputs is not None else args.cash_share_cb
-        raw = safe_load(path.read_text(encoding="utf-8"))
+        raw = parse_authored_yaml(path.read_text(encoding="utf-8"), label="calculation inputs")
         result = (
             calculate(CalculationInput.model_validate(raw))
             if args.inputs is not None
             else calculate_cash_share_cb(CashShareCBInput.model_validate(raw))
         )
         encoded = json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2)
-    except (OSError, yaml.YAMLError, ValueError, DecimalException, OverflowError) as exc:
+    except (OSError, ValueError, DecimalException, OverflowError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(encoded)
