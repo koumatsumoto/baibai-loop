@@ -37,7 +37,7 @@ type AnnualRevisionBasis = Literal[
     "same_disclosure", "latest_reconfirmed_unchanged_amounts", "same_day_restated_reference_actual"
 ]
 
-REVISION = "retained-pdf-restatement-selection-v6-jp-interim-comparison"
+REVISION = "retained-pdf-restatement-selection-v7-native-cohort"
 _FIELDS: dict[Metric, str] = {
     "sales": "sales",
     "operating_profit": "operating_profit",
