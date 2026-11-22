@@ -212,7 +212,7 @@ uv run baibai-engine investment-judgment prepare \
 
 完了時は現在の全対象・成果に一致する正式提案IDを明示する。既に訂正されたIDは使わず、最新への自動置換もしない。空選定または未発行で全対象未完の場合だけIDを省き、理由と次手を記す。同じID・結果・次手での再試行は元の完了を返す。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> --format json show <ID>`で読み、workspaceのincompleteと区別する。
 
-Operationに保存された[Research Selection](../../../docs/architecture.md#store-authority)から再開し、selection-contextで選び直さない。forceは表示を再投影し執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
+Operationに保存された[Research Selection](../../../docs/architecture.md#store-authority)から再開し、selection-contextで選び直さない。prepareの再開先はOperationの親workspaceとし、保有銘柄の`holdings/<ticker>`を直接指定しない。子workspaceは状態確認・執筆・発行に使う。forceは表示を再投影し執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
 
 `company-research save`と`judgment-retrospective save`の`--out`は正本とは別の補助copy。保存後のexport失敗は終了codeを失敗のまま保ち、stdoutの`saved_output_failed`で保存済み参照と元記録時刻だけを返す。確認情報をprivateに保持し、同じcommand群の`get`へID/hashを渡して、新しい出力先に読み直す。新IDで保存し直したり、残った部分出力を完全な記録として使ったりしない。保存前の失敗では保存済みと報告しない。
 

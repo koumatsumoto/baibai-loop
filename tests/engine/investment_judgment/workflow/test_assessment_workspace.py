@@ -91,6 +91,56 @@ def author(case, *, ticker="1234", workspace=None):
     return document, review
 
 
+@pytest.mark.parametrize("by_draft", [False, True], ids=["operation-id", "selection-file"])
+@pytest.mark.parametrize("force", [False, True])
+def test_prepare_requires_root_without_rewriting_a_holding_child(tmp_path, capsys, by_draft, force):
+    db, runs, root = tmp_path / "app", tmp_path / "runs", tmp_path / "workspace"
+    seed_ledger(
+        db, load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    )
+    inputs = seed_generated_selection(
+        runs=runs, now=NOW, tickers=("2331",), scope="review_positions"
+    )
+    draft = generated_draft_for(inputs)
+    selection_file = tmp_path / "selection.json"
+    selection_file.write_text(draft.model_dump_json(), encoding="utf-8")
+    prepared = prepare_selected_workspace(
+        draft=draft, db_path=db, workspace=root, runs_path=runs, now=NOW
+    )
+    child = root / "holdings/2331"
+    author((db, child, prepared.operation_id), ticker="2331")
+    files = {p: p.read_bytes() for p in root.rglob("*.yaml")}
+    input_bytes = db.read_bytes(), runs.read_bytes(), selection_file.read_bytes()
+    before = compute_status(child, db_path=db, now=NOW)
+    assert before["cases"][0]["status"] == "ready_for_promotion"
+    source = (
+        ["--selection-file", str(selection_file)]
+        if by_draft
+        else ["--operation-id", prepared.operation_id]
+    )
+    args = ["prepare", *source, "--db", str(db), "--runs-path", str(runs)]
+    flags = ["--force"] if force else []
+    assert main([*args, "--workspace", str(child), *flags], now=NOW) == 4
+    refused = capsys.readouterr()
+    assert refused.out == ""
+    assert "root workspace" in refused.err
+    assert {p: p.read_bytes() for p in root.rglob("*.yaml")} == files
+    assert not (child / "holdings").exists()
+    assert (db.read_bytes(), runs.read_bytes(), selection_file.read_bytes()) == input_bytes
+
+    assert main([*args, "--workspace", str(root), *flags], now=NOW) == 0
+    resumed = json.loads(capsys.readouterr().out)
+    assert resumed["status"] == "resumed"
+    assert resumed["operation_id"] == prepared.operation_id
+    assert resumed["selection_sha256"] == prepared.selection_sha256
+    assert compute_status(child, db_path=db, now=NOW) == before
+    assert {p: p.read_bytes() for p in root.rglob("*.yaml")} == files
+    assert (db.read_bytes(), runs.read_bytes(), selection_file.read_bytes()) == input_bytes
+
+    assert main(_promote_command(db, child, "2331"), now=NOW) == 0
+    assert compute_status(child, db_path=db, now=NOW)["cases"][0]["status"] == "published"
+
+
 def test_initial_scaffold_has_new_contract_and_stable_writer_identity(case):
     first = scaffold(case)
     text = Path(first["assessment_draft"]).read_text()
