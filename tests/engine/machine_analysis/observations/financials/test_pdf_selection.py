@@ -165,6 +165,7 @@ def test_native_identity_amount_and_basis_conflicts_are_explicit(change):
     )
     assert result.status == "unavailable"
     assert not result.amounts_yen
+    assert result.blocks_legacy_ttm is ("period_end" not in change)
 
 
 def test_unordered_pdf_bytes_do_not_use_last_received_as_correction_order():
