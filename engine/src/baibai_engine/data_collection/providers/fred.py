@@ -106,7 +106,8 @@ class FredSource:
 
 
 def parse_fred_csv(series: SourceDefinition, text: str) -> NativeRecords:
-    reader = csv.DictReader(io.StringIO(text))
+    # An unterminated quoted field can swallow later periods and falsely withdraw them.
+    reader = csv.DictReader(io.StringIO(text), strict=True)
     for column in ("observation_date", series.provider_series_id):
         if column not in (reader.fieldnames or ()):
             raise IndicatorsProviderError(f"FRED CSV missing column {column}")

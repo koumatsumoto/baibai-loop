@@ -214,6 +214,14 @@ def test_stale_seed_a_b_a_and_canonical_only_disappearance(work, harness):
         "observation_date,TEST\n",
         "observation_date,TEST\n2026-10-01\n",
         "observation_date,TEST,TEST\n2026-10-01,1,2\n",
+        pytest.param(
+            b'observation_date,TEST\r\n2026-09-01,"21.0\r\n2026-10-01,22.0\r\n',
+            id="unclosed-quote-swallows-next-period",
+        ),
+        pytest.param(
+            b'observation_date,TEST\n2026-10-01,"22.0"tail\n',
+            id="trailing-text-after-closed-quote",
+        ),
         b"\xffnot UTF-8",
         b'\xef\xbb\xbfTEST,observation_date,unused\r\n"1",2026-10-01\r\n',
         "observation_date,TEST\n2026-10-01," + "1" * 140_000,
@@ -263,6 +271,34 @@ def test_failure_keeps_canonical_originals_and_confirmation(work, harness, paylo
             assert after["economic_source_documents"] == documents
         final.append(after)
     assert final[0] == final[1]
+
+
+def test_quoted_multiline_cell_keeps_both_fred_periods(work, harness):
+    seed = work / "seed.sqlite"
+    receive(seed, 0, {OTHER: "21.0", DAY: "22.0"})
+    body = (
+        b'observation_date,TEST,note\r\n2026-09-01,"21.0","first, ""quoted""\r\n'
+        b'second line"\r\n2026-10-01,22.0,"last"'
+    )
+    raw, status, report, _ = harness(work / "valid", seed, "empty", 2, body)
+    assert status == 0
+    assert report["sources"][0]["record_count"] == 2
+    assert not rows(raw, "economic_source_documents")
+    integrate(raw, seed, work / "accepted.sqlite")
+    assert {
+        row[1]: json.loads(gzip.decompress(row[4]))
+        for row in rows(seed, "economic_source_records")
+        if row[2] == (WHEN + timedelta(hours=2)).isoformat(timespec="microseconds")
+    } == {
+        str(OTHER): [
+            {
+                "observation_date": str(OTHER),
+                "TEST": "21.0",
+                "note": 'first, "quoted"\r\nsecond line',
+            }
+        ],
+        str(DAY): [{"observation_date": str(DAY), "TEST": "22.0", "note": "last"}],
+    }
 
 
 @pytest.mark.parametrize(
