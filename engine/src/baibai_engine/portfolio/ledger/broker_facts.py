@@ -329,15 +329,20 @@ def record_terminal_broker_facts(
     return _patch_document(document, additions=additions, occurred_at=occurred_at)
 
 
-def _validate_report_time(occurrence: date, *, now: datetime | None) -> datetime:
+def _validate_report_time(
+    occurrence: date,
+    *,
+    now: datetime | None,
+    instant_field: Literal["occurred_at", "confirmed_at"] = "occurred_at",
+) -> datetime:
     if isinstance(occurrence, datetime) and occurrence.tzinfo is None:
-        raise BrokerFactRecordingError("occurred_at must include a timezone")
+        raise BrokerFactRecordingError(f"{instant_field} must include a timezone")
     effective_now = now or datetime.now().astimezone()
     if effective_now.tzinfo is None:
         raise BrokerFactRecordingError("now must include a timezone")
     if isinstance(occurrence, datetime):
         if occurrence.astimezone(UTC) > effective_now.astimezone(UTC):
-            raise BrokerFactRecordingError("occurred_at must not be in the future")
+            raise BrokerFactRecordingError(f"{instant_field} must not be in the future")
     elif occurrence > effective_now.astimezone(JST).date():
         raise BrokerFactRecordingError("occurred_on must not be in the future")
     return effective_now

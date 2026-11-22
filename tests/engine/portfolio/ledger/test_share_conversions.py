@@ -2,11 +2,12 @@
 
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
 
 import pytest
+import yaml
 from tests.engine.portfolio.holdings.test_current_quotes import _seed_calendar
 from tests.engine.portfolio.performance.test_calculate import _benchmark
 from tests.helpers.db_seed import seed_ledger
@@ -88,13 +89,14 @@ def _draft(service, **overrides):
         source_ref="synthetic:human-confirmed",
     )
     args.update(overrides)
+    args.setdefault("now", args["confirmed_at"])
     return build_share_conversion_draft(service, **args)
 
 
 def _apply(service, **overrides):
     draft = _draft(service, **overrides)
     assert draft is not None
-    apply_draft(service, draft, human_confirmed=True)
+    apply_draft(service, draft, human_confirmed=True, now=draft.replacement.as_of)
     return service.load()
 
 
@@ -483,20 +485,17 @@ def test_reference_marks_keep_sub_yen_precision_until_whole_yen_output(
     assert ((tmp_path / "app.sqlite").read_bytes(), market.read_bytes()) == before
 
 
-def test_cli_only_creates_draft_until_confirmed(tmp_path, capsys):
-    service = _service(tmp_path)
-    before = (tmp_path / "app.sqlite").read_bytes()
-    out = tmp_path / "draft.yaml"
-    args = [
+def _share_conversion_command(db, out, *, basis_date=BASIS, confirmed_at=NOW):
+    return [
         "share-conversion-draft",
         "--db",
-        str(tmp_path / "app.sqlite"),
+        str(db),
         "--action-id",
         "split",
         "--ticker",
         "1234",
         "--basis-date",
-        str(BASIS),
+        str(basis_date),
         "--numerator",
         "2",
         "--denominator",
@@ -506,19 +505,83 @@ def test_cli_only_creates_draft_until_confirmed(tmp_path, capsys):
         "--quantity-after",
         "200",
         "--confirmed-at",
-        NOW.isoformat(),
+        confirmed_at.isoformat(),
         "--source-ref",
         "synthetic:human",
         "--out",
         str(out),
     ]
-    assert main(args) == 0
-    assert (tmp_path / "app.sqlite").read_bytes() == before
+
+
+def test_cli_only_creates_draft_until_confirmed(tmp_path, capsys):
+    service = _service(tmp_path)
+    db, out = tmp_path / "app.sqlite", tmp_path / "draft.yaml"
+    before = db.read_bytes()
+    assert main(_share_conversion_command(db, out), now=NOW) == 0
+    assert db.read_bytes() == before
     assert load_draft(out).kind == "share-conversion"
-    assert main(["apply-draft", str(out), "--db", str(tmp_path / "app.sqlite")]) == 2
-    assert (tmp_path / "app.sqlite").read_bytes() == before
-    assert main(["apply-draft", str(out), "--db", str(tmp_path / "app.sqlite"), "--confirmed"]) == 0
+    apply = ["apply-draft", str(out), "--db", str(db)]
+    assert main(apply, now=NOW) == 2
+    assert db.read_bytes() == before
+    assert main([*apply, "--confirmed"], now=NOW) == 0
     assert sum(lot.quantity for lot in _state(service).lots["1234"]) == 200
+
+
+@pytest.mark.parametrize(
+    ("basis_date", "confirmation", "accepted"),
+    [
+        pytest.param(BASIS, NOW - timedelta(days=1), True, id="late-report"),
+        pytest.param(BASIS, NOW.astimezone(UTC), True, id="same-instant-offset"),
+        pytest.param(BASIS, NOW + timedelta(microseconds=1), False, id="same-day-future"),
+        pytest.param(
+            NOW.date() + timedelta(days=1), NOW + timedelta(days=1), False, id="scheduled"
+        ),
+    ],
+)
+@pytest.mark.parametrize("entry", ["draft", "apply"])
+def test_share_conversion_requires_an_effective_confirmation_at_draft_and_apply(
+    tmp_path, capsys, basis_date, confirmation, accepted, entry
+):
+    service = _service(tmp_path)
+    db, out = tmp_path / "app.sqlite", tmp_path / "draft.yaml"
+    before = db.read_bytes()
+    command = _share_conversion_command(db, out, basis_date=basis_date, confirmed_at=confirmation)
+    if entry == "draft":
+        assert main(command, now=NOW) == (0 if accepted else 2)
+        assert out.exists() is accepted
+        assert db.read_bytes() == before
+        if not accepted:
+            assert "confirmed_at must not be in the future" in capsys.readouterr().err
+        return
+
+    # A previously prepared or separately authored draft is still checked at apply.
+    assert main(command, now=max(NOW, confirmation)) == 0
+    capsys.readouterr()
+    assert db.read_bytes() == before
+    draft_bytes = out.read_bytes()
+    apply = ["apply-draft", str(out), "--db", str(db), "--confirmed"]
+    assert main(apply, now=NOW) == (0 if accepted else 2)
+    if not accepted:
+        assert "confirmed_at must not be in the future" in capsys.readouterr().err
+        assert db.read_bytes() == before
+        assert main(apply, now=confirmation) == 0
+    assert sum(lot.quantity for lot in _state(service).lots["1234"]) == 200
+    assert service.load().events[-1].confirmed_at == confirmation
+    assert out.read_bytes() == draft_bytes
+
+
+def test_exact_recorded_conversion_retry_ignores_the_current_report_clock(tmp_path, capsys):
+    _service(tmp_path)
+    db, out = tmp_path / "app.sqlite", tmp_path / "draft.yaml"
+    assert main(_share_conversion_command(db, out), now=NOW) == 0
+    assert main(["apply-draft", str(out), "--db", str(db), "--confirmed"], now=NOW) == 0
+    capsys.readouterr()
+    before = db.read_bytes()
+    retry = tmp_path / "retry.yaml"
+    assert main(_share_conversion_command(db, retry), now=NOW - timedelta(microseconds=1)) == 0
+    assert yaml.safe_load(capsys.readouterr().out) == {"status": "no_change"}
+    assert not retry.exists()
+    assert db.read_bytes() == before
 
 
 def test_unconverted_fractional_yen_sale_keeps_old_rejection():
