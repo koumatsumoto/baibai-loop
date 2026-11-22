@@ -98,8 +98,52 @@ class _Document(HTMLParser):
         self.stack[-1].children.append(data)
 
 
-def document(html: str) -> Element:
-    parser = _Document()
+class _DocumentWithoutTemplateContent(_Document):
+    """Do not send inert template tags or text to the document's structural stack."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._template_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "template":
+            self._template_depth += 1
+        elif not self._template_depth:
+            super().handle_starttag(tag, attrs)
+        elif tag == "noscript":
+            # A script-enabled document treats this fallback as text. Within
+            # an inert template it cannot establish that the template ended.
+            self.set_cdata_mode(tag, escapable=False)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._template_depth:
+            if tag == "template":
+                self._template_depth -= 1
+            return
+        super().handle_endtag(tag)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "template":
+            # HTML template is non-void: a malformed trailing slash does not close it.
+            self.handle_starttag(tag, attrs)
+        elif self._template_depth and (
+            tag in self.CDATA_CONTENT_ELEMENTS
+            or tag in self.RCDATA_CONTENT_ELEMENTS
+            or tag in {"noscript", "plaintext"}
+        ):
+            # The same non-void rule applies to text elements inside a template.
+            # Text spelling </template> must not escape the outer inert scope.
+            self.set_cdata_mode(tag, escapable=tag in self.RCDATA_CONTENT_ELEMENTS)
+        else:
+            super().handle_startendtag(tag, attrs)
+
+    def handle_data(self, data: str) -> None:
+        if not self._template_depth:
+            super().handle_data(data)
+
+
+def document(html: str, *, omit_template_content: bool = False) -> Element:
+    parser = _DocumentWithoutTemplateContent() if omit_template_content else _Document()
     parser.feed(html)
     return parser.root
 
