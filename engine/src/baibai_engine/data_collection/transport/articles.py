@@ -22,7 +22,7 @@ from baibai_engine.data_collection.receipts.articles.contracts import ArticleRec
 from baibai_engine.data_collection.transport.http import (
     AcquisitionDeadlineExceeded,
     check_acquisition_deadline,
-    retry_after_delay,
+    parse_retry_after_deadline,
     wait_for_read_retry,
 )
 from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
@@ -85,6 +85,18 @@ class ArticleBudgetExceeded(RuntimeError):
 class ArticleResponse:
     receipt: ArticleReceipt
     body: bytes | None = field(repr=False)
+
+
+def _cooldown_until(value: str | None, received: datetime) -> datetime:
+    # A cross-slot deadline is not urllib3's bounded in-process sleep.
+    deadline, unrepresentable = parse_retry_after_deadline(value, received)
+    if deadline is not None:
+        return deadline
+    limit = datetime.max.replace(tzinfo=UTC)
+    if unrepresentable:
+        # No representable later run can satisfy the original header.
+        return limit
+    return received + min(timedelta(seconds=60), limit - received)
 
 
 def fetch_article(
@@ -155,8 +167,9 @@ def fetch_article(
                     "location": response.headers.get("Location"),
                 }
                 if response.status_code in (429, 503):
-                    delay = retry_after_delay(response.headers.get("Retry-After"), fallback=60.0)
-                    fields["cooldown_until"] = received_at + timedelta(seconds=delay)
+                    fields["cooldown_until"] = _cooldown_until(
+                        response.headers.get("Retry-After"), received_at
+                    )
                 body = None
                 ref = None
                 error = None
