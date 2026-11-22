@@ -125,6 +125,60 @@ def test_invalidation_sale_requires_primary_evidence_for_its_own_thesis(tmp_path
     assert ledger.load_with_head() == ledger_before
 
 
+@pytest.mark.parametrize("status", [None, "uncertain", "sufficient", "insufficient"])
+def test_invalidation_sale_only_records_unconfirmed_remaining_reward(tmp_path, status):
+    case = backend_case(
+        tmp_path,
+        holding=True,
+        broken=True,
+        valuation_unresolved=True,
+        assessment_as_of="2026-10-13",
+    )
+    raw = reviewed_proposal(case, action="sell").payload()
+    raw["items"][0].update(
+        terms=dict(SELL_TERMS, valuation_as_of="2026-10-13"),
+        terms_unavailable_reasons=[],
+        remaining_reward=None if status is None else {"status": status, "reason": "合成の見返り"},
+    )
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    ledger = LedgerStoreService(case.app)
+    ledger_before = ledger.load_with_head()
+    before = case.app.read_bytes()
+    validation = service.check(proposal)
+    assert validation.calculations["1234"] == {
+        "current_price_projection": None,
+        "sell_limit_projection": None,
+    }
+    if status in {"sufficient", "insufficient"}:
+        assert not validation.valid
+        (reason,) = validation.blockers
+        assert reason.code == "invalidation_reward_unverified"
+        assert "remaining_reward: null" in reason.message
+        assert "status: uncertain" in reason.message
+        with pytest.raises(ProposalError, match="remaining_reward: null"):
+            service.publish(proposal)
+        assert case.app.read_bytes() == before
+        # Older saved content and exact retries are not new authoring.
+        saved = TradeProposal.model_validate({**proposal.payload(), "published_at": PUBLISHED})
+        seed_proposal(case.app, saved)
+    else:
+        assert validation.valid
+        saved = service.publish(proposal)
+    item = saved.items[0]
+    assert item.action == "sell"
+    assert item.reason_code == "economic_invalidation"
+    assert order_readiness(item) == "ready"
+    assert (None if item.remaining_reward is None else item.remaining_reward.status) == status
+
+    app_before_retry = case.app.read_bytes()
+    case.market.rename(tmp_path / "parked-market.sqlite")
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    assert service.publish(proposal) == saved
+    assert case.app.read_bytes() == app_before_retry
+    assert ledger.load_with_head() == ledger_before
+
+
 @pytest.mark.parametrize("side", ["sell", "buy"])
 def test_same_ticker_order_blocks_new_sell_terms_but_preserves_economic_sell(tmp_path, side):
     case = backend_case(tmp_path, holding=True, broken=True)
