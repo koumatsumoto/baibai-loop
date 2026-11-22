@@ -1136,6 +1136,54 @@ def test_public_cli_uses_scaffolded_identity(case, capsys):
     assert yaml.safe_load(capsys.readouterr().out)["assessment_id"] == identity
 
 
+@pytest.mark.parametrize("entry", ["promotion", "reuse_scaffold"])
+@pytest.mark.parametrize("key", ["assessment_id", "supersedes_id"])
+def test_workspace_refuses_ambiguous_assessment_publication_identity(case, capsys, entry, key):
+    db, workspace, _ = case
+    if key == "supersedes_id":
+        prior, latest = _prior_and_latest(case)
+    formed = scaffold(case)
+    author(case)
+    identity = workspace / "1234/assessment-publication.yaml"
+    original = identity.read_text(encoding="utf-8")
+    if key == "assessment_id":
+        assert formed["assessment_id"] != assessment_id(81)
+        identity.write_text(original + f"assessment_id: {assessment_id(81)}\n", encoding="utf-8")
+    else:
+        assert yaml.safe_load(original)["supersedes_id"] == latest.assessment_id
+        identity.write_text(f"supersedes_id: {prior.assessment_id}\n" + original, encoding="utf-8")
+    before = db.read_bytes()
+    files = {path: path.read_bytes() for path in workspace.rglob("*.yaml")}
+    export = workspace.parent / "separate.yaml"
+    args = (
+        _promote_command(db, workspace)
+        if entry == "promotion"
+        else [
+            "stock-assessment-scaffold",
+            "--workspace",
+            str(workspace),
+            "--db",
+            str(db),
+            "--ticker",
+            "1234",
+            "--sqlite-path",
+            str(workspace / "absent"),
+            "--asof",
+            NOW.date().isoformat(),
+            "--force",
+            "--out",
+            str(export),
+        ]
+    )
+    assert main(args, now=NOW) == 3
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert result.err == "error: invalid assessment publication YAML\n"
+    assert db.read_bytes() == before
+    assert {path: path.read_bytes() for path in workspace.rglob("*.yaml")} == files
+    assert not export.exists()
+
+
 def test_review_scaffold_rejects_an_incomplete_assessment_without_writing_review(case):
     db, workspace, _ = case
     scaffold(case)
