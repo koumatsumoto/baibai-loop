@@ -85,7 +85,7 @@ def test_tse_identity_accepts_an_omitted_market_segment(ticker, market):
     text = html(ticker).replace(f"(東証グロース : {ticker})", f"(東証{market}:{ticker})")
     result = observation(ticker, text=text)
     assert result.ticker == ticker
-    assert result.parser_version == "kabumap-quants-4"
+    assert result.parser_version == "kabumap-quants-5"
     assert result.fetched_at_utc == RECEIVED
 
 
@@ -168,7 +168,7 @@ def test_explicit_not_computed_keeps_receipt_without_inventing_provider_date():
     assert result.score_as_of_date is None
     assert result.fetched_at_utc == RECEIVED
     assert result.snapshot_date == date(2026, 10, 13)
-    assert result.parser_version == "kabumap-quants-4"
+    assert result.parser_version == "kabumap-quants-5"
     assert all(
         getattr(result, field) is None
         for field in (*kabumap.LABELS.values(), "composite_score", "industry_average_score")
@@ -272,13 +272,16 @@ def test_cutoff_immutable_replay_and_conflict(tmp_path):
         save_observations(path, [first.model_copy(update={"undervaluation_score": 4})])
 
 
-@pytest.mark.parametrize("availability", ["available", "all_null", "not_computed"])
+@pytest.mark.parametrize(
+    "availability", ["available", "all_null", "not_computed", "not_computed_with_template"]
+)
 def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect, availability):
     missing = availability != "available"
-    not_computed = availability == "not_computed"
-    payload = (kabumap_not_computed_html("130A") if not_computed else html(missing=missing)).encode(
-        "shift_jis"
-    )
+    not_computed = availability.startswith("not_computed")
+    page = kabumap_not_computed_html("130A") if not_computed else html(missing=missing)
+    if availability == "not_computed_with_template":
+        page += f"<template>{html('8301', cheap='9/10')}</template>"
+    payload = page.encode("shift_jis")
     session = Session([(200, payload, "SHIFT_JIS")])
     connect(session)
     p, store = plan(tickers=("130A",), sources=("kabumap",)), FakeObjectStore()
@@ -396,3 +399,121 @@ def test_not_computed_requires_composite_scores_inside_the_complete_table():
     )
     with pytest.raises(ParseError, match="missing_quants_scores"):
         observation("660A", text=text)
+
+
+def test_template_only_scores_cannot_create_a_new_observation_but_v4_remains_exact():
+    text = html(cheap="9/10")
+    visible_identity, _, scores = text.partition("</span>")
+    page = visible_identity + "</span><p>表示なし</p><template>" + scores + "</template>"
+    raw = response(
+        "kabumap", "130A", page.encode(), url=kabumap.public_url("130A"), received_at_utc=RECEIVED
+    )
+    with pytest.raises(ParseError, match="missing_quants_date"):
+        decode_attempt((raw,))
+    pinned = decode_attempt((raw,), expected_parser_version="kabumap-quants-4")
+    assert pinned.parser_version == "kabumap-quants-4"
+    assert pinned.score_as_of_date == date(2026, 10, 9)
+    assert pinned.undervaluation_score == 9
+    assert pinned.fetched_at_utc == RECEIVED
+
+
+def test_template_identity_cannot_establish_identity_of_visible_score():
+    text = html()
+    identity, _, scores = text.partition("</span>")
+    with pytest.raises(ParseError, match="ticker_identity"):
+        observation(text=("<template>" + identity + "</span></template>" + scores))
+
+
+def test_template_cells_cannot_supply_missing_visible_composite():
+    text = html().replace(
+        '<li id="sectorRow"><strong>52</strong>/100</li>',
+        '<template><li id="sectorRow"><strong>52</strong>/100</li></template>',
+    )
+    with pytest.raises(ParseError, match="missing_quants_scores"):
+        observation(text=text)
+
+
+def test_visible_available_zero_and_not_computed_ignore_nested_template_siblings():
+    clutter = f"<template><template>{html('8301', cheap='9/10')}</template></template>"
+    observed = observation(text=html(cheap="0/10") + clutter)
+    assert observed.availability == "available"
+    assert observed.undervaluation_score == 0
+    visible = observation("660A", text=kabumap_not_computed_html() + clutter)
+    assert visible.availability == "not_computed"
+    assert visible.undervaluation_score is None
+
+
+@pytest.mark.parametrize(
+    "inert",
+    [
+        "<template>{scores}",
+        "<template/>{scores}</template>",
+        "<section><template></section>{scores}</template>",
+        "<template><template/>{scores}</template>{scores}</template>",
+        "<template><textarea></template></textarea>{scores}</template>",
+        "<template><script/></template>{scores}</script></template>",
+        "<template><noscript></template></noscript>{scores}</template>",
+    ],
+)
+def test_nested_or_malformed_templates_do_not_leak_score_markup(inert):
+    prefix, _, scores = html(cheap="9/10").partition("</span>")
+    with pytest.raises(ParseError, match="missing_quants_date"):
+        observation(text=prefix + "</span>" + inert.format(scores=scores))
+
+
+def test_completed_template_does_not_change_following_visible_zero():
+    intra_template = "<section><template></section><span>placeholder</span></template></section>"
+    assert observation(text=intra_template + html(cheap="0/10")).undervaluation_score == 0
+
+
+@pytest.mark.parametrize("marker", ["<script>", "<SCRIPT / >", "<ScRiPt	>"])
+def test_double_escaped_script_cannot_release_inert_template_scores(marker):
+    page = html(cheap="9/10")
+    prefix, _, scores = page.partition("</span>")
+    inert = f"<template><script><!--{marker}</script></template>{scores}</script></template>"
+    with pytest.raises(ParseError, match="ambiguous_inert_template_script"):
+        observation(text=prefix + "</span>" + inert)
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "const sample = '<script>';",
+        "<!--",
+        "<!--> <script>",
+        "<!-- --> <script>",
+        "<!--<script> -->",
+        "<!--<scripture>",
+    ],
+)
+def test_unambiguous_template_script_does_not_discard_real_following_score(script):
+    inert = f"<template><script>{script}</script></template>"
+    result = observation(text=inert + html(cheap="0/10"))
+    assert result.undervaluation_score == 0
+    assert result.availability == "available"
+
+
+def test_daily_keeps_the_ambiguous_receipt_without_publishing_a_score(connect):
+    prefix, _, scores = html(cheap="9/10").partition("</span>")
+    body = (
+        prefix
+        + "</span><template><script><!--<script></script></template>"
+        + scores
+        + "</script></template>"
+    ).encode("shift_jis")
+    session = Session([(200, body, "SHIFT_JIS")])
+    connect(session)
+    p, store = plan(tickers=("130A",), sources=("kabumap",)), FakeObjectStore()
+    external_assessment_daily.acquire_cohort(store, p, 0)
+    saved = stage(store, p)
+    (entry,) = saved.result.entries
+    assert entry.state == "failure"
+    # Stage summaries keep the existing public reason allowlist. The direct parser
+    # tests retain the precise internal diagnostic for this receipt.
+    assert entry.reason == "unclassified_parse_failure"
+    assert entry.http_status == 200
+    assert saved.result.observations == ()
+    (_, (original,)) = read_raw_bundle(store, saved.raw_bundle_keys[0])
+    assert original.body == body
+    assert original.attempt_id == entry.attempt_id
+    assert len(session.calls) == 1
