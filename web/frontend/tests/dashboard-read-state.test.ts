@@ -228,6 +228,7 @@ it('keeps portfolio information visible while outcomes are pending', () => {
   hooks.values.set(0, dashboard())
   const html = render()
   expect(html).toContain('資産と損益')
+  expect(html).toContain('資産・保有・未約定注文の表示データ生成')
   expect(html).toContain('保有銘柄はありません')
   expect(html).not.toContain('運用成績はまだありません')
 })
@@ -268,6 +269,7 @@ it.each([{ outcomes: [] }, { outcomes: [{
   expect(html).toContain('資産・保有・未約定注文を読み込めません')
   expect(html).toContain('API request failed: 503 Service Unavailable')
   expect(html).toContain(outcomes.length ? 'retained-outcome' : '運用成績はまだありません')
+  if (outcomes.length) expect(html).toContain('<time dateTime="2025-01-01">2025-01-01</time> ～ <time dateTime="2025-12-31">2025-12-31</time>')
   expect(html).not.toContain('資産と損益')
   expect(html).not.toContain('保有銘柄はありません')
   expect(html).not.toContain('表示データ生成')
@@ -320,14 +322,14 @@ it('routes an outcomes request failure to its own state, not the portfolio error
 })
 
 
-it('distinguishes display generation, last ledger record, and quote basis', () => {
+it('distinguishes asset display generation, last ledger record, and quote basis', () => {
   hooks.values.set(0, { ...dashboard(),
     generated_at: '2026-10-16T13:43:00Z',
     ledger_as_of: '2026-10-12T01:30:00Z',
     valuation_as_of: '2026-10-15',
   })
   const html = render()
-  expect(html).toMatch(/表示データ生成 <time[^>]*dateTime="2026-10-16T13:43:00Z"[^>]*>2026-10-16 22:43 JST/)
+  expect(html).toMatch(/資産・保有・未約定注文の表示データ生成 <time[^>]*dateTime="2026-10-16T13:43:00Z"[^>]*>2026-10-16 22:43 JST/)
   expect(html).toMatch(/台帳最終記録 <time[^>]*dateTime="2026-10-12T01:30:00Z"[^>]*>2026-10-12 10:30 JST/)
   expect(html).toContain('株価基準 2026-10-15')
   expect(html).toContain('表示の基準日の保存終値に基づきます')
@@ -346,11 +348,13 @@ it('still shows the generation stamp when the ledger is absent or unreadable', (
   }
 })
 
-it('does not describe an unavailable saved outcome view as no outcomes', () => {
+it.each(['request', 'saved-view'])('keeps the asset clock visible during an outcomes %s error', failure => {
   hooks.values.set(0, dashboard())
-  hooks.values.set(1, { error: '保存済み運用成績を読み取れません。', outcomes: [] })
+  if (failure === 'request') hooks.values.set(2, '保存済み運用成績を読み取れません。')
+  else hooks.values.set(1, { error: '保存済み運用成績を読み取れません。', outcomes: [] })
   const html = render()
   expect(html).toContain('資産と損益')
+  expect(html).toContain('資産・保有・未約定注文の表示データ生成')
   expect(html).toContain('運用成績を読み込めません')
   expect(html).toContain('保存済み運用成績を読み取れません。')
   expect(html).not.toContain('運用成績はまだありません')
@@ -365,17 +369,25 @@ it('describes a readable empty outcome store as no outcomes', () => {
 })
 
 
-it.each([undefined, null])('keeps readable legacy and current outcome views visible (error=%s)', error => {
-  hooks.values.set(0, dashboard())
+it.each([
+  { mode: 'legacy-envelope', error: undefined, start: '2024-12-31', end: '2025-12-31' },
+  { mode: 'retained-period', error: null, start: '2024-12-31', end: '2025-12-31' },
+  { mode: 'current-period', error: null, start: '2025-10-15', end: '2026-10-15' },
+])('shows the saved outcome period separately from the asset stamp ($mode)', ({ error, start, end }) => {
+  hooks.values.set(0, { ...dashboard(), total_capital_yen: 12_345_678 })
   hooks.values.set(1, {
     ...(error === undefined ? {} : { error }),
     outcomes: [{
-      outcome_id: 'synthetic-outcome', horizon: '1y', period_start_date: '2024-12-31',
-      period_end_date: '2025-12-31', status: 'resolved', reason: null,
+      outcome_id: 'synthetic-outcome', horizon: '1y', period_start_date: start,
+      period_end_date: end, status: 'resolved', reason: null,
       portfolio_twr_pct: 10.2, benchmark_cumulative_return_pct: 8.2,
     }],
   })
   const html = render()
+  expect(html).toContain('￥12,345,678')
+  expect(html).toMatch(/資産・保有・未約定注文の表示データ生成 <time[^>]*>2026-10-16 09:00 JST/)
+  expect(html).toContain('保存した比較期間の成績です。資産・保有欄の生成時刻とは別です。')
+  expect(html).toContain(`<time dateTime="${start}">${start}</time> ～ <time dateTime="${end}">${end}</time>`)
   expect(html).toContain('synthetic-outcome')
   expect(html).toContain('10.2%')
   expect(html).not.toContain('運用成績を読み込めません')

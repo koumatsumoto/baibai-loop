@@ -324,7 +324,7 @@ const STATUS_LABEL: Record<string, string> = {
 export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
   return (
     <SectionCard
-      description="記録済みの税・費用を反映したポートフォリオと配当込み TOPIX の期間比較。未報告分は含みません。"
+      description="保存した比較期間の成績です。資産・保有欄の生成時刻とは別です。記録済みの税・費用を反映したポートフォリオと配当込み TOPIX を比較し、未報告分は含みません。"
       hint={HINT.outcomes}
       meta={<Badge variant="secondary">{outcomes.length} 件</Badge>}
       title="運用成績"
@@ -336,7 +336,9 @@ export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) 
           {outcomes.map((item) => (
             <div className="grid gap-1.5 px-5 py-3 sm:px-6" key={item.outcome_id}>
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                <span className="font-medium">{item.horizon} · {item.period_end_date}</span>
+                <span className="font-medium">
+                  {item.horizon} · <time dateTime={item.period_start_date}>{item.period_start_date}</time> ～ <time dateTime={item.period_end_date}>{item.period_end_date}</time>
+                </span>
                 <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
               </div>
               <p className="break-all text-xs text-muted-foreground">{item.outcome_id}</p>
@@ -409,7 +411,7 @@ export function DashboardPage() {
   return (
     <PageShell lead="株価・評価額は表示の基準日の保存終値に基づきます。リアルタイム価格ではありません。" meta={data && (
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>
+        <span>資産・保有・未約定注文の表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>
         {data.ledger_as_of !== null && <span>台帳最終記録 <time dateTime={data.ledger_as_of}>{formatJstDateTime(data.ledger_as_of)} JST</time></span>}
       </div>
     )} title="資産状況">
