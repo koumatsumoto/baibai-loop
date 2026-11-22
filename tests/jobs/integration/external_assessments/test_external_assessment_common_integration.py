@@ -39,6 +39,7 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     R2Error,
 )
+from baibai_engine.storage.snapshots.models import LakeObject
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     write_lake_store_origin,
@@ -81,7 +82,7 @@ def test_ready_freezes_exact_stages_without_publishing_or_relying_on_mutable_che
 
 
 def test_two_ready_sources_use_one_common_publication_and_keep_separate_verified_terminals(
-    independent_plans,
+    independent_plans, monkeypatch
 ):
     store, selected, handle, database, mirror, directory = independent_plans
     references = ready_references(independent_plans)
@@ -93,8 +94,22 @@ def test_two_ready_sources_use_one_common_publication_and_keep_separate_verified
     with closing(sqlite3.connect(database)) as conn, conn:
         conn.execute("UPDATE jquants_daily_bars SET close = close + 1")
     published = publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
-    results = verify_and_seal(store, state, handle=handle, directory=directory / "common-readback")
+    object_serializations = []
+    dump = LakeObject.model_dump
+
+    def count_explicit_object_serialization(self, *args, **kwargs):
+        object_serializations.append(self.key)
+        return dump(self, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(LakeObject, "model_dump", count_explicit_object_serialization)
+        results = verify_and_seal(
+            store, state, handle=handle, directory=directory / "common-readback"
+        )
     assert len(results) == 2
+    # Manifest entries are already typed and immutable. Comparing untouched
+    # external partitions never needs to serialize any graph's objects.
+    assert object_serializations == []
     terminals = [
         staging.read_terminal(store, staging.read_plan(store, item["run_id"])) for item in selected
     ]
