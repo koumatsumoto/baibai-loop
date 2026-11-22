@@ -95,11 +95,15 @@ def unfulfilled_master_days(
     """Verify only requested master dates, sharing immutable packs within this read."""
     requested = tuple(sorted(set(days)))
     scopes = fixed.value()["scopes"]
-    complete = {
-        date.fromisoformat(item.request.params["date"])
-        for item in fixed.requests(store, days=requested)
-        if item.request is not None and item.request.records()
-    }
+    complete: set[date] = set()
+    for item in fixed.requests(store, days=requested):
+        if (request := item.request) is None:
+            continue
+        day = date.fromisoformat(request.params["date"])
+        # Verifying a shared pack is not proof that its member belongs to every
+        # scope pointing to it. Do not let two dates fulfill one another.
+        if scopes.get(day.isoformat(), {}).get("adopted") == item.request_id and request.records():
+            complete.add(day)
     return tuple(
         day
         for day in requested

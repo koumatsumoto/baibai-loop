@@ -86,7 +86,11 @@ def test_commit_work_does_not_turn_saved_empty_into_fulfilled_master(tmp_path, m
 
 def test_commit_work_reads_selected_shared_pack_once(tmp_path, monkeypatch, capsys):
     import baibai_jobs.acquisition.jquants_master_native as command
-    from baibai_engine.data_collection.providers.jquants.master_native import PREFIX, MasterAttempt
+    from baibai_engine.data_collection.providers.jquants.master_native import (
+        HEAD_KEY,
+        PREFIX,
+        MasterAttempt,
+    )
 
     class Store(MemoryR2Store):
         def close(self):
@@ -149,6 +153,20 @@ def test_commit_work_reads_selected_shared_pack_once(tmp_path, monkeypatch, caps
     assert [key for key in store.get_keys if key.startswith(PREFIX + "packs/")] == [pack]
     assert store.put_keys == writes
     assert owner.fixed().payload == fixed.payload
+
+    # Both pack members and their fingerprints still verify, but neither one
+    # fulfills a scope that points to the other date's request.
+    swapped = fixed.value()
+    first, last = (swapped["scopes"][days[offset].isoformat()] for offset in (0, 4))
+    first["adopted"], last["adopted"] = last["adopted"], first["adopted"]
+    store.store_object(HEAD_KEY, json.dumps(swapped).encode())
+    assert command.main(args) == 1
+    assert json.loads(capsys.readouterr().out)["unresolved"] == {
+        **report["unresolved"],
+        days[0].isoformat(): ["nonempty_master_required"],
+    }
+    assert store.put_keys == writes
+    store.store_object(HEAD_KEY, fixed.payload)
 
     # A missing selected pack is still an integrity failure, not an empty result.
     def missing_selected(key):
