@@ -15,7 +15,14 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
-from baibai_engine.portfolio.ledger.store import LedgerStoreService
+from baibai_engine.portfolio.ledger.events import ContributionEvent
+from baibai_engine.portfolio.ledger.read import (
+    LedgerConflictError,
+    ledger_append_head,
+    load_ledger_document,
+    load_ledger_events,
+)
+from baibai_engine.portfolio.ledger.store import LedgerStoreService, _event_values
 from baibai_web.readmodel.builders import dashboard
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.presentation import percentage
@@ -248,4 +255,63 @@ def test_reported_full_sale_does_not_turn_unresolved_share_units_into_cash_only_
         assert view.total_capital_yen == 10309500
         assert view.holdings_market_value_yen == 0
         assert view.realized_gross_pnl_yen == -93000
+    assert (db.read_bytes(), market.read_bytes()) == before
+
+
+@pytest.mark.parametrize("consistent", [True, False], ids=["valid_archive", "mismatched_identity"])
+def test_dashboard_and_exact_ledger_bind_the_same_event_identity(
+    holding_case, monkeypatch, consistent
+):
+    db, market, ledger = holding_case
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(dashboard, "datetime", Clock)
+    baseline = build_dashboard(DbLedgerSource(db, market), DbMarketSource(market))
+    event = ContributionEvent(
+        type="contribution",
+        event_id="fixture-contribution",
+        occurred_at=ledger.as_of,
+        amount_yen=57_123,
+    )
+    with closing(sqlite3.connect(db)) as connection, connection:
+        archived_head = ledger_append_head(connection)
+        row = _event_values(archived_head + 1, event, len(ledger.events))
+        if not consistent:
+            # A typed payload with a different index ID is not an admitted ledger event.
+            row = (row[0], "fixture-other-index-id", *row[2:])
+        connection.execute("INSERT INTO ledger_event VALUES (?,?,?,?,?,?,?,?)", row)
+    before = db.read_bytes(), market.read_bytes()
+
+    with closing(sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+        connection.execute("BEGIN")
+        assert load_ledger_events(connection, append_head=archived_head) == ledger.events
+        if consistent:
+            document = load_ledger_document(connection)
+            assert document is not None
+            assert document.events == (*ledger.events, event)
+            assert document.events == load_ledger_events(connection, append_head=archived_head + 1)
+        else:
+            with pytest.raises(LedgerConflictError, match="ledger event identity differs"):
+                load_ledger_events(connection, append_head=archived_head + 1)
+            with pytest.raises(LedgerConflictError, match="ledger event identity differs"):
+                load_ledger_document(connection)
+
+    view = build_dashboard(DbLedgerSource(db, market), DbMarketSource(market))
+    assert view.ledger_exists
+    if consistent:
+        assert view.ledger_error is None
+        assert baseline.available_cash_yen is not None
+        assert baseline.total_capital_yen is not None
+        assert view.available_cash_yen == baseline.available_cash_yen + event.amount_yen
+        assert view.total_capital_yen == baseline.total_capital_yen + event.amount_yen
+        assert view.holdings == baseline.holdings
+    else:
+        assert view.ledger_error == "保存済み台帳を読み取れません。"
+        assert view.available_cash_yen is None
+        assert view.total_capital_yen is None
+        assert view.holdings == view.reservations == []
     assert (db.read_bytes(), market.read_bytes()) == before

@@ -52,6 +52,11 @@ def ledger_append_head(connection: sqlite3.Connection) -> int:
     )
 
 
+def _require_event_identity(stored_id: object, payload_id: object) -> None:
+    if payload_id != str(stored_id):
+        raise LedgerConflictError("ledger event identity differs from payload")
+
+
 def load_ledger_document(connection: sqlite3.Connection) -> PortfolioLedgerDocument | None:
     """Read one canonical replay document; only an unimported ledger is absent."""
     if not _require_schema(connection):
@@ -65,15 +70,19 @@ def load_ledger_document(connection: sqlite3.Connection) -> PortfolioLedgerDocum
     raw = json.loads(str(meta[0]))
     if not isinstance(raw, dict):
         raise LedgerConflictError("ledger metadata payload must be an object")
-    raw["events"] = [
-        json.loads(str(row[0]))
-        for row in connection.execute(
-            """
-            SELECT payload FROM ledger_event
-            ORDER BY occurred_at ASC, same_instant_order ASC, append_seq ASC
-            """
-        )
-    ]
+    events = []
+    for event_id, payload in connection.execute(
+        """
+        SELECT event_id,payload FROM ledger_event
+        ORDER BY occurred_at ASC, same_instant_order ASC, append_seq ASC
+        """
+    ):
+        event = json.loads(str(payload))
+        if not isinstance(event, dict):
+            raise LedgerConflictError("ledger event payload must be an object")
+        _require_event_identity(event_id, event.get("event_id"))
+        events.append(event)
+    raw["events"] = events
     return PortfolioLedgerDocument.model_validate(raw)
 
 
@@ -127,8 +136,7 @@ def load_ledger_events(
     events: list[LedgerEvent] = []
     for row in rows:
         event = adapter.validate_json(str(row[1]))
-        if event.event_id != str(row[0]):
-            raise LedgerConflictError("ledger event identity differs from payload")
+        _require_event_identity(row[0], event.event_id)
         events.append(event)
     return tuple(events)
 
