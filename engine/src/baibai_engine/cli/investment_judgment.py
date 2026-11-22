@@ -35,6 +35,7 @@ from baibai_engine.investment_judgment.workflow.selection_query import (
     load_generated_selection_context,
 )
 from baibai_engine.investment_judgment.workflow.workspace import (
+    PromoteBindingError,
     ResearchWorkspaceConflictError,
     ResearchWorkspaceError,
     compute_status,
@@ -512,6 +513,21 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     except ValidationError as error:
         print(f"error: {error}", file=sys.stderr)
         return 4 if args.command == "prepare" else 3
+    except PromoteBindingError as error:
+        _emit(
+            {
+                "status": "published_binding_unconfirmed",
+                "operation_id": error.operation_id,
+                "operation_status": error.operation_status,
+                **asdict(error.published),
+            },
+            out,
+        )
+        print(
+            f"error: Reviewed Assessment saved; Operation binding unconfirmed: {error}",
+            file=sys.stderr,
+        )
+        return error.exit_code
     except ResearchWorkspaceError as error:
         print(f"error: {error}", file=sys.stderr)
         return error.exit_code

@@ -10,6 +10,9 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
     ResearchWorkspaceError as ResearchWorkspaceError,
 )
 from baibai_engine.investment_judgment.workflow.workspace.publication import (
+    PromoteBindingError as PromoteBindingError,
+)
+from baibai_engine.investment_judgment.workflow.workspace.publication import (
     PromoteResult as PromoteResult,
 )
 from baibai_engine.investment_judgment.workflow.workspace.publication import promote as promote

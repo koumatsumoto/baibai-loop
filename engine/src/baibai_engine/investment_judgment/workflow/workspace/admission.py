@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -21,19 +22,27 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
     _nonempty_string,
 )
 from baibai_engine.portfolio.ledger.events import replay_events_through
+from baibai_engine.portfolio.ledger.read import load_ledger_in_transaction
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 
 def read_workspace_operation(
-    manifest: Mapping[str, object], *, db_path: Path | None
+    manifest: Mapping[str, object],
+    *,
+    db_path: Path | None,
+    connection: sqlite3.Connection | None = None,
 ) -> OperationSession:
-    return OperationService(db_path).get(_manifest_operation_id(manifest))
+    return OperationService(db_path).get(_manifest_operation_id(manifest), connection=connection)
 
 
 def workspace_selection(
-    manifest: Mapping[str, object], *, db_path: Path | None, active: bool = False
+    manifest: Mapping[str, object],
+    *,
+    db_path: Path | None,
+    active: bool = False,
+    connection: sqlite3.Connection | None = None,
 ) -> ResearchSelection:
-    operation = read_workspace_operation(manifest, db_path=db_path)
+    operation = read_workspace_operation(manifest, db_path=db_path, connection=connection)
     return validate_workspace_selection(manifest, operation=operation, active=active)
 
 
@@ -88,10 +97,15 @@ def validate_workspace_selection(
 
 
 def require_authoring_selection(
-    manifest: Mapping[str, object], *, ticker: str, action: str, db_path: Path | None
+    manifest: Mapping[str, object],
+    *,
+    ticker: str,
+    action: str,
+    db_path: Path | None = None,
+    connection: sqlite3.Connection | None = None,
 ) -> ResearchSelection:
-    """Resolve authoring admission once; read-only status uses workspace_selection instead."""
-    selection = workspace_selection(manifest, db_path=db_path, active=True)
+    """Use the same authoring rules for preflight and under the App publication lock."""
+    selection = workspace_selection(manifest, db_path=db_path, active=True, connection=connection)
     purpose = "holding" if manifest.get("purpose") == "holding" else "new"
     holding = manifest.get("holding_ticker")
     if purpose == "holding" and holding is None:
@@ -105,7 +119,10 @@ def require_authoring_selection(
             f"cannot {action}: ticker/purpose is outside the fixed selection"
         )
     if holding is not None:
-        ledger = LedgerStoreService(db_path).load()
+        if connection is None:
+            ledger = LedgerStoreService(db_path).load()
+        else:
+            ledger, _ = load_ledger_in_transaction(connection)
         state = replay_events_through(ledger.events, ledger.as_of)
         if sum(lot.quantity for lot in state.lots.get(ticker, [])) <= 0:
             raise ResearchWorkspaceConflictError("holding workspace requires a current holding")
