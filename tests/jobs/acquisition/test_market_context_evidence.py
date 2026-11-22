@@ -60,7 +60,12 @@ def test_stage_download_exact_manifest_and_read_without_refetch(tmp_path, monkey
     assert staged["manifest_sha256"] in ref.reference
     assert value.digest() in ref.reference
     before = dict(store.values)
-    assert evidence.main(["stage", "--directory", str(directory), "--stage-id", stage_id]) == 0
+    assert (
+        evidence.main(
+            ["stage", "--directory", str(directory), "--stage-id", stage_id, "--stage-id", stage_id]
+        )
+        == 0
+    )
     capsys.readouterr()
     assert store.values == before
     restored = tmp_path / "restored"
@@ -87,6 +92,9 @@ def test_stage_download_exact_manifest_and_read_without_refetch(tmp_path, monkey
                 stage_id,
                 "--manifest-sha256",
                 staged["manifest_sha256"],
+                "--stage-id",
+                stage_id,
+                "--manifest-sha256=" + staged["manifest_sha256"],
             ]
         )
         == 0
@@ -96,6 +104,147 @@ def test_stage_download_exact_manifest_and_read_without_refetch(tmp_path, monkey
         restored / "receipts.sqlite", value.receipt_id, value.digest()
     ) == evidence.read_exact(directory / "receipts.sqlite", value.receipt_id, value.digest())
     assert store.values == before
+    # The ordinary read uses only the resolved local packet and the exact capture digest.
+    monkeypatch.setattr(evidence, "Boto3R2Store", lambda **kwargs: pytest.fail("unexpected R2"))
+    arguments = [
+        "--directory",
+        str(restored),
+        "read",
+        "--receipt-id",
+        value.receipt_id,
+        "--sha256",
+        value.digest(),
+        "--receipt-id",
+        value.receipt_id,
+        "--sha256=" + value.digest(),
+    ]
+    assert evidence.main(arguments) == 0
+    assert json.loads(capsys.readouterr().out) == evidence.read_exact(
+        restored / "receipts.sqlite", value.receipt_id, value.digest()
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "option", "value"),
+    [
+        ("prepare", "--receipt-id", "elsewhere"),
+        ("read", "--stage-id", "tradingview_market-elsewhere"),
+        ("read", "--manifest-sha256", "b" * 64),
+        ("stage", "--manifest-sha256", "b" * 64),
+        ("stage", "--expected-captures", "3"),
+        ("download", "--capture", "not-read.json"),
+        ("download", "--sha256", "b" * 64),
+    ],
+)
+def test_market_command_rejects_options_it_would_otherwise_ignore(
+    tmp_path, monkeypatch, capsys, command, option, value
+):
+    from baibai_jobs import cli
+
+    original, directory, _ = packet(tmp_path)
+    app = directory / "receipts.sqlite"
+    intact = app.read_bytes()
+    monkeypatch.setattr(evidence, "Boto3R2Store", lambda **kwargs: pytest.fail("unexpected R2"))
+    path = directory if command in ("read", "stage") else tmp_path / "output"
+    args = ["market-evidence", command, "--directory", str(path)]
+    if command == "prepare":
+        args += ["--capture", str(tmp_path / "first.json")]
+    if command == "read":
+        args += ["--receipt-id", original.receipt_id, "--sha256", original.digest()]
+    if command in ("stage", "download"):
+        args += ["--stage-id", MARKET_GROUP + "-valid"]
+    if command == "download":
+        args += ["--manifest-sha256", "a" * 64]
+    with pytest.raises(SystemExit) as caught:
+        cli.main([*args, option, value])
+    assert caught.value.code == 2
+    response = capsys.readouterr()
+    assert option in response.err
+    assert "only valid for" in response.err
+    assert response.out == ""
+    assert not (tmp_path / "output").exists()
+    assert app.read_bytes() == intact
+
+
+@pytest.mark.parametrize("digest", [None, "not-a-sha256", "F" * 64])
+def test_download_requires_valid_manifest_pin_before_constructing_store(
+    tmp_path, monkeypatch, capsys, digest
+):
+    target = tmp_path / "download"
+    monkeypatch.setattr(evidence, "Boto3R2Store", lambda **kwargs: pytest.fail("unexpected R2"))
+    command = ["download", "--directory", str(target), "--stage-id", MARKET_GROUP + "-fixed"]
+    if digest is not None:
+        command += ["--manifest-sha256", digest]
+    with pytest.raises(SystemExit) as caught:
+        evidence.main(command)
+    assert caught.value.code == 2
+    assert "requires --manifest-sha256" in capsys.readouterr().err
+    assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    ("command", "option", "pinned", "conflicting"),
+    [
+        ("stage", "--stage-id", MARKET_GROUP + "-fixed", MARKET_GROUP + "-other"),
+        ("download", "--stage-id", MARKET_GROUP + "-fixed", MARKET_GROUP + "-other"),
+        ("download", "--manifest-sha256", "a" * 64, "b" * 64),
+        ("read", "--receipt-id", "known", "other"),
+        ("read", "--sha256", "a" * 64, "b" * 64),
+    ],
+)
+@pytest.mark.parametrize("conflicting_first", [False, True])
+def test_market_rejects_conflicting_explicit_pins_before_io(
+    tmp_path, monkeypatch, capsys, command, option, pinned, conflicting, conflicting_first
+):
+    from baibai_jobs import cli
+
+    def fail(*args, **kwargs):
+        pytest.fail("unexpected store or capture access")
+
+    monkeypatch.setattr(evidence, "read_exact", fail)
+    monkeypatch.setattr(evidence, "Boto3R2Store", fail)
+    target = tmp_path / "not-created"
+    args = ["market-evidence", command, "--directory", str(target)]
+    if command in ("stage", "download") and option != "--stage-id":
+        args += ["--stage-id", MARKET_GROUP + "-fixed"]
+    if command == "download" and option != "--manifest-sha256":
+        args += ["--manifest-sha256", "a" * 64]
+    if command == "read":
+        if option != "--receipt-id":
+            args += ["--receipt-id", "known"]
+        if option != "--sha256":
+            args += ["--sha256", "a" * 64]
+    first, last = (conflicting, pinned) if conflicting_first else (pinned, conflicting)
+    with pytest.raises(SystemExit) as caught:
+        cli.main([*args, option + "=" + first, option, last])
+    assert caught.value.code == 2
+    captured = capsys.readouterr()
+    assert f"conflicting values for {option}" in captured.err
+    assert captured.out == ""
+    assert not target.exists()
+
+
+def test_download_cannot_reuse_an_existing_destination_before_constructing_store(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "download"
+    target.mkdir()
+    kept = target / "retained.json"
+    kept.write_text("do not replace", encoding="utf-8")
+    monkeypatch.setattr(evidence, "Boto3R2Store", lambda **kwargs: pytest.fail("unexpected R2"))
+    with pytest.raises(FileExistsError):
+        evidence.main(
+            [
+                "download",
+                "--directory",
+                str(target),
+                "--stage-id",
+                MARKET_GROUP + "-fixed",
+                "--manifest-sha256",
+                "a" * 64,
+            ]
+        )
+    assert kept.read_text(encoding="utf-8") == "do not replace"
 
 
 def test_common_integration_preserves_exact_market_receipts_without_schema_migration(
