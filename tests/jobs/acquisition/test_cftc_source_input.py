@@ -140,10 +140,22 @@ def source(monkeypatch):
             if item.source_id in control.failures and (
                 control.fail_recent or start < date(2026, 9, 7)
             ):
+
+                def report_for(day):
+                    return {
+                        "cftc_contract_market_code": code,
+                        "report_date_as_yyyy_mm_dd": str(day) + "T00:00:00.000",
+                        "noncomm_positions_long_all": "120",
+                        "noncomm_positions_short_all": "0",
+                    }
+
                 invalid = {
                     "root": {"error": "synthetic incomplete response"},
                     "code": [{"cftc_contract_market_code": "wrong"}],
                     "limit": [{}] * 50_000,
+                    "before_range": [report_for(start - timedelta(days=1))],
+                    "after_range": [report_for(end + timedelta(days=1))],
+                    "mixed_range": [report_for(start), report_for(end + timedelta(days=1))],
                 }[control.invalid]
                 return _FakeResponse(json.dumps(invalid).encode())
             value = control.changes.get(item.source_id, "110")
@@ -337,7 +349,9 @@ def test_late_or_same_clock_response_does_not_replace_canonical_originals(
     assert original.read_bytes() == original_bytes
 
 
-@pytest.mark.parametrize("invalid", ["root", "code", "limit"])
+@pytest.mark.parametrize(
+    "invalid", ["root", "code", "limit", "before_range", "after_range", "mixed_range"]
+)
 def test_incomplete_response_is_not_confirmed_as_empty(tmp_path, source, monkeypatch, invalid):
     results = []
     source.invalid, source.fail_recent, source.failures = invalid, True, {JPY}
