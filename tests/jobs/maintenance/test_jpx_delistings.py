@@ -81,6 +81,8 @@ def _session(
         answers[ARCHIVE] = response(
             archive, status_code=archive_status, content_type="text/html; charset=UTF-8"
         )
+    for url, answer in answers.items():
+        answer.url = url
     return FakeSession(by_url=answers)
 
 

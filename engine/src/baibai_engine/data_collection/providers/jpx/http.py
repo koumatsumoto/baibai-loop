@@ -47,6 +47,8 @@ class JPXHTTP:
                     raise JPXAcquisitionError(
                         f"JPX source request failed: HTTP {response.status_code}"
                     )
+                # A redirect does not make the final response an official JPX source.
+                validate_jpx_url(response.url or "")
                 body = response.content
                 captured_at = datetime.now(UTC)
                 return JPXResponse(
