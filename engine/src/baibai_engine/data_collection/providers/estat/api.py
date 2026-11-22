@@ -111,15 +111,24 @@ def parse_estat_json(
     _, narrowing = _split_stats_data_id(series.provider_series_id)
     expectations = _narrowing_row_expectations(narrowing)
     by_date: dict[date, list[dict[str, object]]] = defaultdict(list)
+    has_monthly_cells = False
     for entry in _extract_value_entries(payload):
         if not isinstance(entry, dict):
             raise IndicatorsProviderError("e-Stat VALUE entry is not an object")
         row = cast(Mapping[str, object], entry)
         _require_narrowed_cell(row, expectations=expectations, series=series)
         observed_at = _parse_estat_month(row.get("@time"), series=series)
-        if observed_at is None or not start <= observed_at <= end:
+        if observed_at is None:
             continue
-        by_date[observed_at].append(dict(row))
+        has_monthly_cells = True
+        if start <= observed_at <= end:
+            by_date[observed_at].append(dict(row))
+    # A full response can leave the selected window empty. An answer with no
+    # monthly cells cannot establish that the monthly series was received at all.
+    if not has_monthly_cells:
+        raise IndicatorsProviderError(
+            f"e-Stat response contains no monthly cells for {series.source_id}"
+        )
     return dict(by_date)
 
 
