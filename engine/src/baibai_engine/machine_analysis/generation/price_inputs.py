@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime
 from typing import Any
@@ -25,6 +25,10 @@ from baibai_engine.machine_analysis.generation.full_day_inputs import (
     FullDayInputContract,
     read_full_day_input,
     retain_full_day_input,
+)
+from baibai_engine.machine_analysis.generation.native_input import (
+    VerifiedNativeInput,
+    rehydrate_native_input,
 )
 from baibai_engine.storage.objects.r2 import ObjectStore
 
@@ -125,6 +129,23 @@ def read_closed_price_days(store: ObjectStore, scopes: dict[str, Any]) -> set[da
 
 def retain_price_input(store: ObjectStore, selected: dict[str, Any]) -> dict[str, JsonValue]:
     return retain_full_day_input(store, selected, contract=_CONTRACT)
+
+
+def rehydrate_price_input(
+    saved: InputSnapshot | bytes,
+) -> tuple[VerifiedNativeInput, tuple[date, date]]:
+    """Verify the saved envelope and its reported interval without reading L1."""
+    fixed = rehydrate_native_input(saved, source="price")
+    summary = fixed.descriptor["summary"]
+    if not isinstance(summary, Mapping):
+        raise ValueError("native price input requires a selection summary")
+    start, end = summary.get("selection_start"), summary.get("selection_end")
+    if not isinstance(start, str) or not isinstance(end, str):
+        raise ValueError("native price input requires its selected interval")
+    first, last = date.fromisoformat(start), date.fromisoformat(end)
+    if first > last:
+        raise ValueError("invalid saved price interval")
+    return fixed, (first, last)
 
 
 def read_price_input(

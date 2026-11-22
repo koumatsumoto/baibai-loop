@@ -446,7 +446,7 @@ def test_price_input_rejects_a_later_calendar_clock(tmp_path):
 
 
 def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_cli(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, capsys, mocker
 ):
     from tests.jobs.integration.test_master_native_models import attempt as master_attempt
     from tests.jobs.publication.test_calendar_native_objects import configure
@@ -572,6 +572,7 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
     store.get_keys.clear()
     store.close = lambda: None
     monkeypatch.setattr(price_job, "Boto3R2Store", lambda **_: store)
+    parse = mocker.spy(InputSnapshot, "model_validate_json")
     capsys.readouterr()
     assert (
         price_job.main(
@@ -590,6 +591,7 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
         )
         == 0
     )
+    parse.assert_called_once_with(source_input.read_bytes())
     output = json.loads(capsys.readouterr().out)
     assert output["coverage_status"] == "complete"
     assert output["unavailable"] == output["closed_unrequested"] == 2

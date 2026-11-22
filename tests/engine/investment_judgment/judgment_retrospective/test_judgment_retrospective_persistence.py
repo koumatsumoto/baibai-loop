@@ -7,9 +7,14 @@ from datetime import datetime, timedelta
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.proposal_records import not_purchased_report
 
-from baibai_engine.investment_judgment.company_research.document import ResearchDraft
+from baibai_engine.investment_judgment.company_research.document import (
+    ResearchDraft,
+    ResearchRecord,
+)
 from baibai_engine.investment_judgment.company_research.store import ResearchStoreService
+from baibai_engine.investment_judgment.judgment_retrospective import context as context_reader
 from baibai_engine.investment_judgment.judgment_retrospective.document import RetrospectiveDraft
 from baibai_engine.investment_judgment.judgment_retrospective.query import (
     get_retrospective,
@@ -21,6 +26,10 @@ from baibai_engine.investment_judgment.judgment_retrospective.store import (
     RetrospectiveStoreService,
 )
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
+from baibai_engine.investment_judgment.trade_proposal.query import ProposalRecordReader
+from baibai_engine.investment_judgment.trade_proposal.record_contracts import HumanProposalReport
+from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.portfolio.ledger.events import ExecutionEvent, PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
@@ -114,7 +123,7 @@ def _publish(case, *, action="buy"):
     )
 
 
-def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_path):
+def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_path, mocker):
     case = backend_case(tmp_path)
     proposal = _publish(case)
     research = _research(case.app)
@@ -140,6 +149,9 @@ def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_
         }
     ]
     raw["document"]["lesson"] = LESSON
+    report = ProposalRecordService(case.app, clock=lambda: NOW).report(
+        not_purchased_report(proposal)
+    )
     tables = (
         "stock_assessment",
         "stock_assessment_review",
@@ -152,7 +164,24 @@ def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_
     )
     with closing(connect_read_only(case.app)) as connection:
         before = {name: connection.execute(f"SELECT * FROM {name}").fetchall() for name in tables}
+
+    receipt_read = mocker.spy(ProposalRecordReader, "read")
+    proposal_dump = mocker.spy(TradeProposal, "model_dump")
+    assessment_view = mocker.spy(context_reader, "_assessment_context")
+    research_dump = mocker.spy(ResearchRecord, "model_dump")
+    report_dump = mocker.spy(HumanProposalReport, "model_dump")
     saved = _save(case.app, raw)
+    # Save still reads the exact receipts and hashes the immutable proposal, but does not
+    # render the proposal/exact evidence or reports solely to discard the display.
+    assert receipt_read.call_count == 1
+    assert any(
+        call.kwargs.get("exclude") == {"review", "published_at"}
+        for call in proposal_dump.call_args_list
+    )
+    assert not any(call.kwargs.get("exclude") == {"items"} for call in proposal_dump.call_args_list)
+    assessment_view.assert_not_called()
+    research_dump.assert_not_called()
+    report_dump.assert_not_called()
     with closing(connect_read_only(case.app)) as connection:
         after = {name: connection.execute(f"SELECT * FROM {name}").fetchall() for name in tables}
         assert after == before
@@ -171,6 +200,9 @@ def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_
     }
     assert origin["assessment"]["reference"]["assessment_id"] == case.pair.assessment_id
     assert origin["assessment"]["published_at"] == case.pair.published_at.isoformat()
+    assert origin["proposal_records"]["records"]["human_reports"] == [
+        report.model_dump(mode="json")
+    ]
     citations = result["context"]["citations"]
     assert citations[0]["record"]["reference"] == research.reference.model_dump(mode="json")
     assert citations[1]["record"]["published_at"] == case.pair.published_at.isoformat()
@@ -325,7 +357,9 @@ def test_content_citation_and_publication_boundaries(tmp_path):
     assert len(list_retrospectives(db_path=path)["items"]) == 1
 
 
-def test_service_derived_ledger_preserves_partial_fills_release_cutoff_and_late_reports(tmp_path):
+def test_service_derived_ledger_preserves_partial_fills_release_cutoff_and_late_reports(
+    tmp_path, mocker
+):
     case = backend_case(tmp_path)
     proposal = _publish(case)
     ledger_service = LedgerStoreService(case.app)
@@ -436,7 +470,9 @@ def test_service_derived_ledger_preserves_partial_fills_release_cutoff_and_late_
     )
     raw = scaffold["draft"]
     raw["document"].update(comparisons=[], lesson=LESSON)
+    event_dump = mocker.spy(ExecutionEvent, "model_dump")
     old = _save(case.app, raw)
+    event_dump.assert_not_called()
     assert old.ledger.event_ids == ("order", "fill-1", "fill-2", "release")
     assert old.ledger.append_head == scaffold["context"]["ledger"]["append_head"]
     assert old.ledger.event_ids == tuple(

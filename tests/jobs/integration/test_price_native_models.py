@@ -525,7 +525,10 @@ def test_saved_price_interval_validates_bounds_without_expanding_history(monkeyp
     import hashlib
 
     from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
-    from baibai_engine.machine_analysis.generation.price_inputs import INPUT_FORMAT
+    from baibai_engine.machine_analysis.generation.price_inputs import (
+        INPUT_FORMAT,
+        rehydrate_price_input,
+    )
     from baibai_engine.primitives.json import canonical_json
     from baibai_jobs.integration import price_native
 
@@ -541,7 +544,7 @@ def test_saved_price_interval_validates_bounds_without_expanding_history(monkeyp
         price_native, "_days", lambda *args: pytest.fail("interval validation must not expand days")
     )
     if first <= last:
-        assert price_native.saved_interval(saved) == (first, last)
+        assert rehydrate_price_input(saved)[1] == (first, last)
     else:
         with pytest.raises(ValueError, match="invalid saved price interval"):
-            price_native.saved_interval(saved)
+            rehydrate_price_input(saved)

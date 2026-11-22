@@ -313,7 +313,7 @@ def _short_sale_report_rows_with_quality(
     excluded_count = 0
     next_ordinal_by_date: dict[str, int] = {}
     for record in records:
-        ticker, quality = code_quality(record.get("Code"))
+        ticker, quality = code_quality(record.get("Code"), require_text=True)
         if quality == "rejected":
             rejected_count += 1
             continue
@@ -368,7 +368,7 @@ def _weekly_margin_rows_with_quality(
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, quality = code_quality(record.get("Code"))
+        ticker, quality = code_quality(record.get("Code"), require_text=True)
         if quality == "rejected":
             rejected_count += 1
             continue
@@ -428,7 +428,7 @@ def _margin_alert_rows_with_quality(
         if any(key not in record for key in required_payload_fields):
             rejected_count += 1
             continue
-        ticker, quality = code_quality(record.get("Code"))
+        ticker, quality = code_quality(record.get("Code"), require_text=True)
         if quality == "rejected":
             rejected_count += 1
             continue
@@ -500,7 +500,7 @@ def _all_issues_daily_margin_rows_with_quality(
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, quality = code_quality(record.get("Code"))
+        ticker, quality = code_quality(record.get("Code"), require_text=True)
         if quality == "rejected":
             rejected_count += 1
             continue

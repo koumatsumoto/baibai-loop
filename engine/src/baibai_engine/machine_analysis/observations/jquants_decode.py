@@ -11,7 +11,8 @@ from typing import Any
 from baibai_engine.primitives.missing import is_missing_scalar
 from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 
-JQUANTS_NUMERIC_PROJECTION_REVISION = "jquants-numeric-v2"
+# A changed interpretation invalidates only the disposable credit/short projections.
+JQUANTS_NUMERIC_PROJECTION_REVISION = "jquants-numeric-v3"
 
 
 class JQuantsProviderError(RuntimeError):

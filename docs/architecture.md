@@ -22,6 +22,12 @@
 
 [baibai-engine](../engine/src/baibai_engine/cli/app.py)は人間・AI向けCLI、[baibai-jobs](../jobs/src/baibai_jobs/cli.py)は取得・統合・公開用。引数は各CLIのhelp、実行・検証は[開発手順](development.md)、公開や障害対応は[運用手順](../jobs/OPERATIONS.md)に従う。importの向きはデータの流れとは別で、許可境界は[pyproject.toml](../pyproject.toml)が持つ。
 
+## 検証と繰り返し処理の境界
+
+- 外部入力はその入口で形式を解釈し、型付きの値と出典を下流へ渡す。L1が受領した原本と、L2が使える観測を分け、欠測・非該当・異常・正当なゼロを混ぜない。市場ごとの銘柄識別子・取引日・通貨・取扱範囲は、その市場またはproviderの境界で扱う。
+- 同じ正本・固定時点・単位・用途なら、ルールを持つ処理で一度だけ値と根拠を作る。例えば同じ営業CFの構成行を額と期間で選び直さず、同じ読取トランザクションの終値は同じ市場基準日からまとめて読む。PERと赤字も表せる利回り、注文価格と観測価格のように、見た目が似ていても意味が違えば別契約のままにする。
+- 書込直前の状態照合、保存された版・参照の照合、配信の読戻しは、入口の形式検証とは別。過去の保存データを読むときは現在の執行条件で再判定しない。重複を消す変更では、正常結果と旧読取を保ち、意図した異常の扱いと実際に減った計算・読取を[検証](development.md#変更を検証する)する。
+
 ## 現在の解析モデル
 
 [Generationの実装](../engine/src/baibai_engine/machine_analysis/generation/assembly.py)が、次の[モデル](../engine/src/baibai_engine/machine_analysis/models/)の担当単位とモデルIDを決める。個々の値の意味・不足理由は[観測リファレンス](reference/model-observations.md)へ。

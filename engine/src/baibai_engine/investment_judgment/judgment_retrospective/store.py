@@ -11,7 +11,7 @@ from pathlib import Path
 from baibai_engine.investment_judgment.contracts import _datetime
 from baibai_engine.investment_judgment.judgment_retrospective.context import (
     capture_ledger_snapshot,
-    retrospective_context,
+    validate_retrospective_context,
 )
 from baibai_engine.investment_judgment.judgment_retrospective.document import (
     RetrospectiveDocument,
@@ -137,7 +137,7 @@ class RetrospectiveStoreService:
             document=payload.document,
             ledger=payload.ledger,
         )
-        retrospective_context(connection, record)
+        validate_retrospective_context(connection, record)
         validate_correction(connection, record.document, recorded_at=now)
         connection.execute(
             "INSERT INTO judgment_retrospective(retrospective_id,ticker,as_of,recorded_at,"

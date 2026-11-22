@@ -38,6 +38,7 @@ from baibai_engine.portfolio.ledger.events import (
     ShareConversionEvent,
     WithdrawalEvent,
     active_human_overrides,
+    ledger_event_append_payload,
     replay_events_through,
     reservation_snapshots,
     sell_charge_event_ids,
@@ -357,12 +358,9 @@ def build_event_draft(
     event: HumanEvent,
 ) -> LedgerDraft:
     source, expected_head = service.load_with_head()
-    raw = source.model_dump(mode="json")
-    raw["events"] = sorted(
-        [*raw["events"], event.model_dump(mode="json")],
-        key=lambda item: datetime.fromisoformat(str(item["occurred_at"])),
+    raw = ledger_event_append_payload(
+        source, (event.model_dump(mode="json"),), occurred_at=event.occurred_at
     )
-    raw["as_of"] = max(source.as_of, event.occurred_at).isoformat()
     replacement = PortfolioLedgerDocument.model_validate(raw)
     replay_events_through(replacement.events, replacement.as_of)
     return LedgerDraft(
@@ -570,12 +568,7 @@ def build_sell_execution_draft(
     if occurred_on is not None:
         for addition in additions:
             addition["occurred_on"] = occurred_on.isoformat()
-    raw = source.model_dump(mode="json")
-    raw["events"] = sorted(
-        [*raw["events"], *additions],
-        key=lambda item: datetime.fromisoformat(str(item["occurred_at"])),
-    )
-    raw["as_of"] = max(source.as_of, occurred_at).isoformat()
+    raw = ledger_event_append_payload(source, additions, occurred_at=occurred_at)
     replacement = PortfolioLedgerDocument.model_validate(raw)
     replay_events_through(replacement.events, replacement.as_of)
     return LedgerDraft(

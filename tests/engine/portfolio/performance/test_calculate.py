@@ -16,10 +16,10 @@ from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.performance.calculate import (
     DailyNav,
+    OutcomePeriod,
     PortfolioOutcomeError,
     compute_portfolio_outcome,
     compute_time_weighted_return,
-    outcome_market_tickers,
     outcome_to_payload,
 )
 from baibai_engine.portfolio.performance.store import (
@@ -557,12 +557,12 @@ def _preperiod_holding() -> PortfolioLedgerDocument:
 
 
 def test_opening_holding_requires_evidence_of_its_preperiod_units() -> None:
-    assert outcome_market_tickers(
+    assert OutcomePeriod(
         _preperiod_holding(),
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         start=date(2025, 1, 6),
         end=date(2026, 1, 6),
-    ) == ("1234",)
+    ).market_tickers() == ("1234",)
     result = compute_portfolio_outcome(
         _preperiod_holding(),
         _benchmark(),
@@ -645,12 +645,12 @@ def test_full_sale_does_not_hide_a_corporate_action_on_its_execution_day() -> No
         },
     ]
     ledger = PortfolioLedgerDocument.model_validate(raw)
-    assert outcome_market_tickers(
+    assert OutcomePeriod(
         ledger,
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         start=date(2025, 1, 6),
         end=date(2026, 1, 6),
-    ) == ("1234",)
+    ).market_tickers() == ("1234",)
     result = compute_portfolio_outcome(
         ledger,
         _benchmark(),
@@ -702,12 +702,12 @@ def test_outcome_market_scope_respects_reported_day_at_the_ending_close(date_onl
     if date_only:
         for event in raw["events"][1:]:
             event["occurred_on"] = "2026-01-06"
-    assert outcome_market_tickers(
+    assert OutcomePeriod(
         PortfolioLedgerDocument.model_validate(raw),
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         start=date(2025, 1, 6),
         end=date(2026, 1, 6),
-    ) == (("1234",) if date_only else ())
+    ).market_tickers() == (("1234",) if date_only else ())
 
 
 def _prepare_outcome_cli(tmp_path: Path, ledger: PortfolioLedgerDocument) -> tuple[list[str], Path]:

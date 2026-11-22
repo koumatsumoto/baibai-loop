@@ -21,6 +21,7 @@ from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.operation import progress as progress_owner
 from baibai_engine.investment_judgment.workflow.operation import service as operation_owner
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import (
@@ -109,13 +110,16 @@ def test_empty_selection_ends_with_reason_without_fabricating_proposal_or_confir
         assert connection.execute("SELECT count(*) FROM investment_proposal").fetchone()[0] == 0
 
 
-def test_reviewed_a_and_unfinished_b_keep_complete_scope_and_distinct_actions(case):
+def test_reviewed_a_and_unfinished_b_keep_complete_scope_and_distinct_actions(case, monkeypatch):
     db, _ = case
     reference = seed_assessment(db)
     service, operation = start(case, ("1234", "5678"))
     service.record_assessment(operation.operation_id, reference, now=NOW)
-    with pytest.raises(ValueError, match="covered"):
+    with pytest.raises(ValueError, match="covered") as incomplete:
         proposal_for(service.get(operation.operation_id))
+    # A regular Operation diagnostic remains JSON output from trade-proposal-context,
+    # unlike a draft schema error, which goes to stderr.
+    assert type(incomplete.value) is ValueError
     service.record_unfinished(
         operation.operation_id,
         ticker="5678",
@@ -124,7 +128,13 @@ def test_reviewed_a_and_unfinished_b_keep_complete_scope_and_distinct_actions(ca
         now=NOW,
     )
     operation = service.get(operation.operation_id)
-    proposal = proposal_for(operation)
+
+    def duplicate_check(*args, **kwargs):
+        pytest.fail("valid ProposalResearchScope already checks complete coverage")
+
+    with monkeypatch.context() as valid_scope:
+        valid_scope.setattr(progress_owner, "require_coverage", duplicate_check)
+        proposal = proposal_for(operation)
     assert [item.action for item in proposal.items] == ["no_action", "defer"]
     assert [row.status for row in proposal.research_scope.outcomes] == ["reviewed", "unfinished"]
     with pytest.raises(OperationCompletionError, match="published Trade Proposal"):

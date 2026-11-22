@@ -107,6 +107,7 @@ _CURRENT = JQUANTS_NUMERIC_PROJECTION_REVISION.encode()
         ((_CURRENT, _CURRENT), True),
         ((None, None), False),
         ((b"jquants-numeric-v1", b"jquants-numeric-v1"), False),
+        ((b"jquants-numeric-v2", b"jquants-numeric-v2"), False),
         ((_CURRENT, None), False),
         ((_CURRENT, b"jquants-numeric-v1"), False),
         ((_CURRENT, b"corrupt"), False),

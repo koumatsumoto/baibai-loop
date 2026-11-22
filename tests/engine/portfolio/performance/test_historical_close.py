@@ -1,13 +1,22 @@
 """過去の実績も、その営業日の引けまでに生じた時刻付き事実だけを含める。"""
 
+import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from tests.engine.portfolio.performance.test_calculate import _benchmark, _ledger
+import yaml
+from tests.engine.portfolio.performance.test_calculate import (
+    _benchmark,
+    _ledger,
+    _prepare_outcome_cli,
+)
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
+from baibai_engine.cli import portfolio as portfolio_cli
 from baibai_engine.machine_analysis.observations.prices.benchmark_observation import (
     BenchmarkObservation,
 )
@@ -24,10 +33,10 @@ from baibai_engine.portfolio.ledger.events import (
     replay_events_through,
 )
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
+from baibai_engine.portfolio.performance import calculate
 from baibai_engine.portfolio.performance.calculate import (
+    OutcomePeriod,
     compute_portfolio_outcome,
-    outcome_ledger_at_close,
-    outcome_market_tickers,
     outcome_to_payload,
 )
 from baibai_engine.portfolio.performance.store import (
@@ -203,17 +212,14 @@ def test_reserved_buy_uses_only_known_clock_as_close_bound(
     assert sum(lot.quantity for lot in state.lots["1234"]) == (100 if status == "filled" else 0)
 
     days = (start, end)
-    scoped = outcome_ledger_at_close(saved, business_days=days, start=start, end=end)
+    period = OutcomePeriod(saved, days, start, end)
+    scoped = period.ledger_at_close()
     assert tuple(event.type for event in scoped.events) == (
         ("opening_balance", "reservation", "execution") if included else ("opening_balance",)
     )
-    assert outcome_market_tickers(saved, business_days=days, start=start, end=end) == (
-        ("1234",) if included else ()
-    )
-    result = compute_portfolio_outcome(
-        saved,
+    assert period.market_tickers() == (("1234",) if included else ())
+    result = period.compute(
         benchmark,
-        business_days=days,
         bars=(JQuantsDailyBar("1234", end, 6.0, None, adjustment_factor=1.0),) if included else (),
     )
     assert result.status == "resolved"
@@ -224,9 +230,9 @@ def test_reserved_buy_uses_only_known_clock_as_close_bound(
     assert service.load() == saved
 
 
-def test_reserved_sell_and_its_charges_enter_together_after_the_known_order(tmp_path):
-    benchmark = _benchmark()
-    start, end = benchmark.period_start_date, benchmark.period_end_date
+@pytest.fixture
+def date_only_sale(tmp_path):
+    end = _benchmark().period_end_date
     report_day = end - timedelta(days=1)
     order_at = datetime.fromisoformat(f"{report_day}T17:00:00+09:00")
     path = tmp_path / "app.sqlite"
@@ -272,19 +278,88 @@ def test_reserved_sell_and_its_charges_enter_together_after_the_known_order(tmp_
         amount_yen=2,
     )
     apply_draft(service, build_event_draft(service, independent), human_confirmed=True)
-    saved = service.load()
+    return service.load(), independent
+
+
+def test_reserved_sell_and_its_charges_enter_together_after_the_known_order(date_only_sale):
+    benchmark = _benchmark()
+    start, end = benchmark.period_start_date, benchmark.period_end_date
+    report_day = end - timedelta(days=1)
+    saved, independent = date_only_sale
     days = (start, report_day, end)
-    before_sale = outcome_ledger_at_close(saved, business_days=days, start=start, end=report_day)
-    assert before_sale.events == (*source.events[:3], independent)
-    assert outcome_ledger_at_close(saved, business_days=days, start=start, end=end) == saved
+    before_sale = OutcomePeriod(saved, days, start, report_day).ledger_at_close()
+    assert before_sale.events == (*_ledger().events[:3], independent)
+    period = OutcomePeriod(saved, days, start, end)
+    assert period.ledger_at_close() == saved
     bars = (
         JQuantsDailyBar("1234", start, 5.0, None, adjustment_factor=1.0),
         JQuantsDailyBar("1234", report_day, 6.0, None, adjustment_factor=1.0),
     )
-    result = compute_portfolio_outcome(saved, benchmark, business_days=days, bars=bars)
+    result = period.compute(benchmark, bars=bars)
     assert result.status == "resolved"
     assert (result.ending_cash_yen, result.ending_holdings_market_value_yen) == (1068, 0)
     assert (result.confirmed_cost_yen, result.confirmed_tax_yen) == (12, 20)
+
+
+def test_outcome_cli_reads_period_calendar_and_assigns_events_once(
+    tmp_path, date_only_sale, monkeypatch, capsys
+):
+    saved, _ = date_only_sale
+    args, application = _prepare_outcome_cli(tmp_path, saved)
+    market = tmp_path / "market.sqlite"
+    benchmark = _benchmark()
+    start, end = benchmark.period_start_date, benchmark.period_end_date
+    report_day = end - timedelta(days=1)
+    rows = [
+        ("1234", day.isoformat(), 6.0 if day == report_day else 5.0, 1.0)
+        for ordinal in range(start.toordinal(), end.toordinal() + 1)
+        if (day := date.fromordinal(ordinal)).weekday() < 5
+    ]
+    seed_daily_bars(market, rows)
+    with closing(sqlite3.connect(market)) as writer, writer:
+        add_source_coverage(
+            writer,
+            source="jquants_daily_bars",
+            coverage_key="date-only-sale-prices",
+            min_date=start.isoformat(),
+            max_date=end.isoformat(),
+            record_count=len(rows),
+        )
+
+    trace = []
+    connect = portfolio_cli.connect_read_only
+
+    def traced_read(path):
+        connection = connect(path)
+        connection.set_trace_callback(trace.append)
+        return connection
+
+    assigned = []
+    assign = calculate._effective_event_dates
+
+    def traced_assignment(*args, **kwargs):
+        assigned.append((kwargs["start"], kwargs["end"]))
+        return assign(*args, **kwargs)
+
+    monkeypatch.setattr(portfolio_cli, "connect_read_only", traced_read)
+    monkeypatch.setattr(calculate, "_effective_event_dates", traced_assignment)
+
+    assert portfolio_cli.main(args) == 0
+    result = yaml.safe_load(capsys.readouterr().out)
+    assert result["status"] == "resolved"
+    assert (result["ending_cash_yen"], result["ending_holdings_market_value_yen"]) == (1068, 0)
+    assert (result["confirmed_cost_yen"], result["confirmed_tax_yen"]) == (12, 20)
+    assert result["portfolio_twr_pct"] == pytest.approx(6.8)
+    assert PortfolioOutcomeStore(application).list() == (result,)
+
+    # The separate pre-sale price-basis range does not count as this period read.
+    period_reads = sum(
+        sql.startswith("SELECT day, holiday_division FROM jquants_market_calendar ")
+        and f"BETWEEN '{start}' AND '{end}'" in sql
+        for sql in trace
+    )
+    assert set(assigned) == {(start, end)}
+    assert (period_reads, len(assigned)) == (1, 1)
 
 
 @pytest.mark.parametrize(

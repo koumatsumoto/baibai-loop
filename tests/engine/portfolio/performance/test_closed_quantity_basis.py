@@ -15,7 +15,7 @@ from baibai_engine.portfolio.holdings.valuation import (
 )
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
-from baibai_engine.portfolio.performance.calculate import outcome_ledger_at_close
+from baibai_engine.portfolio.performance.calculate import OutcomePeriod
 from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 
 
@@ -99,11 +99,11 @@ def test_quantity_check_uses_outcome_close_scope_not_internal_date_only_clock(da
         for event in raw["events"][1:]:
             event["occurred_on"] = "2026-01-06"
     ledger = PortfolioLedgerDocument.model_validate(raw)
-    scoped = outcome_ledger_at_close(
+    scoped = OutcomePeriod(
         ledger,
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         start=date(2025, 1, 6),
         end=date(2026, 1, 6),
-    )
+    ).ledger_at_close()
     assert scoped.events == (ledger.events if date_only else ledger.events[:1])
     assert scoped.as_of == ledger.as_of

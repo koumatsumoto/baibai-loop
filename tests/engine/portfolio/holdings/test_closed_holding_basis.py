@@ -2,11 +2,12 @@
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
 import yaml
+from tests.engine.portfolio.holdings.test_current_quotes import _seed_calendar
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.screening_sqlite import seed_daily_bars
 
@@ -180,3 +181,124 @@ def test_read_cutoff_ignores_a_future_sale(closed_case):
     )
     assert snapshot.holdings[0].quantity == 100
     assert snapshot.total_capital_yen is None
+
+
+def _rebought_split_holdings_case(tmp_path, count, missing):
+    app, market = tmp_path / "application.sqlite", tmp_path / "market.sqlite"
+    other_tickers = tuple(str(2000 + index) for index in range(count - 1))
+    tickers = ("1234", *other_tickers)
+    missing_ticker = tickers[-1] if missing else None
+
+    def trade(identity, day, ticker, side, quantity, price, **extra):
+        return dict(
+            type="execution",
+            event_id=identity,
+            execution_id=identity,
+            occurred_at=f"2026-10-{day}T10:00:00+09:00",
+            ticker=ticker,
+            side=side,
+            quantity=quantity,
+            price_yen=price,
+            sector="合成業種",
+            **extra,
+        )
+
+    def split(day):
+        return dict(
+            type="share_conversion",
+            event_id=f"split-{day}",
+            action_id=f"split-{day}",
+            occurred_at=f"2026-10-{day}T00:00:00+09:00",
+            occurred_on=f"2026-10-{day}",
+            confirmed_at=f"2026-10-{day}T18:00:00+09:00",
+            ticker="1234",
+            numerator=2,
+            denominator=1,
+            quantity_before=100,
+            quantity_after=200,
+            source_ref="synthetic-confirmation",
+        )
+
+    ledger = PortfolioLedgerDocument.model_validate(
+        dict(
+            schema_version=4,
+            portfolio_scope="repository_only",
+            as_of=NOW,
+            events=(
+                dict(
+                    type="opening_balance",
+                    event_id="cash",
+                    occurred_at="2026-10-01T09:00:00+09:00",
+                    amount_yen=3000000,
+                ),
+                trade("old-buy", "01", "1234", "buy", 100, 1000, decision_reference="old-origin"),
+                split("02"),
+                trade("full-exit", "05", "1234", "sell", 200, 530),
+                trade(
+                    "reentry", "06", "1234", "buy", 100, 550, decision_reference="reentry-origin"
+                ),
+                *(
+                    trade(f"buy-{ticker}", "06", ticker, "buy", 100, 100)
+                    for ticker in other_tickers
+                ),
+                split("07"),
+            ),
+        )
+    )
+    seed_ledger(app, ledger)
+    seed_daily_bars(
+        market,
+        [
+            ("1234", "2026-10-02", 530, 0.5),
+            ("1234", "2026-10-06", 550, 1.0),
+            *(
+                (ticker, "2026-10-07", None if ticker == missing_ticker else close, factor)
+                for ticker, close, factor in (
+                    ("1234", 280, 0.5),
+                    *((ticker, 120, 1.0) for ticker in other_tickers),
+                )
+            ),
+        ],
+    )
+    _seed_calendar(market, date(2026, 10, 1), NOW.date())
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET ex_right_type='1' WHERE ticker='1234' AND adjustment_factor=.5"
+        )
+    return app, market, ledger, missing_ticker
+
+
+@pytest.mark.parametrize("count", [1, 8])
+@pytest.mark.parametrize("missing", [False, True])
+def test_proposal_and_valuation_prepare_holding_episodes_once(tmp_path, mocker, count, missing):
+    from baibai_engine.portfolio.holdings import valuation
+    from baibai_engine.portfolio.ledger import events
+
+    app, market, ledger, missing_ticker = _rebought_split_holdings_case(tmp_path, count, missing)
+    before = app.read_bytes(), market.read_bytes()
+    episodes = mocker.spy(valuation, "holding_episodes")
+    conversions = mocker.spy(valuation, "share_conversions")
+    ordered_replay = mocker.spy(events, "ordered_replay_events")
+    snapshot = current_portfolio(ledger, sqlite_path=market, now=NOW)
+    assert (episodes.call_count, conversions.call_count, ordered_replay.call_count) == (1, 1, 2)
+    episodes.reset_mock()
+    conversions.reset_mock()
+    ordered_replay.reset_mock()
+
+    inputs = _collect(app, market)
+    cash = 2951000 - (count - 1) * 10000
+    total = None if missing else cash + 56000 + (count - 1) * 12000
+    assert snapshot.available_cash_yen == inputs.available_cash_yen == cash
+    assert snapshot.total_capital_yen == inputs.total_capital_yen == total
+    assert snapshot.realized_gross_pnl_yen == 6000
+    assert snapshot.holdings[0].quantity == inputs.positions[0].quantity == 200
+    assert snapshot.holdings[0].deployed_cost_yen == inputs.positions[0].cost_yen == 55000
+    assert "reentry-origin" in inputs.positions[0].original_reason_unavailable_reason
+    assert [row.ticker for row in inputs.positions if not row.quantity_basis_confirmed] == (
+        [missing_ticker] if missing else []
+    )
+    assert [row.ticker for row in snapshot.holdings if row.market_value_yen is None] == (
+        [missing_ticker] if missing else []
+    )
+    assert (app.read_bytes(), market.read_bytes()) == before
+    assert (episodes.call_count, conversions.call_count, ordered_replay.call_count) == (1, 1, 2)

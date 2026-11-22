@@ -15,6 +15,7 @@ from baibai_engine.portfolio.ledger.events import (
     ReleaseEvent,
     ReservationEvent,
     ReservationSnapshot,
+    ledger_event_append_payload,
     replay_events_through,
     reservation_snapshots,
 )
@@ -429,12 +430,7 @@ def _patch_document(
             raise BrokerFactRecordingError(f"conflicting human report for event {event_id}")
     if not pending:
         return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
-    raw = document.model_dump(mode="json")
-    raw["events"] = sorted(
-        [*raw["events"], *pending],
-        key=lambda event: datetime.fromisoformat(str(event["occurred_at"])),
-    )
-    raw["as_of"] = max(document.as_of, occurred_at).isoformat()
+    raw = ledger_event_append_payload(document, pending, occurred_at=occurred_at)
     try:
         patched = PortfolioLedgerDocument.model_validate(raw)
         replay_events_through(patched.events, patched.as_of)

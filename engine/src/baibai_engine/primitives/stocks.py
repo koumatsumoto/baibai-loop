@@ -16,8 +16,8 @@ def normalize_ticker(value: object) -> str:
 def parse_security_code_parts(code: object, *, require_text: bool = False) -> tuple[str, bool]:
     """Return the ticker and primary-issue flag, not the product category.
 
-    Native JSON price/master codes must be text. Keep the existing conversion for
-    other projections so this contract does not invalidate already-built caches.
+    Strict native projections opt in to JSON text. Keep the existing conversion
+    for callers whose projection contract has not changed.
     """
     if require_text and not isinstance(code, str):
         raise SecurityCodeError(f"invalid security code: {code!r}")

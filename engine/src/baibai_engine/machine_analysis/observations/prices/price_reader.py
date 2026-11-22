@@ -93,7 +93,7 @@ def _adjustment_events_from_rows(
     return events
 
 
-def _read_ticker_bars(
+def read_ticker_bars(
     conn: sqlite3.Connection, tickers: tuple[str, ...], start: date, end: date
 ) -> list[JQuantsDailyBar] | None:
     """Read held tickers on the caller's calendar snapshot; do not fill missing closes."""

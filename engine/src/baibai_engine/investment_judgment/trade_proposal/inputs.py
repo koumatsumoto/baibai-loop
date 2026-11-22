@@ -75,9 +75,9 @@ from baibai_engine.portfolio.holdings.market_observations import (
 )
 from baibai_engine.portfolio.holdings.valuation import (
     UnresolvedHoldingQuantityError,
-    holding_episode,
     holding_market_price,
     holding_quote_basis_is_confirmed,
+    prepare_holding_history,
     require_closed_holding_basis,
 )
 from baibai_engine.portfolio.ledger.events import (
@@ -204,6 +204,7 @@ def collect_proposal_inputs(
     if ledger.as_of > now or any(event.occurred_at > now for event in ledger.events):
         raise ProposalError("ledger contains facts after the proposal instant")
     state = replay_events_through(ledger.events, now)
+    history = prepare_holding_history(ledger, now=now)
     held_tickers = {ticker for ticker, lots in state.lots.items() if lots}
     relevant_tickers = tuple(sorted(set(tickers) | held_tickers))
     quotes: list[QuoteInput] = []
@@ -212,7 +213,7 @@ def collect_proposal_inputs(
     with proposal_market_snapshot(sqlite_path, connection=market_connection) as market_connection:
         if market_connection is not None:
             try:
-                require_closed_holding_basis(ledger, now=now, connection=market_connection)
+                require_closed_holding_basis(history, connection=market_connection)
             except UnresolvedHoldingQuantityError as error:
                 raise ProposalError(str(error)) from error
             observed_quotes = read_unadjusted_closes(
@@ -225,11 +226,10 @@ def collect_proposal_inputs(
                 observed = observed_quotes.get(ticker)
                 if ticker in held_tickers:
                     confirmed = holding_quote_basis_is_confirmed(
-                        ledger,
+                        history,
                         quote=observed,
                         ticker=ticker,
                         sqlite_path=sqlite_path,
-                        now=now,
                         connection=market_connection,
                     )
                     quantity_basis[ticker] = confirmed
@@ -262,9 +262,9 @@ def collect_proposal_inputs(
     portfolio = summarize_portfolio(ledger, state, prices)
     positions: list[PositionInput] = []
     for holding in portfolio.holdings:
-        bought, _ = holding_episode(ledger, holding.ticker, now)
+        episode = history.open_by_ticker.get(holding.ticker)
         original_ref, unavailable, origin = _original_assessment(
-            connection, ticker=holding.ticker, bought=bought
+            connection, ticker=holding.ticker, bought=None if episode is None else episode.first_buy
         )
         if original_buys is not None and holding.ticker in tickers and origin is not None:
             original_buys[holding.ticker] = origin

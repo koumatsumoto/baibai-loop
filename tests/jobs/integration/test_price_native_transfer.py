@@ -338,6 +338,24 @@ def test_corrupt_price_pack_after_a_completed_batch_leaves_no_output(tmp_path, s
     assert list(tmp_path.glob(".price-rebuild-*")) == []
 
 
+def test_modified_price_descriptor_is_rejected_before_reading_selection(tmp_path, fixed_prices):
+    store, fixed = fixed_prices
+    saved = price_native.model_input(
+        store,
+        fixed,
+        as_of=DAY,
+        evaluated_at=AT + timedelta(hours=1),
+        market=market_store(tmp_path / "market.sqlite"),
+    )
+    saved.descriptor["summary"]["selection_start"] = date.min.isoformat()
+    store.get_keys.clear()
+    output = tmp_path / "tampered"
+    with pytest.raises(ValueError, match="digest-matching fixed descriptor"):
+        price_native.rebuild_saved_input(store, saved, start=DAY, end=DAY, output=output)
+    assert not store.get_keys
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("claim_during_rebuild", [False, True])
 def test_cold_rebuild_does_not_replace_an_empty_directory_even_if_claimed_late(
     tmp_path, monkeypatch, fixed_prices, claim_during_rebuild

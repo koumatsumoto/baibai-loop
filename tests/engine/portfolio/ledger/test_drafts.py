@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+import sqlite3
+from contextlib import closing
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -62,6 +64,33 @@ def test_event_draft_requires_confirmation_and_rejects_stale_apply(tmp_path: Pat
     assert applied.event_ids == ("human-contribution-test-1",)
     with pytest.raises(LedgerConflictError, match="stale"):
         apply_draft(service, second, human_confirmed=True)
+
+
+@pytest.mark.parametrize("delay", [timedelta(), timedelta(seconds=1)])
+def test_late_event_draft_preserves_saved_order_and_appends_a_new_ordinal(
+    tmp_path: Path, delay: timedelta
+) -> None:
+    db = _seeded_db(tmp_path)
+    service = LedgerStoreService(db)
+    source, head = service.load_with_head()
+    event = ContributionEvent(
+        event_id="aaa-reported-later",
+        type="contribution",
+        occurred_at=source.events[2].occurred_at.astimezone(UTC) + delay,
+        amount_yen=10_000,
+    )
+    draft = build_event_draft(service, event)
+    assert draft.replacement.events == (*source.events[:3], event, *source.events[3:])
+    assert draft.replacement.as_of == source.as_of
+    assert service.load_with_head() == (source, head)
+
+    assert apply_draft(service, draft, human_confirmed=True).append_head == head + 1
+    assert service.load() == draft.replacement
+    with closing(sqlite3.connect(db)) as connection:
+        assert connection.execute(
+            "SELECT append_seq, same_instant_order FROM ledger_event WHERE event_id = ?",
+            (event.event_id,),
+        ).fetchone() == (head + 1, int(not delay))
 
 
 def test_record_broker_fact_apply_preserves_unreported_expired_order(

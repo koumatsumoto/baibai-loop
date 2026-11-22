@@ -13,6 +13,7 @@ from baibai_engine.portfolio.ledger.broker_facts import (
     record_broker_fact,
 )
 from baibai_engine.portfolio.ledger.events import (
+    ExecutionEvent,
     replay_events_through,
     reservation_snapshots,
 )
@@ -43,6 +44,34 @@ def test_open_report_creates_a_source_bound_reservation() -> None:
     reservation = portfolio_snapshot(result.document).active_reservations[-1]
     assert reservation.ticker == "1234"
     assert result.document.events[-1].decision_reference == PROPOSAL
+
+
+def test_appending_broker_fact_preserves_wire_validation_of_existing_events() -> None:
+    source = load_portfolio_ledger(FIXTURE)
+    saved_fill = next(event for event in source.events if isinstance(event, ExecutionEvent))
+    # Typed arithmetic accepts this Decimal, but it is not a supported price on the ledger wire.
+    typed_fill = ExecutionEvent.model_validate(
+        {**saved_fill.model_dump(mode="python"), "price_yen": Decimal("1E+3")}
+    )
+    source = source.model_copy(
+        update={
+            "events": tuple(typed_fill if event is saved_fill else event for event in source.events)
+        }
+    )
+    with pytest.raises(
+        BrokerFactRecordingError, match="string unit price must use fixed-point decimal notation"
+    ):
+        record_broker_fact(
+            source,
+            decision_reference=PROPOSAL,
+            status="open",
+            occurred_at=_at(9),
+            ticker="1234",
+            quantity=100,
+            sector="サービス業",
+            price_guard_yen=Decimal("900"),
+            now=_at(12),
+        )
 
 
 def test_sell_order_and_partial_fill_leave_cash_and_unfilled_shares_distinct() -> None:

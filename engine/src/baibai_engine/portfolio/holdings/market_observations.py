@@ -38,7 +38,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
 )
-from baibai_engine.machine_analysis.observations.prices.price_reader import _read_ticker_bars
+from baibai_engine.machine_analysis.observations.prices.price_reader import read_ticker_bars
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.portfolio.ledger.events import ShareConversionEvent, matches_share_conversion
 from baibai_engine.primitives.jquants_calendar import cash_equity_open
@@ -360,7 +360,7 @@ def read_portfolio_market_inputs(
         calendar = _read_calendar(conn, start, end)
         if calendar is None:
             return None, None
-        return calendar, _read_ticker_bars(conn, tickers, start, end)
+        return calendar, read_ticker_bars(conn, tickers, start, end)
     finally:
         if owns_connection:
             conn.close()

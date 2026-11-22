@@ -41,7 +41,7 @@ def attempt(identity, value=1, *, at=AT, partial=False):
 
 @pytest.mark.parametrize("query_profile", ["", "small-runner"])
 def test_saved_input_cli_rebuilds_same_rows_and_shortages_without_latest_head(
-    tmp_path, monkeypatch, query_profile
+    tmp_path, monkeypatch, mocker, query_profile
 ):
     monkeypatch.setenv("BAIBAI_LAKE_QUERY_PROFILE", query_profile)
     store = MemoryR2Store()
@@ -59,6 +59,7 @@ def test_saved_input_cli_rebuilds_same_rows_and_shortages_without_latest_head(
     file = tmp_path / "saved-input.json"
     file.write_text(saved.model_dump_json())
     monkeypatch.setattr(job, "Boto3R2Store", lambda **kw: store)
+    parse = mocker.spy(InputSnapshot, "model_validate_json")
     store.get_keys.clear()
     assert (
         job.main(
@@ -77,6 +78,7 @@ def test_saved_input_cli_rebuilds_same_rows_and_shortages_without_latest_head(
         )
         == 0
     )
+    parse.assert_called_once_with(file.read_bytes())
     assert HEAD_KEY not in store.get_keys
     for table in ("financial_summaries", "financial_receipt_status"):
         assert (
@@ -135,3 +137,18 @@ def test_saved_input_verifies_pack_fingerprint_and_does_not_expand_its_scope(tmp
         job.rebuild_saved_input(
             store, altered, start=DAY, end=DAY, output=tmp_path / "changed-fingerprint"
         )
+
+
+def test_constructed_financial_input_is_revalidated_before_reading_selection(tmp_path):
+    store = MemoryR2Store()
+    owner = FinancialL1(store, tmp_path / "native")
+    owner.initialize()
+    owner.commit([attempt("first")])
+    saved = job.model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT).identity
+    changed = saved.model_copy(update={"descriptor": {**saved.descriptor, "as_of": "2026-11-03"}})
+    store.get_keys.clear()
+    output = tmp_path / "tampered"
+    with pytest.raises(ValueError, match="digest-matching fixed descriptor"):
+        job.rebuild_saved_input(store, changed, start=DAY, end=DAY, output=output)
+    assert not store.get_keys
+    assert not output.exists()
