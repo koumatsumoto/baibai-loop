@@ -340,3 +340,61 @@ def test_modified_local_copy_cannot_supply_retained_assessment_input(tmp_path, m
         conn.execute("CREATE TABLE unrelated(note TEXT)")
     with pytest.raises(ValueError, match="differs from retained"):
         evidence.read_exact(directory / "receipts.sqlite", value.receipt_id, value.digest())
+
+
+def test_download_uses_requested_manifest_for_the_transfer(tmp_path, monkeypatch, capsys):
+    from hashlib import sha256
+
+    from baibai_engine.storage.objects.r2 import LakePublishError
+    from baibai_jobs.acquisition.economic_staging import stage_prefix
+
+    stage_id = MARKET_GROUP + "-restored"
+    key = stage_prefix(stage_id) + "/handoff.json"
+    original, source, _ = packet(tmp_path, label="original-manifest")
+    _, alternate, _ = packet(tmp_path, label="other-manifest")
+    responses = []
+
+    class RestoredStore(MemoryR2Store):
+        def get_checked_object(self, name, *, max_bytes):
+            if name == key and responses:
+                self.values[name] = responses.pop(0)
+            return self.get_bytes_with_metadata(name)
+
+    store = RestoredStore()
+    save_handoff(store, stage_id, source)
+    copy = MemoryR2Store()
+    save_handoff(copy, stage_id, alternate)
+    original_manifest, other_manifest = store.values[key], copy.values[key]
+    assert original_manifest.body != other_manifest.body
+    store.values.update({name: value for name, value in copy.values.items() if name != key})
+    responses.extend([original_manifest, other_manifest, original_manifest])
+    monkeypatch.setattr(evidence, "Boto3R2Store", lambda **_: store)
+    store.get_keys.clear()
+    store.put_keys.clear()
+    restored = tmp_path / "download"
+    args = [
+        "download",
+        "--directory",
+        str(restored),
+        "--stage-id",
+        stage_id,
+        "--manifest-sha256",
+        sha256(original_manifest.body).hexdigest(),
+    ]
+
+    # Both surrounding reads would see the requested digest, but the transfer read does not.
+    with pytest.raises(LakePublishError, match="fixed source handoff manifest changed"):
+        evidence.main(args)
+    assert capsys.readouterr().out == ""
+    assert not restored.exists()
+    assert store.get_keys == [key, key]
+    assert not store.put_keys
+
+    # No mismatched file or sidecar remains to interfere with an exact retry.
+    store.values[key] = original_manifest
+    responses.clear()
+    assert evidence.main(args) == 0
+    read = evidence.read_exact(restored / "receipts.sqlite", original.receipt_id, original.digest())
+    assert read["retention"]["manifest_sha256"] == sha256(original_manifest.body).hexdigest()
+    assert read["assessment_input"]["status"] == "ok"
+    assert not store.put_keys

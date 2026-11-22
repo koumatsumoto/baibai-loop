@@ -214,7 +214,12 @@ def main(argv: list[str] | None = None) -> int:
             saved = read_private(store, key)
             if saved is None or hashlib.sha256(saved.payload).hexdigest() != args.manifest_sha256:
                 raise ValueError("fixed market handoff manifest differs")
-            load_handoff(store, args.stage_id, args.directory)
+            load_handoff(
+                store,
+                args.stage_id,
+                args.directory,
+                expected_manifest_sha256=args.manifest_sha256,
+            )
             validate_packet(args.directory)
         saved = read_private(store, key)
         assert saved is not None
