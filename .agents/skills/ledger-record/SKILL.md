@@ -55,7 +55,7 @@ uv run baibai-engine portfolio sell-execution-draft --db stores/application/baib
 
 売買/incomeはgross、費用/確認税は別event。売却cashは約定時に計上するがavailable cashは未予約現金で、受渡済み資金/broker発注可能額ではない。FIFO実現gross損益は開始から通算し、全売却/買直しでリセットしたりcashへ再加算したりしない。
 
-予定入金/未報告取引は加算しない。明示費用0は記録できるが、eventなしは費用/税ゼロの確認でない。推定exit taxは表示だけでcash/confirmed taxと分ける。
+予定入金/未報告取引は加算しない。入出金・配当・費用・税は実際の発生後に記帳し、日付しか分からない報告は日本時間の当日までとする。明示費用0は記録できるが、eventなしは費用/税ゼロの確認でない。推定exit taxは表示だけでcash/confirmed taxと分ける。
 
 ## 確認と反映
 
