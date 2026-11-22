@@ -53,6 +53,7 @@ def capture_delta(
     """Freeze the affected closure after native projection and semantic extraction."""
     result = {}
     with closing(connect_read_only(database)) as conn:
+        conn.execute("BEGIN")
         selected = set(receipt_ids)
         for artifact_id in artifact_ids:
             row = conn.execute(
