@@ -491,6 +491,7 @@ def read_and_generate_models(
         },
         securities_context=price_inputs.contexts,
         market_context_revision="shared-market-context-v20-classified-sector-peers",
+        shared_market_context_revision="shared-market-context-v21-independent-sector-metrics",
         growth_start=growth_start,
         trends=trends,
     )

@@ -381,3 +381,37 @@ def test_breadth_can_rise_with_unchanged_close_when_its_average_falls(tmp_path):
     # Membership and endpoint price are unchanged; this is not a 100% price gain.
     assert sum(closes[:20]) / 20 > closes[-6]
     assert sum(closes[-20:]) / 20 < closes[-1]
+
+
+def test_sector_can_keep_independent_metrics_without_one_short_return(tmp_path):
+    path = tmp_path / "market.sqlite"
+    _insert_bars(path, "1321", [100.0] * 61, end=_ASOF)
+    inputs = (
+        ("SHRT", "小売業", [100.0] * 20 + [80.0]),
+        ("MA20", "海運業", [100.0] * 19 + [110.0]),
+        # Invalid at the short endpoint and within MA20, but not at either long endpoint.
+        ("LONG", "機械", [80.0] + [100.0] * 39 + [0.0] + [100.0] * 17 + [0.0, 100.0, 100.0]),
+        ("NONE", "医薬品", [100.0] * 19),
+    )
+    for ticker, sector, prices in inputs:
+        _insert_bars(path, ticker, prices, end=_ASOF)
+        _insert_sector(path, ticker, sector)
+
+    shared = build_market_snapshot(sqlite_path=path, asof_date=_ASOF, history_weeks=1)
+    observed = {row["sector_33"]: row for row in shared["sectors"]}
+    assert list(observed) == ["小売業", "機械", "海運業"]
+    assert observed["小売業"]["median_return_20d"] == 80.0 / 100.0 - 1
+    for sector in ("機械", "海運業"):
+        row = observed[sector]
+        assert row["observation_date"] == _ASOF.isoformat()
+        assert row["ticker_count"] == 0
+        assert row["median_return_20d"] is None
+        assert row["sample_sizes"]["median_return_20d"] == 0
+    assert observed["機械"]["median_return_60d"] == 0.25
+    assert observed["機械"]["sample_sizes"]["median_return_60d"] == 1
+    assert observed["機械"]["pct_above_ma20"] is None
+    assert observed["機械"]["sample_sizes"]["pct_above_ma20"] == 0
+    assert observed["海運業"]["median_return_60d"] is None
+    assert observed["海運業"]["sample_sizes"]["median_return_60d"] == 0
+    assert observed["海運業"]["pct_above_ma20"] == 1.0
+    assert observed["海運業"]["sample_sizes"]["pct_above_ma20"] == 1

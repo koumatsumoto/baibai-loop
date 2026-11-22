@@ -87,6 +87,7 @@ def generate_models(
     market_context: dict[str, object] | None,
     securities_context: Mapping[str, dict[str, object]],
     market_context_revision: str,
+    shared_market_context_revision: str | None = None,
     growth_start: date | None = None,
     trends: TrendGenerationInputs | None = None,
 ) -> ModelGenerationStream:
@@ -219,7 +220,13 @@ def generate_models(
             if ticker in securities_context:
                 yield _market_model(ticker, securities_context[ticker], market_context_revision)
         if market_context is not None:
-            yield _market_model("market", market_context, market_context_revision)
+            yield _market_model(
+                "market",
+                market_context,
+                market_context_revision
+                if shared_market_context_revision is None
+                else shared_market_context_revision,
+            )
         if trends is not None:
             for industry in trends.industries:
                 yield GeneratedModel(

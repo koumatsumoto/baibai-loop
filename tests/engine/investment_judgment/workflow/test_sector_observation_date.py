@@ -47,14 +47,20 @@ NOW = datetime(2026, 10, 27, tzinfo=UTC)
 def _generation(tmp_path, *, revision):
     path = tmp_path / "market.sqlite"
     insert_daily_bars_from_closes(path, "1234", [100.0] * 61, end_date=PRICE_DATE)
+    if revision == "v21":
+        insert_daily_bars_from_closes(path, "1235", [100.0] * 19 + [110.0], end_date=PRICE_DATE)
     connection = open_connection(path)
     try:
         insert_master_rows(connection, [(str(ASOF), "1234", "合成企業", "Prime", "機械", "011")])
+        if revision == "v21":
+            insert_master_rows(
+                connection, [(str(ASOF), "1235", "新規合成企業", "Prime", "海運業", "011")]
+            )
         connection.commit()
     finally:
         connection.close()
     market = build_market_snapshot(sqlite_path=path, asof_date=ASOF, history_weeks=1)
-    if revision != "v17":
+    if revision not in ("v17", "v21"):
         for row in market["sectors"]:
             row.pop("sample_sizes")
     if revision == "v8":
@@ -78,6 +84,7 @@ def _generation(tmp_path, *, revision):
                     "v8": "retained-v8",
                     "v16": "shared-market-context-v16-calendar-volatility",
                     "v17": "shared-market-context-v17-sector-sample-sizes",
+                    "v21": "shared-market-context-v21-independent-sector-metrics",
                 }[revision],
                 payload={"market": market},
             ),
@@ -85,7 +92,7 @@ def _generation(tmp_path, *, revision):
     )
 
 
-@pytest.mark.parametrize("revision", ["v8", "v16", "v17"])
+@pytest.mark.parametrize("revision", ["v8", "v16", "v17", "v21"])
 def test_sector_context_survives_fixed_selection_and_resume_without_backfill(tmp_path, revision):
     generation = _generation(tmp_path, revision=revision)
     legacy = revision == "v8"
@@ -97,7 +104,7 @@ def test_sector_context_survives_fixed_selection_and_resume_without_backfill(tmp
         assert "observation_date" not in row
     else:
         assert row["observation_date"] == str(PRICE_DATE)
-    if revision == "v17":
+    if revision in ("v17", "v21"):
         assert row["sample_sizes"] == {
             "median_return_20d": 1,
             "median_return_60d": 1,
@@ -105,6 +112,22 @@ def test_sector_context_survives_fixed_selection_and_resume_without_backfill(tmp
         }
     else:
         assert "sample_sizes" not in row
+    if revision == "v21":
+        assert len(market["sectors"]) == 2
+        _, partial = market["sectors"]
+        assert partial == {
+            "sector_33": "海運業",
+            "observation_date": str(PRICE_DATE),
+            "ticker_count": 0,
+            "median_return_20d": None,
+            "median_return_60d": None,
+            "pct_above_ma20": 1.0,
+            "sample_sizes": {
+                "median_return_20d": 0,
+                "median_return_60d": 0,
+                "pct_above_ma20": 1,
+            },
+        }
     runs = tmp_path / "runs.sqlite"
     publish_generation(generation, path=runs)
     assert read_generation(generation.generation_id, path=runs) == generation
