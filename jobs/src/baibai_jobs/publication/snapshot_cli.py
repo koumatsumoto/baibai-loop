@@ -15,7 +15,11 @@ from baibai_engine.storage.snapshots.models import (
     LakeReleaseSourceRef,
     load_lake_model_json,
 )
-from baibai_engine.storage.snapshots.objects import LakeCredentialError, LakeObjectError, open_lake
+from baibai_engine.storage.snapshots.objects import (
+    LakeCredentialError,
+    LakeObjectError,
+    open_lake_source,
+)
 from baibai_engine.storage.snapshots.reader import (
     LakeReadError,
     resolve_current_release,
@@ -77,12 +81,12 @@ def _emit(payload: dict[str, JsonValue], output_format: str) -> None:
 def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
     """Freeze one release and describe it, without dereferencing any data object."""
 
-    with open_lake(mirror=args.mirror, bucket=args.bucket) as (_session, cache):
+    with open_lake_source(mirror=args.mirror, bucket=args.bucket) as source:
         if args.release is not None:
             if args.manifest_sha256 is None:
                 raise LakeReadError("--release requires --manifest-sha256")
             release = resolve_release(
-                cache.source,
+                source,
                 args.release,
                 manifest_sha256=args.manifest_sha256,
             )
@@ -93,10 +97,10 @@ def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
                 args.release_ref.read_bytes(),
                 LakeReleaseSourceRef,
             )
-            release = resolve_release_ref(cache.source, reference)
+            release = resolve_release_ref(source, reference)
         else:
             release = resolve_current_release(
-                cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+                source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
             )
     return {
         "schema_version": 1,

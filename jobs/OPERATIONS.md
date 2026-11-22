@@ -72,7 +72,7 @@ gh workflow run cloud-batch-watchdog.yml --ref main -f "check_date=${ASOF:?対�
 <a id="fixed-release-read"></a>
 ## 固定releaseを読む
 
-「今公開されているもの」と「過去の特定release」を分ける。現在の`release_id`と`manifest_sha256`を調べるには次を使う。`resolve`が検証するのはmanifestまでで、data objectの読戻しではない。
+「今公開されているもの」と「過去の特定release」を分ける。現在の`release_id`と`manifest_sha256`を調べるには次を使う。`resolve`が検証するのはmanifestまでで、data objectの読戻しではない。DuckDBのquery profileや作業用一時directoryは不要。
 
 ```bash
 uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores --format json

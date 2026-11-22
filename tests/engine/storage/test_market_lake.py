@@ -3,13 +3,16 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import tempfile
 from datetime import UTC, date, datetime
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
 from tests.helpers.lake_policy import narrow_release_policy
 
+from baibai_engine.storage.snapshots import duck, objects
 from baibai_engine.storage.snapshots.keys import (
     LakeLayer,
     canonical_object_key,
@@ -20,6 +23,7 @@ from baibai_engine.storage.snapshots.keys import (
 from baibai_engine.storage.snapshots.models import (
     MAX_LAKE_JSON_BYTES,
     DatasetManifest,
+    LakeReleaseSourceRef,
     PartitionManifest,
     ReleaseManifest,
     canonical_lake_model_bytes,
@@ -28,6 +32,7 @@ from baibai_engine.storage.snapshots.models import (
 )
 from baibai_engine.storage.snapshots.objects import LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import LakeReadError, accepted_dataset, resolve_release
+from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_jobs.cli import _COMMANDS
 from baibai_jobs.publication import policy as snapshot_policy
 from baibai_jobs.publication.datasets import (
@@ -759,6 +764,149 @@ def test_resolve_cli_keeps_typed_reference_error_redacted(
     assert path.read_bytes() == before
 
 
+def _resolve_graph(mirror: Path) -> tuple[LakeReleaseSourceRef, str]:
+    leaf = _load_dataset(_dataset_payload())
+    source_key = dataset_manifest_key(dataset=leaf.dataset, build_id=leaf.build_id)
+    manifest_path = mirror / source_key
+    manifest_path.parent.mkdir(parents=True)
+    manifest_bytes = canonical_lake_model_bytes(leaf)
+    manifest_path.write_bytes(manifest_bytes)
+
+    root = _release_payload()
+    assert isinstance(root["datasets"], dict)
+    root["datasets"][leaf.dataset]["manifest_sha256"] = hashlib.sha256(manifest_bytes).hexdigest()
+    release = load_lake_model_json(json.dumps(root), ReleaseManifest)
+    release_key = release_manifest_key(release_id=release.release_id)
+    release_path = mirror / release_key
+    release_path.parent.mkdir(parents=True)
+    release_bytes = canonical_lake_model_bytes(release)
+    release_path.write_bytes(release_bytes)
+    digest = hashlib.sha256(release_bytes).hexdigest()
+    pointer = LakeReleasePointer(
+        release_id=release.release_id, manifest_key=release_key, manifest_sha256=digest
+    )
+    current = mirror / current_release_pointer_key()
+    current.parent.mkdir(parents=True)
+    current.write_text(pointer.model_dump_json())
+    return (
+        LakeReleaseSourceRef(
+            kind="lake_release",
+            source_id=release.release_id,
+            sha256=digest,
+            key=release_key,
+            manifest_version=2,
+        ),
+        source_key,
+    )
+
+
+@pytest.mark.parametrize("selector", ["pins", "reference", "current"])
+def test_snapshot_resolve_needs_only_manifest_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    selector: str,
+) -> None:
+    narrow_release_policy(monkeypatch, datasets=("jquants.daily_bars",))
+    mirror = tmp_path / "mirror"
+    reference, source_key = _resolve_graph(mirror)
+    ref_path = tmp_path / "reference.json"
+    ref_path.write_text(reference.model_dump_json())
+    before = {path: path.read_bytes() for path in mirror.rglob("*.json")}
+
+    read = Mock(side_effect=LocalMirrorSource(mirror).read_bytes)
+    monkeypatch.setattr(LocalMirrorSource, "read_bytes", lambda _source, key: read(key))
+    query = Mock(side_effect=AssertionError("manifest-only resolution must not open DuckDB"))
+    monkeypatch.setattr(duck.duckdb, "connect", query)
+    monkeypatch.setenv("BAIBAI_LAKE_QUERY_PROFILE", "small-runner")
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "unavailable-query-tmp"))
+    args = ["resolve", "--mirror", str(mirror), "--format", "json"]
+    if selector == "pins":
+        args += ["--release", reference.source_id, "--manifest-sha256", reference.sha256]
+    elif selector == "reference":
+        args += ["--release-ref", str(ref_path)]
+
+    assert lake_main(args) == 0
+    output = capsys.readouterr()
+    assert not output.err
+    value = json.loads(output.out)
+    assert (value["release_id"], value["manifest_sha256"]) == (
+        reference.source_id,
+        reference.sha256,
+    )
+    assert value["datasets"][0]["rows"] == 456
+    expected_keys = [reference.key, source_key]
+    if selector == "current":
+        expected_keys.insert(0, current_release_pointer_key())
+    assert [call.args[0] for call in read.call_args_list] == expected_keys
+    query.assert_not_called()
+    assert {path: path.read_bytes() for path in mirror.rglob("*.json")} == before
+
+
+def test_snapshot_resolve_uses_the_same_bucket_source_without_query_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mirror = tmp_path / "mirror"
+    reference, source_key = _resolve_graph(mirror)
+    store = Mock()
+    store.get_bytes.side_effect = LocalMirrorSource(mirror).read_bytes
+    factory = Mock(return_value=store)
+    monkeypatch.setattr(objects, "Boto3R2Store", factory)
+    for name, value in {
+        "R2_ACCOUNT_ID": "a" * 32,
+        "R2_ACCESS_KEY_ID": "A" * 16,
+        "R2_SECRET_ACCESS_KEY": "synthetic-fixture-only",
+        "BAIBAI_LAKE_QUERY_PROFILE": "invalid-profile-for-queries",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    args = [
+        "resolve",
+        "--mirror",
+        str(mirror),
+        "--bucket",
+        "fixture-store",
+        "--format",
+        "json",
+        "--release",
+        reference.source_id,
+        "--manifest-sha256",
+        reference.sha256,
+    ]
+    assert lake_main(args) == 0
+    output = capsys.readouterr()
+    assert json.loads(output.out)["manifest_sha256"] == reference.sha256
+    assert [call.args[0] for call in store.get_bytes.call_args_list] == [reference.key, source_key]
+    store.close.assert_called_once_with()
+    assert not output.err
+
+    factory.reset_mock()
+    with (
+        pytest.raises(ValueError, match="unsupported lake query profile"),
+        objects.open_lake(mirror=mirror, bucket="fixture-store"),
+    ):
+        pytest.fail("query sessions must still honor their query profile")
+    factory.assert_not_called()
+
+    # A requested bucket stays authoritative even though the local graph is present.
+    store.reset_mock()
+    store.get_bytes.side_effect = OSError("fixture remote read failed")
+    assert lake_main(args) == 1
+    output = capsys.readouterr()
+    assert not output.out
+    assert "lake object is not readable" in output.err
+    store.get_bytes.assert_called_once_with(reference.key)
+    store.close.assert_called_once_with()
+
+    factory.reset_mock()
+    monkeypatch.delenv("R2_ACCOUNT_ID")
+    assert lake_main(args) == 1
+    output = capsys.readouterr()
+    assert not output.out
+    assert "required environment variable is missing: R2_ACCOUNT_ID" in output.err
+    factory.assert_not_called()
+
+
 def test_lake_domain_is_exposed_by_the_root_cli() -> None:
     assert _COMMANDS["snapshots"] == "baibai_jobs.publication.snapshot_cli"
 
@@ -785,7 +933,7 @@ def test_snapshot_cli_lists_current_commands_and_rejects_unknown_before_io(
     def unexpected_io(*args: object, **kwargs: object) -> None:
         pytest.fail("command parsing must not open a store")
 
-    monkeypatch.setattr(snapshot_cli, "open_lake", unexpected_io)
+    monkeypatch.setattr(snapshot_cli, "open_lake_source", unexpected_io)
     monkeypatch.setattr(snapshot_cli, "inventory", unexpected_io)
     monkeypatch.setattr(snapshot_write_cli, "open_lake", unexpected_io)
     monkeypatch.setattr(snapshot_write_cli, "plan_gc", unexpected_io)
