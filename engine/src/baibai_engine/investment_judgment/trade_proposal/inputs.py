@@ -46,7 +46,8 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
 from baibai_engine.investment_judgment.workflow.operation.progress import (
-    proposal_scope,
+    fixed_proposal_scope,
+    progress_binding,
     selection_binding,
 )
 from baibai_engine.investment_judgment.workflow.profit_context import saved_profit_context
@@ -671,7 +672,9 @@ def build_proposal_context(
             raise ProposalError("proposal authoring requires an active selected Research Operation")
         if operation.started_at > now:
             raise ProposalError("Research Operation starts after the authoring instant")
-        scope = proposal_scope(operation.operation_id, operation.payload)
+        scope = fixed_proposal_scope(
+            operation.operation_id, selection, progress_binding(operation.payload)
+        )
         original_buys: dict[str, _ReportedBuy] = {}
         inputs = collect_proposal_inputs(
             connection,

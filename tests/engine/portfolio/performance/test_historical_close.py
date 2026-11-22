@@ -301,7 +301,7 @@ def test_reserved_sell_and_its_charges_enter_together_after_the_known_order(date
     assert (result.confirmed_cost_yen, result.confirmed_tax_yen) == (12, 20)
 
 
-def test_outcome_cli_reads_period_calendar_and_assigns_events_once(
+def test_outcome_cli_reads_period_calendar_once_and_keeps_the_market_snapshot(
     tmp_path, date_only_sale, monkeypatch, capsys
 ):
     saved, _ = date_only_sale
@@ -317,6 +317,7 @@ def test_outcome_cli_reads_period_calendar_and_assigns_events_once(
     ]
     seed_daily_bars(market, rows)
     with closing(sqlite3.connect(market)) as writer, writer:
+        assert writer.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
         add_source_coverage(
             writer,
             source="jquants_daily_bars",
@@ -341,7 +342,27 @@ def test_outcome_cli_reads_period_calendar_and_assigns_events_once(
         assigned.append((kwargs["start"], kwargs["end"]))
         return assign(*args, **kwargs)
 
+    read_calendar = portfolio_cli.read_market_calendar
+
+    def read_calendar_then_correct(path, start, end, *, connection):
+        calendar = read_calendar(path, start, end, connection=connection)
+        # Commit after the period calendar, before the CLI reads closes and
+        # holding basis. A fresh connection sees all three corrections.
+        with closing(sqlite3.connect(market)) as writer, writer:
+            writer.execute(
+                "UPDATE jquants_market_calendar SET holiday_division = '0' WHERE day = ?",
+                (report_day.isoformat(),),
+            )
+            writer.execute(
+                "UPDATE jquants_daily_bars "
+                "SET close = 999.0, adjustment_factor = 0.5, ex_right_type = '1' "
+                "WHERE ticker = '1234' AND traded_at = ?",
+                (report_day.isoformat(),),
+            )
+        return calendar
+
     monkeypatch.setattr(portfolio_cli, "connect_read_only", traced_read)
+    monkeypatch.setattr(portfolio_cli, "read_market_calendar", read_calendar_then_correct)
     monkeypatch.setattr(calculate, "_effective_event_dates", traced_assignment)
 
     assert portfolio_cli.main(args) == 0
@@ -351,6 +372,16 @@ def test_outcome_cli_reads_period_calendar_and_assigns_events_once(
     assert (result["confirmed_cost_yen"], result["confirmed_tax_yen"]) == (12, 20)
     assert result["portfolio_twr_pct"] == pytest.approx(6.8)
     assert PortfolioOutcomeStore(application).list() == (result,)
+    with closing(sqlite3.connect(market)) as connection:
+        assert connection.execute(
+            "SELECT holiday_division FROM jquants_market_calendar WHERE day = ?",
+            (report_day.isoformat(),),
+        ).fetchone() == ("0",)
+        assert connection.execute(
+            "SELECT close, adjustment_factor FROM jquants_daily_bars "
+            "WHERE ticker = '1234' AND traded_at = ?",
+            (report_day.isoformat(),),
+        ).fetchone() == (999.0, 0.5)
 
     # The separate pre-sale price-basis range does not count as this period read.
     period_reads = sum(

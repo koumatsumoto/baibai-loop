@@ -29,6 +29,8 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.price_inputs import (
+    PRICE_PROJECTION_REVISION,
+    SavedPriceProjectionRevisionMismatch,
     read_closed_price_days,
     read_price_input,
     rehydrate_price_input,
@@ -168,6 +170,7 @@ def model_input(
         "receipts": {identity: head["receipts"][identity] for identity in sorted(identities)},
     }
     summary: dict[str, Any] = {
+        "projection_revision": PRICE_PROJECTION_REVISION,
         "head_sha256": fixed.content_id,
         "retained_source_days": {
             "start": min(retained).isoformat(),
@@ -379,8 +382,8 @@ def rebuild_saved_input(
     store: ObjectStore, saved: InputSnapshot | bytes, *, start: date, end: date, output: Path
 ) -> dict[str, Any]:
     """Cold rebuild from immutable selection metadata and packs, without latest or L2."""
-    days = _days(start, end)
     fixed, _ = rehydrate_price_input(saved)
+    days = _days(start, end)
     record = fixed.as_saved_record()
     descriptor = record["descriptor"]
     with _cold_price_output(output) as staged:
@@ -476,6 +479,9 @@ def main(argv: list[str] | None = None) -> int:
                 fixed = PriceL1(store, args.work_directory).fixed()
                 result = rebuild(store, fixed, start=args.start, end=args.end, output=args.output)
             print(json.dumps(result))
+    except SavedPriceProjectionRevisionMismatch as error:
+        print(str(error), file=sys.stderr)
+        return 1
     except Exception as error:
         print(f"price native rebuild failed: {type(error).__name__}", file=sys.stderr)
         return 1

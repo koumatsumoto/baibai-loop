@@ -51,7 +51,11 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
     uncovered_days,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.integration.native_projection_cache import verified_cached_scopes
+from baibai_jobs.integration.native_projection_cache import (
+    SavedProjectionRevisionMismatch,
+    require_current_saved_projection,
+    verified_cached_scopes,
+)
 
 
 def _days(start: date, end: date) -> tuple[date, ...]:
@@ -165,6 +169,7 @@ def materialize_saved_input(
     summary = descriptor["summary"]
     if not isinstance(summary, dict):
         raise ValueError("short-sale reports input requires its evaluation clock")
+    require_current_saved_projection(summary)
     clock = summary.get("evaluated_at")
     if not isinstance(clock, str):
         raise ValueError("short-sale reports input requires its evaluation clock")
@@ -431,6 +436,9 @@ def main(argv: list[str] | None = None) -> int:
             write_json_atomic(args.output / "result.json", result)
             print(json.dumps(result, sort_keys=True))
             return int(result["coverage_status"] != "complete")
+    except SavedProjectionRevisionMismatch as error:
+        print(str(error), file=sys.stderr)
+        return 1
     except Exception as error:
         print(f"short-sale reports native reader failed: {type(error).__name__}", file=sys.stderr)
         return 1

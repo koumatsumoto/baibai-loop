@@ -445,33 +445,33 @@ def _retain_economic_input(
     if not inline or objects is None:
         return _identity("economic-input-v2", retain(selection(retain_blocks(names))))
 
-    legacy_months = {}
+    external_block_digests = {}
     proof = hashlib.sha256()
     for name in names:
         payload = canonical_json(_Block(**blocks[name]).model_dump(mode="json")).encode()
         if len(payload) > MAX_PRIVATE_OBJECT_BYTES:
             raise ValueError("invalid private JSON payload size")
-        legacy_months[name] = hashlib.sha256(payload).hexdigest()
+        external_block_digests[name] = hashlib.sha256(payload).hexdigest()
         if name in inline:
             for receipt in blocks[name]["records"]:
                 proof.update(bytes.fromhex(receipt.sha256))
-    legacy = selection(legacy_months)
-    legacy_bytes = canonical_json(legacy).encode()
-    if len(legacy_bytes) > MAX_PRIVATE_OBJECT_BYTES:
+    external_only = selection(external_block_digests)
+    external_only_bytes = canonical_json(external_only).encode()
+    if len(external_only_bytes) > MAX_PRIVATE_OBJECT_BYTES:
         raise ValueError("invalid private JSON payload size")
-    legacy_sha = hashlib.sha256(legacy_bytes).hexdigest()
-    old = objects.find(legacy_sha)
-    if old is not None:
-        if old != legacy_bytes:
+    external_only_sha = hashlib.sha256(external_only_bytes).hexdigest()
+    existing_root = objects.find(external_only_sha)
+    if existing_root is not None:
+        if existing_root != external_only_bytes:
             raise LakePublishError("economic selection object failed integrity")
         retain_blocks(names)
-        return _identity("economic-input-v2", objects.remember(legacy_sha, old))
+        return _identity("economic-input-v2", objects.remember(external_only_sha, existing_root))
 
-    # Non-inline blocks have exactly their old keys. A later high-entropy block
+    # Non-inline blocks have exactly their external-block keys. A later high-entropy block
     # cannot make us write previously skipped children, even across billing months.
     external = retain_blocks([name for name in names if name not in inline])
-    hybrid = hybrid_root(legacy, {**external, **inline}, proof.hexdigest())
-    if len(canonical_json(hybrid).encode()) > len(legacy_bytes):
+    hybrid = hybrid_root(external_only, {**external, **inline}, proof.hexdigest())
+    if len(canonical_json(hybrid).encode()) > len(external_only_bytes):
         raise AssertionError("economic root exceeds its replaced wire budget")
     return _identity("economic-input-v3", retain(hybrid))
 

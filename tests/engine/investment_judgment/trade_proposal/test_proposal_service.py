@@ -47,6 +47,7 @@ from baibai_engine.investment_judgment.trade_proposal.inputs import (
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+from baibai_engine.investment_judgment.workflow import selection as selection_owner
 from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationCompletionError
 from baibai_engine.investment_judgment.workflow.selection import selection_sha256
@@ -80,6 +81,41 @@ def _ledger_snapshot(path):
             table: connection.execute(f"SELECT * FROM {table}").fetchall()
             for table in ("ledger_event", "ledger_meta")
         }
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_authoring_context_uses_one_fixed_selection(tmp_path, capsys, mocker, complete):
+    case = backend_case(tmp_path, tickers=("1234",) if complete else ("1234", "5678"))
+    parse_selection = mocker.spy(selection_owner, "parse_selection")
+    rc = main(
+        [
+            "trade-proposal-context",
+            "--operation-id",
+            case.operation.operation_id,
+            "--proposal-id",
+            PROPOSAL_ID,
+            "--db",
+            str(case.app),
+            "--sqlite-path",
+            str(case.market),
+        ],
+        now=PREPARED,
+    )
+    captured = capsys.readouterr()
+    assert not captured.err
+    payload = yaml.safe_load(captured.out)
+    if complete:
+        assert rc == 0
+        assert payload["research_scope"]["selection_sha256"] == selection_sha256(case.selected)
+        assert payload["research_scope"]["operation_id"] == case.operation.operation_id
+    else:
+        assert rc == 3
+        assert payload == {
+            "status": "invalid_source",
+            "operation_id": None,
+            "reason": "selected targets must be covered by reviewed and unfinished outcomes",
+        }
+    assert parse_selection.call_count == 1
 
 
 def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):

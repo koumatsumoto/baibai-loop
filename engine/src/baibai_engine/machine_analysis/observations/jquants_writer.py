@@ -26,7 +26,7 @@ from baibai_engine.machine_analysis.observations.trading_activity.jquants_contra
     WEEKLY_MARGIN_SOURCE,
     all_issues_daily_margin_coverage_key,
     require_all_issues_daily_balance_date,
-    require_legacy_weekly_balance_date,
+    require_weekly_series_balance_date,
     weekly_margin_coverage_key,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import (
@@ -54,7 +54,7 @@ def store_jquants_weekly_margin(
     publication is final and is not fetched on every run. The row set for a date is
     replaced whole, which is how a re-fetch corrects a prematurely stored week.
     """
-    require_legacy_weekly_balance_date(week_end)
+    require_weekly_series_balance_date(week_end)
     normalized = _weekly_margin_rows_with_quality(records, week_end)
     rows = normalized.rows
     conn = connection if connection is not None else open_connection(db_path)

@@ -1,5 +1,6 @@
 """月/v2を維持し、日足の同月追加で過去日を毎日複製しない。"""
 
+import hashlib
 import json
 import sqlite3
 from contextlib import closing
@@ -21,6 +22,12 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
     PriceAttempt,
     PriceL1,
 )
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.price_inputs import (
+    PRICE_PROJECTION_REVISION,
+    read_price_input,
+)
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -44,6 +51,42 @@ from baibai_jobs.publication.policy import release_policy_for_profile
 DAY = date(2026, 10, 1)
 AT = datetime(2026, 11, 1, tzinfo=UTC)
 DATASET = LAKE_DATASETS["jquants.daily_bars"]
+
+
+@pytest.mark.parametrize("foreign_format", ["jquants-financial-input-v2", None])
+def test_price_export_rejects_foreign_format_even_with_a_valid_digest(
+    tmp_path, mocker, foreign_format
+):
+    descriptor = {
+        "format": foreign_format,
+        "selection_sha256": "f" * 64,
+        "summary": {
+            "selection_start": DAY.isoformat(),
+            "selection_end": DAY.isoformat(),
+            "coverage_status": "complete",
+            "projection_revision": PRICE_PROJECTION_REVISION,
+        },
+    }
+    saved = InputSnapshot(
+        kind="native_l1",
+        reference="foreign-fixed-input",
+        sha256=hashlib.sha256(canonical_json(descriptor).encode()).hexdigest(),
+        descriptor=descriptor,
+    )
+    store = MemoryR2Store()
+    export = mocker.patch.object(l1_price_export, "export_dataset_snapshot")
+    with pytest.raises(ValueError, match="unsupported fixed price input format"):
+        read_price_input(store, descriptor, days=(DAY,))
+    with pytest.raises(ValueError, match="unsupported fixed price input format"):
+        l1_price_export.export_prices_from_native_input(
+            source_snapshot=SimpleNamespace(path=tmp_path / "unused.sqlite"),
+            saved=saved,
+            mirror_root=tmp_path / "untouched",
+            producer_git_commit="a" * 40,
+        )
+    assert store.get_keys == store.put_keys == []
+    assert not (tmp_path / "untouched").exists()
+    export.assert_not_called()
 
 
 def records(day, *, revision=0, size=16):

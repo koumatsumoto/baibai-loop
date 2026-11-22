@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalResearchScope,
@@ -92,19 +92,15 @@ def fixed_proposal_scope(
     operation_id: str, selection: ResearchSelection, progress: ResearchProgress
 ) -> ProposalResearchScope:
     targets = selection_targets(selection)
-    try:
-        return ProposalResearchScope.model_validate(
-            {
-                "operation_id": operation_id,
-                "selection_sha256": selection_sha256(selection),
-                "targets": [item.model_dump(mode="json") for item in targets],
-                "outcomes": [item.model_dump(mode="json") for item in progress.outcomes],
-            }
-        )
-    except ValidationError:
-        # 未了・対象違いは、草案の型不正とは別のOperation診断を保つ。
-        require_coverage(targets, progress.outcomes, complete=True)
-        raise
+    require_coverage(targets, progress.outcomes, complete=True)
+    return ProposalResearchScope.model_validate(
+        {
+            "operation_id": operation_id,
+            "selection_sha256": selection_sha256(selection),
+            "targets": [item.model_dump(mode="json") for item in targets],
+            "outcomes": [item.model_dump(mode="json") for item in progress.outcomes],
+        }
+    )
 
 
 def with_progress(payload: OperationPayload, progress: ResearchProgress) -> OperationPayload:

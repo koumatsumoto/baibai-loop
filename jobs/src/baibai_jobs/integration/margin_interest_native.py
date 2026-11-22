@@ -29,9 +29,9 @@ from baibai_engine.data_collection.providers.jquants.margin_interest_native impo
 )
 from baibai_engine.data_collection.providers.jquants.market_rules import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
-    LEGACY_WEEKLY_LAST_BALANCE_DATE,
-    LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
     WEEKLY_BALANCE_LOOKBACK_DAYS,
+    WEEKLY_SERIES_LAST_BALANCE_DATE,
+    WEEKLY_SERIES_LAST_PUBLICATION_DATE,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.margin_interest_inputs import (
@@ -65,7 +65,11 @@ from baibai_engine.storage.sqlite.source_cache.coverage import record_source_cov
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.calendar_native import fixed_input as fixed_calendar_input
 from baibai_jobs.integration.calendar_native import materialize_saved_input as materialize_calendar
-from baibai_jobs.integration.native_projection_cache import verified_cached_scopes
+from baibai_jobs.integration.native_projection_cache import (
+    SavedProjectionRevisionMismatch,
+    require_current_saved_projection,
+    verified_cached_scopes,
+)
 
 
 def _days(start: date, end: date) -> tuple[date, ...]:
@@ -102,8 +106,8 @@ def fixed_input(
     expected, unknown, incomplete = balance_days(calendar, start=start, end=end)
     # Preserve the calendar evidence used to rule out a midweek balance day.
     calendar_end = end
-    if end <= LEGACY_WEEKLY_LAST_BALANCE_DATE and end.weekday() < 4:
-        calendar_end = min(end + timedelta(days=4 - end.weekday()), LEGACY_WEEKLY_LAST_BALANCE_DATE)
+    if end <= WEEKLY_SERIES_LAST_BALANCE_DATE and end.weekday() < 4:
+        calendar_end = min(end + timedelta(days=4 - end.weekday()), WEEKLY_SERIES_LAST_BALANCE_DATE)
     saved_calendar = fixed_calendar_input(
         store, calendar, as_of=end, evaluated_at=evaluated_at, days=_days(start, calendar_end)
     )
@@ -160,7 +164,7 @@ def saved_interval(saved: InputSnapshot) -> tuple[date, date]:
 
 
 def _coverage(day: date) -> tuple[str, str] | None:
-    if day <= LEGACY_WEEKLY_LAST_BALANCE_DATE:
+    if day <= WEEKLY_SERIES_LAST_BALANCE_DATE:
         return WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key(day)
     if day >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE:
         return (
@@ -188,6 +192,7 @@ def materialize_saved_input(
     summary = descriptor["summary"]
     if not isinstance(summary, dict):
         raise ValueError("margin input requires its selection summary")
+    require_current_saved_projection(summary)
     calendar = InputSnapshot.model_validate(summary["calendar_input"])
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("xb"):
@@ -238,7 +243,7 @@ def _project_selection(
     evaluated_at = datetime.fromisoformat(stamp)
     final_week_due = (
         evaluated_at.astimezone(timezone(timedelta(hours=9))).date()
-        >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE
+        >= WEEKLY_SERIES_LAST_PUBLICATION_DATE
     )
     selected = read_margin_interest_input(store, descriptor, days=days)
     scopes = selected["scopes"]
@@ -254,8 +259,8 @@ def _project_selection(
     if not isinstance(raw_unknown, list) or not all(isinstance(day, str) for day in raw_unknown):
         raise ValueError("invalid unknown margin calendar dates")
     later_unknown = 0
-    if end <= LEGACY_WEEKLY_LAST_BALANCE_DATE and end.weekday() < 4:
-        friday = min(end + timedelta(days=4 - end.weekday()), LEGACY_WEEKLY_LAST_BALANCE_DATE)
+    if end <= WEEKLY_SERIES_LAST_BALANCE_DATE and end.weekday() < 4:
+        friday = min(end + timedelta(days=4 - end.weekday()), WEEKLY_SERIES_LAST_BALANCE_DATE)
         later_unknown = sum(
             end < date.fromisoformat(day) <= friday for day in cast(list[str], raw_unknown)
         )
@@ -317,7 +322,7 @@ def _project_selection(
             unsupported.add(day)
             continue
         fetched_at = scopes[day].get("confirmed_at") or request.received_at.isoformat()
-        if balance <= LEGACY_WEEKLY_LAST_BALANCE_DATE:
+        if balance <= WEEKLY_SERIES_LAST_BALANCE_DATE:
             store_jquants_weekly_margin(
                 output,
                 request.records(),
@@ -373,7 +378,7 @@ def _project_selection(
             or row[0] != "ok"
             or (source == ALL_ISSUES_DAILY_MARGIN_SOURCE and not row[1])
             or (
-                day == LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat()
+                day == WEEKLY_SERIES_LAST_BALANCE_DATE.isoformat()
                 and final_week_due
                 and not scope.get("record_count")
             )
@@ -394,7 +399,7 @@ def _project_selection(
         if unresolved or unsupported or calendar_incomplete
         else "complete",
         "weekly_coverage_status": "partial"
-        if any(day <= LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat() for day in unresolved)
+        if any(day <= WEEKLY_SERIES_LAST_BALANCE_DATE.isoformat() for day in unresolved)
         or unsupported
         or calendar_incomplete
         else "complete",
@@ -451,7 +456,7 @@ def model_input(
             day
             for day in days
             if (
-                day <= LEGACY_WEEKLY_LAST_BALANCE_DATE
+                day <= WEEKLY_SERIES_LAST_BALANCE_DATE
                 if dataset == JQUANTS_WEEKLY_MARGIN
                 else day >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE
             )
@@ -582,6 +587,9 @@ def main(argv: list[str] | None = None) -> int:
             write_json_atomic(args.output / "result.json", result)
             print(json.dumps(result, sort_keys=True))
             return int(result["coverage_status"] != "complete")
+    except SavedProjectionRevisionMismatch as error:
+        print(str(error), file=sys.stderr)
+        return 1
     except Exception as error:
         print(f"margin interest native reader failed: {type(error).__name__}", file=sys.stderr)
         return 1

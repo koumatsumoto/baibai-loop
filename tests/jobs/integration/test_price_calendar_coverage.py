@@ -23,7 +23,11 @@ from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPag
 from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
 from baibai_engine.machine_analysis.generation.calendar_inputs import read_calendar_input
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
-from baibai_engine.machine_analysis.generation.price_inputs import read_price_input
+from baibai_engine.machine_analysis.generation.price_inputs import (
+    PRICE_PROJECTION_REVISION,
+    SavedPriceProjectionRevisionMismatch,
+    read_price_input,
+)
 from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.objects.r2 import LakePublishError
@@ -408,10 +412,14 @@ def test_price_attempts_on_closed_dates_keep_their_unresolved_state(tmp_path, pr
     assert result["coverage_status"] == "partial"
 
 
-def test_without_fixed_calendar_and_old_v1_input_keep_original_gap_meaning(tmp_path):
+def test_without_fixed_calendar_and_historical_v1_membership_keep_original_gap_meaning(tmp_path):
     store, price, calendar, market = source_fixture(tmp_path)
     saved = model_input(store, price.fixed(), as_of=LAST, evaluated_at=AT, market=market)
-    descriptor = {**saved.descriptor, "format": "jquants-price-input-v1"}
+    descriptor = saved.model_dump(mode="json")["descriptor"]
+    descriptor["format"] = "jquants-price-input-v1"
+    descriptor["summary"].pop("projection_revision")
+    # The historical envelope and raw membership are still readable. Neither
+    # the new calendar nor a newer price recipe can reproduce its old output.
     old = InputSnapshot(
         kind="native_l1",
         reference="old",
@@ -421,12 +429,60 @@ def test_without_fixed_calendar_and_old_v1_input_keep_original_gap_meaning(tmp_p
     serialized = old.model_dump_json()
     build(store, price, calendar, market)  # A later generation can use confirmed holidays.
     store.get_keys.clear()
-    result = rebuild_saved_input(store, old, start=FIRST, end=LAST, output=tmp_path / "old")
+    assert read_price_input(store, old.descriptor, days=DAYS) == read_price_input(
+        store, saved.descriptor, days=DAYS
+    )
+    assert not any("calendar" in key for key in store.get_keys)
+    store.get_keys.clear()
+    with pytest.raises(SavedPriceProjectionRevisionMismatch):
+        rebuild_saved_input(
+            store, serialized.encode(), start=FIRST, end=LAST, output=tmp_path / "old"
+        )
+    assert store.get_keys == []
+    assert not (tmp_path / "old").exists()
+    result = rebuild_saved_input(store, saved, start=FIRST, end=LAST, output=tmp_path / "matching")
     assert result["coverage_status"] == result["raw_coverage_status"] == "partial"
     assert result["unavailable"] == 2
     assert result["closed_unrequested"] == 0
     assert old.model_dump_json() == serialized
     assert not any("calendar" in key for key in store.get_keys)
+
+
+@pytest.mark.parametrize("previous_revision", [None, "old-price-recipe"])
+def test_price_rebuild_cannot_label_current_rows_with_a_prior_projection_identity(
+    tmp_path, previous_revision
+):
+    store, price, _, market = source_fixture(tmp_path)
+    later = AT + timedelta(minutes=1)
+    records = [
+        {"Code": "13010", "Date": FIRST.isoformat(), "C": 100},
+        {"Code": True, "Date": FIRST.isoformat(), "C": 200},
+        {"Code": "13020", "Date": FIRST.isoformat() + "junk", "C": 300},
+    ]
+    price.commit([price_attempt(FIRST, identity="malformed-correction", at=later, rows=records)])
+    fixed = price.fixed()
+    saved = model_input(store, fixed, as_of=LAST, evaluated_at=later, market=market)
+    descriptor = saved.model_dump(mode="json")["descriptor"]
+    assert descriptor["summary"].pop("projection_revision") == PRICE_PROJECTION_REVISION
+    if previous_revision is not None:
+        descriptor["summary"]["projection_revision"] = previous_revision
+    # The former price parser could accept both malformed identities. A valid
+    # historical descriptor digest must not certify the newly rejected rows.
+    descriptor["summary"]["partial_days"] = 0
+    old = InputSnapshot(
+        kind="native_l1",
+        reference="previous-price-projection",
+        descriptor=descriptor,
+        sha256=hashlib.sha256(canonical_json(descriptor).encode()).hexdigest(),
+    )
+    store.get_keys.clear()
+    with pytest.raises(SavedPriceProjectionRevisionMismatch, match="producer commit"):
+        rebuild_saved_input(store, old, start=FIRST, end=FIRST, output=tmp_path / "wrong-recipe")
+    assert store.get_keys == []
+    assert not (tmp_path / "wrong-recipe").exists()
+    raw = rebuild(store, fixed, start=FIRST, end=FIRST, output=tmp_path / "raw")
+    assert raw["rows"] == raw["partial"] == 1
+    assert "saved_input" not in json.loads((tmp_path / "raw" / "input.json").read_text())
 
 
 def test_price_input_rejects_a_later_calendar_clock(tmp_path):

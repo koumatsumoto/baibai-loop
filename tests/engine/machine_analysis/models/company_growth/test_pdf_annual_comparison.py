@@ -171,6 +171,21 @@ def test_annual_growth_path_cannot_use_old_increase_instead_of_restated_decline(
     assert change["source_sha256"] == pdf.source_sha256
 
 
+def test_pdf_prior_refuses_a_copied_change_with_the_same_source_but_different_amount():
+    docs, pdf = annual_inputs()
+    growth = models(documents=docs, pdfs=[pdf], sector="卸売業")[1]
+    reader = CompanyGrowthReader(growth.payload)
+    annual = reader.latest_full_fy
+    assert annual is not None
+    (change,) = reader.year_over_year(annual, "operating_margin")
+    (prior,) = reader.comparison_prior(annual, change)
+    assert prior.metrics["operating_margin"].value == change.from_value == pytest.approx(0.05)
+
+    copied = change.model_copy(update={"from_value": 0.99})
+    assert copied.source_sha256 == change.source_sha256 == pdf.source_sha256
+    assert reader.comparison_prior(annual, copied) == ()
+
+
 @pytest.mark.parametrize("mode", ["no_pdf", "future_pdf"])
 def test_unverified_or_absent_annual_comparative_does_not_acquire_new_authority(mode):
     docs, pdf = annual_inputs()

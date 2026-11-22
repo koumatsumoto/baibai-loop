@@ -29,16 +29,13 @@ from math import isfinite
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
 from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
-    _read_calendar,
+    read_market_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.price_basis import share_unit_factor
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
-    JQuantsDailyBar,
 )
-from baibai_engine.machine_analysis.observations.prices.price_reader import read_ticker_bars
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.portfolio.ledger.events import ShareConversionEvent, matches_share_conversion
 from baibai_engine.primitives.jquants_calendar import cash_equity_open
@@ -46,7 +43,6 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
-    connect_current,
 )
 
 
@@ -180,7 +176,7 @@ def market_basis_is_confirmed(
             (ticker, from_date.isoformat(), action_cutoff.isoformat()),
         ).fetchall()
         if from_date < through_date:
-            calendar = _read_calendar(conn, start, through_date)
+            calendar = read_market_calendar(sqlite_path, start, through_date, connection=conn)
             if calendar is None:
                 return False
             # Price-row dates cannot prove session completeness: a missing whole
@@ -334,33 +330,3 @@ def next_order_session(
     return read_order_session_bounds(
         sqlite_path=sqlite_path, now=now, connection=connection
     ).confirmed_session
-
-
-def read_portfolio_market_inputs(
-    sqlite_path: Path,
-    tickers: tuple[str, ...],
-    start: date,
-    end: date,
-    *,
-    connection: sqlite3.Connection | None = None,
-) -> tuple[list[JQuantsMarketCalendarDay] | None, list[JQuantsDailyBar] | None]:
-    """Select calendar and scoped prices from one SQLite read snapshot.
-
-    Cash-only outcomes need a calendar, not artificial price coverage. A missing
-    input remains unavailable; this does not create an archive or replay proof.
-    A supplied connection belongs to the caller, including its read transaction.
-    """
-    owns_connection = connection is None
-    conn = connect_current(sqlite_path) if owns_connection else connection
-    if conn is None:
-        return None, None
-    try:
-        if owns_connection:
-            conn.execute("BEGIN")
-        calendar = _read_calendar(conn, start, end)
-        if calendar is None:
-            return None, None
-        return calendar, read_ticker_bars(conn, tickers, start, end)
-    finally:
-        if owns_connection:
-            conn.close()

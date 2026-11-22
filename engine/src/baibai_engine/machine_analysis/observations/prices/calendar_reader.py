@@ -13,35 +13,35 @@ from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
 def read_market_calendar(
-    sqlite_path: Path, start: date, end: date
+    sqlite_path: Path, start: date, end: date, *, connection: sqlite3.Connection | None = None
 ) -> list[JQuantsMarketCalendarDay] | None:
     """Return every calendar day in `[start, end]`, including closed days.
 
     An incomplete range or unknown classification is unavailable, not a sparse
     session calendar that consumers may compress into the next observed day.
+    A supplied connection and its transaction stay with the caller.
     """
-    if not sqlite_path.exists():
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
+    owns_connection = connection is None
+    if connection is None:
+        if not sqlite_path.exists():
+            return None
+        connection = connect_current(sqlite_path)
+        if connection is None:
+            return None
     try:
-        conn.execute("BEGIN")
-        return _read_calendar(conn, start, end)
+        if owns_connection:
+            connection.execute("BEGIN")
+        if not range_covered(connection, "jquants_market_calendar", start, end):
+            return None
+        rows = connection.execute(
+            "SELECT day, holiday_division FROM jquants_market_calendar "
+            "WHERE day BETWEEN ? AND ? ORDER BY day",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
     finally:
-        conn.close()
+        if owns_connection:
+            connection.close()
 
-
-def _read_calendar(
-    conn: sqlite3.Connection, start: date, end: date
-) -> list[JQuantsMarketCalendarDay] | None:
-    if not range_covered(conn, "jquants_market_calendar", start, end):
-        return None
-    rows = conn.execute(
-        "SELECT day, holiday_division FROM jquants_market_calendar "
-        "WHERE day BETWEEN ? AND ? ORDER BY day",
-        (start.isoformat(), end.isoformat()),
-    ).fetchall()
     # An acquisition coverage marker does not certify that all stored rows survived.
     if len(rows) != (end - start).days + 1:
         return None

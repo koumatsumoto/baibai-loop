@@ -15,11 +15,11 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.financial_
     build_financial_snapshot,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.models.company_financials.reported_comparisons import (
+    reported_filing_comparisons,
+)
 from baibai_engine.machine_analysis.models.company_financials.reported_flows import (
     financial_observation_payload,
-)
-from baibai_engine.machine_analysis.models.company_growth.calculations import (
-    build_reported_comparison,
 )
 from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
@@ -138,14 +138,7 @@ def generate_financial_and_price_models(
         start=growth_start,
         pdf_input=pdf_input,
     )
-    # Same-filing evidence belongs to the financial model, outside the growth series window.
-    if any(item.ticker != ticker for item in comparisons):
-        raise ValueError("reported comparisons contain a different ticker")
-    reported = tuple(
-        build_reported_comparison(item)
-        for item in comparisons
-        if item.source_submit_datetime.date() <= as_of
-    )
+    reported = reported_filing_comparisons(comparisons, ticker=ticker, as_of=as_of)
     if reported:
         financial["reported_comparisons"] = [item.model_dump(mode="json") for item in reported]
     if pdf_supplement is not None:

@@ -520,6 +520,8 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 
 `rebuild-<source>-native`は--work-directory / --start / --end / --outputから新しいL2とinput.jsonを作る（calendarは下の専用引数）。保存入力からの再計算はGenerationのinputsにあるdescriptor付きexact InputSnapshotを--saved-inputへ渡す。head/summaryに付け替えず、新outputを使う。欠損/改変/partialのL2や不適格な[投影cache](src/baibai_jobs/integration/native_projection_cache.py)は同じ固定L1から再生成し、原本を再GETしない。J-Quantsの受領はnative L1で完結する。旧定期SQL handoffの予約形式は[通常の探索](src/baibai_jobs/acquisition/receipts.py)で読まず、J-Quants SQLを含む旧planも再生しない。取得済み全原本を照合した意味でも、旧stageを削除する指示でもない。
 
+信用・空売りの保存入力に投影のcoverageがあり、revisionが未記録または現行と異なる場合は、現行コードで再計算せず止める。当時の公開releaseを読むか、記録された生成commitで固定入力から再計算する。取得範囲だけを固定した原本選択は、過去の投影と同じ結果を保証しない。
+
 <a id="price-native-l1"></a>
 **日足。** 正常空L1と価格0行の公開拒否は別。native暦で休場を証明できる未試行日だけを公開coverageから除き、raw不足は残す。各日を固定L1から再投影する。同じ作業SQLiteは他のwriterと共有しない。
 
@@ -528,6 +530,7 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 `--saved-input` を渡さない日足CLIは、開始時に現在のL1 headを一度固定する。`--work-directory` に置いた旧 `head.json` や過去のattemptは入力にならない。元の失敗attemptに結び付く保存InputSnapshotがなければ、元attemptの再現としてはそこで止める。現行headを診断する場合は別の新しい出力先を使い、同じ日付でも過去の選択に付け替えない。
 
 旧releaseに公開された日足を調べる場合は、native L1からの再計算ではなく[固定releaseのhydrate](#local-release-hydrate)を使う。
+日足の保存入力で投影版が未記録または実行コードと異なる場合、`--saved-input` は旧digestに異なる投影を結び付けず停止する。再構築する場合は公開時のproducer commitを使う。原本の選択や公開済みreleaseの読取は変わらない。
 
 <a id="financial-native-l1"></a>
 **財務。** [`rebuild-financial-native --saved-input`](src/baibai_jobs/integration/financial_native.py)は保存済みの固定native入力から財務の派生表を再構築する。公開済みの投影を確認するときは[そのreleaseを指定](#fixed-release-read)して読む。再構築はOperationの再開ではなく、保存済みSelectionを置き換えない。

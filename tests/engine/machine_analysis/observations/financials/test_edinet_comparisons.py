@@ -20,6 +20,9 @@ from baibai_engine.machine_analysis.generation.financial_models import (
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
+from baibai_engine.machine_analysis.models.company_financials.reported_comparisons import (
+    reported_filing_comparisons,
+)
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, InputRelease
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
     read_comparison_population,
@@ -340,6 +343,56 @@ def test_filing_only_evidence_is_not_a_growth_series_or_available_before_submiss
         assert "reported_comparisons" not in growth.payload
     with pytest.raises(ValueError, match="different ticker"):
         generate_financial_and_price_models(**{**kwargs, "ticker": "1234"}, as_of=ASOF)
+
+
+@pytest.mark.parametrize(
+    ("prior", "current", "source_reason", "difference", "rate", "reason"),
+    [
+        ("100000000000000000001", "100000000000000000002", None, 1.0, 1e-20, None),
+        ("0", "-10", None, -10.0, None, "nonpositive_base"),
+        ("-5", "7", "source_reason", 12.0, None, "source_reason"),
+        (None, "7", "comparison_operand_nil", None, None, "comparison_operand_nil"),
+    ],
+)
+def test_reported_filing_change_keeps_native_amounts_and_exact_wire_fields(
+    prior, current, source_reason, difference, rate, reason
+):
+    native = extract()
+    pair = native.pairs[0]
+    before = pair.comparative.model_copy(update={"amount": prior})
+    after = pair.current.model_copy(update={"amount": current})
+    native = native.model_copy(
+        update={
+            "pairs": (
+                pair.model_copy(
+                    update={"comparative": before, "current": after, "reason": source_reason}
+                ),
+            )
+        }
+    )
+    (reported,) = reported_filing_comparisons((native,), ticker=native.ticker, as_of=ASOF)
+    assert reported.model_dump(mode="json") == {
+        "observation": native.model_dump(mode="json"),
+        "changes": [
+            {
+                "metric": "sales",
+                "measurement": "reported",
+                "comparison": "year_over_year",
+                "from_start": before.period_start.isoformat(),
+                "from_end": before.period_end.isoformat(),
+                "to_start": after.period_start.isoformat(),
+                "to_end": after.period_end.isoformat(),
+                "from_value": float(prior) if prior is not None else None,
+                "to_value": float(current),
+                "difference": difference,
+                "rate": rate,
+                "margin_points": None,
+                "sign_change": None,
+                "reason": reason,
+            }
+        ],
+        "read_semantics": "each_document_vintage_not_latest_or_ttm",
+    }
 
 
 @pytest.mark.parametrize(

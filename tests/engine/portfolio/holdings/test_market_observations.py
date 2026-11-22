@@ -1,4 +1,4 @@
-"""Portfolio calendar and scoped prices must come from one read snapshot."""
+"""Portfolio basis checks consume the calendar and prices on the caller's snapshot."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from tests.helpers.screening_sqlite import add_source_coverage
 
 import baibai_engine.portfolio.holdings.market_observations as market_store
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.prices.calendar_reader import read_market_calendar
+from baibai_engine.machine_analysis.observations.prices.price_reader import read_ticker_bars
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -51,46 +53,6 @@ def _market_store(path: Path, *, calendar: bool = True, bars: bool = True) -> No
             )
 
 
-def test_portfolio_market_inputs_keep_one_snapshot_across_a_writer_commit(tmp_path, monkeypatch):
-    database = tmp_path / "market.sqlite"
-    _market_store(database)
-    with closing(sqlite3.connect(database)) as connection:
-        assert connection.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
-    read_calendar = market_store._read_calendar
-
-    def commit_after_calendar(connection, start, end):
-        calendar = read_calendar(connection, start, end)
-        # A real second connection commits between the two reads. WAL permits
-        # this while the reader retains its original transaction snapshot.
-        with closing(sqlite3.connect(database)) as writer, writer:
-            writer.execute(
-                "UPDATE jquants_market_calendar SET holiday_division = '0' WHERE day = ?",
-                (END.isoformat(),),
-            )
-            writer.execute(
-                "UPDATE jquants_daily_bars SET close = 999.0 WHERE ticker = '1301' AND traded_at = ?",
-                (END.isoformat(),),
-            )
-        return calendar
-
-    monkeypatch.setattr(market_store, "_read_calendar", commit_after_calendar)
-    calendar, bars = market_store.read_portfolio_market_inputs(database, ("1301",), START, END)
-
-    assert calendar is not None
-    assert [(item.day, item.is_business_day) for item in calendar] == [(START, True), (END, True)]
-    assert bars is not None
-    assert [(item.traded_at, item.close) for item in bars] == [(START, 100.0), (END, 101.0)]
-    with closing(sqlite3.connect(database)) as connection:
-        assert connection.execute(
-            "SELECT holiday_division FROM jquants_market_calendar WHERE day = ?",
-            (END.isoformat(),),
-        ).fetchone() == ("0",)
-        assert connection.execute(
-            "SELECT close FROM jquants_daily_bars WHERE ticker = '1301' AND traded_at = ?",
-            (END.isoformat(),),
-        ).fetchone() == (999.0,)
-
-
 def test_portfolio_only_decodes_requested_traded_closes(tmp_path):
     database = tmp_path / "market.sqlite"
     _market_store(database)
@@ -100,41 +62,33 @@ def test_portfolio_only_decodes_requested_traded_closes(tmp_path):
             [("2345", END.isoformat(), None), ("3456", END.isoformat(), "broken")],
         )
 
-    _, bars = market_store.read_portfolio_market_inputs(database, ("1301", "2345"), START, END)
-    assert bars is not None
-    assert [(bar.ticker, bar.close) for bar in bars] == [("1301", 100.0), ("1301", 101.0)]
-    with pytest.raises(JQuantsProviderError, match=r"corrupt SQLite row.*3456"):
-        market_store.read_portfolio_market_inputs(database, ("3456",), START, END)
-
-
-def test_portfolio_market_inputs_need_no_price_history_for_cash_only(tmp_path):
-    database = tmp_path / "market.sqlite"
-    _market_store(database, bars=False)
-
-    calendar, bars = market_store.read_portfolio_market_inputs(database, (), START, END)
-
-    assert calendar is not None
-    assert [item.day for item in calendar if item.is_business_day] == [START, END]
-    assert bars == []
+    with closing(connect_read_only(database)) as connection:
+        connection.execute("BEGIN")
+        bars = read_ticker_bars(connection, ("1301", "2345"), START, END)
+        assert bars is not None
+        assert [(bar.ticker, bar.close) for bar in bars] == [("1301", 100.0), ("1301", 101.0)]
+        with pytest.raises(JQuantsProviderError, match=r"corrupt SQLite row.*3456"):
+            read_ticker_bars(connection, ("3456",), START, END)
 
 
 @pytest.mark.parametrize("missing", ["store", "calendar", "bars", "ticker"])
-def test_portfolio_market_inputs_preserve_unavailable_and_missing_ticker_distinctions(
+def test_market_input_owners_preserve_unavailable_and_missing_ticker_distinctions(
     tmp_path, missing
 ):
     database = tmp_path / "market.sqlite"
     if missing != "store":
         _market_store(database, calendar=missing != "calendar", bars=missing != "bars")
-    tickers = ("9999",) if missing == "ticker" else ("1301",)
-
-    calendar, bars = market_store.read_portfolio_market_inputs(database, tickers, START, END)
-
+    calendar = read_market_calendar(database, START, END)
     if missing in {"store", "calendar"}:
         assert calendar is None
-        assert bars is None
     else:
         assert calendar is not None
-        assert bars == ([] if missing == "ticker" else None)
+        with closing(connect_read_only(database)) as connection:
+            connection.execute("BEGIN")
+            tickers = ("9999",) if missing == "ticker" else ("1301",)
+            assert read_ticker_bars(connection, tickers, START, END) == (
+                [] if missing == "ticker" else None
+            )
 
 
 def test_caller_keeps_the_same_snapshot_for_unit_checks_after_prices(tmp_path):
@@ -144,9 +98,8 @@ def test_caller_keeps_the_same_snapshot_for_unit_checks_after_prices(tmp_path):
         setup.execute("PRAGMA journal_mode = WAL")
     with closing(connect_read_only(database)) as reader:
         reader.execute("BEGIN")
-        calendar, bars = market_store.read_portfolio_market_inputs(
-            database, ("1301",), START, END, connection=reader
-        )
+        calendar = read_market_calendar(database, START, END, connection=reader)
+        bars = read_ticker_bars(reader, ("1301",), START, END)
         assert calendar is not None
         assert bars is not None
         with closing(sqlite3.connect(database)) as writer, writer:
@@ -269,22 +222,22 @@ def test_basis_calendar_and_action_rows_share_one_read_snapshot(tmp_path, monkey
     first = _three_day_basis_store(database)
     with closing(sqlite3.connect(database)) as setup:
         assert setup.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
-    read_calendar = market_store._read_calendar
+    read_calendar = market_store.read_market_calendar
 
-    def remove_calendar_before_read(connection, start, end):
+    def remove_calendar_before_read(path, start, end, *, connection):
         # Action rows are already materialized; commit before the calendar read
         # so removing BEGIN exposes mixed snapshots in the first assertion.
         with closing(sqlite3.connect(database)) as writer, writer:
             writer.execute(
                 "DELETE FROM jquants_market_calendar WHERE day = ?", (START.isoformat(),)
             )
-        return read_calendar(connection, start, end)
+        return read_calendar(path, start, end, connection=connection)
 
-    monkeypatch.setattr(market_store, "_read_calendar", remove_calendar_before_read)
+    monkeypatch.setattr(market_store, "read_market_calendar", remove_calendar_before_read)
     assert market_basis_is_confirmed(
         basis="shares", sqlite_path=database, ticker="1301", from_date=first, through_date=END
     )
-    monkeypatch.setattr(market_store, "_read_calendar", read_calendar)
+    monkeypatch.setattr(market_store, "read_market_calendar", read_calendar)
     assert not market_basis_is_confirmed(
         basis="shares", sqlite_path=database, ticker="1301", from_date=first, through_date=END
     )

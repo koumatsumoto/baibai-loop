@@ -28,6 +28,7 @@ from baibai_engine.portfolio.ledger.events import (
     PortfolioLedgerError,
     ReleaseEvent,
     ReservationEvent,
+    ShareConversionEvent,
     ValuationYen,
     WithdrawalEvent,
     estimated_exit_tax_yen,
@@ -144,6 +145,11 @@ class OutcomePeriod:
         return _holding_basis_intervals(
             self.ledger.events, self._event_dates, start=self.start, end=self.end
         )
+
+    @cached_property
+    def recorded_share_conversions(self) -> tuple[ShareConversionEvent, ...]:
+        # Basis readers still enforce the interval for each ticker.
+        return share_conversions(self.ledger.events)
 
     def ledger_at_close(self) -> PortfolioLedgerDocument:
         """Use the same reported-day/close boundary for ending quantity checks."""
@@ -279,6 +285,7 @@ def _compute_portfolio_outcome(
         else:
             # Supplied in-period bars cannot certify a pre-period quantity basis.
             days = tuple(day for day in business_days if acquired_on < day <= through)
+            conversions = period.recorded_share_conversions
             confirmed = (
                 acquired_on >= start
                 and bool(days)
@@ -290,11 +297,11 @@ def _compute_portfolio_outcome(
                             bar.adjustment_factor == 1.0
                             and not any(
                                 conversion.ticker == ticker and conversion.occurred_on == day
-                                for conversion in share_conversions(ledger.events)
+                                for conversion in conversions
                             )
                         )
                         or matches_share_conversion(
-                            share_conversions(ledger.events),
+                            conversions,
                             ticker=ticker,
                             day=day,
                             factor=bar.adjustment_factor,

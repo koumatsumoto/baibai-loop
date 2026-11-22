@@ -18,7 +18,11 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
     ShortSaleReportsL1,
 )
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
-from baibai_jobs.integration.short_sale_reports_native import materialize_saved_input, model_input
+from baibai_jobs.integration.short_sale_reports_native import (
+    fixed_input,
+    materialize_saved_input,
+    model_input,
+)
 from baibai_jobs.publication.l1_short_sale_reports_export import (
     export_short_sale_reports_from_native_input,
 )
@@ -122,6 +126,18 @@ def test_equal_recheck_keeps_order_duplicates_and_reuses_objects(tmp_path):
     assert coverage(cold) == coverage(market)
 
 
+def test_fixed_raw_short_sale_input_can_rebuild_with_current_code(tmp_path):
+    store, owner, market, _mirror, _saved, _previous = fixture(tmp_path)
+    saved = fixed_input(
+        store, owner.fixed(), start=DAY - timedelta(days=2), end=DAY, evaluated_at=AT
+    )
+    assert "projection_revision" not in saved.descriptor["summary"]
+    assert "coverage_status" not in saved.descriptor["summary"]
+    cold = tmp_path / "raw.sqlite"
+    assert materialize_saved_input(store, saved, output=cold)["input_sha256"] == saved.sha256
+    assert rows(cold) == rows(market)
+
+
 @pytest.mark.parametrize("boolean", [True, False])
 def test_old_boolean_projection_is_rebuilt_once_then_reused(tmp_path, monkeypatch, boolean):
     from baibai_engine.machine_analysis.observations import jquants_writer
@@ -215,13 +231,20 @@ def test_old_text_coercion_cache_rebuilds_same_fixed_report_without_changing_ori
     }
 
     store.get_keys.clear()
+    old_output = tmp_path / "explicit-v2.sqlite"
+    with pytest.raises(ValueError, match="use the recorded producer commit"):
+        materialize_saved_input(store, before, output=old_output)
+    assert not old_output.exists()
+    assert store.get_keys == []
+
+    store.get_keys.clear()
     saved, current = build(store, fixed, market, mirror, at=at, previous=previous)
     raw_gets = [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
     assert raw_gets
     assert len(raw_gets) == len(set(raw_gets))
     assert HEAD_KEY not in store.get_keys
     cold = tmp_path / "cold-code.sqlite"
-    materialize_saved_input(store, saved, output=cold)
+    assert materialize_saved_input(store, saved, output=cold)["input_sha256"] == saved.sha256
     assert rows(market) == rows(cold)
     assert coverage(market) == coverage(cold)
     assert [(row[1], row[3], row[7]) for row in rows(market) if row[0] == DAY.isoformat()] == [

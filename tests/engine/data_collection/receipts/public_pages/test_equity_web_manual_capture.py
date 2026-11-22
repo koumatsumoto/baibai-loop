@@ -22,7 +22,7 @@ import baibai_jobs.acquisition.external_assessments.cli as cli
 import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.data_collection.receipts.public_pages.capture import (
     EquityWebCapture,
-    LegacyCaptureError,
+    NotSourceCaptureError,
     load_capture,
     save_capture,
 )
@@ -274,7 +274,7 @@ def test_old_normalized_stage_is_explicitly_rejected_and_left_untouched(tmp_path
     path = tmp_path / "old.json"
     old = json.dumps({"format": "external-assessment-staging-v1", "observations": []})
     path.write_text(old)
-    with pytest.raises(LegacyCaptureError):
+    with pytest.raises(NotSourceCaptureError):
         load_capture(path)
     database = tmp_path / "market.sqlite"
     open_connection(database).close()

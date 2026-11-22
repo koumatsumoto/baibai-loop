@@ -20,15 +20,13 @@ import yaml
 from baibai_engine.machine_analysis.observations.prices.benchmark_observation import (
     BenchmarkObservation,
 )
+from baibai_engine.machine_analysis.observations.prices.calendar_reader import read_market_calendar
 from baibai_engine.machine_analysis.observations.prices.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_ticker_bars
-from baibai_engine.portfolio.holdings.market_observations import (
-    market_basis_is_confirmed,
-    read_portfolio_market_inputs,
-)
+from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.portfolio.holdings.valuation import (
     UnresolvedHoldingQuantityError,
     current_portfolio,
@@ -62,7 +60,6 @@ from baibai_engine.portfolio.ledger.events import (
     WithdrawalEvent,
     replay_events_through,
     require_resolved_expiries,
-    share_conversions,
     snapshot_to_payload,
 )
 from baibai_engine.portfolio.ledger.read import LedgerConflictError
@@ -506,9 +503,7 @@ def _run_outcome(
         if connection is not None:
             connection.execute("BEGIN")
             start, end = benchmark.period_start_date, benchmark.period_end_date
-            calendar_days, _ = read_portfolio_market_inputs(
-                sqlite_path, (), start, end, connection=connection
-            )
+            calendar_days = read_market_calendar(sqlite_path, start, end, connection=connection)
             if calendar_days is not None:
                 period = OutcomePeriod(
                     ledger,
@@ -532,7 +527,7 @@ def _run_outcome(
                     ticker=ticker,
                     from_date=first,
                     through_date=last,
-                    conversions=share_conversions(ledger.events),
+                    conversions=period.recorded_share_conversions,
                     connection=connection,
                 ),
             )

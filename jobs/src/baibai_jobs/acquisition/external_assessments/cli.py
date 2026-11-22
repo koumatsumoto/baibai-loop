@@ -9,7 +9,7 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.data_collection.receipts.public_pages.capture import LegacyCaptureError
+from baibai_engine.data_collection.receipts.public_pages.capture import NotSourceCaptureError
 from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLiteSchemaError,
@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None, /) -> int:
             file=sys.stderr,
         )
         return 1
-    except LegacyCaptureError:
+    except NotSourceCaptureError:
         print(
             json.dumps({"status": "failed", "category": "legacy_stage_unsupported"}),
             file=sys.stderr,

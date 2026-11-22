@@ -37,7 +37,7 @@ class EquityWebCapture:
     selected_attempt_ids: tuple[str, ...]
 
 
-class LegacyCaptureError(ValueError):
+class NotSourceCaptureError(ValueError):
     """A normalized observation stage cannot be imported as originals."""
 
 
@@ -136,7 +136,7 @@ def load_capture(path: Path) -> EquityWebCapture:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("invalid equity web capture JSON") from exc
     if isinstance(payload, dict) and payload.get("format") == "external-assessment-staging-v1":
-        raise LegacyCaptureError("normalized observation stage is not a source capture")
+        raise NotSourceCaptureError("normalized observation stage is not a source capture")
     if (
         not isinstance(payload, dict)
         or set(payload) != {"format", "responses", "selected_attempt_ids"}

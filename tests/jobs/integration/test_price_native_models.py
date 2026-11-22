@@ -527,6 +527,7 @@ def test_saved_price_interval_validates_bounds_without_expanding_history(monkeyp
     from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
     from baibai_engine.machine_analysis.generation.price_inputs import (
         INPUT_FORMAT,
+        PRICE_PROJECTION_REVISION,
         rehydrate_price_input,
     )
     from baibai_engine.primitives.json import canonical_json
@@ -534,7 +535,11 @@ def test_saved_price_interval_validates_bounds_without_expanding_history(monkeyp
 
     descriptor = {
         "format": INPUT_FORMAT,
-        "summary": {"selection_start": first.isoformat(), "selection_end": last.isoformat()},
+        "summary": {
+            "projection_revision": PRICE_PROJECTION_REVISION,
+            "selection_start": first.isoformat(),
+            "selection_end": last.isoformat(),
+        },
     }
     digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
     saved = InputSnapshot(
