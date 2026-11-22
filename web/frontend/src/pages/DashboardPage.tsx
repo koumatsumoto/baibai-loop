@@ -314,11 +314,43 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
   )
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  active: '進行中',
-  completed: '完了',
-  resolved: '評価済み',
-  unresolved: '未確定',
+const STATUS_LABEL = new Map([
+  ['active', '進行中'],
+  ['completed', '完了'],
+  ['resolved', '評価済み'],
+  ['unresolved', '未確定'],
+])
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function returnOrNull(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isFinite(value))
+}
+
+function outcomeRow(value: unknown): value is PortfolioOutcomeView {
+  return record(value)
+    && typeof value.outcome_id === 'string'
+    && typeof value.horizon === 'string'
+    && typeof value.period_start_date === 'string'
+    && typeof value.period_end_date === 'string'
+    && typeof value.status === 'string'
+    && (value.reason === null || typeof value.reason === 'string')
+    && returnOrNull(value.portfolio_twr_pct)
+    && returnOrNull(value.benchmark_cumulative_return_pct)
+}
+
+function readOutcomesView(value: unknown): OutcomesView {
+  // A successful HTTP response can still carry the wrong materialized view.
+  // Check the display shape only; the store still owns outcome validity.
+  if (!record(value)
+    || (value.error != null && typeof value.error !== 'string')
+    || !Array.isArray(value.outcomes) || !value.outcomes.every(outcomeRow)) {
+    throw new Error('保存済み運用成績の表示データが不正です。')
+  }
+  // The older retained envelope did not carry an error field.
+  return { error: value.error ?? null, outcomes: value.outcomes }
 }
 
 export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
@@ -339,7 +371,7 @@ export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) 
                 <span className="font-medium">
                   {item.horizon} · <time dateTime={item.period_start_date}>{item.period_start_date}</time> ～ <time dateTime={item.period_end_date}>{item.period_end_date}</time>
                 </span>
-                <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
+                <Badge variant="outline">{STATUS_LABEL.get(item.status) ?? item.status}</Badge>
               </div>
               <p className="break-all text-xs text-muted-foreground">{item.outcome_id}</p>
               {/* Use the same gain/loss colors for the comparison. */}
@@ -396,8 +428,8 @@ export function DashboardPage() {
         if (controller.signal.aborted) return
         setError(reason instanceof Error ? reason.message : '資産状況を読み込めませんでした')
       })
-    fetchJson<OutcomesView>('/api/outcomes', { signal: controller.signal })
-      .then(value => { if (!controller.signal.aborted) setOutcomes(value) })
+    fetchJson<unknown>('/api/outcomes', { signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setOutcomes(readOutcomesView(value)) })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return
         setOutcomesError(reason instanceof Error ? reason.message : '運用成績を読み込めませんでした')

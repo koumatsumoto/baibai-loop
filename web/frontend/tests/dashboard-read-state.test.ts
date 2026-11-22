@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchJson } from '../src/api/client'
 import type { DashboardView } from '../src/api/types'
@@ -53,6 +53,7 @@ afterEach(() => {
   hooks.values.clear()
   hooks.setters = []
   hooks.effects = []
+  vi.unstubAllGlobals()
 })
 
 it.each(['invalid ledger', ''])('does not describe an unreadable ledger as an empty portfolio (%s)', ledgerError => {
@@ -399,4 +400,79 @@ it('preserves the empty state of a readable legacy outcome view', () => {
   const html = render()
   expect(html).toContain('運用成績はまだありません')
   expect(html).not.toContain('運用成績を読み込めません')
+})
+
+
+describe('wire-level outcome failures are local to the outcome view', () => {
+  const validRow = {
+    outcome_id: 'saved-fixture', horizon: '1y', period_start_date: '2025-01-01',
+    period_end_date: '2025-12-31', status: 'resolved', reason: null,
+    portfolio_twr_pct: 0, benchmark_cumulative_return_pct: null,
+  }
+
+  async function loadWireOutcome(wire: string): Promise<string> {
+    // Keep the real JSON parser and its response→effect→render path. Only fetch is local.
+    const actual = await vi.importActual<typeof import('../src/api/client')>('../src/api/client')
+    vi.mocked(fetchJson).mockImplementation(actual.fetchJson)
+    vi.stubGlobal('localStorage', { getItem: () => null })
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => {
+      if (path === '/api/dashboard') return Response.json({
+        ...dashboard(), available_cash_yen: 123_456, reserved_cash_yen: 119_000,
+        holdings: [{
+          ticker: '2331', company_name: '合成保有', sector: 'サービス業', quantity: 100,
+          deployed_cost_yen: 99_000, market_price_yen: null, market_price_as_of: null,
+          market_value_yen: null, unrealized_pnl_yen: null, unrealized_pnl_pct: null,
+        }],
+        reservations: [pendingBuy],
+      })
+      if (path === '/api/outcomes') return new Response(wire, {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      })
+      throw new Error('unexpected fixture request')
+    }))
+    render()
+    hooks.effects[0]()
+    await vi.waitFor(() => {
+      expect(hooks.setters[0]).toHaveBeenCalledOnce()
+      expect(hooks.setters[1].mock.calls.length + hooks.setters[2].mock.calls.length).toBe(1)
+    })
+    hooks.setters.forEach((setter, index) => {
+      if (setter.mock.calls.length) hooks.values.set(index, setter.mock.calls[0][0])
+    })
+    hooks.setters = []
+    hooks.effects = []
+    return render()
+  }
+
+  it.each([
+    ['null envelope', 'null'],
+    ['the other view', '{"generated_at":"2026-11-22T18:00:00+09:00","holdings":[]}'],
+    ['null row', '{"error":null,"outcomes":[null]}'],
+    ['invalid return', JSON.stringify({ outcomes: [{ ...validRow, portfolio_twr_pct: '0' }] })],
+    ['overflowing JSON number', JSON.stringify({ outcomes: [validRow] }).replace('"portfolio_twr_pct":0', '"portfolio_twr_pct":1e999')],
+    ['invalid error shape', '{"error":{"invalid":true},"outcomes":[]}'],
+  ])('preserves the other view after HTTP 200 with %s', async (_name, wire) => {
+    const html = await loadWireOutcome(wire)
+    expect(html).toContain('資産と損益')
+    expect(html).toContain('￥123,456')
+    expect(html).toContain('合成保有')
+    expect(html).toContain('8929')
+    expect(html).toContain('運用成績を読み込めません')
+    expect(html).toContain('保存済み運用成績の表示データが不正です。')
+    expect(html).not.toContain('運用成績はまだありません')
+    expect(html).not.toContain('資産・保有・未約定注文を読み込めません')
+  })
+
+  it.each([
+    { payload: { outcomes: [] }, text: '運用成績はまだありません' },
+    { payload: { outcomes: [validRow] }, text: 'saved-fixture' },
+    { payload: { error: null, outcomes: [validRow] }, text: '0.0%' },
+    { payload: { outcomes: [{ ...validRow, status: 'constructor' }] }, text: 'constructor' },
+    { payload: { error: '保存済み運用成績を読み取れません。', outcomes: [] }, text: '保存済み運用成績を読み取れません。' },
+  ])('keeps the current and retained good envelope and a declared read error ($text)', async ({ payload, text }) => {
+    const html = await loadWireOutcome(JSON.stringify(payload))
+    expect(html).toContain(text)
+    expect(html).toContain('￥123,456')
+    expect(html).not.toContain('保存済み運用成績の表示データが不正です。')
+  })
 })
