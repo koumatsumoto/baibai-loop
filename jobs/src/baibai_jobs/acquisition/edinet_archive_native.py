@@ -86,7 +86,8 @@ def acquire_archives(
         "list_identity": lists.identity,
     }
     inputs = read_archive_list_input(lists)
-    report["list_failed_days"] = [day.isoformat() for day in inputs.failed_days]
+    list_failed_days = [day.isoformat() for day in inputs.failed_days if day <= asof]
+    report["list_failed_days"] = list_failed_days
     documents: list[tuple[str, Literal[1, 5]]]
     if group == "edinet-metrics":
         start = asof - timedelta(days=lookback_days)
@@ -133,7 +134,8 @@ def acquire_archives(
             holder_not_selected_this_batch=max(0, len(holder_pending) - len(holder_ids)),
         )
     failed: list[dict[str, str]] = []
-    annual_failed = False
+    # A usable prior list can justify a known ZIP, not future annual acquisitions.
+    annual_failed = bool(list_failed_days)
     downloaded = reused = 0
     for doc_id, source_type in documents:
         if (doc_id, source_type) in retained:
@@ -163,7 +165,7 @@ def acquire_archives(
         status="failed"
         if failed
         or holder_planning_failed
-        or inputs.failed_days
+        or list_failed_days
         or report.get("list_unavailable_days")
         else "received",
         downloaded=downloaded,
