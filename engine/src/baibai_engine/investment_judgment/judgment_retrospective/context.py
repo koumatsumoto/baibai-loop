@@ -71,10 +71,10 @@ def _assessment_context(pair: ReviewedAssessment) -> dict[str, object]:
 
 
 def _read_proposal_receipts(
-    connection: sqlite3.Connection, proposal: TradeProposal
+    connection: sqlite3.Connection, proposal: TradeProposal, *, recorded_through: datetime
 ) -> _ProposalReceipts | None:
     try:
-        return ProposalRecordReader(connection).read(proposal)
+        return ProposalRecordReader(connection, recorded_through=recorded_through).read(proposal)
     except (ValueError, TypeError, FileNotFoundError):
         # Optional later receipts must not invalidate the exact original judgment.
         return None
@@ -97,16 +97,8 @@ def _proposal_record_context(
         **result,
         "status": "retained",
         "records": {
-            "corrections": [
-                record.model_dump(mode="json")
-                for record in corrections
-                if record.recorded_at <= recorded_at
-            ],
-            "human_reports": [
-                report.model_dump(mode="json")
-                for report in reports
-                if report.recorded_at <= recorded_at
-            ],
+            "corrections": [record.model_dump(mode="json") for record in corrections],
+            "human_reports": [report.model_dump(mode="json") for report in reports],
         },
     }
 
@@ -132,7 +124,7 @@ def _read_origin(
             proposal=proposal,
             item=item,
             market_context=saved_proposal_market_context(connection, proposal),
-            receipts=_read_proposal_receipts(connection, proposal),
+            receipts=_read_proposal_receipts(connection, proposal, recorded_through=recorded_at),
         )
     else:
         pair = require_assessment_ref(connection, origin)

@@ -1,6 +1,8 @@
 """買付報告の元提案に付いた別記録。合成の正規writerだけで検証する。"""
 
-from datetime import timedelta
+import sqlite3
+from contextlib import closing
+from datetime import UTC, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +14,7 @@ from tests.helpers.proposal import (
     read_saved_proposal,
     reviewed_proposal,
 )
+from tests.helpers.proposal_records import not_purchased_report
 
 from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
 from baibai_engine.investment_judgment.trade_proposal.contracts import proposal_draft_sha256
@@ -209,6 +212,35 @@ def test_receipt_cutoff_keeps_later_correction_out_of_earlier_authoring(tmp_path
     at = _context(f, now=RECEIPT).payload()
     assert before["reported_buy_proposal_records"]["holdings"][0]["records"]["corrections"] == []
     assert len(at["reported_buy_proposal_records"]["holdings"][0]["records"]["corrections"]) == 1
+
+
+def test_unreadable_future_correction_does_not_erase_already_received_report(tmp_path):
+    f = _setup(tmp_path)
+    cutoff = RECEIPT - timedelta(microseconds=1)
+    report = ProposalRecordService(f.case.app, clock=lambda: cutoff.astimezone(UTC)).report(
+        not_purchased_report(f.b)
+    )
+    correction = _correct(f)
+    # The normal writer appended this receipt; simulate only its body becoming unreadable.
+    with closing(sqlite3.connect(f.case.app)) as connection, connection:
+        connection.execute("DROP TRIGGER proposal_correction_no_update")
+        connection.execute(
+            "UPDATE proposal_correction SET payload='{}' WHERE correction_id=?",
+            (correction.correction_id,),
+        )
+    before = f.case.app.read_bytes()
+    ledger = f.store.load_with_head()
+    (known,) = _context(f, now=cutoff).reported_buy_proposal_records["holdings"]
+    assert known["status"] == "available"
+    assert known["records"] == {
+        "corrections": [],
+        "human_reports": [report.model_dump(mode="json")],
+    }
+    (reached,) = _context(f, now=RECEIPT).reported_buy_proposal_records["holdings"]
+    assert reached["status"] == "unavailable"
+    assert reached["records"] is None
+    assert f.store.load_with_head() == ledger
+    assert f.case.app.read_bytes() == before
 
 
 def test_nonpurchase_report_and_replacement_membership_do_not_erase_buy_report(tmp_path):
