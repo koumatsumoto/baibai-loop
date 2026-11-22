@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -13,6 +16,7 @@ from baibai_engine.portfolio.performance.store import (
     PortfolioOutcomePublication,
     PortfolioOutcomeStore,
 )
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.write import initialize_database
 
 
@@ -24,9 +28,16 @@ def test_outcome_publication_is_create_only_and_queryable(tmp_path: Path) -> Non
     assert publication.payload["schema_version"] == 2
     assert "market_data_sha256" not in publication.payload
     assert "market_data_fingerprint" not in publication.payload
-    assert store.publish(publication)
-    assert not store.publish(publication)
+    first = store.publish(publication)
+    retry = store.publish(publication)
+    assert first.created
+    assert not retry.created
+    assert first.outcome_id == retry.outcome_id == publication.outcome_id
+    assert first.payload_sha256 == retry.payload_sha256
     before = path.read_bytes()
+    fixed = store.get(publication.outcome_id)
+    assert fixed is not None
+    assert fixed.payload_sha256 == first.payload_sha256
     assert store.list()[0]["outcome_id"] == publication.outcome_id
     assert store.list()[0]["benchmark_observation"]["cumulative_return_pct"] == 8.2  # type: ignore[index]
     assert path.read_bytes() == before
@@ -65,6 +76,8 @@ def test_outcome_requires_embedded_benchmark(tmp_path: Path) -> None:
     ("change", "message"),
     [
         ({"schema_version": 1}, "schema_version"),
+        ({"schema_version": 2.0}, "schema_version"),
+        ({"period_end_date": "2025-12-31T00:00:00"}, "period_end_date"),
         ({"market_data_sha256": "a" * 64}, "Extra inputs"),
         ({"market_data_fingerprint": "retired-signature"}, "Extra inputs"),
         ({"unexpected": True}, "Extra inputs"),
@@ -122,7 +135,9 @@ def test_outcome_list_does_not_initialize_an_absent_or_unwritten_store(tmp_path,
     path = tmp_path / "app.sqlite"
     if unwritten:
         path.touch()
-    assert PortfolioOutcomeStore(path).list() == ()
+    store = PortfolioOutcomeStore(path)
+    assert store.list() == ()
+    assert store.get("not-saved") is None
     assert path.exists() == unwritten
     if unwritten:
         assert path.read_bytes() == b""
@@ -138,6 +153,153 @@ def test_outcome_list_does_not_repair_a_missing_table(tmp_path):
     before = path.read_bytes()
     with pytest.raises(sqlite3.OperationalError, match="portfolio_outcome"):
         store.list()
+    with pytest.raises(sqlite3.OperationalError, match="portfolio_outcome"):
+        store.get(_publication().outcome_id)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("horizon", "summary"),
+    [("3y", 11.3), ("3y", None), ("1y", 1.0)],
+)
+def test_resolved_outcome_matches_embedded_benchmark_annualized_return(tmp_path, horizon, summary):
+    publication = _publication()
+    if horizon == "3y":
+        start = "2022-12-31"
+        source = publication.payload["benchmark_observation"]
+        assert isinstance(source, dict)
+        benchmark = {
+            **source,
+            "horizon": "3y",
+            "period_start_date": start,
+            "cumulative_return_pct": 33.1,
+            "annualized_return_pct": 10.0,
+        }
+        publication = replace(
+            publication,
+            horizon="3y",
+            period_start_date=start,
+            payload={
+                **publication.payload,
+                "horizon": "3y",
+                "period_start_date": start,
+                "market_data_coverage_start_date": start,
+                "benchmark_cumulative_return_pct": 33.1,
+                "excess_percentage_points": 10.2 - 33.1,
+                "benchmark_annualized_return_pct": 10.0,
+                "benchmark_observation": benchmark,
+            },
+        )
+    incoherent = {**publication.payload, "benchmark_annualized_return_pct": summary}
+    path = tmp_path / "app.sqlite"
+    store = PortfolioOutcomeStore(path)
+    with pytest.raises(ValueError, match="annualized return does not match benchmark"):
+        store.publish(replace(publication, payload=incoherent))
+    assert not path.exists()
+
+    assert store.publish(publication).created
+    saved = store.get(publication.outcome_id)
+    assert saved is not None
+    assert saved.payload["benchmark_annualized_return_pct"] == (10.0 if horizon == "3y" else None)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE portfolio_outcome SET payload = ?", (canonical_json(incoherent),)
+        )
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="invalid stored content"):
+        store.get(publication.outcome_id)
+    with pytest.raises(ValueError, match="invalid stored content"):
+        store.list()
+    assert path.read_bytes() == before
+
+
+def test_outcome_writer_validates_numeric_types_after_serialization(tmp_path):
+    path = tmp_path / "app.sqlite"
+    publication = _publication()
+    # The pre-encoding Pydantic float accepted this Decimal. The actual JSON
+    # number would instead be a string, which the exact saved reader cannot accept.
+    payload = {**publication.payload, "portfolio_twr_pct": Decimal("10.2")}
+    with pytest.raises(ValueError, match="portfolio_twr_pct"):
+        PortfolioOutcomeStore(path).publish(replace(publication, payload=payload))
+    assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    ("variant", "diagnostic"),
+    [
+        ("wrong_metric", "invalid stored content"),
+        ("duplicate_v2_period", "duplicate JSON field"),
+        ("duplicate_v1_period", "duplicate JSON field"),
+        ("duplicate_nested_benchmark", "duplicate JSON field"),
+        ("overflowing_v1_number", "non-finite JSON number"),
+        ("impossible_v1_date", "period dates must be canonical"),
+        ("noncanonical_v1_date", "period dates must be canonical"),
+    ],
+)
+def test_outcome_get_never_exports_corrupt_content_even_with_its_digest(
+    tmp_path, capsys, variant, diagnostic
+):
+    from baibai_engine.cli.app import main
+
+    path = tmp_path / "app.sqlite"
+    publication = _publication()
+    PortfolioOutcomeStore(path).publish(publication)
+    raw = dict(publication.payload)
+    if "_v1_" in variant:
+        raw["schema_version"] = 1
+    period_end = {
+        "impossible_v1_date": "2025-12-99",
+        "noncanonical_v1_date": "2026-W01-3",  # Cutoffs must stay YYYY-MM-DD, not merely ISO-like.
+    }.get(variant, publication.period_end_date)
+    raw["period_end_date"] = period_end
+    encoded = canonical_json(raw)
+    if "_period" in variant:
+        # Escaping the last key does not make it distinct from the preceding keys.
+        encoded = encoded[:-1] + (
+            r',"period_end_date":"2099-01-01","period_end_\u0064ate":"2025-12-31"}'
+        )
+        assert json.loads(encoded) == raw  # A permissive parser silently chooses the last value.
+    elif variant == "duplicate_nested_benchmark":
+        encoded = encoded.replace(
+            '"annualized_return_pct":null',
+            '"annualized_return_pct":999.0,"annualized_return_pct":null',
+        )
+        assert json.loads(encoded) == raw
+    elif variant in {"overflowing_v1_number", "wrong_metric"}:
+        number = "1e999" if variant == "overflowing_v1_number" else "999.0"
+        encoded = encoded.replace('"portfolio_twr_pct":10.2', f'"portfolio_twr_pct":{number}')
+    with closing(sqlite3.connect(path)) as connection, connection:
+        assert connection.execute("SELECT json_valid(?)", (encoded,)).fetchone() == (1,)
+        connection.execute(
+            "UPDATE portfolio_outcome SET period_end_date=?, payload=?", (period_end, encoded)
+        )
+    before = path.read_bytes()
+    destination = tmp_path / "export.yaml"
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    assert (
+        main(
+            [
+                "portfolio",
+                "outcome-get",
+                publication.outcome_id,
+                "--db",
+                str(path),
+                "--sha256",
+                digest,
+                "--out",
+                str(destination),
+            ]
+        )
+        == 2
+    )
+    observed = capsys.readouterr()
+    assert observed.out == ""
+    assert diagnostic in observed.err
+    assert "999.0" not in observed.err
+    with pytest.raises(ValueError, match=diagnostic):
+        PortfolioOutcomeStore(path).list()
+    assert not destination.exists()
     assert path.read_bytes() == before
 
 
@@ -169,7 +331,12 @@ def test_historical_schema_one_outcome_reads_without_rewrite_or_republication(tm
     before = database.read_bytes()
     expected = {"outcome_id": current.outcome_id, **legacy}
 
-    assert PortfolioOutcomeStore(database).list() == (expected,)
+    store = PortfolioOutcomeStore(database)
+    assert store.list() == (expected,)
+    fixed = store.get(current.outcome_id)
+    assert fixed is not None
+    assert fixed.payload == expected
+    assert fixed.payload_sha256 == hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     assert database.read_bytes() == before
     # A schema change does not authorize replacing the immutable saved result.
     with pytest.raises(PortfolioOutcomeConflictError):
@@ -180,6 +347,48 @@ def test_historical_schema_one_outcome_reads_without_rewrite_or_republication(tm
             (current.outcome_id,),
         ).fetchone() == (encoded,)
     assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("changed", "diagnostic"),
+    [
+        ({"outcome_id": "private-wrong-id"}, "identity"),
+        ({"horizon": "3y"}, "identity"),
+        ({"period_start_date": "2024-12-25"}, "identity"),
+        ({"period_end_date": "2099-01-01"}, "identity"),
+        ({"status": "unresolved"}, "identity"),
+        ({"schema_version": True}, "schema"),
+        ({"schema_version": 3}, "schema"),
+        ({"benchmark_cumulative_return_pct": 91.0}, "stored content"),
+        ({"portfolio_twr_pct": 91.0}, "stored content"),
+        ({"market_data_sha256": "retired"}, "stored content"),
+    ],
+)
+def test_saved_list_and_exact_read_reject_incoherent_rows_without_mutation(
+    tmp_path, changed, diagnostic
+):
+    path = tmp_path / "app.sqlite"
+    store = PortfolioOutcomeStore(path)
+    publication = _publication()
+    store.publish(publication)
+    store.publish(replace(publication, outcome_id="another-id"))
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE portfolio_outcome SET payload=? WHERE outcome_id=?",
+            (canonical_json({**publication.payload, **changed}), publication.outcome_id),
+        )
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match=diagnostic) as list_failure:
+        store.list()
+    with pytest.raises(ValueError, match=diagnostic) as exact_failure:
+        store.get(publication.outcome_id)
+    assert str(list_failure.value) == str(exact_failure.value)
+    assert "private-wrong-id" not in str(exact_failure.value)
+    good = store.get("another-id")
+    assert good is not None
+    assert good.payload == {"outcome_id": "another-id", **publication.payload}
+    assert store.get("not-saved") is None
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize("retrieved_at", ["2025-12-30T18:00:00+09:00", "2026-01-01T12:00:00+09:00"])
@@ -223,16 +432,12 @@ def test_new_outcome_preserves_benchmark_date_precision(
         retrieved_at=retrieved_at,
     )
     store = PortfolioOutcomeStore(tmp_path / "app.sqlite")
-    assert store.publish(publication)
-    assert not store.publish(publication)
+    assert store.publish(publication).created
+    assert not store.publish(publication).created
     assert store.list() == ({"outcome_id": publication.outcome_id, **publication.payload},)
 
 
 def test_saved_benchmark_clock_conflict_keeps_readback_retry_and_identity(tmp_path):
-    from dataclasses import replace
-
-    from baibai_engine.primitives.json import canonical_json
-
     publication = _publication()
     benchmark = publication.payload["benchmark_observation"]
     assert isinstance(benchmark, dict)
@@ -258,7 +463,10 @@ def test_saved_benchmark_clock_conflict_keeps_readback_retry_and_identity(tmp_pa
     before = path.read_bytes()
     store = PortfolioOutcomeStore(path)
     assert store.list() == ({"outcome_id": publication.outcome_id, **publication.payload},)
-    assert not store.publish(publication)
+    fixed = store.get(publication.outcome_id)
+    assert fixed is not None
+    assert fixed.payload == store.list()[0]
+    assert not store.publish(publication).created
     with pytest.raises(ValueError, match="period_end_date cannot be after published_at"):
         store.publish(replace(publication, outcome_id="new-id"))
     with pytest.raises(PortfolioOutcomeConflictError):

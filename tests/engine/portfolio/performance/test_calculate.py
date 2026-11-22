@@ -310,7 +310,7 @@ def test_calculated_resolved_outcome_publishes_and_reads_without_inventing_exit_
         payload=payload,
     )
     database = tmp_path / "app.sqlite"
-    assert PortfolioOutcomeStore(database).publish(publication)
+    assert PortfolioOutcomeStore(database).publish(publication).created
     before = database.read_bytes()
 
     saved = PortfolioOutcomeStore(database).list()[0]
@@ -847,23 +847,7 @@ def test_outcome_cli_cash_only_period_needs_no_price_coverage(tmp_path, capsys, 
     assert saved[0]["ending_holdings_market_value_yen"] == 0
 
 
-def test_outcome_cli_preserves_same_period_publications_after_delayed_cost(tmp_path, capsys):
-    import yaml
-
-    ledger = _ledger()
-    args, application = _prepare_outcome_cli(
-        tmp_path, ledger.model_copy(update={"events": ledger.events[:1]})
-    )
-    store = PortfolioOutcomeStore(application)
-    assert main(args) == 0
-    original = yaml.safe_load(capsys.readouterr().out)
-    assert original["outcome_id"] == "outcome-1y-2026-01-06"
-    assert original["ending_cash_yen"] == 1_000
-    assert original["confirmed_cost_yen"] == 0
-    assert original["portfolio_twr_pct"] == 0.0
-    assert store.list() == (original,)
-
-    # A confirmed cost arrives only after the first publication, for the same period.
+def _append_delayed_cost(application):
     service = LedgerStoreService(application)
     current, head = service.load_with_head()
     raw = current.model_dump(mode="json")
@@ -881,6 +865,26 @@ def test_outcome_cli_preserves_same_period_publications_after_delayed_cost(tmp_p
         expected_document=current,
         replacement=PortfolioLedgerDocument.model_validate(raw),
     )
+
+
+def test_outcome_cli_preserves_same_period_publications_after_delayed_cost(tmp_path, capsys):
+    import yaml
+
+    ledger = _ledger()
+    args, application = _prepare_outcome_cli(
+        tmp_path, ledger.model_copy(update={"events": ledger.events[:1]})
+    )
+    store = PortfolioOutcomeStore(application)
+    assert main(args) == 0
+    original = yaml.safe_load(capsys.readouterr().out)
+    assert original["outcome_id"] == "outcome-1y-2026-01-06"
+    assert original["ending_cash_yen"] == 1_000
+    assert original["confirmed_cost_yen"] == 0
+    assert original["portfolio_twr_pct"] == 0.0
+    assert store.list() == (original,)
+
+    # A confirmed cost arrives only after the first publication, for the same period.
+    _append_delayed_cost(application)
 
     assert main(args) == 2
     assert "outcome_id has different content" in capsys.readouterr().err
@@ -906,6 +910,8 @@ def test_outcome_cli_preserves_same_period_publications_after_delayed_cost(tmp_p
 def test_outcome_export_does_not_overwrite_a_file_created_after_preflight(
     tmp_path, monkeypatch, capsys, resolved
 ):
+    import yaml
+
     ledger = _ledger()
     if resolved:
         ledger = ledger.model_copy(update={"events": ledger.events[:1]})
@@ -923,7 +929,6 @@ def test_outcome_export_does_not_overwrite_a_file_created_after_preflight(
     monkeypatch.setattr(Path, "exists", create_after_check)
     assert main([*args, "--out", str(output)]) == 2
     emitted = capsys.readouterr()
-    assert emitted.out == ""
     assert "failed to export portfolio outcome" in emitted.err
     assert ("publication retained" in emitted.err) is resolved
     assert output.read_text(encoding="utf-8") == retained
@@ -932,22 +937,99 @@ def test_outcome_export_does_not_overwrite_a_file_created_after_preflight(
     if resolved:
         assert saved[0]["status"] == "resolved"
         assert saved[0]["ending_cash_yen"] == 1000
+        receipt = yaml.safe_load(emitted.out)
+        assert receipt["status"] == "saved_output_failed"
+        assert receipt["outcome_id"] == saved[0]["outcome_id"]
+        assert len(receipt["payload_sha256"]) == 64
+    else:
+        assert emitted.out == ""
 
 
-def test_outcome_export_does_not_follow_an_existing_dangling_symlink(tmp_path, capsys):
+def test_outcome_failed_export_recovers_exact_record_after_late_fact_and_missing_inputs(
+    tmp_path, capsys
+):
+    import hashlib
+    import sqlite3
+    from contextlib import closing
+
+    import yaml
+
+    from baibai_engine.cli.app import main as engine_main
+
     ledger = _ledger()
     args, application = _prepare_outcome_cli(
         tmp_path, ledger.model_copy(update={"events": ledger.events[:1]})
     )
     output, destination = tmp_path / "outcome.yaml", tmp_path / "other.yaml"
     output.symlink_to(destination)
-    assert main([*args, "--out", str(output)]) == 2
+    assert engine_main(["portfolio", *args, "--out", str(output)]) == 2
     emitted = capsys.readouterr()
-    assert emitted.out == ""
+    receipt = yaml.safe_load(emitted.out)
+    assert isinstance(receipt, dict), "committed outcome did not return a recovery receipt"
+    assert receipt["status"] == "saved_output_failed"
     assert "publication retained" in emitted.err
     assert output.is_symlink()
     assert not destination.exists()
-    assert len(PortfolioOutcomeStore(application).list()) == 1
+    store = PortfolioOutcomeStore(application)
+    [saved] = store.list()
+    assert receipt["outcome_id"] == saved["outcome_id"]
+    with closing(sqlite3.connect(application)) as connection:
+        (encoded,) = connection.execute(
+            "SELECT payload FROM portfolio_outcome WHERE outcome_id = ?", (saved["outcome_id"],)
+        ).fetchone()
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    assert receipt == {
+        "status": "saved_output_failed",
+        "outcome_id": saved["outcome_id"],
+        "payload_sha256": digest,
+    }
+
+    # Same bytes already committed still give a receipt if only the export fails.
+    before = application.read_bytes()
+    assert engine_main(["portfolio", *args, "--out", str(output)]) == 2
+    assert yaml.safe_load(capsys.readouterr().out) == receipt
+    assert application.read_bytes() == before
+
+    _append_delayed_cost(application)
+    fresh = tmp_path / "recovered-outcome.yaml"
+    assert engine_main(["portfolio", *args, "--out", str(fresh)]) == 2
+    conflict = capsys.readouterr()
+    assert "outcome_id has different content" in conflict.err
+    assert conflict.out == ""
+    assert not fresh.exists()
+    assert engine_main(["portfolio", *args, "--outcome-id", "same-period-later-fact"]) == 0
+    assert yaml.safe_load(capsys.readouterr().out)["confirmed_cost_yen"] == 10
+    assert len(store.list()) == 2
+    for input_path in (tmp_path / "market.sqlite", tmp_path / "benchmark.yaml"):
+        input_path.rename(input_path.with_suffix(".offline"))
+    before = application.read_bytes()
+    get = ["portfolio", "outcome-get"]
+    with_db = ["--db", str(application)]
+    assert engine_main([*get, "not-saved", *with_db, "--out", str(fresh)]) == 2
+    missing = capsys.readouterr()
+    assert "not found" in missing.err
+    assert missing.out == ""
+    query = [*get, receipt["outcome_id"], *with_db]
+    assert engine_main([*query, "--sha256", "0" * 64, "--out", str(fresh)]) == 2
+    wrong_digest = capsys.readouterr()
+    assert "digest mismatch" in wrong_digest.err
+    assert wrong_digest.out == ""
+    assert not fresh.exists()
+    exact = [*query, "--sha256", receipt["payload_sha256"]]
+    assert engine_main(exact) == 0
+    restored = capsys.readouterr().out
+    assert yaml.safe_load(restored) == saved
+    assert yaml.safe_load(restored)["confirmed_cost_yen"] == 0
+    assert engine_main([*exact, "--out", str(fresh)]) == 0
+    assert capsys.readouterr().out == restored
+    assert fresh.read_bytes() == restored.encode("utf-8")
+    for already_present in (output, fresh):
+        assert engine_main([*exact, "--out", str(already_present)]) == 2
+        assert capsys.readouterr().out == ""
+    assert fresh.read_bytes() == restored.encode("utf-8")
+    assert output.is_symlink()
+    assert not destination.exists()
+    assert application.read_bytes() == before
 
 
 def test_outcome_export_succeeds_once_and_rejects_a_preexisting_file(tmp_path, capsys):
@@ -964,7 +1046,9 @@ def test_outcome_export_succeeds_once_and_rejects_a_preexisting_file(tmp_path, c
     assert yaml.safe_load(retained) == emitted
     assert PortfolioOutcomeStore(application).list() == (emitted,)
     assert main([*args, "--out", str(output)]) == 2
-    assert "refusing to overwrite existing outcome" in capsys.readouterr().err
+    preflight_conflict = capsys.readouterr()
+    assert "refusing to overwrite existing outcome" in preflight_conflict.err
+    assert preflight_conflict.out == ""
     assert output.read_bytes() == retained
     assert PortfolioOutcomeStore(application).list() == (emitted,)
 
