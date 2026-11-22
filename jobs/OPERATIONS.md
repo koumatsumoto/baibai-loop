@@ -78,7 +78,7 @@ gh workflow run cloud-batch-watchdog.yml --ref main -f "check_date=${ASOF:?対�
 uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores --format json
 ```
 
-現在のmarket・runs・経済の作業copyを一括で用意するのは `jobs/scripts/pull.sh`。publisherの終了後、machine receipt/ETagとhydrate時のmarket originを照合し、競合・途中失敗ならfreshに取り直す。applicationは`pull-app`で別に取得する。歴史の固定入力を現在のcopyへ付け替えない。
+現在のmarket・runs・経済の作業copyを一括で用意するのは `jobs/scripts/pull.sh`。market/runsはreceiptと両ETagを照合した組だけを取得する。receiptの不存在・読取失敗・不一致では作業DBを置換せず、古いpush用ETagも無効にする。hydrate時のmarket origin照合は別に行う。applicationは`pull-app`で取得する。歴史の固定入力を現在のcopyへ付け替えない。
 
 <a id="local-release-hydrate"></a>
 ### 完全local mirrorからのhydrate
@@ -93,12 +93,14 @@ uv run baibai-jobs snapshots hydrate \
 
 完全mirrorならbucket不要。認可済みR2の固定releaseから読む場合は同じコマンドに `--bucket baibai-stores` を加える。作業DBに旧EDINET原受領cacheが残る場合も[照合](#edinet-list-native-l1)にbucketが必要。hydrateはlake所管tableを置換するため、対象契約に合う既存のmarket作業DBと一時snapshot容量が必要。空ファイルや唯一の未公開copyに実行しない。store-local取得coverageは作らない。対象契約が古ければ元commitのreaderを使い、未収録・欠損・破損を別release/providerで補わない。Parquetは[reader](../engine/src/baibai_engine/storage/snapshots/reader.py)の検証済みpathで読み、globで混ぜない。
 
+ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済みParquetの `baibai.source_kind` に保存した `legacy_sqlite_import` は、既存objectのSHA・key・固定releaseの読取を変えないためそのまま使う。物理タグの変更は既存releaseの読取を含む別の契約移行とし、通常publishで既存objectを書き換えない。
+
 <a id="machine-publication"></a>
 ## 共通公開とmachineの復旧
 
 market/runs・経済の更新は、作業を準備してから同一の[publication lease](src/baibai_jobs/publication/lease.py)内でfresh正本と取得ETagを照合する。market/runsは元bundleの組を保つ。lake tableを変更するなら先にhydrateし、公開と転送の間に値を変更しない。転送側のoriginと件数確認では同数の書換えを検出できない。未知のschemaや照合未了のEDINET原本を捨てない。
 
-`push-machine`・`push-runs`・`push-market`・`push-indicators`・`upload-portfolio-views`には`PUBLICATION_LEASE_HANDLE`が必要。途中でownerが失効/交代したら次writeを止め、[部分公開の状態](#部分-push-からの復旧)を確認する。`uv run python -m baibai_jobs.publication.lease verify --handle "$PUBLICATION_LEASE_HANDLE"`は延長でも、writeとの一括保証でもない。application更新・初回seed・source固有CASのnative L1はこの共通leaseの対象外。
+`push-machine`・`push-runs`・`push-market`・`push-indicators`・`restore-machine-receipt`・`upload-portfolio-views`には`PUBLICATION_LEASE_HANDLE`が必要。途中でownerが失効/交代したら次writeを止め、[部分公開の状態](#部分-push-からの復旧)を確認する。`uv run python -m baibai_jobs.publication.lease verify --handle "$PUBLICATION_LEASE_HANDLE"`は延長でも、writeとの一括保証でもない。application更新・初回seed・source固有CASのnative L1はこの共通leaseの対象外。
 
 ```bash
 with_publication_lease() (
@@ -133,22 +135,16 @@ model-integrationは生成に使ったreleaseも公開するため、後からpu
 
 まず元runの証拠と現objectを読み、未公開local成果を別copyに保全する。確認pullで唯一のcopyを上書きしない。
 
-- **lakeだけ進んだ:** market/runs両ETagが旧receiptと一致すれば、receipt削除もstore巻戻しも不要。既存L1から日次を前向きに実行する。失われたrunner上のモデルと同じIDを作り直さない。
-- **片方のstoreだけ進んだ:** 両方の再送や経済pushで直さない。元成果・origin・取得世代を保った[反映経路](#machine-publication)を選ぶ。たとえばmarket成功/runs失敗の後に`push-market`だけを行うとreceiptは整ってもrunsは旧世代のまま。公開後に新Generation/Selectionと保持対象の旧内容を照合する。
-
-receipt再生成が必要な明示復旧だけ、bucket直下のmutable一件を確認して次を行う。
+- **lakeだけ進んだ:** market/runs両ETagが旧receiptと一致すれば、その組は通常pullで取得できるが、旧dailyの入力sealや表示復旧には使えない。storeを巻き戻さず、既存L1から前向きに実行する。失われたrunner上のモデルと同じIDを作り直さない。
+- **receiptだけ欠落、または旧ペアを指している:** 両storeが既知の元receiptに一致するときだけ、元bodyと信頼できるSHA-256（元runの出力、保存済み転送証拠、初回seed候補）で次を実行する。現objectのETagを拾ってreceiptを新作しない。
+- **片方のstoreだけ進んだ、または元receiptの証拠がない:** 両方の再送や経済pushで直さない。元成果・origin・取得世代を保った[反映経路](#machine-publication)を選ぶ。たとえばmarket成功/runs失敗の後に`push-market`だけを行うとreceiptは整ってもrunsは旧世代のまま。公開後に新Generation/Selectionと保持対象の旧内容を照合する。既知の前世代が必要ならwriter停止後にexact key/key.bakの由来を確認し、必要なstoreだけを[反映経路](#machine-publication)で戻す。復元時にETagが変われば元receiptは使えない。未知の組や無条件の巻戻しは認めない。
 
 ```bash
-(
-  set -e
-  set -a; source .env; set +a
-  export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" AWS_DEFAULT_REGION=auto
-  aws s3api delete-object --bucket baibai-stores --key machine-manifest.json \
-    --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-)
+with_publication_lease jobs/scripts/r2_transfer.sh restore-machine-receipt \
+  "${RECEIPT_FILE:?保存した元receipt}" "${RECEIPT_SHA256:?元receiptの照合済みSHA-256}"
 ```
 
-次pullは未検証setとなる。完全pushとreceipt一致までcross-section保証は回復しない。前世代復元が必要ならwriter停止後、exact key/key.bakを確認し`aws s3api copy-object --cli-read-timeout 300`を使い、fresh pullと世代を再検証する。失敗時の追加削除/dispatch反復や全storeの巻戻しをしない。
+対象は`machine-manifest.json`一件のみ。未作成ならcreate-only、別ETagの旧ペアを指す既存receiptなら、そのreceipt自体のETagと条件付きで置換する。現ペアを保証する異なるreceiptや解釈できないreceiptは上書きしない。元bodyと両ETagを読戻し、すでに一致なら書込まない。成功後にfresh pullで確かめる。receiptを削除して未検証pullを開く手順はない。
 
 ### 保持copyから欠落Generationを戻す
 
@@ -446,7 +442,7 @@ EDINETの取得・facts・再抽出は[独立L1の手順](#edinet-list-native-l1
 
 [数値の取得枠](../.github/workflows/cloud-external-assessment.yml)はMonexと株マップ。TradingViewは[独立した取得枠](#tradingview-expectations)を使う。楽天・みんかぶの数値は[廃止判断](https://github.com/koumatsumoto/baibai-loop/issues/1820#issuecomment-6856119813)により新規取得・新しい評価への旧値採用をしない。旧原本・保存済みGeneration/Selectionは読めるが、旧planから未試行pairを取得し直さない。ニュースやトウシル[記事](#article-acquisition)の扱いとは別。
 
-通常TLS/proxyで有限銘柄を直列取得し、試行別private captureをcurrent-schemaの隔離marketへimportする。parse失敗でも原本は保ち、L2を部分追記しない。再投入0件を確認する。
+通常TLS/proxyで有限銘柄を直列取得し、試行別private captureをcurrent-schemaの隔離marketへimportする。`legacy_stage_unsupported` は原応答を含まない正規化済みstageの拒否で、原本captureを指定し直す。parse失敗でも原本は保ち、L2を部分追記しない。再投入0件を確認する。
 
 ```bash
 uv run baibai-jobs external-assessment collect --source monex --tickers 7203 4436 --output <NEW_PRIVATE_CAPTURE>
@@ -664,7 +660,9 @@ uv run baibai-jobs snapshots gc --mirror stores --apply --plan-hash <HASH>
 
 ## Storeをseedする
 
-初回だけ4keyすべて不存在を確認して`jobs/scripts/r2_transfer.sh seed-all`を使う。既存一件でも通常更新/復旧へ戻る。1〜3keyの部分seedは供用前・writerなし・exact key確認済みの場合だけ初回復旧とし、無条件上書きしない。次のapplication更新はpull-appで世代ごと取得する。
+供用前・writerなしの初回だけ、4つのDBとreceiptの全keyが不存在のときに`jobs/scripts/r2_transfer.sh seed-all`を使う。4 DBのcreate-only PUT応答が揃ったら同じ試行のmarket/runs応答ETagでreceipt候補を保存する。両ETagを読戻して一致した場合だけ初回receiptをcreate-onlyで書く。lakeの初回公開は不要。次のapplication更新は`pull-app`で世代ごと取得する。
+
+候補のパスとSHA-256はprivateに保ち、必要なら`TMPDIR`を失われないprivateディレクトリへ設定する。ETag確認の通信障害やreceiptの書込み未確認で止まっても候補は残る。後で両ETagが候補に一致する場合だけ[receiptを復旧](#部分-push-からの復旧)し、DBは再送しない。receiptのPUT応答を失っても、候補と両ETagの読戻しが一致したらseed完了とする。部分seed、DBの応答不明、既存keyは再seedしない。元copyを保全し、供用前・writer停止中に存在するexact keyと元copyの証拠を個別に照合してから不足分の復旧を決める。
 
 ## 定期maintenance
 

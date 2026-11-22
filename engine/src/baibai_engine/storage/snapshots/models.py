@@ -20,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 
-from baibai_engine.storage.snapshots.contracts import LakeDataset, freeze_catalog
+from baibai_engine.storage.snapshots.contracts import LakeDataset, ParquetSourceKind, freeze_catalog
 from baibai_engine.storage.snapshots.keys import (
     LakeLayer,
     PartitionValue,
@@ -139,20 +139,18 @@ class NativeL1SourceRef(_SourceRefBase):
         return self
 
 
-# Raw L1/legacy L2 use SQLite; rebuilt L2 names its exact lake or retained native L1.
+# SQLite-backed L1 and L2 come from a seal; derived L2 names its exact L1.
 type SourceRef = Annotated[
     SQLiteSnapshotSourceRef | L1DatasetSourceRef | NativeL1SourceRef, Field(discriminator="kind")
 ]
 
 
-def parquet_source_kind(
-    sources: Iterable[SourceRef],
-) -> Literal["legacy_sqlite_import", "l1_derived"]:
-    """L2でもSQLite由来はlegacyのため、layerではなく固定したlineageで決める。"""
+def parquet_source_kind(sources: Iterable[SourceRef]) -> ParquetSourceKind:
+    """layerではなく、実際に固定したlineageでParquetの出所を決める。"""
     return (
         "l1_derived"
         if any(source.kind in {"l1_dataset", "native_l1"} for source in sources)
-        else "legacy_sqlite_import"
+        else "sqlite_snapshot"
     )
 
 
@@ -728,7 +726,7 @@ def validate_release_policy(
 def validate_source_generations(
     release: ReleaseManifest, manifests: Mapping[str, DatasetManifest]
 ) -> None:
-    """Legacy reads share a seal; rebuilt L2 names exact lake or retained native L1."""
+    """SQLite-backed datasets share a seal; derived L2 names exact lake or native L1."""
     seals: set[tuple[str, str, int]] = set()
     for manifest in manifests.values():
         sources = {source for partition in manifest.partitions for source in partition.sources}

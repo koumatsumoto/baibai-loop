@@ -126,7 +126,7 @@ def build_financial_snapshot(
     cfo_row = _latest_actual_row(summaries, field_names=("cfo",))
     profit_ttm, profit_quality = _ttm_value(summaries, "profit", ttm_rules)
     selected_pdf = pdf_selection is not None and (
-        pdf_selection.current is not None or pdf_selection.blocks_legacy_ttm
+        pdf_selection.current is not None or pdf_selection.blocks_summary_ttm_fallback
     )
     if selected_pdf:
         assert pdf_selection is not None

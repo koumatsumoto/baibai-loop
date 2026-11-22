@@ -50,6 +50,7 @@ class PdfFinancialSelection(BaseModel):
     revision: str = REVISION
     status: Literal["available", "unavailable"]
     reason: str | None = None
+    # This is the fixed wire key; calculations use the role accessor below.
     blocks_legacy_ttm: bool = False
     comparative_verified: bool = True
     read_semantics: Literal["latest_within_retained_disclosures"] = (
@@ -66,6 +67,13 @@ class PdfFinancialSelection(BaseModel):
     annual_latest_disclosure_number: str | None = None
     annual_revision_basis: AnnualRevisionBasis | None = None
     amounts_yen: dict[Metric, int] = {}
+
+    @property
+    def blocks_summary_ttm_fallback(self) -> bool:
+        return self.blocks_legacy_ttm
+
+    def with_summary_ttm_fallback_blocked(self, blocked: bool = True) -> PdfFinancialSelection:
+        return self.model_copy(update={"blocks_legacy_ttm": blocked})
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,20 +403,18 @@ def _select_for_current(
             return PdfFinancialSelection(
                 status="unavailable",
                 reason="known_restated_annual_operand_conflict",
-                blocks_legacy_ttm=True,
                 comparative_verified=False,
                 period_start=current_row.period_start,
                 period_end=current_row.period_end,
                 annual=reference,
                 annual_latest_disclosure_number=conflicting_annual.disclosure_number,
-            )
+            ).with_summary_ttm_fallback_blocked()
         return PdfFinancialSelection(
             status="unavailable",
             reason=reason,
             period_start=current_row.period_start,
             period_end=current_row.period_end,
-            blocks_legacy_ttm=current_pdf_retained,
-        )
+        ).with_summary_ttm_fallback_blocked(current_pdf_retained)
     assert current.current_start is not None
     assert current.current_end is not None
     if is_annual_period(current.current_start, current.current_end):
@@ -432,11 +438,10 @@ def _select_for_current(
         return PdfFinancialSelection(
             status="unavailable",
             reason="jp_interim_annual_restatement_basis_unverified",
-            blocks_legacy_ttm=True,
             current=current,
             period_start=current.current_start,
             period_end=current.current_end,
-        )
+        ).with_summary_ttm_fallback_blocked()
     annual_row = _latest(
         [
             row

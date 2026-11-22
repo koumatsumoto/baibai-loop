@@ -31,6 +31,7 @@ describe('保存評価の差分確認', () => {
     for (const value of Object.values(pair.refresh!.prior_assessment_ref)) expect(html).toContain(value)
     expect(html).toContain('dateTime="2026-10-26T14:30:00+09:00"')
     expect(html).toContain('価値算定、資料')
+    expect(html).toContain('この評価を更新する際に参照した評価です')
     expect(html).toContain('当初の購入理由や最新評価とは限りません')
     expect(html).toContain('現在の確認・全資料の再取得・判断の有効性を保証しません')
     expect(html).toContain('買付（指値） · buy')

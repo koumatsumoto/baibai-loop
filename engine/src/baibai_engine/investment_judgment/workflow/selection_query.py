@@ -95,8 +95,8 @@ def load_generated_selection_context(
             raise ValueError("unknown or not yet published screening selection")
         if generation_id is not None and index.generation_id != generation_id:
             raise ValueError("screening selection differs from the chosen generation")
-        if index.status != "unindexed_legacy" or (
-            overview and (not comparison_tickers or screening_selection_id is None)
+        if index.status != "publication_without_index" or not (
+            screening_selection_id is not None and (not overview or comparison_tickers)
         ):
             app = database_path(db_path)
             held, history = (
@@ -174,7 +174,7 @@ def load_generated_selection_context(
         )
         if fixed is None or fixed[1].generation_id != generation_id:
             raise ValueError("screening publication unavailable for the chosen generation")
-        finite_evidence = _legacy_subject_evidence(fixed[0], fixed[1], detail_targets)
+        finite_evidence = _archived_subject_evidence(fixed[0], fixed[1], detail_targets)
     models = read_research_model_inputs(generation_id, targets=comparisons, path=runs_path)
     if models is None:
         raise ValueError("chosen model generation is unavailable")
@@ -236,7 +236,7 @@ def _holding_context(
     }
 
 
-def _legacy_subject_evidence(
+def _archived_subject_evidence(
     published_at: datetime, selection: CaseScreening, tickers: set[str]
 ) -> dict[str, Any]:
     """固定の旧原本は一つの圧縮本文。証拠は指定銘柄分だけ、保存時のまま返す。"""

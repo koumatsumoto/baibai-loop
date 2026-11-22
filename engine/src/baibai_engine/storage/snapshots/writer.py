@@ -24,6 +24,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from baibai_engine.storage.snapshots.contracts import (
     PROJECTION_REVISION_METADATA_KEY,
     LakeDataset,
+    ParquetSourceKind,
     Period,
     freeze_catalog,
     period_label,
@@ -516,7 +517,7 @@ def _snapshot_parity(
             raise LakeBuildError("SQLite and manifest partition inventories differ")
         for period, partition in partitions.items():
             # Day bounds matter only when the logical key is not already date ordered.
-            # Whole-month objects keep their legacy key order.
+            # Whole-month objects keep primary-key order.
             days = (
                 {
                     obj.key: _object_date(mirror_root / obj.key, dataset=dataset)
@@ -535,7 +536,7 @@ def _snapshot_parity(
             for obj in objects:
                 expected = islice(rows, obj.rows)
                 if (
-                    source_kind == "legacy_sqlite_import"
+                    source_kind == "sqlite_snapshot"
                     and (proof := checked.get((period, obj))) is not None
                 ):
                     # The final bytes and the ordered SQLite values must separately still
@@ -783,7 +784,7 @@ def _validate_parquet(
     period: Period,
     expected_rows: Iterable[tuple[object, ...]],
     expected_object: LakeObject,
-    source_kind: Literal["legacy_sqlite_import", "l1_derived"] = "legacy_sqlite_import",
+    source_kind: ParquetSourceKind = "sqlite_snapshot",
     unversioned: bool = False,
 ) -> None:
     _require_object_bytes(path, expected_object)

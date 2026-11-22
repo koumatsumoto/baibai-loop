@@ -64,7 +64,7 @@ def test_ex_right_type_survives_source_and_sqlite_roundtrip(tmp_path, kind, fact
         )
     assert read_daily_bars(database, start, day) == expected_bars
     assert JQUANTS_DAILY_BARS.contract_version == 2
-    assert "ex_right_type" in JQUANTS_DAILY_BARS.arrow_schema_for("legacy_sqlite_import").names
+    assert "ex_right_type" in JQUANTS_DAILY_BARS.arrow_schema_for("sqlite_snapshot").names
 
 
 @pytest.mark.parametrize(

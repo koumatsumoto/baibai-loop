@@ -44,7 +44,7 @@ def test_column_batches_keep_exact_row_writer_bytes(tmp_path, monkeypatch, binar
         layer="l1_source",
     )
     monkeypatch.setattr(writer, "_ROW_GROUP_SIZE", 2)
-    schema = dataset.arrow_schema_for("legacy_sqlite_import")
+    schema = dataset.arrow_schema_for("sqlite_snapshot")
     size = writer._row_batch_size(dataset)
     expected = tmp_path / "row-reference.parquet"
     with pq.ParquetWriter(

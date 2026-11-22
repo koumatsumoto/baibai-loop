@@ -51,6 +51,7 @@ describe('保存された全体市場判断', () => {
     const marker = '<script>not-executable</script>' + '長い反証'.repeat(180) + '最後の反証'
     const html = render({ ...newProposalFixture, saved_market_context: { ...context, assessment: { ...context.assessment!, counter_evidence: [{ summary: marker, source_ids: ['<img src=x>'] }], sources: [{ reference: 'javascript:bad' }] } } })
     expect(html).toContain('最後の反証')
+    expect(html).toContain('提案時に保存した市場判断データの全項目')
     expect(html).toContain('&lt;script&gt;not-executable&lt;/script&gt;')
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('href="javascript:')

@@ -129,6 +129,16 @@ def discovery_context(
             "missing_inputs": [{"code": "no_model_publication"}],
         }
     assert data.selection_id is not None
+    result["generation_as_of"] = data.as_of.isoformat() if data.as_of else None
+    result["evaluated_at"] = data.evaluation_time.isoformat() if data.evaluation_time else None
+    result["published_at"] = data.published_at.isoformat() if data.published_at else None
+    if data.status == "publication_without_index":
+        return {
+            **result,
+            "status": "inputs_required",
+            "missing_inputs": [{"code": "unindexed_legacy_publication"}],
+            "meaning": "発行時の索引が未記録。候補0社ではなく、保存した証拠本文も開いていない。",
+        }
     base = [
         "investment-judgment",
         "selection-context",
@@ -150,16 +160,6 @@ def discovery_context(
     if db_path is not None:
         base.extend(["--db", str(db_path)])
     result["repeat_command_args"] = base
-    result["generation_as_of"] = data.as_of.isoformat() if data.as_of else None
-    result["evaluated_at"] = data.evaluation_time.isoformat() if data.evaluation_time else None
-    result["published_at"] = data.published_at.isoformat() if data.published_at else None
-    if data.status == "unindexed_legacy":
-        return {
-            **result,
-            "status": "inputs_required",
-            "missing_inputs": [{"code": "unindexed_legacy_publication"}],
-            "meaning": "旧世代の索引は未記録。候補0社ではなく、全社本文も開いていない。",
-        }
     if comparisons is not None:
         # 索引にない明示銘柄も、元の世代のモデルの有無とは分けて照合する。
         requested = set(comparisons)

@@ -124,7 +124,7 @@ def apply_pdf_periods(
     if selected is None or (target := _native_target(states, native_anchor)) is None:
         return tuple(states)
     if selected.current is None:
-        if not selected.blocks_legacy_ttm:
+        if not selected.blocks_summary_ttm_fallback:
             return tuple(states)
         return tuple(
             state.model_copy(
@@ -226,7 +226,7 @@ def apply_pdf_changes(
     if not selected.comparative_verified:
         return _unverified_annual_comparative(changes, selected, states, target)
     if selected.current is None:
-        if not selected.blocks_legacy_ttm:
+        if not selected.blocks_summary_ttm_fallback:
             return tuple(changes)
         return tuple(
             change.model_copy(

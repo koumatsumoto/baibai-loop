@@ -273,9 +273,9 @@ def _pending_ready(
                 return None
         entries.append((clock, reference, _prepare_ready(store, value, plan, confirmed_stages)))
 
-    legacy_partial = [entry for entry in entries if entry[2].confirmed_partial]
-    if legacy_partial:
-        selected = max(legacy_partial, key=lambda entry: entry[0])
+    confirmed_partial_entries = [entry for entry in entries if entry[2].confirmed_partial]
+    if confirmed_partial_entries:
+        selected = max(confirmed_partial_entries, key=lambda entry: entry[0])
     elif any(entry[2].cumulative for entry in entries):
         selected = _select_cumulative(entries)
     else:

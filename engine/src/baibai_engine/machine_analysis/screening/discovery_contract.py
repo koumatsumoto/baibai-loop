@@ -78,7 +78,7 @@ class DiscoveryRow(TypedDict):
 
 @dataclass(frozen=True, slots=True)
 class DiscoveryIndexRead:
-    status: Literal["no_publication", "unindexed_legacy", "indexed"]
+    status: Literal["no_publication", "publication_without_index", "indexed"]
     selection_id: str | None = None
     generation_id: str | None = None
     as_of: date | None = None

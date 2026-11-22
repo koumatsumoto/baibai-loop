@@ -262,11 +262,11 @@ describe('stock report list and selection', () => {
   it('labels corrected originals in list and detail without rewriting the old decision', () => {
     const corrected = { ...older, corrections: [{ correction_id: 'correction', erroneous_ref: { proposal_id: older.proposal_id, draft_sha256: '0'.repeat(64) }, replacement_ref: { proposal_id: 'replacement', draft_sha256: '1'.repeat(64) }, reason: '合成の訂正理由', recorded_at: '2026-11-15T00:00:00Z' }] }
     const list = render(view([corrected]))
-    expect(list).toContain('訂正済みの旧提案')
-    expect(list.indexOf('訂正済みの旧提案')).toBeLessThan(list.indexOf('対象取引日'))
+    expect(list).toContain('訂正で候補から外れた提案')
+    expect(list.indexOf('訂正で候補から外れた提案')).toBeLessThan(list.indexOf('対象取引日'))
     expect(list).toContain('1200.0000 円')
     const html = render(view([corrected]), older.proposal_id, '1111')
-    expect(html).toContain('表示中は訂正済みの旧提案です。採用候補ではありません。')
+    expect(html).toContain('表示中は訂正で候補から外れた提案です。採用候補ではありません。')
     expect(html.indexOf('採用候補ではありません。')).toBeLessThan(html.indexOf('対象取引日'))
     expect(html).toContain(buyFixture.rationale)
   })

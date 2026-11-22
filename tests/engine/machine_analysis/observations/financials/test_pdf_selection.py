@@ -1,10 +1,12 @@
 """最新の開示選択、同一基準の組替、価格/成長への接続を合成資料で検証する。"""
 
+import json
 from dataclasses import replace
 from datetime import date
 from itertools import permutations
 
 import pytest
+from pydantic import TypeAdapter, ValidationError
 from tests.helpers.pdf_statements import ASOF, base, pages, statement
 
 from baibai_engine.machine_analysis.generation.financial_models import (
@@ -22,6 +24,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    PdfFinancialSelection,
     select_pdf_financials,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pages
@@ -70,6 +73,27 @@ def models(documents=None, pdfs=None, sector="卸売業", *, growth_start=None):
     )
 
 
+@pytest.mark.parametrize("blocked", [False, True])
+def test_summary_ttm_role_is_not_an_alternate_saved_field(blocked):
+    nested = TypeAdapter(list[PdfFinancialSelection])
+    original = PdfFinancialSelection(status="unavailable")
+    selected = original.with_summary_ttm_fallback_blocked(blocked)
+    assert original.blocks_summary_ttm_fallback is False
+    assert selected.blocks_summary_ttm_fallback is blocked
+    wire = {"status": "unavailable", "blocks_legacy_ttm": blocked}
+    assert selected.model_dump(exclude_unset=True) == wire
+    assert PdfFinancialSelection.model_validate_json(json.dumps(wire)) == selected
+    assert nested.validate_json(json.dumps([wire])) == [selected]
+
+    # Alias-only decoding can silently ignore the internal name in JSON.
+    for public in ({"status": "unavailable"}, wire):
+        invalid = {**public, "blocks_summary_ttm_fallback": not blocked}
+        with pytest.raises(ValidationError, match="blocks_summary_ttm_fallback"):
+            PdfFinancialSelection.model_validate_json(json.dumps(invalid))
+        with pytest.raises(ValidationError, match="blocks_summary_ttm_fallback"):
+            nested.validate_json(json.dumps([invalid]))
+
+
 def test_pdf_selection_is_order_independent_and_never_combines_eps():
     docs, pdfs = [document(), document(True)], [statement(), statement(True)]
     expected = select_pdf_financials(docs, pdfs, as_of=ASOF)
@@ -99,7 +123,7 @@ def test_latest_period_is_selected_before_pdf_availability():
     )
     assert value.status == "unavailable"
     assert value.current is None
-    assert not value.blocks_legacy_ttm
+    assert not value.blocks_summary_ttm_fallback
     assert not value.amounts_yen
 
 
