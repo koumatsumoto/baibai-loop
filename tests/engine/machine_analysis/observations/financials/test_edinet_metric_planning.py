@@ -70,6 +70,7 @@ def test_archive_candidates_exclude_quarantined_and_reusable_filings() -> None:
     )
     baseline = EDINETMetricBaseline(
         asof_date=date(2026, 4, 24),
+        coverage_status="ok",
         rows={
             "7203": _baseline_row(candidates["7203"]),
             "9682": _baseline_row(candidates["9682"]),
@@ -163,7 +164,9 @@ def test_original_identity_survives_omission_without_requiring_l2_or_losing_lega
     legacy = EdinetDocumentCandidate(ticker="8306", doc_id="S100ORIGIN", doc_type_code="120")
     for baseline in (
         None,
-        EDINETMetricBaseline(asof_date=date(2026, 4, 24), rows={"8306": _baseline_row(legacy)}),
+        EDINETMetricBaseline(
+            asof_date=date(2026, 4, 24), coverage_status="ok", rows={"8306": _baseline_row(legacy)}
+        ),
     ):
         plan = make_metric_extraction_plan(
             selection=selection,
@@ -311,7 +314,9 @@ def test_absent_original_identity_is_a_real_limit_not_a_reconstructible_metric(t
         warm = make_metric_extraction_plan(
             selection=selection,
             baseline=EDINETMetricBaseline(
-                asof_date=date(2026, 4, 24), rows={ticker: _baseline_row(original)}
+                asof_date=date(2026, 4, 24),
+                coverage_status="ok",
+                rows={ticker: _baseline_row(original)},
             ),
             extractor_revision="metric-v2",
             retained_tickers_by_doc=retained,

@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
@@ -40,6 +41,7 @@ class EDINETMetricBaselineRow:
 class EDINETMetricBaseline:
     asof_date: date
     rows: Mapping[str, EDINETMetricBaselineRow]
+    coverage_status: Literal["ok", "partial"]
     recorded_at_utc: str | None = None
 
 
@@ -164,7 +166,10 @@ def read_edinet_metric_baseline(
                 )
             _validate_deferred_coverage(baseline_rows, status=status, error=error, key=key)
             return EDINETMetricBaseline(
-                asof_date=baseline_asof, rows=baseline_rows, recorded_at_utc=fetched_at_utc
+                asof_date=baseline_asof,
+                rows=baseline_rows,
+                coverage_status=status,
+                recorded_at_utc=fetched_at_utc,
             )
     except sqlite3.OperationalError as exc:
         raise EDINETMetricBaselineError(f"EDINET metric baseline read failed: {exc}") from exc

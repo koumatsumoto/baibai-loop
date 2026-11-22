@@ -94,7 +94,6 @@ def verify_acceptance(
     from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
         read_edinet_metric_baseline,
     )
-    from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
     expected = decode_acceptance(raw)
     asof = date.fromisoformat(expected["as_of"])
@@ -116,15 +115,8 @@ def verify_acceptance(
     baseline = read_edinet_metric_baseline(database, asof)
     if baseline is None or baseline.asof_date != asof:
         raise ValueError("EDINET accepted metric baseline is absent")
-    with closing(connect_read_only(database)) as connection:
-        coverage = connection.execute(
-            "SELECT status FROM source_coverage WHERE source='edinet_metrics' AND coverage_key=?",
-            (asof.isoformat(),),
-        ).fetchone()
-    if (
-        coverage is None
-        or coverage[0] != "ok"
-        or any(row.extractor_revision != EDINET_METRIC_REVISION for row in baseline.rows.values())
+    if baseline.coverage_status != "ok" or any(
+        row.extractor_revision != EDINET_METRIC_REVISION for row in baseline.rows.values()
     ):
         raise ValueError("EDINET accepted baseline is partial or has a different revision")
     fixed = read_edinet_input(store, InputSnapshot.model_validate(report["edinet_input"]))
