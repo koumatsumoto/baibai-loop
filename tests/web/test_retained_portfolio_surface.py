@@ -364,7 +364,20 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     assert (app.read_bytes(), market.read_bytes()) == before
 
 
-@pytest.mark.parametrize("damage", ["invalid_payload", "missing_table"])
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "invalid_payload",
+        "missing_table",
+        "wrong_id",
+        "wrong_period",
+        "wrong_metrics",
+        "overflow_float",
+        "overflow_integer",
+        "duplicate_period",
+        "overflow_legacy_float",
+    ],
+)
 def test_outcome_read_failure_does_not_block_independent_views(tmp_path, damage):
     app = tmp_path / APPLICATION_DB_PATH
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
@@ -373,8 +386,33 @@ def test_outcome_read_failure_does_not_block_independent_views(tmp_path, damage)
     with sqlite3.connect(app) as connection:
         if damage == "invalid_payload":
             connection.execute("UPDATE portfolio_outcome SET payload = '{}' ")
-        else:
+        elif damage == "missing_table":
             connection.execute("DROP TABLE portfolio_outcome")
+        elif damage.startswith("overflow_"):
+            # These values are legal JSON text but cannot describe a finite return.
+            version = 1 if damage == "overflow_legacy_float" else 2
+            number = "9" * 315 if damage == "overflow_integer" else "1e309"
+            connection.execute(
+                "UPDATE portfolio_outcome SET payload = json_set(payload, "
+                "'$.schema_version', ?, '$.portfolio_twr_pct', json(?), "
+                "'$.excess_percentage_points', json(?))",
+                (version, number, number),
+            )
+        elif damage == "duplicate_period":
+            connection.execute(
+                "UPDATE portfolio_outcome SET payload = substr(payload, 1, length(payload) - 1) || ?",
+                (',"period_end_date":"2099-01-01","period_end_date":"2025-12-31"}',),
+            )
+        else:
+            field, value = {
+                "wrong_id": ("outcome_id", "not-the-sqlite-row-id"),
+                "wrong_period": ("period_end_date", "2099-01-01"),
+                "wrong_metrics": ("portfolio_twr_pct", 91.0),
+            }[damage]
+            connection.execute(
+                "UPDATE portfolio_outcome SET payload = json_set(payload, ?, ?)",
+                (f"$.{field}", value),
+            )
     before = app.read_bytes()
 
     output = tmp_path / "export"

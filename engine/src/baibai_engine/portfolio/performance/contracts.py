@@ -3,15 +3,34 @@
 from __future__ import annotations
 
 from datetime import date
+from math import isfinite
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictFloat,
+    StrictInt,
+    model_validator,
+)
 
 from baibai_engine.machine_analysis.observations.prices.benchmark_observation import (
     BenchmarkObservation,
 )
 
-type OutcomeNumber = StrictInt | StrictFloat
+
+def _finite_return(value: int | float) -> int | float:
+    try:
+        if isfinite(value):
+            return value
+    except OverflowError:
+        pass
+    raise ValueError("outcome return must be finite")
+
+
+type OutcomeNumber = Annotated[StrictInt | StrictFloat, AfterValidator(_finite_return)]
 
 
 class PortfolioOutcomePayload(BaseModel):
@@ -111,6 +130,10 @@ class PortfolioOutcomePayload(BaseModel):
             raise ValueError("unknown exit tax must be null")
         if self.benchmark_cumulative_return_pct != benchmark.cumulative_return_pct:
             raise ValueError("outcome benchmark return does not match benchmark observation")
+        if self.benchmark_annualized_return_pct != benchmark.annualized_return_pct:
+            raise ValueError(
+                "outcome benchmark annualized return does not match benchmark observation"
+            )
         assert self.portfolio_twr_pct is not None
         assert self.benchmark_cumulative_return_pct is not None
         assert self.excess_percentage_points is not None
