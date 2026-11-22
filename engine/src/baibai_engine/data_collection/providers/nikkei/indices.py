@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import date
 from html.parser import HTMLParser
 
@@ -57,7 +57,7 @@ class NikkeiIndexesSource:
             raise IndicatorsProviderError(
                 f"unsupported nikkei_indexes metric {metric!r}; supported: {supported}"
             )
-        by_date: dict[date, list[Mapping[str, object]]] = defaultdict(list)
+        by_date: dict[date, Sequence[Mapping[str, object]]] = {}
         for year, month in _months(start, end):
             text = fetch_text(
                 session,
@@ -68,16 +68,17 @@ class NikkeiIndexesSource:
                 context=context,
                 retry_transient=True,
             )
-            for day, records in parse_nikkei_valuation(text, start=start, end=end).items():
-                by_date[day].extend(records)
-        return dict(by_date)
+            for day, records in parse_nikkei_valuation(text, year=year, month=month).items():
+                if start <= day <= end:
+                    by_date[day] = records
+        return by_date
 
 
 def parse_nikkei_valuation(
     text: str,
     *,
-    start: date,
-    end: date,
+    year: int,
+    month: int,
 ) -> NativeRecords:
     parser = _ValuationRows()
     parser.feed(text)
@@ -91,10 +92,15 @@ def parse_nikkei_valuation(
         if len(cells) != 3:
             raise IndicatorsProviderError("Nikkei valuation row must have three cells")
         observed_at = date.fromisoformat(cells[0].strip().replace(".", "-"))
-        if start <= observed_at <= end:
-            records[observed_at].append(
-                {"date_text": cells[0], "weighted_text": cells[1], "index_based_text": cells[2]}
+        # A different month's table cannot show that requested days had no valuation.
+        if (observed_at.year, observed_at.month) != (year, month):
+            raise IndicatorsProviderError(
+                f"Nikkei valuation row dated {observed_at} is outside requested month "
+                f"{year:04d}-{month:02d}"
             )
+        records[observed_at].append(
+            {"date_text": cells[0], "weighted_text": cells[1], "index_based_text": cells[2]}
+        )
     return dict(records)
 
 

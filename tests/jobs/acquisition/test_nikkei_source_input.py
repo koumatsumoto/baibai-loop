@@ -34,6 +34,9 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
     store_snapshot,
 )
 from baibai_engine.data_collection.transport.context import FetchContext
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+)
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 
 SOURCES = sorted(
@@ -101,7 +104,9 @@ def _seed(path):
 
 @pytest.fixture
 def source(monkeypatch):
-    control = SimpleNamespace(clock=WHEN, serial=0, changes={}, omitted=set(), calls=[], fail=False)
+    control = SimpleNamespace(
+        clock=WHEN, serial=0, changes={}, omitted=set(), calls=[], fail=False, month_bodies={}
+    )
 
     class Clock(datetime):
         @classmethod
@@ -123,6 +128,8 @@ def source(monkeypatch):
             year, month = int(params["year"]), int(params["month"])
             control.calls.append((url, dict(params)))
             control.clock += timedelta(seconds=1)
+            if (body := control.month_bodies.get((item.source_id, year, month))) is not None:
+                return _FakeResponse(body)
             if control.fail and item.source_id == PER and month == 11:
                 return _FakeResponse(b"<html>synthetic missing month table</html>")
             rows = []
@@ -294,6 +301,58 @@ def test_metric_plans_originals_and_month_failure_recovery_match_full_input(
             assert changes[0][3:] == changes[2][3:]
             results.append(phases)
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("mode", ["full", "planning"])
+@pytest.mark.parametrize("mixed", [False, True], ids=["wrong-month", "mixed-months"])
+def test_wrong_month_is_failed_receipt_not_a_revision(tmp_path, source, monkeypatch, mode, mixed):
+    canonical = tmp_path / "canonical.sqlite"
+    _seed(canonical)
+    with tempfile.TemporaryDirectory(dir=tmp_path) as work:
+        directory = Path(work)
+        raw, status, _ = _acquire(directory, canonical, mode, source, monkeypatch)
+        assert status == 0
+        _integrate(raw, canonical, directory / "accepted.sqlite")
+    before = _state(canonical)
+
+    source.clock, source.serial = WHEN + timedelta(days=1), 0
+    wrong_row = "<tr><td>2026.10.30</td><td>9.75</td><td>10.08</td></tr>"
+    expected_row = "<tr><td>2026.11.06</td><td>1.25</td><td>2.60</td></tr>" if mixed else ""
+    source.month_bodies[PBR, 2026, 11] = f"<table>{wrong_row}{expected_row}</table>".encode()
+
+    with tempfile.TemporaryDirectory(dir=tmp_path) as work:
+        directory = Path(work)
+        raw, status, report = _acquire(directory, canonical, mode, source, monkeypatch)
+        assert status == 1
+        assert {row["source_id"]: row["status"] for row in report["sources"]} == {
+            PBR: "failed",
+            PER: "ok",
+        }
+        received = _state(raw)
+        assert received["economic_source_records"]
+        assert {row[0] for row in received["economic_source_records"]} == {PER}
+        pbr_runs = [row for row in received["economic_source_runs"] if row[1] == PBR]
+        assert len(pbr_runs) == 1
+        assert pbr_runs[0][6:8] == ("failed", 0)
+        assert "2026-10-30 is outside requested month 2026-11" in pbr_runs[0][8]
+        _integrate(raw, canonical, directory / "accepted.sqlite")
+
+    after = _state(canonical)
+    for table in ("economic_source_records", *store.CONFIRMATION_TABLES):
+        assert [row for row in after[table] if row[0] == PBR] == [
+            row for row in before[table] if row[0] == PBR
+        ]
+    observed = IndicatorsService(canonical).get_range(
+        "jp.nikkei_pbr", start=date(2026, 10, 30), end=DAY
+    )
+    assert [(row.observed_at, row.value) for row in observed.observations] == [
+        (date(2026, 10, 30), 2.01),
+        (date(2026, 11, 2), 2.01),
+        (date(2026, 11, 3), 2.01),
+        (date(2026, 11, 4), 2.01),
+        (date(2026, 11, 5), 2.01),
+        (DAY, 2.01),
+    ]
 
 
 @pytest.mark.parametrize("hour", [1, 2])
