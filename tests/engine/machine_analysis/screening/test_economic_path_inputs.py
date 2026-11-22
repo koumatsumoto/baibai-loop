@@ -840,15 +840,15 @@ def test_unrecorded_fiscal_year_cannot_supply_a_published_coordinate_when_its_pe
     )
 
 
-def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity():
+def test_native_fiscal_year_end_tie_reads_only_the_owner_last_anchor_comparison():
     generation = owner_generation(alternate_quarter_profit=50.0)
     growth = generation.result("company_growth", "1001").payload
     assert growth["periods"][-1]["fiscal_year_end"] == "2027-06-30"
     row = project_discovery_row("1001", models=generation.models, metadata=generation)
-    assert not any(
-        (item["path_id"], item["variant"]) == ("operating_recovery", "quarter")
-        for item in row["coordinates"]
-    )
+    recovery = active(row, "operating_recovery")
+    assert recovery["variant"] == "quarter"
+    assert recovery["price_value"] == pytest.approx(40.0 / 800.0)
+    assert recovery["business_value"] == pytest.approx(50.0 / 400.0 - 10.0 / 250.0)
     assert active(row, "business_expansion")["business_value"] == pytest.approx(0.6)
     fixed_quarter = next(
         x for x in growth["periods"][-1]["observations"] if x["measurement"] == "quarter"
@@ -857,7 +857,7 @@ def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity()
 
 
 @pytest.mark.parametrize("alternate_prior_profit", [10.0, 50.0])
-def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
+def test_distinct_prior_native_period_tie_cannot_invent_growth_even_at_same_values(
     alternate_prior_profit,
 ):
     generation = owner_generation(alternate_prior_quarter_profit=alternate_prior_profit)
@@ -866,7 +866,7 @@ def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
     )
     growth_model = generation.result("company_growth", "1001")
     assert growth_model == reversed_generation.result("company_growth", "1001")
-    assert growth_model.calculation_revision == "company_growth_retrospective_v25"
+    assert growth_model.calculation_revision == "company_growth_retrospective_v26"
     growth = growth_model.payload
     before = canonical_json(growth)
     priors = [state for state in growth["periods"] if state["period_end"] == "2025-06-30"]
@@ -888,12 +888,7 @@ def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
         "1001", models=reversed_generation.models, metadata=reversed_generation
     )
     assert row == reversed_row
-    # The same reported-period ends but different FYs do not create another vote.
-    assert active(row, "business_expansion")["business_value"] == pytest.approx(0.6)
-    recovery = active(row, "operating_recovery")
-    if alternate_prior_profit == 50.0:
-        assert recovery is None
-    else:
-        assert recovery["price_value"] == pytest.approx(20.0 / 800.0)
-        assert recovery["business_value"] == pytest.approx(30.0 / 400.0 - 10.0 / 250.0)
+    # Even equal figures do not establish which accounting period owned the prior.
+    assert active(row, "business_expansion") is None
+    assert active(row, "operating_recovery") is None
     assert canonical_json(growth) == before

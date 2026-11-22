@@ -46,7 +46,7 @@ def generate(statements):
 def test_pdf_selection_and_supplement_are_shared_once_not_read_from_growth(mocker):
     statements = (pdf(), pdf(True))
     original = generate(statements)
-    choose = mocker.spy(pdf_selection, "select_pdf_financials")
+    choose = mocker.spy(pdf_selection, "_select_pdf_financials_with_anchor")
     supplement = mocker.spy(pdf_selection, "build_pdf_supplement")
     real_growth = financial_models.generate_company_growth
     received = []
@@ -64,6 +64,7 @@ def test_pdf_selection_and_supplement_are_shared_once_not_read_from_growth(mocke
     )
     changed = generate(statements)
     assert choose.call_count == supplement.call_count == 1
+    assert received[0].native_anchor is choose.spy_return[1]
     assert received[0].supplement is supplement.spy_return
     assert changed["company_growth"].payload.get("pdf_supplement") is None
     assert original["company_growth"].payload["pdf_supplement"] is not None

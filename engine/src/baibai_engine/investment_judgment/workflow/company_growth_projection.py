@@ -7,12 +7,12 @@ from typing import cast
 from pydantic import JsonValue
 
 from baibai_engine.machine_analysis.models.company_growth.models import (
-    CompanyGrowth,
     Metric,
     Observation,
     PeriodState,
     SourceDocument,
 )
+from baibai_engine.machine_analysis.models.company_growth.reading import CompanyGrowthReader
 
 _METRICS: tuple[Metric, ...] = (
     "sales",
@@ -28,7 +28,10 @@ def project_company_growth(
 ) -> dict[str, JsonValue]:
     if periods is not None and periods < 1:
         raise ValueError("company growth display periods must be positive or all")
-    result = CompanyGrowth.model_validate(saved)
+    growth = CompanyGrowthReader(cast(dict[str, JsonValue], saved))
+    result = growth.model
+    if result is None:
+        raise ValueError("company growth projection requires a saved result")
     shown = result.periods if periods is None else result.periods[-periods:]
     documents: dict[SourceDocument, str] = {}
 
@@ -52,6 +55,8 @@ def project_company_growth(
             "values": [metrics[name].value if name in metrics else None for name in names],
             "sources": references(sources),
         }
+        if growth.cohort_bound and period.cohort is not None:
+            row["cohort"] = period.model_dump(mode="json", include={"cohort"})["cohort"]
         if observation.accounting_standard is not None:
             row["accounting_standard"] = observation.accounting_standard
         if observation.period_status is not None:
@@ -91,17 +96,20 @@ def project_company_growth(
             if observation.measurement == "reported":
                 continue
             names = tuple(observation.metrics)
+            comparisons = growth.comparisons_for((observation,))
             latest_observations[observation.measurement] = {
                 "columns": list(names),
                 "units": {name: result.metric_units.get(name) for name in names},
                 "share_basis": observation.share_basis,
                 "row": project_row(latest, observation, names),
                 "yoy": [
-                    change.model_dump(mode="json")
-                    for change in result.changes
-                    if change.measurement == observation.measurement
-                    and change.to_start == observation.period_start
-                    and change.to_end == observation.period_end
+                    {
+                        **change.model_dump(mode="json"),
+                        **({"prior_evidence_status": issue} if issue is not None else {}),
+                    }
+                    for change, issue in zip(
+                        comparisons, growth.prior_evidence_issues(comparisons), strict=True
+                    )
                 ],
             }
     cash_flow_rows = [
@@ -110,13 +118,24 @@ def project_company_growth(
         for observation in period.observations
         if observation.measurement == "reported"
     ]
-    shown_periods = {(period.period_start, period.period_end) for period in shown}
+    if growth.cohort_bound:
+        comparisons = growth.comparisons_for(
+            tuple(
+                item
+                for period in shown
+                for item in period.observations
+                if item.measurement == "reported"
+            )
+        )
+    else:
+        shown_periods = {(period.period_start, period.period_end) for period in shown}
+        comparisons = tuple(
+            change for change in result.changes if (change.to_start, change.to_end) in shown_periods
+        )
     displayed_changes = [
         change
-        for change in result.changes
-        if (change.to_start, change.to_end) in shown_periods
-        and change.measurement == "reported"
-        and change.metric in _METRICS[:-1]
+        for change in comparisons
+        if change.measurement == "reported" and change.metric in _METRICS[:-1]
     ]
     # Old saves have no precision/hash fields; keep their table shape unchanged.
     annotations = [
@@ -124,6 +143,10 @@ def project_company_growth(
         for field in ("precision", "source_sha256")
         if any(getattr(change, field) is not None for change in displayed_changes)
     ]
+    if growth.cohort_bound:
+        annotations.extend(("target_cohort", "native_prior_cohorts"))
+    prior_issues = growth.prior_evidence_issues(displayed_changes)
+    show_prior_issue = any(issue is not None for issue in prior_issues)
     changes = [
         [
             change.to_start.isoformat(),
@@ -137,9 +160,11 @@ def project_company_growth(
             change.margin_points,
             change.sign_change,
             change.reason,
-            *(getattr(change, field) for field in annotations),
+            *(saved_fields.get(field) for field in annotations),
+            *((issue,) if show_prior_issue else ()),
         ]
-        for change in displayed_changes
+        for change, issue in zip(displayed_changes, prior_issues, strict=True)
+        for saved_fields in (change.model_dump(mode="json", include=set(annotations)),)
     ]
     header_fields = (
         "ticker",
@@ -202,8 +227,11 @@ def project_company_growth(
                     "sign_change",
                     "reason",
                     *annotations,
+                    *(("prior_evidence_status",) if show_prior_issue else ()),
                 ],
-                "to_values_ref": "reported.rows by period_start/period_end and metric column",
+                "to_values_ref": "reported.rows by target_cohort and metric column"
+                if growth.cohort_bound
+                else "reported.rows by period_start/period_end and metric column",
                 "rows": changes,
             },
             "latest_observations": latest_observations,

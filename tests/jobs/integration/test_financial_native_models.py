@@ -21,7 +21,10 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialAttempt,
     FinancialL1,
 )
-from baibai_engine.machine_analysis.generation.financial_inputs import read_financial_input
+from baibai_engine.machine_analysis.generation.financial_inputs import (
+    FINANCIAL_PROJECTION_REVISION,
+    read_financial_input,
+)
 from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
@@ -34,9 +37,14 @@ DAY = date(2026, 11, 2)
 AT = datetime(2026, 11, 3, tzinfo=UTC)
 
 
-def attempt(identity, *, at=AT, value=1):
+def attempt(identity, *, at=AT, value=1, extra=()):
     body = json.dumps(
-        {"data": [{"Code": "13010", "DiscDate": DAY.isoformat(), "DiscNo": "1", "Sales": value}]}
+        {
+            "data": [
+                {"Code": "13010", "DiscDate": DAY.isoformat(), "DiscNo": "1", "Sales": value},
+                *extra,
+            ]
+        }
     ).encode()
     return FinancialAttempt(
         identity,
@@ -135,6 +143,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     import baibai_jobs.integration.models as job
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+    from baibai_engine.machine_analysis.screening.selection_query import read_publication
     from baibai_engine.storage.snapshots.duck import lake_session
     from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
     from baibai_engine.storage.snapshots.objects import LakeObjectCache
@@ -157,7 +166,14 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     store = MemoryR2Store()
     owner = FinancialL1(store, tmp_path / "native")
     owner.initialize()
-    owner.commit([attempt("native")])
+    raw = attempt(
+        "native",
+        extra=(
+            {"Code": True, "DiscDate": DAY.isoformat(), "DiscNo": "bad-code"},
+            {"Code": "13010", "DiscDate": f"{DAY}junk", "DiscNo": "bad-date", "Sales": 99},
+        ),
+    )
+    owner.commit([raw])
     before = owner.fixed()
     market = market_store(
         tmp_path / "market.sqlite",
@@ -255,7 +271,13 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     assert saved.inputs["edinet"] == edinet
     assert store.get_keys.count(FINANCIAL_HEAD_KEY) == 1
     assert saved.inputs["financial"].descriptor["head_sha256"] == before.content_id
+    summary = saved.inputs["financial"].descriptor["summary"]
+    assert summary["projection_revision"] == FINANCIAL_PROJECTION_REVISION
+    assert summary["partial_days"] == 1
+    selection = read_publication(path=tmp_path / "runs", selection_id=result["selection_id"])
+    assert selection.generation.inputs["financial"] == saved.inputs["financial"]
     assert FinancialL1(store, tmp_path / "cold").fixed().payload == before.payload
+    assert next(before.requests(store, days=(DAY,))).request.pages == raw.pages
     with sqlite3.connect(market) as connection:
         assert connection.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()[0] == 0
         assert (
@@ -348,7 +370,7 @@ def test_retained_later_correction_preserves_growth_retrospective_semantics(tmp_
     result = growth(native.documents)
     assert result.periods == legacy.periods
     assert result.periods[0].observations[0].metrics["sales"].value == 200
-    assert result.calculation_method == "company_growth_retrospective_v25"
+    assert result.calculation_method == "company_growth_retrospective_v26"
     assert result.read_semantics == "retained_latest_in_fixed_release_not_point_in_time"
 
 

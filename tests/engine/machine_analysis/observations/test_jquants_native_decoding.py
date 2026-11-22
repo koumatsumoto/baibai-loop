@@ -14,6 +14,9 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     project_financial_documents,
     read_canonical_financial_summary,
 )
+from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
+    normalize_financial_summaries,
+)
 from baibai_engine.machine_analysis.observations.prices.jquants_normalization import (
     normalize_daily_bars,
 )
@@ -29,11 +32,11 @@ def test_fixed_financial_summary_retains_one_full_provider_payload():
     }
     expected = normalize_financial_summary(record)
     assert expected is not None
-    assert expected.document_payload is not None
-    payload = expected.document_payload
-    actual = read_canonical_financial_summary(payload)
+    [(ticker, disclosed_at, number, payload)] = normalize_financial_summaries([record]).rows
+    actual = read_canonical_financial_summary(
+        payload, ticker=ticker, disclosed_at=disclosed_at, disclosure_number=number
+    )
     assert actual == expected
-    assert actual is not None
     assert actual.document_payload is payload
 
 

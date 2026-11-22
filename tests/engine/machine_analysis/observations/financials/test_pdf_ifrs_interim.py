@@ -265,5 +265,8 @@ def test_models_recover_only_reported_half_year_not_quarter_or_mixed_basis_ttm()
     )
     assert old_reported["accounting_standard"] == "JP"
     assert old_reported["metrics"]["operating_profit"]["value"] == 9_000_000_000
-    assert "observations-v18-pdf-jp-interim" in financial.calculation_revision
-    assert growth.calculation_revision == "company_growth_retrospective_v25-pdf-jp-interim"
+    assert "observations-v19-pdf-native-cohort" in financial.calculation_revision
+    assert financial.payload["financial"]["pdf_selection"]["revision"] == (
+        "retained-pdf-restatement-selection-v7-native-cohort"
+    )
+    assert growth.calculation_revision == "company_growth_retrospective_v26-pdf-jp-interim"

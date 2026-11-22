@@ -23,11 +23,14 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.financial_inputs import (
+    FINANCIAL_PROJECTION_REVISION,
+    SavedFinancialProjectionRevisionMismatch,
     read_financial_input,
+    rehydrate_financial_input,
     retain_financial_input,
 )
 from baibai_engine.machine_analysis.generation.inputs import FinancialModelInput
-from baibai_engine.machine_analysis.generation.native_input import rehydrate_native_input
+from baibai_engine.machine_analysis.generation.native_input import VerifiedNativeInput
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     read_canonical_financial_summary,
 )
@@ -99,6 +102,7 @@ def model_input(
     confirmed = [scope["confirmed_at"] for scope in scopes.values() if scope.get("confirmed_at")]
     changed = [scope["changed_at"] for scope in scopes.values() if scope.get("changed_at")]
     selected["summary"] = {
+        "projection_revision": FINANCIAL_PROJECTION_REVISION,
         "head_sha256": fixed.content_id,
         "retained_source_days": {
             "start": min(retained_days).isoformat(),
@@ -127,13 +131,13 @@ def model_input(
         "unresolved_ranges": ranges[:12],
         "additional_unresolved_ranges": max(0, len(ranges) - 12),
     }
-    documents = []
-    for item in results.values():
-        for row in item.rows:
-            document = read_canonical_financial_summary(row[3])
-            if document is None:
-                raise ValueError("native financial projection contains an ineligible document")
-            documents.append(document)
+    documents = tuple(
+        read_canonical_financial_summary(
+            payload, ticker=ticker, disclosed_at=disclosed_at, disclosure_number=number
+        )
+        for item in results.values()
+        for ticker, disclosed_at, number, payload in item.rows
+    )
     descriptor = retain_financial_input(store, selected)
     payload = json.dumps(
         descriptor, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
@@ -146,7 +150,7 @@ def model_input(
             sha256=digest,
             descriptor=descriptor,
         ),
-        tuple(documents),
+        documents,
     )
 
 
@@ -163,6 +167,7 @@ def rebuild(
         output / "input.json",
         {
             "head_sha256": fixed.content_id,
+            "projection_revision": FINANCIAL_PROJECTION_REVISION,
             "start": start.isoformat(),
             "end": end.isoformat(),
             "acquisition": {day.isoformat(): scopes.get(day.isoformat()) for day in days},
@@ -175,7 +180,15 @@ def rebuild_saved_input(
     store: ObjectStore, saved: InputSnapshot | bytes, *, start: date, end: date, output: Path
 ) -> dict[str, int]:
     """Cold rebuild from saved membership only. Never resolve a mutable latest head."""
-    record = rehydrate_native_input(saved, source="financial").as_saved_record()
+    return _rebuild_saved_projection(
+        store, rehydrate_financial_input(saved), start=start, end=end, output=output
+    )
+
+
+def _rebuild_saved_projection(
+    store: ObjectStore, saved: VerifiedNativeInput, *, start: date, end: date, output: Path
+) -> dict[str, int]:
+    record = saved.as_saved_record()
     descriptor = record["descriptor"]
     if start > end:
         raise ValueError("invalid financial rebuild interval")
@@ -248,14 +261,19 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        saved = (
+            rehydrate_financial_input(args.saved_input.read_bytes())
+            if args.saved_input is not None
+            else None
+        )
         with closing(
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         ) as store:
-            if args.saved_input is not None:
+            if saved is not None:
                 print(
-                    rebuild_saved_input(
+                    _rebuild_saved_projection(
                         store,
-                        args.saved_input.read_bytes(),
+                        saved,
                         start=args.start,
                         end=args.end,
                         output=args.output,
@@ -264,6 +282,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 fixed = FinancialL1(store, args.work_directory).fixed()
                 print(rebuild(store, fixed, start=args.start, end=args.end, output=args.output))
+    except SavedFinancialProjectionRevisionMismatch as error:
+        print(str(error), file=sys.stderr)
+        return 1
     except Exception as error:
         print(f"financial native rebuild failed: {type(error).__name__}", file=sys.stderr)
         return 1

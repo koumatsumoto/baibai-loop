@@ -544,9 +544,9 @@ def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(cha
         metric_value(reader.observation(reader.latest_period, "quarter"), "parent_profit")
         == 247_000_000
     )
-    assert "v18-pdf-jp-interim" in financial.calculation_revision
+    assert "v19-pdf-native-cohort" in financial.calculation_revision
     assert growth.payload["calculation_method"] == (
-        "company_growth_retrospective_v25-pdf-jp-interim"
+        "company_growth_retrospective_v26-pdf-jp-interim"
     )
 
 

@@ -15,10 +15,12 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     Metric,
     Observation,
     PeriodState,
+    has_cohort_comparisons,
 )
 from baibai_engine.machine_analysis.models.company_growth.reading import (
     CompanyGrowthReader,
     metric_value,
+    same_comparison_endpoints,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     is_annual_period,
@@ -169,7 +171,8 @@ def project_economic_coordinates(
     )
     recovery_variant = (
         "quarter"
-        if _recovery_available(quarter_changes) or quarter_deterioration
+        if _recovery_available(quarter_changes, cohort_bound=growth.cohort_bound)
+        or quarter_deterioration
         else annual_variant
     )
     # 先に採用期間を選び、保存しない期間の座標は計算しない。公開配列は従来の期間順を保つ。
@@ -206,7 +209,7 @@ def project_economic_coordinates(
                     for metric in _RECOVERY_METRICS
                 }
             )
-            if _recovery_available(changes):
+            if _recovery_available(changes, cohort_bound=growth.cohort_bound):
                 improvement = _number(changes["operating_profit"].get("difference"))
                 margin_improvement = _number(changes["operating_margin"].get("difference"))
                 if _is_positive(improvement) and _is_positive(margin_improvement):
@@ -265,19 +268,50 @@ def _growth_policy_inputs(payload: dict[str, JsonValue] | None) -> dict[str, Jso
     periods = cast(list[dict[str, JsonValue]], payload.get("periods", []))
     latest = periods[-1] if periods else None
     full_fy = next((item for item in reversed(periods) if item["fiscal_period"] == "FY"), None)
-    targets = {
-        (item["measurement"], item["period_start"], item["period_end"])
+    target_observations = [
+        (state, item)
         for state in (latest, full_fy)
         if state is not None
         for item in cast(list[dict[str, JsonValue]], state["observations"])
         if item["measurement"] == "annual_ttm"
         or (state is latest and item["measurement"] == "quarter")
-    }
+    ]
     changes = [
         item
         for item in cast(list[dict[str, JsonValue]], payload.get("changes", []))
         if item["metric"] in _PATH_METRICS
-        and (item["measurement"], item["to_start"], item["to_end"]) in targets
+    ]
+    if has_cohort_comparisons(payload.get("calculation_method")):
+        targets = [
+            (state["cohort"], item["measurement"])
+            for state, item in target_observations
+            if state.get("cohort") is not None
+        ]
+        changes = [
+            item for item in changes if (item.get("target_cohort"), item["measurement"]) in targets
+        ]
+        priors = [
+            key
+            for item in changes
+            for key in cast(list[JsonValue], item.get("native_prior_cohorts") or [])
+        ]
+        return {
+            **payload,
+            "periods": [
+                state
+                for state in periods
+                if state is latest or state is full_fy or state.get("cohort") in priors
+            ],
+            "changes": list(changes),
+        }
+    legacy_targets = {
+        (item["measurement"], item["period_start"], item["period_end"])
+        for _, item in target_observations
+    }
+    changes = [
+        item
+        for item in changes
+        if (item["measurement"], item["to_start"], item["to_end"]) in legacy_targets
     ]
     prior = {
         (item["measurement"], item.get("from_start"), item.get("from_end")) for item in changes
@@ -324,21 +358,34 @@ def _can_use_full_fy(
     )
 
 
-def _full_fy_change(
+def _comparison_with_available_evidence(
     growth: CompanyGrowthReader,
     observation: Observation,
     change: Change,
-    as_of: date,
+    saved: dict[str, JsonValue],
+    disclosed_by: date | None,
 ) -> dict[str, JsonValue]:
-    saved = growth.saved_change(change)
     if change.difference is None:
         return saved
     prior = growth.comparison_prior(observation, change)
-    if (
-        metric_value(observation, change.metric, disclosed_by=as_of) is None
+    reason = None
+    if growth.cohort_bound and (
+        change.to_value is None
+        or change.from_value is None
+        or metric_value(observation, change.metric) != change.to_value
         or not prior
-        or any(metric_value(item, change.metric, disclosed_by=as_of) is None for item in prior)
+        or any(metric_value(item, change.metric) != change.from_value for item in prior)
     ):
+        reason = "saved_comparison_operands_unavailable"
+    elif disclosed_by is not None and (
+        metric_value(observation, change.metric, disclosed_by=disclosed_by) is None
+        or not prior
+        or any(
+            metric_value(item, change.metric, disclosed_by=disclosed_by) is None for item in prior
+        )
+    ):
+        reason = "comparison_sources_not_observed_by_as_of"
+    if reason is not None:
         return {
             **saved,
             "from_value": None,
@@ -347,7 +394,7 @@ def _full_fy_change(
             "rate": None,
             "margin_points": None,
             "sign_change": None,
-            "reason": "comparison_sources_not_observed_by_as_of",
+            "reason": reason,
         }
     return saved
 
@@ -397,19 +444,20 @@ def _change(
             "reason": "ambiguous_growth_comparison",
             "matching_comparison_count": len(matches),
         }
-    if disclosed_by is not None:
-        return _full_fy_change(growth, observation, matches[0], disclosed_by)
+    if growth.cohort_bound or disclosed_by is not None:
+        return _comparison_with_available_evidence(
+            growth, observation, matches[0], saved, disclosed_by
+        )
     return saved
 
 
-def _recovery_available(changes: dict[Metric, dict[str, JsonValue]]) -> bool:
+def _recovery_available(changes: dict[Metric, dict[str, JsonValue]], *, cohort_bound: bool) -> bool:
     op = changes["operating_profit"]
     margin = changes["operating_margin"]
-    dates = ("from_start", "from_end", "to_start", "to_end")
     return (
         _number(op.get("difference")) is not None
         and _number(margin.get("difference")) is not None
-        and all(op.get(key) is not None and op.get(key) == margin.get(key) for key in dates)
+        and same_comparison_endpoints(op, margin, cohort_bound=cohort_bound)
     )
 
 

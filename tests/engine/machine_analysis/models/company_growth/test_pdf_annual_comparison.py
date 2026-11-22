@@ -99,7 +99,7 @@ def test_annual_ttm_uses_same_verified_statement_comparison_without_rewriting_pr
     assert pdf.model_dump_json() == before_pdf
     assert financial.payload["earnings_price"]["profit_ttm_yen"] == 2_469_000_000
     assert technical == models(documents=docs, pdfs=[])[2]
-    assert growth.calculation_revision == "company_growth_retrospective_v25-pdf-jp-interim"
+    assert growth.calculation_revision == "company_growth_retrospective_v26-pdf-jp-interim"
 
 
 @pytest.mark.parametrize(

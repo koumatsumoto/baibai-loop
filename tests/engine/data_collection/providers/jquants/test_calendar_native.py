@@ -104,6 +104,12 @@ def test_partial_overlap_recovery_does_not_recontaminate_resolved_days(tmp_path)
         ([{"Date": DAY.isoformat(), "HolDiv": "0"}] * 2, True),
         ([{"Date": DAY.isoformat(), "HolDiv": "1"}, {"Date": "bad", "HolDiv": "1"}], True),
         ([{"Date": DAY.isoformat(), "HolDiv": "1"}, {"Date": "2020-01-01", "HolDiv": "1"}], True),
+        ([{"Date": DAY.isoformat() + "junk", "HolDiv": "0"}], True),
+        ([{"Date": DAY.isoformat() + "T00:00:00", "HolDiv": "0"}], True),
+        ([{"Date": DAY.strftime("%Y%m%d"), "HolDiv": "0"}], True),
+        ([{"Date": int(DAY.strftime("%Y%m%d")), "HolDiv": "0"}], True),
+        ([{"Date": "2026-W45-4", "HolDiv": "0"}], True),
+        ([{"Date": "2026-02-30", "HolDiv": "0"}], True),
         ([{"Date": DAY.isoformat(), "HolDiv": "future-code", "extra": [None, 0, False]}], False),
     ],
 )
@@ -141,6 +147,16 @@ def test_scope_query_form_order_unknown_fields_and_older_receipt_are_kept(tmp_pa
     store, source = owner(tmp_path)
     initial = attempt("initial")
     source.commit([initial])
+    original = source.fixed().value()
+    # The documented date shape keeps both v1 identities.
+    assert (
+        original["days"][DAY.isoformat()]["content_id"]
+        == "d64ad2934a9a4b832d87bd54f9953ec66461c8484fd0f3b32701d3c405fa4e2c"
+    )
+    assert (
+        original["ranges"][f"{DAY}/{DAY}"]["content_id"]
+        == "d12be5e82056a8b5e80957acab97fbece8cc87f143d4c61db154b28759a24a5a"
+    )
     assert source.commit(
         [
             attempt(

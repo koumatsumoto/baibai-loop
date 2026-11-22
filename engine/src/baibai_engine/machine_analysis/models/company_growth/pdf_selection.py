@@ -9,6 +9,7 @@ from typing import Literal
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
     _margin,
     _missing_change_reason,
+    native_comparison_priors,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import (
     Change,
@@ -19,8 +20,16 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     SourceDocument,
     Value,
 )
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    accounting_period_identity,
+    accounting_standard,
+    statement_basis,
+)
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     is_annual_period,
+)
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
     PdfFinancialSelection,
@@ -80,10 +89,39 @@ def _metrics(
     return result
 
 
+def _native_target(
+    states: Sequence[PeriodState], native_anchor: JQuantsFinancialSummary | None
+) -> PeriodState | None:
+    if native_anchor is None:
+        return None
+    key = accounting_period_identity(native_anchor)
+    basis, standard = statement_basis(native_anchor), accounting_standard(native_anchor)
+    if basis not in {"consolidated", "nonconsolidated"} or standard is None:
+        return None
+    return next(
+        (
+            state
+            for state in states
+            if state.cohort == key
+            and (state.period_start, state.period_end)
+            == (native_anchor.period_start, native_anchor.period_end)
+            and all(
+                item.statement_basis == basis and item.accounting_standard == standard
+                for item in state.observations
+            )
+        ),
+        None,
+    )
+
+
 def apply_pdf_periods(
-    states: Sequence[PeriodState], selected: PdfFinancialSelection | None, *, sector: str | None
+    states: Sequence[PeriodState],
+    selected: PdfFinancialSelection | None,
+    *,
+    native_anchor: JQuantsFinancialSummary | None,
+    sector: str | None,
 ) -> tuple[PeriodState, ...]:
-    if selected is None:
+    if selected is None or (target := _native_target(states, native_anchor)) is None:
         return tuple(states)
     if selected.current is None:
         if not selected.blocks_legacy_ttm:
@@ -114,7 +152,8 @@ def apply_pdf_periods(
                     )
                 }
             )
-            if (state.period_start, state.period_end)
+            if state is target
+            and (state.period_start, state.period_end)
             == (selected.period_start, selected.period_end)
             else state
             for state in states
@@ -137,7 +176,10 @@ def apply_pdf_periods(
     )
     result = []
     for state in states:
-        if (state.period_start, state.period_end) != (current.current_start, current.current_end):
+        if state is not target or (state.period_start, state.period_end) != (
+            current.current_start,
+            current.current_end,
+        ):
             result.append(state)
             continue
         observations = []
@@ -160,7 +202,10 @@ def apply_pdf_periods(
                     }
                 )
             elif observation.measurement == "reported" or (
-                observation.measurement == "quarter" and state.fiscal_period == "1Q"
+                observation.measurement == "quarter"
+                and state.fiscal_period == "1Q"
+                and (observation.period_start, observation.period_end)
+                == (current.current_start, current.current_end)
             ):
                 metrics.update(reported_metrics)
             observations.append(observation.model_copy(update={"metrics": metrics}))
@@ -173,12 +218,13 @@ def apply_pdf_changes(
     selected: PdfFinancialSelection | None,
     *,
     states: Sequence[PeriodState],
+    native_anchor: JQuantsFinancialSummary | None,
     sector: str | None,
 ) -> tuple[Change, ...]:
-    if selected is None:
+    if selected is None or (target := _native_target(states, native_anchor)) is None:
         return tuple(changes)
     if not selected.comparative_verified:
-        return _unverified_annual_comparative(changes, selected, states)
+        return _unverified_annual_comparative(changes, selected, states, target)
     if selected.current is None:
         if not selected.blocks_legacy_ttm:
             return tuple(changes)
@@ -193,7 +239,8 @@ def apply_pdf_changes(
                     "reason": selected.reason,
                 }
             )
-            if (change.to_start, change.to_end) == (selected.period_start, selected.period_end)
+            if change.target_cohort == target.cohort
+            and (change.to_start, change.to_end) == (selected.period_start, selected.period_end)
             and change.measurement in {"reported", "quarter"}
             and change.metric in {"sales", "operating_profit", "parent_profit", "operating_margin"}
             else change
@@ -202,6 +249,8 @@ def apply_pdf_changes(
     current = selected.current
     assert current.current_start is not None
     assert current.current_end is not None
+    if not _target_matches_statement(target, current):
+        return tuple(changes)
     before = {pair.metric: pair.comparative * 1_000_000 for pair in current.pairs}
     after = {pair.metric: pair.current * 1_000_000 for pair in current.pairs}
     prior_metrics = _metrics(before, (_source(current),), sector=sector)
@@ -209,13 +258,17 @@ def apply_pdf_changes(
     result = []
     for change in changes:
         if (
-            change.to_start != current.current_start
+            change.target_cohort != target.cohort
+            or change.to_start != current.current_start
             or change.to_end != current.current_end
             or not _statement_comparison_measurement(current, change.measurement)
             or change.metric not in current_metrics
             or (
                 change.measurement == "quarter"
-                and (current.current_end - current.current_start).days > 100
+                and (
+                    target.fiscal_period != "1Q"
+                    or (current.current_end - current.current_start).days > 100
+                )
             )
         ):
             result.append(change)
@@ -254,6 +307,7 @@ def apply_pdf_changes(
                     else None,
                     "precision": "derived_from_truncated_display_amounts",
                     "source_sha256": current.source_sha256,
+                    "native_prior_cohorts": (),
                 }
             )
         )
@@ -261,7 +315,10 @@ def apply_pdf_changes(
 
 
 def _unverified_annual_comparative(
-    changes: Sequence[Change], selected: PdfFinancialSelection, states: Sequence[PeriodState]
+    changes: Sequence[Change],
+    selected: PdfFinancialSelection,
+    states: Sequence[PeriodState],
+    target: PeriodState,
 ) -> tuple[Change, ...]:
     current = selected.current
     if (
@@ -269,13 +326,15 @@ def _unverified_annual_comparative(
         or selected.status != "available"
         or selected.annual_revision_basis != "latest_reconfirmed_unchanged_amounts"
         or not _statement_comparison_measurement(current, "annual_ttm")
+        or not _target_matches_statement(target, current)
     ):
         return tuple(changes)
     before = {pair.metric: pair.comparative * 1_000_000 for pair in current.pairs}
     matching = [
         (index, change)
         for index, change in enumerate(changes)
-        if change.measurement in {"reported", "annual_ttm"}
+        if change.target_cohort == target.cohort
+        and change.measurement in {"reported", "annual_ttm"}
         and (change.to_start, change.to_end) == (current.current_start, current.current_end)
         and (change.from_start, change.from_end)
         == (current.comparative_start, current.comparative_end)
@@ -320,25 +379,26 @@ def _unverified_annual_comparative(
 def _prior_predates_pdf(
     change: Change, current: PdfStatement, states: Sequence[PeriodState]
 ) -> bool:
-    priors = [
-        value
-        for state in states
-        for observation in state.observations
-        if observation.measurement == change.measurement
-        and (observation.period_start, observation.period_end)
-        == (change.from_start, change.from_end)
-        and (value := observation.metrics.get(change.metric)) is not None
-        and value.value == change.from_value
-    ]
+    priors = native_comparison_priors(states, change)
     # 後発の前年訂正を古いPDFで否定しない。同日の前後もPDFの日付から推測しない。
     return (
         current.published_on is not None
         and bool(priors)
         and all(
-            value.documents
+            (value := observation.metrics.get(change.metric)) is not None
+            and value.value == change.from_value
+            and value.documents
             and all(source.disclosed_at < current.published_on for source in value.documents)
-            for value in priors
+            for observation in priors
         )
+    )
+
+
+def _target_matches_statement(target: PeriodState, current: PdfStatement) -> bool:
+    return all(
+        item.statement_basis == current.statement_basis
+        and item.accounting_standard == current.accounting_standard
+        for item in target.observations
     )
 
 

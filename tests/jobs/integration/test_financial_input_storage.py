@@ -13,9 +13,11 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     PREFIX,
     FinancialAttempt,
     FinancialL1,
+    read_financial_requests,
 )
 from baibai_engine.machine_analysis.generation.financial_inputs import (
     INPUT_PREFIX,
+    SavedFinancialProjectionRevisionMismatch,
     read_financial_input,
 )
 from baibai_engine.primitives.json import canonical_json
@@ -162,7 +164,7 @@ def test_missing_or_corrupt_fixed_objects_fail_without_latest_fallback(tmp_path,
     assert not (tmp_path / "failed").exists()
 
 
-def test_legacy_inline_input_rebuilds_without_any_shared_input_objects(tmp_path):
+def test_legacy_inline_membership_is_readable_but_not_a_current_projection(tmp_path):
     store = MemoryR2Store()
     owner = FinancialL1(store, tmp_path / "native")
     owner.initialize()
@@ -183,13 +185,22 @@ def test_legacy_inline_input_rebuilds_without_any_shared_input_objects(tmp_path)
     for key in tuple(store.values):
         if key.startswith(INPUT_PREFIX) or key == HEAD_KEY:
             del store.values[key]
-    assert (
-        rebuild_saved_input(store, saved, start=day, end=day, output=tmp_path / "legacy")["days"]
-        == 1
-    )
-    metadata = json.loads((tmp_path / "legacy" / "input.json").read_bytes())
-    assert set(metadata["acquisition"]) == {day.isoformat()}
-    assert set(metadata["receipts"]) == {"feb"}
+    store.get_keys.clear()
+    selected = read_financial_input(store, descriptor, days=(day,))
+    assert set(selected["scopes"]) == {day.isoformat()}
+    assert set(selected["receipts"]) == {"feb"}
+    assert not store.get_keys
+    (retained,) = read_financial_requests(store, **selected, days=(day,))
+    assert retained.request_id == "feb"
+    assert retained.request.pages[0].body == b'{"data":[]}'
+
+    store.get_keys.clear()
+    store.head_keys.clear()
+    output = tmp_path / "legacy"
+    with pytest.raises(SavedFinancialProjectionRevisionMismatch, match="projection revision"):
+        rebuild_saved_input(store, saved, start=day, end=day, output=output)
+    assert store.get_keys == store.head_keys == []
+    assert not output.exists()
 
 
 class LostAcknowledgement(MemoryR2Store):

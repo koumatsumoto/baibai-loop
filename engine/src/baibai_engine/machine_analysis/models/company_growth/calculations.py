@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from baibai_engine.machine_analysis.models.company_growth.models import (
     FINANCIAL_SECTOR_INAPPLICABLE,
     Change,
+    Measurement,
     Metric,
     Observation,
     PeriodState,
@@ -439,6 +440,7 @@ def build_period_states(
             )
         states.append(
             PeriodState(
+                cohort=key,
                 fiscal_period=anchor.fiscal_period,
                 fiscal_year_end=anchor.fiscal_year_end,
                 period_start=anchor.period_start,
@@ -449,9 +451,13 @@ def build_period_states(
     return tuple(states)
 
 
+type _CohortObservation = tuple[PeriodState, Observation]
+
+
 def _latest_comparable_periods(
-    current: Observation, by_end: dict[tuple[str, int], list[Observation]]
-) -> list[Observation]:
+    current: Observation,
+    by_end: dict[tuple[Measurement, int], list[_CohortObservation]],
+) -> list[_CohortObservation]:
     current_days = (current.period_end - current.period_start).days + 1
     if current_days <= 0:
         return []
@@ -464,8 +470,8 @@ def _latest_comparable_periods(
         if candidates is None:
             continue
         priors = [
-            prior
-            for prior in candidates
+            (cohort, prior)
+            for cohort, prior in candidates
             if abs(prior.period_start.toordinal() - expected_start) <= tolerance
             and comparable_period_lengths(
                 end - prior.period_start.toordinal() + 1, current_days, tolerance_ratio=0.1
@@ -487,14 +493,21 @@ def _missing_change_reason(current: Value, *priors: Value | None) -> str:
 
 
 def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
-    observations = [o for s in states for o in s.observations]
-    by_end: dict[tuple[str, int], list[Observation]] = {}
-    for item in observations:
-        by_end.setdefault((item.measurement, item.period_end.toordinal()), []).append(item)
+    observations = [(state, item) for state in states for item in state.observations]
+    by_end: dict[tuple[Measurement, int], list[_CohortObservation]] = {}
+    for state, item in observations:
+        by_end.setdefault((item.measurement, item.period_end.toordinal()), []).append((state, item))
     changes: list[Change] = []
-    for current in observations:
-        # Keep every comparable identity at the newest end, before inspecting metric values.
-        priors = _latest_comparable_periods(current, by_end)
+    for state, current in observations:
+        candidates = _latest_comparable_periods(current, by_end)
+        # 同じ最新終端では明示の期区分を先に使う。値やbasisで候補を選び直さない。
+        if len(candidates) > 1 and state.fiscal_period in {"1Q", "2Q", "3Q", "FY"}:
+            exact = [pair for pair in candidates if pair[0].fiscal_period == state.fiscal_period]
+            candidates = exact or candidates
+        priors = [prior for _, prior in candidates]
+        prior_cohorts = tuple(
+            dict.fromkeys(prior.cohort for prior, _ in candidates if prior.cohort is not None)
+        )
         prior_end = priors[0].period_end if priors else None
         prior_starts = {p.period_start for p in priors}
         prior_start = next(iter(prior_starts)) if len(prior_starts) == 1 else None
@@ -517,7 +530,7 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
             reason = None
             if not priors:
                 reason = "comparable_prior_period_not_observed"
-            elif len(prior_starts) != 1 or len(prior_values) != 1:
+            elif len(prior_cohorts) > 1 or len(prior_starts) != 1 or len(prior_values) != 1:
                 reason = "ambiguous_growth_comparison"
             elif (
                 current.statement_basis not in {"consolidated", "nonconsolidated"}
@@ -540,6 +553,8 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
             )
             changes.append(
                 Change(
+                    target_cohort=state.cohort,
+                    native_prior_cohorts=prior_cohorts if state.cohort is not None else None,
                     metric=metric,
                     measurement=current.measurement,
                     from_start=prior_start,
@@ -571,3 +586,24 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
                 )
             )
     return tuple(changes)
+
+
+def native_comparison_priors(
+    states: Sequence[PeriodState], change: Change
+) -> tuple[Observation, ...]:
+    """保存した前年operandだけを読む。省略されたcohortを同じ日付から補わない。"""
+    cohorts = set(change.native_prior_cohorts or ())
+    if not cohorts or len(cohorts) != len(change.native_prior_cohorts or ()):
+        return ()
+    matches = [
+        (state.cohort, item)
+        for state in states
+        if state.cohort in cohorts
+        for item in state.observations
+        if item.measurement == change.measurement
+        and item.period_start == change.from_start
+        and item.period_end == change.from_end
+    ]
+    if len(matches) != len(cohorts) or {key for key, _ in matches} != cohorts:
+        return ()
+    return tuple(item for _, item in matches)

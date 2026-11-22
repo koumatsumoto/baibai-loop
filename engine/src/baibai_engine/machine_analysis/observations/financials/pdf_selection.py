@@ -37,7 +37,7 @@ type AnnualRevisionBasis = Literal[
     "same_disclosure", "latest_reconfirmed_unchanged_amounts", "same_day_restated_reference_actual"
 ]
 
-REVISION = "retained-pdf-restatement-selection-v6-jp-interim-comparison"
+REVISION = "retained-pdf-restatement-selection-v7-native-cohort"
 _FIELDS: dict[Metric, str] = {
     "sales": "sales",
     "operating_profit": "operating_profit",
@@ -74,6 +74,7 @@ class PdfFinancialInput:
     as_of: date
     selection: PdfFinancialSelection | None
     supplement: PdfSupplement | None
+    native_anchor: JQuantsFinancialSummary | None = None
 
 
 def prepare_pdf_financials(
@@ -82,11 +83,15 @@ def prepare_pdf_financials(
     """財務と成長へ同じ観測を渡し、一方のモデル結果を他方の入力にしない。"""
     if not statements:
         return None
+    selection, native_anchor = _select_pdf_financials_with_anchor(
+        documents, statements, as_of=as_of
+    )
     return PdfFinancialInput(
         ticker=statements[0].ticker,
         as_of=as_of,
-        selection=select_pdf_financials(documents, statements, as_of=as_of),
+        selection=selection,
         supplement=build_pdf_supplement(statements, as_of=as_of),
+        native_anchor=native_anchor,
     )
 
 
@@ -144,6 +149,31 @@ def _matching_pdf(
     return item, None
 
 
+def _has_retained_cohort_pdf(
+    current: JQuantsFinancialSummary,
+    rows: Sequence[JQuantsFinancialSummary],
+    statements: Sequence[PdfStatement],
+) -> bool:
+    # 現在ID自身の矛盾は保留する。過去のPDFは同じ会計期・基準の訂正系列だけを見る。
+    period = (current.period_start, current.period_end)
+    cohort = accounting_period_identity(current)
+    basis, standard = statement_basis(current), accounting_standard(current)
+    disclosures = {current.disclosure_number}
+    if basis in {"consolidated", "nonconsolidated"} and standard is not None:
+        disclosures.update(
+            row.disclosure_number
+            for row in rows
+            if (row.period_start, row.period_end) == period
+            and accounting_period_identity(row) == cohort
+            and statement_basis(row) == basis
+            and accounting_standard(row) == standard
+        )
+    return any(
+        item.disclosure_number in disclosures and (item.current_start, item.current_end) == period
+        for item in statements
+    )
+
+
 def _unchanged_annual_pdf(
     latest: JQuantsFinancialSummary,
     rows: Sequence[JQuantsFinancialSummary],
@@ -159,10 +189,12 @@ def _unchanged_annual_pdf(
     ):
         return None
     candidates = {}
+    cohort = accounting_period_identity(latest)
     for row in rows:
         if (
             row.disclosure_number == latest.disclosure_number
             or (row.period_start, row.period_end) != (latest.period_start, latest.period_end)
+            or accounting_period_identity(row) != cohort
             or accounting_standard(row) != accounting_standard(latest)
             or statement_basis(row) != statement_basis(latest)
             or not certainly_disclosed_by(row, latest)
@@ -297,8 +329,15 @@ def _known_annual_conflict(
 def select_pdf_financials(
     documents: Sequence[JQuantsFinancialSummary], statements: Sequence[PdfStatement], *, as_of: date
 ) -> PdfFinancialSelection | None:
+    selection, _ = _select_pdf_financials_with_anchor(documents, statements, as_of=as_of)
+    return selection
+
+
+def _select_pdf_financials_with_anchor(
+    documents: Sequence[JQuantsFinancialSummary], statements: Sequence[PdfStatement], *, as_of: date
+) -> tuple[PdfFinancialSelection | None, JQuantsFinancialSummary | None]:
     if not statements:
-        return None
+        return None, None
     tickers = {item.ticker for item in statements} | {row.ticker for row in documents}
     if len(tickers) != 1:
         raise ValueError("PDF financial selection requires one issuer")
@@ -306,7 +345,7 @@ def select_pdf_financials(
         item for item in statements if item.published_on is None or item.published_on <= as_of
     ]
     if not retained:
-        return None
+        return None, None
     projected = project_financial_documents(documents, as_of)
     rows = [
         row
@@ -318,9 +357,21 @@ def select_pdf_financials(
     anchor = max((accounting_period_identity(row) for row in rows), default=None)
     current_row = _latest([row for row in rows if accounting_period_identity(row) == anchor])
     if current_row is None:
-        return PdfFinancialSelection(
-            status="unavailable", reason="latest_disclosure_missing_or_ambiguous"
+        return (
+            PdfFinancialSelection(
+                status="unavailable", reason="latest_disclosure_missing_or_ambiguous"
+            ),
+            None,
         )
+    return _select_for_current(current_row, retained, rows, projected), current_row
+
+
+def _select_for_current(
+    current_row: JQuantsFinancialSummary,
+    retained: Sequence[PdfStatement],
+    rows: Sequence[JQuantsFinancialSummary],
+    projected: Sequence[JQuantsFinancialSummary],
+) -> PdfFinancialSelection:
     current, reason = _matching_pdf(current_row, retained)
     current_is_annual = (
         current_row.period_start is not None
@@ -330,10 +381,8 @@ def select_pdf_financials(
     if current is None and current_is_annual:
         current = _unchanged_annual_pdf(current_row, rows, retained)
     if current is None:
-        current_pdf_retained = any(
-            (item.current_start, item.current_end)
-            == (current_row.period_start, current_row.period_end)
-            for item in retained
+        current_pdf_retained = not current_is_annual and _has_retained_cohort_pdf(
+            current_row, rows, retained
         )
         conflict = (
             _known_annual_conflict(current_row, rows, retained, projected)
@@ -358,7 +407,7 @@ def select_pdf_financials(
             reason=reason,
             period_start=current_row.period_start,
             period_end=current_row.period_end,
-            blocks_legacy_ttm=not current_is_annual and current_pdf_retained,
+            blocks_legacy_ttm=current_pdf_retained,
         )
     assert current.current_start is not None
     assert current.current_end is not None

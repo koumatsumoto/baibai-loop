@@ -100,19 +100,20 @@ def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(t
 
 
 @pytest.mark.parametrize(
-    ("source_date", "division", "day"),
+    ("source_date", "division", "day", "usable"),
     [
-        ("2026-04-24", "1", date(2026, 4, 24)),
-        ("2026-04-24T00:00:00", "1", date(2026, 4, 24)),
-        ("2026-12-30", "2", date(2026, 12, 30)),
+        ("2026-04-24", "1", date(2026, 4, 24), True),
+        ("2026-04-24T00:00:00", "1", date(2026, 4, 24), False),
+        ("2026-12-30", "2", date(2026, 12, 30), True),
     ],
 )
-def test_calendar_reads_native_timestamp_and_half_day(tmp_path, source_date, division, day):
+def test_calendar_requires_provider_date_and_preserves_half_day(
+    tmp_path, source_date, division, day, usable
+):
     database = tmp_path / "market.sqlite"
     _project(database, day, day, [{"Date": source_date, "HolDiv": division}])
-    assert read_market_calendar(database, day, day) == [
-        JQuantsMarketCalendarDay(day=day, is_business_day=True)
-    ]
+    expected = [JQuantsMarketCalendarDay(day=day, is_business_day=True)] if usable else None
+    assert read_market_calendar(database, day, day) == expected
 
 
 def test_unknown_calendar_category_is_not_treated_as_a_closed_day(tmp_path):

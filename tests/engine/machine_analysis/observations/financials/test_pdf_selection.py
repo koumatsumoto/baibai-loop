@@ -53,7 +53,7 @@ def document(annual=False):
     )
 
 
-def models(documents=None, pdfs=None, sector="卸売業"):
+def models(documents=None, pdfs=None, sector="卸売業", *, growth_start=None):
     return generate_financial_and_price_models(
         ticker="9268",
         documents=[document(True), document()] if documents is None else documents,
@@ -66,6 +66,7 @@ def models(documents=None, pdfs=None, sector="卸売業"):
         as_of=ASOF,
         input_release=InputRelease(release_id="synthetic", manifest_sha256="a" * 64),
         ttm_rules=DEFAULT_TTM_RULES,
+        growth_start=growth_start,
     )
 
 
@@ -164,6 +165,7 @@ def test_native_identity_amount_and_basis_conflicts_are_explicit(change):
     )
     assert result.status == "unavailable"
     assert not result.amounts_yen
+    assert result.blocks_legacy_ttm is ("period_end" not in change)
 
 
 def test_unordered_pdf_bytes_do_not_use_last_received_as_correction_order():
