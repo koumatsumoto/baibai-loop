@@ -7,10 +7,7 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.machine_analysis.observations.financials.metric_quality import (
-    OperatingProfitSource,
-    TTMQuality,
-)
+from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
 _MODEL_CONFIG = ConfigDict(
     strict=True, arbitrary_types_allowed=False, validate_assignment=False, allow_inf_nan=False
@@ -114,7 +111,6 @@ class FinancialSnapshot:
     edinet_failure_reasons: str | None = None
     operating_profit: float | None = None
     operating_profit_ttm: float | None = None
-    operating_profit_source: OperatingProfitSource = OperatingProfitSource.NULL
     # ttm_quality_* は「TTM 値の合成の質」であって値の有無ではない。分母が負・ゼロで
     # 比率 (per_trailing / pcfr 等) が None でも、合成に成功していれば exact のまま。
     ttm_quality_ev_ebitda: TTMQuality | None = None
@@ -125,10 +121,6 @@ class FinancialSnapshot:
     ttm_quality_sales: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_fcf_yield: TTMQuality | None = None
     shares_outstanding: float | None = None
-    # accruals_to_assets = (profit_ttm - cfo_ttm) / average total assets — Sloan
-    # 1996. High positive accruals are an earnings-quality flag (reported NI
-    # not converting to cash). Prior assets are optional; without them use current assets.
-    accruals_to_assets: float | None = None
     # 発行済株式の変化は自己株買いそのものを示さない。
     net_share_change_yoy: float | None = None
     # 自己株買いは発行済株数を減らさないため、控除後株数の変化を別に持つ。

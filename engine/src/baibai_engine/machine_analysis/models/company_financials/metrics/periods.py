@@ -116,17 +116,10 @@ def _latest_actual_row(
     return selected
 
 
-def _latest_actual_row_by_field_priority(
+def _latest_period_operating_profit(
     summaries: Sequence[JQuantsFinancialSummary],
-    field_names: Sequence[str],
-) -> JQuantsFinancialSummary | None:
-    """Pick the preferred non-null metric without leaving the latest accounting period.
-
-    Actual corrections may update only part of a statement. An older field in
-    the selected period remains usable when the latest reporting basis agrees.
-    A new basis revision cannot revive an older field from that period.
-    """
-
+) -> float | None:
+    """Use only observed operating profit for the latest actual accounting period."""
     latest = _latest_actual_row(summaries)
     if latest is None:
         return None
@@ -134,23 +127,10 @@ def _latest_actual_row_by_field_priority(
     period_rows = [
         summary for summary in summaries if accounting_period_identity(summary) == period_key
     ]
-    for field_name in field_names:
-        candidates = [
-            summary
-            for summary in period_rows
-            if (
-                getattr(summary, field_name) is not None
-                or field_name in summary.unresolved_actual_fields
-            )
-        ]
-        if candidates:
-            selected = _latest_consistent_actual(candidates, (field_name,))
-            return (
-                selected
-                if selected is not None and latest_reporting_basis_matches(period_rows, selected)
-                else None
-            )
-    return None
+    # An omitted actual can survive a same-basis partial correction in this period,
+    # but neither an older period nor a different profit line can supply it.
+    operating = _latest_actual_row(period_rows, field_names=("operating_profit",))
+    return operating.operating_profit if operating is not None else None
 
 
 def _latest_non_null_row(
@@ -215,7 +195,6 @@ def _prior_year_summary(
     ttm_rules: TTMRules,
     *,
     field_name: str | None = None,
-    require_basis: bool = True,
 ) -> JQuantsFinancialSummary | None:
     """Return the same fiscal period in the previous fiscal year.
 
@@ -241,7 +220,6 @@ def _prior_year_summary(
     # a mismatching latest revision must not revive an older convenient basis.
     if (
         prior is not None
-        and require_basis
         and field_name != "shares_outstanding"
         and not comparable_reporting_basis((prior, latest))
     ):
