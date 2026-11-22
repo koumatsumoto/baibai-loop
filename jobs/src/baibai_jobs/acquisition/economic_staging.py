@@ -6,7 +6,10 @@ import base64
 import hashlib
 import json
 import re
+import tempfile
 from pathlib import Path
+
+from compression import zstd
 
 from baibai_engine.data_collection.receipts.native_sources.planning_inputs import (
     validate_planning_input,
@@ -15,6 +18,7 @@ from baibai_engine.storage.objects.json import put_private, read_write_once_priv
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
+    VerifiedObjectMetadataReader,
 )
 
 _PLANNING_INPUT_GROUPS = {
@@ -32,6 +36,11 @@ _PLANNING_INPUT_GROUPS = {
     "nikkei-indexes-acquisition-input-v1": "economic-nikkei_indexes",
 }
 _PLANNING_INPUT_FORMATS = {group: wire for wire, group in _PLANNING_INPUT_GROUPS.items()}
+_FRED_RECEIPT_FORMAT = "fred-acquisition-receipts-zstd-v1"
+_FRED_STAGE_PREFIX = "fred_csv-"
+_MAX_FRED_RECEIPT_BYTES = 128 * 1024**2
+_FRED_DECODE_CHUNK = 1024**2
+_FRED_MAX_WINDOW_LOG = 23  # 8 MiB
 
 
 def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:
@@ -151,6 +160,17 @@ def load_handoff(
         raise LakePublishError("source private handoff is not complete")
     manifest = json.loads(saved.payload)
     receipt_format = manifest.get("receipt_format") if isinstance(manifest, dict) else None
+    if receipt_format == _FRED_RECEIPT_FORMAT:
+        if (
+            market
+            or namespace not in (None, "economic-sources")
+            or input_group is not None
+            or not stage_id.startswith(_FRED_STAGE_PREFIX)
+            or stage_id == _FRED_STAGE_PREFIX
+        ):
+            raise ValueError("compressed FRED requires its economic acquisition stage")
+        _load_fred_receipt(store, prefix, directory, manifest)
+        return
     planning_group = (
         _PLANNING_INPUT_GROUPS.get(receipt_format) if isinstance(receipt_format, str) else None
     )
@@ -200,3 +220,90 @@ def load_handoff(
         validate_planning_input(path, planning_group)
     path.chmod(0o600)
     (directory / "result.json").write_text(json.dumps(manifest["result"]), encoding="utf-8")
+
+
+def _load_fred_receipt(
+    store: ObjectStore, prefix: str, directory: Path, manifest: dict[str, object]
+) -> None:
+    result = manifest.get("result")
+    if (
+        not isinstance(result, dict)
+        or result.get("group") != "fred_csv"
+        or "planning_key" in manifest
+    ):
+        raise ValueError("compressed receipt requires the FRED acquisition group")
+
+    raw_sha, raw_bytes = manifest.get("receipt_sha256"), manifest.get("receipt_bytes")
+    stored_sha, stored_bytes = manifest.get("stored_sha256"), manifest.get("stored_bytes")
+    if (
+        not isinstance(raw_sha, str)
+        or re.fullmatch(r"[0-9a-f]{64}", raw_sha) is None
+        or not isinstance(stored_sha, str)
+        or re.fullmatch(r"[0-9a-f]{64}", stored_sha) is None
+        or type(raw_bytes) is not int
+        or type(stored_bytes) is not int
+        or not 0 < stored_bytes < raw_bytes <= _MAX_FRED_RECEIPT_BYTES
+        or raw_bytes < 100
+    ):
+        raise ValueError("invalid compressed FRED receipt descriptor")
+    key = f"{prefix}/receipts-{raw_sha}.sqlite.zst"
+    if manifest.get("receipt_key") != key:
+        raise LakePublishError("compressed FRED receipt identity differs")
+    if directory.is_symlink() or (
+        directory.exists() and (not directory.is_dir() or any(directory.iterdir()))
+    ):
+        raise FileExistsError("compressed FRED restore requires a new or empty packet directory")
+    if not isinstance(store, VerifiedObjectMetadataReader):
+        raise LakePublishError("compressed FRED receipt requires a bounded fixed object read")
+    encoded = store.get_verified_object(key, sha256=stored_sha, max_bytes=stored_bytes)
+    if encoded is None or encoded[1].size != stored_bytes:
+        raise LakePublishError("compressed FRED receipt size differs")
+
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=directory.parent, prefix=".fred-receipt-") as scratch:
+        temporary = Path(scratch)
+        raw = temporary / "receipts.sqlite"
+        _restore_fred_receipt(encoded[0], raw, raw_bytes=raw_bytes, raw_sha=raw_sha)
+        report = temporary / "result.json"
+        report.write_text(json.dumps(result), encoding="utf-8")
+        for path in (raw, report):
+            path.chmod(0o600)
+        # Publish both files together; a competing nonempty packet cannot be replaced.
+        temporary.replace(directory)
+
+
+def _restore_fred_receipt(encoded: bytes, path: Path, *, raw_bytes: int, raw_sha: str) -> None:
+    if not encoded.startswith(b"\x28\xb5\x2f\xfd"):
+        raise LakePublishError("invalid compressed FRED receipt frame")
+    decoder = zstd.ZstdDecompressor(
+        options={zstd.DecompressionParameter.window_log_max: _FRED_MAX_WINDOW_LOG}
+    )
+    payload = memoryview(encoded)
+    digest = hashlib.sha256()
+    offset = written = 0
+    with path.open("xb") as output:
+        while not decoder.eof:
+            chunk: bytes | memoryview = b""
+            if decoder.needs_input:
+                chunk = payload[offset : offset + _FRED_DECODE_CHUNK]
+                if not chunk:
+                    raise LakePublishError("compressed FRED receipt frame is truncated")
+                offset += len(chunk)
+            try:
+                decoded = decoder.decompress(
+                    chunk, max_length=min(raw_bytes - written + 1, _FRED_DECODE_CHUNK)
+                )
+            except (EOFError, zstd.ZstdError) as error:
+                raise LakePublishError("invalid compressed FRED receipt frame") from error
+            written += len(decoded)
+            if written > raw_bytes:
+                raise LakePublishError("compressed FRED receipt exceeds its raw size")
+            output.write(decoded)
+            digest.update(decoded)
+    if decoder.unused_data or offset != len(payload):
+        raise LakePublishError("compressed FRED receipt contains trailing data")
+    if written != raw_bytes or digest.hexdigest() != raw_sha:
+        raise LakePublishError("compressed FRED receipt content differs")
+    with path.open("rb") as stream:
+        if stream.read(16) != b"SQLite format 3\x00":
+            raise LakePublishError("compressed FRED receipt does not restore SQLite")
