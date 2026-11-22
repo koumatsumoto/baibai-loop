@@ -108,15 +108,13 @@ def _corrected_workbook() -> bytes:
 
 
 def _session(body: bytes, *, status: int = 200) -> FakeSession:
-    return FakeSession(
-        by_url={
-            TSE_CAPITAL_POLICY_URL: response(
-                body,
-                status_code=status,
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-        }
+    answer = response(
+        body,
+        status_code=status,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+    answer.url = TSE_CAPITAL_POLICY_URL
+    return FakeSession(by_url={TSE_CAPITAL_POLICY_URL: answer})
 
 
 def _rows(path: Path) -> tuple[tuple[object, ...], ...]:
