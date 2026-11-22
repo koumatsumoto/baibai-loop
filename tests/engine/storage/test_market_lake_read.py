@@ -6,6 +6,7 @@ import os
 import shutil
 import sqlite3
 import threading
+from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, closing, nullcontext
 from dataclasses import dataclass, field, replace
@@ -28,6 +29,7 @@ from baibai_engine.storage.snapshots import duck as duck_module
 from baibai_engine.storage.snapshots import hydrate as hydrate_module
 from baibai_engine.storage.snapshots import objects as objects_module
 from baibai_engine.storage.snapshots import prefetch as prefetch_module
+from baibai_engine.storage.snapshots import reader as reader_module
 from baibai_engine.storage.snapshots.duck import LakeSession, lake_session
 from baibai_engine.storage.snapshots.hydrate import (
     LakeHydrateError,
@@ -37,12 +39,14 @@ from baibai_engine.storage.snapshots.hydrate import (
 from baibai_engine.storage.snapshots.keys import (
     canonical_object_key,
     current_release_pointer_key,
+    dataset_manifest_key,
     release_manifest_key,
 )
 from baibai_engine.storage.snapshots.models import (
     DatasetManifest,
     LakeObject,
     LakeReleaseSourceRef,
+    ReleaseManifest,
     canonical_lake_model_bytes,
     validate_release_policy,
 )
@@ -87,6 +91,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLiteSchemaError,
     open_connection,
 )
+from baibai_jobs.publication import snapshot_write_cli
 from baibai_jobs.publication.datasets import (
     LAKE_DATASETS,
 )
@@ -1243,6 +1248,163 @@ class TestReleaseCurrency:
         )
 
         assert report.release_id == named.release_id
+
+    @pytest.mark.parametrize(
+        ("mode", "checkpoints"), [("hydrate", 3), ("dehydrate", 2), ("transfer", 2)]
+    )
+    def test_current_cli_rechecks_bytes_without_reopening_the_same_policy_graph(
+        self, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys, mode, checkpoints
+    ) -> None:
+        store = tmp_path / "output.sqlite"
+        if mode == "hydrate":
+            _dehydrated(lake, store)
+        elif mode == "dehydrate":
+            shutil.copyfile(lake.sqlite_path, store)
+        else:
+            store.write_bytes(b"last good transfer")
+        args = ["--source", str(lake.sqlite_path)] if mode == "transfer" else []
+        reads: Counter[str] = Counter()
+        parsing: Counter[type] = Counter()
+        policy_checks = 0
+        read = LocalMirrorSource.read_bytes
+        parse = reader_module.load_lake_model_json
+        policy = reader_module.validate_release_policy
+
+        def traced_read(self, key):
+            reads[key] += 1
+            return read(self, key)
+
+        def traced_parse(raw, model):
+            parsing[model] += 1
+            return parse(raw, model)
+
+        def traced_policy(*args, **kwargs):
+            nonlocal policy_checks
+            policy_checks += 1
+            return policy(*args, **kwargs)
+
+        monkeypatch.setattr(LocalMirrorSource, "read_bytes", traced_read)
+        monkeypatch.setattr(reader_module, "load_lake_model_json", traced_parse)
+        monkeypatch.setattr(reader_module, "validate_release_policy", traced_policy)
+        command = "dehydrate" if mode == "transfer" else mode
+        assert (
+            snapshot_write_cli.main(
+                [command, "--mirror", str(lake.mirror), "--store", str(store), *args]
+            )
+            == 0
+        )
+        assert json.loads(capsys.readouterr().out)["release_id"] == lake.release_id
+        with closing(sqlite3.connect(store)) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone() == (
+                (4,) if mode == "hydrate" else (0,)
+            )
+        assert read_lake_store_origin(store).release_id == lake.release_id
+        assert reads == {
+            current_release_pointer_key(): checkpoints,
+            release_manifest_key(release_id=lake.release_id): checkpoints,
+            **{
+                dataset_manifest_key(
+                    dataset=name, build_id=f"build-{name.replace('.', '-')}-{lake.release_id}"
+                ): checkpoints
+                for name in ("jquants.daily_bars", "jquants.short_sale_reports")
+            },
+        }
+        assert parsing == {LakeReleasePointer: checkpoints, ReleaseManifest: 1, DatasetManifest: 2}
+        assert policy_checks == 1
+
+    @pytest.mark.parametrize(
+        ("fault", "message"),
+        [
+            ("moved", "no longer current"),
+            ("same-id-new-digest", "no longer current"),
+            ("invalid-pointer", "current pointer is invalid"),
+            ("missing-dataset", "lake object is not readable"),
+            ("release-new-bytes", "market release manifest digest does not match"),
+            ("dataset-new-bytes", "dataset manifest digest does not match"),
+        ],
+    )
+    def test_current_cli_never_installs_after_the_final_remote_proof_fails(
+        self, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys, fault, message
+    ) -> None:
+        store = _dehydrated(lake, tmp_path / "not-replaced.sqlite")
+        before = store.read_bytes()
+        read = LocalMirrorSource.read_bytes
+        pointer_key = current_release_pointer_key()
+        manifest = release_manifest_key(release_id=lake.release_id)
+        # Even an unrelated dataset's identity is part of the current graph proof.
+        dataset = dataset_manifest_key(
+            dataset="jquants.short_sale_reports",
+            build_id=f"build-jquants-short_sale_reports-{lake.release_id}",
+        )
+        reads: Counter[str] = Counter()
+
+        def read_at_commit(self, key):
+            reads[key] += 1
+            if reads[pointer_key] == 3:
+                if key == pointer_key:
+                    if fault == "invalid-pointer":
+                        return b"{"
+                    if fault in {"moved", "same-id-new-digest"}:
+                        actual = "unselected-release" if fault == "moved" else lake.release_id
+                        return canonical_lake_model_bytes(
+                            LakeReleasePointer(
+                                release_id=actual,
+                                manifest_key=release_manifest_key(release_id=actual),
+                                manifest_sha256="1" * 64,
+                            )
+                        )
+                if fault == "missing-dataset" and key == dataset:
+                    raise LakeObjectError("lake object is not readable")
+                if (fault, key) in {
+                    ("release-new-bytes", manifest),
+                    ("dataset-new-bytes", dataset),
+                }:
+                    return read(self, key) + b"\n"  # Equivalent JSON is still another generation.
+            return read(self, key)
+
+        monkeypatch.setattr(LocalMirrorSource, "read_bytes", read_at_commit)
+        assert (
+            snapshot_write_cli.main(
+                ["hydrate", "--mirror", str(lake.mirror), "--store", str(store)]
+            )
+            == 1
+        )
+        assert message in capsys.readouterr().err
+        assert reads[pointer_key] == 3
+        assert store.read_bytes() == before
+        if fault in {"moved", "same-id-new-digest"}:
+            assert reads[manifest] == 2
+            assert not reads[release_manifest_key(release_id="unselected-release")]
+
+    @pytest.mark.parametrize("typed_reference", [False, True])
+    def test_explicit_cli_recovery_does_not_check_a_broken_current_pointer(
+        self, lake: Lake, tmp_path: Path, capsys, typed_reference
+    ) -> None:
+        store = _dehydrated(lake, tmp_path / "recovered.sqlite")
+        (lake.mirror / current_release_pointer_key()).write_bytes(b"not a valid current pointer")
+        digest = _release_digest(lake.mirror, lake.release_id)
+        args = ["--release", lake.release_id, "--manifest-sha256", digest]
+        if typed_reference:
+            path = tmp_path / "release-reference.json"
+            path.write_bytes(
+                canonical_lake_model_bytes(
+                    LakeReleaseSourceRef(
+                        kind="lake_release",
+                        source_id=lake.release_id,
+                        key=release_manifest_key(release_id=lake.release_id),
+                        sha256=digest,
+                        manifest_version=2,
+                    )
+                )
+            )
+            args = ["--release-ref", str(path)]
+        assert (
+            snapshot_write_cli.main(
+                ["hydrate", "--mirror", str(lake.mirror), "--store", str(store), *args]
+            )
+            == 0
+        )
+        assert json.loads(capsys.readouterr().out)["release_id"] == lake.release_id
 
 
 class TestCacheResilience:
