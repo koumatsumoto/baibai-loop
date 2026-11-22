@@ -17,6 +17,7 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.yaml import strict_safe_load
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,8 +44,9 @@ def main(argv: list[str] | None = None) -> int:
             payload = service.read(args.proposal_id)
         else:
             try:
-                raw = yaml.safe_load(args.draft.read_text(encoding="utf-8"))
-            except yaml.YAMLError:
+                raw = strict_safe_load(args.draft.read_text(encoding="utf-8"))
+            except (yaml.YAMLError, ValueError):
+                # Duplicate-key diagnostics can include private draft text.
                 print("error: invalid proposal record YAML", file=sys.stderr)
                 return 3
             record: ProposalCorrection | HumanProposalReport
