@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections import Counter
 from dataclasses import replace
 from datetime import timedelta
 
@@ -20,7 +21,9 @@ import baibai_jobs.publication.snapshot_publication as publisher
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
     decode_attempt,
 )
+from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.integration.external_assessment_ready import (
+    acknowledged_bundles,
     acknowledgement_key,
     available_ready,
     load_ready,
@@ -111,6 +114,43 @@ def test_partial_ack_keeps_plan_open_and_later_superset_integrates(publication, 
     assert staging.read_terminal(store, plan) is None
     assert read_acknowledgement(store, load_ready(store, first), first) == ack
     assert available_ready(store) == ([], [])
+
+    # These are actual acknowledgements from two publications of a growing plan.
+    ready_values = [json.loads(store.values[ref["key"]].body) for ref in (first, second)]
+    shared = ready_values[0]["stages"][0]["key"]
+    assert [row["key"] for row in ready_values[1]["stages"]].count(shared) == 1
+    acknowledgement_keys = [acknowledgement_key(plan, ref) for ref in (first, second)]
+    expected = {
+        bundle: identities
+        for key in acknowledgement_keys
+        for bundle, identities in json.loads(store.values[key].body)["bundle_receipts"].items()
+    }
+    assert len(expected) == 2
+    store.get_keys.clear()
+    assert acknowledged_bundles(store, plan) == expected
+    assert Counter(store.get_keys) == Counter(
+        {
+            staging.prefix(plan.run_id) + "/plan.json": 1,
+            first["key"]: 1,
+            second["key"]: 1,
+            **dict.fromkeys(acknowledgement_keys, 1),
+            **{row["key"]: 1 for row in ready_values[1]["stages"]},
+        }
+    )
+    # Sharing a stage is not proof of another acknowledgement's distinct raw scope.
+    later_ack = max(acknowledgement_keys)
+    invalid = json.loads(store.values[later_ack].body)
+    invalid["bundle_receipts"]["unrelated"] = {"receipt": "digest"}
+    with monkeypatch.context() as patch:
+        patch.delitem(store.values, later_ack)
+        store.store_object(later_ack, json.dumps(invalid).encode())
+        with pytest.raises(ValueError, match="acknowledgement raw scope changed"):
+            acknowledged_bundles(store, plan)
+
+    # Subsequent operations must read even a previously shared stage again.
+    store.store_object(shared, b"{}")
+    with pytest.raises(LakePublishError, match="fixed private JSON failed integrity"):
+        acknowledged_bundles(store, plan)
 
 
 def test_late_subset_never_replaces_superset(publication):
