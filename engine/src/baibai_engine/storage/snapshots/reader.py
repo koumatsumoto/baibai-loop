@@ -124,6 +124,28 @@ def resolve_current_release(
     return release
 
 
+def recheck_current_release(source: LakeObjectSource, expected: FixedRelease) -> tuple[str, str]:
+    """Recheck the write guard of a release already accepted by the current policy.
+
+    A different pointer is only grounds for refusing the write, not for loading
+    another graph. For the same pointer, re-read and check the original manifest
+    bytes: a pointer alone cannot prove its referenced graph is still readable.
+    """
+    pointer = _read_current_pointer(source)
+    identity = (pointer.release_id, pointer.manifest_sha256)
+    if identity != (expected.release_id, expected.manifest_sha256):
+        return identity
+    _read_manifest_bytes(source, expected.manifest_key, expected.manifest_sha256)
+    for name, entry in sorted(expected.manifest.datasets.items()):
+        _read_manifest_bytes(
+            source,
+            dataset_manifest_key(dataset=name, build_id=entry.build_id),
+            entry.manifest_sha256,
+            dataset=name,
+        )
+    return identity
+
+
 def _read_current_pointer(source: LakeObjectSource) -> LakeReleasePointer:
     try:
         payload = source.read_bytes(current_release_pointer_key())
@@ -174,6 +196,19 @@ def resolve_release_ref(source: LakeObjectSource, reference: LakeReleaseSourceRe
     )
 
 
+def _read_manifest_bytes(
+    source: LakeObjectSource, key: str, expected_sha256: str, *, dataset: str | None = None
+) -> bytes:
+    payload = source.read_bytes(key)
+    if sha256_bytes(payload) != expected_sha256:
+        raise LakeReadError(
+            f"dataset manifest digest does not match the release: {dataset}"
+            if dataset is not None
+            else "market release manifest digest does not match its expected identity"
+        )
+    return payload
+
+
 def _load_release(
     source: LakeObjectSource,
     *,
@@ -181,10 +216,7 @@ def _load_release(
     expected_manifest_sha256: str,
 ) -> FixedRelease:
     manifest_key = release_manifest_key(release_id=release_id)
-    payload = source.read_bytes(manifest_key)
-    digest = sha256_bytes(payload)
-    if digest != expected_manifest_sha256:
-        raise LakeReadError("market release manifest digest does not match its expected identity")
+    payload = _read_manifest_bytes(source, manifest_key, expected_manifest_sha256)
     try:
         release = load_lake_model_json(payload, ReleaseManifest)
     except ValueError:
@@ -196,10 +228,7 @@ def _load_release(
     digests: dict[str, str] = {}
     for name, entry in sorted(release.datasets.items()):
         key = dataset_manifest_key(dataset=name, build_id=entry.build_id)
-        dataset_payload = source.read_bytes(key)
-        dataset_digest = sha256_bytes(dataset_payload)
-        if dataset_digest != entry.manifest_sha256:
-            raise LakeReadError(f"dataset manifest digest does not match the release: {name}")
+        dataset_payload = _read_manifest_bytes(source, key, entry.manifest_sha256, dataset=name)
         try:
             manifest = load_lake_model_json(dataset_payload, DatasetManifest)
         except ValueError:
@@ -220,7 +249,7 @@ def _load_release(
         ):
             raise LakeReadError(f"release and dataset manifest disagree: {name}")
         manifests[name] = manifest
-        digests[name] = dataset_digest
+        digests[name] = entry.manifest_sha256
     try:
         validate_source_generations(release, manifests)
     except ValueError as error:
@@ -228,7 +257,7 @@ def _load_release(
     return FixedRelease(
         release_id=release_id,
         manifest_key=manifest_key,
-        manifest_sha256=digest,
+        manifest_sha256=expected_manifest_sha256,
         data_as_of=release.data_as_of,
         manifest=release,
         dataset_manifests=manifests,
