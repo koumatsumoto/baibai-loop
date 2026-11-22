@@ -87,6 +87,52 @@ def test_source_only_plan_retains_out_of_window_rechecks_and_real_today_order(tm
     assert client.calls == [today, DAY]
 
 
+@pytest.mark.parametrize("force_history", [False, True])
+def test_proven_history_is_not_projected_twice_without_new_receipts(
+    tmp_path, monkeypatch, force_history
+):
+    from collections import Counter
+
+    from baibai_jobs.acquisition import edinet_list_native
+
+    older, newer = DAY - timedelta(days=2), DAY - timedelta(days=1)
+    row = {"seqNumber": 1, "docID": "S100KNOWN"}
+    _, owner = owner_at(
+        tmp_path,
+        [
+            receipt(),
+            receipt(older, at=AT + timedelta(seconds=1), body=payload(older, rows=[row])),
+            receipt(newer, at=AT + timedelta(seconds=2)),
+        ],
+    )
+    counts = Counter()
+    project = edinet_list_native.project_document_list
+
+    def tracked(receipts):
+        counts[receipts[0].doc_date] += 1
+        return project(receipts)
+
+    monkeypatch.setattr(edinet_list_native, "project_document_list", tracked)
+    client = Client(
+        AT + timedelta(hours=1),
+        responses={
+            older: payload(older, rows=[row, {"seqNumber": 2, "docID": "S100EXTRA"}]),
+            newer: payload(newer, rows=[row]),
+        },
+    )
+    report = acquire_lists(
+        owner, client, start=older, end=DAY, today=DAY, force_history=force_history
+    )
+    assert report["failed"] == []
+    assert report["documents"] == (3 if force_history else 1)
+    assert report["received_count"] == (3 if force_history else 1)
+    assert client.calls == ([DAY, older, newer] if force_history else [DAY])
+    cycles = 2 if force_history else 1
+    # An official empty list still proves this day; zero is not a missing count.
+    assert counts == {DAY: 1, older: cycles, newer: cycles}
+    assert len(tuple(owner.freeze().iter_receipts())) == (6 if force_history else 4)
+
+
 def test_default_540_day_scope_is_not_shortened_by_missing_l2(tmp_path, monkeypatch):
     _, owner = owner_at(tmp_path)
     client = Client()
