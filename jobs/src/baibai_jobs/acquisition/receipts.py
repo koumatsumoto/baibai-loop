@@ -46,7 +46,7 @@ def _retired_jquants_handoff(key: str) -> bool:
 
 
 def _integration_marker(
-    payload: bytes, *, digest: str, source: str, article: bool
+    payload: bytes, *, digest: str, source: str, started_at: datetime, article: bool
 ) -> dict[str, object]:
     marker = json.loads(payload)
     if not isinstance(marker, dict):
@@ -60,6 +60,10 @@ def _integration_marker(
         or marker.get("status") not in ("integrated", "needs_explicit_recovery")
     ):
         raise ValueError("integration marker differs from the fixed source handoff")
+    if not legacy:
+        clock = marker.get("started_at")
+        if not isinstance(clock, str) or datetime.fromisoformat(clock) != started_at:
+            raise ValueError("integration marker start differs from the fixed source handoff")
     return marker
 
 
@@ -112,7 +116,11 @@ def available_handoffs(
             if terminal:
                 try:
                     integrated = _integration_marker(
-                        terminal.payload, digest=digest, source=source_name, article=article
+                        terminal.payload,
+                        digest=digest,
+                        source=source_name,
+                        started_at=started,
+                        article=article,
                     )
                     status = integrated["status"]
                 except (ValueError, KeyError, TypeError):
@@ -276,6 +284,7 @@ def seal_integrated(
                 prior.payload,
                 digest=str(entry["manifest_sha256"]),
                 source=str(entry["source"]),
+                started_at=datetime.fromisoformat(str(entry["started_at"])),
                 article=namespace == "article-sources",
             )
         except ValueError as error:

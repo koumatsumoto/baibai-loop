@@ -196,7 +196,13 @@ def test_discovery_does_not_need_planning_or_a_source_watermark(tmp_path, source
 
 
 @pytest.mark.parametrize(
-    "damage", [{"manifest_sha256": "0" * 64}, {"source": "mof_news"}, {"status": "unknown"}]
+    "damage",
+    [
+        {"manifest_sha256": "0" * 64},
+        {"source": "mof_news"},
+        {"started_at": "2026-11-20T08:01:00Z"},
+        {"status": "unknown"},
+    ],
 )
 def test_incorrect_article_seal_cannot_hide_the_original(tmp_path, damage):
     remote = MemoryR2Store()
