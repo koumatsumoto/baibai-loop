@@ -165,12 +165,10 @@ def parse_index(
     if source in RSS_SOURCES:
         root = _feed_root(body)
         result = []
-        if source in WORLD_NEWS_SOURCES and (
-            root.tag.rsplit("}", 1)[-1] != "rss"
-            or not any(node.tag.rsplit("}", 1)[-1] == "channel" for node in root)
-        ):
+        root_tag = root.tag.rsplit("}", 1)[-1]
+        if source in WORLD_NEWS_SOURCES and root_tag != "rss":
             raise ValueError("RSS channel missing; not a confirmed empty feed")
-        if root.tag.rsplit("}", 1)[-1] == "urlset":
+        if root_tag == "urlset":
             for index, entry in enumerate(root):
                 fields = {node.tag.rsplit("}", 1)[-1]: node.text or "" for node in entry.iter()}
                 link = fields.get("loc")
@@ -194,8 +192,18 @@ def parse_index(
                     )
                 )
             return tuple(result)
-        if root.tag.rsplit("}", 1)[-1] not in {"rss", "RDF"}:
+        if root_tag == "rss":
+            namespace = root.tag.removesuffix("rss")
+            channels = root.findall(namespace + "channel")
+            if len(channels) != 1:
+                raise ValueError("RSS requires one direct channel; not a confirmed empty feed")
+            item_tag = namespace + "item"
+            if len(channels[0].findall(item_tag)) != sum(1 for _ in root.iter(item_tag)):
+                raise ValueError("RSS item outside channel; not a confirmed empty feed")
+        elif root_tag != "RDF":
             raise ValueError("unsupported article feed root")
+        # This order also defines saved locators. Shape checks must not renumber
+        # an existing item after another namespace's item.
         for index, entry in enumerate(
             node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "item"
         ):
