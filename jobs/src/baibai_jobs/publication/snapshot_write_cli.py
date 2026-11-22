@@ -242,7 +242,6 @@ def _hydrate(args: argparse.Namespace) -> int:
                     "jquants.master_snapshots",
                 )
             else:
-                _clear_independent_list_cache(args, release)
                 dataset_names = release.dataset_names()
                 if args.command == "hydrate-for-daily" and _daily_rebuilds_prices(
                     release, args.store
@@ -272,6 +271,12 @@ def _hydrate(args: argparse.Namespace) -> int:
                     still_current=still_current,
                     catalog=LAKE_DATASETS,
                     require_empty_dataset=deferred,
+                    prepare_copy=(
+                        lambda path: _clear_independent_list_cache(args, release, store_path=path)
+                    )
+                    if args.command != "hydrate-portfolio"
+                    and "edinet.list_responses" not in dataset_names
+                    else None,
                 )
     except (
         sqlite3.Error,
