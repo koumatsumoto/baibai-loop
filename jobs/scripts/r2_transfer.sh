@@ -12,15 +12,23 @@ copy_read_timeout=300
 # The machine receipt prevents a partial sequential push from looking like a coherent pair.
 # The non-regenerable application store keeps all generations from 14 backup dates.
 app_backup_generations=14
-machine_manifest_key="machine-manifest.json"
+machine_receipt_key="machine-manifest.json"
 machine_bundle_keys=(market.sqlite runs.sqlite)
 transfer_staging=""
+seed_receipt_dir=""
+seed_receipt_verified=0
 evidence_dir=""
 evidence_pending_key=""
 daily_origin=""
 measure_machine_upload=0
 
 cleanup_staging() {
+  if [[ -n "${seed_receipt_dir}" ]] \
+    && [[ "${seed_receipt_verified}" == 1 || ! -f "${seed_receipt_dir}/${machine_receipt_key}" ]]; then
+    rm -f -- "${seed_receipt_dir}/${machine_receipt_key}" "${seed_receipt_dir}/.pending"
+    rmdir -- "${seed_receipt_dir}"
+    seed_receipt_dir=""
+  fi
   if [[ -n "${transfer_staging}" && -d "${transfer_staging}" ]]; then
     case "${transfer_staging}" in
       "${repo_root}"/.r2-transfer.*) rm -r -- "${transfer_staging}" ;;
@@ -155,10 +163,7 @@ put_with_evidence() {
   if response="$(aws s3api put-object \
     --bucket "${stores_bucket}" --key "${key}" --body "$(transfer_body "${key}")" \
     "${condition[@]}" --endpoint-url "${endpoint}" --query ETag --output text 2>/dev/null)"; then
-    if [[ -z "${response}" || "${response}" == "None" ]] \
-      || ! version="$(etag_body "${response}")" \
-      || [[ "${version}" == "None" || "${version}" == "null" ]] \
-      || [[ "${response}" != "${version}" && "${response}" != "\"${version}\"" ]]; then
+    if ! version="$(etag_body "${response}")"; then
       printf 'machine PUT outcome unknown; evidence retained\n' >&2
       return 1
     fi
@@ -362,28 +367,43 @@ pulled_version() {
 }
 
 etag_body() {
-  # `remote_version` returns the ETag as the API quotes it. The receipt holds the bare
-  # value, and the charset it is required to sit in is what keeps the receipt JSON it
-  # never has to escape. Anything outside it is refused here rather than written out
-  # and compared later.
-  local value="$1"
+  # AWS's text query may return a quoted ETag or a null sentinel. Only an actual
+  # version can participate in a receipt or its conditional replacement.
+  local value="$1" original="$1"
   value="${value%\"}"
   value="${value#\"}"
-  if [[ ! "${value}" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+  if [[ ! "${value}" =~ ^[A-Za-z0-9._:-]+$ || "${value}" == None || "${value}" == null ]] \
+    || [[ "${original}" != "${value}" && "${original}" != "\"${value}\"" ]]; then
     printf 'unusable object version (details withheld)\n' >&2
     return 1
   fi
   printf '%s\n' "${value}"
 }
 
-write_machine_manifest() {
-  # The versions are read back rather than carried out of the PUTs. The receipt is a
-  # statement about what the bucket holds now, so a write landing after this read leaves
-  # it merely stale — which the next bundle pull refuses. Values carried forward from
-  # the pushes would instead let it claim a generation nobody ever observed together.
-  local key version file receipt_sha256 first=1
-  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  file="${transfer_staging}/machine-manifest.json"
+live_machine_versions() {
+  local key version
+  for key in "${machine_bundle_keys[@]}"; do
+    version="$(remote_version "${key}" 2>/dev/null)" || {
+      printf 'cannot read current machine version for %s (details withheld)\n' "${key}" >&2
+      return 2
+    }
+    etag_body "${version}" || return
+  done
+}
+
+require_live_machine_versions() {
+  local actual
+  actual="$(live_machine_versions)" || return
+  if [[ "${actual}" != "$1" ]]; then
+    printf 'live machine versions differ from the proven pair; do not replace the receipt\n' >&2
+    return 1
+  fi
+}
+
+render_machine_receipt() {
+  local key file="$1" index=0
+  local -a versions
+  mapfile -t versions <<< "$2"
   {
     printf '{\n'
     printf '  "schema_version": 1,\n'
@@ -393,26 +413,34 @@ write_machine_manifest() {
     printf '  "written_at_utc": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '  "keys": {\n'
     for key in "${machine_bundle_keys[@]}"; do
-      version="$(etag_body "$(remote_version "${key}")")"
-      if [[ ${first} -eq 0 ]]; then
+      if [[ ${index} -gt 0 ]]; then
         printf ',\n'
       fi
-      printf '    "%s": "%s"' "${key}" "${version}"
-      first=0
+      printf '    "%s": "%s"' "${key}" "${versions[index]}"
+      index=$((index + 1))
     done
     printf '\n  }\n}\n'
   } > "${file}"
-  transfer_evidence snapshot_ready "${machine_manifest_key}"
+}
+
+write_machine_receipt() {
+  # Regular publication records the resulting current pair under the lease.
+  local file receipt_sha256 versions
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  file="${transfer_staging}/${machine_receipt_key}"
+  versions="$(live_machine_versions)"
+  render_machine_receipt "${file}" "${versions}"
+  transfer_evidence snapshot_ready "${machine_receipt_key}"
   # Pin the small receipt bytes actually being offered, not the SQLite bodies.
   # Print only after a successful PUT so a failed attempt supplies no target.
-  receipt_sha256="$(sha256sum < "$(transfer_body "${machine_manifest_key}")")"
+  receipt_sha256="$(sha256sum < "$(transfer_body "${machine_receipt_key}")")"
   verify_publication_lease
   if [[ -n "${evidence_dir}" ]]; then
-    put_with_evidence "${machine_manifest_key}" ""
+    put_with_evidence "${machine_receipt_key}" ""
   else
     aws s3api put-object \
       --bucket "${stores_bucket}" \
-      --key "${machine_manifest_key}" \
+      --key "${machine_receipt_key}" \
       --body "${file}" \
       --endpoint-url "${endpoint}" \
       >/dev/null
@@ -420,12 +448,12 @@ write_machine_manifest() {
   cleanup_staging
   transfer_staging=""
   printf 'machine bundle receipt written: %s machine_receipt_sha256=%s\n' \
-    "${machine_manifest_key}" "${receipt_sha256%% *}"
+    "${machine_receipt_key}" "${receipt_sha256%% *}"
 }
 
-manifest_recorded_version() {
+recorded_machine_versions() {
   # Read the JSON contract, not the writer's whitespace or line layout.
-  python3 - "$1" "$2" <<'PYTHON'
+  python3 - "$1" "${machine_bundle_keys[@]}" <<'PYTHON'
 import json
 import re
 import sys
@@ -435,37 +463,136 @@ try:
         receipt = json.load(source)
 except (OSError, ValueError):
     receipt = None
-keys = receipt.get("keys") if isinstance(receipt, dict) else None
-value = keys.get(sys.argv[2]) if isinstance(keys, dict) else None
-print(value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]+", value) else "")
+if not isinstance(receipt, dict):
+    sys.exit(1)
+schema_version = receipt.get("schema_version")
+if type(schema_version) is not int or schema_version != 1:
+    sys.exit(1)
+keys = receipt.get("keys")
+if not isinstance(keys, dict):
+    sys.exit(1)
+versions = [keys.get(key) for key in sys.argv[2:]]
+if any(not isinstance(v, str) or v in {"None", "null"} or not re.fullmatch(r"[A-Za-z0-9._:-]+", v)
+       for v in versions):
+    sys.exit(1)
+print(*versions, sep="\n")
 PYTHON
 }
 
-require_machine_manifest() {
+download_machine_receipt() {
+  aws s3api get-object --bucket "${stores_bucket}" --key "${machine_receipt_key}" \
+    --endpoint-url "${endpoint}" --query ETag --output text "$1" 2>/dev/null
+}
+
+require_machine_receipt_readback() {
+  local proof="$1" versions="$2" readback="${transfer_staging}/receipt-readback.json" observed current
+  observed="$(download_machine_receipt "${readback}")" || return
+  observed="$(etag_body "${observed}")" || return
+  cmp -s -- "${proof}" "${readback}" || return
+  require_live_machine_versions "${versions}" || return
+  current="$(remote_version "${machine_receipt_key}" 2>/dev/null)" || return
+  current="$(etag_body "${current}")" || return
+  [[ "${observed}" == "${current}" ]]
+}
+
+put_verified_machine_receipt() {
+  local proof="$1" versions="$2"
+  shift 2
+  # An absent acknowledgement is not proof that the PUT failed. Accept only the
+  # exact candidate/fenced pair on independent readback; never retry the PUT here.
+  aws s3api put-object --bucket "${stores_bucket}" --key "${machine_receipt_key}" \
+    --body "${proof}" "$@" --endpoint-url "${endpoint}" >/dev/null 2>&1 || true
+  if ! require_machine_receipt_readback "${proof}" "${versions}"; then
+    printf 'machine bundle receipt write not verified; keep the exact candidate for recovery\n' >&2
+    return 1
+  fi
+}
+
+seed_machine_receipt() {
+  local versions="$1" receipt_sha256
+  local candidate="${seed_receipt_dir}/${machine_receipt_key}" pending="${seed_receipt_dir}/.pending"
+  # Retain exact same-attempt acknowledgement evidence even if the following HEAD fails.
+  (umask 077; render_machine_receipt "${pending}" "${versions}") || return
+  receipt_sha256="$(sha256sum < "${pending}")" || return
+  mv -T -- "${pending}" "${candidate}" || return
+  printf 'seed receipt candidate (not yet verified): %s candidate_sha256=%s\n' \
+    "${candidate}" "${receipt_sha256%% *}" >&2
+  # Bootstrap is outside the lease. Only a pair still live can get a receipt.
+  require_live_machine_versions "${versions}" || return
+  put_verified_machine_receipt "${candidate}" "${versions}" --if-none-match '*' || return
+  seed_receipt_verified=1
+  printf 'initial machine bundle receipt verified: %s\n' "${machine_receipt_key}"
+}
+
+restore_machine_receipt() {
+  local source="$1" target_sha256="$2"
+  local proof before receipt_sha256 versions observed current
+  local -a condition=(--if-none-match '*')
+  verify_publication_lease || return
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")" || return
+  proof="${transfer_staging}/${machine_receipt_key}"
+  before="${transfer_staging}/receipt-before.json"
+  # Copy first, so the bytes we validate are the bytes we will send.
+  if [[ ! -f "${source}" ]] || ! cp -- "${source}" "${proof}"; then
+    printf 'restore requires a readable retained receipt file\n' >&2
+    return 2
+  fi
+  receipt_sha256="$(sha256sum < "${proof}")" || return
+  if [[ "${receipt_sha256%% *}" != "${target_sha256}" ]] \
+    || ! versions="$(recorded_machine_versions "${proof}")"; then
+    printf 'restore requires the retained schema-v1 receipt with its proven SHA-256\n' >&2
+    return 1
+  fi
+  require_live_machine_versions "${versions}" || return
+  if remote_object_exists "${machine_receipt_key}"; then
+    observed="$(download_machine_receipt "${before}")" || {
+      printf 'cannot read the existing machine receipt (details withheld)\n' >&2
+      return 2
+    }
+    etag_body "${observed}" >/dev/null || return
+    if cmp -s -- "${proof}" "${before}"; then
+      require_machine_receipt_readback "${proof}" "${versions}" || return
+      verify_publication_lease || return
+      printf 'exact machine bundle receipt already verified; no write\n'
+      return
+    fi
+    if ! current="$(recorded_machine_versions "${before}")" || [[ "${current}" == "${versions}" ]]; then
+      printf 'existing receipt is not provably stale; preserve it and inspect the publication\n' >&2
+      return 1
+    fi
+    condition=(--if-match "${observed}")
+  fi
+  require_live_machine_versions "${versions}" || return
+  verify_publication_lease || return
+  put_verified_machine_receipt "${proof}" "${versions}" "${condition[@]}" || return
+  verify_publication_lease || return
+  printf 'exact machine bundle receipt restored and verified\n'
+}
+
+require_machine_receipt() {
   # A mismatch may be an active push or an interrupted one; blind retry cannot fix both.
-  local file entry key expected actual
-  file="${transfer_staging}/machine-manifest.json"
-  # Only confirmed absence permits the unverified legacy pull.
-  if ! remote_object_exists "${machine_manifest_key}"; then
-    printf 'no machine bundle receipt in s3://%s yet; taking the store set unverified. ' \
-      "${stores_bucket}" >&2
-    printf 'The next machine push writes one.\n' >&2
-    return 0
+  local file entry key expected actual versions index=0
+  local -a recorded
+  file="${transfer_staging}/${machine_receipt_key}"
+  if ! remote_object_exists "${machine_receipt_key}"; then
+    printf 'refusing to replace local stores: machine bundle receipt is missing. See ' >&2
+    printf '"部分 push からの復旧" in jobs/OPERATIONS.md.\n' >&2
+    return 1
   fi
-  aws s3api get-object \
-    --bucket "${stores_bucket}" \
-    --key "${machine_manifest_key}" \
-    --endpoint-url "${endpoint}" \
-    "${file}" >/dev/null
-  if [[ ! -s "${file}" ]]; then
-    printf 'machine bundle receipt downloaded empty from s3://%s/%s\n' \
-      "${stores_bucket}" "${machine_manifest_key}" >&2
-    exit 1
+  if ! download_machine_receipt "${file}" >/dev/null; then
+    printf 'machine bundle receipt could not be downloaded (details withheld)\n' >&2
+    return 2
   fi
+  if ! versions="$(recorded_machine_versions "${file}")"; then
+    printf 'machine bundle receipt names no generation (invalid schema or member)\n' >&2
+    return 1
+  fi
+  mapfile -t recorded <<< "${versions}"
   for entry in "$@"; do
     key="${entry%%=*}"
     actual="$(etag_body "${entry#*=}")"
-    expected="$(manifest_recorded_version "${file}" "${key}")"
+    expected="${recorded[index]}"
+    index=$((index + 1))
     if [[ "${expected}" != "${actual}" ]]; then
       printf 'refusing to replace local stores: R2 holds %s at generation %s but the ' \
         "${key}" "${actual}" >&2
@@ -500,7 +627,7 @@ pull_keys() {
       observed+=("${key}=${versions[index]}")
       index=$((index + 1))
     done
-    require_machine_manifest "${observed[@]}"
+    require_machine_receipt "${observed[@]}"
   fi
   for key in "$@"; do
     aws_s3 cp "s3://${stores_bucket}/${key}" "${transfer_staging}/${key}"
@@ -629,7 +756,7 @@ _push_keys() {
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   # Report snapshot, backup and upload times separately for each store.
   local key source body started uploaded_version put_started upload_parts=""
-  local -a snapshot_seconds=()
+  local -a snapshot_seconds=() seed_versions=()
   for key in "$@"; do
     source="$(store_path "${key}")"
     body="${transfer_staging}/${key}"
@@ -697,13 +824,20 @@ _push_keys() {
       fi
     else
       # Seed is create-only even if another writer appears after the existence check.
-      aws s3api put-object \
+      uploaded_version="$(aws s3api put-object \
         --bucket "${stores_bucket}" \
         --key "${key}" \
         --body "${body}" \
         --if-none-match '*' \
         --endpoint-url "${endpoint}" \
-        >/dev/null
+        --query ETag --output text)"
+      if ! uploaded_version="$(etag_body "${uploaded_version}")"; then
+        printf 'initial seed has no usable PUT acknowledgement for %s; no receipt created\n' "${key}" >&2
+        return 1
+      fi
+      if [[ "${key}" == market.sqlite || "${key}" == runs.sqlite ]]; then
+        seed_versions+=("${uploaded_version}")
+      fi
     fi
     printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss%s\n' \
       "${key}" \
@@ -713,6 +847,11 @@ _push_keys() {
       "$((SECONDS - started))" "${upload_parts}"
     index=$((index + 1))
   done
+  if [[ -z "${expected_version}" ]]; then
+    local pair
+    pair="$(printf '%s\n' "${seed_versions[@]}")"
+    seed_machine_receipt "${pair}"
+  fi
   cleanup_staging
   transfer_staging=""
 }
@@ -752,18 +891,19 @@ push_pulled_keys() {
     push_key_if_version "${key}" "${versions[index]}"
     index=$((index + 1))
   done
-  write_machine_manifest
+  write_machine_receipt
 }
 
 seed_keys() {
   local key
-  for key in "$@"; do
+  for key in "$@" "${machine_receipt_key}"; do
     if remote_object_exists "${key}"; then
       printf 'refusing initial seed: s3://%s/%s already exists\n' \
         "${stores_bucket}" "${key}" >&2
       return 2
     fi
   done
+  seed_receipt_dir="$(mktemp -d "${TMPDIR:-/tmp}/baibai-seed-receipt.XXXXXX")"
   _push_keys "" "$@"
 }
 
@@ -821,7 +961,7 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR|--daily-notice FILE]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|restore-machine-receipt FILE SHA256|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|publish-lake|push-machine [--evidence-dir NEW_DIR|--daily-notice FILE]|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 validate_command() {
@@ -839,6 +979,9 @@ validate_command() {
       ;;
     upload-portfolio-views)
       [[ $# -eq 2 && -n "$2" && "$2" != -* ]]
+      ;;
+    restore-machine-receipt)
+      [[ $# -eq 3 && -n "$2" && "$2" != -* && "$3" =~ ^[0-9a-f]{64}$ ]]
       ;;
     pull-app|pull-machine|pull-market|pull-runs|pull-indicators|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|seed-all|publish-lake|push-market|push-runs|push-app)
       [[ $# -eq 1 ]]
@@ -868,8 +1011,8 @@ elif [[ "${1:-}" == "push-machine" && "${2:-}" == "--evidence-dir" ]]; then
 fi
 
 load_credentials
-if [[ -n "${evidence_dir}" ]]; then
-  # Evidence describes one attempt, not a CLI retry whose first outcome was lost.
+if [[ -n "${evidence_dir}" || "$1" == seed-all || "$1" == restore-machine-receipt ]]; then
+  # Do not disguise a lost first PUT response as a second conditional failure.
   export AWS_MAX_ATTEMPTS=1 AWS_RETRY_MODE=standard
 fi
 case "${1:-}" in
@@ -907,7 +1050,10 @@ case "${1:-}" in
     pull_keys indicators.sqlite
     ;;
   seed-all)
-    seed_keys market.sqlite runs.sqlite indicators.sqlite baibai.sqlite
+    seed_keys "${machine_bundle_keys[@]}" indicators.sqlite baibai.sqlite
+    ;;
+  restore-machine-receipt)
+    restore_machine_receipt "$2" "$3"
     ;;
   push-machine)
     if [[ -z "${evidence_dir}" ]]; then measure_machine_upload=1; fi
@@ -930,7 +1076,7 @@ case "${1:-}" in
     cleanup_staging
     transfer_staging=""
     push_key_if_version market.sqlite "${market_version}"
-    write_machine_manifest
+    write_machine_receipt
     ;;
   push-indicators)
     shift

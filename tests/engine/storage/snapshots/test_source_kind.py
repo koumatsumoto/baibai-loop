@@ -4,7 +4,6 @@ import json
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 
 import pyarrow.parquet as pq
 import pytest
@@ -14,6 +13,7 @@ from baibai_engine.data_collection.providers.edinet.snapshot_contracts import ED
 from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
     JQUANTS_DAILY_BARS,
 )
+from baibai_engine.storage.snapshots.contracts import ParquetSourceKind
 from baibai_engine.storage.snapshots.models import (
     DatasetManifest,
     L1DatasetSourceRef,
@@ -62,8 +62,8 @@ _EDINET_NATIVE = NativeL1SourceRef(
 @pytest.mark.parametrize(
     ("sources", "expected"),
     [
-        ((), "legacy_sqlite_import"),
-        ((_SQLITE,), "legacy_sqlite_import"),
+        ((), "sqlite_snapshot"),
+        ((_SQLITE,), "sqlite_snapshot"),
         ((_L1,), "l1_derived"),
         ((_NATIVE,), "l1_derived"),
         ((_EDINET_NATIVE,), "l1_derived"),
@@ -74,7 +74,7 @@ _EDINET_NATIVE = NativeL1SourceRef(
 )
 def test_parquet_source_kind_depends_on_lineage(
     sources: tuple[SourceRef, ...],
-    expected: Literal["legacy_sqlite_import", "l1_derived"],
+    expected: ParquetSourceKind,
 ) -> None:
     assert parquet_source_kind(iter(sources)) == expected
 

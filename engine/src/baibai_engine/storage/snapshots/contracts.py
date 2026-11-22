@@ -13,6 +13,13 @@ from baibai_engine.storage.snapshots.keys import LakeLayer
 
 PROJECTION_REVISION_METADATA_KEY = b"baibai.projection_revision"
 
+ParquetSourceKind = Literal["sqlite_snapshot", "l1_derived"]
+_PARQUET_SOURCE_TAG: dict[ParquetSourceKind, bytes] = {
+    # Keep published schema metadata and content-addressed bytes stable.
+    "sqlite_snapshot": b"legacy_sqlite_import",
+    "l1_derived": b"l1_derived",
+}
+
 PartitionGrain = Literal["year", "month"]
 """How much of one dataset's history a single partition covers.
 
@@ -121,15 +128,13 @@ class LakeDataset:
             if column.primary_key_ordinal
         )
 
-    def arrow_schema_for(
-        self, source_kind: Literal["legacy_sqlite_import", "l1_derived"]
-    ) -> object:
+    def arrow_schema_for(self, source_kind: ParquetSourceKind) -> object:
         metadata = {
             b"baibai.contract_version": str(self.contract_version).encode(),
             b"baibai.dataset": self.name.encode(),
             b"baibai.layer": self.layer.encode(),
             b"baibai.primary_key": ",".join(self.primary_key).encode(),
-            b"baibai.source_kind": source_kind.encode(),
+            b"baibai.source_kind": _PARQUET_SOURCE_TAG[source_kind],
         }
         return pa.schema(
             [

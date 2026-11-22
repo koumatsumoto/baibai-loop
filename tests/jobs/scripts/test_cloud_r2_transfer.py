@@ -67,6 +67,7 @@ def test_sqlite_helpers_run_from_the_repository_when_called_elsewhere(tmp_path: 
     root = _fake_repo(tmp_path)
     environment = _environment(bin_dir, log)
     environment["UV_EXPECTED_CWD"] = str(root)
+    _install_fixture_receipt(environment)
 
     completed = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "pull-machine"],
@@ -147,10 +148,11 @@ def test_pull_runs_is_scoped_to_the_cloud_authoritative_run_store() -> None:
     assert "indicators.sqlite" not in block
 
 
-def test_initial_seed_refuses_to_overwrite_an_existing_store(tmp_path: Path) -> None:
+@pytest.mark.parametrize("existing", ["runs.sqlite", "machine-manifest.json"])
+def test_initial_seed_refuses_to_overwrite_an_existing_key(tmp_path: Path, existing: str) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
-    env["AWS_FAKE_EXISTING_KEY"] = "runs.sqlite"
+    env["AWS_FAKE_EXISTING_KEY"] = existing
 
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "seed-all"],
@@ -162,29 +164,46 @@ def test_initial_seed_refuses_to_overwrite_an_existing_store(tmp_path: Path) -> 
     )
 
     assert completed.returncode == 2
-    assert "runs.sqlite already exists" in completed.stderr
-    assert all("s3 cp" not in command for command in log.read_text(encoding="utf-8").splitlines())
+    assert f"{existing} already exists" in completed.stderr
+    assert not _remote_writes(log)
 
 
 def test_initial_seed_uploads_all_stores_when_contract_keys_are_absent(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
 
+    env = _environment(bin_dir, log)
+    env["TMPDIR"] = str(tmp_path)
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "seed-all"],
         cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
+        env=env,
         check=False,
         capture_output=True,
         text=True,
     )
 
-    assert completed.returncode == 0
+    assert completed.returncode == 0, completed.stderr
     commands = _transfer_commands(log)
-    uploads = [command for command in commands if command.startswith("s3api put-object ")]
-    assert len(uploads) == 4
+    uploads = _remote_writes(log)
+    assert [command.split("--key ", 1)[1].split()[0] for command in uploads] == [
+        "market.sqlite",
+        "runs.sqlite",
+        "indicators.sqlite",
+        "baibai.sqlite",
+        "machine-manifest.json",
+    ]
     assert all("--if-none-match *" in command for command in uploads)
     # Nothing is being replaced, so no generation is kept.
     assert all(".bak" not in command for command in commands)
+    state = Path(env["AWS_FAKE_STATE"])
+    receipt = _receipt(state)
+    assert receipt is not None
+    payload = json.loads(receipt)
+    assert payload["schema_version"] == 1
+    assert payload["keys"] == dict.fromkeys(("market.sqlite", "runs.sqlite"), "etag-put-1")
+    assert "daily_publication" not in payload
+    assert not list(tmp_path.glob("baibai-seed-receipt.*"))
+    assert any(line.startswith("s3api get-object ") for line in commands)
 
 
 def test_initial_seed_ignores_a_kept_generation_of_an_absent_store(tmp_path: Path) -> None:
@@ -206,8 +225,187 @@ def test_initial_seed_ignores_a_kept_generation_of_an_absent_store(tmp_path: Pat
     assert completed.returncode == 0
     commands = _transfer_commands(log)
     uploads = [command for command in commands if command.startswith("s3api put-object ")]
-    assert len(uploads) == 4
+    assert len(uploads) == 5
     assert all("--if-none-match *" in command for command in uploads)
+
+
+def test_seed_refuses_before_db_put_if_candidate_cannot_be_retained(tmp_path: Path) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["TMPDIR"] = str(tmp_path / "missing-receipt-directory")
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "seed-all"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert not _remote_writes(log)
+
+
+@pytest.mark.parametrize(
+    ("injection", "key", "landed"),
+    [
+        ("AWS_FAKE_FAIL_PUT_KEY", "runs.sqlite", 1),
+        ("AWS_FAKE_FAIL_PUT_KEY", "baibai.sqlite", 3),
+        ("AWS_FAKE_LOST_PUT_ACK_KEY", "runs.sqlite", 2),
+        ("AWS_FAKE_BAD_PUT_ETAG_KEY", "runs.sqlite", 2),
+    ],
+)
+def test_seed_without_all_confirmed_bodies_never_creates_a_receipt_or_resumes(
+    tmp_path: Path, injection: str, key: str, landed: int
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["TMPDIR"] = str(tmp_path)
+    script = root / "jobs/scripts/r2_transfer.sh"
+    state = Path(env["AWS_FAKE_STATE"])
+
+    initial = subprocess.run(
+        [script, "seed-all"],
+        cwd=root,
+        env={**env, injection: key},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert initial.returncode != 0
+    assert len(list(state.glob("put-*.sqlite"))) == landed
+    assert not any("--key machine-manifest.json " in line for line in _remote_writes(log))
+    assert not list(tmp_path.glob("baibai-seed-receipt.*"))
+
+    log.write_text("")
+    restart = subprocess.run(
+        [script, "seed-all"], cwd=root, env=env, capture_output=True, text=True, check=False
+    )
+    assert restart.returncode == 2
+    assert "already exists" in restart.stderr
+    assert not _remote_writes(log)
+    assert not list(root.glob(".r2-transfer.*"))
+
+
+@pytest.mark.parametrize(
+    "head_error",
+    [
+        "An error occurred (403) when calling the HeadObject operation: Forbidden",
+        "Could not connect to the endpoint URL",
+        None,  # The HEAD succeeds but returns a different ETag.
+    ],
+)
+def test_seed_keeps_exact_acked_candidate_when_pair_cannot_be_verified(
+    tmp_path: Path, head_error: str | None
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["TMPDIR"] = str(tmp_path)
+    script = root / "jobs/scripts/r2_transfer.sh"
+    state = Path(env["AWS_FAKE_STATE"])
+    fault = (
+        {"AWS_FAKE_VERSION_HEAD_ERROR_KEY": "runs.sqlite", "AWS_FAKE_HEAD_ERROR": head_error}
+        if head_error is not None
+        else {"AWS_FAKE_CHANGED_KEY": "runs.sqlite"}
+    )
+
+    def run(*args: str | Path, **overrides: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [script, *args],
+            cwd=root,
+            env={**env, **overrides},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    interrupted = run("seed-all", **fault)
+    assert interrupted.returncode == (2 if head_error is not None else 1)
+    assert len(list(state.glob("put-*.sqlite"))) == 4
+    assert len(_remote_writes(log)) == 4
+    assert _receipt(state) is None
+    (proof,) = tmp_path.glob("baibai-seed-receipt.*/machine-manifest.json")
+    assert proof.stat().st_mode & 0o777 == 0o600
+    assert proof.parent.stat().st_mode & 0o777 == 0o700
+    assert list(proof.parent.iterdir()) == [proof]
+    digest = hashlib.sha256(proof.read_bytes()).hexdigest()
+    assert f"candidate_sha256={digest}" in interrupted.stderr
+    assert json.loads(proof.read_bytes())["keys"] == dict.fromkeys(
+        ("market.sqlite", "runs.sqlite"), "etag-put-1"
+    )
+
+    log.write_text("")
+    assert run("seed-all").returncode == 2
+    assert not _remote_writes(log)
+    if head_error is None:
+        # A retained candidate is proof of the ACKs, not permission to bless new heads.
+        assert run("restore-machine-receipt", proof, digest, **fault).returncode == 1
+        assert not _remote_writes(log)
+        assert _receipt(state) is None
+    else:
+        restored = run("restore-machine-receipt", proof, digest)
+        assert restored.returncode == 0, restored.stderr
+        assert _receipt(state) == proof.read_text()
+        (write,) = _remote_writes(log)
+        assert "--key machine-manifest.json " in write
+        assert "--if-none-match *" in write
+
+
+@pytest.mark.parametrize("lost_ack", [False, True])
+def test_seed_receipt_is_read_back_or_recoverable_without_reseeding(
+    tmp_path: Path, lost_ack: bool
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["TMPDIR"] = str(tmp_path)
+    script = root / "jobs/scripts/r2_transfer.sh"
+    state = Path(env["AWS_FAKE_STATE"])
+    injection = "AWS_FAKE_LOST_PUT_ACK_KEY" if lost_ack else "AWS_FAKE_FAIL_PUT_KEY"
+
+    initial = subprocess.run(
+        [script, "seed-all"],
+        cwd=root,
+        env={**env, injection: "machine-manifest.json"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert len(_remote_writes(log)) == 5  # One PUT attempt per key even without a receipt ACK.
+    if lost_ack:
+        assert initial.returncode == 0, initial.stderr
+        assert _receipt(state) is not None
+        assert not list(tmp_path.glob("baibai-seed-receipt.*"))
+    else:
+        assert initial.returncode == 1, initial.stderr
+        assert _receipt(state) is None
+        (proof,) = tmp_path.glob("baibai-seed-receipt.*/machine-manifest.json")
+        assert proof.stat().st_mode & 0o777 == 0o600
+        digest = hashlib.sha256(proof.read_bytes()).hexdigest()
+        assert f"candidate_sha256={digest}" in initial.stderr
+        log.write_text("")
+        restored = subprocess.run(
+            [script, "restore-machine-receipt", proof, digest],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert restored.returncode == 0, restored.stderr
+        assert _receipt(state) == proof.read_text()
+        (write,) = _remote_writes(log)
+        assert "--key machine-manifest.json " in write
+        assert "--if-none-match *" in write
+        assert not any(line.startswith("s3 cp ") for line in _transfer_commands(log))
+
+    pulled = subprocess.run(
+        [script, "pull-machine"], cwd=root, env=env, capture_output=True, text=True, check=False
+    )
+    assert pulled.returncode == 0, pulled.stderr
+    assert "machine bundle receipt matches" in pulled.stdout
 
 
 @pytest.mark.parametrize("github_actions", [False, True])
@@ -248,6 +446,23 @@ def _receipt(state: Path) -> str | None:
     return written.read_text(encoding="utf-8") if written.exists() else None
 
 
+def _fixture_receipt(
+    market: str = "etag-stable", runs: str = "etag-stable", **fields: object
+) -> str:
+    return json.dumps(
+        {"schema_version": 1, "keys": {"market.sqlite": market, "runs.sqlite": runs}, **fields},
+        indent=2,
+    )
+
+
+def _install_fixture_receipt(env: dict[str, str], receipt: str | None = None) -> None:
+    key = "machine-manifest.json"
+    env["AWS_FAKE_EXISTING_KEY"] = ":".join(filter(None, (env.get("AWS_FAKE_EXISTING_KEY"), key)))
+    (Path(env["AWS_FAKE_STATE"]) / f"put-{key}").write_text(
+        _fixture_receipt() if receipt is None else receipt
+    )
+
+
 def _pull_machine(tmp_path: Path, *, receipt: str | None) -> subprocess.CompletedProcess[str]:
     """Run a bundle pull in a throwaway root: the script resolves store paths from its
     own location, so running it from the checkout replaces the operational stores."""
@@ -258,9 +473,7 @@ def _pull_machine(tmp_path: Path, *, receipt: str | None) -> subprocess.Complete
     root = _fake_repo(pull_root)
     env = _environment(bin_dir, log)
     if receipt is not None:
-        env["AWS_FAKE_EXISTING_KEY"] = "machine-manifest.json"
-        env["AWS_FAKE_OBJECT_KEY"] = "machine-manifest.json"
-        env["AWS_FAKE_OBJECT_BODY"] = receipt
+        _install_fixture_receipt(env, receipt)
     return subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "pull-machine"],
         cwd=root,
@@ -359,17 +572,49 @@ def test_a_bundle_pull_accepts_the_set_the_receipt_names(
     assert "machine bundle receipt matches" in completed.stdout
 
 
+def test_bundle_pull_checks_the_pair_not_the_lake_publication(tmp_path: Path) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    pointer = "lake/pointers/market/current.json"
+    env["AWS_FAKE_EXISTING_KEY"] = pointer
+    state = Path(env["AWS_FAKE_STATE"])
+    (state / f"put-{pointer.replace('/', '_')}").write_text('{"release_id":"ahead"}')
+    _install_fixture_receipt(
+        env,
+        _fixture_receipt(
+            daily_publication={
+                "run": "12345-1",
+                "release_id": "previous",
+                "release_manifest_sha256": "a" * 64,
+            }
+        ),
+    )
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-machine"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "machine bundle receipt matches" in result.stdout
+    assert all(pointer not in line for line in _transfer_commands(log))
+
+
 @pytest.mark.parametrize("indicator_key", ["macro.sqlite", "indicators.sqlite"])
 def test_machine_receipt_ignores_retired_economic_member(
     tmp_path: Path, indicator_key: str
 ) -> None:
     receipt = json.dumps(
         {
+            "schema_version": 1,
             "keys": {
                 "market.sqlite": "etag-stable",
                 "runs.sqlite": "etag-stable",
                 indicator_key: "etag-stable",
-            }
+            },
         },
         indent=2,
     )
@@ -387,6 +632,8 @@ def test_machine_receipt_ignores_retired_economic_member(
         "[]",
         '{"elsewhere": {"market.sqlite": "etag-stable"}, "keys": {}}',
         '{"keys": {"market.sqlite": "etag-stable"}',
+        _fixture_receipt(schema_version=True),
+        _fixture_receipt(schema_version=2),
     ],
 )
 def test_a_receipt_that_does_not_read_back_refuses_rather_than_passing(
@@ -420,7 +667,8 @@ def test_the_rejection_names_a_recovery_the_runbook_actually_carries() -> None:
     assert "re-dispatch" not in message
     assert f"### {RECOVERY_SECTION}" in runbook
     # The step the message sends the reader to: one exact key, never a prefix.
-    assert "--key machine-manifest.json" in runbook
+    assert "restore-machine-receipt" in runbook
+    assert "delete-object --bucket baibai-stores --key machine-manifest.json" not in runbook
 
 
 def test_a_retry_after_a_partial_push_is_refused_by_its_own_precheck(tmp_path: Path) -> None:
@@ -528,118 +776,131 @@ def test_only_a_matching_daily_success_can_tag_the_machine_receipt(tmp_path: Pat
         assert not log.exists() or "s3api put-object" not in log.read_text()
 
 
-def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
-    tmp_path: Path,
+@pytest.mark.parametrize("prior", ["absent", "stale"])
+@pytest.mark.parametrize("lost_ack", [False, True])
+def test_exact_receipt_recovery_writes_only_the_receipt(
+    tmp_path: Path, prior: str, lost_ack: bool
 ) -> None:
-    """`jobs/OPERATIONS.md` step (i), end to end: delete the receipt, take the set
-    unverified once, and let the next complete push write the receipt again.
-
-    Every stage runs the real script against the fake bucket, so what is being checked
-    is the procedure rather than a description of it.
-    """
-
-    bin_dir, log = _fake_aws(tmp_path)
     root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     state = Path(env["AWS_FAKE_STATE"])
-    script = root / "jobs/scripts/r2_transfer.sh"
-    env["SNAPSHOT_FAKE_COPY"] = "1"
-    local_stores = [
-        root / "stores" / relative
-        for relative in (
-            "market/market.sqlite",
-            "screening/runs.sqlite",
-            "market_context/indicators.sqlite",
+    file = tmp_path / "verified-private-receipt.json"
+    # The original receipt is restored byte-for-byte, including the daily origin.
+    raw = (
+        _fixture_receipt(
+            daily_publication={
+                "run": "12345-1",
+                "release_id": "original",
+                "release_manifest_sha256": "a" * 64,
+            }
         )
-    ]
-    for path in local_stores:
+        + "\n"
+    )
+    file.write_text(raw)
+    digest = hashlib.sha256(file.read_bytes()).hexdigest()
+    if prior == "stale":
+        _install_fixture_receipt(env, _fixture_receipt(market="old-market"))
+    if lost_ack:
+        env["AWS_FAKE_LOST_PUT_ACK_KEY"] = "machine-manifest.json"
+    for key, path in _machine_stores(root).items():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"old-store")
+        path.write_bytes(b"unpublished local")
+        (state / f"put-{key}").write_text(f"remote {key}")
 
-    def run(command: str, **overrides: str) -> subprocess.CompletedProcess[str]:
+    def restore():
         return subprocess.run(
-            [script, command],
+            [root / "jobs/scripts/r2_transfer.sh", "restore-machine-receipt", file, digest],
             cwd=root,
-            env={**env, **overrides},
-            check=False,
+            env=env,
             capture_output=True,
             text=True,
+            check=False,
         )
 
-    # A complete push, then the pull that records what it wrote: the steady state.
-    complete = run("push-machine", GITHUB_ACTIONS="true")
-    assert complete.returncode == 0
-    receipt_sha = hashlib.sha256((state / "put-machine-manifest.json").read_bytes()).hexdigest()
-    assert f"machine_receipt_sha256={receipt_sha}" in complete.stdout
-    settled_pull = run("pull-machine")
-    assert settled_pull.returncode == 0
-    # The accepting line, not just the exit code: a pull that found no receipt also
-    # exits 0, so the code alone cannot tell verified from unverified.
-    assert "machine bundle receipt matches" in settled_pull.stdout
-    settled = _receipt(state)
-    assert settled is not None
-    assert '"market.sqlite": "etag-put-1"' in settled
+    result = restore()
+    assert result.returncode == 0, result.stderr
+    assert _receipt(state) == raw
+    (write,) = _remote_writes(log)
+    assert "--key machine-manifest.json " in write
+    condition = '--if-match "etag-stable"' if prior == "stale" else "--if-none-match *"
+    assert condition in write
+    assert not any(line.startswith("s3 cp ") for line in _transfer_commands(log))
+    assert all(path.read_bytes() == b"unpublished local" for path in _machine_stores(root).values())
+    assert {p.read_text() for p in state.glob("put-*.sqlite")} == {
+        "remote market.sqlite",
+        "remote runs.sqlite",
+    }
 
-    # The failure this recovers from: the second key's PUT does not land.
-    for path in local_stores:
-        path.write_bytes(b"new-store")
-    partial = run("push-machine", GITHUB_ACTIONS="true", AWS_FAKE_FAIL_PUT_KEY="runs.sqlite")
-    assert partial.returncode != 0
-    assert "machine_receipt_sha256=" not in partial.stdout
-    assert (state / "put-market.sqlite").read_bytes() == b"new-store"
-    assert (state / "put-runs.sqlite").read_bytes() == b"old-store"
-    assert (state / "generation-runs.sqlite").read_bytes() == b"x"
-    # The receipt still names the previous set, which is now not what the bucket holds.
-    assert _receipt(state) == settled
+    log.write_text("")
+    again = restore()
+    assert again.returncode == 0, again.stderr
+    assert "already verified; no write" in again.stdout
+    assert not _remote_writes(log)
 
-    stuck = run("pull-machine")
-    assert stuck.returncode == 1
-    assert "R2 holds market.sqlite at generation etag-put-2" in stuck.stderr
 
-    # Step (i): one exact key, the same call the runbook prints.
-    removed = subprocess.run(
-        [
-            "aws",
-            "s3api",
-            "delete-object",
-            "--bucket",
-            "baibai-stores",
-            "--key",
-            "machine-manifest.json",
-            "--endpoint-url",
-            "https://account-for-test.r2.cloudflarestorage.com",
-        ],
+@pytest.mark.parametrize(
+    ("fault", "diagnostic"),
+    [
+        ("wrong_sha", "proven SHA-256"),
+        ("wrong_pair", "differ from the proven pair"),
+        ("newer_receipt", "not provably stale"),
+        ("unknown_schema", "not provably stale"),
+        ("expired_lease", "publication lease"),
+        ("lost_lease", "publication lease"),
+        ("receipt_forbidden", "HeadObject failed"),
+        ("absent_cas_race", "receipt write not verified"),
+        ("stale_cas_race", "receipt write not verified"),
+    ],
+)
+def test_exact_receipt_recovery_refuses_an_unproved_or_replaced_target(
+    tmp_path: Path, fault: str, diagnostic: str
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    state = Path(env["AWS_FAKE_STATE"])
+    file = tmp_path / "retained-receipt.json"
+    file.write_text(_fixture_receipt(runs="wrong" if fault == "wrong_pair" else "etag-stable"))
+    digest = "0" * 64 if fault == "wrong_sha" else hashlib.sha256(file.read_bytes()).hexdigest()
+    if fault == "newer_receipt":
+        _install_fixture_receipt(env, _fixture_receipt(written_at_utc="newer"))
+    if fault == "unknown_schema":
+        _install_fixture_receipt(env, _fixture_receipt(schema_version=2))
+    if fault == "stale_cas_race":
+        _install_fixture_receipt(env, _fixture_receipt(market="old-market"))
+    if fault == "expired_lease":
+        Path(env["PUBLICATION_LEASE_HANDLE"]).write_text("synthetic-released")
+    if fault == "lost_lease":
+        _install_fixture_receipt(env, _fixture_receipt(market="old-market"))
+        env["LEASE_FAKE_RELEASE_ON"] = (
+            "get-object --bucket baibai-stores --key machine-manifest.json"
+        )
+    if fault == "receipt_forbidden":
+        env.update(
+            AWS_FAKE_HEAD_ERROR_KEY="machine-manifest.json",
+            AWS_FAKE_HEAD_ERROR="An error occurred (403) when calling the HeadObject operation",
+        )
+    concurrent = _fixture_receipt(written_at_utc="concurrent")
+    races = fault.endswith("_cas_race")
+    if races:
+        env["AWS_FAKE_CONCURRENT_RECEIPT_BODY"] = concurrent
+    previous = _receipt(state)
+
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "restore-machine-receipt", file, digest],
+        cwd=root,
         env=env,
-        check=False,
         capture_output=True,
         text=True,
+        check=False,
     )
-    assert removed.returncode == 0
-    assert _receipt(state) is None
 
-    unverified = run("pull-machine")
-    assert unverified.returncode == 0
-    assert "taking the store set unverified" in unverified.stderr
-
-    assert run("push-machine", GITHUB_ACTIONS="true").returncode == 0
-    rewritten = _receipt(state)
-    assert rewritten is not None
-    # The generations moved: the recovery published a set, it did not restate the old one.
-    assert '"market.sqlite": "etag-put-3"' in rewritten
-    assert '"runs.sqlite": "etag-put-2"' in rewritten
-    assert "indicators.sqlite" not in rewritten
-
-    # And the receipt the recovery wrote is one a later pull verifies against.
-    verified = run("pull-machine")
-    assert verified.returncode == 0
-    assert "machine bundle receipt matches" in verified.stdout
-
-    # The last PUT itself can fail after both bodies landed: no original-run proof then, either.
-    no_receipt = run(
-        "push-machine", GITHUB_ACTIONS="true", AWS_FAKE_FAIL_PUT_KEY="machine-manifest.json"
-    )
-    assert no_receipt.returncode != 0
-    assert "machine_receipt_sha256=" not in no_receipt.stdout
+    assert result.returncode != 0
+    assert diagnostic in result.stderr
+    assert _receipt(state) == (concurrent if races else previous)
+    assert len(_remote_writes(log)) == int(races)
+    assert not list(root.glob(".r2-transfer.*"))
 
 
 def test_machine_store_push_rejects_a_generation_replaced_by_manual_publish(
@@ -1229,6 +1490,7 @@ def test_pull_machine_refuses_a_snapshot_that_straddles_a_push(tmp_path: Path) -
         path.write_bytes(b"local")
     environment = _environment(bin_dir, log)
     environment["AWS_FAKE_CHANGED_KEY"] = "runs.sqlite"
+    _install_fixture_receipt(environment, _fixture_receipt(runs="etag-1"))
 
     completed = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "pull-machine"],
@@ -1249,7 +1511,11 @@ def test_pull_machine_refuses_a_snapshot_that_straddles_a_push(tmp_path: Path) -
     assert (generation_dir / "indicators.sqlite.etag").read_text().strip() == '"etag-stable"'
     assert not list(root.glob(".r2-transfer.*"))
     commands = _transfer_commands(log)
-    versions = [index for index, line in enumerate(commands) if "--query ETag" in line]
+    versions = [
+        index
+        for index, line in enumerate(commands)
+        if line.startswith("s3api head-object ") and "--query ETag" in line
+    ]
     downloads = [index for index, line in enumerate(commands) if line.startswith("s3 cp s3://")]
     # Every store's version is read before any download and re-read after all of
     # them; a straddle is only visible from both sides.
@@ -1266,6 +1532,7 @@ def test_pull_machine_replaces_every_store_when_no_push_intervened(tmp_path: Pat
         path.write_bytes(b"local")
 
     environment = _environment(bin_dir, log)
+    _install_fixture_receipt(environment)
     completed = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "pull-machine"],
         cwd=root,
@@ -1285,6 +1552,40 @@ def test_pull_machine_replaces_every_store_when_no_push_intervened(tmp_path: Pat
         "runs.sqlite.etag": '"etag-stable"\n',
         "indicators.sqlite.etag": '"etag-stable"\n',
     }
+    assert not list(root.glob(".r2-transfer.*"))
+
+
+@pytest.mark.parametrize("status", [404, 403])
+def test_pull_machine_without_a_readable_receipt_preserves_local_store_bytes(
+    tmp_path: Path, status: int
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    if status == 403:
+        env.update(
+            AWS_FAKE_HEAD_ERROR_KEY="machine-manifest.json",
+            AWS_FAKE_HEAD_ERROR="An error occurred (403) when calling the HeadObject operation",
+        )
+    for path in _machine_stores(root).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"unpublished local")
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-machine"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == (1 if status == 404 else 2)
+    assert ("receipt is missing" in result.stderr) == (status == 404)
+    assert all(path.read_bytes() == b"unpublished local" for path in _machine_stores(root).values())
+    assert {file.name for file in Path(env["R2_GENERATION_DIR"]).iterdir()} == {
+        "indicators.sqlite.etag"
+    }
+    assert not any(line.startswith("s3 cp ") for line in _transfer_commands(log))
+    assert not _remote_writes(log)
     assert not list(root.glob(".r2-transfer.*"))
 
 
@@ -1427,6 +1728,7 @@ def test_invalid_transfer_arguments_stop_before_helpers_or_credentials(
         ("pull-machine", "machine-manifest.json"),
         ("push-machine", "lake/pointers/market/current.json"),
         ("seed-all", "market.sqlite"),
+        ("seed-all", "machine-manifest.json"),
     ],
 )
 @pytest.mark.parametrize(
@@ -1479,11 +1781,7 @@ def test_malformed_remote_version_is_not_echoed_or_installed(tmp_path: Path, ver
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
-    env["AWS_FAKE_EXISTING_KEY"] = "machine-manifest.json"
-    env["AWS_FAKE_OBJECT_KEY"] = "machine-manifest.json"
-    env["AWS_FAKE_OBJECT_BODY"] = json.dumps(
-        {"keys": {"market.sqlite": "etag-stable", "runs.sqlite": "etag-stable"}}
-    )
+    _install_fixture_receipt(env)
     env["AWS_FAKE_ETAG_OVERRIDE"] = version
     for path in _machine_stores(root).values():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1720,7 +2018,7 @@ def test_application_and_initial_seed_do_not_require_the_common_lease(tmp_path, 
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert len(_remote_writes(log)) == (4 if operation == "seed-all" else 1)
+    assert len(_remote_writes(log)) == (5 if operation == "seed-all" else 1)
     assert not (Path(env["AWS_FAKE_STATE"]) / "lease-checks").exists()
 
 

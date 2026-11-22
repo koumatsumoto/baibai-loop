@@ -11,8 +11,8 @@ from baibai_engine.storage.snapshots.models import LakeObject
 from baibai_engine.storage.snapshots.reader import LakeReadError, verify_object
 
 
-@pytest.mark.parametrize("source_kind", ["legacy_sqlite_import", "l1_derived"])
-@pytest.mark.parametrize("case", ["match", "empty", "metadata", "rows"])
+@pytest.mark.parametrize("source_kind", ["sqlite_snapshot", "l1_derived"])
+@pytest.mark.parametrize("case", ["match", "empty", "metadata", "source-tag", "rows"])
 def test_schema_and_count_share_one_closed_footer(tmp_path, monkeypatch, source_kind, case):
     dataset = LakeDataset(
         name="example.rows",
@@ -24,6 +24,11 @@ def test_schema_and_count_share_one_closed_footer(tmp_path, monkeypatch, source_
     schema = dataset.arrow_schema_for(source_kind)
     if case == "metadata":
         schema = schema.with_metadata({**schema.metadata, b"baibai.dataset": b"other.rows"})
+    if case == "source-tag":
+        # The Python role label is not itself a persisted schema tag.
+        schema = schema.with_metadata(
+            {**schema.metadata, b"baibai.source_kind": b"sqlite_snapshot"}
+        )
     rows = [] if case == "empty" else [{"day": "2026-11-17"}]
     path = tmp_path / "object.parquet"
     pq.write_table(pa.Table.from_pylist(rows, schema=schema), path)
@@ -46,8 +51,8 @@ def test_schema_and_count_share_one_closed_footer(tmp_path, monkeypatch, source_
         return file
 
     monkeypatch.setattr(pq, "ParquetFile", observe)
-    if case in {"metadata", "rows"}:
-        message = "schema does not match" if case == "metadata" else "row count differs"
+    if case in {"metadata", "source-tag", "rows"}:
+        message = "row count differs" if case == "rows" else "schema does not match"
         with pytest.raises(LakeReadError, match=message):
             verify_object(path, dataset, item, source_kind=source_kind)
     else:

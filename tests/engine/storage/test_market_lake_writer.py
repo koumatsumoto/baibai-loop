@@ -51,7 +51,7 @@ def _export(*, sqlite_path: Path, mirror_root: Path, **kwargs: object) -> LakeBu
         )
 
 
-def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_path) -> None:
+def test_sqlite_snapshot_export_keeps_wire_tag_and_reuses_unchanged_objects(tmp_path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
     first = _export(
@@ -76,6 +76,11 @@ def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_pa
     assert [(item.key, item.sha256) for item in first_objects] == [
         (item.key, item.sha256) for item in second_objects
     ]
+    for item in first_objects:
+        assert (
+            pq.read_schema(mirror / item.key).metadata[b"baibai.source_kind"]
+            == b"legacy_sqlite_import"
+        )
     assert (first.partitions, first.new_objects) == (2, 2)
     # Every partition was derived again; content addressing landed each on its key.
     assert (second.partitions, second.new_objects) == (2, 0)

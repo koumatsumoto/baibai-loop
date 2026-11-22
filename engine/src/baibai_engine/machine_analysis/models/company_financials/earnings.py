@@ -210,7 +210,7 @@ def earnings_price(
         components = tuple(parts)
         profit = pdf_selection.amounts_yen.get("parent_profit")
         basis, standard = current.statement_basis, current.accounting_standard
-    if pdf_selection is not None and pdf_selection.blocks_legacy_ttm:
+    if pdf_selection is not None and pdf_selection.blocks_summary_ttm_fallback:
         components, profit = (), None
     actual_rows = _actual_rows(normalized.summaries)
     anchor_period = max(map(accounting_period_identity, actual_rows), default=None)

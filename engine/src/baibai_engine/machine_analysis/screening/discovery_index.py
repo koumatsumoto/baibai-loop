@@ -1,4 +1,4 @@
-"""通常の探索では全社カードを開かない。旧発行物の明示読は別経路。"""
+"""通常は索引を読み、索引のない発行物はheaderだけ返す。原本の明示読は別経路。"""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def read_discovery_index(
             datetime.fromisoformat(published),
         )
         if not is_discovery_publication(identity, generation):
-            return DiscoveryIndexRead("unindexed_legacy", *clocks)
+            return DiscoveryIndexRead("publication_without_index", *clocks)
         (wire,) = connection.execute(
             "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (identity,)
         ).fetchone()

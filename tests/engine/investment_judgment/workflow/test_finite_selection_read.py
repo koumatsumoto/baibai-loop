@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from datetime import timedelta
 from hashlib import sha256
 from pathlib import Path
 
@@ -30,7 +31,7 @@ from baibai_engine.machine_analysis.screening.selection_query import (
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
 
-def command(path, app, capsys, known_at, *args):
+def command(path, app, capsys, known_at, *args, expected=0):
     code = main(
         [
             "selection-context",
@@ -46,7 +47,7 @@ def command(path, app, capsys, known_at, *args):
         ],
         now=known_at,
     )
-    assert code == 0
+    assert code == expected
     return json.loads(capsys.readouterr().out)
 
 
@@ -125,6 +126,56 @@ def test_explicit_legacy_detail_has_only_requested_original_rows_no_ledger(
     assert (runs.read_bytes(), app.read_bytes()) == before
 
 
+@pytest.mark.parametrize("with_earlier_index", [False, True])
+@pytest.mark.parametrize("scope", ["discover_new", "specified_stocks", "review_positions"])
+def test_implicit_unindexed_publication_does_not_authorize_archived_evidence(
+    tmp_path, monkeypatch, capsys, scope, with_earlier_index
+):
+    runs, app = tmp_path / "runs", tmp_path / "app"
+    gen, archive, now = seed(runs)
+    archived_at = read_publication(path=runs, selection_id="technical-policy").published_at
+    if with_earlier_index:
+        identity = discovery_publication_id(gen.generation_id)
+        ScreeningSelectionStore(runs).publish(
+            identity,
+            ScreeningSelection(
+                gen.generation_id,
+                archive.universe_tickers,
+                DiscoverySelection(
+                    DiscoveryPolicy(), tuple(observation(t) for t in archive.universe_tickers), {}
+                ),
+            ),
+        )
+        with sqlite3.connect(runs) as connection:
+            connection.execute(
+                "UPDATE screening_selection SET published_at=? WHERE selection_id=?",
+                ((archived_at - timedelta(microseconds=1)).isoformat(), identity),
+            )
+    before = runs.read_bytes()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("implicit unindexed lookup attempted to open evidence or a different edition")
+
+    monkeypatch.setattr("gzip.decompress", forbidden)
+    monkeypatch.setattr(
+        "baibai_engine.machine_analysis.generation.query.read_research_model_inputs", forbidden
+    )
+    monkeypatch.setattr(
+        "baibai_engine.investment_judgment.workflow.selection_query._ledger_positions", forbidden
+    )
+    tickers = ("--ticker", "2345") if scope == "specified_stocks" else ()
+    result = command(runs, app, capsys, now, "--scope", scope, *tickers, expected=3)
+    assert result["status"] == "inputs_required"
+    assert result["missing_inputs"] == [{"code": "unindexed_legacy_publication"}]
+    assert result["screening_selection_id"] == "technical-policy"
+    assert result["generation_id"] == gen.generation_id
+    assert {"candidate_tickers", "repeat_command_args", "model_inputs", "held_tickers"}.isdisjoint(
+        result
+    )
+    assert runs.read_bytes() == before
+    assert not app.exists()
+
+
 @pytest.mark.parametrize("holdings", ["unimported", "empty", "held"])
 def test_all_selection_editions_keep_portfolio_replay_opt_in(
     tmp_path, monkeypatch, capsys, holdings
@@ -152,6 +203,7 @@ def test_all_selection_editions_keep_portfolio_replay_opt_in(
     before = sha256(app.read_bytes()).hexdigest() if app.exists() else None
     sql = trace_sql(monkeypatch)
     for source in (
+        [],
         ["--generation-id", gen.generation_id],
         ["--screening-selection-id", "technical-policy"],
         ["--screening-selection-id", identity],

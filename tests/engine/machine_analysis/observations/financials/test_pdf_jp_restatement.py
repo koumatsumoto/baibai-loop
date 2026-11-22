@@ -147,7 +147,7 @@ def test_later_missing_pdf_does_not_forget_known_restated_annual():
     selected = select_pdf_financials(
         later_interim_docs(), [pdf(), pdf(True)], as_of=date(2026, 11, 14)
     )
-    assert selected.blocks_legacy_ttm
+    assert selected.blocks_summary_ttm_fallback
     assert selected.reason == "known_restated_annual_operand_conflict"
     assert selected.current is None
     assert selected.annual == pdf(True)
@@ -211,7 +211,7 @@ def test_pdf_absence_is_not_itself_a_restatement_conflict(case):
         [pdf()] + ([] if case == "no_reference" else [reference]),
         as_of=date(2027, 5, 15) if case == "current_annual" else date(2026, 11, 14),
     )
-    assert not selected.blocks_legacy_ttm
+    assert not selected.blocks_summary_ttm_fallback
 
 
 @pytest.mark.parametrize(
@@ -223,7 +223,7 @@ def test_known_annual_conflict_does_not_guess_same_day_order(annual_time, refere
     rows[1] = replace(rows[1], disclosed_at=date(2026, 8, 5), disclosed_time=annual_time)
     rows.append(reference_document(reference_time))
     selected = select_pdf_financials(rows, [pdf(), pdf(True)], as_of=date(2026, 11, 14))
-    assert selected.blocks_legacy_ttm is blocked
+    assert selected.blocks_summary_ttm_fallback is blocked
 
 
 @pytest.mark.parametrize(
@@ -249,7 +249,7 @@ def test_unspecified_display_rounding_is_not_exact_conflict(amount, display, blo
         }
     )
     selected = select_pdf_financials(rows, [pdf(), reference], as_of=date(2026, 11, 14))
-    assert selected.blocks_legacy_ttm is blocked
+    assert selected.blocks_summary_ttm_fallback is blocked
 
 
 def test_later_restated_reference_can_reconfirm_native_annual_amounts():
@@ -267,7 +267,7 @@ def test_later_restated_reference_can_reconfirm_native_annual_amounts():
     selected = select_pdf_financials(
         later_interim_docs(), [pdf(), reference, later], as_of=date(2026, 11, 14)
     )
-    assert not selected.blocks_legacy_ttm
+    assert not selected.blocks_summary_ttm_fallback
 
 
 def test_known_annual_conflict_blocks_only_ttm_and_preserves_observed_periods():
@@ -393,7 +393,7 @@ def test_source_revision_and_cutoff_are_not_bypassed():
     corrected = replace(docs()[0], disclosure_number="corrected", disclosed_at=date(2026, 8, 6))
     selected = select_pdf_financials([*docs(), corrected], [pdf(), pdf(True)], as_of=ASOF)
     assert selected.status == "unavailable"
-    assert selected.blocks_legacy_ttm
+    assert selected.blocks_summary_ttm_fallback
 
 
 @pytest.mark.parametrize("changed", [False, True])

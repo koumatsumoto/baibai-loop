@@ -72,7 +72,7 @@ def test_publication_scope_clocks_values_and_old_body_is_never_opened(tmp_path, 
         assert none.status == "no_publication"
         old = discovery_index.read_discovery_index(path=path, selection_id="historic")
         assert (old.status, old.selection_id, old.generation_id, old.rows) == (
-            "unindexed_legacy",
+            "publication_without_index",
             "historic",
             meta.generation_id,
             (),

@@ -21,6 +21,23 @@ def _fake_aws(tmp_path: Path) -> tuple[Path, Path]:
     executable.write_text(
         """#!/usr/bin/env bash
 printf "%s\\n" "$*" >> "$AWS_LOG"
+object_etag() {
+  local generation="${AWS_FAKE_STATE}/generation-$1"
+  if [[ -s "$generation" ]]; then
+    printf '"etag-put-%s"\\n' "$(wc -c < "$generation" | tr -d ' ')"
+  else
+    printf '"etag-stable"\\n'
+  fi
+}
+object_exists() {
+  [[ ! -f "${AWS_FAKE_STATE}/deleted-$2" ]] || return 1
+  [[ ! -s "${AWS_FAKE_STATE}/generation-$2" ]] || return 0
+  local existing
+  for existing in ${AWS_FAKE_EXISTING_KEY:+${AWS_FAKE_EXISTING_KEY//:/ }}; do
+    [[ "$1" != "$existing" ]] || return 0
+  done
+  return 1
+}
 if [[ -n "${LEASE_FAKE_RELEASE_ON:-}" && "$*" == *"${LEASE_FAKE_RELEASE_ON}"* ]]; then
   printf 'synthetic-released' > "$PUBLICATION_LEASE_HANDLE"
 fi
@@ -53,6 +70,11 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
     shift
   done
   slug="$(printf '%s' "$key" | tr / _)"
+  if [[ "$key" == "${AWS_FAKE_HEAD_ERROR_KEY:-}" ]] \
+    || [[ -n "$wants_etag" && "$key" == "${AWS_FAKE_VERSION_HEAD_ERROR_KEY:-}" ]]; then
+    printf '%s\\n' "${AWS_FAKE_HEAD_ERROR}" >&2
+    exit 254
+  fi
   if [[ -n "$wants_etag" ]]; then
     # Counts the calls per key so a test can make one object change mid-pull:
     # the version query runs once before the downloads and once after.
@@ -62,37 +84,18 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
       printf '%s\n' "${AWS_FAKE_ETAG_OVERRIDE}"
     elif [[ "$key" == "${AWS_FAKE_CHANGED_KEY:-}" ]]; then
       printf '"etag-%s"\\n' "$(wc -c < "$calls" | tr -d ' ')"
-    elif [[ -s "${AWS_FAKE_STATE}/generation-${slug}" ]]; then
-      # An upload changes the object, so every later read of it reads a new version.
-      # Without this the fake lets a conditional PUT bound to the pulled generation
-      # succeed twice, which no real bucket does.
-      printf '"etag-put-%s"\\n' "$(wc -c < "${AWS_FAKE_STATE}/generation-${slug}" | tr -d ' ')"
     else
-      printf '"etag-stable"\\n'
+      object_etag "$slug"
     fi
     exit 0
-  fi
-  if [[ "$key" == "${AWS_FAKE_HEAD_ERROR_KEY:-}" ]]; then
-    printf '%s\\n' "${AWS_FAKE_HEAD_ERROR}" >&2
-    exit 254
-  fi
-  if [[ -f "${AWS_FAKE_STATE}/deleted-${slug}" ]]; then
-    printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
-    exit 254
   fi
   # Uploaded objects exist from then on. The colon-separated list seeds what the bucket
   # held before the run, so a test can make the bundle receipt exist beside the backup
   # key the push path checks for.
-  if [[ -s "${AWS_FAKE_STATE}/generation-${slug}" ]]; then
+  if object_exists "$key" "$slug"; then
     printf '{"ContentLength": 1}\\n'
     exit 0
   fi
-  for existing in ${AWS_FAKE_EXISTING_KEY:+${AWS_FAKE_EXISTING_KEY//:/ }}; do
-    if [[ "$key" == "$existing" ]]; then
-      printf '{"ContentLength": 1}\\n'
-      exit 0
-    fi
-  done
   printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
   exit 254
 fi
@@ -118,26 +121,31 @@ fi
 if [[ "$1 $2" == "s3api get-object" ]]; then
   key=""
   destination=""
+  wants_etag=""
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == "--key" ]]; then
       key="$2"
     fi
+    if [[ "$1" == "--query" && "$2" == "ETag" ]]; then
+      wants_etag=1
+    fi
     destination="$1"
     shift
   done
+  slug="$(printf '%s' "$key" | tr / _)"
+  stored="${AWS_FAKE_STATE}/put-${slug}"
   if [[ -n "${AWS_FAKE_OBJECT_BODY:-}" && "$key" == "${AWS_FAKE_OBJECT_KEY:-}" ]]; then
     printf '%s' "$AWS_FAKE_OBJECT_BODY" > "$destination"
-    exit 0
-  fi
   # Otherwise the bucket answers with what was uploaded to that key, so a test can push
   # and then read the object the push wrote rather than one the test composed for it.
-  stored="${AWS_FAKE_STATE}/put-$(printf '%s' "$key" | tr / _)"
-  if [[ -f "$stored" ]]; then
+  elif [[ -f "$stored" ]]; then
     cp "$stored" "$destination"
-    exit 0
+  else
+    printf 'An error occurred (NoSuchKey) when calling the GetObject operation\\n' >&2
+    exit 254
   fi
-  printf 'An error occurred (NoSuchKey) when calling the GetObject operation\\n' >&2
-  exit 254
+  if [[ -n "$wants_etag" ]]; then object_etag "$slug"; fi
+  exit 0
 fi
 if [[ "$1 $2" == "s3api put-object" && -n "${AWS_FAKE_REJECT_CONDITIONAL_PUT:-}" ]]; then
   printf 'An error occurred (PreconditionFailed) when calling PutObject\n' >&2
@@ -147,6 +155,7 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
   key=""
   body=""
   expected=""
+  create=""
   wants_etag=""
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == "--key" ]]; then
@@ -154,6 +163,9 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
     fi
     if [[ "$1" == "--if-match" ]]; then
       expected="$2"
+    fi
+    if [[ "$1" == "--if-none-match" && "$2" == '*' ]]; then
+      create=1
     fi
     if [[ "$1" == "--body" ]]; then
       body="$2"
@@ -163,15 +175,16 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
     fi
     shift
   done
-  if [[ "$key" == "baibai.sqlite" && -n "$expected" ]]; then
-    current='"etag-stable"'
-    if [[ -s "${AWS_FAKE_STATE}/generation-${key}" ]]; then
-      current="\\\"etag-put-$(wc -c < "${AWS_FAKE_STATE}/generation-${key}" | tr -d ' ')\\\""
-    fi
-    if [[ "$expected" != "$current" ]]; then
-      printf 'PreconditionFailed\\n' >&2
-      exit 255
-    fi
+  slug="$(printf '%s' "$key" | tr / _)"
+  if [[ "$key" == machine-manifest.json && -n "${AWS_FAKE_CONCURRENT_RECEIPT_BODY:-}" ]]; then
+    printf '%s' "$AWS_FAKE_CONCURRENT_RECEIPT_BODY" > "${AWS_FAKE_STATE}/put-${slug}"
+    printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
+  fi
+  if { [[ -n "$create" ]] && object_exists "$key" "$slug"; } \
+    || { [[ "$key" == baibai.sqlite || "$key" == machine-manifest.json ]] \
+      && [[ -n "$expected" && "$expected" != "$(object_etag "$slug")" ]]; }; then
+    printf 'PreconditionFailed\\n' >&2
+    exit 255
   fi
   # Inject a rejected PUT: neither its body nor its generation is committed.
   if [[ -n "${AWS_FAKE_FAIL_PUT_KEY:-}" && "$key" == "${AWS_FAKE_FAIL_PUT_KEY}" ]]; then
@@ -181,13 +194,20 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
   # Every uploaded body is kept so a test can read what was actually published
   # rather than only that a call was made.
   if [[ -n "$body" && -f "$body" ]]; then
-    cp "$body" "${AWS_FAKE_STATE}/put-$(printf '%s' "$key" | tr / _)"
+    cp "$body" "${AWS_FAKE_STATE}/put-${slug}"
   fi
-  slug="$(printf '%s' "$key" | tr / _)"
   printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
   rm -f "${AWS_FAKE_STATE}/deleted-${slug}"
+  if [[ "$key" == "${AWS_FAKE_LOST_PUT_ACK_KEY:-}" ]]; then
+    printf 'PutObject response lost\\n' >&2
+    exit 253
+  fi
   if [[ -n "$wants_etag" && -z "${AWS_FAKE_MISSING_PUT_ETAG:-}" ]]; then
-    printf '\"etag-put-%s\"\\n' "$(wc -c < "${AWS_FAKE_STATE}/generation-${slug}" | tr -d ' ')"
+    if [[ "$key" == "${AWS_FAKE_BAD_PUT_ETAG_KEY:-}" ]]; then
+      printf '"None"\\n'
+    else
+      object_etag "$slug"
+    fi
   fi
   exit 0
 fi

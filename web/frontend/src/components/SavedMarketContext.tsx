@@ -48,7 +48,7 @@ export function SavedMarketContext({ context }: { context: SavedMarketContextVie
           <Section title="未確認・不確実性" value={assessment.uncertainties} />
           <Section title="個社調査・待機との接続" value={assessment.implications} />
           <details><summary className="cursor-pointer text-sm">根拠資料と当時の状態（保存値）</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(assessment.sources ?? null, null, 2)}</pre></details>
-          <details><summary className="cursor-pointer text-xs text-muted-foreground">保存投影の全文（旧形式もそのまま引用）</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(assessment, null, 2)}</pre></details>
+          <details><summary className="cursor-pointer text-xs text-muted-foreground">提案時に保存した市場判断データの全項目</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(assessment, null, 2)}</pre></details>
         </div>
       </details>
     </>}

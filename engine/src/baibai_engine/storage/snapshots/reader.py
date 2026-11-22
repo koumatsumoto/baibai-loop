@@ -11,13 +11,13 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal
 
 import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from baibai_engine.storage.snapshots.contracts import (
     LakeDataset,
+    ParquetSourceKind,
     freeze_catalog,
     period_label,
 )
@@ -320,7 +320,7 @@ def verify_object(
     dataset: LakeDataset,
     lake_object: LakeObject,
     *,
-    source_kind: Literal["legacy_sqlite_import", "l1_derived"] = "legacy_sqlite_import",
+    source_kind: ParquetSourceKind = "sqlite_snapshot",
 ) -> None:
     """Check a materialized object against the contract before any row is read.
 

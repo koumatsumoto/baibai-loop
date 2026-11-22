@@ -139,7 +139,7 @@ def test_v1_fixed_read_is_exact_and_new_publication_rejects_v1(historical_lake):
     assert selected == LEGACY
     paths = materialize_partitions(cache, dataset=selected, partitions=report.manifest.partitions)
     assert pq.read_schema(paths[0]).equals(
-        LEGACY.arrow_schema_for("legacy_sqlite_import"), check_metadata=True
+        LEGACY.arrow_schema_for("sqlite_snapshot"), check_metadata=True
     )
     with pytest.raises(LakeReadError, match="schema does not match"):
         verify_object(paths[0], CURRENT, report.manifest.partitions[0].objects[0])

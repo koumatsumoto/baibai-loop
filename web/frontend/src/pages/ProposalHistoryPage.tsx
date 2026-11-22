@@ -59,7 +59,7 @@ export function ProposalHistory({ data, proposalId = null, ticker = null }: {
           </div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <Badge variant="secondary">{proposalActionLabel(item)}</Badge>
-            {isCorrectedProposal(proposal) && <Badge variant="outline">訂正済みの旧提案</Badge>}
+            {isCorrectedProposal(proposal) && <Badge variant="outline">訂正で候補から外れた提案</Badge>}
             <SavedBuySession item={item} />
           </div>
           <p className="break-words text-sm leading-6">{reportListSummary({ proposal, item })}</p>

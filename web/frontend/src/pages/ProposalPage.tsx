@@ -166,7 +166,7 @@ function AssessmentRefresh({ assessment }: { assessment: SavedAssessmentView }) 
             ['corporate_action_reason', '株式・権利単位の確認'],
           ] as const).map(([key, label]) => <div key={key}><p className="mb-1 text-sm font-medium">{label}</p><Prose>{refresh[key]}</Prose></div>)}
           <div className="grid min-w-0 gap-2 border-t pt-4">
-            <p className="text-xs text-muted-foreground">素材にした旧評価の固定参照です。当初の購入理由や最新評価とは限りません。</p>
+            <p className="text-xs text-muted-foreground">この評価を更新する際に参照した評価です。当初の購入理由や最新評価とは限りません。</p>
             <Identifier label="更新元 assessment_id" value={refresh.prior_assessment_ref.assessment_id} />
             <Identifier label="更新元 core_sha256" value={refresh.prior_assessment_ref.core_sha256} />
             <Identifier label="更新元 review_id" value={refresh.prior_assessment_ref.review_id} />
@@ -319,7 +319,7 @@ function SavedBuyComparison({ item }: { item: SavedBuyItemView }) {
   return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存指値・選択数量の金額比較">
     <h4 className="text-sm font-semibold">保存指値・選択数量の金額比較</h4>
     {comparison == null
-      ? <p className="text-sm text-muted-foreground">この表示データには金額比較がありません。旧表示データや価値・起点が揃わない場合を、損益0や最大数量で補っていません。</p>
+      ? <p className="text-sm text-muted-foreground">この表示データには金額比較がありません。金額が記録されていない場合や、価値・起点が揃わない場合を、損益0や最大数量で補っていません。</p>
       : <>
         <p className="text-xs leading-6 text-muted-foreground">この銘柄だけが保存指値で全量約定した条件付き比較です。保存時の未拘束cashを共通の元手とし、他の買付・既保有を含むNAVではありません。銘柄間で残cashや終期合計を足し合わせません。</p>
         <dl className="grid gap-4 sm:grid-cols-3">
@@ -368,7 +368,7 @@ function SavedSellLimitComparison({ item }: { item: SavedSellItemView }) {
   return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存売却下限と保有継続の比較">
     <h4 className="text-sm font-semibold">保存売却下限と保有継続の比較</h4>
     {comparison == null
-      ? <p className="text-sm text-muted-foreground">この表示データには下限での比較がありません。旧表示・条件未確定・仮説不成立の売却などを、見返り0や保有継続の支持に置き換えていません。</p>
+      ? <p className="text-sm text-muted-foreground">この表示データには下限での比較がありません。条件や比較が記録されていない場合や、仮説不成立での売却などを、見返り0や保有継続の支持に置き換えていません。</p>
       : <>
         <p className="text-xs leading-6 text-muted-foreground">作者の売却下限で回収する代わりに、同じ保存価値・今後分配・期間で保有を続ける場合の条件付き試算です。保存終値や購入原価での損益、売却後の運用収益ではありません。</p>
         <dl className="grid gap-4 sm:grid-cols-2">
@@ -395,7 +395,7 @@ function SavedHoldQuoteComparison({ item }: { item: SavedHoldItemView }) {
   return <section className="grid min-w-0 gap-4 rounded-lg border p-4" aria-label="保存終値で確認した保有の見返り">
     <h4 className="text-sm font-semibold">保存終値で確認した保有の見返り</h4>
     {comparison == null
-      ? <p className="text-sm text-muted-foreground">この表示データには、保存終値で十分性を確認した比較がありません。旧表示・仮説維持だけの保有・条件不足を、見返り0や十分な収益率へ補っていません。</p>
+      ? <p className="text-sm text-muted-foreground">この表示データには、保存終値で十分性を確認した比較がありません。比較の記録なし・仮説維持だけの保有・条件不足を、見返り0や十分な収益率へ補っていません。</p>
       : <>
         <p className="text-xs leading-6 text-muted-foreground">保有提案時の終値を機会費用として、同じ保存価値・今後分配・期間で保有を続ける場合の条件付き試算です。元評価の株価での年率、購入原価からの損益や売却できる価格とは別です。</p>
         <dl className="grid gap-4 sm:grid-cols-3">
@@ -622,7 +622,7 @@ export function ProposalReport({ proposal, item, generatedAt, above }: {
         {(proposal.corrections ?? []).length > 0 && <SectionCard padded title="提案履歴の訂正">
           {(proposal.corrections ?? []).map((correction) => <div key={correction.correction_id} className="grid gap-2">
             <Prose>{correction.reason}</Prose>
-            <p>{isCorrectedProposal(proposal) ? "表示中は訂正済みの旧提案です。採用候補ではありません。" : "誤って保存した提案を最新候補から除外しました。"}表示中の提案の根拠・条件・発行時刻は当時のままです。現在の再推奨や人間の採用ではありません。</p>
+            <p>{isCorrectedProposal(proposal) ? "表示中は訂正で候補から外れた提案です。採用候補ではありません。" : "誤って保存した提案を最新候補から除外しました。"}表示中の提案の根拠・条件・発行時刻は当時のままです。現在の再推奨や人間の採用ではありません。</p>
             <Identifier label="訂正対象" value={correction.erroneous_ref.proposal_id} />
             <SavedTime value={correction.recorded_at} />
           </div>)}
