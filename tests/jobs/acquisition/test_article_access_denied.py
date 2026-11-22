@@ -206,10 +206,12 @@ def test_retry_after_does_not_admit_shared_provider_before_due(
     source, peer = "toushiru", "rakuten_news"
     for member in (source, peer):
         publish_planning_input(store, member, {})
+    clock.current += timedelta(microseconds=125000)
     received = clock.current
     deadline = received + timedelta(hours=24)
     header = "86400"
     if form == "http_date":
+        deadline = deadline.replace(microsecond=0)
         header = format_datetime(deadline, usegmt=True)
     elif form == "beyond_datetime":
         header = "9" * 4400
@@ -256,6 +258,20 @@ def test_retry_after_does_not_admit_shared_provider_before_due(
     assert read_deadline(store, articles.cooldown_key("mof_news")) == (None, None)
 
     if form != "beyond_datetime":
+        clock.current = deadline - timedelta(microseconds=1)
+        too_soon = Session([])
+        assert (
+            articles.acquire_source(
+                store,
+                source=peer,
+                slot=SLOT + timedelta(hours=24),
+                identity="final-microsecond",
+                directory=tmp_path / "too-soon",
+                session=too_soon,
+            )["status"]
+            == "not_due"
+        )
+        assert too_soon.urls == []
         clock.current = deadline
         on_time = Session([Response(403, b"")])
         articles.acquire_source(
@@ -267,6 +283,70 @@ def test_retry_after_does_not_admit_shared_provider_before_due(
             session=on_time,
         )
         assert len(on_time.urls) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "header", "deadline"),
+    [
+        (429, "Fri, 31 Nov 2026 14:00:00 GMT", None),
+        (503, "Wed, 18 Nov 2026 25:00:00 GMT", None),
+        (429, "Fri, 13 Nov 2026 18:00:00 GMT junk", None),
+        (503, "Fri, 13 Nov 2026 18:00:00 ZZZ", None),
+        (429, "Fri, 13 Nov 2026 18:00:00", None),
+        (503, "Fri, 13 Nov 2026 18:00:00 +0900", None),
+        (429, "0.25", None),
+        (429, "Friday, 13-Nov-26 18:00:00 GMT", "2026-11-13T18:00:00+00:00"),
+        (503, "Fri Nov 13 18:00:00 2026", "2026-11-13T18:00:00+00:00"),
+        (429, "Thu Nov  5 18:00:00 2026", "2026-11-05T18:00:00+00:00"),
+        (503, "Fri, 30 Oct 2026 23:59:60 GMT", "2026-10-31T00:00:00+00:00"),
+    ],
+)
+def test_invalid_dates_cannot_turn_article_fallback_into_an_extended_hold(
+    tmp_path, monkeypatch, clock_and_wait, status, header, deadline
+):
+    from baibai_engine.data_collection.transport import articles as wire
+
+    clock = clock_and_wait
+    clock.current += timedelta(microseconds=125000)
+    monkeypatch.setattr(wire, "datetime", clock)
+    store = MemoryR2Store()
+    source, peer = "toushiru", "rakuten_news"
+    for member in (source, peer):
+        publish_planning_input(store, member, {})
+    response = Response(status, b"")
+    response.headers["Retry-After"] = header
+    original = tmp_path / "original"
+    reports = articles.acquire_source(
+        store,
+        source=source,
+        slot=SLOT,
+        identity="check-provider-date",
+        directory=original,
+        session=Session([response]),
+    )
+    assert reports["status"] == "partial"
+    expected = (
+        datetime.fromisoformat(deadline) if deadline else clock.current + timedelta(seconds=60)
+    )
+    with closing(connect_read_only(original / "receipts.sqlite")) as conn:
+        (raw,) = conn.execute("SELECT receipt_json FROM article_source_receipts").fetchone()
+    receipt = json.loads(raw)
+    assert receipt["http_status"] == status
+    assert receipt["retry_after"] == header
+    assert datetime.fromisoformat(receipt["cooldown_until"]) == expected
+    assert read_deadline(store, articles.cooldown_key(peer))[0] == expected
+    clock.current += timedelta(hours=8)
+    after = Session([Response(403, b"")])
+    reports = articles.acquire_source(
+        store,
+        source=peer,
+        slot=SLOT + timedelta(hours=8),
+        identity="peer-next-slot",
+        directory=tmp_path / "next-slot",
+        session=after,
+    )
+    assert reports["status"] == ("not_due" if deadline else "partial")
+    assert len(after.urls) == (0 if deadline else 1)
 
 
 @pytest.mark.parametrize("status", [401, 403])

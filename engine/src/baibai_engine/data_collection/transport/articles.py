@@ -14,7 +14,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from email.utils import mktime_tz, parsedate_tz
 from urllib.parse import urlsplit
 
 import requests
@@ -23,6 +22,7 @@ from baibai_engine.data_collection.receipts.articles.contracts import ArticleRec
 from baibai_engine.data_collection.transport.http import (
     AcquisitionDeadlineExceeded,
     check_acquisition_deadline,
+    parse_retry_after_deadline,
     wait_for_read_retry,
 )
 from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
@@ -89,24 +89,14 @@ class ArticleResponse:
 
 def _cooldown_until(value: str | None, received: datetime) -> datetime:
     # A cross-slot deadline is not urllib3's bounded in-process sleep.
+    deadline, unrepresentable = parse_retry_after_deadline(value, received)
+    if deadline is not None:
+        return deadline
     limit = datetime.max.replace(tzinfo=UTC)
-    available = limit - received
-    if value is not None:
-        value = value.strip()
-        if re.fullmatch(r"[0-9]+", value):
-            digits = value.lstrip("0") or "0"
-            largest = str(available.days * 86400 + available.seconds)
-            if (len(digits), digits) > (len(largest), largest):
-                # Keep the original still-unexpired field in the receipt. No
-                # representable later run can satisfy the provider's delay.
-                return limit
-            return received + timedelta(seconds=int(digits))
-        if parsed := parsedate_tz(value):
-            try:
-                return max(received, datetime.fromtimestamp(mktime_tz(parsed), UTC))
-            except (ValueError, OverflowError, OSError):
-                pass
-    return received + min(timedelta(seconds=60), available)
+    if unrepresentable:
+        # No representable later run can satisfy the original header.
+        return limit
+    return received + min(timedelta(seconds=60), limit - received)
 
 
 def fetch_article(
