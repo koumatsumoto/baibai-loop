@@ -131,7 +131,12 @@ def _extract_result(payload: object, symbol: str) -> Mapping[str, object]:
     result = chart.get("result")
     if not isinstance(result, list) or len(result) != 1:
         raise IndicatorsProviderError(f"Yahoo chart must contain one result for {symbol}")
-    return _require_mapping(result[0], "chart.result[0]")
+    chart_result = _require_mapping(result[0], "chart.result[0]")
+    # Even an empty chart for a different symbol cannot replace this series' days.
+    meta = _require_mapping(chart_result.get("meta", {}), "chart.result[0].meta")
+    if meta.get("symbol", symbol) != symbol:
+        raise IndicatorsProviderError(f"Yahoo chart symbol does not match {symbol}")
+    return chart_result
 
 
 def _require_mapping(node: object, label: str) -> Mapping[str, object]:
