@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from pydantic import JsonValue
 
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.full_day_inputs import (
     FullDayInputContract,
     read_full_day_input,
@@ -16,6 +18,7 @@ from baibai_engine.machine_analysis.generation.full_day_inputs import (
 from baibai_engine.primitives.jquants_calendar import cash_equity_open
 from baibai_engine.storage.objects.r2 import ObjectStore
 
+CALENDAR_PROJECTION_REVISION = "jquants-calendar-projection-v2-native-day-proof"
 INPUT_FORMAT = "jquants-market-calendar-input-v1"
 INPUT_PREFIX = "fixed-inputs/jquants-market-calendar/v1/"
 _CONTRACT = FullDayInputContract(
@@ -25,6 +28,16 @@ _CONTRACT = FullDayInputContract(
     "jquants-market-calendar-month-v1",
     receipt_fields=("adopted", "failure", "held", "confirmation_id"),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedCalendarInput:
+    """One preparation's checked day claims, paired with its immutable input identity."""
+
+    snapshot: InputSnapshot
+    scopes: Mapping[str, Mapping[str, Any]]
+    receipts: Mapping[str, Mapping[str, Any]]
+    full_head: bool
 
 
 def calendar_day_session(scope: Mapping[str, Any]) -> bool | None:

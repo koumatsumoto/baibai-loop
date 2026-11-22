@@ -84,7 +84,9 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     advance_lake_store_origin,
     read_lake_store_origin,
 )
-from baibai_jobs.integration.calendar_native import model_input as native_calendar_model_input
+from baibai_jobs.integration.calendar_native import (
+    prepare_model_input as native_calendar_model_input,
+)
 from baibai_jobs.integration.margin_alerts_native import model_input as native_alerts_model_input
 from baibai_jobs.integration.margin_interest_native import (
     model_input as native_interest_model_input,
@@ -197,7 +199,7 @@ def prepare_market_lake(
         cast(CalendarObjectStore, store), mirror_root / "calendar-native"
     ).fixed()
     evaluated_at = datetime.now(UTC)
-    calendar_identity = native_calendar_model_input(
+    prepared_calendar = native_calendar_model_input(
         store,
         fixed_calendar,
         as_of=as_of,
@@ -225,8 +227,9 @@ def prepare_market_lake(
         as_of=as_of,
         evaluated_at=evaluated_at,
         market=sqlite_path,
-        calendar_input=calendar_identity,
+        calendar_input=prepared_calendar,
     )
+    calendar_identity = prepared_calendar.snapshot
     _phase_progress("native_price", phase_started)
     started = time.perf_counter()
     phase_started = _phase_progress("base_resolve")
@@ -334,7 +337,7 @@ def prepare_market_lake(
         interest_identity = native_interest_model_input(
             store,
             fixed_interest,
-            fixed_calendar,
+            prepared_calendar,
             as_of=as_of,
             evaluated_at=evaluated_at,
             market=sqlite_path,

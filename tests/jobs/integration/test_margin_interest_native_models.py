@@ -273,27 +273,46 @@ def test_margin_projection_keeps_calendar_outside_selected_balances(tmp_path, mo
 
 
 def test_publication_shares_fixed_margin_calendar_and_seal(tmp_path, monkeypatch):
+    from tests.helpers.jquants_receipts import body
     from tests.helpers.lake_policy import narrow_release_policy
+    from tests.helpers.master_calendar_native import seed_master
 
+    from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
+    from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
     from baibai_jobs.publication import snapshot_publication as publication
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
     store, owner, cal, market, mirror = setup(tmp_path, monkeypatch)
-    # Adjacent sources are separately tested; leave the real calendar owner and input in this path.
+    seed_master(store, market, mirror / "master-native", as_of=DAY)
+    prices = PriceL1(store, mirror / "price-native")
+    prices.initialize()
+    originals = []
+    for offset in range((DAY - WEEK).days + 1):
+        day = WEEK + timedelta(days=offset)
+        if day.weekday() >= 5:  # No provider request on the two known closed days.
+            continue
+        text = day.isoformat()
+        page = JQuantsPage(
+            "daily_bars", {"date": text}, AT, body([{"Date": text, "Code": "13010", "C": 100}])
+        )
+        originals.append(PriceAttempt("price-" + text, day, AT, (page,)))
+    prices.commit(originals)
+    datasets = (*NAMES, "jquants.market_calendar", "jquants.daily_bars", "jquants.master_snapshots")
+    assert set(datasets) <= {
+        item.dataset for item in publication.release_policy_for_profile("production").datasets
+    }
+    narrow_release_policy(monkeypatch, datasets=datasets)
     monkeypatch.setattr(
-        publication, "MasterL1", lambda *a: type("Master", (), {"fixed": lambda self: None})()
+        publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in datasets}
     )
-    monkeypatch.setattr(
-        publication, "PriceL1", lambda *a: type("Price", (), {"fixed": lambda self: None})()
-    )
-    monkeypatch.setattr(publication, "native_master_model_input", lambda *a, **kw: None)
-    monkeypatch.setattr(publication, "native_price_model_input", lambda *a, **kw: None)
-    narrow_release_policy(monkeypatch, datasets=NAMES)
-    monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in NAMES})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
+    store.get_keys.clear()
     with publication.prepare_market_lake(
         sqlite_path=market, mirror_root=mirror, store=store, as_of=DAY
     ) as prepared:
+        assert prepared.price_identity.descriptor["summary"]["closed_unrequested_days"] == 2
+        # Calendar, price closures and overlapping credit consume the same original once.
+        assert len([key for key in store.get_keys if "market-calendar/v1/packs/" in key]) == 1
         saved = prepared.margin_interest_identity
         assert saved is not None
         assert (

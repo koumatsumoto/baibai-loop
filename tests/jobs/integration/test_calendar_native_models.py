@@ -13,8 +13,13 @@ from tests.engine.data_collection.providers.jquants.test_calendar_native import 
 )
 from tests.helpers.lake_release import market_store
 
-from baibai_engine.data_collection.providers.jquants.calendar_native import HEAD_KEY, PREFIX
+from baibai_engine.data_collection.providers.jquants.calendar_native import (
+    HEAD_KEY,
+    PREFIX,
+    FixedCalendarL1,
+)
 from baibai_engine.machine_analysis.generation.calendar_inputs import (
+    CALENDAR_PROJECTION_REVISION,
     INPUT_PREFIX,
     read_calendar_input,
 )
@@ -132,6 +137,69 @@ def test_new_bad_day_removes_stale_holiday_without_touching_other_sources(tmp_pa
         assert source.fixed().plan(start=DAY, end=DAY) == ()
 
 
+@pytest.mark.parametrize(
+    ("field", "bad"),
+    [
+        ("division", "0"),
+        ("content_id", "b" * 64),
+        ("valid", "true"),
+        ("confirmed_at", (AT - timedelta(seconds=1)).isoformat()),
+    ],
+)
+def test_current_projection_marks_unproved_day_unavailable_without_changing_raw(
+    tmp_path, field, bad
+):
+    store, source = owner(tmp_path / "native")
+    later = DAY + timedelta(days=1)
+    source.commit([attempt("first"), attempt("unrelated", later)])
+    fixed = source.fixed()
+    head = fixed.value()
+    raw_ref = head["days"][DAY.isoformat()]["adopted"]
+    head["days"][DAY.isoformat()][field] = bad
+    dispute = FixedCalendarL1(json.dumps(head).encode(), fixed.etag)
+    original = dict(store.values)
+    store.get_keys.clear()
+    market = market_store(tmp_path / "market.sqlite")
+    saved = model_input(store, dispute, as_of=later, evaluated_at=AT, market=market)
+    assert saved.descriptor["summary"]["projection_revision"] == CALENDAR_PROJECTION_REVISION
+    assert saved.descriptor["summary"]["invalid_days"] == 1
+    assert saved.descriptor["summary"]["coverage_status"] == "partial"
+    assert rows(market) == [(later.isoformat(), "1")]
+    with sqlite3.connect(market) as connection:
+        coverage = connection.execute(
+            "SELECT status,record_count FROM source_coverage WHERE source=? AND coverage_start=?",
+            ("jquants_market_calendar", DAY.isoformat()),
+        ).fetchone()
+        assert coverage == ("unavailable", 0)
+    assert len([key for key in store.get_keys if key.startswith(PREFIX + "packs/")]) == 1
+    retained = read_calendar_input(store, saved.descriptor, days=(DAY, later))
+    assert retained["scopes"][DAY.isoformat()]["valid"] is False
+    assert retained["scopes"][DAY.isoformat()]["adopted"] == raw_ref
+    assert retained["receipts"][raw_ref] == head["receipts"][raw_ref]
+    assert all(store.values[key] == value for key, value in original.items())
+    cold = market_store(tmp_path / "cold.sqlite")
+    assert materialize_saved_input(store, saved, market=cold)["invalid_days"] == 1
+    assert rows(cold) == rows(market)
+
+
+def test_earlier_scope_clock_cannot_hide_future_raw_page_or_publish_partial_input(tmp_path):
+    store, source = owner(tmp_path / "native")
+    source.commit([attempt("initial")])
+    market = market_store(tmp_path / "market.sqlite")
+    model_input(store, source.fixed(), as_of=DAY, evaluated_at=AT, market=market)
+    source.commit([attempt("updated", hour=2, rows=[{"Date": DAY.isoformat(), "HolDiv": "0"}])])
+    fixed = source.fixed()
+    claimed = fixed.value()
+    for field in ("confirmed_at", "last_attempt_at", "changed_at"):
+        claimed["days"][DAY.isoformat()][field] = AT.isoformat()
+    dispute = FixedCalendarL1(json.dumps(claimed).encode(), fixed.etag)
+    store.put_keys.clear()
+    with pytest.raises(ValueError, match="later than the evaluation clock"):
+        model_input(store, dispute, as_of=DAY, evaluated_at=AT, market=market)
+    assert rows(market) == [(DAY.isoformat(), "1")]
+    assert not store.put_keys
+
+
 def test_monthly_metadata_reuses_unchanged_month_and_keeps_old_roots(tmp_path):
     store, source = owner(tmp_path / "native")
     prior = DAY.replace(month=10)
@@ -184,6 +252,27 @@ def test_full_evaluation_clock_not_asof_and_atomic_failure(tmp_path):
     with pytest.raises(LakePublishError, match="unavailable"):
         materialize_saved_input(store, saved, market=market)
     assert rows(market) == [(DAY.isoformat(), "1")]
+
+
+def test_new_projection_requires_healthy_existing_immutable_month_before_sql_replace(tmp_path):
+    store, source = owner(tmp_path / "native")
+    old = DAY.replace(month=10)
+    source.commit([attempt("older month", old), attempt("current")])
+    market = market_store(tmp_path / "market.sqlite")
+    old_input = model_input(store, source.fixed(), as_of=DAY, evaluated_at=AT, market=market)
+    root_key = INPUT_PREFIX + "selections/" + old_input.descriptor["selection_sha256"] + ".json"
+    stale = json.loads(store.get_bytes(root_key))["months"]["2026-10"]
+    month = store.values[INPUT_PREFIX + "months/" + stale + ".json"]
+    # Same declared SHA and byte count, different actual bytes.
+    month.body = b"!" + month.body[1:]
+    source.commit(
+        [attempt("current correction", hour=1, rows=[{"Date": DAY.isoformat(), "HolDiv": "0"}])]
+    )
+    with pytest.raises(LakePublishError, match="integrity"):
+        model_input(
+            store, source.fixed(), as_of=DAY, evaluated_at=AT + timedelta(hours=1), market=market
+        )
+    assert rows(market) == [(old.isoformat(), "1"), (DAY.isoformat(), "1")]
 
 
 def test_default_full_day_metadata_shape_and_bytes_are_unchanged(tmp_path):
