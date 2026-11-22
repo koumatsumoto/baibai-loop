@@ -90,11 +90,14 @@ def test_pull_app_refuses_to_overwrite_a_local_application_store(tmp_path: Path)
     app_store = root / "stores/application/baibai.sqlite"
     app_store.parent.mkdir(parents=True)
     app_store.write_bytes(b"local")
+    env = _environment(bin_dir, log)
+    generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
+    generation.write_text('"local-origin"\n')
 
     completed = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "pull-app"],
         cwd=root,
-        env=_environment(bin_dir, log),
+        env=env,
         check=False,
         capture_output=True,
         text=True,
@@ -103,6 +106,7 @@ def test_pull_app_refuses_to_overwrite_a_local_application_store(tmp_path: Path)
     assert completed.returncode == 2
     assert "refusing application store download overwrite" in completed.stderr
     assert app_store.read_bytes() == b"local"
+    assert generation.read_text() == '"local-origin"\n'
     assert not log.exists()
 
 
@@ -2361,21 +2365,27 @@ def test_application_pull_preserves_a_local_target_even_after_preflight(tmp_path
     env["LOCAL_APP"] = str(target)
     env["LOCAL_APP_KIND"] = kind
     env["LOCAL_APP_LINK"] = str(absent)
+    generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
+    env["LOCAL_APP_GENERATION"] = str(generation)
     if timing == "before":
         if kind == "file":
             target.write_bytes(b"unpublished-local-judgment")
+            generation.write_text('"local-origin"\n')
         elif kind == "symlink":
             target.symlink_to(absent)
         else:
             target.mkdir()
     else:
         aws = bin_dir / "aws"
-        marker = 'if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then'
+        marker = 'if [[ "$1 $2" == "s3api get-object" ]]; then'
         injection = (
             marker
             + """
   case "$LOCAL_APP_KIND" in
-    file) printf 'unpublished-local-judgment' > "$LOCAL_APP" ;;
+    file)
+      printf 'unpublished-local-judgment' > "$LOCAL_APP"
+      printf '"local-origin"\n' > "$LOCAL_APP_GENERATION"
+      ;;
     symlink) ln -s "$LOCAL_APP_LINK" "$LOCAL_APP" ;;
     directory) mkdir "$LOCAL_APP" ;;
   esac
@@ -2401,7 +2411,10 @@ def test_application_pull_preserves_a_local_target_even_after_preflight(tmp_path
     else:
         assert target.is_dir()
         assert list(target.iterdir()) == []
-    assert not (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").exists()
+    if kind == "file":
+        assert generation.read_text() == '"local-origin"\n'
+    else:
+        assert not generation.exists()
     assert not list(root.glob(".r2-transfer.*"))
     commands = _transfer_commands(log)
     assert bool(commands) is (timing == "during_download")
@@ -2423,7 +2436,76 @@ def test_application_pull_installs_complete_copy_and_generation(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (root / "stores/application/baibai.sqlite").read_bytes() == b"x"
     assert (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").read_text() == '"etag-stable"\n'
+    commands = _transfer_commands(log)
+    assert [command.split()[:2] for command in commands] == [
+        ["s3api", "get-object"],
+        ["s3api", "head-object"],
+    ]
+    assert "--query [ETag, ContentLength] --output text" in commands[0]
     assert not list(root.glob(".r2-transfer.*"))
+
+
+def test_application_pull_never_pairs_an_intermediate_body_with_the_restored_etag(tmp_path):
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    env = _environment(bin_dir, log)
+    # Both HEADs answer the original A. The body is B from between publication
+    # and an explicit restore to A; the same GET response identifies it as B.
+    (Path(env["AWS_FAKE_STATE"]) / "put-baibai.sqlite").write_bytes(b"current-body-B")
+    env["AWS_FAKE_APP_GET_ETAG"] = '"etag-B"'
+    generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
+    generation.write_text('"orphan-marker"\n')
+
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-app"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "changed on R2 during the pull" in result.stderr
+    assert not (root / "stores/application/baibai.sqlite").exists()
+    assert not generation.exists()
+    assert not list(root.glob(".r2-transfer.*"))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("AWS_FAKE_APP_GET_ERROR", "1"),
+        ("AWS_FAKE_APP_GET_METADATA", ""),
+        ("AWS_FAKE_APP_GET_METADATA", "None\t1"),
+        ("AWS_FAKE_APP_GET_METADATA", '"etag-stable"\t2'),
+        ("AWS_FAKE_APP_GET_METADATA", '"etag-stable"\t1\tunexpected'),
+        ("AWS_FAKE_APP_GET_METADATA", '"etag-stable"\t1\nsecond-response'),
+    ],
+)
+def test_application_pull_refuses_bad_download_without_local_copy(tmp_path, field, value):
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    env = _environment(bin_dir, log)
+    env[field] = value
+
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-app"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "synthetic-private-value" not in result.stdout + result.stderr
+    assert not (root / "stores/application/baibai.sqlite").exists()
+    assert not (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").exists()
+    assert not list(root.glob(".r2-transfer.*"))
+    assert [command.split()[:2] for command in _transfer_commands(log)] == [
+        ["s3api", "get-object"],
+    ]
 
 
 @pytest.mark.parametrize("cloud_changed", [False, True])
