@@ -27,6 +27,7 @@ from datetime import date, datetime, timedelta
 from itertools import batched
 from math import isfinite
 from pathlib import Path
+from types import EllipsisType
 from typing import Literal
 
 from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
@@ -292,16 +293,18 @@ class OrderSessionBounds:
 
 
 def read_order_session_bounds(
-    *, sqlite_path: Path, now: datetime, connection: sqlite3.Connection | None = None
+    *, sqlite_path: Path, now: datetime, connection: sqlite3.Connection | EllipsisType | None = ...
 ) -> OrderSessionBounds:
     """Read the next session or a lower bound from a contiguous known closed prefix."""
     earliest = latest_eligible_close_date(now) + timedelta(days=1)
-    conn = connection
-    owns_connection = conn is None
-    if conn is None:
+    if connection is None:
+        return OrderSessionBounds(earliest, None)
+    if isinstance(connection, EllipsisType):
         if not sqlite_path.exists():
             return OrderSessionBounds(earliest, None)
         conn = connect_read_only(sqlite_path)
+    else:
+        conn = connection
     try:
         with closing(
             conn.execute(
@@ -318,13 +321,13 @@ def read_order_session_bounds(
                     return OrderSessionBounds(earliest, earliest)
                 earliest += timedelta(days=1)
     finally:
-        if owns_connection:
+        if isinstance(connection, EllipsisType):
             conn.close()
     return OrderSessionBounds(earliest, None)
 
 
 def next_order_session(
-    *, sqlite_path: Path, now: datetime, connection: sqlite3.Connection | None = None
+    *, sqlite_path: Path, now: datetime, connection: sqlite3.Connection | EllipsisType | None = ...
 ) -> date | None:
     """Resolve only a confirmed next session from the caller's quote snapshot."""
     return read_order_session_bounds(
