@@ -83,6 +83,50 @@ def test_missing_fields_uses_first_requested_canonical_field():
     assert caught.value.field == "eps_forecast_next_fy"
 
 
+@pytest.mark.parametrize(
+    ("other", "primary"),
+    [
+        ("same_shape", True),
+        ("extra_key", False),
+        ("missing_quote_key", False),
+        ("one_forecast_is_null", False),
+        ("full", False),
+        ("non_object", False),
+        ("explicit_missing", False),
+    ],
+)
+def test_quote_only_diagnostic_requires_the_entire_exact_shape(other, primary):
+    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+        ProviderPayloadError,
+    )
+    from baibai_jobs.observability.tradingview import failure_line
+
+    symbols = ["TSE:SYNTH-PRIVATE-A", "TSE:SYNTH-PRIVATE-B"]
+    response = payload(symbols, missing=symbols[1:] if other == "explicit_missing" else [])
+    rows = response["data"]
+    rows[symbols[0]] = {"close": 0, "currency": "PRIVATE"}
+    if other == "same_shape":
+        rows[symbols[1]] = {"close": None, "currency": None}
+    elif other == "extra_key":
+        rows[symbols[1]] = {**rows[symbols[0]], "PRIVATE-unknown": "PRIVATE"}
+    elif other == "missing_quote_key":
+        rows[symbols[1]] = {"close": 0}
+    elif other == "one_forecast_is_null":
+        rows[symbols[1]] = {**rows[symbols[0]], "AnalystRating": None}
+    elif other == "non_object":
+        rows[symbols[1]] = []
+    with pytest.raises(ProviderPayloadError) as caught:
+        normalize_batch(response, symbols, NOW)
+    error = caught.value
+    assert (error.reason, error.field) == (
+        ("batch_quote_fields_only", None)
+        if primary
+        else ("row_missing_requested_fields", "analyst_rating")
+    )
+    assert "category=provider_response" in failure_line(error)
+    assert "PRIVATE" not in failure_line(error)
+
+
 @pytest.mark.parametrize("raw", [None, [], "private-body", 42])
 def test_non_dict_row_does_not_blame_a_field(raw):
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
