@@ -8,7 +8,10 @@ import pytest
 from pydantic import ValidationError
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalInputs
-from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
+from baibai_engine.investment_judgment.trade_proposal.fingerprint import (
+    changed_input_fields,
+    proposal_inputs_fingerprint,
+)
 
 
 @pytest.fixture
@@ -48,6 +51,7 @@ def _fingerprint(facts):
 
 def test_observing_the_same_facts_later_does_not_require_a_new_review(facts):
     baseline = _fingerprint(facts)
+    assert baseline == "584ace07b359290bcd44b76111faa5ae6981a8c4312396ffef52a53263c146a1"
     facts["checked_at"] = "2026-10-14T16:20:00+09:00"
     assert _fingerprint(facts) == baseline
 
@@ -119,12 +123,42 @@ def test_array_order_and_common_factor_order_are_stable(facts):
     ],
 )
 def test_every_actual_input_change_is_in_the_fingerprint(facts, path, value):
-    baseline = _fingerprint(facts)
+    baseline = ProposalInputs.model_validate(facts)
     target = facts
     for key in path[:-1]:
         target = target[key]
     target[path[-1]] = value
-    assert _fingerprint(facts) != baseline
+    actual = ProposalInputs.model_validate(facts)
+    assert proposal_inputs_fingerprint(actual) != proposal_inputs_fingerprint(baseline)
+    assert changed_input_fields(baseline, actual) == (path[0],)
+
+
+def test_multiple_changes_compare_two_fact_payloads_in_saved_field_order(facts, monkeypatch):
+    baseline = ProposalInputs.model_validate(facts)
+    facts.update(
+        checked_at="2026-10-14T16:20:00+09:00",
+        ledger_as_of="2026-10-14T06:00:00Z",
+        available_cash_yen="3E+5",
+        total_capital_yen=None,
+    )
+    facts["positions"][0]["common_factors"].reverse()
+    facts["active_reservations"][0]["reserved_yen"] = "50001"
+    facts["quotes"][0]["price_yen"] = "1101"
+    actual = ProposalInputs.model_validate(facts)
+    dumps = []
+    dump = ProposalInputs.model_dump
+
+    def record(self, **kwargs):
+        dumps.append(self)
+        return dump(self, **kwargs)
+
+    monkeypatch.setattr(ProposalInputs, "model_dump", record)
+    assert changed_input_fields(baseline, actual) == (
+        "active_reservations",
+        "quotes",
+        "total_capital_yen",
+    )
+    assert dumps == [baseline, actual]
 
 
 def test_decimal_canonicalization_does_not_round_long_values(facts):

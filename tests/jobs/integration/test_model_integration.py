@@ -502,9 +502,11 @@ def test_explicit_retention_keeps_all_prior_generations_and_selection_rows(
             }
 
     before = prior_rows()
+    prune = Mock(wraps=job.prune_model_cache)
+    monkeypatch.setattr(job, "prune_model_cache", prune)
     preserve_prior = mode != "default"
     if mode == "recovery":
-        arguments["preserve_generation_ids"] = prior_ids
+        arguments["preserve_existing_generations"] = True
     if mode == "cli":
 
         class LocalStore:
@@ -548,6 +550,7 @@ def test_explicit_retention_keeps_all_prior_generations_and_selection_rows(
         result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
     assert result["pruned_generation_count"] == (0 if preserve_prior else 3)
+    assert prune.call_count == (0 if preserve_prior else 1)
     assert read_generation(result["generation_id"], path=path) is not None
     assert policies.read(result["selection_id"]) is not None
     if preserve_prior:
@@ -598,5 +601,5 @@ def test_cli_retention_read_precedes_integration_and_failure_never_falls_back(
         integrate.assert_not_called()
         assert json.loads(notice.read_bytes())["models_ready"] is False
     else:
-        assert integrate.call_args.kwargs["preserve_generation_ids"] == ()
+        assert integrate.call_args.kwargs["preserve_existing_generations"] is preserve
     assert (runs.read_bytes() if runs.exists() else None) == before

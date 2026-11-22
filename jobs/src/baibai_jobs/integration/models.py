@@ -163,7 +163,7 @@ def integrate_models(
     lease_handle: Path,
     growth_start: date | None,
     edinet_input: InputSnapshot | None = None,
-    preserve_generation_ids: tuple[str, ...] = (),
+    preserve_existing_generations: bool = False,
     external_readback_dir: Path | None = None,
     external_partitions: frozenset[tuple[str, int, int]] = frozenset(),
 ) -> dict[str, object]:
@@ -292,22 +292,20 @@ def integrate_models(
             prepared, store=store, before_pointer_switch=before_pointer_switch, **readback_options
         )
         _phase_progress("lake_publish", phase_started)
-    phase_started = _phase_progress("model_cache_prune")
-    try:
-        pruned = prune_model_cache(
-            runs,
-            keep=3,
-            preserve=(*preserve_generation_ids, generation.metadata.generation_id),
-        )
-    except (OSError, sqlite3.Error) as error:
-        # Cache retention is optional; store upload still checks the SQLite snapshot.
-        logging.getLogger(__name__).warning(
-            "model cache prune: state=failed error_type=%s", type(error).__name__
-        )
-        pruned_count = None
-    else:
-        pruned_count = len(pruned)
-    _phase_progress("model_cache_prune", phase_started)
+    pruned_count: int | None = 0
+    if not preserve_existing_generations:
+        phase_started = _phase_progress("model_cache_prune")
+        try:
+            pruned = prune_model_cache(runs, keep=3, preserve=(generation.metadata.generation_id,))
+        except (OSError, sqlite3.Error) as error:
+            # Cache retention is optional; store upload still checks the SQLite snapshot.
+            logging.getLogger(__name__).warning(
+                "model cache prune: state=failed error_type=%s", type(error).__name__
+            )
+            pruned_count = None
+        else:
+            pruned_count = len(pruned)
+        _phase_progress("model_cache_prune", phase_started)
     return {
         "pruned_generation_count": pruned_count,
         "asof": as_of.isoformat(),
@@ -376,9 +374,9 @@ def main(argv: list[str] | None = None) -> int:
                 external_readback_dir = daily_external_readback_dir(
                     args.integration_report.parent, bucket=bucket, run=publication_run
                 )
-        preserve_generation_ids = (
-            read_generation_ids(path=args.runs) if args.preserve_existing_generations else ()
-        )
+        if args.preserve_existing_generations:
+            # Keep the preflight read: an absent or unreadable history is not an empty one.
+            read_generation_ids(path=args.runs)
         result = integrate_models(
             store=Boto3R2Store(bucket=bucket),
             market=args.market,
@@ -389,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
             lease_handle=args.lease_handle,
             growth_start=args.growth_start,
             edinet_input=edinet_input,
-            preserve_generation_ids=preserve_generation_ids,
+            preserve_existing_generations=args.preserve_existing_generations,
             external_readback_dir=external_readback_dir,
             external_partitions=external_partitions,
         )

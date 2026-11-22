@@ -17,17 +17,19 @@ function toInstant(value: string): Date {
   return new Date(hasZone ? value : `${value}+09:00`)
 }
 
+const jstClock = new Intl.DateTimeFormat('en-US', {
+  timeZone: JST,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 // Parts are assembled manually to keep the output locale-stable and testable.
-function jstParts(value: string) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: JST,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).formatToParts(toInstant(value))
+export function jstDateTimeParts(instant: Date) {
+  const parts = jstClock.formatToParts(instant)
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
   return {
     year: get('year'),
@@ -40,7 +42,7 @@ function jstParts(value: string) {
 
 /** JST timestamp as `YYYY-MM-DD HH:mm`, preserving date-only input as `YYYY-MM-DD`. */
 export function formatJstDateTime(value: string): string {
-  const parts = jstParts(value)
+  const parts = jstDateTimeParts(toInstant(value))
   const day = `${parts.year}-${parts.month}-${parts.day}`
   return isDateOnly(value) ? day : `${day} ${parts.hour}:${parts.minute}`
 }

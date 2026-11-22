@@ -137,7 +137,7 @@ model-integrationは生成に使ったreleaseも公開するため、後からpu
 
 - **lakeだけ進んだ:** market/runs両ETagが旧receiptと一致すれば、その組は通常pullで取得できるが、旧dailyの入力sealや表示復旧には使えない。storeを巻き戻さず、既存L1から前向きに実行する。失われたrunner上のモデルと同じIDを作り直さない。
 - **receiptだけ欠落、または旧ペアを指している:** 両storeが既知の元receiptに一致するときだけ、元bodyと信頼できるSHA-256（元runの出力、保存済み転送証拠、初回seed候補）で次を実行する。現objectのETagを拾ってreceiptを新作しない。
-- **片方のstoreだけ進んだ、または元receiptの証拠がない:** 両方の再送や経済pushで直さない。元成果・origin・取得世代を保った[反映経路](#machine-publication)を選ぶ。たとえばmarket成功/runs失敗の後に`push-market`だけを行うとreceiptは整ってもrunsは旧世代のまま。公開後に新Generation/Selectionと保持対象の旧内容を照合する。既知の前世代が必要ならwriter停止後にexact key/key.bakの由来を確認し、必要なstoreだけを[反映経路](#machine-publication)で戻す。復元時にETagが変われば元receiptは使えない。未知の組や無条件の巻戻しは認めない。
+- **片方のstoreだけ進んだ、または元receiptの証拠がない:** 両方の再送や経済pushで直さない。元成果・origin・取得世代を保った[反映経路](#machine-publication)を選ぶ。たとえばmarket成功/runs失敗の後に`push-market`だけを行うとreceiptは整ってもrunsは旧世代のまま。公開後に新Generation/Selectionと保持対象の旧内容を照合する。既知の前世代が必要ならwriter停止後にexact key/key.bakの由来を確認し、復旧の入力として保全する。通常の `push-market` は現行の保持データと統合する前向き反映であり、旧 `key.bak` のバイトへの巻戻しではない。復元時にETagが変われば元receiptは使えない。未知の組や無条件の巻戻しは認めない。
 
 ```bash
 with_publication_lease jobs/scripts/r2_transfer.sh restore-machine-receipt \

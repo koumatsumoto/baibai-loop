@@ -1,7 +1,10 @@
+import gzip
 import json
+import sqlite3
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from unittest.mock import Mock
 
 import pytest
 from tests.helpers.article_acquisition import SLOT, Response, Session, first_packet_market_schema
@@ -231,6 +234,8 @@ def test_mof_redirect_target_remains_pending_when_body_budget_is_spent(tmp_path,
 @pytest.mark.parametrize("first_schema", [49, 50])
 def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch, first_schema):
     first_packet_market_schema(monkeypatch, first_schema)
+    read_body = Mock(wraps=articles.read_body)
+    monkeypatch.setattr(articles, "read_body", read_body)
 
     class Clock(datetime):
         @classmethod
@@ -253,6 +258,8 @@ def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch,
         assert report["status"] == "completed"
     assert "If-None-Match" not in session.headers[0]
     assert session.headers[1]["If-None-Match"] == '"feed-v1"'
+    # The acquisition caller reads for parsing, not to repeat the owner's 304 checks.
+    assert read_body.call_count <= 2
     planning, _ = load_planning(store, "boj_news")
     from baibai_jobs.acquisition.receipts import available_handoffs
 
@@ -270,6 +277,67 @@ def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch,
     unchanged = next(item for item in values if item["status"] == "not_modified")
     assert unchanged["body_ref"] == original["body_ref"]
     assert planning.requests[original["requested_url"]]["stage"]["stage_id"] == ready[0]["stage_id"]
+
+
+@pytest.mark.parametrize(
+    ("damaged_body", "failure"),
+    [
+        pytest.param(None, "ArticleStoreError", id="missing-body"),
+        pytest.param(
+            gzip.compress(b"other bytes", mtime=0), "ArticleStoreError", id="wrong-body-digest"
+        ),
+        pytest.param(b"broken gzip", "BadGzipFile", id="not-gzip"),
+    ],
+)
+def test_304_cannot_retain_after_local_original_is_damaged(
+    tmp_path, monkeypatch, damaged_body, failure
+):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, _tz):
+            return SLOT + timedelta(hours=5)
+
+    monkeypatch.setattr(articles, "datetime", Clock)
+    store = MemoryR2Store()
+    publish_planning_input(store, "boj_news", {"lake_release_id": "before"})
+    packet = tmp_path / "later"
+
+    class DamagingSession(Session):
+        def get(self, url, **kwargs):
+            response = super().get(url, **kwargs)
+            if response.status_code == 304:
+                # Damage only the local copy after validators were sent.
+                with closing(sqlite3.connect(packet / "receipts.sqlite")) as conn, conn:
+                    conn.execute("UPDATE article_source_receipts SET body_gzip=?", (damaged_body,))
+            return response
+
+    session = DamagingSession([Response(200, b"<rss><channel /></rss>"), Response(304, b"")])
+    first = articles.acquire_source(
+        store,
+        source="boj_news",
+        slot=SLOT,
+        identity="first",
+        directory=tmp_path / "first",
+        session=session,
+    )
+    later = articles.acquire_source(
+        store,
+        source="boj_news",
+        slot=SLOT + timedelta(hours=4),
+        identity="later",
+        directory=packet,
+        session=session,
+    )
+    assert first["status"] == "completed"
+    assert session.headers[1]["If-None-Match"] == '"feed-v1"'
+    assert later["requests_used"] == 1
+    assert later["status"] == "partial"
+    assert later["failures"] == [failure]
+    assert not json.loads((packet / "result.json").read_bytes())["receipt_ids"]
+    with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0] == 1
+    state, _ = load_planning(store, "boj_news")
+    assert state.requests[session.urls[1]]["stage"]["stage_id"] == first["stage_id"]
 
 
 @pytest.mark.parametrize("group", ["public", "scheduled"])

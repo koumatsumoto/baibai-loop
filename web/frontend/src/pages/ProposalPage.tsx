@@ -615,14 +615,18 @@ export function ProposalReport({ proposal, item, generatedAt, above }: {
   generatedAt: string
   above?: ReactNode
 }) {
+  const corrections = proposal.corrections ?? []
+  const correctionNotice = isCorrectedProposal(proposal)
+    ? '表示中は訂正で候補から外れた提案です。採用候補ではありません。'
+    : '誤って保存した提案を最新候補から除外しました。'
   return (
     <PageShell above={above} lead={`${item.ticker} · ${item.sector ?? '業種未記録'} · ${formatJstDateTime(proposal.published_at)} JST 発行`} meta={<Badge variant="outline">{SCOPE_LABEL[proposal.request_scope]}</Badge>} title={item.company_name ?? item.ticker} width="reading">
       <p className="text-xs leading-6 text-muted-foreground">保存時点のレポートです。現在の注文条件の再確認・採否・発注は別です。</p>
       <section aria-labelledby="proposal-items-heading" className="grid min-w-0 gap-4">
-        {(proposal.corrections ?? []).length > 0 && <SectionCard padded title="提案履歴の訂正">
-          {(proposal.corrections ?? []).map((correction) => <div key={correction.correction_id} className="grid gap-2">
+        {corrections.length > 0 && <SectionCard padded title="提案履歴の訂正">
+          {corrections.map((correction) => <div key={correction.correction_id} className="grid gap-2">
             <Prose>{correction.reason}</Prose>
-            <p>{isCorrectedProposal(proposal) ? "表示中は訂正で候補から外れた提案です。採用候補ではありません。" : "誤って保存した提案を最新候補から除外しました。"}表示中の提案の根拠・条件・発行時刻は当時のままです。現在の再推奨や人間の採用ではありません。</p>
+            <p>{correctionNotice}表示中の提案の根拠・条件・発行時刻は当時のままです。現在の再推奨や人間の採用ではありません。</p>
             <Identifier label="訂正対象" value={correction.erroneous_ref.proposal_id} />
             <SavedTime value={correction.recorded_at} />
           </div>)}
