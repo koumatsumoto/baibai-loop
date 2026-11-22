@@ -456,11 +456,27 @@ def test_historical_closure_replays_but_cannot_be_minted_again(tmp_path, monkeyp
     with monkeypatch.context() as old:
         # Produce an actual v1 selection and price proof with the former admission rule.
         old.setattr(native_calendar, "_response_day", lambda raw: date.fromisoformat(raw[:10]))
-        old.setattr(
-            price_inputs, "matching_calendar_days", lambda store, *, scopes, receipts: set(scopes)
-        )
+        old.setattr(price_inputs, "verify_calendar_selection", lambda store, *, scopes, **_: scopes)
         calendar.commit([old_attempt])
-        retained, saved = build(store, price, calendar, market, at=recorded_at)
+        original = fixed_input(store, calendar.fixed(), as_of=LAST, evaluated_at=recorded_at)
+        # The pre-proof calendar producer did not record a projection revision.
+        descriptor = original.model_dump(mode="json")["descriptor"]
+        descriptor["summary"].pop("projection_revision", None)
+        digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+        retained = InputSnapshot(
+            kind="native_l1",
+            reference="jquants-market-calendar-" + digest,
+            sha256=digest,
+            descriptor=descriptor,
+        )
+        saved = model_input(
+            store,
+            price.fixed(),
+            as_of=LAST,
+            evaluated_at=recorded_at,
+            market=market,
+            calendar_input=retained,
+        )
     assert saved.descriptor["summary"]["coverage_status"] == "complete"
     legacy_head = calendar.fixed()
     assert calendar.commit([old_attempt])["retried"] == ["pre-fix"]
@@ -476,6 +492,15 @@ def test_historical_closure_replays_but_cannot_be_minted_again(tmp_path, monkeyp
     )
     assert new_price.descriptor["summary"]["coverage_status"] == "partial"
     assert new_price.descriptor["summary"]["closed_unrequested_days"] == 0
+    fresh_calendar = fixed_input(store, legacy_head, as_of=LAST, evaluated_at=recorded_at)
+    assert fresh_calendar.descriptor["summary"]["invalid_days"] == len(DAYS)
+    assert fresh_calendar.descriptor["summary"]["coverage_status"] == "partial"
+    assert (
+        read_calendar_input(store, fresh_calendar.descriptor, days=DAYS)["scopes"][
+            SATURDAY.isoformat()
+        ]["valid"]
+        is False
+    )
 
     new_attempt = calendar_attempt(
         identity="post-fix", at=recorded_at + timedelta(hours=1), rows=rows

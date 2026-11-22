@@ -19,6 +19,7 @@ from pydantic import JsonValue
 from baibai_engine.data_collection.providers.jquants.calendar_native import (
     CalendarL1,
     FixedCalendarL1,
+    calendar_index,
 )
 from baibai_engine.data_collection.providers.jquants.margin_interest_native import (
     FixedMarginInterestL1,
@@ -33,6 +34,7 @@ from baibai_engine.data_collection.providers.jquants.market_rules import (
     WEEKLY_SERIES_LAST_BALANCE_DATE,
     WEEKLY_SERIES_LAST_PUBLICATION_DATE,
 )
+from baibai_engine.machine_analysis.generation.calendar_inputs import VerifiedCalendarInput
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.margin_interest_inputs import (
     INPUT_FORMAT,
@@ -63,8 +65,11 @@ from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
 from baibai_engine.storage.snapshots.models import DatasetManifest
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.integration.calendar_native import fixed_input as fixed_calendar_input
+from baibai_jobs.integration.calendar_native import (
+    materialize_prepared_input as materialize_prepared_calendar,
+)
 from baibai_jobs.integration.calendar_native import materialize_saved_input as materialize_calendar
+from baibai_jobs.integration.calendar_native import prepare_input as prepare_calendar_input
 from baibai_jobs.integration.native_projection_cache import (
     SavedProjectionRevisionMismatch,
     require_current_saved_projection,
@@ -89,6 +94,12 @@ def _validate_clock(scopes: dict[str, Any], evaluated_at: datetime) -> None:
                     raise ValueError("margin state is later than the evaluation clock")
 
 
+def _calendar_end(end: date) -> date:
+    if end <= WEEKLY_SERIES_LAST_BALANCE_DATE and end.weekday() < 4:
+        return min(end + timedelta(days=4 - end.weekday()), WEEKLY_SERIES_LAST_BALANCE_DATE)
+    return end
+
+
 def fixed_input(
     store: ObjectStore,
     fixed: FixedMarginInterestL1,
@@ -99,17 +110,31 @@ def fixed_input(
     evaluated_at: datetime,
 ) -> InputSnapshot:
     """Fix originals and expected balance dates; do not invent historical vintages."""
+    saved, _ = _prepare_input(
+        store, fixed, calendar, start=start, end=end, evaluated_at=evaluated_at
+    )
+    return saved
+
+
+def _prepare_input(
+    store: ObjectStore,
+    fixed: FixedMarginInterestL1,
+    calendar: FixedCalendarL1 | VerifiedCalendarInput,
+    *,
+    start: date,
+    end: date,
+    evaluated_at: datetime,
+) -> tuple[InputSnapshot, VerifiedCalendarInput]:
     days = _days(start, end)
     head = fixed.value()
     scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
     _validate_clock(scopes, evaluated_at)
-    expected, unknown, incomplete = balance_days(calendar, start=start, end=end)
-    # Preserve the calendar evidence used to rule out a midweek balance day.
-    calendar_end = end
-    if end <= WEEKLY_SERIES_LAST_BALANCE_DATE and end.weekday() < 4:
-        calendar_end = min(end + timedelta(days=4 - end.weekday()), WEEKLY_SERIES_LAST_BALANCE_DATE)
-    saved_calendar = fixed_calendar_input(
-        store, calendar, as_of=end, evaluated_at=evaluated_at, days=_days(start, calendar_end)
+    # The existing Friday proof excludes a false midweek weekly balance.
+    prepared_calendar = prepare_calendar_input(
+        store, calendar, as_of=end, evaluated_at=evaluated_at, days=_days(start, _calendar_end(end))
+    )
+    expected, unknown, incomplete = balance_days(
+        calendar_index(prepared_calendar.scopes), start=start, end=end
     )
     summary: dict[str, Any] = {
         "selection_start": start.isoformat(),
@@ -118,7 +143,7 @@ def fixed_input(
         "expected_days": [day.isoformat() for day in expected],
         "unknown_calendar_days": [day.isoformat() for day in unknown],
         "unknown_calendar_requests": list(incomplete),
-        "calendar_input": saved_calendar.model_dump(mode="json"),
+        "calendar_input": prepared_calendar.snapshot.model_dump(mode="json"),
     }
     descriptor = retain_margin_interest_input(
         store,
@@ -131,11 +156,14 @@ def fixed_input(
         },
     )
     digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
-    return InputSnapshot(
-        kind="native_l1",
-        reference="jquants-margin-interest-" + digest,
-        sha256=digest,
-        descriptor=descriptor,
+    return (
+        InputSnapshot(
+            kind="native_l1",
+            reference="jquants-margin-interest-" + digest,
+            sha256=digest,
+            descriptor=descriptor,
+        ),
+        prepared_calendar,
     )
 
 
@@ -200,7 +228,13 @@ def materialize_saved_input(
     try:
         with closing(open_connection(output)):
             pass
-        calendar_result = materialize_calendar(store, calendar, market=output, days=days)
+        calendar_result = materialize_calendar(
+            store,
+            calendar,
+            market=output,
+            days=days,
+            additional_evidence_days=_days(end, _calendar_end(end)),
+        )
         with closing(open_connection(output)) as connection, connection:
             result = _project_selection(
                 store,
@@ -258,12 +292,10 @@ def _project_selection(
     raw_unknown = summary.get("unknown_calendar_days", [])
     if not isinstance(raw_unknown, list) or not all(isinstance(day, str) for day in raw_unknown):
         raise ValueError("invalid unknown margin calendar dates")
-    later_unknown = 0
-    if end <= WEEKLY_SERIES_LAST_BALANCE_DATE and end.weekday() < 4:
-        friday = min(end + timedelta(days=4 - end.weekday()), WEEKLY_SERIES_LAST_BALANCE_DATE)
-        later_unknown = sum(
-            end < date.fromisoformat(day) <= friday for day in cast(list[str], raw_unknown)
-        )
+    calendar_end = _calendar_end(end)
+    later_unknown = sum(
+        end < date.fromisoformat(day) <= calendar_end for day in cast(list[str], raw_unknown)
+    )
     calendar_incomplete = calendar_result["coverage_status"] != "complete" or later_unknown > 0
     adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
     changed = tuple(day for day in days if day not in reusable)
@@ -415,7 +447,7 @@ def _project_selection(
 def model_input(
     store: ObjectStore,
     fixed: FixedMarginInterestL1,
-    calendar: FixedCalendarL1,
+    calendar: FixedCalendarL1 | VerifiedCalendarInput,
     *,
     as_of: date,
     evaluated_at: datetime,
@@ -429,7 +461,9 @@ def model_input(
     retained = [date.fromisoformat(day) for day in head["scopes"]]
     first = min([as_of - timedelta(days=WEEKLY_BALANCE_LOOKBACK_DAYS), *retained])
     last = max([as_of, *retained])
-    saved = fixed_input(store, fixed, calendar, start=first, end=last, evaluated_at=evaluated_at)
+    saved, prepared_calendar = _prepare_input(
+        store, fixed, calendar, start=first, end=last, evaluated_at=evaluated_at
+    )
     fixed_at = time.perf_counter()
     days = _days(first, last)
     scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
@@ -467,12 +501,8 @@ def model_input(
     cache_at = time.perf_counter()
     summary = _descriptor(saved)["summary"]
     assert isinstance(summary, dict)
-    calendar_result = materialize_calendar(
-        store,
-        InputSnapshot.model_validate(summary["calendar_input"]),
-        market=market,
-        days=days,
-        replace_all=False,
+    calendar_result = materialize_prepared_calendar(
+        prepared_calendar, market=market, days=days, replace_all=False
     )
     calendar_at = time.perf_counter()
     with closing(open_connection(market)) as connection, connection:

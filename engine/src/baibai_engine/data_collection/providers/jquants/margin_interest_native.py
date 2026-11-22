@@ -91,13 +91,12 @@ class MarginInterestL1(FullDayL1[MarginInterestAttempt, FixedMarginInterestL1]):
 
 
 def balance_days(
-    calendar: FixedCalendarL1, *, start: date, end: date
+    calendar: NativeMarketIndex, *, start: date, end: date
 ) -> tuple[tuple[date, ...], tuple[date, ...], tuple[str, ...]]:
     """Finite backfill includes its last balance day, unlike a live publication plan."""
     if start > end:
         raise ValueError("invalid margin balance interval")
-    index = calendar.index()
-    sessions, unknown = calendar_sessions(index, start=start, end=end)
+    sessions, unknown = calendar_sessions(calendar, start=start, end=end)
     weeks: dict[tuple[int, int], list[date]] = {}
     daily = []
     for day, opened in sessions.items():
@@ -121,7 +120,7 @@ def balance_days(
             )
             if candidate < friday:
                 later, incomplete = calendar_sessions(
-                    index, start=candidate + timedelta(days=1), end=friday
+                    calendar, start=candidate + timedelta(days=1), end=friday
                 )
                 if any(state is True for state in later.values()):
                     continue
@@ -205,7 +204,7 @@ def plan_margin_interest_days(
         raise ValueError("invalid historical margin interval")
     index = NativeMarketIndex("margin_interest", (), ()) if force else fixed.index()
     if start is not None and end is not None:
-        candidates, missing, unknown = balance_days(calendar, start=start, end=end)
+        candidates, missing, unknown = balance_days(calendar.index(), start=start, end=end)
         weekly_days = [day for day in candidates if day <= WEEKLY_SERIES_LAST_BALANCE_DATE]
         old = plan_required_days(
             index,

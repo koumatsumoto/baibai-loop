@@ -37,7 +37,7 @@ from baibai_jobs.publication.l1_calendar_export import export_calendar_from_nati
 from baibai_jobs.publication.policy import release_policy_for_profile
 
 
-def native_dependencies(store, tmp_path, *, day=DAY, holiday=None):
+def native_dependencies(store, tmp_path, *, day=DAY, holiday=None, request_closed=True):
     master = MasterL1(store, tmp_path / "master")
     master.initialize()
     master.commit([master_attempt("master", day=day, at=AT)])
@@ -56,7 +56,7 @@ def native_dependencies(store, tmp_path, *, day=DAY, holiday=None):
             )
         ]
     )
-    if holiday is not None:
+    if holiday is not None and request_closed:
         price.commit(
             [
                 PriceAttempt(
@@ -173,7 +173,7 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
             )
         ]
     )
-    native_dependencies(store, tmp_path, day=friday, holiday=sunday)
+    native_dependencies(store, tmp_path, day=friday, holiday=sunday, request_closed=False)
     market = market_store(tmp_path / "market.sqlite")
     with sqlite3.connect(market) as connection:
         connection.execute(
@@ -199,6 +199,9 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
     assert saved.inputs["master"].descriptor["summary"]["master_basis_date"] == friday.isoformat()
     assert saved.inputs["master"].descriptor["summary"]["snapshot_date"] == friday.isoformat()
     assert store.get_keys.count(HEAD_KEY) == 1
+    assert saved.inputs["price"].descriptor["summary"]["closed_unrequested_days"] == 2
+    # Price closure reuses the calendar proof from this same preparation.
+    assert len([key for key in store.get_keys if "market-calendar/v1/packs/" in key]) == 1
     release = resolve_current_release(
         SimpleNamespace(read_bytes=store.get_bytes),
         catalog=publication.LAKE_DATASETS,

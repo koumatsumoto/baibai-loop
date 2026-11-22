@@ -9,6 +9,7 @@ import sys
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.primitives.jquants_calendar import cash_equity_open
@@ -25,6 +26,10 @@ from baibai_jobs.integration.replay_result import ReplayResult
 from baibai_jobs.integration.tradingview_handoff import TradingViewHandoff
 from baibai_jobs.integration.tradingview_handoff import export_handoff as export_tradingview_handoff
 from baibai_jobs.integration.tradingview_handoff import import_handoff as import_tradingview_handoff
+
+if TYPE_CHECKING:
+    from baibai_jobs.integration.calendar_native import CurrentCalendarHead
+
 
 FINANCIAL_HISTORY_DAYS = 2200
 # Re-read recent filings because a provider can publish a past disclosure late.
@@ -104,6 +109,7 @@ def _replay(
     store: Boto3R2Store | None = None,
     master_input: InputSnapshot | None = None,
     calendar_input: InputSnapshot | None = None,
+    calendar_head: CurrentCalendarHead | None = None,
 ) -> ReplayResult:
     from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
@@ -122,17 +128,24 @@ def _replay(
         if store is None:
             raise ValueError("native calendar replay requires its object store")
         from baibai_engine.data_collection.providers.jquants.calendar_native import interval
-        from baibai_jobs.integration.calendar_native import (
-            materialize_saved_input as materialize_calendar,
-        )
 
-        materialize_calendar(
-            store,
-            calendar_input or handoff.calendar_native_input,
-            market=database,
-            days=interval(handoff.master_asof, handoff.snapshot_date),
-            replace_all=False,
-        )
+        days = interval(handoff.master_asof, handoff.snapshot_date)
+        if calendar_head is not None:
+            if calendar_input is not None:
+                raise ValueError("calendar replay must choose fixed or current source evidence")
+            calendar_head.materialize(store, market=database, days=days)
+        else:
+            from baibai_jobs.integration.calendar_native import (
+                materialize_saved_input as materialize_calendar,
+            )
+
+            materialize_calendar(
+                store,
+                calendar_input or handoff.calendar_native_input,
+                market=database,
+                days=days,
+                replace_all=False,
+            )
         from baibai_jobs.integration.master_native import materialize_saved_input
 
         materialize_saved_input(
