@@ -475,6 +475,8 @@ lease外でacquire→inspect→ready --cumulative、共通統合で固定集合�
 
 通常枠と共通統合前の少数call枠は同じlock・cooldown・実時計の観測窓に従う。枠は定刻実行を保証せず、完了分は再照会しない。銘柄が対応していて必要fieldだけ欠けるときは、次枠で未充足銘柄の小batchと通常batchを交互に進める。null補完や一部採用はしない。必要fieldが揃った原応答は投影失敗でも保持する。同じ欠落の連続・HTTP/認証・予算・時刻・保存上限に達したら部分結果を残し、日次全体をやり直さない。
 
+取得ログの `batch_quote_fields_only` は、要求銘柄の全行に価格・通貨キーだけがあり、評価列は一つも返らなかったことを示す。原因や評価値なしを意味せず、評価取得には数えない。
+
 列欠落の広がりは、固定済みの同じ試行のhandoffから一組の `result.json` と、WALを反映済みの `receipts.sqlite` のローカルコピーを使って調べる（追加取得・再解析保存なし）。`result.json` の `snapshot_date`・`receipt_ids` を使い、別の試行のIDや稼働中DBを混ぜない。
 `uv run python -m baibai_jobs.integration.tradingview_receipts --sqlite <LOCAL_RECEIPTS_SQLITE> --asof <CYCLE_DATE> --diagnose-receipt <ID>` の末尾を受領ごとに繰り返す（最大100件）。field別の分母は銘柄の重複を含む辞書行で、明示missing・非辞書行・応答照合失敗は別。キーの存在は値の妥当性や評価の採用を意味しない。
 

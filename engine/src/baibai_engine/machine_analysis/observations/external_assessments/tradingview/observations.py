@@ -14,6 +14,7 @@ from baibai_engine.data_collection.providers.tradingview.accounting import (
 from .contract import FIELDS
 
 COLUMNS = list(FIELDS.values())
+_QUOTE_KEYS = frozenset((FIELDS["quote_close"], FIELDS["quote_currency"]))
 _INT64_LIMIT = 1 << 63
 
 
@@ -34,6 +35,7 @@ PayloadReason = Literal[
     "response_accounting_mismatch",
     "response_count_mismatch",
     "row_missing_requested_fields",
+    "batch_quote_fields_only",
     "invalid_text_type",
     "invalid_analyst_count",
     "invalid_numeric",
@@ -74,6 +76,11 @@ def normalize_batch(
                 raise ProviderPayloadError("row_missing_requested_fields")
             missing_field = next((name for name, field in FIELDS.items() if field not in raw), None)
             if missing_field is not None:
+                # An exact batch-wide shape, not a claim about why the fields are absent.
+                if not missing and all(
+                    isinstance(item, dict) and item.keys() == _QUOTE_KEYS for item in data.values()
+                ):
+                    raise ProviderPayloadError("batch_quote_fields_only")
                 raise ProviderPayloadError("row_missing_requested_fields", missing_field)
         for column, field in FIELDS.items():
             value = None if raw is None else raw[field]
