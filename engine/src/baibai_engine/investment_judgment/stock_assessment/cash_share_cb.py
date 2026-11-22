@@ -85,6 +85,13 @@ class SpecialDividendAdjustment(BaseModel):
             and self.effective_on <= self.final_record_date
         ):
             raise ValueError("dividend adjustment must take effect after final record date")
+        if (
+            self.final_record_date is None
+            and self.reference_window_end is not None
+            and self.effective_on is not None
+            and (self.effective_on - self.reference_window_end).days < 2
+        ):
+            raise ValueError("reference close window must leave a record date before adjustment")
         return self
 
 
@@ -183,6 +190,13 @@ class CashShareCBInput(BaseModel):
             and self.settlement_notice_on > self.settlement_on
         ):
             raise ValueError("settlement notice follows settlement")
+        if (
+            self.settlement_notice_on is None
+            and self.settlement_vwap_window_end is not None
+            and self.settlement_on is not None
+            and self.settlement_vwap_window_end >= self.settlement_on
+        ):
+            raise ValueError("settlement VWAP window must precede settlement")
         if self.settlement_on and self.settlement_on < self.valuation_as_of:
             raise ValueError("settlement date precedes valuation date")
         if any(price <= 0 for price in self.reference_close_sensitivity_yen):
