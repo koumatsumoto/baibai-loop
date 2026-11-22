@@ -305,6 +305,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 quantity_after=args.quantity_after,
                 confirmed_at=args.confirmed_at,
                 source_ref=args.source_ref,
+                now=now,
             )
             if draft is not None:
                 write_draft(args.out, draft)

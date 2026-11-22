@@ -596,6 +596,7 @@ def build_share_conversion_draft(
     quantity_after: int,
     confirmed_at: datetime,
     source_ref: str,
+    now: datetime | None = None,
 ) -> LedgerDraft | None:
     """Record a reported whole-position conversion without inferring broker activity."""
     source, head = ledger_service.load_with_head()
@@ -630,6 +631,7 @@ def build_share_conversion_draft(
             )
         if (saved.ticker, saved.occurred_on) == (ticker, basis_date):
             raise ValueError("share conversion already recorded for ticker/basis date")
+    _validate_report_time(event.confirmed_at, now=now, instant_field="confirmed_at")
     raw = source.model_dump(mode="json")
     raw["schema_version"] = 4
     raw["events"] = [
@@ -750,6 +752,9 @@ def apply_draft(
     }
     for event in draft.replacement.events:
         if event.event_id in retained_ids:
+            continue
+        if isinstance(event, ShareConversionEvent):
+            _validate_report_time(event.confirmed_at, now=reported_at, instant_field="confirmed_at")
             continue
         if isinstance(event, ReleaseEvent):
             if event.reason != "expired":
