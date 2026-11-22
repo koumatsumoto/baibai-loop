@@ -127,6 +127,24 @@ class NativeParserTests(TestCase):
             ):
                 parse_estat_json(source, text, start=start, end=end)
 
+    def test_estat_accepts_an_empty_window_when_history_contains_a_monthly_cell(self) -> None:
+        text = _estat_payload(
+            [
+                {"@time": "2025100000", "$": "112.3"},
+                {"@time": "2025000202", "$": "***"},
+            ]
+        )
+
+        self.assertEqual(
+            parse_estat_json(
+                _source("estat", "0003427113"),
+                text,
+                start=date(2026, 1, 1),
+                end=date(2026, 12, 31),
+            ),
+            {},
+        )
+
     def test_estat_dashboard_fetch_always_opens_the_request_at_the_history_floor(self) -> None:
         """ "No data" is the same answer as "unknown IndicatorCode" on this API.
 
