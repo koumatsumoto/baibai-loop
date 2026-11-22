@@ -203,7 +203,7 @@ dividend_windows:
 
 - 重大なbreakはsellを優先。quote/valuation/数量basis不足はterms不足で、holdへ戻さない。
 - intactは旧valuation/quote欠測でもhold可だが、当日の十分な見返りとは別。将来の幅だけで取消さない。
-- 見返り十分/不足には同日起点valuationと現在算術が必要。仮説未評価はdefer。
+- 見返り十分/不足には同日起点valuationと現在算術が必要。仮説破綻による売却ではこの算術を行わないため、`remaining_reward: null` とするか、`remaining_reward` に `status: uncertain` と未確認理由を記す。仮説未評価はdefer。
 
 保存表示で「十分な残存見返り」を確認したholdは、同日起点の確定評価・保存終値・数量basisが揃う場合だけ、その終値での保有機会費用を示す。元評価株価の年率、購入原価からの損益、売却可能価格と分け、旧表示や仮説維持だけのholdへ十分性を補作しない。現在quoteや後発評価へは差し替えない。
 
