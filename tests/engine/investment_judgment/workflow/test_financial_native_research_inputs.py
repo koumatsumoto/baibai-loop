@@ -244,7 +244,7 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
     monkeypatch.setattr(FinancialL1, "fixed", forbidden)
     monkeypatch.setattr(store, "get_bytes", forbidden)
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.operation.service.read_research_model_inputs",
+        "baibai_engine.investment_judgment.workflow.operation.service.read_research_model_inputs_from_connection",
         forbidden,
     )
     resumed = resume_selected_workspace(

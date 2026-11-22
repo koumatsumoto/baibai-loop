@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, nullcontext
 from datetime import date, datetime
 from math import isfinite
 from pathlib import Path
@@ -16,7 +16,9 @@ from baibai_engine.investment_judgment.judgment_retrospective.holdings import ho
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.book_prices import read_book_prices
-from baibai_engine.investment_judgment.workflow.case_screening import read_case_screening
+from baibai_engine.investment_judgment.workflow.case_screening import (
+    read_case_screening_from_connection,
+)
 from baibai_engine.investment_judgment.workflow.discovery import (
     PriceCoordinateMinimum,
     discovery_context,
@@ -35,6 +37,9 @@ from baibai_engine.primitives.stocks import normalize_ticker, sector_33_peer_key
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.machine_analysis import (
+    connect_read_only as connect_runs_read_only,
+)
 
 
 def load_generated_selection_context(
@@ -53,8 +58,13 @@ def load_generated_selection_context(
     reported_pbr_max: float | None = None,
 ) -> dict[str, Any]:
     """保存された政策結果と同じ生成を読む。contextの取得で再選定しない。"""
-    from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-    from baibai_engine.machine_analysis.screening.discovery_index import read_discovery_index
+    from baibai_engine.machine_analysis.generation.query import (
+        read_research_model_inputs,
+        read_research_model_inputs_from_connection,
+    )
+    from baibai_engine.machine_analysis.screening.discovery_index import (
+        read_discovery_index_from_connection,
+    )
 
     if known_at.utcoffset() is None:
         raise ValueError("input cutoff must have a timezone")
@@ -86,122 +96,146 @@ def load_generated_selection_context(
         and screening_selection_id is None
     ):
         raise ValueError("discovery requires an explicit saved screening selection")
-    # 最新は一度だけ解決する。旧本文を読む権限を暗黙の最新IDに引き継がない。
-    if screening_selection_id is not None or generation_id is None:
-        index = read_discovery_index(
-            path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
-        )
-        if index.status == "no_publication" and screening_selection_id is not None:
-            raise ValueError("unknown or not yet published screening selection")
-        if generation_id is not None and index.generation_id != generation_id:
-            raise ValueError("screening selection differs from the chosen generation")
-        if index.status != "publication_without_index" or not (
-            screening_selection_id is not None and (not overview or comparison_tickers)
-        ):
-            app = database_path(db_path)
-            held, history = (
-                _ledger_positions(app, known_at, as_of, request.requested_tickers)
-                if index.status == "indexed" and request.scope == "review_positions"
-                else (None, None)
+    # 同じ応答に必要なRuns根拠を揃える。Appの保有と判断は別の正本・時計。
+    resolve_publication = screening_selection_id is not None or generation_id is None
+    with (
+        closing(connect_runs_read_only(runs_path))
+        if resolve_publication and runs_path.is_file()
+        else nullcontext()
+    ) as runs:
+        if runs is not None:
+            runs.execute("BEGIN")
+        # 最新は一度だけ解決する。旧本文を読む権限を暗黙の最新IDに引き継がない。
+        if resolve_publication:
+            index = read_discovery_index_from_connection(
+                runs, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
             )
-            requested, comparisons = _evidence_subjects(request, held, comparison_tickers)
-            detail = bool(comparison_tickers) or request.scope != "discover_new"
-            if detail and screening_page:
-                raise ValueError("choose explicit company detail or one discovery question page")
-            book_prices = None
-            if index.status == "indexed" and reported_pbr_max is not None:
-                assert index.generation_id is not None
-                assert index.as_of is not None
-                book_prices = read_book_prices(
-                    generation_id=index.generation_id,
-                    as_of=index.as_of,
-                    maximum=reported_pbr_max,
+            if index.status == "no_publication" and screening_selection_id is not None:
+                raise ValueError("unknown or not yet published screening selection")
+            if generation_id is not None and index.generation_id != generation_id:
+                raise ValueError("screening selection differs from the chosen generation")
+            if index.status != "publication_without_index" or not (
+                screening_selection_id is not None and (not overview or comparison_tickers)
+            ):
+                app = database_path(db_path)
+                held, history = (
+                    _ledger_positions(app, known_at, as_of, request.requested_tickers)
+                    if index.status == "indexed" and request.scope == "review_positions"
+                    else (None, None)
+                )
+                requested, comparisons = _evidence_subjects(request, held, comparison_tickers)
+                detail = bool(comparison_tickers) or request.scope != "discover_new"
+                if detail and screening_page:
+                    raise ValueError(
+                        "choose explicit company detail or one discovery question page"
+                    )
+                book_prices = None
+                if index.status == "indexed" and reported_pbr_max is not None:
+                    assert index.generation_id is not None
+                    assert index.as_of is not None
+                    assert runs is not None
+                    book_prices = read_book_prices(
+                        runs,
+                        generation_id=index.generation_id,
+                        as_of=index.as_of,
+                        maximum=reported_pbr_max,
+                        listings=index.listing_dates(),
+                    )
+                indexed = discovery_context(
+                    index,
+                    request=request,
+                    as_of=as_of,
+                    known_at=known_at,
                     path=runs_path,
-                    listings=index.listing_dates(),
+                    db_path=db_path,
+                    minimum=price_coordinate_min,
+                    book_prices=book_prices,
+                    question=discovery_question,
+                    page=screening_page,
+                    comparisons=comparisons if detail else None,
                 )
-            indexed = discovery_context(
-                index,
-                request=request,
-                as_of=as_of,
-                known_at=known_at,
-                path=runs_path,
-                db_path=db_path,
-                minimum=price_coordinate_min,
-                book_prices=book_prices,
-                question=discovery_question,
-                page=screening_page,
-                comparisons=comparisons if detail else None,
-            )
-            if indexed["status"] != "ready" or not detail:
+                if indexed["status"] != "ready" or not detail:
+                    return indexed
+                assert index.generation_id is not None
+                assert runs is not None
+                models = read_research_model_inputs_from_connection(
+                    runs, index.generation_id, targets=comparisons
+                )
+                if models is None:
+                    raise ValueError("chosen model generation is unavailable")
+                _validate_model_cutoff(models, as_of, known_at)
+                indexed["model_inputs"] = _model_context(models, set(comparisons))
+                indexed.update(_judgments(app, comparisons, as_of, known_at))
+                indexed["requested_tickers"] = requested
+                if request.scope == "review_positions":
+                    indexed["capacity"] = research_capacity(
+                        request.scope, len(held or ())
+                    ).model_dump(mode="json")
+                    indexed.update(_holding_context(request, held, history))
                 return indexed
-            assert index.generation_id is not None
-            models = read_research_model_inputs(
-                index.generation_id, targets=comparisons, path=runs_path
-            )
-            if models is None:
-                raise ValueError("chosen model generation is unavailable")
-            _validate_model_cutoff(models, as_of, known_at)
-            indexed["model_inputs"] = _model_context(models, set(comparisons))
-            indexed.update(_judgments(app, comparisons, as_of, known_at))
-            indexed["requested_tickers"] = requested
-            if request.scope == "review_positions":
-                indexed["capacity"] = research_capacity(request.scope, len(held or ())).model_dump(
-                    mode="json"
-                )
-                indexed.update(_holding_context(request, held, history))
-            return indexed
-        generation_id = index.generation_id
-    if generation_id is None:
-        raise ValueError("an explicit generation is required")
-    if screening_page:
-        raise ValueError("choose explicit company detail or one discovery question page")
-    app_path = database_path(db_path)
-    held, history = (
-        _ledger_positions(app_path, known_at, as_of, request.requested_tickers)
-        if request.scope == "review_positions"
-        else (None, None)
-    )
-    requested, comparisons = _evidence_subjects(request, held, comparison_tickers)
-    detail_targets = set(comparisons)
-
-    finite_evidence = None
-    if screening_selection_id is not None:
-        fixed = read_case_screening(
-            screening_selection_id,
-            subjects=tuple(sorted(detail_targets)),
-            known_at=known_at,
-            path=runs_path,
+            generation_id = index.generation_id
+        if generation_id is None:
+            raise ValueError("an explicit generation is required")
+        if screening_page:
+            raise ValueError("choose explicit company detail or one discovery question page")
+        app_path = database_path(db_path)
+        held, history = (
+            _ledger_positions(app_path, known_at, as_of, request.requested_tickers)
+            if request.scope == "review_positions"
+            else (None, None)
         )
-        if fixed is None or fixed[1].generation_id != generation_id:
-            raise ValueError("screening publication unavailable for the chosen generation")
-        finite_evidence = _archived_subject_evidence(fixed[0], fixed[1], detail_targets)
-    models = read_research_model_inputs(generation_id, targets=comparisons, path=runs_path)
-    if models is None:
-        raise ValueError("chosen model generation is unavailable")
-    _validate_model_cutoff(models, as_of, known_at)
-    model_inputs = _model_context(models, detail_targets)
-    return {
-        "schema_version": 3,
-        "status": "ready",
-        **(
-            {"read_cost": "explicit_full_saved_publication"}
-            if screening_selection_id is not None
-            else {}
-        ),
-        "request": request.model_dump(mode="json"),
-        "research_as_of": as_of.isoformat(),
-        "input_known_at": known_at.isoformat(),
-        "generation_id": generation_id,
-        "screening_selection_id": screening_selection_id,
-        "capacity": research_capacity(request.scope, len(held or ())).model_dump(mode="json"),
-        "screening": finite_evidence,
-        "candidate_tickers": [],
-        "candidate_order_semantics": "explicit_subjects_not_screening_candidates",
-        "requested_tickers": requested,
-        **(_holding_context(request, held, history) if request.scope == "review_positions" else {}),
-        "model_inputs": model_inputs,
-        **_judgments(app_path, comparisons, as_of, known_at),
-    }
+        requested, comparisons = _evidence_subjects(request, held, comparison_tickers)
+        detail_targets = set(comparisons)
+
+        finite_evidence = None
+        if screening_selection_id is not None:
+            assert runs is not None
+            fixed = read_case_screening_from_connection(
+                runs,
+                screening_selection_id,
+                subjects=tuple(sorted(detail_targets)),
+                known_at=known_at,
+            )
+            if fixed is None or fixed[1].generation_id != generation_id:
+                raise ValueError("screening publication unavailable for the chosen generation")
+            finite_evidence = _archived_subject_evidence(fixed[0], fixed[1], detail_targets)
+        models = (
+            read_research_model_inputs(generation_id, targets=comparisons, path=runs_path)
+            if runs is None
+            else read_research_model_inputs_from_connection(
+                runs, generation_id, targets=comparisons
+            )
+        )
+        if models is None:
+            raise ValueError("chosen model generation is unavailable")
+        _validate_model_cutoff(models, as_of, known_at)
+        model_inputs = _model_context(models, detail_targets)
+        return {
+            "schema_version": 3,
+            "status": "ready",
+            **(
+                {"read_cost": "explicit_full_saved_publication"}
+                if screening_selection_id is not None
+                else {}
+            ),
+            "request": request.model_dump(mode="json"),
+            "research_as_of": as_of.isoformat(),
+            "input_known_at": known_at.isoformat(),
+            "generation_id": generation_id,
+            "screening_selection_id": screening_selection_id,
+            "capacity": research_capacity(request.scope, len(held or ())).model_dump(mode="json"),
+            "screening": finite_evidence,
+            "candidate_tickers": [],
+            "candidate_order_semantics": "explicit_subjects_not_screening_candidates",
+            "requested_tickers": requested,
+            **(
+                _holding_context(request, held, history)
+                if request.scope == "review_positions"
+                else {}
+            ),
+            "model_inputs": model_inputs,
+            **_judgments(app_path, comparisons, as_of, known_at),
+        }
 
 
 def _evidence_subjects(

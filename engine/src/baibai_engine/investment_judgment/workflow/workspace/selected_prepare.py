@@ -12,7 +12,9 @@ from typing import Literal, cast
 from baibai_engine.investment_judgment.company_research.query import read_company_contexts
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
-from baibai_engine.investment_judgment.workflow.case_screening import read_case_screening
+from baibai_engine.investment_judgment.workflow.case_screening import (
+    read_case_screening_from_connection,
+)
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationPayload,
@@ -46,9 +48,14 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
     _load_mapping,
     _write_workspace_file,
 )
-from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
+from baibai_engine.machine_analysis.generation.query import (
+    read_research_model_inputs_from_connection,
+)
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.machine_analysis import (
+    connect_read_only as connect_runs_read_only,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,16 +99,23 @@ def _generated_selection(
         raise ValueError("discovery requires an explicit saved screening selection")
     subjects = (*[t.ticker for t in draft.targets], *draft.comparison_tickers)
     publication = None
-    if draft.screening_selection_id is not None:
-        publication = read_case_screening(
-            draft.screening_selection_id,
-            path=runs_path,
-            known_at=draft.input_known_at,
-            subjects=subjects,
+    if draft.screening_selection_id is not None and not runs_path.is_file():
+        raise ValueError("screening selection differs from the chosen generation")
+    # コピー更新があっても、CaseとGenerationは同じRuns断面から固定する。
+    with closing(connect_runs_read_only(runs_path)) as runs:
+        runs.execute("BEGIN")
+        if draft.screening_selection_id is not None:
+            publication = read_case_screening_from_connection(
+                runs,
+                draft.screening_selection_id,
+                known_at=draft.input_known_at,
+                subjects=subjects,
+            )
+            if publication is None or publication[1].generation_id != draft.generation_id:
+                raise ValueError("screening selection differs from the chosen generation")
+        models = read_research_model_inputs_from_connection(
+            runs, draft.generation_id, targets=subjects
         )
-        if publication is None or publication[1].generation_id != draft.generation_id:
-            raise ValueError("screening selection differs from the chosen generation")
-    models = read_research_model_inputs(draft.generation_id, targets=subjects, path=runs_path)
     if models is None:
         raise ValueError("chosen model generation is unavailable")
     context = latest_assessment(app_path, as_of=draft.research_as_of, known_at=draft.input_known_at)

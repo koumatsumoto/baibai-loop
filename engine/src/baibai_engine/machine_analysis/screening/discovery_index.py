@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -39,27 +40,45 @@ def read_discovery_index(
     known_at: datetime | None = None,
 ) -> DiscoveryIndexRead:
     if not path.is_file():
-        return DiscoveryIndexRead("no_publication")
+        return read_discovery_index_from_connection(None)
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
-        header = find_publication_header(
+        return read_discovery_index_from_connection(
             connection, selection_id=selection_id, as_of=as_of, known_at=known_at
         )
-        if header is None:
-            return DiscoveryIndexRead("no_publication")
-        identity, published, generation, day, evaluation = header
-        clocks = (
-            identity,
-            generation,
-            date.fromisoformat(day),
-            datetime.fromisoformat(evaluation),
-            datetime.fromisoformat(published),
+
+
+def read_discovery_index_from_connection(
+    connection: sqlite3.Connection | None,
+    *,
+    selection_id: str | None = None,
+    as_of: date | None = None,
+    known_at: datetime | None = None,
+) -> DiscoveryIndexRead:
+    """呼出元の読取transactionで発行時の索引を選ぶ。Noneは未作成で、旧本文は開かない。"""
+    if (
+        connection is None
+        or (
+            header := find_publication_header(
+                connection, selection_id=selection_id, as_of=as_of, known_at=known_at
+            )
         )
-        if not is_discovery_publication(identity, generation):
-            return DiscoveryIndexRead("publication_without_index", *clocks)
-        (wire,) = connection.execute(
-            "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (identity,)
-        ).fetchone()
-        saved = _CODEC.validate_json(gzip.decompress(wire))
-        validate_selection_source(saved, selection_id=identity, generation_id=generation)
-        return DiscoveryIndexRead("indexed", *clocks, saved.result.rows, saved.universe_tickers)
+        is None
+    ):
+        return DiscoveryIndexRead("no_publication")
+    identity, published, generation, day, evaluation = header
+    clocks = (
+        identity,
+        generation,
+        date.fromisoformat(day),
+        datetime.fromisoformat(evaluation),
+        datetime.fromisoformat(published),
+    )
+    if not is_discovery_publication(identity, generation):
+        return DiscoveryIndexRead("publication_without_index", *clocks)
+    (wire,) = connection.execute(
+        "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (identity,)
+    ).fetchone()
+    saved = _CODEC.validate_json(gzip.decompress(wire))
+    validate_selection_source(saved, selection_id=identity, generation_id=generation)
+    return DiscoveryIndexRead("indexed", *clocks, saved.result.rows, saved.universe_tickers)

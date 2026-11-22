@@ -20,7 +20,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     load_proposal_with_assessments,
 )
 from baibai_engine.investment_judgment.workflow.case_screening import (
-    read_case_screening,
+    read_case_screening_from_connection,
     same_case_screening,
 )
 from baibai_engine.investment_judgment.workflow.operation.models import (
@@ -51,7 +51,9 @@ from baibai_engine.investment_judgment.workflow.selection import (
     SelectedTarget,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
-from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
+from baibai_engine.machine_analysis.generation.query import (
+    read_research_model_inputs_from_connection,
+)
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
@@ -62,6 +64,9 @@ from baibai_engine.storage.sqlite.application.write import (
     connect_existing,
     connect_rw,
     initialize_database,
+)
+from baibai_engine.storage.sqlite.machine_analysis import (
+    connect_read_only as connect_runs_read_only,
 )
 from baibai_engine.storage.sqlite.read import read_rows
 
@@ -132,37 +137,42 @@ class OperationService:
             raise OperationConflictError("Operation kind/ticker differs from Research scope")
         # 共有scopeは元の完全headerから解く。入力sliceの共有モデル欠落を見逃さない。
         subjects = selection.evidence_subjects()
-        canonical = read_research_model_inputs(
-            selection.inputs.generation.generation_id,
-            targets=subjects,
-            path=self._runs_path,
-        )
-        if canonical is None or encode_json(canonical.model_dump(mode="json")) != encode_json(
-            selection.inputs.generation.model_dump(mode="json")
-        ):
-            raise ValueError("model input slice differs from its canonical generation")
-        # 探索は必要な観測だけを読む。Caseの根拠にする企業だけ全期間の原本を確かめる。
-        for model in canonical.models:
-            if model.model_id != "company_growth" or model.subject not in subjects:
-                continue
-            if CompanyGrowth.model_validate(model.payload).ticker != model.subject:
-                raise ValueError("growth payload belongs to a different subject")
-        del canonical
-        selection_id = selection.inputs.screening_selection_id
-        if selection_id is not None:
-            proven = read_case_screening(
-                selection_id,
-                path=self._runs_path,
-                known_at=selection.input_known_at,
-                subjects=subjects,
+        # 受付は準備とは独立に、GenerationとSelectionを同じRuns断面で照合する。
+        with closing(connect_runs_read_only(self._runs_path)) as runs:
+            runs.execute("BEGIN")
+            canonical = read_research_model_inputs_from_connection(
+                runs,
+                selection.inputs.generation.generation_id,
+                targets=subjects,
             )
-            if (
-                proven is None
-                or proven[0] != selection.inputs.screening_published_at
-                or selection.inputs.screening_selection is None
-                or not same_case_screening(selection.inputs.screening_selection, proven[1])
+            if canonical is None or encode_json(canonical.model_dump(mode="json")) != encode_json(
+                selection.inputs.generation.model_dump(mode="json")
             ):
-                raise OperationConflictError("screening selection differs from chosen generation")
+                raise ValueError("model input slice differs from its canonical generation")
+            # 探索は必要な観測だけを読む。Caseの根拠にする企業だけ全期間の原本を確かめる。
+            for model in canonical.models:
+                if model.model_id != "company_growth" or model.subject not in subjects:
+                    continue
+                if CompanyGrowth.model_validate(model.payload).ticker != model.subject:
+                    raise ValueError("growth payload belongs to a different subject")
+            del canonical
+            selection_id = selection.inputs.screening_selection_id
+            if selection_id is not None:
+                proven = read_case_screening_from_connection(
+                    runs,
+                    selection_id,
+                    known_at=selection.input_known_at,
+                    subjects=subjects,
+                )
+                if (
+                    proven is None
+                    or proven[0] != selection.inputs.screening_published_at
+                    or selection.inputs.screening_selection is None
+                    or not same_case_screening(selection.inputs.screening_selection, proven[1])
+                ):
+                    raise OperationConflictError(
+                        "screening selection differs from chosen generation"
+                    )
         if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
             raise OperationConflictError(
                 "current ticker must be a four-character alphanumeric code"

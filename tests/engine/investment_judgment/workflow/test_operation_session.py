@@ -198,7 +198,7 @@ def test_start_releases_validated_source_copies_before_saving_payload(
     payload = _active_payload(selected=selected)
     source_before = runs.read_bytes()
     observed = {}
-    for name in ("selection_binding", "read_research_model_inputs"):
+    for name in ("selection_binding", "read_research_model_inputs_from_connection"):
         original = getattr(operation_service, name)
 
         def read(*args, _original=original, _name=name, **kwargs):
@@ -210,7 +210,10 @@ def test_start_releases_validated_source_copies_before_saving_payload(
     insert = operation_service._insert
 
     def save(connection, operation):
-        assert observed.keys() == {"selection_binding", "read_research_model_inputs"}
+        assert observed.keys() == {
+            "selection_binding",
+            "read_research_model_inputs_from_connection",
+        }
         assert all(reference() is None for reference in observed.values())
         assert operation.payload == payload
         insert(connection, operation)
