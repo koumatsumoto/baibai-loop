@@ -27,9 +27,7 @@ def _fact_value(value: object) -> Any:
     return value
 
 
-def proposal_inputs_fingerprint(inputs: ProposalInputs) -> str:
-    """checked_atだけを除き、Decimal同値/同instant/集合順に依らずhashする。"""
-
+def _input_facts(inputs: ProposalInputs) -> dict[str, Any]:
     # 再読時刻だけの差で、内容Reviewのやり直しを要求しない。
     payload = inputs.model_dump(mode="python", exclude={"checked_at"})
     for name, key in (
@@ -43,4 +41,17 @@ def proposal_inputs_fingerprint(inputs: ProposalInputs) -> str:
         for row in payload[name]:
             row["common_factors"] = sorted(row["common_factors"])
     payload["prior_buy_execution_references"] = sorted(payload["prior_buy_execution_references"])
-    return sha256(canonical_json(_fact_value(payload)).encode()).hexdigest()
+    return {name: _fact_value(value) for name, value in payload.items()}
+
+
+def proposal_inputs_fingerprint(inputs: ProposalInputs) -> str:
+    """checked_atだけを除き、Decimal同値/同instant/集合順に依らずhashする。"""
+    return sha256(canonical_json(_input_facts(inputs)).encode()).hexdigest()
+
+
+def changed_input_fields(saved: ProposalInputs, current: ProposalInputs) -> tuple[str, ...]:
+    """同じ事実の正規形で、変化した項目を元のfield順に返す。"""
+    before, after = _input_facts(saved), _input_facts(current)
+    return tuple(
+        name for name in after if canonical_json(before[name]) != canonical_json(after[name])
+    )

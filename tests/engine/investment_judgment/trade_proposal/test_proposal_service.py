@@ -660,7 +660,9 @@ def test_cli_context_check_and_preview_keep_limit_arithmetic_separate_from_the_c
     assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == saved
 
 
-def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
+def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case, mocker):
+    from baibai_engine.investment_judgment.stock_assessment import store as assessment_store
+
     raw = reviewed_proposal(case).payload()
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=875")
@@ -677,12 +679,15 @@ def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
     assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
     assert published.inputs.quotes[0].price_yen == Decimal(875)
     assert published.items[0].terms.notional_yen == Decimal(264000)
+    exact_pair = mocker.spy(assessment_store, "load_reviewed_assessment")
     preview = preview_current_terms(
         proposal_id=published.proposal_id,
         db_path=case.app,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )
+    exact_pair.assert_called_once()
+    assert exact_pair.call_args.args[1] == case.pair.assessment_id
     assert preview.status == "unchanged"
     row = preview.items[0]
     assert Decimal(row["current_quote_calculation"]["calculation_price_yen"]) == Decimal(875)

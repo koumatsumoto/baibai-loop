@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createMemoryRouter, MemoryRouter, RouterProvider, useSearchParams } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { ProposalHistoryView, SavedProposalView } from '../src/api/types'
 import { groupProposalReports, proposalActionLabel, proposalReportHref, publicationPeriod, reportListSummary } from '../src/lib/proposal-history'
@@ -38,6 +38,32 @@ describe('publication groups', () => {
 })
 
 describe('stock report list and selection', () => {
+  it('formats each publication once and preserves different clocks within the same JST group', () => {
+    const original = { ...older, published_at: '2026-11-14T02:41:09.999999Z' }
+    const replacement = { ...newer, published_at: '2026-11-14T11:02:00+09:00' }
+    const correction = {
+      correction_id: 'group-clock-correction',
+      erroneous_ref: { proposal_id: original.proposal_id, draft_sha256: '0'.repeat(64) },
+      replacement_ref: { proposal_id: replacement.proposal_id, draft_sha256: '1'.repeat(64) },
+      reason: '合成の訂正理由',
+      recorded_at: '2026-11-15T00:00:00Z',
+    }
+    const format = vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts')
+    let html: string
+    try {
+      html = render(view([{ ...original, corrections: [correction] }, { ...replacement, corrections: [correction] }]))
+      const times = new Set([Date.parse(original.published_at), Date.parse(replacement.published_at)])
+      expect(format.mock.calls.filter(([instant]) => instant instanceof Date && times.has(instant.getTime()))).toHaveLength(2)
+    } finally {
+      format.mockRestore()
+    }
+    expect(html.match(/11\/14 午前/g)).toHaveLength(1)
+    expect(html.match(/11:41 発行/g)).toHaveLength(2)
+    expect(html.match(/11:02 発行/g)).toHaveLength(1)
+    expect(html.indexOf('11:41 発行')).toBeLessThan(html.indexOf('11:02 発行'))
+    expect(html.match(/訂正で候補から外れた提案/g)).toHaveLength(2)
+  })
+
   it('lists company/code/sector/judgment and the saved summary with stable exact links', () => {
     const html = render(view([newer, older]))
     expect(html).toContain('3件のレポート')

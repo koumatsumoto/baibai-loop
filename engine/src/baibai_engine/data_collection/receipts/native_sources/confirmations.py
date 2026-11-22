@@ -155,6 +155,13 @@ def collection_digest(connection: sqlite3.Connection, source_id: str, checked_at
 
 
 def save_collection_confirmation(connection: sqlite3.Connection, row: tuple[str, ...]) -> None:
+    """Validate and merge a saved confirmation from another store."""
+    _merge_collection_confirmation(connection, row, verify_saved_digest=True)
+
+
+def _merge_collection_confirmation(
+    connection: sqlite3.Connection, row: tuple[str, ...], *, verify_saved_digest: bool
+) -> None:
     previous = connection.execute(
         "SELECT * FROM economic_source_collection_confirmations WHERE source_id=?", row[:1]
     ).fetchone()
@@ -163,7 +170,7 @@ def save_collection_confirmation(connection: sqlite3.Connection, row: tuple[str,
             return
         if row[1] == previous[1] and tuple(row) != tuple(previous):
             raise ValueError("conflicting complete source confirmation at the same received time")
-    if collection_digest(connection, row[0], row[1]) != row[2]:
+    if verify_saved_digest and collection_digest(connection, row[0], row[1]) != row[2]:
         raise ValueError("complete source confirmation differs from its period set")
     connection.execute(
         "INSERT INTO economic_source_collection_confirmations VALUES (?,?,?) "
@@ -200,8 +207,11 @@ def confirm_source_response(
             records=records_by_day.get(day, ()),
         )
     checked = fetched_at.astimezone(UTC).isoformat(timespec="microseconds")
-    save_collection_confirmation(
-        connection, (source_id, checked, collection_digest(connection, source_id, checked))
+    # Only reuse the proof while the acquisition's write transaction protects its anchors.
+    _merge_collection_confirmation(
+        connection,
+        (source_id, checked, collection_digest(connection, source_id, checked)),
+        verify_saved_digest=not connection.in_transaction,
     )
 
 

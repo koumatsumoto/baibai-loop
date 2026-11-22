@@ -403,11 +403,6 @@ def acquire_source(
                 group_budget.remaining_bytes -= budget.bytes_used - before_bytes
             for response in responses:
                 receipt = response.receipt
-                if receipt.status == "not_modified" and previous is not None:
-                    if receipt.body_ref is None:
-                        raise ValueError("304 lacks a concrete body reference")
-                    # The exact original was validated before this conditional GET.
-                    read_body(conn, receipt.body_ref)
                 with conn:
                     retain_receipt(conn, receipt, body=response.body)
                 receipt_ids.append(receipt.receipt_id)

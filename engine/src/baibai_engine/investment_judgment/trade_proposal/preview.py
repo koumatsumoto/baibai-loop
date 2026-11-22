@@ -18,7 +18,6 @@ from baibai_engine.investment_judgment.stock_assessment.document import current_
 from baibai_engine.investment_judgment.stock_assessment.store import (
     ReviewedAssessment,
     latest_assessment_id,
-    require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
 from baibai_engine.investment_judgment.trade_proposal.conditions import (
@@ -37,12 +36,12 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     order_readiness,
 )
 from baibai_engine.investment_judgment.trade_proposal.entry_policy import acquisition_blocker
-from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
+from baibai_engine.investment_judgment.trade_proposal.fingerprint import changed_input_fields
 from baibai_engine.investment_judgment.trade_proposal.holding_policy import (
     evaluate_holding_proposal,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
-    load_investment_proposal,
+    load_proposal_with_assessments,
     proposal_records,
 )
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import ProposalRecords
@@ -252,7 +251,7 @@ def preview_current_terms(
         input_reader.proposal_market_snapshot(sqlite_path) as market_connection,
     ):
         connection.execute("BEGIN")
-        proposal = load_investment_proposal(connection, proposal_id)
+        proposal, verified_pairs = load_proposal_with_assessments(connection, proposal_id)
         records = proposal_records(connection, proposal)
         corrected = any(
             record["erroneous_ref"]["proposal_id"] == proposal_id
@@ -290,22 +289,13 @@ def preview_current_terms(
                     ),
                 )
             )
-        baseline = proposal_inputs_fingerprint(proposal.inputs)
-        if baseline != proposal_inputs_fingerprint(inputs):
-            for field in type(inputs).model_fields:
-                if (
-                    field != "checked_at"
-                    and proposal_inputs_fingerprint(
-                        proposal.inputs.model_copy(update={field: getattr(inputs, field)})
-                    )
-                    != baseline
-                ):
-                    changes.append(
-                        GateReason(
-                            code=f"input_facts_changed:{field}",
-                            message=f"{field} の実入力が保存時から変化しています。",
-                        )
-                    )
+        changes.extend(
+            GateReason(
+                code=f"input_facts_changed:{field}",
+                message=f"{field} の実入力が保存時から変化しています。",
+            )
+            for field in changed_input_fields(proposal.inputs, inputs)
+        )
         if proposal.as_of != now.astimezone(JST).date():
             changes.append(
                 GateReason(
@@ -383,7 +373,7 @@ def preview_current_terms(
                         ),
                     )
             if item.assessment_ref is not None:
-                pair = require_assessment_ref(connection, item.assessment_ref)
+                pair = verified_pairs[item.assessment_ref.assessment_id]
                 assessments[pair.assessment_id] = pair.document
                 current_assessment_id = latest_assessment_id(connection, item.ticker)
                 latest = current_assessment_id == pair.assessment_id

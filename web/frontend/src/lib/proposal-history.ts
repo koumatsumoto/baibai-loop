@@ -1,4 +1,5 @@
 import type { SavedProposalView } from '../api/types'
+import { jstDateTimeParts } from './format'
 
 export const ACTION_LABEL: Record<SavedProposalView['items'][number]['action'], string> = {
   buy: '保存時の買付（指値）',
@@ -19,13 +20,8 @@ export function proposalActionLabel(item: SavedProposalView['items'][number]) {
   return ACTION_LABEL[item.action]
 }
 
-const publicationClock = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
-  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-})
-
 export function publicationPeriod(publishedAt: string) {
-  const parts = Object.fromEntries(publicationClock.formatToParts(new Date(publishedAt)).map(part => [part.type, part.value]))
+  const parts = jstDateTimeParts(new Date(publishedAt))
   const period = Number(parts.hour) < 12 ? '午前' : '午後'
   return {
     key: `${parts.year}-${parts.month}-${parts.day}-${period}`,
@@ -76,17 +72,21 @@ export function reportListSummary({ proposal, item }: ReportEntry): string {
   }
 }
 
+type ListedReport = ReportEntry & { publicationTime: string; corrected: boolean }
+type PublicationGroup = Omit<ReturnType<typeof publicationPeriod>, 'time'> & { reports: ListedReport[] }
+
 export function groupProposalReports(proposals: SavedProposalView[]) {
   // The saved reader orders aware publication instants (including microseconds), not market as_of.
-  const groups = new Map<string, ReturnType<typeof publicationPeriod> & { reports: ReportEntry[] }>()
+  const groups = new Map<string, PublicationGroup>()
   for (const proposal of proposals) {
-    const period = publicationPeriod(proposal.published_at)
-    let group = groups.get(period.key)
+    const { key, label, year, time } = publicationPeriod(proposal.published_at)
+    let group = groups.get(key)
     if (group === undefined) {
-      group = { ...period, reports: [] }
-      groups.set(period.key, group)
+      group = { key, label, year, reports: [] }
+      groups.set(key, group)
     }
-    for (const item of proposal.items) group.reports.push({ proposal, item })
+    const corrected = isCorrectedProposal(proposal)
+    for (const item of proposal.items) group.reports.push({ proposal, item, publicationTime: time, corrected })
   }
   return [...groups.values()]
 }
