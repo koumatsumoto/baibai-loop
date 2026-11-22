@@ -3,7 +3,8 @@
 import json
 from contextlib import closing
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 
 import pytest
 from tests.helpers.article_acquisition import SLOT, Response, Session
@@ -17,6 +18,7 @@ from baibai_jobs.acquisition.article_planning import (
     publish_planning_input,
     source_key,
 )
+from baibai_jobs.acquisition.cooldown import read_deadline
 from baibai_jobs.acquisition.economic_staging import stage_prefix
 
 
@@ -187,6 +189,84 @@ def test_provider_cooldown_preserves_the_blocked_document_first(tmp_path, status
     state, _ = load_planning(store, "minkabu_news")
     assert state.cursor["pending_urls"] == pending
     assert state.not_before is not None
+
+
+@pytest.mark.parametrize("status", [429, 503])
+@pytest.mark.parametrize("form", ["seconds", "http_date", "beyond_datetime"])
+def test_retry_after_does_not_admit_shared_provider_before_due(
+    tmp_path, monkeypatch, clock_and_wait, status, form
+):
+    from baibai_engine.data_collection.transport import articles as wire
+    from baibai_engine.data_collection.transport import http
+
+    clock = clock_and_wait
+    monkeypatch.setattr(wire, "datetime", clock)
+    monkeypatch.setattr(http.time, "time", lambda: clock.current.timestamp())
+    store = MemoryR2Store()
+    source, peer = "toushiru", "rakuten_news"
+    for member in (source, peer):
+        publish_planning_input(store, member, {})
+    received = clock.current
+    deadline = received + timedelta(hours=24)
+    header = "86400"
+    if form == "http_date":
+        header = format_datetime(deadline, usegmt=True)
+    elif form == "beyond_datetime":
+        header = "9" * 4400
+        deadline = datetime.max.replace(tzinfo=UTC)
+    response = Response(status, b"")
+    response.headers["Retry-After"] = header
+    session = Session([response])
+    directory = tmp_path / "original"
+    first = articles.acquire_source(
+        store,
+        source=source,
+        slot=SLOT,
+        identity="provider-wait",
+        directory=directory,
+        session=session,
+    )
+    assert first["status"] == "partial"
+    assert len(session.urls) == 1
+    with closing(connect_read_only(directory / "receipts.sqlite")) as conn:
+        stored = conn.execute("SELECT receipt_json FROM article_source_receipts").fetchone()
+    assert stored is not None
+    receipt = json.loads(stored[0])
+    assert receipt["http_status"] == status
+    assert receipt["retry_after"] == header
+
+    clock.current += timedelta(hours=8)
+    early = Session([Response(403, b"")])
+    early_dir = tmp_path / "too-early"
+    assert articles.acquire_source(
+        store,
+        source=peer,
+        slot=SLOT + timedelta(hours=8),
+        identity="too-early",
+        directory=early_dir,
+        session=early,
+    ) == {"source": peer, "status": "not_due", "reason": "retry_not_before"}
+    assert early.urls == []
+    assert not early_dir.exists()
+    assert datetime.fromisoformat(receipt["cooldown_until"]) == deadline
+    state, _ = load_planning(store, source)
+    assert state.not_before is not None
+    assert datetime.fromisoformat(state.not_before) == deadline
+    assert read_deadline(store, articles.cooldown_key(peer))[0] == deadline
+    assert read_deadline(store, articles.cooldown_key("mof_news")) == (None, None)
+
+    if form != "beyond_datetime":
+        clock.current = deadline
+        on_time = Session([Response(403, b"")])
+        articles.acquire_source(
+            store,
+            source=peer,
+            slot=SLOT + timedelta(hours=24),
+            identity="on-time",
+            directory=tmp_path / "on-time",
+            session=on_time,
+        )
+        assert len(on_time.urls) == 1
 
 
 @pytest.mark.parametrize("status", [401, 403])
