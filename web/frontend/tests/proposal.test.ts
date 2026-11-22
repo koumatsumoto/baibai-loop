@@ -233,3 +233,29 @@ it('システム提案と訂正、人間の非購入報告を分け、未知の�
   expect(html).toContain(newProposalFixture.headline)
   expect(html).toContain(`dateTime="${newProposalFixture.published_at}"`)
 })
+
+
+it('銘柄別レポートでも、提案単位の非購入報告を別銘柄の取引確定として表示しない', () => {
+  const statement = '1111 は買いませんでした。ほかの銘柄については報告していません。'
+  const proposal = {
+    ...newProposalFixture,
+    human_reports: [{
+      report_id: 'synthetic-scope-report',
+      proposal_ref: { proposal_id: newProposalFixture.proposal_id, draft_sha256: '1'.repeat(64) },
+      outcome: 'not_purchased' as const,
+      statement,
+      reported_at: '2026-10-29T01:00:00Z',
+      subject_at: null,
+      reason_quote: null,
+      context_summary: null,
+      recorded_at: '2026-10-29T02:00:00Z',
+    }],
+  }
+  for (const item of [proposal.items[0], proposal.items[1]]) {
+    const html = renderProposal(proposal, item)
+    expect(html).toContain(item.rationale)
+    expect(html).toContain('提案単位の人間の報告（取引事実とは別）')
+    expect(html).toContain('報告はこの提案にひもづきます。どの銘柄について述べたかは、本人の文面で確認してください。')
+    expect(html).toContain(statement)
+  }
+})

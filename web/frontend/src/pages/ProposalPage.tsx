@@ -631,7 +631,11 @@ export function ProposalReport({ proposal, item, generatedAt, above }: {
             <SavedTime value={correction.recorded_at} />
           </div>)}
         </SectionCard>}
-        {(proposal.human_reports ?? []).length > 0 && <SectionCard padded title="人間の報告（提案・取引事実とは別）">
+        {(proposal.human_reports ?? []).length > 0 && <SectionCard
+          description="報告はこの提案にひもづきます。どの銘柄について述べたかは、本人の文面で確認してください。"
+          padded
+          title="提案単位の人間の報告（取引事実とは別）"
+        >
           {(proposal.human_reports ?? []).map((report) => <div key={report.report_id} className="grid gap-2">
             <p className="font-medium">購入しなかった</p>
             <Prose>{report.statement}</Prose>
