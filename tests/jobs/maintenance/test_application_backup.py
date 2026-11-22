@@ -1,10 +1,12 @@
 import hashlib
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.storage.objects.r2 import LakeCASConflict, R2Error
 from baibai_jobs.maintenance.application_backup import preserve_application
+from baibai_jobs.maintenance.application_backup_retention import expired_backup_keys
 
 
 def seeded():
@@ -106,3 +108,16 @@ def test_source_head_failure_never_authorizes_backup_or_put(tmp_path, monkeypatc
         preserve_application(store, expected_etag=expected, directory=tmp_path, day="20261118")
     assert not store.get_keys
     assert not store.put_keys
+
+
+def test_retention_turns_over_at_midnight_jst_not_utc():
+    history = [f"baibai.sqlite.bak-202402{day:02d}" for day in range(1, 15)]
+    keys = {
+        *history,
+        "baibai.sqlite.bak",
+        "baibai.sqlite.bak-20240229",
+        "baibai.sqlite.bak-20240301",
+    }
+    midnight_jst = datetime(2024, 2, 28, 15, tzinfo=UTC)
+    assert expired_backup_keys(keys, as_of=midnight_jst - timedelta(seconds=1)) == []
+    assert expired_backup_keys(keys, as_of=midnight_jst) == [history[0]]
