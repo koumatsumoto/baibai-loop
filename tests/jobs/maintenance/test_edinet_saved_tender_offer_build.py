@@ -185,6 +185,10 @@ def test_saved_build_matches_sql_baseline_with_empty_raw_and_fixed_utc_jst_recei
         query.lstrip().upper().startswith("SELECT") and "FROM edinet_source_archives" in query
         for query in queries
     )
+    assert not any(
+        query.lstrip().upper().startswith("INSERT") and "INTO edinet_list_responses" in query
+        for query in queries
+    )
     output = capsys.readouterr()
     assert output.err == ""
     assert "resolved=1, reads=2" in output.out
@@ -374,6 +378,49 @@ def test_no_list_receipts_are_unknown_while_a_real_empty_receipt_remains_usable(
         () if confirmed_empty else case.expected[0]
     )
     assert not any(key.endswith(".zip") for key in case.store.get_keys)
+    assert not case.store.put_keys
+
+
+@pytest.mark.parametrize("eligible_day_offset", [None, 0, -1], ids=["late-only", "equal", "prior"])
+@pytest.mark.parametrize("later_has_rows", [False, True], ids=["empty", "rows"])
+def test_only_list_dates_through_cutoff_can_establish_an_empty_exit_view(
+    tmp_path, monkeypatch, eligible_day_offset, later_has_rows
+):
+    case = _case(tmp_path, monkeypatch)
+    store_tender_offer_exit_values(case.market, case.expected[0])
+    before = case.market.read_bytes()
+    empty = b'{"metadata":{"resultset":{"count":0}},"results":[]}'
+    later_body = next(case.lists.iter_receipts()).decoded().body if later_has_rows else empty
+    # A receipt clock later than --asof is valid; it is the list date that is bounded.
+    received = case.selected_at
+    receipts = [
+        NativeListReceipt.from_response(
+            ASOF + timedelta(days=1), EdinetResponse(received, later_body)
+        )
+    ]
+    if eligible_day_offset is not None:
+        receipts.append(
+            NativeListReceipt.from_response(
+                ASOF + timedelta(days=eligible_day_offset), EdinetResponse(received, empty)
+            )
+        )
+    ids = {receipt.receipt_id for receipt in receipts}
+    value = case.list_owner.publish(receipts).value()
+    value["receipts"] = [entry for entry in value["receipts"] if entry["receipt_id"] in ids]
+    case.lists = FixedEdinetLists(case.store, value)
+    _save(case)
+    del case.store.values[LIST_HEAD]
+    del case.store.values[ARCHIVE_HEAD]
+    _clear_trace(case)
+
+    assert cli.main(_argv(case)) == int(eligible_day_offset is None)
+    if eligible_day_offset is None:
+        assert case.market.read_bytes() == before
+        assert read_tender_offer_exit_values(case.market) == case.expected[0]
+    else:
+        assert read_tender_offer_exit_values(case.market) == ()
+    assert not any(key.endswith(".zip") for key in case.store.get_keys)
+    assert not {LIST_HEAD, ARCHIVE_HEAD}.intersection(case.store.get_keys + case.store.head_keys)
     assert not case.store.put_keys
 
 
