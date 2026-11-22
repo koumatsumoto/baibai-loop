@@ -219,7 +219,7 @@ def test_case_pins_explicit_contrast_and_scope_without_promoting_or_using_later_
                 for t in stocks
             },
         )
-        selection_id = f"selection-{fixed.generation_id}-opportunity-discovery-v1"
+        selection_id = f"selection-{fixed.generation_id}-opportunity-discovery-v3"
         ScreeningSelectionStore(runs).publish(selection_id, source)
         now = read_publication(path=runs, selection_id=selection_id).published_at + timedelta(
             seconds=1
@@ -279,7 +279,7 @@ def test_case_pins_explicit_contrast_and_scope_without_promoting_or_using_later_
         assert details["comparison_rows"][0] == next(
             r for r in source.result.rows if r["ticker"] == "5678"
         )
-        assert details["policy"] == {"method": "opportunity-discovery-v1"}
+        assert details["policy"] == {"method": "opportunity-discovery-v3"}
         assert "technical_policy_id" not in details
     assert details["comparisons_not_in_saved_rows"] == ["9999"]
     altered = saved.model_dump(mode="json")

@@ -1,4 +1,4 @@
-"""全普通株の薄い同時点観測。経路や表示枠を投資判断にしない。"""
+"""全普通株の保存探索索引。観測の違いを投資判断にしない。"""
 
 from __future__ import annotations
 
@@ -11,12 +11,14 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictInt, TypeAda
 if TYPE_CHECKING:
     from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 
-DISCOVERY_METHOD: Final = "opportunity-discovery-v1"
+type DiscoveryMethod = Literal["opportunity-discovery-v1", "opportunity-discovery-v3"]
+DISCOVERY_METHOD: Final = "opportunity-discovery-v3"
+_DISCOVERY_METHODS: tuple[DiscoveryMethod, ...] = ("opportunity-discovery-v1", DISCOVERY_METHOD)
 
 
 class DiscoveryPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    method: Literal["opportunity-discovery-v1"] = DISCOVERY_METHOD
+    method: DiscoveryMethod = DISCOVERY_METHOD
 
 
 _OBSERVATION = ConfigDict(strict=True, allow_inf_nan=False)
@@ -106,17 +108,24 @@ class DiscoverySelection:
         return tuple(row["ticker"] for row in self.rows)
 
 
-def discovery_publication_id(generation_id: str) -> str:
-    return f"selection-{generation_id}-{DISCOVERY_METHOD}"
+def discovery_publication_id(
+    generation_id: str, *, method: DiscoveryMethod = DISCOVERY_METHOD
+) -> str:
+    return f"selection-{generation_id}-{method}"
 
 
-def is_discovery_publication(selection_id: str, generation_id: str) -> bool:
-    if selection_id == discovery_publication_id(generation_id):
-        return True
+def discovery_publication_method(selection_id: str, generation_id: str) -> DiscoveryMethod | None:
+    for method in _DISCOVERY_METHODS:
+        if selection_id == discovery_publication_id(generation_id, method=method):
+            return method
     suffix = selection_id.removeprefix(f"selection-{generation_id}-")
     if suffix.startswith("opportunity-discovery-") or "-opportunity-discovery-" in suffix:
         raise ValueError("unknown discovery publication version or identity")
-    return False
+    return None
+
+
+def is_discovery_publication(selection_id: str, generation_id: str) -> bool:
+    return discovery_publication_method(selection_id, generation_id) is not None
 
 
 _ROW_CODEC = TypeAdapter(tuple[DiscoveryRow, ...])

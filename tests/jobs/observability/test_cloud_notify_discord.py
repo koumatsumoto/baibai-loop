@@ -833,14 +833,15 @@ def test_technical_financial_notice_does_not_call_unresolved_approved(method):
     ]
 
 
-def test_discovery_labels_population_not_candidates():
+@pytest.mark.parametrize("method", ["opportunity-discovery-v1", "opportunity-discovery-v3"])
+def test_discovery_labels_population_not_candidates(method):
     assert discord.render_generation(
         {
             "models_ready": True,
             "company_count": 2,
             "model_count": 5,
             "candidate_count": 2,
-            "selection_method": "opportunity-discovery-v1",
+            "selection_method": method,
             "screening_price_inputs": {"valid_count": 1, "universe_count": 2},
         }
     ) == ["モデル生成: 2社 / 5件 / 探索母集団2社", "同日価格観測: 適格1/2社"]

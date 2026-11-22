@@ -446,9 +446,12 @@ def test_current_selection_id_and_digest_preserve_published_rows():
     selection = evaluate_discovery_rows(meta, tickers=("1234", "9999"), rows={"1234": row})
     assert (
         discovery_publication_id(meta.generation_id)
-        == "selection-economic-fixed-opportunity-discovery-v1"
+        == "selection-economic-fixed-opportunity-discovery-v3"
     )
     payload = TypeAdapter(ScreeningSelection).dump_python(selection, mode="json")
+    assert payload["result"]["policy"] == {"method": "opportunity-discovery-v3"}
+    # Unchanged normal row values and canonical fields; only the index policy differs.
+    payload["result"]["policy"]["method"] = "opportunity-discovery-v1"
     assert (
         sha256(canonical_json(payload).encode()).hexdigest()
         == "592d88d04649a84c07122126f3060ba46c9eebe3b937e4bbb96cf9322b639e7f"
