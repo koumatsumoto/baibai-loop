@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import json
 from contextlib import closing
@@ -8,7 +9,12 @@ from tests.helpers.article_acquisition import SLOT, _packet, receipt
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.receipts.articles.store import retain_receipt
+from baibai_engine.data_collection.receipts.articles.store import (
+    ArticleStoreError,
+    read_body,
+    read_receipt,
+    retain_receipt,
+)
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.article_discovery import DiscoveryWork
@@ -21,6 +27,7 @@ from baibai_jobs.acquisition.article_planning import (
 )
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import download_fixed, seal_integrated
+from baibai_jobs.maintenance import article_recovery
 from baibai_jobs.maintenance.article_recovery import prepare, register_discovery
 
 
@@ -56,13 +63,27 @@ def test_exact_recovery_keeps_original_marker_manifest_and_clock(tmp_path):
 
 
 @pytest.mark.parametrize("last_slot", [None, SLOT.isoformat()])
-def test_discovery_registration_is_idempotent_and_preserves_live_source_state(tmp_path, last_slot):
+@pytest.mark.parametrize("revalidated", [False, True])
+def test_discovery_registration_is_idempotent_and_preserves_live_source_state(
+    tmp_path, last_slot, revalidated, monkeypatch
+):
     store = MemoryR2Store()
     packet = _packet(tmp_path, "mof_news")
     body = b"synthetic retained original"
-    original = receipt(body=body)
+    baseline = receipt(body=body)
+    original = baseline
     with closing(open_connection(packet / "receipts.sqlite")) as conn, conn:
-        retain_receipt(conn, original, body=body)
+        retain_receipt(conn, baseline, body=body)
+        if revalidated:
+            original = baseline.model_copy(
+                update={
+                    "receipt_id": "not-modified",
+                    "received_at": baseline.received_at + timedelta(hours=1),
+                    "status": "not_modified",
+                    "http_status": 304,
+                }
+            )
+            retain_receipt(conn, original)
     original_report = {
         "source": "mof_news",
         "started_at": SLOT.isoformat(),
@@ -93,6 +114,15 @@ def test_discovery_registration_is_idempotent_and_preserves_live_source_state(tm
         advance_slot=last_slot is not None,
     )
     state, _ = load_planning(store, "mof_news")
+    queries = []
+    connect = article_recovery.connect_read_only
+
+    def tracing_read(path):
+        conn = connect(path)
+        conn.set_trace_callback(queries.append)
+        return conn
+
+    monkeypatch.setattr(article_recovery, "connect_read_only", tracing_read)
     result = register_discovery(
         store,
         tmp_path / "recovery",
@@ -102,6 +132,17 @@ def test_discovery_registration_is_idempotent_and_preserves_live_source_state(tm
         receipt_ids=[original.receipt_id],
     )
     assert result["status"] == "registered"
+    source_body_reads = [
+        query
+        for query in queries
+        if query.startswith("SELECT body_gzip FROM article_source_receipts")
+    ]
+    assert len(source_body_reads) == 1
+    restored = tmp_path / "recovery" / result["stage"]["stage_id"] / "receipts.sqlite"
+    with closing(connect(restored)) as conn:
+        assert read_receipt(conn, original.receipt_id) == original
+        assert baseline.body_ref is not None
+        assert read_body(conn, baseline.body_ref) == body
     after, _ = load_planning(store, "mof_news")
     assert after.last_slot == state.last_slot
     assert after.not_before == state.not_before
@@ -125,6 +166,55 @@ def test_discovery_registration_is_idempotent_and_preserves_live_source_state(tm
     assert repeated == {"status": "already_registered", "registered": 0}
     assert store.put_keys == writes
     assert store.values[key].body == old_manifest
+
+
+@pytest.mark.parametrize("revalidated", [False, True])
+def test_discovery_recovery_refuses_a_damaged_200_original(tmp_path, revalidated):
+    store = MemoryR2Store()
+    packet = _packet(tmp_path, "mof_news")
+    body = b"synthetic retained original"
+    baseline = receipt(body=body)
+    original = baseline
+    with closing(open_connection(packet / "receipts.sqlite")) as conn, conn:
+        retain_receipt(conn, baseline, body=body)
+        if revalidated:
+            original = baseline.model_copy(
+                update={
+                    "receipt_id": "not-modified",
+                    "received_at": baseline.received_at + timedelta(hours=1),
+                    "status": "not_modified",
+                    "http_status": 304,
+                }
+            )
+            retain_receipt(conn, original)
+        conn.execute(
+            "UPDATE article_source_receipts SET body_gzip=? WHERE receipt_id=?",
+            (gzip.compress(b"locally damaged body"), baseline.receipt_id),
+        )
+    report = {
+        "source": "mof_news",
+        "started_at": SLOT.isoformat(),
+        "asof": SLOT.date().isoformat(),
+        "receipt_ids": [original.receipt_id],
+        "projection_kinds": {original.receipt_id: "document"},
+    }
+    (packet / "result.json").write_text(json.dumps(report))
+    save_handoff(store, "corrupt", packet, namespace="article-sources")
+    digest = hashlib.sha256(
+        store.values["coordination/article-sources/corrupt/handoff.json"].body
+    ).hexdigest()
+    publish_planning_input(store, "mof_news", {})
+    writes = list(store.put_keys)
+    with pytest.raises(ArticleStoreError, match="article body digest mismatch"):
+        register_discovery(
+            store,
+            tmp_path / "recovery",
+            source="mof_news",
+            stage_id="corrupt",
+            manifest_sha256=digest,
+            receipt_ids=[original.receipt_id],
+        )
+    assert store.put_keys == writes
 
 
 def test_discovery_recovery_rejects_index_evidence_from_another_source(tmp_path):
