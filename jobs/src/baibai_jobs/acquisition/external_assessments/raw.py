@@ -313,7 +313,10 @@ def preserve_raw_bundle(store: ObjectStore, key: str) -> str:
 def _decode_raw_bundle(
     payload: bytes, key: str
 ) -> tuple[dict[str, Any], tuple[EquityWebSourceResponse, ...]]:
-    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+    with (
+        gzip.GzipFile(fileobj=io.BytesIO(payload), mode="rb") as uncompressed,
+        tarfile.open(fileobj=uncompressed, mode="r:") as archive,
+    ):
         manifest_stream = archive.extractfile("manifest.json")
         if manifest_stream is None:
             raise ValueError("missing external assessment raw manifest")
@@ -346,6 +349,7 @@ def _decode_raw_bundle(
             raise ValueError("invalid external assessment raw receipts")
         expected_members = ["manifest.json"]
         responses: list[EquityWebSourceResponse] = []
+        body_end = 0
         for index, receipt in enumerate(receipts):
             member = f"bodies/{index:04d}.html"
             if (
@@ -357,6 +361,7 @@ def _decode_raw_bundle(
             info = archive.getmember(member)
             if not info.isfile():
                 raise ValueError("external assessment raw body must be a regular file")
+            body_end = info.offset_data + info.size
             stream = archive.extractfile(info)
             assert stream is not None
             with stream:
@@ -398,6 +403,19 @@ def _decode_raw_bundle(
             responses.append(response)
         if archive.getnames() != expected_members:
             raise ValueError("unexpected external assessment raw archive members")
+        # The v2 writer emits one gzip member. After the last retained body
+        # it pads the TAR block, writes two end blocks and pads one TAR record.
+        # Read only that tail plus one byte so gzip checks the trailer/CRC
+        # without expanding a concatenated member or unreferenced padding.
+        end_blocks = body_end + (-body_end % tarfile.BLOCKSIZE) + 2 * tarfile.BLOCKSIZE
+        tar_size = end_blocks + (-end_blocks % tarfile.RECORDSIZE)
+        if int.from_bytes(payload[-4:], "little") != tar_size % (1 << 32):
+            raise ValueError("invalid external assessment raw gzip extent")
+        remaining = tar_size - body_end
+        uncompressed.seek(body_end)
+        tail = uncompressed.read(remaining + 1)
+        if len(tail) != remaining or any(tail):
+            raise ValueError("invalid external assessment raw tar tail")
     _validate_lineage(responses)
     return manifest, tuple(responses)
 
