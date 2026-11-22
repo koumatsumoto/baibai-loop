@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from math import isclose, isfinite
-from pathlib import Path
 from statistics import median
 from typing import Any
 
 from pydantic import JsonValue
 
-from baibai_engine.machine_analysis.generation.query import stream_generation_subjects
+from baibai_engine.machine_analysis.generation.query import (
+    stream_generation_subjects_from_connection,
+)
 
 
 def _object(value: JsonValue | None) -> dict[str, JsonValue]:
@@ -156,17 +158,17 @@ class BookPriceComparison:
 
 
 def read_book_prices(
+    connection: sqlite3.Connection,
     *,
     maximum: float,
     generation_id: str,
     as_of: date,
     listings: dict[str, tuple[str | None, str | None, str | None]],
-    path: Path,
 ) -> BookPriceComparison:
     sectors = {t: item[0] for t, item in listings.items()}
     prices = {}
-    with stream_generation_subjects(
-        generation_id, subjects=tuple(listings), model_ids=("company_financials",), path=path
+    with stream_generation_subjects_from_connection(
+        connection, generation_id, subjects=tuple(listings), model_ids=("company_financials",)
     ) as saved:
         if saved is None or saved[0].as_of != as_of:
             raise ValueError("the fixed generation for the reported book comparison is unavailable")

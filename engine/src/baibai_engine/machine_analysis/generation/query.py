@@ -66,7 +66,20 @@ def read_model_inputs(
 def read_research_model_inputs(
     generation_id: str, *, targets: Sequence[str], path: Path | None = None
 ) -> ModelInputSlice | None:
-    return _read(generation_id, collection=ModelInputSlice, path=path, research_targets=targets)
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        return read_research_model_inputs_from_connection(
+            connection, generation_id, targets=targets
+        )
+
+
+def read_research_model_inputs_from_connection(
+    connection: sqlite3.Connection, generation_id: str, *, targets: Sequence[str]
+) -> ModelInputSlice | None:
+    """Caller owns the read transaction when binding the slice to other Runs facts."""
+    return _read_from_connection(
+        connection, generation_id, collection=ModelInputSlice, research_targets=targets
+    )
 
 
 @contextmanager
@@ -80,20 +93,35 @@ def stream_generation_subjects(
     """同一断面の対象別モデル列。with内で消費し、未生成の対象は返さない。"""
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
-        metadata = _read_metadata(connection, generation_id)
-        if metadata is None:
-            yield None
-            return
-        with closing(
-            _subject_models(
-                connection,
-                generation_id,
-                tuple(subjects),
-                None if model_ids is None else tuple(model_ids),
-                metadata=metadata,
-            )
-        ) as companies:
-            yield metadata, companies
+        with stream_generation_subjects_from_connection(
+            connection, generation_id, subjects=subjects, model_ids=model_ids
+        ) as saved:
+            yield saved
+
+
+@contextmanager
+def stream_generation_subjects_from_connection(
+    connection: sqlite3.Connection,
+    generation_id: str,
+    *,
+    subjects: Sequence[str],
+    model_ids: Sequence[str] | None = None,
+) -> Iterator[tuple[GenerationMetadata, Iterator[tuple[str, tuple[GeneratedModel, ...]]]] | None]:
+    """呼出元の読取transactionで他のRuns根拠と揃え、with内で対象列を消費する。"""
+    metadata = _read_metadata(connection, generation_id)
+    if metadata is None:
+        yield None
+        return
+    with closing(
+        _subject_models(
+            connection,
+            generation_id,
+            tuple(subjects),
+            None if model_ids is None else tuple(model_ids),
+            metadata=metadata,
+        )
+    ) as companies:
+        yield metadata, companies
 
 
 def _subject_models(
@@ -151,32 +179,44 @@ def _read[Collection: (ModelGeneration, ModelInputSlice)](
     collection: type[Collection],
     path: Path | None,
     subjects: Sequence[str] | None = None,
-    research_targets: Sequence[str] | None = None,
 ) -> Collection | None:
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
-        metadata = _read_metadata(connection, generation_id)
-        if metadata is None:
-            return None
-        if research_targets is not None:
-            subjects = research_subjects(metadata, research_targets)
-        scope = None if subjects is None else canonical_json(tuple(subjects))
-        rows = connection.execute(
-            "SELECT model_id,subject,calculation_revision,payload_gzip FROM generated_model "
-            "WHERE generation_id=? AND (? IS NULL OR subject IN "
-            "(SELECT value FROM json_each(?))) ORDER BY model_id,subject",
-            (generation_id, scope, scope),
+        return _read_from_connection(
+            connection, generation_id, collection=collection, subjects=subjects
         )
-        models = tuple(_decode_model(*row) for row in rows)
-        # Keep decoded models and nested metadata typed: dumping a temporary
-        # generation would recursively copy every retained owner payload again.
-        fields = dict(metadata)
-        if subjects is not None:
-            fields["subjects"] = tuple(subjects)
-            if metadata.subject_plan is not None:
-                fields["subject_plan"] = {
-                    subject: definition
-                    for subject, definition in metadata.subject_plan.items()
-                    if subject in subjects
-                }
-        return collection(**fields, models=models)
+
+
+def _read_from_connection[Collection: (ModelGeneration, ModelInputSlice)](
+    connection: sqlite3.Connection,
+    generation_id: str,
+    *,
+    collection: type[Collection],
+    subjects: Sequence[str] | None = None,
+    research_targets: Sequence[str] | None = None,
+) -> Collection | None:
+    metadata = _read_metadata(connection, generation_id)
+    if metadata is None:
+        return None
+    if research_targets is not None:
+        subjects = research_subjects(metadata, research_targets)
+    scope = None if subjects is None else canonical_json(tuple(subjects))
+    rows = connection.execute(
+        "SELECT model_id,subject,calculation_revision,payload_gzip FROM generated_model "
+        "WHERE generation_id=? AND (? IS NULL OR subject IN "
+        "(SELECT value FROM json_each(?))) ORDER BY model_id,subject",
+        (generation_id, scope, scope),
+    )
+    models = tuple(_decode_model(*row) for row in rows)
+    # Keep decoded models and nested metadata typed: dumping a temporary
+    # generation would recursively copy every retained owner payload again.
+    fields = dict(metadata)
+    if subjects is not None:
+        fields["subjects"] = tuple(subjects)
+        if metadata.subject_plan is not None:
+            fields["subject_plan"] = {
+                subject: definition
+                for subject, definition in metadata.subject_plan.items()
+                if subject in subjects
+            }
+    return collection(**fields, models=models)

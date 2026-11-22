@@ -164,16 +164,17 @@ def test_cli_question_to_one_fixed_company_and_finite_comparison(tmp_path, monke
         pytest.fail("ordinary discovery must not open the old all-company publication")
 
     monkeypatch.setattr(screening_query, "read_publication", wide)
-    real = generation_query.read_research_model_inputs
+    real = generation_query.read_research_model_inputs_from_connection
     captured = []
 
-    def limited(generation_id, *, targets: tuple, path):
+    def limited(connection, generation_id, *, targets: tuple):
         assert generation_id == gen.generation_id
-        assert path == runs
+        assert connection.in_transaction
+        assert connection.execute("PRAGMA database_list").fetchone()[2] == str(runs)
         captured.append(targets)
-        return real(generation_id, targets=targets, path=path)
+        return real(connection, generation_id, targets=targets)
 
-    monkeypatch.setattr(generation_query, "read_research_model_inputs", limited)
+    monkeypatch.setattr(generation_query, "read_research_model_inputs_from_connection", limited)
     base = [
         "selection-context",
         "--scope",

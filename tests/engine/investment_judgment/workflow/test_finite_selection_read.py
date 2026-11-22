@@ -158,7 +158,8 @@ def test_implicit_unindexed_publication_does_not_authorize_archived_evidence(
 
     monkeypatch.setattr("gzip.decompress", forbidden)
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.generation.query.read_research_model_inputs", forbidden
+        "baibai_engine.machine_analysis.generation.query.read_research_model_inputs_from_connection",
+        forbidden,
     )
     monkeypatch.setattr(
         "baibai_engine.investment_judgment.workflow.selection_query._ledger_positions", forbidden

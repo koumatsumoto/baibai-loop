@@ -1,7 +1,11 @@
 """簿価比較を黒字銘柄・閾値通過銘柄の比較にすり替えない。"""
 
+import gzip
 import json
+import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
+from shutil import copyfile
 
 import pytest
 from tests.engine.investment_judgment.workflow.test_discovery_questions import observation
@@ -10,6 +14,7 @@ from tests.helpers.model_generation import generation, publish_generation
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.workflow.book_prices import BookPriceComparison, _observed
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.machine_analysis.screening import discovery_index
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoveryPolicy,
@@ -17,6 +22,7 @@ from baibai_engine.machine_analysis.screening.discovery_contract import (
     discovery_publication_id,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+from baibai_engine.primitives.json import encode_json
 
 _DAY = "2026-10-23"
 
@@ -148,13 +154,15 @@ def test_assets_cli_uses_all_unfiltered_peers_and_same_book_period(tmp_path, cap
     ]
     before = runs.read_bytes()
     calls = []
-    original = owner.stream_generation_subjects
+    original = owner.stream_generation_subjects_from_connection
 
-    def limited(generation_id, **kwargs):
+    def limited(connection, generation_id, **kwargs):
+        assert connection.in_transaction
+        assert connection.execute("PRAGMA database_list").fetchone()[2] == str(runs)
         calls.append((generation_id, kwargs))
-        return original(generation_id, **kwargs)
+        return original(connection, generation_id, **kwargs)
 
-    monkeypatch.setattr(owner, "stream_generation_subjects", limited)
+    monkeypatch.setattr(owner, "stream_generation_subjects_from_connection", limited)
     assert main([*base, "--discovery-question", "reported_assets"], now=now) == 0
     capsys.readouterr()
     assert calls == []
@@ -166,7 +174,6 @@ def test_assets_cli_uses_all_unfiltered_peers_and_same_book_period(tmp_path, cap
     assert len(calls) == 1
     assert calls[0][0] == gen.generation_id
     assert calls[0][1]["model_ids"] == ("company_financials",)
-    assert calls[0][1]["path"] == runs
     assert set(calls[0][1]["subjects"]) == set(stocks)
     meta = result["reported_book_comparison"]
     assert [meta[k] for k in ("within_question", "at_or_below", "above", "unavailable")] == [
@@ -229,3 +236,116 @@ def test_invalid_book_price_request_is_not_an_empty_result(tmp_path, capsys, arg
         == 3
     )
     assert "reported PBR" in json.loads(capsys.readouterr().out)["reason"]
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        (
+            "--scope",
+            "discover_new",
+            "--discovery-question",
+            "reported_assets",
+            "--reported-pbr-max",
+            "0.6",
+        ),
+        ("--scope", "specified_stocks", "--ticker", "1001"),
+    ],
+)
+def test_discovery_response_uses_one_runs_copy_during_replacement(
+    tmp_path, capsys, monkeypatch, route
+):
+    runs, replacement, app = (tmp_path / name for name in ("runs", "replacement", "app"))
+
+    def financial(price):
+        payload = _payload(price / 1000)
+        cap = price * 10
+        payload["financial"].update(market_cap=cap)
+        payload["financial"]["book_equity"]["amount_yen"] = 10_000
+        payload["earnings_price"].update(price_yen=price, market_cap_yen=cap)
+        return payload
+
+    original = generation().model_copy(
+        update={
+            "models": (
+                GeneratedModel(
+                    model_id="company_financials",
+                    subject="1001",
+                    calculation_revision="test",
+                    payload=financial(900),
+                ),
+            ),
+        },
+    )
+    publish_generation(original, path=runs)
+    identity = discovery_publication_id(original.generation_id)
+    row = observation(
+        "1001",
+        price=900,
+        price_date=_DAY,
+        expected_price_date=_DAY,
+        basis="last_close_unadjusted",
+        price_ready=True,
+        book_equity={"amount_yen": 10_000},
+    )
+    ScreeningSelectionStore(runs).publish(
+        identity,
+        ScreeningSelection(
+            original.generation_id, ("1001",), DiscoverySelection(DiscoveryPolicy(), (row,), {})
+        ),
+    )
+    copyfile(runs, replacement)
+    # 同ID異本文は通常のpublisherが拒む。異なる復元元として試験内だけで合成する。
+    with closing(sqlite3.connect(replacement)) as db, db:
+        (blob,) = db.execute(
+            "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (identity,)
+        ).fetchone()
+        raw = json.loads(gzip.decompress(blob))
+        raw["result"]["rows"][0]["price"] = 500
+        db.execute(
+            "UPDATE screening_selection SET payload_gzip=? WHERE selection_id=?",
+            (gzip.compress(encode_json(raw).encode(), mtime=0), identity),
+        )
+        db.execute(
+            "UPDATE generated_model SET payload_gzip=? WHERE generation_id=? AND subject=?",
+            (
+                gzip.compress(encode_json(financial(500)).encode(), mtime=0),
+                original.generation_id,
+                "1001",
+            ),
+        )
+    now = datetime.now(UTC) + timedelta(seconds=1)
+
+    def read():
+        assert (
+            main(
+                [
+                    "selection-context",
+                    "--request",
+                    "資産",
+                    "--runs-path",
+                    str(runs),
+                    "--db",
+                    str(app),
+                    "--screening-selection-id",
+                    identity,
+                    *route,
+                ],
+                now=now,
+            )
+            == 0
+        )
+        return capsys.readouterr().out
+
+    expected = read()
+    source_validation = discovery_index.validate_selection_source
+
+    def replace_after_index(*args, **kwargs):
+        source_validation(*args, **kwargs)
+        replacement.replace(runs)
+
+    monkeypatch.setattr(discovery_index, "validate_selection_source", replace_after_index)
+    observed = read()
+    assert not replacement.exists()
+    assert not app.exists()
+    assert observed == expected
