@@ -33,7 +33,7 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_offer import
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.objects.r2 import Boto3R2Store
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
-from baibai_jobs.integration.edinet_list_native import materialize_lists
+from baibai_jobs.integration.edinet_list_native import project_execution_lists
 from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 
 
@@ -95,9 +95,12 @@ def build_saved_tender_offer_exits_command(
         ):
             fixed = read_edinet_input(store, saved)
             documents = Path(temporary) / "documents.sqlite"
-            list_report = materialize_lists(fixed.lists, documents)
-            if list_report["status"] != "completed" or list_report["receipt_count"] == 0:
-                raise EDINETProviderError("saved EDINET list input is unavailable or failed")
+            list_report, list_evidence = project_execution_lists(fixed.lists, documents)
+            if list_report["status"] != "completed":
+                raise EDINETProviderError("saved EDINET list input failed")
+            # Out-of-cutoff list days cannot establish an empty observation.
+            if not any(receipt.doc_date <= asof_date for receipt in list_evidence.receipts):
+                raise EDINETProviderError("saved EDINET list input is unavailable at the cutoff")
 
             def read_blocks(doc_id: str) -> Mapping[str, str]:
                 try:
