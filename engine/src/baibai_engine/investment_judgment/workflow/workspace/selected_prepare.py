@@ -262,6 +262,10 @@ def resume_selected_workspace(
             raise ResearchWorkspaceConflictError("workspace belongs to another Operation")
         # Force repairs generated projection, never changes binding or authored drafts.
         selection = validate_workspace_selection(manifest, operation=operation)
+        if manifest.get("holding_ticker") is not None:
+            raise ResearchWorkspaceConflictError(
+                "prepare requires the Operation's root workspace, not a holdings/<ticker> child"
+            )
         if isinstance(company_growth_periods, EllipsisType):
             company_growth_periods = cast("int | None", manifest.get("company_growth_periods", 12))
     else:
