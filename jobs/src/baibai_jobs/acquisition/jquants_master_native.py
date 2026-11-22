@@ -16,6 +16,7 @@ from baibai_engine.data_collection.providers.jquants.master_native import (
     MasterAttempt,
     MasterL1,
     plan_master_days,
+    unfulfilled_master_days,
 )
 from baibai_engine.storage.objects.r2 import Boto3R2Store
 from baibai_jobs.acquisition.jquants_full_day_native import (
@@ -96,11 +97,11 @@ def main(argv: list[str] | None = None) -> int:
                     key=lambda item: (item.attempted_at or item.order_time, item.request_id)
                 )
                 replayed = owner.commit(attempts)
-                fixed = owner.fixed()
                 unresolved = {
                     day.isoformat(): ["nonempty_master_required"]
-                    for day in sorted({item.day for item in attempts})
-                    if plan_master_days(store, fixed, start=day, end=day)
+                    for day in unfulfilled_master_days(
+                        store, owner.fixed(), days=(item.day for item in attempts)
+                    )
                 }
                 print(json.dumps({**replayed, "unresolved": unresolved}, sort_keys=True))
                 return int(bool(unresolved))
