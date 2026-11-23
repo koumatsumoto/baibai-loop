@@ -10,6 +10,9 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
+    decode_parent_attributable_equity,
+)
 from baibai_engine.machine_analysis.observations.normalization import (
     normalize_ticker_or_none,
     to_float,
@@ -63,8 +66,8 @@ def store_edinet_metrics(
                 "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
                 "capex_ppe_reported, capex_intangible_reported, "
                 "financing_lease_repayments_cash_effect, "
-                "financing_noncontrolling_dividends_cash_effect"
-                ") VALUES (" + ", ".join("?" for _ in range(40)) + ")",
+                "financing_noncontrolling_dividends_cash_effect, parent_attributable_equity_json"
+                ") VALUES (" + ", ".join("?" for _ in range(41)) + ")",
                 rows,
             )
         persisted_count = date_range_row_count(
@@ -133,6 +136,18 @@ def _edinet_metric_rows(
             or investment_securities < 0
         ):
             raise ValueError(f"EDINET metric row {ticker} has invalid investment_securities")
+        parent_equity = record.get("parent_attributable_equity_json")
+        if parent_equity is not None and (
+            to_str_or_none(record.get("source_doc_id")) is None
+            or decode_parent_attributable_equity(
+                parent_equity,
+                document_type=to_str_or_none(record.get("document_type")),
+                consolidation_basis=to_str_or_none(record.get("consolidation_basis")),
+                source_document_revision=record.get("source_document_revision"),
+            )
+            is None
+        ):
+            raise ValueError(f"invalid EDINET parent-attributable equity fact for {ticker}")
         rows.append(
             (
                 asof_date,
@@ -175,6 +190,7 @@ def _edinet_metric_rows(
                 to_float(record.get("capex_intangible_reported")),
                 to_float(record.get("financing_lease_repayments_cash_effect")),
                 to_float(record.get("financing_noncontrolling_dividends_cash_effect")),
+                parent_equity,
             )
         )
     return rows

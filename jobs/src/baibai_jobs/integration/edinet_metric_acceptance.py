@@ -80,7 +80,10 @@ def decode_acceptance(raw: str) -> dict[str, Any]:
 def metric_result_sha256(record: EdinetMetricRecord) -> str:
     from baibai_engine.primitives.json import canonical_json
 
-    return hashlib.sha256(canonical_json(asdict(record)).encode()).hexdigest()
+    # v17 acceptance seals the existing metrics, not the independent owner-equity observation.
+    payload = asdict(record)
+    del payload["parent_attributable_equity"]
+    return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
 
 def verify_acceptance(

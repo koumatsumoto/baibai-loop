@@ -65,6 +65,30 @@ def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     return buffer.getvalue()
 
 
+def _edinet_ifrs_parent_csv_zip(*, parent_yen: int = 9_800) -> bytes:
+    rows = (
+        ("jpdei_cor:AccountingStandardsDEI", "FilingDateInstant", "－", "IFRS"),
+        (
+            "jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI",
+            "FilingDateInstant",
+            "－",
+            "true",
+        ),
+        ("jpigp_cor:EquityIFRS", "CurrentYearInstant", "JPY", "10000"),
+        (
+            "jpigp_cor:EquityIFRS",
+            "CurrentYearInstant_EquityAttributableToOwnersOfParentIFRSMember",
+            "JPY",
+            str(parent_yen),
+        ),
+    )
+    text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join("\t".join(row) for row in rows)
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("XBRL_TO_CSV/parent.csv", text.encode("utf-16"))
+    return buffer.getvalue()
+
+
 def _edinet_document(
     *,
     ticker: str,

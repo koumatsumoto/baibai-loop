@@ -76,8 +76,7 @@ EDINET_METRICS_V2 = LakeDataset(
     ),
 )
 
-# Older immutable rows remain unknown for the two newly retained cash components.
-EDINET_METRICS = replace(
+EDINET_METRICS_V3 = replace(
     EDINET_METRICS_V2,
     contract_version=3,
     columns=(
@@ -89,6 +88,21 @@ EDINET_METRICS = replace(
     legacy_read_defaults=(
         ("financing_lease_repayments_cash_effect", None),
         ("financing_noncontrolling_dividends_cash_effect", None),
+    ),
+)
+
+# Missing parent equity in a historical release stays unknown.
+EDINET_METRICS = replace(
+    EDINET_METRICS_V3,
+    contract_version=4,
+    columns=(
+        *EDINET_METRICS_V3.columns,
+        LakeColumn("parent_attributable_equity_json", "TEXT", _TEXT, True),
+    ),
+    legacy_read_contracts=(EDINET_METRICS_V2, EDINET_METRICS_V3),
+    legacy_read_defaults=(
+        *EDINET_METRICS_V3.legacy_read_defaults,
+        ("parent_attributable_equity_json", None),
     ),
 )
 

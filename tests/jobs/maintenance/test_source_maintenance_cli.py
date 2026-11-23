@@ -12,7 +12,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
-from tests.helpers.edinet_metrics import _edinet_csv_zip, _edinet_document
+from tests.helpers.edinet_metrics import (
+    _edinet_csv_zip,
+    _edinet_document,
+    _edinet_ifrs_parent_csv_zip,
+)
 from tests.helpers.edinet_native import native_edinet_store
 from tests.helpers.http_doubles import FakeSession, response
 from tests.helpers.screening_sqlite import add_source_coverage
@@ -20,6 +24,7 @@ from tests.helpers.screening_sqlite import add_source_coverage
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.list_native import HEAD_KEY
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    read_edinet_metric_baseline,
     read_edinet_metrics,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
@@ -206,6 +211,43 @@ def test_main_extract_edinet_metrics_stores_parsed_metrics_for_the_argv_asof() -
     payload = read_edinet_metrics(_STORE, date(2026, 4, 24))
     assert payload is not None
     assert payload["9682"].net_cash == 600.0
+
+
+def test_sql_only_cli_does_not_certify_parent_equity_without_native_archive(tmp_path):
+    asof = date(2026, 4, 24)
+    doc = {**_edinet_document(ticker="96820", doc_id="S100TEST"), "seqNumber": 1}
+    revisions = []
+    for amount in (9800, 9700):
+        path = tmp_path / f"{amount}.sqlite"
+        store_edinet_documents(path, asof, [doc])
+        with contextlib.closing(open_connection(path)) as connection:
+            retain_source_archive(
+                connection,
+                "S100TEST",
+                5,
+                _edinet_ifrs_parent_csv_zip(parent_yen=amount),
+                stored_on=asof,
+            )
+        result = _run_offline_metrics_cli(
+            [
+                "extract-edinet-metrics",
+                "--asof",
+                asof.isoformat(),
+                "--lookback-days",
+                "0",
+                "--sqlite-path",
+                str(path),
+            ]
+        )
+        assert result.exit_code == 0, result.stderr
+        snapshot = read_edinet_metric_baseline(path, asof)
+        assert snapshot is not None
+        row = snapshot.rows["9682"]
+        assert row.record.equity == 10_000
+        assert row.source_document_revision
+        assert row.record.parent_attributable_equity is None
+        revisions.append(row.source_document_revision)
+    assert revisions[0] == revisions[1]
 
 
 def test_main_extract_edinet_metrics_missing_archive_preserves_old_metrics() -> None:

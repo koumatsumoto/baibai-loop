@@ -4,10 +4,15 @@ import json
 import os
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
+from hashlib import sha256
 from uuid import UUID
 
 import pytest
-from tests.helpers.edinet_metrics import _edinet_csv_zip, _edinet_document
+from tests.helpers.edinet_metrics import (
+    _edinet_csv_zip,
+    _edinet_document,
+    _edinet_ifrs_parent_csv_zip,
+)
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.archive_native import (
@@ -175,6 +180,72 @@ def test_only_selected_csv_is_read_from_saved_heads(tmp_path):
             0
         ] == AT.isoformat(timespec="microseconds")
     assert datetime.fromisoformat(metrics(output).recorded_at_utc) != AT
+
+
+@pytest.mark.parametrize("later_source", ["same", "changed_zip", "wrong_type"])
+def test_fixed_native_csv_certifies_parent_and_warm_reuse_needs_no_zip_read(tmp_path, later_source):
+    original = _edinet_ifrs_parent_csv_zip()
+    _, _, _, lists, archives = sources(
+        tmp_path,
+        days={BASE: [document()], BASE + timedelta(days=1): []},
+        bodies={("S100ONE", 5): original},
+    )
+    output = tmp_path / "candidate.sqlite"
+    assert run(lists, archives, output)["edinet-metrics"]["status"] == "completed"
+    baseline = metrics(output, BASE).rows["7203"]
+    fact = baseline.record.parent_attributable_equity
+    assert fact is not None
+    assert fact.amount_yen == 9800
+    assert fact.archive_sha256 == sha256(original).hexdigest()
+    assert fact.source_csv_member == "XBRL_TO_CSV/parent.csv"
+    assert baseline.record.equity == 10000
+    assert baseline.source_document_revision
+
+    following = BASE + timedelta(days=1)
+    if later_source != "same":
+        changed = _edinet_ifrs_parent_csv_zip(parent_yen=9700)
+        _, _, _, _, archives = sources(
+            tmp_path / "other-fixed",
+            bodies={
+                ("S100ONE", 5 if later_source == "changed_zip" else 1): (
+                    changed if later_source == "changed_zip" else original
+                )
+            },
+        )
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(archives, "read_csv_zip", lambda *_: pytest.fail("warm ZIP read"))
+        result = edinet_integration.extract_saved_edinet(
+            output, asof=following, lookback_days=1, metric_archives=archives
+        )
+    assert result["edinet-metrics"]["status"] == "completed"
+    reused = metrics(output, following).rows["7203"]
+    assert reused.record.equity == 10000
+    assert reused.source_document_revision == baseline.source_document_revision
+    assert reused.record.parent_attributable_equity == (fact if later_source == "same" else None)
+
+
+def test_unchanged_same_date_does_not_certify_a_new_archive(tmp_path, monkeypatch):
+    original = _edinet_ifrs_parent_csv_zip()
+    _, _, _, lists, archives = sources(tmp_path, bodies={("S100ONE", 5): original})
+    output = tmp_path / "candidate.sqlite"
+    assert run(lists, archives, output)["edinet-metrics"]["status"] == "completed"
+    before = output.read_bytes()
+    original_fact = metrics(output, BASE).rows["7203"].record.parent_attributable_equity
+    assert original_fact is not None
+    assert original_fact.archive_sha256 == sha256(original).hexdigest()
+
+    _, _, _, _, wrong_kind = sources(tmp_path / "other-fixed", bodies={("S100ONE", 1): original})
+
+    def no_metric_write(**_kwargs):
+        pytest.fail("same-date unchanged metrics must not be written or restamped")
+
+    monkeypatch.setattr(edinet_integration, "extract_edinet_metrics_from_plan", no_metric_write)
+    result = edinet_integration.extract_saved_edinet(
+        output, asof=BASE, lookback_days=0, metric_archives=wrong_kind
+    )
+    assert result["edinet-metrics"]["status"] == "unchanged"
+    assert output.read_bytes() == before
+    assert metrics(output, BASE).rows["7203"].record.parent_attributable_equity == original_fact
 
 
 def test_partial_and_all_missing_are_decided_from_source_inventory(tmp_path):

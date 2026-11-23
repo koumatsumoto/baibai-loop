@@ -138,6 +138,17 @@ model-integrationは生成に使ったreleaseも公開するため、後からpu
 
 切替前に旧reader/writerを止め、lease内でMarket/Runs/receipt/Lake pointerの一致と元の版を固定・保全する。固定した元releaseを旧版で隔離copyにhydrateし、列も含めて明示的に新版へ移行してから書き出す。必要な履歴の旧列・範囲を比較し、SQLite由来の全datasetを同じ新sealで検証する。旧Parquetや受領を上書きしない。
 
+v52→v53では、旧codeで固定releaseから完全hydrateして閉じた隔離copyと、そのcopyの確認済みSHA-256を使う。現行pointerを読まない。固定manifestの版・件数と元originを確認し、出力だけにnullableな親帰属列を追加する。件数一致だけでは報告値の照合を代替しない。
+
+```bash
+uv run python -m baibai_jobs.maintenance.market.prepare_v53 \
+  --source <CLOSED_HYDRATED_V52_COPY> --source-sha256 <VERIFIED_COPY_SHA256> \
+  --mirror <PRIVATE_MIRROR> --release-id <OLD_RELEASE_ID> \
+  --manifest-sha256 <OLD_RELEASE_SHA256> --output <NEW_PRIVATE_V53_COPY>
+```
+
+成功は別名のlocal copyとそのSHA-256だけ。このcopyのoriginは元のreleaseに留まり、公開・canonical転送や旧履歴の再計算はしない。
+
 Lake pointer・Market・receiptは一括更新ではない。通常の `publish-lake → push-market` を跨バージョン切替に使わない。最後のreceiptまで各応答・送信body・読戻しを保全し、途中で結果が不明なら停止して確定済みの境界を確認する。元bodyに戻してもETagが変われば元receiptは使えない。復元または前向き完了を隔離リハーサルで確認できるまでは、混在状態で再開しない。切替後は現行版で新たにpullし、手動の日次でrelease・seal・lease解放まで確認する。
 
 ### 部分 push からの復旧

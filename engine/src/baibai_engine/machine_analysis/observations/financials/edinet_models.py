@@ -2,14 +2,45 @@
 
 from datetime import date
 from math import isfinite
+from typing import Annotated, Literal
 
-from pydantic import ConfigDict, field_validator
+from pydantic import ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.primitives.stocks import normalize_ticker
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
+
+
+type ParentEquityContext = Literal[
+    "CurrentYearInstant_EquityAttributableToOwnersOfParentIFRSMember",
+    "InterimInstant_EquityAttributableToOwnersOfParentIFRSMember",
+]
+
+
+def parent_equity_context(document_type: str | None) -> ParentEquityContext | None:
+    if document_type in {"120", "130"}:
+        return "CurrentYearInstant_EquityAttributableToOwnersOfParentIFRSMember"
+    if document_type in {"160", "170"}:
+        return "InterimInstant_EquityAttributableToOwnersOfParentIFRSMember"
+    return None
+
+
+@dataclass(frozen=True, slots=True, config=ConfigDict(strict=True, extra="forbid"))
+class ParentAttributableEquityObservation:
+    """Raw current IFRS parent claim, not book equity for ordinary shares.
+
+    The native relative context identifies the fact; filing dates aren't an independent
+    check of its instant. CSV does not retain decimals or share-class rights.
+    """
+
+    amount_yen: Annotated[int, Field(ge=-(2**63), lt=2**63)]
+    source_context: ParentEquityContext
+    source_element: Literal["jpigp_cor:EquityIFRS"]
+    source_csv_member: Annotated[str, Field(pattern=r"(?i)\.csv$")]
+    archive_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    observation_version: Literal[1]
 
 
 def _validate_finite(value: float | None) -> float | None:
@@ -59,6 +90,7 @@ class EdinetMetricRecord:
     source_period_end: date | None = None
     capex_source: str | None = None
     failure_reasons: tuple[str, ...] = ()
+    parent_attributable_equity: ParentAttributableEquityObservation | None = None
 
     @field_validator("ticker", mode="before")
     @classmethod

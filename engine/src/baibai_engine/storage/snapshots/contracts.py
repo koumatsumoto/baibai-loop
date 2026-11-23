@@ -101,7 +101,7 @@ class LakeDataset:
             return row
         defaults = dict(self.legacy_read_defaults)
         missing = set(target_names) - set(source_names)
-        if set(source_names) - set(target_names) or missing != defaults.keys():
+        if set(source_names) - set(target_names) or missing != defaults.keys() - values.keys():
             raise ValueError("historical row projection differs from declared owner defaults")
         return tuple(values[name] if name in values else defaults[name] for name in target_names)
 

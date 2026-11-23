@@ -6,10 +6,12 @@ import json
 import sqlite3
 import sys
 from contextlib import closing
+from dataclasses import asdict, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
+from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.data_collection.providers.edinet.selection import (
     select_document_candidates,
@@ -42,6 +44,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write
 from baibai_engine.machine_analysis.observations.financials.edinet_models import (
     EdinetMetricRecord,
 )
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, connect_current
 
 
@@ -373,9 +376,10 @@ def extract_edinet_metrics_from_plan(
     source_revisions = {
         candidate.ticker: candidate.source_document_revision for candidate in candidates.values()
     }
+    fixed_archives = reader if isinstance(reader, FixedEdinetArchives) else None
     payload = [
         _metric_record_payload(
-            record,
+            _with_fixed_parent_source(record, fixed_archives),
             extractor_revision=extractor_revision,
             source_document_revision=source_revisions.get(record.ticker),
         )
@@ -403,6 +407,25 @@ def extract_edinet_metrics_from_plan(
         file=out,
     )
     return 0
+
+
+def _with_fixed_parent_source(
+    record: EdinetMetricRecord, fixed_archives: FixedEdinetArchives | None
+) -> EdinetMetricRecord:
+    fact = record.parent_attributable_equity
+    if fact is None:
+        return record
+    # A document list revision identifies selection state, not a type-5 body.
+    # Fresh native reads already verify the exact body. For v17 baseline reuse
+    # compare the chosen native index entry without fetching that body again.
+    entry = (
+        fixed_archives.metadata(record.source_doc_id, 5)
+        if fixed_archives is not None and record.source_doc_id is not None
+        else None
+    )
+    if entry is None or entry.sha256 != fact.archive_sha256:
+        return replace(record, parent_attributable_equity=None)
+    return record
 
 
 def _metric_record_payload(
@@ -443,6 +466,11 @@ def _metric_record_payload(
         "fcf_ttm": record.fcf_ttm,
         "net_cash": record.net_cash,
         "equity": record.equity,
+        "parent_attributable_equity_json": (
+            canonical_json(asdict(record.parent_attributable_equity))
+            if record.parent_attributable_equity is not None
+            else None
+        ),
         "total_assets": record.total_assets,
         "ttm_quality_fcf": record.ttm_quality_fcf.value
         if record.ttm_quality_fcf is not None

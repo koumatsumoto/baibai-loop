@@ -57,7 +57,8 @@ _METRIC_SELECT = (
     "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
     "capex_ppe_reported, capex_intangible_reported, "
     "financing_lease_repayments_cash_effect, "
-    "financing_noncontrolling_dividends_cash_effect"
+    "financing_noncontrolling_dividends_cash_effect, parent_attributable_equity_json, "
+    "source_document_revision"
 )
 
 
@@ -125,7 +126,7 @@ def read_edinet_metric_baseline(
                     f"EDINET metric baseline coverage is inconsistent for {key}"
                 )
             rows = conn.execute(
-                _METRIC_SELECT + ", extractor_revision, source_document_revision "
+                _METRIC_SELECT + ", extractor_revision "
                 "FROM edinet_metrics WHERE asof_date = ? ORDER BY ticker",
                 (key,),
             ).fetchall()
@@ -190,6 +191,7 @@ def _validate_deferred_coverage(
         if (
             record.failure_reasons != (DEFERRED_CSV_REASON,)
             or record.source_doc_id is None
+            or record.parent_attributable_equity is not None
             or any(isinstance(value, int | float) for value in asdict(record).values())
         ):
             raise EDINETMetricBaselineError(f"invalid deferred EDINET metric row for {key}")

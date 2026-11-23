@@ -98,6 +98,7 @@ EDINET_METRICS_DDL = """CREATE TABLE IF NOT EXISTS edinet_metrics(
   capex_intangible_reported REAL,
   financing_lease_repayments_cash_effect REAL,
   financing_noncontrolling_dividends_cash_effect REAL,
+  parent_attributable_equity_json TEXT,
   PRIMARY KEY (asof_date, ticker)
 );
 

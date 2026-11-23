@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
+
+from pydantic import TypeAdapter, ValidationError
 
 from baibai_engine.data_collection.providers.edinet.fields import (
     parse_optional_date,
@@ -12,12 +15,43 @@ from baibai_engine.data_collection.providers.edinet.fields import (
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import (
     EdinetMetricRecord,
+    ParentAttributableEquityObservation,
+    parent_equity_context,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
+
+_PARENT_EQUITY_ADAPTER = TypeAdapter(ParentAttributableEquityObservation)
+
+
+def decode_parent_attributable_equity(
+    value: object,
+    *,
+    document_type: str | None,
+    consolidation_basis: str | None,
+    source_document_revision: object,
+) -> ParentAttributableEquityObservation | None:
+    context = parent_equity_context(document_type)
+    if (
+        not isinstance(value, str)
+        or consolidation_basis != "consolidated"
+        or context is None
+        or not isinstance(source_document_revision, str)
+        or re.fullmatch(r"[0-9a-f]{64}", source_document_revision) is None
+    ):
+        return None
+    try:
+        fact = _PARENT_EQUITY_ADAPTER.validate_json(value)
+    except ValidationError:
+        # A new ancillary field cannot make the prior metric history unusable.
+        return None
+    return fact if fact.source_context == context else None
 
 
 def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
     """Decode the canonical extracted-metric columns, not a native EDINET response."""
+    document_type = text_or_none(record.get("document_type"))
+    consolidation_basis = text_or_none(record.get("consolidation_basis"))
+    doc_id = text_or_none(record.get("source_doc_id"))
     return EdinetMetricRecord(
         ticker=parse_sec_code(record.get("ticker")),
         sales_ttm=to_float(record.get("sales_ttm")),
@@ -26,7 +60,7 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         cash=to_float(record.get("cash")),
         investment_securities=to_float(record.get("investment_securities")),
         ebitda_ttm=to_float(record.get("ebitda_ttm")),
-        consolidation_basis=text_or_none(record.get("consolidation_basis")),
+        consolidation_basis=consolidation_basis,
         ttm_quality_ev_ebitda=_parse_optional_ttm_quality(record.get("ttm_quality_ev_ebitda")),
         ttm_quality_p_s=_parse_ttm_quality(record.get("ttm_quality_p_s")),
         ttm_quality_pcfr=_parse_ttm_quality(record.get("ttm_quality_pcfr")),
@@ -55,13 +89,23 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         total_assets=to_float(record.get("total_assets")),
         ttm_quality_fcf=_parse_optional_ttm_quality(record.get("ttm_quality_fcf")),
         ttm_quality_net_cash=_parse_ttm_quality(record.get("ttm_quality_net_cash")),
-        source_doc_id=text_or_none(record.get("source_doc_id")),
-        document_type=text_or_none(record.get("document_type")),
+        source_doc_id=doc_id,
+        document_type=document_type,
         source_submit_datetime=text_or_none(record.get("source_submit_datetime")),
         source_period_start=parse_optional_date(record.get("source_period_start")),
         source_period_end=parse_optional_date(record.get("source_period_end")),
         capex_source=text_or_none(record.get("capex_source")),
         failure_reasons=record.get("failure_reasons") or (),
+        parent_attributable_equity=(
+            decode_parent_attributable_equity(
+                record.get("parent_attributable_equity_json"),
+                document_type=document_type,
+                consolidation_basis=consolidation_basis,
+                source_document_revision=record.get("source_document_revision"),
+            )
+            if doc_id is not None
+            else None
+        ),
     )
 
 

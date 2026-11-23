@@ -138,7 +138,7 @@ def test_version_only_change_cannot_pass_for_receipt_schema(tmp_path):
         schema.open_connection(path)
 
 
-@pytest.mark.parametrize("version", [47, 50, 51])
+@pytest.mark.parametrize("version", [47, 50, 51, schema.SQLITE_SCHEMA_VERSION - 1])
 @pytest.mark.parametrize("opener", [schema.open_connection, schema.connect_current])
 def test_prior_market_schema_version_is_not_migrated_implicitly(tmp_path, version, opener):
     path = tmp_path / "market.sqlite"

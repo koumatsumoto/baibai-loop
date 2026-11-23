@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 # 意味変更時だけ明示更新する。配置・import・transport retryは対象外。
 # native CSVの科目・当期範囲・JPY単位・欠測と12か月フローを区別する。
+# 親帰属資本は独立版を持つ付随観測のみ。既存指標の採用・再抽出条件を変えない。
 EDINET_METRIC_REVISION = "edinet-metrics-v17-financing-cash-details"
 # Input availability, not a change to the CSV extraction's financial meaning.
 DEFERRED_CSV_REASON = "source_archive_unavailable:csv"

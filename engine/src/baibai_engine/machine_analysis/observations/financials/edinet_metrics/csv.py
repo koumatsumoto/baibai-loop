@@ -9,15 +9,19 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import zipfile
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
+from hashlib import sha256
 from typing import Literal
 
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import to_float
 from baibai_engine.machine_analysis.observations.financials.edinet_models import (
     EdinetMetricRecord,
+    ParentAttributableEquityObservation,
+    parent_equity_context,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.primitives.dates import add_months_clamped
@@ -34,7 +38,10 @@ def parse_csv_zip_metric_record(
     period_start: date | None = None,
     period_end: date | None = None,
 ) -> EdinetMetricRecord:
-    rows: Sequence[Mapping[str, str]] = _read_csv_zip_rows(content)
+    members = _read_csv_zip_members(content)
+    # v17 metrics retain their existing ZIP-wide projection. The ancillary
+    # ownership observation must establish its scope within a single CSV member.
+    rows: Sequence[Mapping[str, str]] = [row for _, member in members for row in member]
     if not rows:
         return EdinetMetricRecord(
             ticker=ticker,
@@ -48,7 +55,7 @@ def parse_csv_zip_metric_record(
 
     quality = _flow_period_quality(doc_type_code, period_start, period_end, submit_datetime)
     consolidation_dei = _consolidation_dei_status(rows)
-    statement_rows, accounting_failure = _accounting_standard_rows(rows)
+    statement_rows, accounting_failure, declared_standard = _accounting_standard_rows(rows)
     rows, basis = _select_statement_rows(
         statement_rows,
         doc_type_code,
@@ -154,6 +161,14 @@ def parse_csv_zip_metric_record(
         source_period_end=period_end,
         capex_source="purchase_of_fixed_assets" if capex_abs is not None else None,
         failure_reasons=tuple(dict.fromkeys(failures)),
+        parent_attributable_equity=(
+            _reported_parent_equity(members, rows, doc_type_code, content)
+            if accounting_failure is None
+            and declared_standard == "IFRS"
+            and consolidation_dei == "true"
+            and basis == "consolidated"
+            else None
+        ),
     )
 
 
@@ -247,13 +262,13 @@ _TAGS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _read_csv_zip_rows(content: bytes) -> list[dict[str, str]]:
+def _read_csv_zip_members(content: bytes) -> list[tuple[str, list[dict[str, str]]]]:
     try:
         archive = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as exc:
         raise EDINETProviderError("zip_invalid") from exc
     with archive:
-        rows: list[dict[str, str]] = []
+        members: list[tuple[str, list[dict[str, str]]]] = []
         for name in archive.namelist():
             if not name.lower().endswith(".csv"):
                 continue
@@ -266,8 +281,8 @@ def _read_csv_zip_rows(content: bytes) -> list[dict[str, str]]:
             if len(headers) != len(set(headers)) or not required.issubset(headers):
                 raise EDINETProviderError("csv_parse_failed: missing or duplicate native headers")
             reader.fieldnames = headers
-            rows.extend(dict(row) for row in reader if row)
-    return rows
+            members.append((name, [dict(row) for row in reader if row]))
+    return members
 
 
 def _decode_csv(content: bytes) -> str:
@@ -382,9 +397,75 @@ def _select_statement_rows(
     return individual, "non_consolidated" if individual else None
 
 
+def _equity_yen_at_context(rows: Sequence[Mapping[str, str]], context: str) -> int | None:
+    values: set[int | None] = set()
+    for row in rows:
+        if _row_element(row) != "jpigp_cor:EquityIFRS" or _row_context(row) != context:
+            continue
+        value = (row.get("値") or "").strip()
+        if row.get("ユニットID") != "JPY" or row.get("期間・時点", "時点") != "時点":
+            values.add(None)
+        elif value == "-":
+            values.add(0)
+        elif re.fullmatch(r"[+-]?[0-9]{1,19}", value) is not None:
+            integer = int(value)
+            values.add(integer if -(2**63) <= integer < 2**63 else None)
+        else:
+            values.add(None)
+    if len(values) != 1 or (amount := next(iter(values))) is None:
+        return None
+    return amount
+
+
+def _reported_parent_equity(
+    members: Sequence[tuple[str, Sequence[Mapping[str, str]]]],
+    consolidated_rows: Sequence[Mapping[str, str]],
+    doc_type_code: str,
+    original_csv_zip: bytes,
+) -> ParentAttributableEquityObservation | None:
+    context = parent_equity_context(doc_type_code)
+    if context is None:
+        return None
+    candidates = [
+        (name, rows)
+        for name, rows in members
+        if any(
+            _row_element(row) == "jpigp_cor:EquityIFRS" and _row_context(row) == context
+            for row in rows
+        )
+    ]
+    # A competing member cannot certify provenance, even if the amounts happen to match.
+    if len(candidates) != 1:
+        return None
+    name, rows = candidates[0]
+    _, _, standard = _accounting_standard_rows(rows)
+    total_context = context.split("_", 1)[0]
+    total = _equity_yen_at_context(rows, total_context)
+    # A valid-looking statement cannot hide contradictory exact current totals
+    # in other members. Compare integers, separate from the legacy float metric.
+    if (
+        standard != "IFRS"
+        or _consolidation_dei_status(rows) != "true"
+        or total is None
+        or _equity_yen_at_context(consolidated_rows, total_context) != total
+    ):
+        return None
+    amount = _equity_yen_at_context(rows, context)
+    if amount is None:
+        return None
+    return ParentAttributableEquityObservation(
+        amount_yen=amount,
+        source_context=context,
+        source_element="jpigp_cor:EquityIFRS",
+        source_csv_member=name,
+        archive_sha256=sha256(original_csv_zip).hexdigest(),
+        observation_version=1,
+    )
+
+
 def _accounting_standard_rows(
     rows: Sequence[Mapping[str, str]],
-) -> tuple[Sequence[Mapping[str, str]], str | None]:
+) -> tuple[Sequence[Mapping[str, str]], str | None, str | None]:
     """A filing may show IFRS and Japanese GAAP in the very same context.
 
     Select the filing's declared standard before choosing consolidated/individual
@@ -398,18 +479,22 @@ def _accounting_standard_rows(
         and _row_context(row) == "FilingDateInstant"
     ]
     if not facts:
-        return rows, None
+        return rows, None, None
     if any(row.get("ユニットID") != "－" or not row.get("値") for row in facts):
-        return [], "accounting_standard_dei_invalid"
+        return [], "accounting_standard_dei_invalid", None
     standards = {row["値"] for row in facts}
     if len(standards) != 1:
-        return [], "accounting_standard_dei_conflict"
+        return [], "accounting_standard_dei_conflict", None
     standard = next(iter(standards))
     if standard == "IFRS":
-        return [row for row in rows if _row_element(row) in _IFRS_ELEMENTS], None
+        return [row for row in rows if _row_element(row) in _IFRS_ELEMENTS], None, standard
     if standard == "Japan GAAP":
-        return [row for row in rows if not _row_element(row).startswith("jpigp_cor:")], None
-    return [], "accounting_standard_dei_unsupported"
+        return (
+            [row for row in rows if not _row_element(row).startswith("jpigp_cor:")],
+            None,
+            standard,
+        )
+    return [], "accounting_standard_dei_unsupported", None
 
 
 def _metric_values(

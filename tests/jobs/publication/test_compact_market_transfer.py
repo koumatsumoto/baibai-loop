@@ -100,7 +100,7 @@ def test_special_schema_uses_lossless_sqlite_backup(inputs, tmp_path, monkeypatc
                 "CREATE INDEX idx_source_coverage_source_window ON source_coverage(coverage_key)"
             )
         else:
-            db.execute("PRAGMA user_version=53")
+            db.execute(f"PRAGMA user_version={transfer.SQLITE_SCHEMA_VERSION + 1}")
     old, new = tmp_path / "old", tmp_path / "new"
     create_snapshot(source, old)
     dehydrate_market_store(old, **kwargs)
