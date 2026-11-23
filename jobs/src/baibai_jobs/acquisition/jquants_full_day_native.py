@@ -91,12 +91,12 @@ def acquire_full_day_native(
     return totals
 
 
-def build_parser(description: str) -> argparse.ArgumentParser:
+def build_parser(description: str, *, directory_required: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "command", choices=("initialize", "plan", "acquire", "resume", "commit-work")
     )
-    parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--directory", type=Path, required=directory_required)
     parser.add_argument("--start", type=date.fromisoformat)
     parser.add_argument("--end", type=date.fromisoformat)
     parser.add_argument("--revision-overlap-days", type=int, default=7)

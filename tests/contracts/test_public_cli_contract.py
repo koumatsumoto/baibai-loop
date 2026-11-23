@@ -61,10 +61,18 @@ def test_market_judgment_is_owned_by_research_cli():
 
 def test_source_maintenance_is_owned_by_collection():
     source = _choices(build_source_parser())
-    assert {"extract-edinet-metrics", "backfill-master"} <= source
+    assert "extract-edinet-metrics" in source
+    assert "backfill-master" not in source
     with pytest.raises(SystemExit) as help_result:
         collection_main(["maintain-market", "--help"])
     assert help_result.value.code == 0
+
+
+def test_master_acquisition_help_exposes_the_canonical_exact_date_option(capsys):
+    with pytest.raises(SystemExit) as result:
+        collection_main(["jquants-master-native", "acquire", "--help"])
+    assert result.value.code == 0
+    assert "--asof" in capsys.readouterr().out
 
 
 def test_market_snapshot_help_reaches_its_domain_owner():

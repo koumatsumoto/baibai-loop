@@ -395,45 +395,24 @@ def test_master_recovery_preflight_keeps_existing_tradingview_receipts(tmp_path)
     assert preflight_snapshot(market, DAY, now=NOW)["status"] == "already_saved"
 
 
-def test_native_backfill_alias_does_not_refetch_fulfilled_cohort_dates(tmp_path, monkeypatch):
-    import baibai_jobs.maintenance.master_native_backfill as backfill
-    from baibai_jobs.maintenance.market import cli
+def test_native_explicit_dates_do_not_refetch_fulfilled_cohort_dates(tmp_path, monkeypatch):
+    from baibai_jobs.acquisition import jquants_master_native
 
     store, _owner, _market, _directory = context(tmp_path)
     store.close = lambda: None
-    monkeypatch.setattr(backfill, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(jquants_master_native, "Boto3R2Store", lambda **_: store)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "false")
-    monkeypatch.setattr(cli, "load_project_env", lambda: None)
-
-    def forbidden(*_, **__):
-        pytest.fail("native backfill alias must not initialize unrelated legacy providers")
-
-    for name in ("EDINETRefresh", "EDINETReader"):
-        monkeypatch.setattr(cli, name, forbidden)
 
     class Client:
         def close(self):
             pass
 
         def pages(self, *_):
-            pytest.fail("fulfilled master must not be requested again by maintenance alias")
+            pytest.fail("fulfilled master must not be requested again")
 
-    monkeypatch.setattr(backfill, "JQuantsHTTP", lambda *_: Client())
-    assert cli.main(["backfill-master", "--asof", DAY.isoformat()]) == 0
+    monkeypatch.setattr(jquants_master_native, "JQuantsHTTP", lambda *_: Client())
+    assert jquants_master_native.main(["acquire", "--asof", DAY.isoformat()]) == 0
     assert not (tmp_path / "stores/market/market.sqlite").exists()
-
-
-def test_native_backfill_accepts_only_explicit_dates():
-    from baibai_jobs.maintenance.market import cli
-
-    parser = cli.build_parser()
-    args = parser.parse_args(["backfill-master", "--asof", "2026-10-30", "--asof", "2026-11-02"])
-    assert args.asofs == ["2026-10-30", "2026-11-02"]
-    with pytest.raises(SystemExit):
-        parser.parse_args(
-            ["backfill-master", "--asof", "2026-01-30", "--month-end-from", "2026-01-01"]
-        )
 
 
 def test_tradingview_scoped_input_omits_disposable_master_copy_in_native_mode(

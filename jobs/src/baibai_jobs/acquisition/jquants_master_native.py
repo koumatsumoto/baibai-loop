@@ -5,12 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
+import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
+from baibai_engine.cli.environment import load_project_env
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.data_collection.providers.jquants.master_native import (
     MasterAttempt,
@@ -18,6 +22,7 @@ from baibai_engine.data_collection.providers.jquants.master_native import (
     plan_master_days,
     unfulfilled_master_days,
 )
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.objects.r2 import Boto3R2Store
 from baibai_jobs.acquisition.jquants_full_day_native import (
     acquire_full_day_native,
@@ -57,18 +62,82 @@ def acquire_master_native(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = build_full_day_parser(__doc__ or "")
+    parser = build_full_day_parser(__doc__ or "", directory_required=False)
     parser.set_defaults(revision_overlap_days=0)
     parser.add_argument("--force", action="store_true", help="recheck explicitly requested dates")
+    parser.add_argument(
+        "--asof",
+        type=date.fromisoformat,
+        action="append",
+        help="acquire one exact date, repeatable; excludes range and uses managed work",
+    )
     return parser
 
 
+def _object_store() -> Boto3R2Store:
+    return Boto3R2Store(
+        bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
+        verify_put_with_head=False,
+    )
+
+
+def _acquire_dates(asofs: Sequence[date]) -> int:
+    """Do not acquire intervening dates; preserve every failed day's resume input."""
+    days = sorted(set(asofs))
+    if any(day > datetime.now(JST).date() for day in days):
+        raise ValueError("master backfill requires explicit nonfuture snapshot dates")
+    load_project_env()
+    work = Path(tempfile.mkdtemp(prefix="master-native-backfill-"))
+    completed = False
+    try:
+        with (
+            closing(_object_store()) as store,
+            closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
+        ):
+            reports = {}
+            for day in days:
+                result = acquire_master_native(
+                    MasterL1(store, work / day.isoformat()), start=day, end=day, client=client
+                )
+                reports[day.isoformat()] = result
+                if result["halted"] or result["failed"] or result["held"]:
+                    break
+        print(json.dumps({"independent_l1": reports}, sort_keys=True))
+        completed = len(reports) == len(days) and not any(
+            item["failed"] or item["held"] or item["incomplete"] for item in reports.values()
+        )
+        return int(not completed)
+    finally:
+        if completed:
+            shutil.rmtree(work, ignore_errors=True)
+        else:
+            print(f"native master backfill work retained: {work}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.asof is not None:
+        if (
+            args.command != "acquire"
+            or args.start is not None
+            or args.end is not None
+            or args.directory is not None
+            or args.force
+            or args.revision_overlap_days
+        ):
+            parser.error("--asof is for acquire and cannot be combined with range or work options")
+        try:
+            return _acquire_dates(args.asof)
+        except Exception as error:
+            print(f"master native L1 failed: {type(error).__name__}", file=sys.stderr)
+            return 1
+    if args.directory is None:
+        parser.error("--directory is required when --asof is not used")
     if args.command not in {"plan", "acquire", "commit-work"}:
         return native_main(
             argv,
-            parser=build_parser(),
+            parser=parser,
             owner_type=MasterL1,
             attempt_type=MasterAttempt,
             store_factory=Boto3R2Store,
@@ -81,12 +150,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(
                 "master snapshots have no automatic revision tail; request explicit dates"
             )
-        with closing(
-            Boto3R2Store(
-                bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
-                verify_put_with_head=False,
-            )
-        ) as store:
+        with closing(_object_store()) as store:
             owner = MasterL1(store, args.directory)
             if args.command == "commit-work":
                 attempts = [

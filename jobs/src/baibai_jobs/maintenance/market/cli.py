@@ -79,18 +79,6 @@ def build_parser() -> argparse.ArgumentParser:
     rebuild_jpx_parser.add_argument("--bundle-id", required=True)
     rebuild_jpx_parser.add_argument("--sqlite-path", required=True)
 
-    backfill_master_parser = subparsers.add_parser(
-        "backfill-master",
-        help="store the point-in-time security master for one or more as-of dates",
-    )
-    backfill_master_parser.add_argument(
-        "--asof",
-        action="append",
-        dest="asofs",
-        required=True,
-        help="master snapshot date (YYYY-MM-DD; repeatable)",
-    )
-
     extract_parser = subparsers.add_parser(
         "extract-edinet-metrics",
         help="recompute EDINET type=5 CSV metrics from stored documents and archives",
@@ -277,11 +265,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command in {"extract-edinet-metrics", "refresh-edinet-metrics"} and args.sqlite_path:
         sqlite_path = Path(args.sqlite_path)
-
-    if args.command == "backfill-master":
-        from baibai_jobs.maintenance.master_native_backfill import backfill_native_master
-
-        return backfill_native_master(args)
 
     if args.command == "build-tender-offer-exits":
         exits_path = Path(args.sqlite_path)

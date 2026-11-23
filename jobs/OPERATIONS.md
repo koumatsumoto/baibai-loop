@@ -554,18 +554,18 @@ gh run watch <SOURCE_RUN_ID> --exit-status --interval 60
 <a id="calendar-native-l1"></a>
 **master/calendar。** TradingView/外部評価はcalendarを先に固定し、休場なら直前営業日のbasis masterから銘柄集合を固定する。unknown/partialを休場へ変えず、空/failed/held masterを旧値で補わない。保存packetの元master/calendarはhead削除/訂正後も保持参照から再生し、新しいheadへ再固定しない。
 
-masterは明示した日付を取得し、過去L2を使わない。`maintain-market backfill-master`は未来日を拒否する。calendarの明示取得は他source/L2/release不要で、必要範囲を指定する。空/partialを成功へ変えない。
+masterは明示した日付を取得し、過去L2を使わない。`jquants-master-native acquire --asof`は指定日の間を埋めず、未来日を拒否する。calendarの明示取得は他source/L2/release不要で、必要範囲を指定する。空/partialを成功へ変えない。
 
 日付不正で利用できないcalendar原本も残す。新しい価格の休場証拠は対象日・日別内容SHA・区分を採用原本と照合し、旧固定selectionは当時の判定で再生する。日付契約の切替時は、既存headを固定して有効な採用日をすべて原本と照合する。価格の休場候補だけでなく、取引日を使う信用・銘柄マスター等の経路も同じ暦を参照するため。旧取得処理が残っていないこととhead同一性を確認し、不一致があれば該当期間だけ新しい受領として明示訂正する。通常dailyで全期間は再取得しない。
 
 新しく固定する暦の投影は、採用rangeの同じ読取で対象日・内容SHA・区分・受領時計を照合する。不一致は元の受領を保ち、休場ではなく不明とする。日次の価格証明・信用残の対象日判定は同じ検証結果を使い、信用残は週内の金曜まで必要な場合だけ参照する。TradingView等の新規計画も固定する範囲を同じ規則で検証し、現在headを訂正しない。版記録のない既存の固定暦は明示再生で当時の採用値を保つ。
 
 ```bash
-uv run baibai-jobs maintain-market backfill-master --asof <DATE> --asof <DATE>
+uv run baibai-jobs jquants-master-native acquire --asof <DATE> --asof <DATE>
 uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --output <NEW_OUTPUT>
 ```
 
-backfill-masterは成功時だけ一時workを整理する。失敗/未充足時に表示されるworkの日付directoryを保持し、受領済みattemptの公開結果を解決するには`jquants-master-native commit-work --directory <WORK>/<DATE>`を使う。元受領の時計/UUIDを変えず、公開結果が不明なまま新しいbackfillで再GETしない。machine自体が失われた場合のlocal work保持までは保証しない。
+この明示日指定は成功時だけ一時workを整理する。失敗/未充足時に表示されるworkの日付directoryを保持し、受領済みattemptの公開結果を解決するには`jquants-master-native commit-work --directory <WORK>/<DATE>`を使う。元受領の時計/UUIDを変えず、公開結果が不明なまま再取得しない。machine自体が失われた場合のlocal work保持までは保証しない。
 
 <a id="margin-alerts-native-l1"></a>
 <a id="short-sale-reports-native-l1"></a>
