@@ -1276,7 +1276,7 @@ def _quality_job(*, number=71, day="2026-08-03"):
         "Record cancellation": "skipped",
     }
     return {
-        "total_count": 1,
+        "total_count": 2,
         "jobs": [
             {
                 "run_id": number,
@@ -1287,7 +1287,21 @@ def _quality_job(*, number=71, day="2026-08-03"):
                 "steps": [
                     {"name": n, "status": "completed", "conclusion": c} for n, c in statuses.items()
                 ],
-            }
+            },
+            {
+                "run_id": number,
+                "run_attempt": 2,
+                "name": "retirement / check",
+                "status": "completed",
+                "conclusion": "success",
+                "steps": [
+                    {
+                        "name": "Verify the event checkout and retired writer run inventory",
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ],
+            },
         ],
     }
 
@@ -1295,6 +1309,8 @@ def _quality_job(*, number=71, day="2026-08-03"):
 def test_quality_proof_is_wired_only_to_the_existing_post_seal_check_and_notice():
     from baibai_jobs.observability.watchdog import (
         PUBLISHED_STEPS,
+        RETIREMENT_JOB,
+        RETIREMENT_PROOF_STEP,
         SOURCE_CHECK_STEP,
         TV_QUALITY_SUFFIX,
     )
@@ -1302,6 +1318,18 @@ def test_quality_proof_is_wired_only_to_the_existing_post_seal_check_and_notice(
     raw = (ROOT / ".github/workflows/cloud-daily-batch-current.yml").read_text(encoding="utf-8")
     workflow = yaml.load(raw, Loader=yaml.BaseLoader)
     assert list(workflow["jobs"]) == ["retirement", "daily"]
+    gate = workflow["jobs"]["retirement"]
+    reusable = yaml.load((ROOT / gate["uses"]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    assert [
+        f"{gate.get('name', 'retirement')} / {job.get('name', key)}"
+        for key, job in reusable["jobs"].items()
+    ] == [RETIREMENT_JOB]
+    proof = next(s for s in reusable["jobs"]["check"]["steps"] if s.get("id") == "retirement")
+    assert proof["name"] == RETIREMENT_PROOF_STEP
+    assert (
+        workflow["jobs"]["daily"]["if"]
+        == "${{ needs.retirement.outputs.attempt == github.run_attempt }}"
+    )
     steps = {s["id"]: s for s in workflow["jobs"]["daily"]["steps"] if "id" in s}
     assert {
         steps[key]["name"]
@@ -1330,8 +1358,9 @@ def test_quality_proof_is_wired_only_to_the_existing_post_seal_check_and_notice(
     assert f"&& '{TV_QUALITY_SUFFIX}' || ''" in notice
 
 
+@pytest.mark.parametrize("reverse_jobs", [False, True])
 def test_only_an_attempt_and_date_bound_quality_marker_replaces_the_missing_alert(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, reverse_jobs
 ):
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", WEBHOOK)
@@ -1345,7 +1374,10 @@ def test_only_an_attempt_and_date_bound_quality_marker_replaces_the_missing_aler
 
     def read_jobs(repo, run_id, attempt):
         calls.append((repo, run_id, attempt))
-        return _quality_job()
+        payload = _quality_job()
+        if reverse_jobs:
+            payload["jobs"].reverse()
+        return payload
 
     assert (
         main(
@@ -1367,13 +1399,25 @@ def test_only_an_attempt_and_date_bound_quality_marker_replaces_the_missing_aler
 @pytest.mark.parametrize(
     ("target", "key", "bad"),
     [
-        ("listing", "total_count", 2),
+        ("listing", "total_count", 1),
         ("job", "name", "unrelated"),
         ("job", "run_id", 70),
         ("job", "run_attempt", 1),
         ("job", "run_attempt", None),
         ("job", "status", "in_progress"),
         ("job", "conclusion", "cancelled"),
+        ("retirement", "name", "check"),
+        ("retirement", "name", "daily"),
+        ("retirement", "run_id", 70),
+        ("retirement", "run_attempt", 1),
+        ("retirement", "status", "queued"),
+        ("retirement", "conclusion", "failure"),
+        ("retirement", "conclusion", "skipped"),
+        ("retirement", "steps", []),
+        ("retirement proof", "name", "uncorrelated check"),
+        ("retirement proof", "status", "in_progress"),
+        ("retirement proof", "conclusion", "skipped"),
+        ("retirement proof", "conclusion", "failure"),
         ("notice", "name", RESULT_STEP_PREFIX + "2026-08-03"),
         ("notice", "name", RESULT_STEP_PREFIX + "2026-08-02 [fixed TradingView receipt quality]"),
         ("notice", "conclusion", "skipped"),
@@ -1391,11 +1435,13 @@ def test_unproven_failed_attempt_is_not_reclassified(target, key, bad):
     from baibai_jobs.observability.watchdog import SOURCE_CHECK_STEP, _failed_daily_result
 
     payload = _quality_job()
-    job = payload["jobs"][0]
+    job, retirement = payload["jobs"]
     steps = job["steps"]
     obj = {
         "listing": payload,
         "job": job,
+        "retirement": retirement,
+        "retirement proof": retirement["steps"][0],
         "notice": next(s for s in steps if s["name"].startswith(RESULT_STEP_PREFIX)),
         "source check": next(s for s in steps if s["name"] == SOURCE_CHECK_STEP),
         "other": steps[-1],
@@ -1405,6 +1451,18 @@ def test_unproven_failed_attempt_is_not_reclassified(target, key, bad):
         _listing(_run(number=71, attempt=2, created_at=FIRED_AT, conclusion="failure"))
     )
     assert _failed_daily_result(run, payload) != (FIRED_AT.date(), True)
+
+
+def test_attempt_listing_requires_exactly_one_daily_and_one_retirement_job():
+    from baibai_jobs.observability.watchdog import _failed_daily_result
+
+    (run,) = parse_runs(
+        _listing(_run(number=71, attempt=2, created_at=FIRED_AT, conclusion="failure"))
+    )
+    payload = _quality_job()
+    daily, gate = payload["jobs"]
+    for jobs in ([daily], [daily, daily], [gate, gate], [daily, gate, gate]):
+        assert _failed_daily_result(run, {"total_count": len(jobs), "jobs": jobs}) is None
 
 
 def test_every_required_publication_step_must_explicitly_succeed():

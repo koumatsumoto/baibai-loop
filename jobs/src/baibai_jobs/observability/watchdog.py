@@ -138,6 +138,8 @@ STATE_PUBLISHED_QUALITY = "published_source_quality"
 TV_QUALITY_SUFFIX = " [fixed TradingView receipt quality]"
 SOURCE_CHECK_STEP = "Report integration failures and deferred source inputs"
 CANCELLATION_STEP = "Record cancellation"
+RETIREMENT_JOB = "retirement / check"
+RETIREMENT_PROOF_STEP = "Verify the event checkout and retired writer run inventory"
 PUBLISHED_STEPS = {
     "Acquire publication lease",
     "Apply fixed original receipts and common offline extraction",
@@ -381,39 +383,60 @@ def _iso_day(value: str) -> date | None:
     return day if day.isoformat() == value else None
 
 
-def _failed_daily_result(run: WorkflowRun, payload: object) -> tuple[date, bool] | None:
-    """Return the reported date and whether this exact attempt proves a quality-only failure."""
-    if not isinstance(payload, Mapping) or not isinstance(payload.get("jobs"), list):
-        return None
-    jobs = payload["jobs"]
-    if len(jobs) != 1 or type(payload.get("total_count")) is not int or payload["total_count"] != 1:
-        return None
-    job = jobs[0]
-    if not isinstance(job, Mapping) or not isinstance(job.get("steps"), list):
-        return None
+def _completed_attempt_steps(
+    run: WorkflowRun, job: Mapping[str, object], *, conclusion: str
+) -> dict[str, str] | None:
+    steps = job.get("steps")
     if (
-        type(job.get("run_id")) is not int
+        not isinstance(steps, list)
+        or type(job.get("run_id")) is not int
         or job["run_id"] != run.run_id
         or type(job.get("run_attempt")) is not int
         or job["run_attempt"] != run.run_attempt
-        or job.get("name") != "daily"
         or job.get("status") != "completed"
-        or job.get("conclusion") != "failure"
+        or job.get("conclusion") != conclusion
     ):
         return None
-    results = {}
-    for step in job["steps"]:
+    results: dict[str, str] = {}
+    for step in steps:
         if not isinstance(step, Mapping):
             return None
-        name, conclusion = step.get("name"), step.get("conclusion")
+        name, outcome = step.get("name"), step.get("conclusion")
         if (
             not isinstance(name, str)
             or name in results
             or step.get("status") != "completed"
-            or conclusion not in ("success", "skipped", "failure")
+            or outcome not in ("success", "skipped", "failure")
         ):
             return None
-        results[name] = conclusion
+        results[name] = outcome
+    return results
+
+
+def _failed_daily_result(run: WorkflowRun, payload: object) -> tuple[date, bool] | None:
+    """Return the date and whether both successor jobs prove a quality-only failure."""
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("jobs"), list):
+        return None
+    jobs = payload["jobs"]
+    expected = {RETIREMENT_JOB: "success", "daily": "failure"}
+    if (
+        len(jobs) != len(expected)
+        or type(payload.get("total_count")) is not int
+        or payload["total_count"] != len(expected)
+    ):
+        return None
+    by_job: dict[str, dict[str, str]] = {}
+    for job in jobs:
+        name = job.get("name") if isinstance(job, Mapping) else None
+        if not isinstance(name, str) or name not in expected or name in by_job:
+            return None
+        if (steps := _completed_attempt_steps(run, job, conclusion=expected[name])) is None:
+            return None
+        by_job[name] = steps
+    proof = by_job[RETIREMENT_JOB]
+    if proof.get(RETIREMENT_PROOF_STEP) != "success" or "failure" in proof.values():
+        return None
+    results = by_job["daily"]
     notices = [name for name in results if name.startswith(RESULT_STEP_PREFIX)]
     if (
         len(notices) != 1
