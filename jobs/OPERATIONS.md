@@ -407,6 +407,14 @@ uv run baibai-jobs article-evidence --source <SOURCE> --stage-id <STAGE_ID> --ma
 
 stage原本の読取はrelease所属/抽出成功/長期保持の証明でなく、統合後は同ID/hashを固定releaseで照合する。
 
+#### RSSの一回限りの切替 (#2913)
+
+- **準備:** この手順と確認toolの追加だけでは、現行のスケジュール・手動取得・設定を変えない。本番の手動`group=scheduled`は試験ではなく実取得。隔離fixture/通常CIで、同じ当日を指す取得→日次の固定・適用、元200を参照する304、別の固定stageの明示復旧を確認する。過去runの再実行は代替にならない。
+- **停止と確認（運用者のみ）:** 旧[記事取得](https://github.com/koumatsumoto/baibai-loop/actions/workflows/cloud-article-sources.yml) ID `401275764`、旧[日次](https://github.com/koumatsumoto/baibai-loop/actions/workflows/cloud-daily-batch.yml) ID `317890420` を無効化し、以降は再有効化しない。無効化は既に待機・実行中のrunを止めないので、承認済みの停止または終了を待つ。旧pathを外す前に、`python3 -m tools.diagnostics.check_article_cutoff` で両IDの `disabled_manually` と全runの終端を確認する。確認できるまで新形式を共有storeへ書かない。履歴・log・不変原本は削除しない。旧CLIを現行storeに接続しない。GitHub側の確認はローカル資格情報を無効化するものではない。
+- **現行入力だけを引き継ぐ:** 実際の切替時点で、記事source別の最終stage、未統合stage、`pending_urls`/frontierと本文の固定出典を照合する。必要な未統合stageだけを読取対応版 `0fdb8b22` 以降で固定・統合し、保留・cooldown・出典を保持する。新規indexの取得は次の通常枠で行い、旧indexのvalidatorがなお現行の基準なら当該feedのvalidatorだけを引き継がない。旧本文validator・アーカイブ全体の再読取・再計算は対象外。出典を証明できない保留を新しい記事に付け替えない。
+- **次の一つの切替PR:** 旧2 workflowは運用入口に戻さず、新しいpathと異なるworkflow IDの後継で同じcron・concurrencyを引き継ぐ。`main`の当該commitが読取対応後であることを資格情報利用前に確認する。日次pathの変更に伴いwatchdogの照会先、`machine_origin.py` の実行元検証、契約テストを更新する。日次のlease内の `pull-machine --daily-preflight` は経済L1公開より前のまま保つ。通常・手動とも新版で取得し、準備用`--rss-native-index`は残さない。既知の固定済み過去を調べるときは当時のcommitと隔離copyを用い、通常運用の旧版fallbackにはしない。
+- **完了判定:** 次の自然枠の新200、後続の自然な304、日次が同じstage ID・manifest hashを採用したことを別々に確認する。待つ間に追加dispatch・旧run再実行はしない。異常時は新規取得を止めて新版の読取は保持し、旧workflow・旧readerへ戻さない。この確認toolは切替完了後に通常の依存へ残さない。
+
 ### 記事のexact遅着回復
 
 ```bash
