@@ -366,7 +366,8 @@ def _fixture() -> tuple[_Record, dict[str, bytes]]:
     query = DailyBarsQuery(("AAPL", "NVDA"), start, days[-1], "-", "split")
     page = add(
         "alpaca.json",
-        {"bars": {"AAPL": bars, "NVDA": bars[-1:]}, "next_page_token": None},
+        # The native terminal-page cursor is JSON null, not a credential.
+        {"bars": {"AAPL": bars, "NVDA": bars[-1:]}, "next_page_token": None},  # nosec B105
         request_url=query.url(),
     )
     accession = "0000000000-26-000001"
