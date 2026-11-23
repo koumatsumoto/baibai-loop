@@ -10,6 +10,7 @@ import pytest
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.cli.technical_analysis import main
+from baibai_engine.machine_analysis.generation.runners import technical_analysis as runner
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
     bollinger_20bar,
@@ -114,6 +115,55 @@ def test_query_and_cli_read_entire_prefix_without_writes_or_network(tmp_path, mo
     )
     assert json.loads(capsys.readouterr().out) == result
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+
+
+@pytest.mark.parametrize("correction", ["before_calendar", "after_calendar"])
+def test_concurrent_split_correction_cannot_mix_closes_and_row_states(
+    tmp_path, monkeypatch, correction
+):
+    path = tmp_path / "market.sqlite"
+    prior = ASOF - timedelta(days=1)
+    with closing(open_connection(path)) as writer:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        with writer:
+            writer.executemany(
+                "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?, '1')",
+                [(prior.isoformat(),), (ASOF.isoformat(),)],
+            )
+            writer.executemany(
+                "INSERT INTO jquants_daily_bars(ticker,traded_at,open,high,low,close,volume,"
+                "turnover_value,adjustment_factor) VALUES ('1234', ?, 200, 200, 200, 200, 5, 1000, 1)",
+                [(prior.isoformat(),), (ASOF.isoformat(),)],
+            )
+        before = technical_analysis(path, ticker="1234", as_of=ASOF)
+        read_calendar = runner.read_price_calendar
+
+        def correct_during_read(connection, *, as_of):
+            if correction == "after_calendar":
+                calendar = read_calendar(connection, as_of=as_of)
+            with writer:
+                writer.execute(
+                    "UPDATE jquants_daily_bars SET open=NULL,high=NULL,low=NULL,close=NULL,"
+                    "volume=NULL,turnover_value=NULL,adjustment_factor=0.5,ex_right_type='1' "
+                    "WHERE ticker='1234' AND traded_at=?",
+                    (as_of.isoformat(),),
+                )
+            return (
+                calendar
+                if correction == "after_calendar"
+                else read_calendar(connection, as_of=as_of)
+            )
+
+        with monkeypatch.context() as patch:
+            patch.setattr(runner, "read_price_calendar", correct_during_read)
+            result = technical_analysis(path, ticker="1234", as_of=ASOF)
+        after = technical_analysis(path, ticker="1234", as_of=ASOF)
+    assert before["price_path"]["current_row_state"] == "priced"
+    assert after["price_path"]["current_row_state"] == "no_trade"
+    assert before["history_end_date"] == ASOF.isoformat()
+    assert after["history_end_date"] == prior.isoformat()
+    assert after["price_path"]["observations"]["R1"]["comparison_start_price"] == 100
+    assert result in (before, after)
 
 
 def test_missing_store_returns_missing_indicators_without_creating_a_store(tmp_path):
