@@ -175,9 +175,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--current-only-now", action="store_true")
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--stage-id")
+    parser.add_argument(
+        "--compress-fred-receipt",
+        action="store_true",
+        help="opt in for a new FRED stage; requires compatible economic integration",
+    )
     parser.add_argument("--db", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)
     args = parser.parse_args(argv)
     try:
+        if args.compress_fred_receipt and args.command != "stage":
+            raise ValueError("FRED receipt compression is only available for stage")
         if args.command == "plan":
             groups = economic_acquisition_groups() if args.group == "all" else (args.group,)
             for group in groups:
@@ -225,7 +232,13 @@ def main(argv: list[str] | None = None) -> int:
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         ) as store:
             if args.command == "stage":
-                identity = save_handoff(store, args.stage_id, args.directory)
+                if args.compress_fred_receipt:
+                    validate_handoff(args.directory, "fred_csv", args.source_id or None)
+                    identity = save_handoff(
+                        store, args.stage_id, args.directory, compress_fred=True
+                    )
+                else:
+                    identity = save_handoff(store, args.stage_id, args.directory)
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print(f"handoff={identity}", file=stream)
