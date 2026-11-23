@@ -297,6 +297,29 @@ describe('stock report list and selection', () => {
     expect(html).toContain(buyFixture.rationale)
   })
 
+  it.each([
+    ['corrections', undefined], ['corrections', null], ['corrections', {}],
+    ['human_reports', undefined], ['human_reports', null], ['human_reports', {}],
+  ] as const)('withholds the exact report when %s is not an array (%j)', (field, value) => {
+    // Serializing undefined removes the property just as in a sparse response.
+    const malformed = JSON.parse(JSON.stringify({ ...older, [field]: value })) as SavedProposalView
+    const data = view([newer, malformed], ['unreadable-at-source'])
+    const list = render(data)
+    expect(list).toContain('配信データの形式が不正な提案が1件あります。')
+    expect(list).toContain('読取不能の提案が1件あります。')
+    expect(list).toContain('href="/proposal?proposal=proposal-new&amp;ticker=1111"')
+    expect(list).not.toContain('href="/proposal?proposal=proposal-old')
+    expect(render(data, newer.proposal_id, '1111')).toContain(newer.items[0].rationale)
+
+    const detail = render(data, older.proposal_id, '1111')
+    expect(detail).toContain('訂正・人間の報告を確認できないため、この保存レポートは表示していません。')
+    expect(detail).not.toContain(buyFixture.rationale)
+    const allMalformed = render(view([malformed]))
+    expect(allMalformed).toContain('配信データの形式が不正な提案が1件あります。')
+    expect(allMalformed).toContain('表示できるレポート：0件')
+    expect(allMalformed).not.toContain('保存済みレポートはありません')
+  })
+
   it('keeps loading, empty and entirely unreadable histories distinct', () => {
     const loading = render(null)
     const empty = render(view([]))
