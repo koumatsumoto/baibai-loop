@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
@@ -9,6 +10,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
@@ -16,6 +18,7 @@ from baibai_engine.cli.market_snapshot import (
     build_parser,
     market_snapshot_command,
 )
+from baibai_engine.machine_analysis.generation.runners import market_snapshot as snapshot_runner
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
 )
@@ -39,6 +42,116 @@ def _insert_sector(sqlite_path: Path, ticker: str, sector: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+@pytest.mark.parametrize("before_lookup", ["current", "historical"])
+def test_raw_snapshot_cannot_mix_old_prices_and_new_master_membership(
+    tmp_path, monkeypatch, before_lookup
+):
+    path = tmp_path / "market.sqlite"
+    prior = _ASOF - timedelta(days=7)
+    _insert_bars(path, "1321", [100.0] * 31, end=_ASOF)
+    _insert_bars(path, "1234", [100.0] * 30 + [150.0], end=_ASOF)
+    original = snapshot_runner.read_master_snapshot
+    race_day = _ASOF if before_lookup == "current" else prior
+
+    def view():
+        return build_market_snapshot(
+            sqlite_path=path, asof_date=_ASOF, history_weeks=2, min_breadth_sample=1
+        )
+
+    with closing(open_connection(path)) as writer:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        with writer:
+            insert_master_rows(
+                writer,
+                [
+                    (day.isoformat(), "1234", "test", "Prime", "機械", "011")
+                    for day in (prior, _ASOF)
+                ],
+            )
+        before = view()
+
+        def read_during_replacement(*args, as_of, **kwargs):
+            if as_of == race_day:
+                with writer:
+                    writer.execute(
+                        "UPDATE jquants_daily_bars SET close=50 WHERE ticker='1234' AND traded_at=?",
+                        (_ASOF.isoformat(),),
+                    )
+                    writer.execute(
+                        "DELETE FROM jquants_master_snapshots WHERE snapshot_date=?",
+                        (prior.isoformat(),),
+                    )
+                    insert_master_rows(
+                        writer,
+                        [
+                            (_ASOF.isoformat(), "1234", "test", "Prime", "建設業", "011"),
+                            (prior.isoformat(), "5678", "new", "Prime", "機械", "011"),
+                        ],
+                    )
+            return original(*args, as_of=as_of, **kwargs)
+
+        with monkeypatch.context() as patcher:
+            patcher.setattr(snapshot_runner, "read_master_snapshot", read_during_replacement)
+            observed = view()
+        after = view()
+    assert before["points"][0]["breadth_sample_size"] == 1
+    assert after["points"][0]["breadth_sample_size"] == 0
+    assert before["sectors"][0]["median_return_20d"] == 0.5
+    assert after["sectors"][0]["median_return_20d"] == -0.5
+    assert before["sectors"][0]["sector_33"] == "機械"
+    assert after["sectors"][0]["sector_33"] == "建設業"
+    assert observed == before
+
+
+def test_inferred_asof_and_snapshot_cannot_straddle_a_price_withdrawal(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    _insert_bars(path, "1321", [100.0] * 22 + [150.0], end=_ASOF)
+    # MAX() has positioned the first row. Withdraw its trading day before the
+    # command reads the bars and terminal breadth/return inputs.
+    connect = sqlite3.connect
+    interleaved = False
+
+    def read():
+        stdout = io.StringIO()
+        assert (
+            market_snapshot_command(
+                asof=None, weeks=1, sqlite_path=path, stdout=stdout, output_format="json"
+            )
+            == 0
+        )
+        return json.loads(stdout.getvalue())
+
+    with closing(open_connection(path)) as writer:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        before = read()
+
+        class InterleavedRead(sqlite3.Connection):
+            def execute(self, sql, parameters=()):
+                nonlocal interleaved
+                cursor = super().execute(sql, parameters)
+                if sql.startswith("SELECT MAX(traded_at) FROM jquants_daily_bars"):
+                    assert not interleaved
+                    interleaved = True
+                    with writer:
+                        writer.execute(
+                            "DELETE FROM jquants_daily_bars WHERE traded_at=?", (_ASOF.isoformat(),)
+                        )
+                return cursor
+
+        def interleave(*args, **kwargs):
+            return connect(*args, **kwargs, factory=InterleavedRead)
+
+        with monkeypatch.context() as patcher:
+            patcher.setattr(sqlite3, "connect", interleave)
+            observed = read()
+        after = read()
+    assert interleaved
+    assert before["as_of"] == _ASOF.isoformat()
+    assert before["points"][-1]["observation_date"] == _ASOF.isoformat()
+    assert after["as_of"] == (_ASOF - timedelta(days=1)).isoformat()
+    assert observed == before
 
 
 class BuildMarketSnapshotTests(unittest.TestCase):
