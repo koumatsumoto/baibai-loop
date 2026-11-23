@@ -8,7 +8,7 @@ from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.jquants_receipts import FIRST_AT
 from tests.helpers.master_calendar_native import seed_calendar, seed_master
 from tests.helpers.native_handoff import integrate_economic, stage
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, VerifiedMemoryR2Store
 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
@@ -107,7 +107,7 @@ def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
 
 
 def _mixed_handoffs(tmp_path, monkeypatch, *, corrupt_market=False, market_report=None):
-    store = MemoryR2Store()
+    store = VerifiedMemoryR2Store()
     saved_edinet = empty_edinet_input(store, tmp_path)
     from tests.helpers.native_margin_sources import initialize_margin_sources
 

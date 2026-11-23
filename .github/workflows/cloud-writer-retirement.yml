@@ -1,0 +1,47 @@
+name: cloud-writer-retirement
+
+on:
+  workflow_call:
+    outputs:
+      attempt:
+        description: Current caller attempt with verified retired writers
+        value: ${{ jobs.check.outputs.attempt }}
+      requires_v2:
+        description: Whether the verified inventory requires persistent publication lease protocol v2
+        value: ${{ jobs.check.outputs.requires_v2 }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    outputs:
+      attempt: ${{ steps.bound.outputs.attempt }}
+      requires_v2: ${{ steps.bound.outputs.requires_v2 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify the event checkout and retired writer run inventory
+        id: retirement
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REPOSITORY" = koumatsumoto/baibai-loop
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -m tools.diagnostics.check_article_cutoff --report-v2-condition
+      - name: Bind the verified condition to this caller attempt
+        id: bound
+        env:
+          REQUIRES_V2: ${{ steps.retirement.outputs.requires_v2 }}
+        run: |
+          case "${REQUIRES_V2:-}" in
+            true|false) ;;
+            *) echo 'retirement v2 condition is not confirmed' >&2; exit 2 ;;
+          esac
+          printf 'attempt=%s\nrequires_v2=%s\n' "$GITHUB_RUN_ATTEMPT" "$REQUIRES_V2" >> "$GITHUB_OUTPUT"

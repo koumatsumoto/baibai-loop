@@ -5,18 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sqlite3
-import sys
-import tempfile
 import time
-from collections import Counter
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
 from xml.etree import ElementTree as ET  # nosec B405
 
 import requests
@@ -26,7 +22,6 @@ from baibai_engine.data_collection.providers.articles.contracts import (
     SOURCES,
     WORLD_NEWS_SOURCES,
     NativeArticle,
-    NativeLink,
 )
 from baibai_engine.data_collection.providers.articles.native import (
     discover_links,
@@ -80,7 +75,6 @@ from baibai_jobs.acquisition.article_planning import (
     slot_at,
 )
 from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
-from baibai_jobs.acquisition.economic_staging import stage_prefix
 from baibai_jobs.acquisition.receipts import download_fixed
 
 # トウシルは記事用rakuten queueで直列化し、公的sourceをその待機に巻き込まない。
@@ -142,7 +136,6 @@ def acquire_source(
     directory: Path,
     session: requests.Session,
     group_budget: GroupBudget | None = None,
-    rss_native_index: bool = False,
 ) -> dict[str, Any]:
     started = datetime.now(UTC)
     state, etag = load_planning(store, source)
@@ -384,6 +377,11 @@ def acquire_source(
             budget.check()
             previous = planning.get(url)
             baseline = ArticleReceipt.model_validate(previous["receipt"]) if previous else None
+            current_rss = kind == "index" and source in RSS_SOURCES
+            if current_rss and baseline is not None and baseline.rss_index_revision is None:
+                # The next ordinary slot obtains a current index; keep old evidence and
+                # document validators, but do not extend a legacy index with another 304.
+                baseline = None
             if (
                 previous is not None
                 and baseline is not None
@@ -435,12 +433,7 @@ def acquire_source(
             final = responses[-1].receipt
             for response in responses:
                 receipt = response.receipt
-                if (
-                    rss_native_index
-                    and kind == "index"
-                    and source in RSS_SOURCES
-                    and receipt.status == "ok"
-                ):
+                if current_rss and receipt.status == "ok":
                     receipt = receipt.model_copy(update={"rss_index_revision": RSS_NATIVE_V1})
                 final = receipt
                 with conn:
@@ -795,309 +788,20 @@ def acquire_source(
     }
 
 
-_BOJ_PENDING_COUNT = 9  # One frozen cutover workset, never an all-history audit.
-_BOJ_MAX_EVIDENCE_REFS = 2 * _BOJ_PENDING_COUNT
-
-
-class _BojPendingProof(TypedDict):
-    source: str
-    stage_id: str
-    manifest_sha256: str
-    pending_url_count: int
-    native_seed_count: int
-    native_child_count: int
-    incompatible_count: int
-    unverified_count: int
-    unverified_reason_counts: dict[str, int]
-
-
-type _IndexItems = set[tuple[str, str, str, str]]
-
-
-def _index_items(items: tuple[NativeArticle, ...]) -> _IndexItems:
-    return {
-        (str(item.metadata.get("fetch_url") or item.url), item.article_id, item.locator, item.title)
-        for item in items
-        if item.metadata.get("format") == "rss"
-    }
-
-
-class _BojPendingWitness:
-    source = "boj_news"
-    policy = SOURCES[source]
-
-    def __init__(self, store: ObjectStore, scratch: Path) -> None:
-        self.store = store
-        self.scratch = scratch
-        self.packets: dict[tuple[str, str], tuple[Path, dict[str, str]]] = {}
-        self.indexes: dict[tuple[str, str, str], tuple[_IndexItems, _IndexItems] | None] = {}
-        self.parent_links: dict[str, frozenset[NativeLink]] = {}
-
-    def receipt_key(self, entry: Any, receipt_id: Any) -> tuple[str, str, str]:
-        if not isinstance(entry, dict) or (
-            entry.get("source") != self.source
-            or entry.get("namespace") != ARTICLE_NAMESPACE
-            or entry.get("market") is not True
-            or not all(
-                isinstance(value, str)
-                for value in (entry.get("stage_id"), entry.get("manifest_sha256"), receipt_id)
-            )
-            or re.fullmatch(r"[0-9a-f]{64}", entry["manifest_sha256"]) is None
-        ):
-            raise ValueError("invalid fixed BOJ receipt reference")
-        return entry["stage_id"], entry["manifest_sha256"], receipt_id
-
-    def read(
-        self,
-        entry: dict[str, Any],
-        receipt_id: str,
-        *,
-        kind: Literal["index", "document"],
-        digest: str | None = None,
-    ) -> tuple[ArticleReceipt, ArticleReceipt, bytes]:
-        stage, manifest, _ = self.receipt_key(entry, receipt_id)
-        ref = stage, manifest
-        if ref not in self.packets:
-            if len(self.packets) >= _BOJ_MAX_EVIDENCE_REFS:
-                raise LakePublishError("BOJ pending evidence exceeds its fixed packet bound")
-            folder = self.scratch / f"packet-{len(self.packets)}"
-            download_fixed(self.store, entry, folder)
-            report = json.loads((folder / "result.json").read_text(encoding="utf-8"))
-            kinds = report.get("projection_kinds")
-            identities = report.get("receipt_ids")
-            if (
-                report.get("source") != self.source
-                or not isinstance(kinds, dict)
-                or not isinstance(identities, list)
-                or any(
-                    not isinstance(identity, str) or not isinstance(kinds.get(identity), str)
-                    for identity in identities
-                )
-            ):
-                raise LakePublishError("BOJ pending evidence packet report is invalid")
-            self.packets[ref] = (
-                folder / "receipts.sqlite",
-                {identity: kinds[identity] for identity in identities},
-            )
-        path, kinds = self.packets[ref]
-        if kinds.get(receipt_id) != kind:
-            raise ValueError("fixed BOJ evidence receipt has a different purpose")
-        with closing(connect_read_only(path)) as conn:
-            receipt = read_receipt(conn, receipt_id, receipt_sha256=digest)
-            original, body = read_receipt_body(conn, receipt)
-        if (
-            receipt.source != self.source
-            or (receipt.status, receipt.http_status) not in (("ok", 200), ("not_modified", 304))
-            or original.source != receipt.source
-            or original.requested_url != receipt.requested_url
-            or original.representation != receipt.representation
-            or original.received_at > receipt.received_at
-            or original.encoding != receipt.encoding
-            or original.http_status != 200
-        ):
-            raise ValueError("fixed BOJ body owner differs from its receipt")
-        return receipt, original, body
-
-    def index_result(self, url: str, link: Any) -> str:
-        try:
-            entry, receipt_id = link["stage"], link["index_receipt_id"]
-            key = self.receipt_key(entry, receipt_id)
-            item = (url, link["article_id"], link["native_locator"], link["title"])
-            if key not in self.indexes:
-                receipt, original, body = self.read(entry, receipt_id, kind="index")
-                if receipt.requested_url not in self.policy.entry_urls:
-                    return "index_reference_unverified"
-                url_args = {"url": receipt.requested_url, "encoding": original.encoding or "utf-8"}
-                recorded = _index_items(
-                    parse_index(
-                        self.source,
-                        body,
-                        rss_index_revision=original.rss_index_revision,
-                        **url_args,
-                    )
-                )
-                if not _parsed_rss_root(body):
-                    self.indexes[key] = None
-                else:
-                    current = (
-                        recorded
-                        if original.rss_index_revision == RSS_NATIVE_V1
-                        else _index_items(
-                            parse_index(
-                                self.source, body, rss_index_revision=RSS_NATIVE_V1, **url_args
-                            )
-                        )
-                    )
-                    self.indexes[key] = recorded, current
-            indexes = self.indexes[key]
-            if indexes is None:
-                return "index_not_rss"
-            recorded, current = indexes
-            if item in recorded:
-                return "native_seed" if item in current else "incompatible"
-        except (KeyError, TypeError, ValueError, sqlite3.DatabaseError):
-            return "index_reference_unverified"
-        return "index_item_unverified"
-
-    def child_result(self, url: str, edge: Any) -> str:
-        if not isinstance(edge, dict) or edge.get("discovery_revision") != discovery_revision_for(
-            self.source
-        ):
-            return "discovery_revision_unverified"
-        try:
-            parent = edge["parent"]
-            parent_url, digest = parent["url"], parent["receipt_sha256"]
-            if (
-                not isinstance(parent_url, str)
-                or not self.policy.allows_url(parent_url)
-                or parent_url == url
-                or not isinstance(digest, str)
-                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-            ):
-                return "parent_receipt_unverified"
-            receipt, _, body = self.read(
-                parent["stage"], parent["receipt_id"], kind="document", digest=digest
-            )
-            if (
-                receipt.requested_url != parent_url
-                or receipt.body_ref is None
-                or receipt.body_ref.model_dump() != parent["body_ref"]
-                or (receipt.encoding or "utf-8") != parent["encoding"]
-            ):
-                return "parent_receipt_unverified"
-        except (KeyError, TypeError, ValueError, sqlite3.DatabaseError):
-            return "parent_receipt_unverified"
-        # The ordinary writer restores every attached parent and its recorded index evidence.
-        # A parent without a proven current RSS origin is not a one-hop native proof.
-        if self.index_result(parent_url, parent.get("index_evidence")) != "native_seed":
-            return "parent_index_unverified"
-        try:
-            if digest not in self.parent_links:
-                self.parent_links[digest] = frozenset(
-                    discover_links(self.source, body, url=parent_url, encoding=parent["encoding"])
-                )
-            if NativeLink(edge["locator"], url) in self.parent_links[digest]:
-                return "native_child"
-        except (KeyError, LookupError, TypeError, ValueError):
-            pass
-        return "child_locator_unverified"
-
-    def result(self, url: str, evidence: dict[str, Any], edges: list[Any]) -> str:
-        if not self.policy.allows_url(url):
-            return "url_policy_mismatch"
-        if url in evidence:
-            direct = self.index_result(url, evidence[url])
-            if direct != "native_seed" or not edges:
-                return direct
-        if not edges:
-            return "no_retained_evidence"
-        for edge in edges:
-            result = self.child_result(url, edge)
-            if result != "native_child":
-                return result
-        return "native_child"
-
-
-def _verify_boj_pending(
-    store: ObjectStore, *, stage_id: str, manifest_sha256: str
-) -> _BojPendingProof:
-    """Verify native seeds and retained one-hop children, without modifying or fetching them."""
-    source = _BojPendingWitness.source
-    stage_prefix(stage_id, namespace=ARTICLE_NAMESPACE)
-    if re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is None:
-        raise ValueError("BOJ verification requires an exact manifest digest")
-    state, etag = load_planning(store, source)
-    root = state.last_stage
-    if (
-        root is None
-        or root.get("stage_id") != stage_id
-        or root.get("manifest_sha256") != manifest_sha256
-        or state.cursor.get("stage") != root
-    ):
-        raise ValueError("BOJ verification differs from the current planning stage")
-    cursor = load_discovery_cursor(store, state)
-    pending = cursor["pending_urls"]
-    if (
-        not isinstance(pending, list)
-        or len(pending) != _BOJ_PENDING_COUNT
-        or not all(isinstance(url, str) for url in pending)
-        or len(set(pending)) != len(pending)
-        or cursor.get("omitted_url_count")
-        or cursor.get("next_page")
-        or cursor.get("discoveries")
-    ):
-        raise ValueError("BOJ verification requires the exact bounded pending workset")
-    evidence = cursor.get("pending_evidence", {})
-    children = cursor["discovery_children"]
-    edges = [children.get(url, []) for url in pending]
-    if (
-        not all(isinstance(attached, list) for attached in edges)
-        or sum(map(len, edges)) > _BOJ_MAX_EVIDENCE_REFS
-    ):
-        raise ValueError("BOJ pending evidence exceeds its fixed child edge bound")
-    with tempfile.TemporaryDirectory(prefix="boj-pending-proof-") as scratch:
-        witness = _BojPendingWitness(store, Path(scratch))
-        counts = Counter(
-            witness.result(url, evidence, attached)
-            for url, attached in zip(pending, edges, strict=True)
-        )
-    if load_planning(store, source) != (state, etag):
-        raise LakePublishError("BOJ planning changed during verification")
-    seeds, native_children, incompatible = (
-        counts.pop(reason, 0) for reason in ("native_seed", "native_child", "incompatible")
-    )
-    return {
-        "source": source,
-        "stage_id": stage_id,
-        "manifest_sha256": manifest_sha256,
-        "pending_url_count": len(pending),
-        "native_seed_count": seeds,
-        "native_child_count": native_children,
-        "incompatible_count": incompatible,
-        "unverified_count": counts.total(),
-        "unverified_reason_counts": dict(counts),
-    }
-
-
-def _article_store() -> Boto3R2Store:
-    return Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-
-
-def _verify_boj_pending_main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="baibai-jobs acquisition.articles verify-boj-pending")
-    parser.add_argument("--stage-id", required=True)
-    parser.add_argument("--manifest-sha256", required=True)
-    args = parser.parse_args(argv)
-    try:
-        with closing(_article_store()) as store:
-            proof = _verify_boj_pending(
-                store, stage_id=args.stage_id, manifest_sha256=args.manifest_sha256
-            )
-    except Exception as error:
-        print(f"BOJ pending verification failed: {type(error).__name__}", file=sys.stderr)
-        return 1
-    print(json.dumps(proof, sort_keys=True))
-    return int(
-        proof["native_seed_count"] + proof["native_child_count"] != proof["pending_url_count"]
-    )
-
-
 def main(argv: list[str] | None = None) -> int:
-    arguments = sys.argv[1:] if argv is None else argv
-    if arguments[:1] == ["verify-boj-pending"]:
-        return _verify_boj_pending_main(arguments[1:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", choices=tuple(GROUPS), required=True)
     parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
     parser.add_argument("--identity", required=True)
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("--rss-native-index", action="store_true")
-    args = parser.parse_args(arguments)
+    args = parser.parse_args(argv)
     if args.created_at.tzinfo is None or args.created_at > datetime.now(UTC):
         parser.error("created-at must be a past timezone-aware clock")
     reports = []
     group_budget = GroupBudget(GROUP_BYTES[args.group])
-    with closing(_article_store()) as raw_store:
+    with closing(
+        Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+    ) as raw_store:
         store = ArticleObjectMetrics(raw_store)
         started = time.monotonic()
         with requests.Session() as session:
@@ -1113,7 +817,6 @@ def main(argv: list[str] | None = None) -> int:
                         directory=args.directory / source,
                         session=session,
                         group_budget=group_budget,
-                        rss_native_index=args.rss_native_index,
                     )
                 except Exception as error:
                     report = {"source": source, "status": "failed", "reason": type(error).__name__}

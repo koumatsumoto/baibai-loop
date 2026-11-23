@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, VerifiedMemoryR2Store
 from tests.helpers.workflow_schedule import declared_schedule
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
@@ -18,7 +18,12 @@ from baibai_engine.data_collection.receipts.native_sources.store import initiali
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
 )
-from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+from baibai_jobs.acquisition.economic_staging import (
+    FRED_HANDOFF_NAMESPACE,
+    load_handoff,
+    save_fred_handoff,
+    save_handoff,
+)
 from baibai_jobs.integration.economic_handoff import acquire
 
 DAY = date(2026, 10, 20)
@@ -103,9 +108,9 @@ def workflow(name):
 
 
 def test_each_provider_saves_receipts_without_full_db_or_integration_wait():
-    parent = workflow("cloud-economic-sources.yml")
+    parent = workflow("cloud-economic-sources-current.yml")
     assert parent["jobs"]["source"]["strategy"]["fail-fast"] == "false"
-    source = workflow("cloud-economic-source.yml")
+    source = workflow("cloud-economic-source-current.yml")
     assert source["concurrency"]["group"] == "economic-source-${{ inputs.group }}"
     assert "publish" not in source["jobs"]
     text = str(source)
@@ -119,7 +124,7 @@ def test_each_provider_saves_receipts_without_full_db_or_integration_wait():
     ):
         assert forbidden not in text
     assert "integration.economic_handoff input --group" in text
-    assert "baibai-jobs model-integration" in str(workflow("cloud-daily-batch.yml"))
+    assert "baibai-jobs model-integration" in str(workflow("cloud-daily-batch-current.yml"))
     assert parent["jobs"]["source"]["with"]["current_only_now"] == (
         "${{ github.event_name == 'schedule' || inputs.asof == '' }}"
     )
@@ -233,7 +238,7 @@ def test_h15_failure_keeps_typed_causes_without_publishing_private_error_text(
 
 
 def test_economic_workflow_passes_notice_classification_without_hiding_job_failure():
-    source = workflow("cloud-economic-source.yml")
+    source = workflow("cloud-economic-source-current.yml")
     assert (
         source["jobs"]["acquire"]["outputs"]["expected_unavailable"]
         == "${{ steps.acquire.outputs.expected_unavailable }}"
@@ -242,7 +247,12 @@ def test_economic_workflow_passes_notice_classification_without_hiding_job_failu
     assert "continue-on-error" not in next(step for step in steps if step.get("id") == "acquire")
     notify = source["jobs"]["notify"]
     assert " ".join(notify["if"].split()) == (
-        "${{ always() && (github.event_name != 'schedule' || needs.acquire.outputs.handoff == '' "
+        "${{ always() && github.workflow_ref == "
+        "format('{0}/.github/workflows/cloud-economic-sources-current.yml@refs/heads/main', github.repository) "
+        "&& inputs.retirement_attempt == github.run_attempt "
+        "&& (inputs.requires_v2 == 'true' || inputs.requires_v2 == 'false') "
+        "&& needs.acquire.result != 'skipped' "
+        "&& (github.event_name != 'schedule' || needs.acquire.outputs.handoff == '' "
         "|| (needs.acquire.result != 'success' && "
         "!(needs.acquire.result == 'failure' && needs.acquire.outputs.expected_unavailable == 'true'))) }}"
     )
@@ -254,32 +264,39 @@ def test_economic_workflow_passes_notice_classification_without_hiding_job_failu
 
 def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
     directory = handoff(tmp_path, "fred_csv", "fred-payems", "A")
-    store = MemoryR2Store()
-    stage = save_handoff(store, "42-1-fred_csv", directory)
+    store = VerifiedMemoryR2Store()
+    stage = "fred_csv-2026-10-24-42-1"
+    commit = save_fred_handoff(store, stage, directory, validate_packet=lambda _: None)
     downloaded = tmp_path / "downloaded"
-    load_handoff(store, stage, downloaded)
+    load_handoff(
+        store,
+        stage,
+        downloaded,
+        namespace=FRED_HANDOFF_NAMESPACE,
+        expected_manifest_sha256=commit["manifest_sha256"],
+    )
     assert (downloaded / "receipts.sqlite").read_bytes() == (
         directory / "receipts.sqlite"
     ).read_bytes()
-    assert all(key.startswith("coordination/economic-sources/") for key in store.put_keys)
+    assert all(key.startswith("coordination/economic-fred-sources/") for key in store.put_keys)
     assert not any(
         "artifact" in str(workflow(name))
-        for name in ("cloud-economic-source.yml", "cloud-economic-sources.yml")
+        for name in ("cloud-economic-source-current.yml", "cloud-economic-sources-current.yml")
     )
-    assert save_handoff(store, "42-1-fred_csv", directory) == stage
-    key = next(key for key in store.values if key.endswith(".sqlite"))
+    assert save_fred_handoff(store, stage, directory, validate_packet=lambda _: None) == commit
+    key = next(key for key in store.values if key.endswith(".sqlite.zst"))
     store.values[key].body = b"tampered"
     with pytest.raises(LakePublishError, match="receipt"):
-        load_handoff(store, stage, tmp_path / "corrupt")
+        load_handoff(store, stage, tmp_path / "corrupt", namespace=FRED_HANDOFF_NAMESPACE)
 
 
 def test_common_integration_is_independently_scheduled_and_includes_weekends():
-    parent = workflow("cloud-economic-sources.yml")
+    parent = workflow("cloud-economic-sources-current.yml")
     assert "materialize" not in parent["jobs"]
-    common = workflow("cloud-daily-batch.yml")
-    raw = (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text()
+    common = workflow("cloud-daily-batch-current.yml")
+    raw = (ROOT / ".github/workflows/cloud-daily-batch-current.yml").read_text()
     assert declared_schedule(raw) == [{"cron": "43 13 * * *"}]
-    assert "needs" not in common["jobs"]["daily"]
+    assert common["jobs"]["daily"]["needs"] == "retirement"
     runs = [str(step.get("run", "")) for step in common["jobs"]["daily"]["steps"]]
     assert sum("r2_transfer.sh hydrate-market" in run for run in runs) == 1
     assert sum("baibai-jobs model-integration" in run for run in runs) == 1

@@ -30,7 +30,7 @@ def current_daily_run() -> str:
         not repository
         or not ref
         or os.environ.get("GITHUB_WORKFLOW_REF")
-        != f"{repository}/.github/workflows/cloud-daily-batch.yml@{ref}"
+        != f"{repository}/.github/workflows/cloud-daily-batch-current.yml@{ref}"
     ):
         raise ValueError("daily publication requires the current daily workflow")
     return daily_run(

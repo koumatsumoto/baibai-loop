@@ -58,7 +58,7 @@ jobs:
         run: |
           gh api \
             --method GET \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-daily-batch.yml/runs" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-daily-batch-current.yml/runs" \
             -f per_page=100 -f branch=main \
             > "$RUNNER_TEMP/daily-batch-runs.json"
 
@@ -88,7 +88,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api --method GET \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-economic-sources.yml/runs" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-economic-sources-current.yml/runs" \
             -f per_page=100 -f branch=main > "$RUNNER_TEMP/economic-runs.json"
       - name: Report a missing complete economic run, including weekends
         env:

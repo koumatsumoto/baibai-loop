@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[3]
 @pytest.fixture(params=["daily", "materialize"])
 def application_workflow(request):
     name = request.param
-    path = ROOT / ".github/workflows" / f"cloud-{'daily-batch' if name == 'daily' else name}.yml"
+    filename = "cloud-daily-batch-current.yml" if name == "daily" else f"cloud-{name}.yml"
+    path = ROOT / ".github/workflows" / filename
     workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
     steps = workflow["jobs"][name]["steps"]
     selected = [

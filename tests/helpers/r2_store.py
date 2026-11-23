@@ -16,6 +16,7 @@ from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
+    LakePublishError,
     R2Error,
     RemoteObject,
 )
@@ -144,3 +145,20 @@ class MemoryR2Store:
             },
             content_type=content_type,
         )
+
+
+class VerifiedMemoryR2Store(MemoryR2Store):
+    """An atomic fixed-object GET, including its byte and digest bounds."""
+
+    def get_verified_object(self, key: str, *, sha256: str, max_bytes: int):
+        response = self.get_bytes_with_metadata(key)
+        if response is None:
+            return None
+        payload, info = response
+        if (
+            not 0 < info.size <= max_bytes
+            or info.metadata.get("sha256") != sha256
+            or hashlib.sha256(payload).hexdigest() != sha256
+        ):
+            raise LakePublishError("fixture fixed receipt read failed")
+        return payload, info

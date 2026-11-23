@@ -1,7 +1,7 @@
 import gzip
 import json
 import sqlite3
-from contextlib import closing
+from contextlib import closing, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
@@ -274,8 +274,8 @@ def test_boj_rss_structure_distinguishes_empty_from_parse_failure(tmp_path, feed
     )
     assert result["status"] == ("completed" if valid else "partial")
     assert result["failures"] == ([] if valid else ["ValueError"])
-    assert result.get("rss_unversioned_index_http_statuses") == ([200] if valid and rss else None)
-    assert "rss_index_http_statuses" not in result
+    assert result.get("rss_index_http_statuses") == ([200] if valid and rss else None)
+    assert "rss_unversioned_index_http_statuses" not in result
     assert session.urls == [articles.SOURCES[source].entry_url]
     planning, _ = load_planning(store, source)
     fixed = tmp_path / "fixed"
@@ -340,7 +340,6 @@ def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, mon
             identity=f"rss-{index}",
             directory=stage,
             session=session,
-            rss_native_index=True,
         )
         assert report["failures"] == []
         assert report["bodies"] == 1
@@ -377,61 +376,6 @@ def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, mon
     assert session.headers[2]["If-None-Match"] == '"feed-v1"'
 
 
-def test_rss_opt_in_does_not_reclassify_unmarked_200_via_304_without_document_evidence(
-    tmp_path, monkeypatch
-):
-    source = "boj_news"
-    policy = replace(articles.SOURCES[source], max_bodies=0)
-    monkeypatch.setitem(articles.SOURCES, source, policy)
-    feed = (
-        b'<rss xmlns:ext="urn:synthetic:extension"><channel>'
-        b"<ext:item><ext:link>https://www.boj.or.jp/foreign.htm</ext:link></ext:item>"
-        b"<item><link>https://www.boj.or.jp/native.htm</link></item></channel></rss>"
-    )
-
-    class Clock(datetime):
-        @classmethod
-        def now(cls, _tz):
-            return SLOT + timedelta(hours=5)
-
-    monkeypatch.setattr(articles, "datetime", Clock)
-    store = MemoryR2Store()
-    publish_planning_input(store, source, {})
-    session = Session([Response(200, feed), Response(304, b"")])
-    for index in range(2):
-        directory = tmp_path / f"old-source-{index}"
-        report = articles.acquire_source(
-            store,
-            source=source,
-            slot=SLOT + timedelta(hours=index * 4),
-            identity=f"old-source-{index}",
-            directory=directory,
-            session=session,
-            rss_native_index=bool(index),
-        )
-        assert report["bodies"] == 0
-        assert report["rss_unversioned_index_http_statuses"] == [200 if index == 0 else 304]
-        assert "rss_index_http_statuses" not in report
-        packet = json.loads((directory / "result.json").read_text())
-        assert packet["document_evidence"] == {}
-        assert "rss_unversioned_index_http_statuses" not in packet
-        with closing(connect_read_only(directory / "receipts.sqlite")) as conn:
-            assert all(
-                "rss_index_revision" not in json.loads(row[0])
-                for row in conn.execute("SELECT receipt_json FROM article_source_receipts")
-            )
-        database = tmp_path / f"old-source-{index}.sqlite"
-        replay = import_handoff(source, database, directory)
-        assert replay.complete
-        with closing(connect_read_only(database)) as conn:
-            observed = read_observations(conn, replay.report["observation_ids"])
-        assert [(row.native_locator, row.original_url) for row in observed] == [
-            ("/item/0", "https://www.boj.or.jp/foreign.htm"),
-            ("/item/1", "https://www.boj.or.jp/native.htm"),
-        ]
-    assert session.headers[1]["If-None-Match"] == '"feed-v1"'
-
-
 @pytest.mark.parametrize("index_status", [200, 304])
 def test_rss_index_witness_does_not_claim_document_success_or_unbound_304(tmp_path, index_status):
     source = "boj_news"
@@ -451,10 +395,112 @@ def test_rss_index_witness_does_not_claim_document_success_or_unbound_304(tmp_pa
         session=Session(responses),
     )
     assert report["status"] == "partial"
-    assert report.get("rss_unversioned_index_http_statuses") == (
-        [200] if index_status == 200 else None
+    assert report.get("rss_index_http_statuses") == ([200] if index_status == 200 else None)
+    assert "rss_unversioned_index_http_statuses" not in report
+
+
+def test_rss_witness_ignores_unbound_304_and_document_status(tmp_path, monkeypatch, capsys):
+    source = "boj_news"
+    marker = "not-for-public-output"
+    url = f"https://www.boj.or.jp/{marker}.htm"
+    feed = f"<rss><channel><item><title>{marker}</title><link>{url}</link></item></channel></rss>"
+    session = Session([Response(304, b""), Response(200, feed.encode()), Response(403, b"")])
+    store = CLIStore()
+    publish_planning_input(store, source, {})
+    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(articles.requests, "Session", lambda: nullcontext(session))
+    monkeypatch.setitem(articles.GROUPS, "scheduled", (source,))
+    assert (
+        articles.main(
+            [
+                "--group",
+                "scheduled",
+                "--created-at",
+                SLOT.isoformat(),
+                "--identity",
+                "witness",
+                "--directory",
+                str(tmp_path),
+            ]
+        )
+        == 1
     )
-    assert "rss_index_http_statuses" not in report
+    public = capsys.readouterr().out
+    [report] = json.loads(public)["sources"]
+    saved = load_planning(store, source)[0].last_stage
+    assert saved is not None
+    assert report["rss_index_http_statuses"] == [200]
+    assert report["stage_id"] == saved["stage_id"]
+    assert report["manifest_sha256"] == saved["manifest_sha256"]
+    assert session.urls == [articles.SOURCES[source].entry_url] * 2 + [url]
+    assert marker not in public
+    assert {"receipt_ids", "projection_kinds", "document_evidence", "discovery_edges"}.isdisjoint(
+        report
+    )
+    assert "rss_index_http_statuses" not in json.loads(
+        (tmp_path / source / "result.json").read_text()
+    )
+
+
+def test_cutover_replaces_only_legacy_rss_index_validator_and_keeps_fixed_original(
+    tmp_path, monkeypatch
+):
+    source = "boj_news"
+    policy = replace(articles.SOURCES[source], max_bodies=0)
+    monkeypatch.setitem(articles.SOURCES, source, policy)
+    feed = (
+        b'<rss xmlns:ext="urn:synthetic:extension"><channel>'
+        b"<ext:item><ext:link>https://www.boj.or.jp/foreign.htm</ext:link></ext:item>"
+        b"<item><link>https://www.boj.or.jp/native.htm</link></item></channel></rss>"
+    )
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, _tz):
+            return SLOT + timedelta(hours=9)
+
+    monkeypatch.setattr(articles, "datetime", Clock)
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {})
+    session = Session([Response(200, feed), Response(200, feed), Response(304, b"")])
+    for index in range(3):
+        directory = tmp_path / f"old-source-{index}"
+        with monkeypatch.context() as archived:
+            if index == 0:
+                archived.setattr(articles, "RSS_SOURCES", articles.RSS_SOURCES - {source})
+            report = articles.acquire_source(
+                store,
+                source=source,
+                slot=SLOT + timedelta(hours=index * 4),
+                identity=f"old-source-{index}",
+                directory=directory,
+                session=session,
+            )
+        assert report["bodies"] == 0
+        current = [200] if index == 1 else [304] if index == 2 else None
+        assert report.get("rss_index_http_statuses") == current
+        assert report.get("rss_unversioned_index_http_statuses") == ([200] if index == 0 else None)
+        packet = json.loads((directory / "result.json").read_text())
+        assert packet["document_evidence"] == {}
+        assert {"rss_index_http_statuses", "rss_unversioned_index_http_statuses"}.isdisjoint(packet)
+        with closing(connect_read_only(directory / "receipts.sqlite")) as conn:
+            receipts = [
+                json.loads(row[0])
+                for row in conn.execute("SELECT receipt_json FROM article_source_receipts")
+            ]
+            assert sum("rss_index_revision" in row for row in receipts) == int(index > 0)
+        database = tmp_path / f"old-source-{index}.sqlite"
+        replay = import_handoff(source, database, directory)
+        assert replay.complete
+        with closing(connect_read_only(database)) as conn:
+            observed = read_observations(conn, replay.report["observation_ids"])
+        archived_item = [("/item/0", "https://www.boj.or.jp/foreign.htm")] if index == 0 else []
+        assert [(row.native_locator, row.original_url) for row in observed] == [
+            *archived_item,
+            ("/item/1", "https://www.boj.or.jp/native.htm"),
+        ]
+    assert "If-None-Match" not in session.headers[1]
+    assert session.headers[2]["If-None-Match"] == '"feed-v1"'
 
 
 def test_native_rss_frontier_resumes_with_prior_stage_positions(tmp_path, monkeypatch):
@@ -495,7 +541,6 @@ def test_native_rss_frontier_resumes_with_prior_stage_positions(tmp_path, monkey
             identity=f"rss-frontier-{index}",
             directory=tmp_path / f"slot-{index}",
             session=session,
-            rss_native_index=True,
         )
         assert report["failures"] == []
         assert report["pending_url_count"] == 1 - index
