@@ -236,6 +236,7 @@ def test_explicit_partial_requires_saved_plan_before_cache_or_l1_access(tmp_path
             run_id="missing",
             master_asof=date(2026, 10, 9),
             mirror=cache,
+            source="monex",
             require_existing=True,
         )
     assert not cache.exists()
