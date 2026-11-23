@@ -98,8 +98,84 @@ class _Document(HTMLParser):
         self.stack[-1].children.append(data)
 
 
-def document(html: str) -> Element:
-    parser = _Document()
+# Match at each start so the ending -- of <!-- can also start --> in <!-->.
+_SCRIPT_ESCAPE_MARKERS = re.compile(
+    r"(?=(<!--|-->|<script(?=[\t\n\r\f />])))", re.IGNORECASE | re.ASCII
+)
+
+
+def _script_close_is_double_escaped(prefix: str) -> bool:
+    """Recognize escape transitions before HTMLParser's first script-end candidate."""
+    if "<!--" not in prefix:
+        return False
+    state = "data"
+    for match in _SCRIPT_ESCAPE_MARKERS.finditer(prefix):
+        match_text = match[1]
+        if match_text == "-->":
+            state = "data"
+        elif match_text == "<!--" and state == "data":
+            state = "escaped"
+        elif match_text.lower() == "<script" and state == "escaped":
+            state = "double_escaped"
+    return state == "double_escaped"
+
+
+class _DocumentWithoutTemplateContent(_Document):
+    """Do not send inert template tags or text to the document's structural stack."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._template_depth = 0
+        self._script_close_ambiguous = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "template":
+            self._template_depth += 1
+        elif not self._template_depth:
+            super().handle_starttag(tag, attrs)
+        elif tag == "noscript":
+            # A script-enabled document treats this fallback as text. Within
+            # an inert template it cannot establish that the template ended.
+            self.set_cdata_mode(tag, escapable=False)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._template_depth:
+            if tag == "template":
+                self._template_depth -= 1
+            elif tag == "script" and self._script_close_ambiguous:
+                # CPython would leave script text here even though the HTML script
+                # tokenizer would only leave its double-escaped state. Do not
+                # derive score/identity evidence across that unverified boundary.
+                raise ParseError("ambiguous_inert_template_script")
+            return
+        super().handle_endtag(tag)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "template":
+            # HTML template is non-void: a malformed trailing slash does not close it.
+            self.handle_starttag(tag, attrs)
+        elif self._template_depth and (
+            tag in self.CDATA_CONTENT_ELEMENTS
+            or tag in self.RCDATA_CONTENT_ELEMENTS
+            or tag in {"noscript", "plaintext"}
+        ):
+            # The same non-void rule applies to text elements inside a template.
+            # Text spelling </template> must not escape the outer inert scope.
+            self.set_cdata_mode(tag, escapable=tag in self.RCDATA_CONTENT_ELEMENTS)
+        else:
+            super().handle_startendtag(tag, attrs)
+
+    def handle_data(self, data: str) -> None:
+        if not self._template_depth:
+            super().handle_data(data)
+        elif self.cdata_elem == "script":
+            # document() feeds the whole document once. Raw script data arrives
+            # as one prefix ending just before CPython's first closing candidate.
+            self._script_close_ambiguous = _script_close_is_double_escaped(data)
+
+
+def document(html: str, *, omit_template_content: bool = False) -> Element:
+    parser = _DocumentWithoutTemplateContent() if omit_template_content else _Document()
     parser.feed(html)
     return parser.root
 

@@ -18,8 +18,9 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 
-PARSER_VERSION = "kabumap-quants-4"
-_RETAINED_PARSER_VERSION = "kabumap-quants-3"
+PARSER_VERSION = "kabumap-quants-5"
+_RETAINED_NOT_COMPUTED_VERSION = "kabumap-quants-4"
+_RETAINED_DATED_ONLY_VERSION = "kabumap-quants-3"
 _NOT_COMPUTED_HEADING = "クォンツスコア情報（まだ計算されていない銘柄です）"
 _NOT_COMPUTED_MESSAGE = "クォンツスコアはまだ計算されていません"
 LABELS = {
@@ -66,7 +67,7 @@ def _visible_text(node: Element) -> str:
 
 
 def _score_date(page: Element, parser_version: str) -> date | None:
-    if parser_version == _RETAINED_PARSER_VERSION:
+    if parser_version == _RETAINED_DATED_ONLY_VERSION:
         # 保存stageの原本検証では、そのときの受理条件とversionを維持する。
         dates = [
             match[1]
@@ -113,12 +114,16 @@ def parse_html(
     fetched_at_utc: datetime,
     parser_version: str = PARSER_VERSION,
 ) -> QuantsScoreObservation:
-    if parser_version not in {PARSER_VERSION, _RETAINED_PARSER_VERSION}:
+    if parser_version not in {
+        PARSER_VERSION,
+        _RETAINED_NOT_COMPUTED_VERSION,
+        _RETAINED_DATED_ONLY_VERSION,
+    }:
         raise ParseError("unsupported_parser_version")
     ticker = normalize_ticker(ticker)
     if source_url != public_url(ticker):
         raise ParseError("source_identity")
-    page = document(html)
+    page = document(html, omit_template_content=parser_version == PARSER_VERSION)
     identities = page.find("span", id="stockCode")
     if (
         len(identities) != 1
@@ -151,7 +156,8 @@ def parse_html(
     ):
         rows = page.find("li", id=identifier)
         if len(rows) != 1 or (
-            parser_version == PARSER_VERSION and not tables[0].find("li", id=identifier)
+            parser_version != _RETAINED_DATED_ONLY_VERSION
+            and not tables[0].find("li", id=identifier)
         ):
             raise ParseError("missing_quants_scores")
         values[name] = _score(numeric_text(rows[0]), 100)
