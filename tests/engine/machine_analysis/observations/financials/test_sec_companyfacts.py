@@ -11,6 +11,7 @@ import pytest
 from baibai_engine.machine_analysis.observations.financials.sec_companyfacts import (
     SecCompanyFactsCapture,
     SecFilingWitness,
+    SecPublicFilingObservation,
     SecRevenueObservation,
     observe_sec_revenue,
 )
@@ -346,3 +347,133 @@ def test_future_filing_metadata_does_not_change_prior_replay(breakage: str) -> N
     assert _read(source, filing=future) == "not_yet_received"
     with pytest.raises(ValueError, match=error):
         _read(source, filing=future, cutoff=future.received_at)
+
+
+def _index_proof(**changes):
+    fields = {
+        "issuer_cik": "123456",
+        "accession": _ACCESSION,
+        "observed_at": _instant("2026-11-25T22:10:00+01:00"),
+        "receipt_id": "sec-index:fixed-synthetic-receipt",
+        "index_url": (
+            "https://www.sec.gov/Archives/edgar/data/123456/"
+            "000099999926000001/0000999999-26-000001-index.htm"
+        ),
+    }
+    return SecPublicFilingObservation(**(fields | changes))
+
+
+def _read_observed(source, *, proof, cutoff, filing=None):
+    return observe_sec_revenue(
+        source,
+        filing or replace(_FILING, published_at=None, publication_ref=None),
+        expected_cik=_CIK,
+        period_start=_Q_START,
+        period_end=_Q_END,
+        cutoff=cutoff,
+        publicly_observed_by=proof,
+    )
+
+
+def test_public_index_observation_is_usable_only_from_its_independent_clock() -> None:
+    source = _capture(_body(_fact()))  # 21:07Z, before the 21:10Z index receipt.
+    proof = _index_proof()
+    earlier = _instant("2026-11-25T21:09:59.999999Z")
+    assert _read_observed(source, proof=proof, cutoff=earlier) == "publication_unverified"
+    result = _read_observed(source, proof=proof, cutoff=proof.observed_at)
+    assert isinstance(result, SecRevenueObservation)
+    assert result.amount == Decimal(5000)
+    assert result.filing.published_at is None
+    assert result.filing.publication_ref is None
+    assert result.companyfacts_received_at == source.received_at < proof.observed_at
+    assert result.publicly_observed_by == replace(
+        proof, issuer_cik=_CIK, observed_at=_instant("2026-11-25T21:10:00Z")
+    )
+    assert result.publicly_observed_by.observed_at.isoformat() == "2026-11-25T21:10:00+00:00"
+
+
+@pytest.mark.parametrize("source_late", ["companyfacts", "filing"])
+def test_public_index_never_substitutes_either_pinned_source_receipt(source_late: str) -> None:
+    proof = _index_proof()
+    late = _instant("2026-11-25T21:11:00Z")
+    source = _capture(_body(_fact()))
+    filing = replace(_FILING, published_at=None, publication_ref=None)
+    if source_late == "companyfacts":
+        source = replace(source, received_at=late)
+    else:
+        filing = replace(filing, received_at=late)
+    assert (
+        _read_observed(source, proof=proof, filing=filing, cutoff=proof.observed_at)
+        == "not_yet_received"
+    )
+    assert isinstance(
+        _read_observed(source, proof=proof, filing=filing, cutoff=late), SecRevenueObservation
+    )
+
+
+@pytest.mark.parametrize(
+    ("changes", "error"),
+    [
+        ({"issuer_cik": "0000999999"}, "CIK"),
+        ({"accession": _AMENDMENT}, "accession"),
+        ({"index_url": "https://www.sec.gov/Archives/edgar/data/123456/nope"}, "index URL"),
+        ({"receipt_id": "companyfacts-capture-a"}, "distinct"),
+        ({"receipt_id": _FILING.receipt_id}, "distinct"),
+        ({"receipt_id": " "}, "receipt"),
+        ({"receipt_id": " companyfacts-capture-a "}, "receipt"),
+        ({"observed_at": _instant("2026-11-25T20:54:59Z")}, "before filing acceptance"),
+    ],
+)
+def test_wrong_public_observation_provenance_is_not_a_public_witness(changes, error) -> None:
+    with pytest.raises(ValueError, match=error):
+        _read_observed(_capture(_body(_fact())), proof=_index_proof(**changes), cutoff=_CUTOFF)
+
+
+def test_future_index_metadata_cannot_change_old_proof_or_hide_invalid_body() -> None:
+    proof = _index_proof(index_url="https://example.invalid/wrong")
+    before = _instant("2026-11-25T21:09:59Z")
+    source = _capture(_body(_fact()))
+    assert _read_observed(source, proof=proof, cutoff=before) == "publication_unverified"
+    observed_exact = _read_observed(source, proof=proof, cutoff=before, filing=_FILING)
+    assert isinstance(observed_exact, SecRevenueObservation)
+    assert observed_exact.filing.published_at == _FILING.published_at
+    assert observed_exact.publicly_observed_by is None
+    with pytest.raises(ValueError, match="receipt SHA-256"):
+        _read_observed(replace(source, body=b"corrupt"), proof=proof, cutoff=before)
+
+
+def test_optional_observation_cannot_weaken_exact_publication_chronology() -> None:
+    source = _capture(_body(_fact()), received="2026-11-25T20:59:00Z")
+    with pytest.raises(ValueError, match="received before witnessed filing publication"):
+        _read_observed(source, proof=_index_proof(), cutoff=_CUTOFF, filing=_FILING)
+    impossible_proof = _index_proof(observed_at=_instant("2026-11-25T20:58:00Z"))
+    with pytest.raises(ValueError, match="observation is before witnessed filing publication"):
+        _read_observed(
+            _capture(_body(_fact())), proof=impossible_proof, cutoff=_CUTOFF, filing=_FILING
+        )
+
+
+def test_original_index_can_be_observed_at_filing_acceptance() -> None:
+    proof = _index_proof(observed_at=_FILING.accepted_at)
+    result = _read_observed(_capture(_body(_fact())), proof=proof, cutoff=_CUTOFF)
+    assert isinstance(result, SecRevenueObservation)
+    assert result.publicly_observed_by.observed_at == _FILING.accepted_at
+
+
+@pytest.mark.parametrize("counterpart", ["companyfacts", "filing", "publication"])
+def test_index_receipt_cannot_alias_a_padded_legacy_reference(counterpart: str) -> None:
+    proof = _index_proof()
+    padded = f" {proof.receipt_id}\t "
+    source = _capture(_body(_fact()))
+    filing = _FILING
+    if counterpart == "companyfacts":
+        source = replace(source, receipt_id=padded)
+    elif counterpart == "filing":
+        filing = replace(filing, receipt_id=padded)
+    else:
+        filing = replace(filing, publication_ref=padded)
+
+    # Existing exact-evidence-only route has no new reference restrictions.
+    assert isinstance(_read(source, filing=filing), SecRevenueObservation)
+    with pytest.raises(ValueError, match="distinct original index receipt"):
+        _read_observed(source, proof=proof, cutoff=_CUTOFF, filing=filing)
