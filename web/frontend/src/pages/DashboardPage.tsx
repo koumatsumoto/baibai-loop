@@ -27,14 +27,8 @@ import { EMPTY, formatJstDateTime, formatPct, formatUnitPriceYen, formatYen } fr
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
-// Retained dashboards from before the new writer lack the fact; absence is not false.
-type DashboardPayload = Omit<DashboardView, 'holding_quantity_unresolved'>
-  & Partial<Pick<DashboardView, 'holding_quantity_unresolved'>>
-
-function holdingQuantityNotice(unresolved: DashboardPayload['holding_quantity_unresolved']): string | null {
-  if (unresolved === true) return '保有株数は未照合です。'
-  if (unresolved === false) return null
-  return '保有株数の確認状況はこの表示データに記録されていません。'
+function holdingQuantityNotice(unresolved: boolean): string | null {
+  return unresolved ? '保有株数は未照合です。' : null
 }
 
 const HINT = {
@@ -64,7 +58,7 @@ export function AllocationTooltip({ active, payload }: Pick<TooltipContentProps,
   )
 }
 
-export function PortfolioAllocationCard({ data }: { data: DashboardPayload }) {
+export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   const {
     total_capital_yen: total,
     holdings_market_value_yen: holdingsValue,
@@ -142,7 +136,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardPayload }) {
             { label: '台帳の未予約現金', value: data.available_cash_yen, detail: data.cash_pct === null ? '受渡済み資金とは別' : `総資産の ${formatPct(data.cash_pct)}・受渡未照合`, color: 'bg-chart-2', tone: 'plain' as const, sign: false },
             { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3', tone: 'plain' as const, sign: false },
             { label: '評価損益', value: hasPnl ? pnl.yen : null, detail: pnl.pct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(pnl.pct, { sign: true })}`, color: null, tone: 'pnl' as const, sign: true },
-            { label: '累積確定損益', value: data.realized_gross_pnl_yen ?? null, detail: '台帳開始以来の売却損益・税／手数料控除前', color: null, tone: 'pnl' as const, sign: true },
+            { label: '累積確定損益', value: data.realized_gross_pnl_yen, detail: '台帳開始以来の売却損益・税／手数料控除前', color: null, tone: 'pnl' as const, sign: true },
           ].map((metric) => (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-5 py-5 sm:px-6" key={metric.label}>
               <div className="flex min-w-0 items-center gap-3">
@@ -226,7 +220,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
   holdings: HoldingView[]
   warnings: WarningView[]
   ledgerAsOf?: string | null
-  quantityUnresolved: DashboardPayload['holding_quantity_unresolved']
+  quantityUnresolved: boolean
   holdingsMarketValueYen: number | null
   deployedCostYen: number | null
 }) {
@@ -345,12 +339,11 @@ function readOutcomesView(value: unknown): OutcomesView {
   // A successful HTTP response can still carry the wrong materialized view.
   // Check the display shape only; the store still owns outcome validity.
   if (!record(value)
-    || (value.error != null && typeof value.error !== 'string')
+    || (value.error !== null && typeof value.error !== 'string')
     || !Array.isArray(value.outcomes) || !value.outcomes.every(outcomeRow)) {
     throw new Error('保存済み運用成績の表示データが不正です。')
   }
-  // The older retained envelope did not carry an error field.
-  return { error: value.error ?? null, outcomes: value.outcomes }
+  return { error: value.error, outcomes: value.outcomes }
 }
 
 export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
@@ -415,15 +408,23 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
 }
 
 export function DashboardPage() {
-  const [data, setData] = useState<DashboardPayload | null>(null)
+  const [data, setData] = useState<DashboardView | null>(null)
   const [outcomes, setOutcomes] = useState<OutcomesView | null>(null)
   const [outcomesError, setOutcomesError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
-    fetchJson<DashboardPayload>('/api/dashboard', { signal: controller.signal })
-      .then(value => { if (!controller.signal.aborted) setData(value) })
+    fetchJson<DashboardView>('/api/dashboard', { signal: controller.signal })
+      .then(value => {
+        if (controller.signal.aborted) return
+        // Missing facts are a view failure, not a confirmed holding quantity or an unknown amount.
+        if (!record(value) || typeof value.holding_quantity_unresolved !== 'boolean'
+          || !returnOrNull(value.realized_gross_pnl_yen)) {
+          throw new Error('資産状況の表示データが不正です。')
+        }
+        setData(value)
+      })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return
         setError(reason instanceof Error ? reason.message : '資産状況を読み込めませんでした')
@@ -474,7 +475,7 @@ export function DashboardPage() {
 
       {outcomesError !== null
         ? <Alert><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomesError}</AlertDescription></Alert>
-        : outcomes && (outcomes.error != null
+        : outcomes && (outcomes.error !== null
           ? <Alert><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomes.error}</AlertDescription></Alert>
           : <OutcomeCard outcomes={outcomes.outcomes} />)}
     </PageShell>

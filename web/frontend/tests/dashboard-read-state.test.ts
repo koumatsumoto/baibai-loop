@@ -146,27 +146,35 @@ it.each(['normal', 'unresolved', 'other-holding'])(
   },
 )
 
-it.each([null, '旧表示の市場評価エラー'])(
-  'does not infer a share-quantity status from a retained dashboard (%s)', valuationError => {
-    const legacy: Partial<DashboardView> = {
-      ...dashboard(), valuation_error: valuationError, available_cash_yen: 10_190_500,
-    }
-    delete legacy.holding_quantity_unresolved
-    hooks.values.set(0, legacy)
+it.each(['holding_quantity_unresolved', 'realized_gross_pnl_yen'] as const)(
+  'rejects a dashboard missing the required %s without hiding outcomes', async field => {
+    const payload: Partial<DashboardView> = dashboard()
+    delete payload[field]
+    const outcomes = { error: null, outcomes: [] }
+    vi.mocked(fetchJson).mockResolvedValueOnce(payload).mockResolvedValueOnce(outcomes)
+    render()
+    hooks.effects[0]()
+    await vi.waitFor(() => {
+      expect(hooks.setters[3]).toHaveBeenCalledWith('資産状況の表示データが不正です。')
+      expect(hooks.setters[1]).toHaveBeenCalledWith(outcomes)
+    })
+    expect(hooks.setters[0]).not.toHaveBeenCalled()
+    hooks.values.set(3, hooks.setters[3].mock.calls[0][0])
+    hooks.values.set(1, outcomes)
+    hooks.setters = []
+    hooks.effects = []
     const html = render()
-    expect(html).toContain('保有株数の確認状況はこの表示データに記録されていません')
-    expect(html).toContain('￥10,190,500')
-    expect(html).not.toContain('保有株数は未照合')
+    expect(html).toContain('資産・保有・未約定注文を読み込めません')
+    expect(html).toContain('運用成績はまだありません')
     expect(html).not.toContain('保有銘柄はありません')
-    expect(html).not.toContain('銘柄を保有')
   },
 )
 
-it.each(['unresolved-reentry', 'legacy', 'quote-missing', 'normal'])(
+it.each(['unresolved-reentry', 'quote-missing', 'normal'])(
   'labels a nonempty holding table and its download by quantity status (%s)', state => {
-    const uncertain = state === 'unresolved-reentry' || state === 'legacy'
-    const hasQuote = state === 'normal' || state === 'legacy'
-    const data: Partial<DashboardView> = {
+    const uncertain = state === 'unresolved-reentry'
+    const hasQuote = state === 'normal'
+    const data: DashboardView = {
       ...dashboard(), holding_quantity_unresolved: state === 'unresolved-reentry',
       valuation_error: state === 'unresolved-reentry' ? '2331: 保有中の株数変更を照合できません。' : null,
       holdings: [{
@@ -177,7 +185,6 @@ it.each(['unresolved-reentry', 'legacy', 'quote-missing', 'normal'])(
         unrealized_pnl_yen: hasQuote ? 25_000 : null, unrealized_pnl_pct: hasQuote ? 20 : null,
       }],
     }
-    if (state === 'legacy') delete data.holding_quantity_unresolved
     hooks.values.set(0, data)
     const html = render()
     expect(html).toContain('2331')
@@ -193,9 +200,7 @@ it.each(['unresolved-reentry', 'legacy', 'quote-missing', 'normal'])(
       expect(html).not.toMatch(/data-slot="badge"[^>]*>1 銘柄<\/span>/)
       expect(html).not.toContain('評価損益 合計')
       expect(html).not.toContain('保有銘柄をTradingView用TXTに出力')
-      expect(html).toContain(state === 'legacy'
-        ? '保有株数の確認状況はこの表示データに記録されていません'
-        : '保有株数は未照合')
+      expect(html).toContain('保有株数は未照合')
     } else {
       expect(html).toMatch(/role="heading"[^>]*>保有銘柄<\/div>/)
       expect(html).toMatch(/data-slot="badge"[^>]*>1 銘柄<\/span>/)
@@ -371,13 +376,12 @@ it('describes a readable empty outcome store as no outcomes', () => {
 
 
 it.each([
-  { mode: 'legacy-envelope', error: undefined, start: '2024-12-31', end: '2025-12-31' },
-  { mode: 'retained-period', error: null, start: '2024-12-31', end: '2025-12-31' },
-  { mode: 'current-period', error: null, start: '2025-10-15', end: '2026-10-15' },
-])('shows the saved outcome period separately from the asset stamp ($mode)', ({ error, start, end }) => {
+  { mode: 'retained-period', start: '2024-12-31', end: '2025-12-31' },
+  { mode: 'current-period', start: '2025-10-15', end: '2026-10-15' },
+])('shows the saved outcome period separately from the asset stamp ($mode)', ({ start, end }) => {
   hooks.values.set(0, { ...dashboard(), total_capital_yen: 12_345_678 })
   hooks.values.set(1, {
-    ...(error === undefined ? {} : { error }),
+    error: null,
     outcomes: [{
       outcome_id: 'synthetic-outcome', horizon: '1y', period_start_date: start,
       period_end_date: end, status: 'resolved', reason: null,
@@ -393,15 +397,6 @@ it.each([
   expect(html).toContain('10.2%')
   expect(html).not.toContain('運用成績を読み込めません')
 })
-
-it('preserves the empty state of a readable legacy outcome view', () => {
-  hooks.values.set(0, dashboard())
-  hooks.values.set(1, { outcomes: [] })
-  const html = render()
-  expect(html).toContain('運用成績はまだありません')
-  expect(html).not.toContain('運用成績を読み込めません')
-})
-
 
 describe('wire-level outcome failures are local to the outcome view', () => {
   const validRow = {
@@ -448,8 +443,10 @@ describe('wire-level outcome failures are local to the outcome view', () => {
     ['null envelope', 'null'],
     ['the other view', '{"generated_at":"2026-11-22T18:00:00+09:00","holdings":[]}'],
     ['null row', '{"error":null,"outcomes":[null]}'],
-    ['invalid return', JSON.stringify({ outcomes: [{ ...validRow, portfolio_twr_pct: '0' }] })],
-    ['overflowing JSON number', JSON.stringify({ outcomes: [validRow] }).replace('"portfolio_twr_pct":0', '"portfolio_twr_pct":1e999')],
+    ['missing error in empty envelope', '{"outcomes":[]}'],
+    ['missing error in nonempty envelope', JSON.stringify({ outcomes: [validRow] })],
+    ['invalid return', JSON.stringify({ error: null, outcomes: [{ ...validRow, portfolio_twr_pct: '0' }] })],
+    ['overflowing JSON number', JSON.stringify({ error: null, outcomes: [validRow] }).replace('"portfolio_twr_pct":0', '"portfolio_twr_pct":1e999')],
     ['invalid error shape', '{"error":{"invalid":true},"outcomes":[]}'],
   ])('preserves the other view after HTTP 200 with %s', async (_name, wire) => {
     const html = await loadWireOutcome(wire)
@@ -464,12 +461,11 @@ describe('wire-level outcome failures are local to the outcome view', () => {
   })
 
   it.each([
-    { payload: { outcomes: [] }, text: '運用成績はまだありません' },
-    { payload: { outcomes: [validRow] }, text: 'saved-fixture' },
+    { payload: { error: null, outcomes: [] }, text: '運用成績はまだありません' },
     { payload: { error: null, outcomes: [validRow] }, text: '0.0%' },
-    { payload: { outcomes: [{ ...validRow, status: 'constructor' }] }, text: 'constructor' },
+    { payload: { error: null, outcomes: [{ ...validRow, status: 'constructor' }] }, text: 'constructor' },
     { payload: { error: '保存済み運用成績を読み取れません。', outcomes: [] }, text: '保存済み運用成績を読み取れません。' },
-  ])('keeps the current and retained good envelope and a declared read error ($text)', async ({ payload, text }) => {
+  ])('keeps the current good envelope and a declared read error ($text)', async ({ payload, text }) => {
     const html = await loadWireOutcome(JSON.stringify(payload))
     expect(html).toContain(text)
     expect(html).toContain('￥123,456')

@@ -187,9 +187,9 @@ describe('Dashboard valuation display', () => {
     expect(html).not.toContain('株価基準')
   })
 
-  it('shows negative, zero, null, and temporarily absent realized amounts', () => {
-    for (const [value, expected] of [[-3_000, '-￥3,000'], [0, '￥0'], [null, '—'], [undefined, '—']] as const) {
-      const html = render(dashboard({ realized_gross_pnl_yen: value } as DashboardView))
+  it('distinguishes negative and zero realized amounts from explicit unknown', () => {
+    for (const [value, expected] of [[-3_000, '-￥3,000'], [0, '￥0'], [null, '—']] as const) {
+      const html = render(dashboard({ realized_gross_pnl_yen: value }))
       expect(html).toContain('累積確定損益')
       expect(html).toContain(expected)
     }
