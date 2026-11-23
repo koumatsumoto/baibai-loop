@@ -237,20 +237,28 @@ def test_mof_redirect_target_remains_pending_when_body_budget_is_spent(tmp_path,
 
 
 @pytest.mark.parametrize(
-    ("feed", "valid"),
+    ("feed", "valid", "rss"),
     [
-        (b"<rss><channel/></rss>", True),
-        (b'<rss xmlns="urn:synthetic:rss"><channel/></rss>', True),
-        (b"<rss/>", False),
-        (b"<rss><metadata><channel/></metadata></rss>", False),
-        (b"<rss><channel/><channel/></rss>", False),
+        (b"<rss><channel/></rss>", True, True),
+        (b'<rss xmlns="urn:synthetic:rss"><channel/></rss>', True, True),
+        (
+            '<?xml version="1.0" encoding="shift_jis"?><rss><channel><title>テスト</title></channel></rss>'.encode(),
+            True,
+            True,
+        ),
+        (b'<rdf:RDF xmlns:rdf="urn:synthetic:rdf"/>', True, False),
+        (b"<!-- <rss> -->\n<urlset/>", True, False),
+        (b"<rss/>", False, True),
+        (b"<rss><metadata><channel/></metadata></rss>", False, True),
+        (b"<rss><channel/><channel/></rss>", False, True),
         (
             b"<rss><channel/><item><link>https://www.boj.or.jp/synthetic.htm</link></item></rss>",
             False,
+            True,
         ),
     ],
 )
-def test_boj_rss_structure_distinguishes_empty_from_parse_failure(tmp_path, feed, valid):
+def test_boj_rss_structure_distinguishes_empty_from_parse_failure(tmp_path, feed, valid, rss):
     store = MemoryR2Store()
     source = "boj_news"
     publish_planning_input(store, source, {})
@@ -266,6 +274,8 @@ def test_boj_rss_structure_distinguishes_empty_from_parse_failure(tmp_path, feed
     )
     assert result["status"] == ("completed" if valid else "partial")
     assert result["failures"] == ([] if valid else ["ValueError"])
+    assert result.get("rss_index_http_statuses") == ([200] if valid and rss else None)
+    assert "rss_unversioned_index_http_statuses" not in result
     assert session.urls == [articles.SOURCES[source].entry_url]
     planning, _ = load_planning(store, source)
     fixed = tmp_path / "fixed"
@@ -335,6 +345,7 @@ def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, mon
         assert report["bodies"] == 1
         assert report["pending_url_count"] == 0
         assert report["rss_index_http_statuses"] == [200 if index == 0 else 304]
+        assert "rss_unversioned_index_http_statuses" not in report
         planning, _ = load_planning(store, source)
         fixed = tmp_path / f"fixed-{index}"
         download_fixed(store, planning.last_stage, fixed)
@@ -363,6 +374,29 @@ def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, mon
         assert len(observed) == 2
     assert session.urls == [index_url, document_url, index_url, document_url]
     assert session.headers[2]["If-None-Match"] == '"feed-v1"'
+
+
+@pytest.mark.parametrize("index_status", [200, 304])
+def test_rss_index_witness_does_not_claim_document_success_or_unbound_304(tmp_path, index_status):
+    source = "boj_news"
+    url = "https://www.boj.or.jp/synthetic.htm"
+    feed = f"<rss><channel><item><link>{url}</link></item></channel></rss>".encode()
+    responses = (
+        [Response(200, feed), Response(403, b"")] if index_status == 200 else [Response(304, b"")]
+    )
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {})
+    report = articles.acquire_source(
+        store,
+        source=source,
+        slot=SLOT,
+        identity="witness",
+        directory=tmp_path / "witness",
+        session=Session(responses),
+    )
+    assert report["status"] == "partial"
+    assert report.get("rss_index_http_statuses") == ([200] if index_status == 200 else None)
+    assert "rss_unversioned_index_http_statuses" not in report
 
 
 def test_rss_witness_ignores_unbound_304_and_document_status(tmp_path, monkeypatch, capsys):
@@ -443,7 +477,12 @@ def test_cutover_replaces_only_legacy_rss_index_validator_and_keeps_fixed_origin
                 session=session,
             )
         assert report["bodies"] == 0
-        assert json.loads((directory / "result.json").read_text())["document_evidence"] == {}
+        current = [200] if index == 1 else [304] if index == 2 else None
+        assert report.get("rss_index_http_statuses") == current
+        assert report.get("rss_unversioned_index_http_statuses") == ([200] if index == 0 else None)
+        packet = json.loads((directory / "result.json").read_text())
+        assert packet["document_evidence"] == {}
+        assert {"rss_index_http_statuses", "rss_unversioned_index_http_statuses"}.isdisjoint(packet)
         with closing(connect_read_only(directory / "receipts.sqlite")) as conn:
             receipts = [
                 json.loads(row[0])
