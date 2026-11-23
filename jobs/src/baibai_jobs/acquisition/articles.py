@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
+import sys
+import tempfile
 import time
 from contextlib import closing
 from dataclasses import dataclass
@@ -75,6 +78,7 @@ from baibai_jobs.acquisition.article_planning import (
     slot_at,
 )
 from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
+from baibai_jobs.acquisition.economic_staging import stage_prefix
 from baibai_jobs.acquisition.receipts import download_fixed
 
 # トウシルは記事用rakuten queueで直列化し、公的sourceをその待機に巻き込まない。
@@ -789,21 +793,176 @@ def acquire_source(
     }
 
 
+_BOJ_PENDING_COUNT = 9  # One frozen cutover workset, never an all-history audit.
+
+
+type _IndexItems = set[tuple[str, str, str, str]]
+
+
+def _index_items(items: tuple[NativeArticle, ...]) -> _IndexItems:
+    return {
+        (str(item.metadata.get("fetch_url") or item.url), item.article_id, item.locator, item.title)
+        for item in items
+        if item.metadata.get("format") == "rss"
+    }
+
+
+def _verify_boj_pending(
+    store: ObjectStore, *, stage_id: str, manifest_sha256: str
+) -> dict[str, str | int]:
+    """Verify only the frozen BOJ queue's direct RSS seeds; do not modify or fetch them."""
+    source = "boj_news"
+    stage_prefix(stage_id, namespace=ARTICLE_NAMESPACE)
+    if re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is None:
+        raise ValueError("BOJ verification requires an exact manifest digest")
+    state, etag = load_planning(store, source)
+    root = state.last_stage
+    if (
+        root is None
+        or root.get("stage_id") != stage_id
+        or root.get("manifest_sha256") != manifest_sha256
+        or state.cursor.get("stage") != root
+    ):
+        raise ValueError("BOJ verification differs from the current planning stage")
+    cursor = load_discovery_cursor(store, state)
+    pending = cursor["pending_urls"]
+    if (
+        not isinstance(pending, list)
+        or len(pending) != _BOJ_PENDING_COUNT
+        or not all(isinstance(url, str) for url in pending)
+        or len(set(pending)) != len(pending)
+        or cursor.get("omitted_url_count")
+        or cursor.get("next_page")
+        or cursor.get("discoveries")
+    ):
+        raise ValueError("BOJ verification requires the exact bounded pending workset")
+
+    policy = SOURCES[source]
+    evidence = cursor.get("pending_evidence", {})
+    children = cursor["discovery_children"]
+    native = incompatible = 0
+    with tempfile.TemporaryDirectory(prefix="boj-pending-proof-") as scratch:
+        packets: dict[tuple[str, str], Path] = {}
+        indexes: dict[tuple[str, str, str], tuple[_IndexItems, _IndexItems]] = {}
+
+        for url in pending:
+            if children.get(url) or not policy.allows_url(url):
+                continue  # Native document-discovery children require their own exact parent proof.
+            try:
+                link = evidence[url]
+                entry = link["stage"]
+                prior, digest, receipt_id = (
+                    entry["stage_id"],
+                    entry["manifest_sha256"],
+                    link["index_receipt_id"],
+                )
+                if (
+                    entry.get("source") != source
+                    or entry.get("namespace") != ARTICLE_NAMESPACE
+                    or entry.get("market") is not True
+                    or not all(isinstance(value, str) for value in (prior, digest, receipt_id))
+                    or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                ):
+                    continue
+                ref = (prior, digest)
+                key = (*ref, receipt_id)
+                if key not in indexes:
+                    if ref not in packets:
+                        folder = Path(scratch) / f"packet-{len(packets)}"
+                        download_fixed(store, entry, folder)
+                        packets[ref] = folder
+                    with closing(connect_read_only(packets[ref] / "receipts.sqlite")) as conn:
+                        receipt = read_receipt(conn, receipt_id)
+                        original, body = read_receipt_body(conn, receipt)
+                    if (
+                        receipt.source != source
+                        or (receipt.status, receipt.http_status)
+                        not in (("ok", 200), ("not_modified", 304))
+                        or original.source != source
+                        or receipt.requested_url not in policy.entry_urls
+                        or original.requested_url != receipt.requested_url
+                        or original.representation != receipt.representation
+                        or original.http_status != 200
+                    ):
+                        continue
+                    url_args = {
+                        "url": receipt.requested_url,
+                        "encoding": original.encoding or "utf-8",
+                    }
+                    recorded = _index_items(
+                        parse_index(
+                            source, body, rss_index_revision=original.rss_index_revision, **url_args
+                        )
+                    )
+                    if not _parsed_rss_root(body):
+                        continue
+                    current = (
+                        recorded
+                        if original.rss_index_revision == RSS_NATIVE_V1
+                        else _index_items(
+                            parse_index(source, body, rss_index_revision=RSS_NATIVE_V1, **url_args)
+                        )
+                    )
+                    indexes[key] = (recorded, current)
+                recorded, current = indexes[key]
+                item = (url, link["article_id"], link["native_locator"], link["title"])
+                if item in recorded:
+                    if item in current:
+                        native += 1
+                    else:
+                        incompatible += 1
+            except (KeyError, TypeError, ValueError, sqlite3.DatabaseError):
+                continue  # Unknown references are never inferred from URL or replaced.
+    if load_planning(store, source) != (state, etag):
+        raise LakePublishError("BOJ planning changed during verification")
+    return {
+        "source": source,
+        "stage_id": stage_id,
+        "manifest_sha256": manifest_sha256,
+        "pending_url_count": len(pending),
+        "native_seed_count": native,
+        "incompatible_count": incompatible,
+        "unverified_count": len(pending) - native - incompatible,
+    }
+
+
+def _article_store() -> Boto3R2Store:
+    return Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+
+
+def _verify_boj_pending_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="baibai-jobs acquisition.articles verify-boj-pending")
+    parser.add_argument("--stage-id", required=True)
+    parser.add_argument("--manifest-sha256", required=True)
+    args = parser.parse_args(argv)
+    try:
+        with closing(_article_store()) as store:
+            proof = _verify_boj_pending(
+                store, stage_id=args.stage_id, manifest_sha256=args.manifest_sha256
+            )
+    except Exception as error:
+        print(f"BOJ pending verification failed: {type(error).__name__}", file=sys.stderr)
+        return 1
+    print(json.dumps(proof, sort_keys=True))
+    return int(proof["native_seed_count"] != proof["pending_url_count"])
+
+
 def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments[:1] == ["verify-boj-pending"]:
+        return _verify_boj_pending_main(arguments[1:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", choices=tuple(GROUPS), required=True)
     parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
     parser.add_argument("--identity", required=True)
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--rss-native-index", action="store_true")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     if args.created_at.tzinfo is None or args.created_at > datetime.now(UTC):
         parser.error("created-at must be a past timezone-aware clock")
     reports = []
     group_budget = GroupBudget(GROUP_BYTES[args.group])
-    with closing(
-        Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-    ) as raw_store:
+    with closing(_article_store()) as raw_store:
         store = ArticleObjectMetrics(raw_store)
         started = time.monotonic()
         with requests.Session() as session:
