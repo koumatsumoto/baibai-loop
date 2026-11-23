@@ -12,7 +12,7 @@ import sqlite3
 from contextlib import closing
 from copy import deepcopy
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from functools import partial
 from types import SimpleNamespace
@@ -30,6 +30,7 @@ from tests.helpers.assessment_v1 import (
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.external_assessment_html import monex_eps_section, monex_html
 from tests.helpers.external_assessment_responses import response
+from tests.helpers.financial_native import fixed_empty_financial_input, seed_financial
 from tests.helpers.lake_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
 from tests.helpers.proposal import (
@@ -39,8 +40,9 @@ from tests.helpers.proposal import (
     bind_review,
     read_saved_proposal,
 )
+from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.research_selection import selected_target
-from tests.helpers.screening_sqlite import insert_financial_record, seed_daily_bars
+from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.data_collection.receipts.public_pages.receipts import insert_response
 from baibai_engine.investment_judgment.independent_review.contracts import (
@@ -126,6 +128,7 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
+from baibai_jobs.integration.financial_native import model_input as financial_model_input
 from baibai_web.sources.proposal import read_proposal_views
 
 START = datetime.fromisoformat("2026-10-14T15:45:00+09:00")
@@ -312,26 +315,36 @@ def _prepare_case(
                 connection, [("2026-10-14", "1001", "別の合成企業", "Prime", "小売業", "011")]
             )
     # 同じ四半期の増収と利益率低下を別々に残す。成長スコアや将来予測ではない。
-    if scenario != "gaps":
-        with closing(sqlite3.connect(market)) as connection, connection:
-            for year, sales, operating_profit in ((2025, 100, 20), (2026, 120, 18)):
-                insert_financial_record(
-                    connection,
-                    {
-                        "Code": "12340",
-                        "DiscDate": f"{year}-08-14",
-                        "DiscTime": "15:00:00",
-                        "DiscNo": f"synthetic-growth-{year}-1",
-                        "DocType": "FinancialStatements_Consolidated_JP",
-                        "CurPerType": "1Q",
-                        "CurPerSt": f"{year}-04-01",
-                        "CurPerEn": f"{year}-06-30",
-                        "CurFYEn": f"{year + 1}-03-31",
-                        "Sales": sales,
-                        "OP": operating_profit,
-                        "NP": operating_profit / 2,
-                    },
-                )
+    financial_store = MemoryR2Store()
+    financial_owner = seed_financial(
+        financial_store,
+        tmp_path / "financial-native",
+        by_day={
+            date(year, 8, 14): [
+                {
+                    "Code": "12340",
+                    "DiscDate": f"{year}-08-14",
+                    "DiscTime": "15:00:00",
+                    "DiscNo": f"synthetic-growth-{year}-1",
+                    "DocType": "FinancialStatements_Consolidated_JP",
+                    "CurPerType": "1Q",
+                    "CurPerSt": f"{year}-04-01",
+                    "CurPerEn": f"{year}-06-30",
+                    "CurFYEn": f"{year + 1}-03-31",
+                    "Sales": sales,
+                    "OP": operating_profit,
+                    "NP": operating_profit / 2,
+                }
+            ]
+            for year, sales, operating_profit in ((2025, 100, 20), (2026, 120, 18))
+        }
+        if scenario != "gaps"
+        else {START.date(): ()},
+        received_at=START,
+    )
+    financial = financial_model_input(
+        financial_store, financial_owner.fixed(), as_of=START.date(), evaluated_at=START
+    )
     if shared_trends:
         from baibai_engine.machine_analysis.generation.runners.trend_inputs import (
             DEFAULT_INDUSTRIES,
@@ -400,6 +413,7 @@ def _prepare_case(
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "sealed") as snapshot:
         generation = read_and_generate_models(
             generation_id="synthetic-five-models",
+            financial_input=financial,
             market_snapshot=snapshot,
             market_release=model_release,
             economic_input=economic_input,
@@ -452,6 +466,7 @@ def _prepare_case(
         operations=operations,
         scenario=scenario,
         quote=quote,
+        financial=financial.identity,
     )
     case.document, case.review = _assessment_payload(case)
     if shared_trends:
@@ -859,7 +874,12 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
         assert growth["reported"]["rows"] == []
     else:
         assert growth["status"] == "available"
-        assert growth["input_release"]["release_id"] == "synthetic-fixed-release"
+        assert growth["input_release"] == {
+            "release_id": case.financial.reference,
+            "manifest_sha256": case.financial.sha256,
+            "collection_boundary": "fixed_source_head",
+            "receipt_cutoff": None,
+        }
         assert [row["values"][:2] for row in growth["reported"]["rows"]] == [[100, 20], [120, 18]]
         columns = growth["reported_yoy"]["columns"]
         changes = {
@@ -1192,7 +1212,6 @@ def test_shared_evidence_changes_need_a_new_assessment_review(tmp_path, monkeypa
 
 
 def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_path, monkeypatch):
-    from tests.helpers.r2_store import MemoryR2Store
 
     from baibai_engine.data_collection.receipts.native_sources.confirmations import (
         confirm_source_response,
@@ -1442,11 +1461,13 @@ def test_monex_fixed_research_uses_the_same_eligible_price_pair_and_eps_original
             receipts.append(r)
     save_observations(market, [decode_attempt((receipt,)) for receipt in receipts])
     reads = mocker.spy(monex_generation, "read_responses")
+    financial = fixed_empty_financial_input(tmp_path / "financial-native", as_of)
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot:
 
         def build():
             return read_and_generate_models(
                 generation_id="fixed-overnight",
+                financial_input=financial,
                 market_snapshot=replace(snapshot, sealed_at=seal_clock),
                 market_release=InputRelease(release_id="fixture-release", manifest_sha256="a" * 64),
                 economic_input=None,

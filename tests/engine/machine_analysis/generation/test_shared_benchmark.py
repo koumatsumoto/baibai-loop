@@ -6,6 +6,7 @@ from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.financial_native import fixed_empty_financial_input
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
 from tests.helpers.model_generation import materialize_generation, publish_generation
@@ -49,6 +50,7 @@ def generate(path, *, identity="shared", tickers=TICKERS):
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=path.parent / "lake") as snapshot:
         stream = read_and_generate_models(
             generation_id=identity,
+            financial_input=fixed_empty_financial_input(path.parent / "financial-native", ASOF),
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
             economic_input=None,
@@ -422,6 +424,7 @@ def test_turnover_uses_the_sealed_source_and_not_future_values_or_live_correctio
         result = materialize_generation(
             read_and_generate_models(
                 generation_id="sealed",
+                financial_input=fixed_empty_financial_input(tmp_path / "financial-native", ASOF),
                 market_snapshot=snapshot,
                 market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
                 economic_input=None,

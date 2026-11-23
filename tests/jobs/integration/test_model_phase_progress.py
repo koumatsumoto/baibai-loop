@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from tests.helpers.financial_native import fixed_empty_financial_input
 from tests.helpers.lake_release import market_store
 from tests.helpers.price_native import seed_prices
 from tests.helpers.r2_store import MemoryR2Store
@@ -373,6 +374,9 @@ def test_input_read_boundaries_preserve_failure(tmp_path, monkeypatch, progress,
     ) as sealed:
         arguments = dict(
             generation_id=CANARY,
+            financial_input=fixed_empty_financial_input(
+                tmp_path / "financial-native", calendar.DAY
+            ),
             market_snapshot=sealed,
             market_release=InputRelease(release_id=CANARY, manifest_sha256="a" * 64),
             economic_input=None,

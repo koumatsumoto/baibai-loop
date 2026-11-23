@@ -9,6 +9,7 @@ from threading import Event
 from types import SimpleNamespace
 
 import pytest
+from tests.helpers.financial_native import fixed_empty_financial_input
 from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.machine_analysis.generation import query
@@ -195,6 +196,7 @@ def test_generation_reuses_saved_comparisons_with_identical_complete_output(
         )
         arguments = dict(
             generation_id="models-serving",
+            financial_input=fixed_empty_financial_input(tmp_path / "financial-native", ASOF),
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="serving", manifest_sha256="a" * 64),
             economic_input=None,
@@ -300,6 +302,7 @@ def test_overlapping_input_failure_keeps_disclosure_precedence_and_joins(
         with pytest.raises(ValueError, match=expected):
             inputs.read_and_generate_models(
                 generation_id="model-input-failure",
+                financial_input=fixed_empty_financial_input(tmp_path / "financial-native", DAY),
                 market_snapshot=snapshot,
                 market_release=InputRelease(release_id="test-release", manifest_sha256="a" * 64),
                 economic_input=None,

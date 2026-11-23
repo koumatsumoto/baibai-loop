@@ -12,6 +12,7 @@ from uuid import UUID
 
 import pytest
 from tests.helpers.edinet_research_sources import source_zip
+from tests.helpers.financial_native import fixed_empty_financial_input
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.archive_native import (
@@ -439,6 +440,7 @@ def test_daily_reads_the_relevant_annual_archive_without_opening_holder_reports(
         generation = materialize_generation(
             read_and_generate_models(
                 generation_id="document-scope",
+                financial_input=fixed_empty_financial_input(tmp_path / "financial-native", ASOF),
                 market_snapshot=sealed,
                 market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
                 economic_input=None,
