@@ -34,7 +34,9 @@ jobs:
     needs: retirement
     env:
       UV_NO_DEV: "true"
-    if: ${{ needs.retirement.outputs.attempt == github.run_attempt }}
+    if: >-
+      ${{ needs.retirement.result == 'success' && needs.retirement.outputs.attempt == github.run_attempt
+      && (needs.retirement.outputs.requires_v2 == 'true' || needs.retirement.outputs.requires_v2 == 'false') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -77,7 +79,9 @@ jobs:
 
   source:
     needs: [retirement, plan]
-    if: ${{ needs.retirement.outputs.attempt == github.run_attempt }}
+    if: >-
+      ${{ needs.retirement.result == 'success' && needs.retirement.outputs.attempt == github.run_attempt
+      && (needs.retirement.outputs.requires_v2 == 'true' || needs.retirement.outputs.requires_v2 == 'false') }}
     strategy:
       fail-fast: false
       matrix:
@@ -89,11 +93,15 @@ jobs:
       asof: ${{ needs.plan.outputs.asof }}
       current_only_now: ${{ github.event_name == 'schedule' || inputs.asof == '' }}
       retirement_attempt: ${{ needs.retirement.outputs.attempt }}
+      requires_v2: ${{ needs.retirement.outputs.requires_v2 }}
     secrets: inherit
 
   notify-plan-failure:
     needs: [retirement, plan]
-    if: ${{ always() && needs.retirement.outputs.attempt == github.run_attempt && needs.plan.result != 'success' }}
+    if: >-
+      ${{ always() && needs.retirement.result == 'success' && needs.retirement.outputs.attempt == github.run_attempt
+      && (needs.retirement.outputs.requires_v2 == 'true' || needs.retirement.outputs.requires_v2 == 'false')
+      && needs.plan.result != 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

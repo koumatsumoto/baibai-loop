@@ -249,7 +249,9 @@ def test_economic_workflow_passes_notice_classification_without_hiding_job_failu
     assert " ".join(notify["if"].split()) == (
         "${{ always() && github.workflow_ref == "
         "format('{0}/.github/workflows/cloud-economic-sources-current.yml@refs/heads/main', github.repository) "
-        "&& inputs.retirement_attempt == github.run_attempt && needs.acquire.result != 'skipped' "
+        "&& inputs.retirement_attempt == github.run_attempt "
+        "&& (inputs.requires_v2 == 'true' || inputs.requires_v2 == 'false') "
+        "&& needs.acquire.result != 'skipped' "
         "&& (github.event_name != 'schedule' || needs.acquire.outputs.handoff == '' "
         "|| (needs.acquire.result != 'success' && "
         "!(needs.acquire.result == 'failure' && needs.acquire.outputs.expected_unavailable == 'true'))) }}"

@@ -1326,11 +1326,10 @@ def test_quality_proof_is_wired_only_to_the_existing_post_seal_check_and_notice(
     ] == [RETIREMENT_JOB]
     proof = next(s for s in reusable["jobs"]["check"]["steps"] if s.get("id") == "retirement")
     assert proof["name"] == RETIREMENT_PROOF_STEP
-    assert (
-        workflow["jobs"]["daily"]["if"]
-        == "${{ needs.retirement.outputs.attempt == github.run_attempt }}"
-    )
-    steps = {s["id"]: s for s in workflow["jobs"]["daily"]["steps"] if "id" in s}
+    daily = workflow["jobs"]["daily"]
+    assert daily["needs"] == "retirement"
+    assert "needs.retirement.outputs.attempt == github.run_attempt" in daily["if"]
+    steps = {s["id"]: s for s in daily["steps"] if "id" in s}
     assert {
         steps[key]["name"]
         for key in (

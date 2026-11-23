@@ -25,7 +25,9 @@ jobs:
 
   acquire:
     needs: retirement
-    if: ${{ needs.retirement.outputs.attempt == github.run_attempt }}
+    if: >-
+      ${{ needs.retirement.result == 'success' && needs.retirement.outputs.attempt == github.run_attempt
+      && (needs.retirement.outputs.requires_v2 == 'true' || needs.retirement.outputs.requires_v2 == 'false') }}
     env:
       UV_NO_DEV: "true"
     strategy:
@@ -33,7 +35,7 @@ jobs:
       matrix:
         group: ${{ fromJSON((github.event_name == 'schedule' || inputs.group == 'scheduled') && '["scheduled"]' || '["public","world","rakuten"]') }}
     # Scheduled and manual public share one queue; manual Toushiru keeps its own.
-    # No global provider barrier, publication lease, or model calculation here.
+    # No global provider barrier, lease acquisition, or model calculation here.
     concurrency:
       group: source-host-${{ (matrix.group == 'public' || matrix.group == 'scheduled') && 'article-public' || matrix.group }}
       queue: max
@@ -86,7 +88,13 @@ jobs:
           GROUP: ${{ matrix.group }}
           CREATED_AT: ${{ steps.clock.outputs.created_at }}
           IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
+          REQUIRES_V2: ${{ needs.retirement.outputs.requires_v2 }}
         run: |
+          case "${REQUIRES_V2:-}" in
+            true) uv run python -m baibai_jobs.publication.lease require-v2 || exit $? ;;
+            false) ;;
+            *) echo 'retirement v2 condition is not confirmed' >&2; exit 2 ;;
+          esac
           args=(--group "$GROUP" --created-at "$CREATED_AT" --identity "$IDENTITY")
           uv run python -m baibai_jobs.acquisition.articles "${args[@]}" \
             --directory "$RUNNER_TEMP/article-handoffs"

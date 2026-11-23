@@ -18,6 +18,9 @@ on:
       retirement_attempt:
         type: string
         required: true
+      requires_v2:
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -32,7 +35,8 @@ jobs:
   acquire:
     if: >-
       ${{ github.workflow_ref == format('{0}/.github/workflows/cloud-economic-sources-current.yml@refs/heads/main', github.repository)
-      && inputs.retirement_attempt == github.run_attempt }}
+      && inputs.retirement_attempt == github.run_attempt
+      && (inputs.requires_v2 == 'true' || inputs.requires_v2 == 'false') }}
     env:
       UV_NO_DEV: "true"
     runs-on: ubuntu-24.04
@@ -88,7 +92,13 @@ jobs:
           GROUP: ${{ inputs.group }}
           SOURCE_ID: ${{ inputs.source_id }}
           STAGE_ID: ${{ inputs.group }}-${{ inputs.asof }}-${{ github.run_id }}-${{ github.run_attempt }}
+          REQUIRES_V2: ${{ inputs.requires_v2 }}
         run: |
+          case "${REQUIRES_V2:-}" in
+            true) uv run python -m baibai_jobs.publication.lease require-v2 || exit $? ;;
+            false) ;;
+            *) echo 'retirement v2 condition is not confirmed' >&2; exit 2 ;;
+          esac
           if [ "$GROUP" = fred_csv ]; then
             uv run python -m baibai_jobs.integration.economic_handoff stage-fred --group "$GROUP" --source-id "$SOURCE_ID" --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/economic-handoff"
           else
@@ -103,7 +113,8 @@ jobs:
     # Quiet PMI still fails acquisition and keeps its receipts; a successful stage needs no second log.
     if: >-
       ${{ always() && github.workflow_ref == format('{0}/.github/workflows/cloud-economic-sources-current.yml@refs/heads/main', github.repository)
-      && inputs.retirement_attempt == github.run_attempt && needs.acquire.result != 'skipped'
+      && inputs.retirement_attempt == github.run_attempt
+      && (inputs.requires_v2 == 'true' || inputs.requires_v2 == 'false') && needs.acquire.result != 'skipped'
       && (github.event_name != 'schedule' || needs.acquire.outputs.handoff == ''
       || (needs.acquire.result != 'success' &&
       !(needs.acquire.result == 'failure' && needs.acquire.outputs.expected_unavailable == 'true'))) }}

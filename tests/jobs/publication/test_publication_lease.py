@@ -110,6 +110,102 @@ def test_absent_acquire_busy_release_and_reacquire() -> None:
     assert lease._decode(store.body or b"").owner == newer.owner
 
 
+@pytest.mark.parametrize("command", ["acquire", "require-v2"])
+@pytest.mark.parametrize("state", ["missing", "v1", "malformed", "denied", "read-change"])
+def test_v2_fence_refuses_unproven_prior_generation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, command: str, state: str
+) -> None:
+    store = MemoryStore()
+    if state == "v1":
+        current = lease.PublicationLease(
+            "released",
+            "local:" + "a" * 32,
+            "daily",
+            NOW,
+            NOW + lease.DAILY_LEASE_TTL,
+            protocol_version=1,
+        )
+        store._set(lease._encode(current))
+    elif state == "malformed":
+        store._set(b"not a lease")
+    elif state == "read-change":
+        lease.acquire(store, "operator", now=NOW)
+        store.writes.clear()
+        store.fault = "read_change"
+    elif state == "denied":
+
+        def deny(_: str) -> RemoteObject | None:
+            raise R2Error("denied", http_status=403)
+
+        monkeypatch.setattr(store, "head", deny)
+    handle_path = tmp_path / "handle.json"
+    output_path = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
+    monkeypatch.setattr(lease, "_load_project_env", lambda _: None)
+    monkeypatch.delenv("R2_STORES_BUCKET", raising=False)
+    monkeypatch.setattr(
+        lease,
+        "Boto3R2Store",
+        lambda *, bucket: (
+            store
+            if bucket == lease.DEFAULT_STORES_BUCKET
+            else pytest.fail("the v2 guard must use the normal bucket")
+        ),
+    )
+    args = [command]
+    if command == "acquire":
+        args.extend(["--purpose", "daily", "--handle", str(handle_path), "--require-v2"])
+    before = store.body
+    assert lease.main(args) == 1
+    assert store.writes == []
+    assert store.body == before
+    assert not handle_path.exists()
+    assert not output_path.exists()
+
+
+@pytest.mark.parametrize("released", [True, False])
+def test_existing_v2_fence_check_is_write_free_and_acquire_only_replaces_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, released: bool
+) -> None:
+    store = MemoryStore()
+    latest, _ = lease.acquire(store, "operator", now=NOW - lease.LEASE_TTL)
+    if released:
+        lease.release(store, latest)
+    monkeypatch.setattr(lease, "_load_project_env", lambda _: None)
+    monkeypatch.setattr(lease, "Boto3R2Store", lambda **_: store)
+    output_path = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
+    original = store.body, store.etag, list(store.writes)
+    assert lease.main(["require-v2"]) == 0
+    assert (store.body, store.etag, store.writes) == original
+    assert not output_path.exists()
+
+    path = tmp_path / "lease.json"
+    assert lease.main(["acquire", "--purpose", "daily", "--handle", str(path), "--require-v2"]) == 0
+    assert lease._load_handle(path).protocol_version == 2
+    assert store.writes == [*original[2], (original[1], False)]
+    assert output_path.read_text() == "acquired=true\n"
+
+
+def test_v2_fence_disappearance_at_cas_never_falls_back_to_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MemoryStore()
+    handle, _ = lease.acquire(store, "operator", now=NOW - lease.LEASE_TTL)
+    store.writes.clear()
+
+    def disappear(*_args, if_match: str | None, if_none_match: bool, **_kwargs) -> RemoteObject:
+        store.writes.append((if_match, if_none_match))
+        store.body = None
+        raise LakeCASConflict("became absent before the conditional write")
+
+    monkeypatch.setattr(store, "put_file", disappear)
+    with pytest.raises(lease.LeaseError, match="outcome unknown"):
+        lease.acquire(store, "daily", now=NOW, require_v2=True)
+    assert store.writes == [(handle.etag, False)]
+    assert store.body is None
+
+
 @pytest.mark.parametrize("state", ["held", "released"])
 @pytest.mark.parametrize(
     ("purpose", "minutes"), [("operator", 120), ("daily", 120), ("daily", 180), ("daily", 220)]

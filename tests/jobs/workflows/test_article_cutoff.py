@@ -26,14 +26,14 @@ def _snapshot():
 
 def test_only_disabled_empty_legacy_ids_confirm_workflow_fence():
     replies = _snapshot()
-    assert cutoff.blockers(replies.__getitem__) == []
+    assert cutoff.check(replies.__getitem__).problems == []
 
 
 def test_active_legacy_workflow_blocks_even_when_currently_empty():
     replies = _snapshot()
     endpoint = f"repos/{cutoff.REPO}/actions/workflows/401275764"
     replies[endpoint]["state"] = "active"
-    assert cutoff.blockers(replies.__getitem__) == [
+    assert cutoff.check(replies.__getitem__).problems == [
         "401275764: legacy workflow is not disabled_manually"
     ]
 
@@ -48,7 +48,9 @@ def test_disabling_workflow_never_treats_old_runs_as_cancelled(status):
         "total_count": 1,
         "workflow_runs": [{"id": 43097164269, "workflow_id": 317890420, "status": status}],
     }
-    assert cutoff.blockers(replies.__getitem__) == ["317890420: run 43097164269 is not terminal"]
+    assert cutoff.check(replies.__getitem__).problems == [
+        "317890420: run 43097164269 is not terminal"
+    ]
 
 
 def test_absent_status_or_different_workflow_path_cannot_verify_retirement():
@@ -57,7 +59,7 @@ def test_absent_status_or_different_workflow_path_cannot_verify_retirement():
     daily = f"repos/{cutoff.REPO}/actions/workflows/317890420"
     replies[article]["path"] = ".github/workflows/unrelated.yml"
     replies[f"{daily}/runs?per_page=100&page=1"] = {"total_count": False}
-    assert cutoff.blockers(replies.__getitem__) == [
+    assert cutoff.check(replies.__getitem__).problems == [
         "401275764: legacy workflow identity not confirmed",
         "317890420: run inventory changed or is incomplete",
     ]
@@ -78,7 +80,7 @@ def test_entire_snapshot_includes_old_queued_runs_and_rejects_duplicate_pages(fi
         "total_count": 101,
         "workflow_runs": [{"id": final_id, "workflow_id": 317890420, "status": "queued"}],
     }
-    assert cutoff.blockers(replies.__getitem__) == [
+    assert cutoff.check(replies.__getitem__).problems == [
         "317890420: run 43097164269 is not terminal"
         if final_id == 43097164269
         else "317890420: run inventory contains unknown or duplicate rows"
@@ -95,7 +97,9 @@ def test_state_is_rechecked_after_reading_the_run_inventory():
             return {**replies[path], "state": next(states)}
         return replies[path]
 
-    assert cutoff.blockers(read) == ["317890420: legacy workflow state changed during inspection"]
+    assert cutoff.check(read).problems == [
+        "317890420: legacy workflow state changed during inspection"
+    ]
 
 
 @pytest.mark.parametrize("legacy_path", list(cutoff.LEGACY_WORKFLOWS.values()))
@@ -123,7 +127,11 @@ def test_only_main_can_use_a_fresh_same_attempt_retirement_proof(file, writers):
     assert gate["permissions"] == {"contents": "read", "actions": "read"}
     for name in writers:
         assert "retirement" in jobs[name]["needs"]
-        assert "needs.retirement.outputs.attempt == github.run_attempt" in jobs[name]["if"]
+        guard = jobs[name]["if"]
+        assert "needs.retirement.outputs.attempt == github.run_attempt" in guard
+        assert "needs.retirement.result == 'success'" in guard
+        assert "needs.retirement.outputs.requires_v2 == 'true'" in guard
+        assert "needs.retirement.outputs.requires_v2 == 'false'" in guard
 
 
 @pytest.mark.parametrize(
@@ -140,10 +148,16 @@ def test_gate_rejects_the_wrong_checkout_and_never_has_r2_credentials(
     workflow = _workflow("cloud-writer-retirement.yml")
     assert set(workflow["on"]) == {"workflow_call"}
     assert "R2" not in str(workflow)
-    step = workflow["jobs"]["check"]["steps"][-1]
+    step = next(
+        item for item in workflow["jobs"]["check"]["steps"] if item.get("id") == "retirement"
+    )
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    for name, script in {"git": "printf actual", "python3": "exit 0"}.items():
+    checker = (
+        '[ "$*" = "-m tools.diagnostics.check_article_cutoff --report-v2-condition" ] || exit 6\n'
+        'printf "requires_v2=false\\n" >> "$GITHUB_OUTPUT"'
+    )
+    for name, script in {"git": "printf actual", "python3": checker}.items():
         command = fake_bin / name
         command.write_text(f"#!/bin/sh\n{script}\n")
         command.chmod(0o755)
@@ -163,7 +177,7 @@ def test_gate_rejects_the_wrong_checkout_and_never_has_r2_credentials(
     assert result.returncode == exitcode
     assert outputs.exists() is writes_output
     if writes_output:
-        assert outputs.read_text() == "attempt=3\n"
+        assert outputs.read_text() == "requires_v2=false\n"  # No attempt without output binding.
 
 
 @pytest.mark.parametrize(("group", "command"), [("fred_csv", "stage-fred"), ("estat", "stage")])
@@ -180,6 +194,7 @@ def test_only_fred_uses_the_current_compressed_receipt_entrypoint(tmp_path, grou
             "PATH": str(tmp_path),
             "GROUP": group,
             "SOURCE_ID": "fixture",
+            "REQUIRES_V2": "false",
             "STAGE_ID": f"{group}-2026-11-23-1-1",
             "RUNNER_TEMP": str(tmp_path),
         },
@@ -196,8 +211,145 @@ def test_nested_economic_jobs_cannot_reuse_a_previous_attempt_proof():
     assert parent["jobs"]["source"]["with"]["retirement_attempt"] == (
         "${{ needs.retirement.outputs.attempt }}"
     )
+    assert parent["jobs"]["source"]["with"]["requires_v2"] == (
+        "${{ needs.retirement.outputs.requires_v2 }}"
+    )
     assert child["on"]["workflow_call"]["inputs"]["retirement_attempt"]["required"] == "true"
+    assert child["on"]["workflow_call"]["inputs"]["requires_v2"] == {
+        "type": "string",
+        "required": "true",
+    }
     for name in ("acquire", "notify"):
         guard = child["jobs"][name]["if"]
         assert "cloud-economic-sources-current.yml@refs/heads/main" in guard
         assert "inputs.retirement_attempt == github.run_attempt" in guard
+        assert "inputs.requires_v2 == 'true'" in guard
+        assert "inputs.requires_v2 == 'false'" in guard
+
+
+@pytest.mark.parametrize(
+    ("condition", "writes_proof"),
+    [("false", True), ("true", True), ("", False), ("True", False), ("needed", False)],
+)
+def test_only_literal_conditions_are_bound_to_this_attempt(tmp_path, condition, writes_proof):
+    workflow = _workflow("cloud-writer-retirement.yml")
+    check = workflow["jobs"]["check"]
+    bound = next(item for item in check["steps"] if item.get("id") == "bound")
+    assert "if" not in bound  # A failed inventory step cannot produce proof.
+    assert check["outputs"] == {
+        "attempt": "${{ steps.bound.outputs.attempt }}",
+        "requires_v2": "${{ steps.bound.outputs.requires_v2 }}",
+    }
+    outputs = tmp_path / "outputs"
+    result = subprocess.run(
+        ["/bin/bash", "-eu", "-c", bound["run"]],
+        env={
+            "REQUIRES_V2": condition,
+            "GITHUB_RUN_ATTEMPT": "3",
+            "GITHUB_OUTPUT": str(outputs),
+        },
+        check=False,
+    )
+    assert (result.returncode == 0) is writes_proof
+    assert outputs.exists() is writes_proof
+    if writes_proof:
+        assert outputs.read_text() == f"attempt=3\nrequires_v2={condition}\n"
+
+
+WRITER_STEPS = [
+    (
+        "cloud-daily-batch-current.yml",
+        "daily",
+        "Acquire publication lease",
+        "",
+        ("baibai_jobs.publication.lease", "acquire"),
+    ),
+    *(
+        (
+            "cloud-article-sources-current.yml",
+            "acquire",
+            "Acquire due sources and save each partial privately",
+            group,
+            ("baibai_jobs.acquisition.articles", "--group"),
+        )
+        for group in ("scheduled", "public", "world", "rakuten")
+    ),
+    *(
+        (
+            "cloud-economic-source-current.yml",
+            "acquire",
+            "Save confirmed receipts in private R2 staging",
+            group,
+            ("baibai_jobs.integration.economic_handoff", command),
+        )
+        for group, command in (("fred_csv", "stage-fred"), ("estat", "stage"))
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name", "step_name", "group", "writer"), WRITER_STEPS
+)
+@pytest.mark.parametrize(
+    ("condition", "read_exit", "expected"),
+    [
+        ("true", 0, "strict"),
+        ("false", 0, "ordinary"),
+        ("true", 41, "blocked"),
+        ("", 0, "unknown"),
+        ("TRUE", 0, "unknown"),
+        ("0", 0, "unknown"),
+    ],
+)
+def test_conditional_v2_enforced_in_existing_credentialed_write_steps(
+    tmp_path, workflow_name, job_name, step_name, group, writer, condition, read_exit, expected
+):
+    job = _workflow(workflow_name)["jobs"][job_name]
+    step = next(item for item in job["steps"] if item.get("name") == step_name)
+    assert {name for name in step["env"] if name.startswith("R2_")} == {
+        "R2_ACCOUNT_ID",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+    }
+    assert "REQUIRES_V2" in step["env"]
+    marker = tmp_path / "invocations"
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$INVOCATIONS"\n'
+        'case "$*" in *"require-v2"*) exit "$V2_EXIT" ;; esac\n'
+    )
+    uv.chmod(0o755)
+    result = subprocess.run(
+        ["/bin/bash", "-eu", "-c", step["run"]],
+        env={
+            "PATH": str(tmp_path),
+            "INVOCATIONS": str(marker),
+            "V2_EXIT": str(read_exit),
+            "REQUIRES_V2": condition,
+            "GROUP": group,
+            "SOURCE_ID": "fixture",
+            "STAGE_ID": "fixture-2026-11-23-1-1",
+            "CREATED_AT": "2026-11-23T00:00:00Z",
+            "IDENTITY": "1-1",
+            "RUNNER_TEMP": str(tmp_path),
+        },
+        check=False,
+    )
+    calls = (
+        [line.split()[3:5] for line in marker.read_text().splitlines()] if marker.exists() else []
+    )
+    probe = ["baibai_jobs.publication.lease", "require-v2"]
+    if expected == "unknown":
+        assert result.returncode == 2
+        assert not calls
+    elif expected == "blocked":
+        assert result.returncode == read_exit
+        assert calls == ([list(writer)] if job_name == "daily" else [probe])
+    else:
+        assert result.returncode == 0
+        if job_name != "daily" and expected == "strict":
+            assert calls == [probe, list(writer)]
+        else:
+            assert calls == [list(writer)]
+    if calls and job_name == "daily":
+        assert ("--require-v2" in marker.read_text().split()) is (condition == "true")

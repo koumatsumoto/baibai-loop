@@ -45,7 +45,9 @@ jobs:
 
   daily:
     needs: retirement
-    if: ${{ needs.retirement.outputs.attempt == github.run_attempt }}
+    if: >-
+      ${{ needs.retirement.result == 'success' && needs.retirement.outputs.attempt == github.run_attempt
+      && (needs.retirement.outputs.requires_v2 == 'true' || needs.retirement.outputs.requires_v2 == 'false') }}
     concurrency:
       group: cloud-publish
       queue: max
@@ -126,7 +128,15 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_jobs.publication.lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
+          REQUIRES_V2: ${{ needs.retirement.outputs.requires_v2 }}
+        run: |
+          args=(--purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json")
+          case "${REQUIRES_V2:-}" in
+            true) args+=(--require-v2) ;;
+            false) ;;
+            *) echo 'retirement v2 condition is not confirmed' >&2; exit 2 ;;
+          esac
+          uv run python -m baibai_jobs.publication.lease acquire "${args[@]}"
 
       - name: Pull stores and verify the Market generation before publication
         id: pull

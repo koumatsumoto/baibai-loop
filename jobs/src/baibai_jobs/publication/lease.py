@@ -157,6 +157,16 @@ def _generation(store: ObjectStore) -> tuple[PublicationLease, bytes, str] | Non
     return _decode(payload), payload, after.etag
 
 
+def _require_v2_generation(current: tuple[PublicationLease, bytes, str] | None) -> None:
+    if current is None or current[0].protocol_version != 2:
+        raise LeaseError("existing publication lease protocol v2 is required")
+
+
+def require_v2(store: ObjectStore) -> None:
+    # The protocol fences v1 even after expiry or release; this grants no lease.
+    _require_v2_generation(_generation(store))
+
+
 def _put(store: ObjectStore, payload: bytes, *, etag: str | None) -> str:
     descriptor, name = tempfile.mkstemp(prefix="baibai-lease-", suffix=".json")
     path = Path(name)
@@ -191,12 +201,20 @@ def _owner() -> str:
 
 
 def acquire(
-    store: ObjectStore, purpose: str, *, now: datetime | None = None
+    store: ObjectStore,
+    purpose: str,
+    *,
+    now: datetime | None = None,
+    require_v2: bool = False,
 ) -> tuple[PublicationLeaseHandle, bool]:
     if purpose not in _PURPOSES:
         raise LeaseError("invalid publication lease purpose")
     owner = _owner()
     current = _generation(store)
+    if require_v2:
+        # The version check and the CAS must bind the same observed generation.
+        # Missing and v1 records cannot be repaired while relying on this fence.
+        _require_v2_generation(current)
     moment = (now or datetime.now(UTC)).astimezone(UTC)
     expired_previous = False
     if current is not None:
@@ -370,6 +388,8 @@ def build_parser() -> argparse.ArgumentParser:
     take = commands.add_parser("acquire")
     take.add_argument("--purpose", choices=_PURPOSES, required=True)
     take.add_argument("--handle", type=Path, required=True)
+    take.add_argument("--require-v2", action="store_true")
+    commands.add_parser("require-v2", help="read the existing v2 fence without acquiring a lease")
     for command in ("release", "verify"):
         check = commands.add_parser(command)
         check.add_argument("--handle", type=Path, required=True)
@@ -382,11 +402,11 @@ def main(argv: list[str] | None = None) -> int:
         print("publication lease: handle already exists", file=sys.stderr)
         return 1
     try:
-        handle = _load_handle(args.handle) if args.command != "acquire" else None
+        handle = _load_handle(args.handle) if args.command in ("release", "verify") else None
         _load_project_env(Path(__file__))
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or DEFAULT_STORES_BUCKET)
         if args.command == "acquire":
-            acquired, expired = acquire(store, args.purpose)
+            acquired, expired = acquire(store, args.purpose, require_v2=args.require_v2)
             try:
                 _save_handle(args.handle, acquired)
             except OSError:
@@ -408,6 +428,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"expires_at={acquired.expires_at_utc.isoformat()} "
                 f"expired_previous={str(expired).lower()}"
             )
+        elif args.command == "require-v2":
+            require_v2(store)
+            print("publication lease: verified protocol v2")
         elif args.command == "verify":
             assert handle is not None
             verify_held(store, handle)
