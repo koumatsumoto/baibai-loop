@@ -7,9 +7,6 @@ from typing import cast
 
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.short_sale_reports_inputs import INPUT_PREFIX
-from baibai_engine.machine_analysis.observations.jquants_decode import (
-    JQUANTS_NUMERIC_PROJECTION_REVISION,
-)
 from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
     JQUANTS_SHORT_SALE_REPORTS,
 )
@@ -19,6 +16,7 @@ from baibai_engine.storage.snapshots.writer import (
     SealedSQLiteSnapshot,
     export_dataset_snapshot,
 )
+from baibai_jobs.integration.native_projection_cache import require_current_projection_revision
 from baibai_jobs.integration.short_sale_reports_native import saved_interval
 
 
@@ -35,6 +33,7 @@ def export_short_sale_reports_from_native_input(
     digest, summary = saved.descriptor["selection_sha256"], saved.descriptor["summary"]
     if not isinstance(digest, str) or not isinstance(summary, dict):
         raise ValueError("native short-sale reports selection requires its digest and summary")
+    revision = require_current_projection_revision(summary)
     coverage = summary.get("coverage_status")
     if coverage not in {"complete", "partial"}:
         raise ValueError("native short-sale reports selection requires projection coverage")
@@ -52,7 +51,5 @@ def export_short_sale_reports_from_native_input(
         object_date_grain="month",
         mirror_root=mirror_root,
         producer_git_commit=producer_git_commit,
-        projection_revision=JQUANTS_NUMERIC_PROJECTION_REVISION
-        if summary.get("projection_revision") == JQUANTS_NUMERIC_PROJECTION_REVISION
-        else None,
+        projection_revision=revision,
     )

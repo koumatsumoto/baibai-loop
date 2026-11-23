@@ -274,6 +274,7 @@ def test_normal_empty_is_complete_without_fabricating_a_lake_row(tmp_path):
 def test_old_boolean_projection_is_rebuilt_before_warm_reuse(tmp_path, monkeypatch, boolean):
     from baibai_engine.machine_analysis.observations import jquants_writer
     from baibai_jobs.integration import margin_alerts_native as projection
+    from baibai_jobs.publication import l1_margin_alerts_export as exporter
 
     store, owner, market, mirror = fixture(tmp_path)
     good = {**records()[0], "Code": "72030"}
@@ -288,6 +289,8 @@ def test_old_boolean_projection_is_rebuilt_before_warm_reuse(tmp_path, monkeypat
             lambda value: float(value) if isinstance(value, bool) else current_float(value),
         )
         old.setattr(projection, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v1")
+        # Historical producer fixture: its Parquet footer had no numeric revision.
+        old.setattr(exporter, "require_current_projection_revision", lambda _summary: None)
         before, previous = build(store, owner, market, mirror, at=AT + timedelta(hours=1))
     assert previous.manifest.coverage_status == "complete"
     assert len(rows(market)) == 2
