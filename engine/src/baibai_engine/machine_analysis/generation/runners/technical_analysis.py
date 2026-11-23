@@ -10,10 +10,11 @@ from baibai_engine.machine_analysis.models.technical_analysis.generation import 
     generate_technical_analysis,
 )
 from baibai_engine.machine_analysis.models.technical_analysis.price_path import observe_price_path
-from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_adjusted_bars
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     read_price_calendar,
 )
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.prices.price_observation import (
     PriceCalendar,
     PriceDayState,
@@ -29,9 +30,10 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 def technical_analysis(path: Path, *, ticker: str, as_of: date) -> dict[str, object]:
     ticker = normalize_ticker(ticker)
-    bars = read_price_bars(path, tickers=(ticker,), start=date.min, end=as_of).get(ticker, [])
     inputs = read_store_if_written(path, lambda: _price_inputs(path, ticker=ticker, as_of=as_of))
-    calendar, day_states = inputs if inputs is not None else (price_calendar({}, as_of=as_of), {})
+    bars, calendar, day_states = (
+        ([], price_calendar({}, as_of=as_of), {}) if inputs is None else inputs
+    )
     path_observation = observe_price_path(bars, calendar=calendar, day_states=day_states)
     return generate_technical_analysis(
         bars,
@@ -44,8 +46,10 @@ def technical_analysis(path: Path, *, ticker: str, as_of: date) -> dict[str, obj
 
 def _price_inputs(
     path: Path, *, ticker: str, as_of: date
-) -> tuple[PriceCalendar, dict[date, PriceDayState]]:
+) -> tuple[list[PriceBar], PriceCalendar, dict[date, PriceDayState]]:
     with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        bars = read_adjusted_bars(connection, tickers=(ticker,), start=date.min, end=as_of)
         calendar = read_price_calendar(connection, as_of=as_of)
         windows = price_calendar(calendar, as_of=as_of)
         start = min(
@@ -53,4 +57,4 @@ def _price_inputs(
             default=windows.expected_price_date or as_of,
         )
         states = read_price_day_states(connection, start=start, end=as_of, tickers=(ticker,))
-    return windows, states.get(ticker, {})
+    return bars.get(ticker, []), windows, states.get(ticker, {})
