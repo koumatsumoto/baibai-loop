@@ -17,7 +17,7 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import connect_existing, initialize_database
 
 
 class AssessmentConflictError(ValueError):
@@ -50,7 +50,7 @@ class AssessmentService:
         document = MarketContextAssessment.model_validate(document.model_dump(mode="python"))
         initialize_database(self._db_path)
         payload = canonical_json(document.payload())
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 row = connection.execute(
