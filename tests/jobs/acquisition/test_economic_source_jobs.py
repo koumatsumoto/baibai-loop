@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, VerifiedMemoryR2Store
 from tests.helpers.workflow_schedule import declared_schedule
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
@@ -18,7 +18,12 @@ from baibai_engine.data_collection.receipts.native_sources.store import initiali
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
 )
-from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+from baibai_jobs.acquisition.economic_staging import (
+    FRED_HANDOFF_NAMESPACE,
+    load_handoff,
+    save_fred_handoff,
+    save_handoff,
+)
 from baibai_jobs.integration.economic_handoff import acquire
 
 DAY = date(2026, 10, 20)
@@ -254,23 +259,30 @@ def test_economic_workflow_passes_notice_classification_without_hiding_job_failu
 
 def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
     directory = handoff(tmp_path, "fred_csv", "fred-payems", "A")
-    store = MemoryR2Store()
-    stage = save_handoff(store, "42-1-fred_csv", directory)
+    store = VerifiedMemoryR2Store()
+    stage = "fred_csv-2026-10-24-42-1"
+    fingerprint = save_fred_handoff(store, stage, directory, validate_packet=lambda _: None)
     downloaded = tmp_path / "downloaded"
-    load_handoff(store, stage, downloaded)
+    load_handoff(
+        store,
+        stage,
+        downloaded,
+        namespace=FRED_HANDOFF_NAMESPACE,
+        expected_manifest_sha256=fingerprint,
+    )
     assert (downloaded / "receipts.sqlite").read_bytes() == (
         directory / "receipts.sqlite"
     ).read_bytes()
-    assert all(key.startswith("coordination/economic-sources/") for key in store.put_keys)
+    assert all(key.startswith("coordination/economic-fred-sources/") for key in store.put_keys)
     assert not any(
         "artifact" in str(workflow(name))
         for name in ("cloud-economic-source.yml", "cloud-economic-sources.yml")
     )
-    assert save_handoff(store, "42-1-fred_csv", directory) == stage
-    key = next(key for key in store.values if key.endswith(".sqlite"))
+    assert save_fred_handoff(store, stage, directory, validate_packet=lambda _: None) == fingerprint
+    key = next(key for key in store.values if key.endswith(".sqlite.zst"))
     store.values[key].body = b"tampered"
     with pytest.raises(LakePublishError, match="receipt"):
-        load_handoff(store, stage, tmp_path / "corrupt")
+        load_handoff(store, stage, tmp_path / "corrupt", namespace=FRED_HANDOFF_NAMESPACE)
 
 
 def test_common_integration_is_independently_scheduled_and_includes_weekends():

@@ -4,7 +4,7 @@ import json
 from contextlib import closing
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_jobs.acquisition.economic_staging import save_handoff
+from baibai_jobs.acquisition.economic_staging import save_fred_handoff, save_handoff
 
 
 def stage(
@@ -36,7 +36,15 @@ def stage(
             }
         )
     )
-    save_handoff(store, stage_id, directory)
+    save_test_handoff(store, stage_id, directory, group)
+
+
+def save_test_handoff(store, stage_id, directory, group):
+    if group == "fred_csv":
+        # Some reader fixtures deliberately prepare invalid provider scope.
+        save_fred_handoff(store, stage_id, directory, validate_packet=lambda _: None)
+        return stage_id
+    return save_handoff(store, stage_id, directory)
 
 
 def integrate_economic(store, work, database, asof):

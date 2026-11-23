@@ -48,7 +48,13 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakePublishError,
 )
-from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+from baibai_jobs.acquisition.economic_staging import (
+    FRED_HANDOFF_NAMESPACE,
+    is_fred_handoff,
+    load_handoff,
+    save_fred_handoff,
+    save_handoff,
+)
 from baibai_jobs.observability.discord import is_expected_pmi_refusal
 from baibai_jobs.schedule import acquisition_target_date
 
@@ -176,7 +182,9 @@ def validate_handoff(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("plan", "input", "acquire", "stage", "download"))
+    parser.add_argument(
+        "command", choices=("plan", "input", "acquire", "stage", "stage-fred", "download")
+    )
     parser.add_argument("--group", default="all")
     parser.add_argument("--source-id", default="")
     parser.add_argument("--asof", type=date.fromisoformat)
@@ -185,16 +193,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--current-only-now", action="store_true")
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--stage-id")
-    parser.add_argument(
-        "--compress-fred-receipt",
-        action="store_true",
-        help="opt in for a new FRED stage; requires compatible economic integration",
-    )
     parser.add_argument("--db", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)
     args = parser.parse_args(argv)
     try:
-        if args.compress_fred_receipt and args.command != "stage":
-            raise ValueError("FRED receipt compression is only available for stage")
         if args.command == "plan":
             groups = economic_acquisition_groups() if args.group == "all" else (args.group,)
             for group in groups:
@@ -238,29 +239,39 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.stage_id is None:
             raise ValueError("--stage-id is required")
-        if args.compress_fred_receipt and args.group not in ("all", "fred_csv"):
-            raise ValueError("compressed receipts are only available for the FRED group")
+        is_fred = is_fred_handoff(args.stage_id)
+        if is_fred and args.group not in ("all", "fred_csv"):
+            raise ValueError("FRED handoff differs from the requested acquisition group")
+        if args.command == "stage-fred" and not is_fred:
+            raise ValueError("stage-fred requires a FRED acquisition stage")
+        if args.command == "stage" and is_fred:
+            raise ValueError("FRED requires the post-cutoff stage-fred entrypoint")
         with closing(
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         ) as store:
-            if args.command == "stage":
-                if args.compress_fred_receipt:
-                    identity = save_handoff(
+            if args.command in ("stage", "stage-fred"):
+                if args.command == "stage-fred":
+                    save_fred_handoff(
                         store,
                         args.stage_id,
                         args.directory,
-                        compress_fred=True,
-                        validate_fred=lambda directory: validate_handoff(
+                        validate_packet=lambda directory: validate_handoff(
                             directory, "fred_csv", args.source_id or None, standalone=True
                         ),
                     )
+                    identity = args.stage_id
                 else:
                     identity = save_handoff(store, args.stage_id, args.directory)
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print(f"handoff={identity}", file=stream)
             else:
-                load_handoff(store, args.stage_id, args.directory)
+                if is_fred:
+                    load_handoff(
+                        store, args.stage_id, args.directory, namespace=FRED_HANDOFF_NAMESPACE
+                    )
+                else:
+                    load_handoff(store, args.stage_id, args.directory)
         return 0
     except (
         OSError,

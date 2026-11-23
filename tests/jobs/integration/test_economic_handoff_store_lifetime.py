@@ -160,7 +160,7 @@ def test_download_output_failure_closes_store_without_discarding_receipt(
     source.mkdir()
     with closing(initialize_database(source / "receipts.sqlite")):
         pass
-    (source / "result.json").write_text('{"group":"fred_csv","sources":[]}')
+    (source / "result.json").write_text('{"group":"boj","sources":[]}')
     economic_handoff.save_handoff(store, "fixed-stage", source)
     original = (source / "receipts.sqlite").read_bytes()
     puts = list(store.put_keys)

@@ -3,7 +3,7 @@ from contextlib import closing
 
 import pytest
 from tests.helpers.native_handoff import stage
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, VerifiedMemoryR2Store
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.storage.objects.r2 import (
@@ -130,7 +130,7 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
     )
     from baibai_jobs.integration.native_source_merge import merge_stores
 
-    store = MemoryR2Store()
+    store = VerifiedMemoryR2Store()
     canonical = tmp_path / "canonical.sqlite"
     with closing(initialize_database(canonical)) as conn, conn:
         store_snapshot(
@@ -250,7 +250,7 @@ def test_invalid_terminal_cannot_consume_or_mark_another_handoff_late(market, da
     store = MemoryR2Store()
     namespace = "market-sources" if market else "economic-sources"
     source = "jpx-earnings" if market else "boj"
-    other = "jpx-regulations" if market else "fred_csv"
+    other = "jpx-regulations" if market else "estat"
 
     def handoff(owner, suffix):
         key = f"coordination/{namespace}/{owner}-{suffix}/handoff.json"

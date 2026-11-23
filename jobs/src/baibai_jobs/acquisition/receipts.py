@@ -20,8 +20,15 @@ from baibai_engine.storage.objects.r2 import (
     ObjectStore,
     R2Error,
 )
-from baibai_jobs.acquisition.economic_staging import load_handoff, stage_prefix
+from baibai_jobs.acquisition.economic_staging import (
+    FRED_HANDOFF_NAMESPACE,
+    is_current_fred_manifest,
+    is_fred_handoff,
+    load_handoff,
+    stage_prefix,
+)
 
+_FRED_SOURCE = "economic-fred_csv"
 _RETIRED_JQUANTS_HANDOFF = re.compile(
     r"coordination/market-sources/jquants-(?:market|financial)-"
     r"([0-9]{4}-[0-9]{2}-[0-9]{2})-[0-9]+-[0-9]+/handoff\.json"
@@ -46,14 +53,14 @@ def _retired_jquants_handoff(key: str) -> bool:
 
 
 def _integration_marker(
-    payload: bytes, *, digest: str, source: str, started_at: datetime, article: bool
+    payload: bytes, *, digest: str, source: str, started_at: datetime, strict_source: bool
 ) -> dict[str, object]:
     marker = json.loads(payload)
     if not isinstance(marker, dict):
         raise ValueError("invalid integration marker")
     # The first non-article writer omitted both source and start; the manifest
     # digest still binds both. Never infer an identity that explicitly disagrees.
-    legacy = not article and "source" not in marker and "started_at" not in marker
+    legacy = not strict_source and "source" not in marker and "started_at" not in marker
     if (
         marker.get("manifest_sha256") != digest
         or (not legacy and marker.get("source") != source)
@@ -87,11 +94,18 @@ def available_handoffs(
     ) -> tuple[dict[str, object] | None, tuple[str, datetime] | None, str | None]:
         market, namespace, key = item
         article = namespace == "article-sources"
-        scope = {"namespace": namespace} if article else {}
+        fred = namespace == FRED_HANDOFF_NAMESPACE
+        scope = {"namespace": namespace} if article or fred else {}
         stage_id = key.split("/")[-2]
         source_name = source or f"{namespace}-unreadable"
         digest = ""
         try:
+            if (
+                fred
+                and key
+                != f"{stage_prefix(stage_id, namespace=FRED_HANDOFF_NAMESPACE)}/handoff.json"
+            ):
+                raise ValueError("invalid FRED receipt path")
             saved = read_write_once_private(store, key)
             if saved is None:
                 raise ValueError("listed handoff is missing")
@@ -103,6 +117,12 @@ def available_handoffs(
                 raise ValueError("handoff source differs from its scope")
             if article and source_name not in ARTICLE_SOURCES:
                 raise ValueError("unsupported article handoff source")
+            if fred:
+                if source_name != _FRED_SOURCE or not is_current_fred_manifest(manifest):
+                    raise ValueError("unsupported live FRED receipt format")
+            elif not market and source_name == _FRED_SOURCE:
+                # Some old manual IDs lack the standard prefix; never read their terminal.
+                return None, None, None
             started = datetime.fromisoformat(report["started_at"])
             if started.tzinfo is None:
                 raise ValueError("handoff clock has no timezone")
@@ -120,7 +140,7 @@ def available_handoffs(
                         digest=digest,
                         source=source_name,
                         started_at=started,
-                        article=article,
+                        strict_source=article or fred,
                     )
                     status = integrated["status"]
                 except (ValueError, KeyError, TypeError):
@@ -183,11 +203,21 @@ def available_handoffs(
         selected_namespace = namespace or ("market-sources" if market else "economic-sources")
         if source is not None and source.startswith("economic-") == market:
             continue
+        if not market and source in (None, _FRED_SOURCE):
+            keys.extend(
+                (False, FRED_HANDOFF_NAMESPACE, key)
+                for key, _ in store.iter_objects(f"coordination/{FRED_HANDOFF_NAMESPACE}/")
+                if key.endswith("/handoff.json")
+            )
+            if source == _FRED_SOURCE:
+                continue
         selection = source.removeprefix("economic-") + "-" if source is not None else ""
         keys.extend(
             (market, selected_namespace, key)
             for key, _ in store.iter_objects(f"coordination/{selected_namespace}/{selection}")
-            if key.endswith("/handoff.json") and not _retired_jquants_handoff(key)
+            if key.endswith("/handoff.json")
+            and not _retired_jquants_handoff(key)
+            and (market or not is_fred_handoff(key.split("/")[-2]))
         )
     # Only create-once manifests and terminal markers are read here. Merge in listing order.
     with ThreadPoolExecutor(max_workers=8) as workers:
@@ -256,7 +286,13 @@ def seal_integrated(
     recovery: bool,
 ) -> None:
     namespace = str(entry["namespace"]) if entry.get("namespace") else None
-    prefix = stage_prefix(str(entry["stage_id"]), market=bool(entry["market"]), namespace=namespace)
+    stage_id, market = str(entry["stage_id"]), bool(entry["market"])
+    archived_fred = (
+        not market and namespace in (None, "economic-sources") and is_fred_handoff(stage_id)
+    )
+    if archived_fred or (entry["source"] == _FRED_SOURCE) != (namespace == FRED_HANDOFF_NAMESPACE):
+        raise ValueError("only the live FRED inbox can write a FRED terminal marker")
+    prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     terminal = (
         f"recovered-{entry['manifest_sha256']}.json"
         if (entry.get("explicit_article_recovery") or entry.get("explicit_jpx_recovery"))
@@ -285,7 +321,7 @@ def seal_integrated(
                 digest=str(entry["manifest_sha256"]),
                 source=str(entry["source"]),
                 started_at=datetime.fromisoformat(str(entry["started_at"])),
-                article=namespace == "article-sources",
+                strict_source=namespace in ("article-sources", FRED_HANDOFF_NAMESPACE),
             )
         except ValueError as error:
             raise LakePublishError(
