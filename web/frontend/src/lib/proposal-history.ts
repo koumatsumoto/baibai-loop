@@ -92,5 +92,5 @@ export function groupProposalReports(proposals: SavedProposalView[]) {
 }
 
 export function isCorrectedProposal(proposal: SavedProposalView): boolean {
-  return (proposal.corrections ?? []).some(correction => correction.erroneous_ref.proposal_id === proposal.proposal_id)
+  return proposal.corrections.some(correction => correction.erroneous_ref.proposal_id === proposal.proposal_id)
 }

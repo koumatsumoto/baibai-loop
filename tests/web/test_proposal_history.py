@@ -1,5 +1,6 @@
 """保存提案の履歴は銘柄で上書きせず、壊れた一件を空履歴で隠さない。"""
 
+import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, timedelta
@@ -81,6 +82,9 @@ def test_history_preserves_each_publication_exact_pair_and_saved_identity(tmp_pa
         assert item.sector == case.pair.document.input_snapshot.sector
         assert item.assessment.assessment_id == case.pair.assessment_id
     assert view.proposals[1].items[0].terms.limit_price_yen == "1000"
+    # The current publication JSON contains explicit empty collections, not omitted ones.
+    for row in json.loads(view.model_dump_json())["proposals"]:
+        assert row["corrections"] == row["human_reports"] == []
     assert case.app.read_bytes() == before
     assert not case.market.exists()
     assert not case.runs.exists()
@@ -134,6 +138,9 @@ def test_history_keeps_corrected_original_visible_with_its_correction(tmp_path):
     assert latest.proposal.proposal_id == first.proposal_id
     assert [row.proposal_id for row in view.proposals] == [second.proposal_id, first.proposal_id]
     assert all(row.corrections == [record] for row in view.proposals)
+    for row in json.loads(view.model_dump_json())["proposals"]:
+        assert row["corrections"] == [record.model_dump(mode="json")]
+        assert row["human_reports"] == []
 
 
 def test_broken_shared_correction_does_not_lose_the_unreadable_ids(tmp_path):

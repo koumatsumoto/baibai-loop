@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowUpRight, Clock3 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
 
 import { fetchJson } from '../api/client'
-import type { ProposalHistoryView } from '../api/types'
+import type { ProposalHistoryView, SavedProposalView } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
@@ -16,6 +16,11 @@ import { ProposalReport } from './ProposalPage'
 
 function BackToReports() {
   return <Link className="inline-flex w-fit items-center gap-2 rounded text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" to="/proposal"><ArrowLeft aria-hidden="true" className="size-4" />レポート一覧</Link>
+}
+
+// An omitted collection cannot establish that there are no saved corrections or reports.
+function hasProposalRecordCollections({ corrections, human_reports }: SavedProposalView): boolean {
+  return Array.isArray(corrections) && Array.isArray(human_reports)
 }
 
 export function ProposalHistory({ data, proposalId = null, ticker = null }: {
@@ -32,23 +37,33 @@ export function ProposalHistory({ data, proposalId = null, ticker = null }: {
   </PageShell>
   if (proposalId !== null || ticker !== null) {
     const proposal = data.proposals.find(row => row.proposal_id === proposalId)
-    const item = proposal?.items.find(item => item.ticker === ticker)
+    const malformed = proposal !== undefined && !hasProposalRecordCollections(proposal)
+    const item = malformed ? undefined : proposal?.items.find(item => item.ticker === ticker)
     if (proposal === undefined || item === undefined) {
+      const reason = malformed
+        ? '訂正・人間の報告を確認できないため、この保存レポートは表示していません。'
+        : proposalId !== null && data.unavailable_proposal_ids.includes(proposalId)
+          ? 'この提案は読取不能です。別の時点の提案では代用していません。'
+          : '指定した提案・銘柄の組合せは、この表示データにありません。一覧から選び直してください。'
       return <PageShell title="レポートを表示できません" above={<BackToReports />} width="reading"><SectionCard padded title="指定された保存レポートを確認できません">
-        <p>{proposalId !== null && data.unavailable_proposal_ids.includes(proposalId) ? 'この提案は読取不能です。別の時点の提案では代用していません。' : '指定した提案・銘柄の組合せは、この表示データにありません。一覧から選び直してください。'}</p>
+        <p>{reason}</p>
       </SectionCard></PageShell>
     }
     return <ProposalReport key={`${proposalId}:${ticker}`} proposal={proposal} item={item} generatedAt={data.generated_at} above={<BackToReports />} />
   }
-  const groups = groupProposalReports(data.proposals)
+  const readable = data.proposals.filter(hasProposalRecordCollections)
+  const malformedCount = data.proposals.length - readable.length
+  const groups = groupProposalReports(readable)
   const reportCount = groups.reduce((total, group) => total + group.reports.length, 0)
-  return <PageShell title="売買提案" lead="銘柄を選んで、保存時点の判断と根拠を読む。" meta={<span className="text-sm text-muted-foreground">{reportCount}件のレポート</span>} width="reading">
+  const countLabel = malformedCount > 0 ? `表示できるレポート：${reportCount}件` : `${reportCount}件のレポート`
+  return <PageShell title="売買提案" lead="銘柄を選んで、保存時点の判断と根拠を読む。" meta={<span className="text-sm text-muted-foreground">{countLabel}</span>} width="reading">
     <div className="grid gap-2 text-xs leading-6 text-muted-foreground">
       <p>発行日時（JST）の新しい順。午前は0〜11時、午後は12〜23時です。提案基準日や再生成日時とは異なります。</p>
       <p>同じ銘柄でも過去のレポートは別に残しています。現在の売買推奨・注文可否ではありません。</p>
       {data.unavailable_proposal_ids.length > 0 && <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-foreground">読取不能の提案が{data.unavailable_proposal_ids.length}件あります。その提案に含まれる銘柄は一覧に表示できていません。</p>}
+      {malformedCount > 0 && <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-foreground">配信データの形式が不正な提案が{malformedCount}件あります。訂正・人間の報告を確認できないため表示していません。</p>}
     </div>
-    {groups.length === 0 && <SectionCard padded title="保存済みレポートはありません"><p className="text-sm text-muted-foreground">表示データ生成時点で、正式に保存された提案はありません。</p></SectionCard>}
+    {groups.length === 0 && malformedCount === 0 && <SectionCard padded title="保存済みレポートはありません"><p className="text-sm text-muted-foreground">表示データ生成時点で、正式に保存された提案はありません。</p></SectionCard>}
     {groups.map(group => <section className="grid min-w-0 gap-3" key={group.key} aria-labelledby={`reports-${group.key}`}>
       <h2 id={`reports-${group.key}`} className="flex items-baseline gap-3 text-lg font-semibold">{group.label}<span className="text-xs font-normal text-muted-foreground">{group.year}年 · JST</span></h2>
       <div className="grid min-w-0 gap-3 md:grid-cols-2">
