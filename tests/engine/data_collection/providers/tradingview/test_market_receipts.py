@@ -151,9 +151,10 @@ def test_delay_missing_and_bar_clock_are_not_realtime_or_trade_clock():
 
 
 @pytest.mark.parametrize("field", ["count", "missing_count"])
-def test_market_batch_uses_native_response_counts(field):
+@pytest.mark.parametrize("invalid", [0, True, 1.0])
+def test_market_batch_uses_native_response_counts(field, invalid):
     value = capture().model_dump(by_alias=True)
-    value["result"]["structuredContent"][field] = 0
+    value["result"]["structuredContent"][field] = invalid  # one quote and one explicit missing
     with pytest.raises(ValueError, match="response_count_mismatch"):
         read_market_observation(MarketToolCapture.model_validate(value))
 
@@ -190,3 +191,15 @@ def test_bad_bar_schema_is_retained_before_projection_failure(tmp_path):
             read_market_capture(conn, original.receipt_id, expected_sha256=original.digest())
             == original
         )
+
+
+@pytest.mark.parametrize(("size", "invalid"), [(0, False), (1, True), (1, 1.0)])
+def test_bar_count_must_be_an_integer_even_when_row_count_compares_equal(size, invalid):
+    value = capture(bars=True).model_dump(by_alias=True)
+    payload = value["result"]["structuredContent"]
+    payload["bars"] = payload["bars"][:size]
+    payload["count"] = size
+    assert len(read_market_observation(MarketToolCapture.model_validate(value))["bars"]) == size
+    payload["count"] = invalid
+    with pytest.raises(ValueError, match="exact request"):
+        read_market_observation(MarketToolCapture.model_validate(value))

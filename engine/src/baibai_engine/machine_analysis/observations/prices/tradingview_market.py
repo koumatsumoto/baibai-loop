@@ -71,6 +71,7 @@ def read_market_observation(capture: MarketToolCapture) -> dict[str, Any]:
         or payload.get("format") != "rows"
         or not isinstance(bars, list)
         or len(bars) > args["count"]
+        or type(payload.get("count")) is not int
         or payload.get("count") != len(bars)
     ):
         raise ValueError("market bars differ from the exact request")
