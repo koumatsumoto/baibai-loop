@@ -140,7 +140,7 @@ uv run baibai-engine investment-judgment trade-proposal-context \
   --db <APP_DB> --sqlite-path stores/market/market.sqlite
 ```
 
-標準出力のcontextと任意の新規作業ファイルは同じ時点・IDの投影である。前回提案・本人報告、監理指定と関連届出の出典はcontextで確認し、今回の判断へ流用しない。作者は固定全対象の行動・理由・再調査条件を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って書く。相対強弱を理由にするなら[反対の読み](../../../docs/reference/trade-proposal.md#fixed-price-comparison)で価値・採否・次の確認のどれが変わるかを残す。
+標準出力のcontextと任意の新規作業ファイルは同じ時点・IDの投影である。新規発行では、固定元にある流動性の期間を省略しない。旧い未発行原稿がこれを欠く場合は新しい作業ファイルにcontextを出し直し、本文を移して再査読する。既発行の本文・hashは直さない。前回提案・本人報告、監理指定と関連届出の出典はcontextで確認し、今回の判断へ流用しない。作者は固定全対象の行動・理由・再調査条件を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って書く。相対強弱を理由にするなら[反対の読み](../../../docs/reference/trade-proposal.md#fixed-price-comparison)で価値・採否・次の確認のどれが変わるかを残す。
 
 `trade-proposal-check <DRAFT> --db <APP_DB>`の`unreviewed`は本文の事前確認で、正式保存ではない。評価のReviewとは別に、提案の内容Reviewerが本文とdigestを検証して[内容Review](../../../engine/src/baibai_engine/investment_judgment/trade_proposal/contracts.py)を記入する。`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`は発行時点の事実を改めて確認する。
 
