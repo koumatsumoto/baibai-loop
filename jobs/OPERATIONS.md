@@ -33,11 +33,11 @@ set +a
 <a id="日次実行と結果確認"></a>
 ## 日次と到達点
 
-[共通日次](../.github/workflows/cloud-daily-batch.yml)は22:43 JSTの独立した統合枠。各[取得枠](#sources)の完了を待たず、遅着は次の統合に回る。手動実行前に、対象の`main`と[日足](#price-native-l1)の受領を確認する。`asof`はモデルの基準日で、価格日でも全sourceの観測日でもない。
+[共通日次](../.github/workflows/cloud-daily-batch-current.yml)は22:43 JSTの独立した統合枠。各[取得枠](#sources)の完了を待たず、遅着は次の統合に回る。手動実行前に、対象の`main`と[日足](#price-native-l1)の受領を確認する。`asof`はモデルの基準日で、価格日でも全sourceの観測日でもない。
 
 ```bash
-gh workflow run cloud-daily-batch.yml --ref main -f "asof=${ASOF:?基準日をYYYY-MM-DDで指定}" -f preserve_existing_generations=true
-gh run list --workflow cloud-daily-batch.yml --branch main --event workflow_dispatch --limit 5
+gh workflow run cloud-daily-batch-current.yml --ref main -f "asof=${ASOF:?基準日をYYYY-MM-DDで指定}" -f preserve_existing_generations=true
+gh run list --workflow cloud-daily-batch-current.yml --branch main --event workflow_dispatch --limit 5
 gh run watch "${RUN_ID:?対象の日次run IDを指定}" --exit-status --interval 60
 ```
 
@@ -319,8 +319,8 @@ ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手�
 | 取得の入口 | 日次・判断への受け渡し |
 | --- | --- |
 | [市場取得](../.github/workflows/cloud-market-sources.yml) | [J-Quants](#jquants-native-operations)と[EDINET](#edinet-list-native-l1)はsource固有のnative L1を先に確定。JPXは[原本packet](#jpx-pdf)をstageし、統合で投影する。 |
-| [経済取得](../.github/workflows/cloud-economic-sources.yml) | group別に部分受領をstageし、共通日次の先頭で[経済正本を別途公開](#経済単独公開と失敗再開)する。 |
-| [記事](../.github/workflows/cloud-article-sources.yml)／[数値の外部評価](../.github/workflows/cloud-external-assessment.yml) | 記事はsource別の不変stage、外部評価は固定planで確認済みの集合（ready）を通常統合で採用する。 |
+| [経済取得](../.github/workflows/cloud-economic-sources-current.yml) | group別に部分受領をstageし、共通日次の先頭で[経済正本を別途公開](#経済単独公開と失敗再開)する。 |
+| [記事](../.github/workflows/cloud-article-sources-current.yml)／[数値の外部評価](../.github/workflows/cloud-external-assessment.yml) | 記事はsource別の不変stage、外部評価は固定planで確認済みの集合（ready）を通常統合で採用する。 |
 | [個社TradingView](../.github/workflows/cloud-tradingview-snapshot.yml)／[多市場TradingView](../.github/workflows/cloud-tradingview-market-daily.yml) | 個社は元のmaster/calendarと受領packetを[日次統合](#tradingview-expectations)へ。多市場は[市場判断用の補助原本](#判断直前の多市場補助観測)で、個社の日次充足や正式終値の代わりにしない。 |
 
 取得時には全market/applicationをhydrateしない。同source/groupのqueueと共有quotaを守り、L2不足だけで再GETしない。[source input](src/baibai_jobs/acquisition/source_inputs.py)や記事planningが必要な経路は初回だけ統合から発行し、元bindingで再開する。計画材料が欠けたときは空seedや全DB取得で代用しない。形式変更時は対応readerを先行させ、非対応writerをdrainする。
@@ -330,13 +330,13 @@ ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手�
 <a id="economic-acquisition"></a>
 ### 経済原本
 
-[workflow](../.github/workflows/cloud-economic-sources.yml)は休場日もgroup別に取得し、部分受領をprivate stageへ保存する。限定再実行は所属groupとsource IDを指定する。
+[workflow](../.github/workflows/cloud-economic-sources-current.yml)は休場日もgroup別に取得し、部分受領をprivate stageへ保存する。限定再実行は所属groupとsource IDを指定する。
 
 取得summaryの`failed`はHTTP試行件数ではない。`blocked_by_source_id`は先行sourceが止めた未試行分であり、自身のHTTP statusを持たない。status・例外型だけで拒否原因を断定せず、旧summaryの欠落診断や受付時計を推測しない。
 
 ```bash
 uv run baibai-jobs acquire-economic groups
-gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
+gh workflow run cloud-economic-sources-current.yml --ref main -f group=fred_csv -f source_id=fred-payems
 uv run baibai-jobs acquire-economic refresh <SOURCE_ID> --all-history --end <YYYY-MM-DD>
 ```
 
@@ -387,14 +387,13 @@ validateはL2算式/L3履歴の証明でない。原本更新時だけ経済push
 <a id="article-acquisition"></a>
 ### 記事
 
-定期枠はTSRデータインサイト（`tsr_data`）と日銀新着（`boj_news`）のみ。両者を手動で確認するには[記事workflow](../.github/workflows/cloud-article-sources.yml)の`group=scheduled`を使う。同じqueue・slot・予算で必要分だけ取得し、強制再取得しない。TSRは正常なindex受領で日次充足を判定する。対象はfeed単位で、L2採用は取得後に決まる。
+定期枠はTSRデータインサイト（`tsr_data`）と日銀新着（`boj_news`）のみ。両者を手動で確認するには[記事workflow](../.github/workflows/cloud-article-sources-current.yml)の`group=scheduled`を使う。同じqueue・slot・予算で必要分だけ取得し、強制再取得しない。TSRは正常なindex受領で日次充足を判定する。対象はfeed単位で、L2採用は取得後に決まる。
 
 その他の現役記事（NHK・BBC・FRB/ECB・財務省・TSR倒産速報・トウシル）は手動`public`/`world`/`rakuten`または`all`。共通日次は計画を用意しても記事本文を取得しない。`minkabu_news`と見出し専用の`rakuten_news`は手動/定期の対象外で、[必要時の企業調査](../docs/reference/stock-assessment.md#recent-news-research)で読む。未取得期間の全件発見や当時のbytesは復元できない。保存済み原本・stage・世代と[数値の外部評価](#external-assessment-acquisition)の扱いとは別。
 
 - **計画と受領:** 初回は`integration.sources inputs`、以降は不変stage保存後に[planning](src/baibai_jobs/acquisition/article_planning.py)をCAS更新する。sealはcursorを変更しない。CAS失敗やplanning上限に達した場合はstageと未完worksetを保ち、[exact回復](#記事のexact遅着回復)へ。件数上限を合わせるため未完URLを捨てない。
 - **部分取得:** `continuation_only`は正常継続であり完了ではない。HTTP/解析/deadline/CAS/保存を区別する。401/403では当該sourceのpassを止め、失敗受領と未完worksetを保存する。200同値は別受領、304は以前の200 bodyを参照する。
-- **RSSの原本と位置:** `--rss-native-index`で取得した新規index原本は、正規チャネル内の記事と同じ名前空間のリンクを採る。304や再開・固定再生は元の200に記録した読取方式を使う。旧受領・観測は読み替えず、`/item/N`は拡張要素を飛ばしても詰めない。RDFとサイトマップは従来どおり扱う。旧版で拡張要素が記事の指紋に入っていた場合は、最初の新版200でその記事の版・取得候補が更新され得る。
-- **RSS方式の切替:** 定期・手動workflowではこのoptionをまだ有効にしない。先に受領・固定再生を読む新版を配備し、旧日次・記事取得・回復の実行中/待機runがないことを確認する。以降は旧commitの再実行やローカル旧版を現行storeに向けない。optionを戻しても付与済み原本は新版で読む。
+- **RSSの原本と位置:** 現行の新規index原本は、正規チャネル内の記事と同じ名前空間のリンクを採る。最初の通常枠で旧方式のindex validatorだけは送らず、本文validator・保留・固定出典を保持する。以降の304は元の現行200を参照する。旧受領・観測は読み替えず、すでに引継ぎ対象と確定した保留の固定出典は元200の方式で読む。`/item/N`は拡張要素を飛ばしても詰めない。RDFとサイトマップは従来どおり。
 - **対象が消えた場合:** トウシルの正常な一覧から消えた持越し本文の404だけは次回pendingから外す。失敗と欠測は残し、再掲載時は再発見可能。掲載中404、一覧未完、403/429/5xxに当てはめない。同hostの公開301/308は既存予算内で扱い、親子受領・Locationを分ける。一般redirect・認証URL・未許可host・財務省の全期間巡回へ広げない。
 - **結果の読み方:** [summary](src/baibai_jobs/acquisition/articles.py)の`bodies`はHTTP失敗も含む本文receive回数。通信は`requests_used`/`bytes_used`、本文保持はstageの受領とbody参照、正式統合は固定releaseの原本/抽出artifactの読戻しとsealで確認する。[取得契約と予算](../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)
 
@@ -406,6 +405,17 @@ uv run baibai-jobs article-evidence --source <SOURCE> --stage-id <STAGE_ID> --ma
 ```
 
 stage原本の読取はrelease所属/抽出成功/長期保持の証明でなく、統合後は同ID/hashを固定releaseで照合する。
+
+#### 記事・FRED・共通日次の一回切替 (#2913 / #2829)
+
+この切替は同じ運用窓で一度だけ行う。旧workflowが有効な間に切替PRをマージしない。定期枠と手動入口を二重にしない。手動`group=scheduled`は実取得であり検証用ではない。
+
+1. **旧側で確定を終える。** 最新の正本・next inputと適用済みwatermarkを同一世代で照合し、通常の旧処理で確定できる現行分は終了させる。L1本体が進んでsealやnext inputだけが残る場合を、未適用pendingと決めつけない。
+2. **運用者が停止を確認する。** 旧記事 `401275764`、旧経済 `394769782`、旧経済reusable `394769781`、旧日次 `317890420` を明示無効化し、再有効化しない。GitHubの無効化だけでは既存runは終わらない。承認済みの停止または終了を待ち、旧run・lease・ライブへ書ける旧ローカルプロセスがないことを確認する。[読取専用の確認](../tools/diagnostics/check_article_cutoff.py)は全IDと全runの状態を読み、空の最近一覧を全停止と誤認しない。ローカル資格情報を無効化する機能は持たない。旧実行のログ・原本は削除しない。
+3. **必要な現行入力だけを引き継ぐ。** RSSはsource別の最後のstage、未統合stage、保留URL/frontierと固定出典を照合する。正規と証明できない旧pendingは新出典に付け替えず、一覧不明なら中止する。FREDは移行0件を優先し、なお必要な適格pendingだけを固定の旧stage ID・manifest SHAで隔離読取し、原本bytes・時刻・範囲のまま現行zstdへ一度移す。既済・明示回復要・真の遅着を変換せず、旧成功watermarkを進める新受付より先に照合する。既存leaseやCASを無視して並行書込みをしない。
+4. **後継だけを開始する。** 旧pathは無権限・定期/手動triggerなしの履歴用とし、後継3入口は従来のcronと直列queueを引き継ぐ。runにひもづくSHAをcheckoutし、同じattemptの旧writer停止確認に合格するまで資格情報を使わない。失敗jobだけの旧確認再利用で開始しない。日次のlease内Market先行preflightと経済L1、source適用、seal、既存通知tagを保持する。FREDの保存は `stage-fred` だけ。過去を調べるために旧コードを使う場合は、固定原本の隔離copyだけに向ける。現行復旧は現行コードに固定stage IDとmanifest SHAを与える。
+5. **後継の初回受入を確認する。** 別途承認された切替時だけ、最初の取得対象枠で通常の手動 `group=scheduled` を一度使い、日銀新着（`boj_news`）のRSS indexが実際にHTTP 200を受けたことと、その固定stageが普通の日次で採用・照合されたことを結ぶ。単にjobが成功したことや未到来・対象外でのskipは代用しない。後続で自然に発生した304が同じ200を参照する確認は追加証拠であり、304を強制しない。FREDは先に許可した `group=fred_csv` の一つの `source_id` だけを通常入口で取得し、単一zstdのstage ID・manifest SHA・圧縮/展開サイズ・codecを、普通の日次での同一受領の適用・正本読戻し・sealに結ぶ。強制再取得、旧入口や別の試験用writerは使わない。
+   - 記事の現行stdoutは実index HTTP statusを示さず、FREDの現行staging stdoutはmanifest SHAを示さない。この差分だけでは受入を証明できない。承認済みの既存証拠で両方を個別に照合できない場合は、切替前に対象source/runに限定した受入証跡を別途用意する。秘密・原本本文は出力せず、未確認の証拠を成功扱いしない。不一致・未確認なら新受付を止め、現行readerと最後に確認した正本を残す。旧workflow・旧形式で運用を再開しない。
 
 ### 記事のexact遅着回復
 

@@ -1,0 +1,34 @@
+name: cloud-writer-retirement
+
+on:
+  workflow_call:
+    outputs:
+      attempt:
+        description: Current caller attempt with verified retired writers
+        value: ${{ jobs.check.outputs.attempt }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    outputs:
+      attempt: ${{ steps.retirement.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify the event checkout and retired writer run inventory
+        id: retirement
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REPOSITORY" = koumatsumoto/baibai-loop
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -m tools.diagnostics.check_article_cutoff
+          printf 'attempt=%s\n' "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"

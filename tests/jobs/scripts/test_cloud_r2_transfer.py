@@ -728,7 +728,7 @@ def test_only_a_matching_daily_success_can_tag_the_machine_receipt(tmp_path: Pat
         GITHUB_ACTIONS="true",
         GITHUB_REPOSITORY="owner/repo",
         GITHUB_REF="refs/heads/main",
-        GITHUB_WORKFLOW_REF="owner/repo/.github/workflows/cloud-daily-batch.yml@refs/heads/main",
+        GITHUB_WORKFLOW_REF="owner/repo/.github/workflows/cloud-daily-batch-current.yml@refs/heads/main",
         GITHUB_RUN_ID="12345",
         GITHUB_RUN_ATTEMPT="1",
         SNAPSHOT_FAKE_COPY="1",

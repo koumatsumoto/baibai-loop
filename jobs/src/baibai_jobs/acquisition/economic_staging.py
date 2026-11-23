@@ -8,10 +8,10 @@ import json
 import re
 import tempfile
 from collections.abc import Callable
-from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from stat import S_ISREG
+from typing import cast
 
 from compression import zstd
 
@@ -43,6 +43,7 @@ _PLANNING_INPUT_GROUPS = {
 _PLANNING_INPUT_FORMATS = {group: wire for wire, group in _PLANNING_INPUT_GROUPS.items()}
 _FRED_RECEIPT_FORMAT = "fred-acquisition-receipts-zstd-v1"
 _FRED_STAGE_PREFIX = "fred_csv-"
+FRED_HANDOFF_NAMESPACE = "economic-fred-sources"
 _MAX_FRED_RECEIPT_BYTES = 128 * 1024**2
 _FRED_DECODE_CHUNK = 1024**2
 _FRED_MAX_WINDOW_LOG = 23  # 8 MiB
@@ -50,11 +51,23 @@ _FRED_MANIFEST_OVERHEAD_BYTES = 512
 _SQLITE_HEADER = b"SQLite format 3\x00"
 
 
-def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:
+def _validate_stage_identity(stage_id: str) -> None:
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,119}", stage_id) is None:
         raise ValueError("invalid source handoff identity")
+
+
+def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:
+    _validate_stage_identity(stage_id)
     namespace = namespace or ("market-sources" if market else "economic-sources")
-    if namespace not in {"market-sources", "economic-sources", "source-inputs", "article-sources"}:
+    if namespace == FRED_HANDOFF_NAMESPACE:
+        if market or not is_fred_handoff(stage_id):
+            raise ValueError("FRED inbox requires a FRED economic acquisition stage")
+    elif namespace not in {
+        "market-sources",
+        "economic-sources",
+        "source-inputs",
+        "article-sources",
+    }:
         raise ValueError("invalid source handoff namespace")
     return f"coordination/{namespace}/{stage_id}"
 
@@ -86,16 +99,12 @@ class _ReceiptFile:
         return cls(path, sha.hexdigest(), base64.b64encode(md5.digest()).decode(), size)
 
 
-def _fred_stage(
-    stage_id: str, *, market: bool, namespace: str | None, input_group: str | None
-) -> bool:
-    return (
-        not market
-        and namespace in (None, "economic-sources")
-        and input_group is None
-        and stage_id.startswith(_FRED_STAGE_PREFIX)
-        and stage_id != _FRED_STAGE_PREFIX
-    )
+def is_fred_handoff(stage_id: str) -> bool:
+    return stage_id.startswith(_FRED_STAGE_PREFIX) and stage_id != _FRED_STAGE_PREFIX
+
+
+def _is_fred_report(report: object) -> bool:
+    return isinstance(report, dict) and report.get("group") == "fred_csv"
 
 
 def _closed_fred_packet(directory: Path) -> tuple[tuple[int, ...], ...]:
@@ -144,44 +153,58 @@ def save_handoff(
     reusable_receipt: dict[str, object] | None = None,
     input_group: str | None = None,
     current_input_stage: str | None = None,
-    compress_fred: bool = False,
-    validate_fred: Callable[[Path], None] | None = None,
 ) -> str:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
-    path = directory / "receipts.sqlite"
-    fred = _fred_stage(stage_id, market=market, namespace=namespace, input_group=input_group)
-    if compress_fred and not fred:
-        raise ValueError("compressed FRED requires its economic acquisition stage")
-    closed = _closed_fred_packet(directory) if compress_fred else None
+    if namespace == FRED_HANDOFF_NAMESPACE:
+        raise ValueError("FRED inbox accepts only its compressed writer")
     result = json.loads((directory / "result.json").read_text(encoding="utf-8"))
-    if closed is not None:
-        if not isinstance(result, dict) or result.get("group") != "fred_csv":
-            raise ValueError("compressed FRED requires its economic acquisition stage")
-        if validate_fred is not None:
-            validate_fred(directory)
+    if (
+        not market
+        and namespace in (None, "economic-sources")
+        and (is_fred_handoff(stage_id) or _is_fred_report(result))
+    ):
+        raise ValueError("raw FRED acquisition handoffs are archived")
+    raw = _ReceiptFile.measure(directory / "receipts.sqlite")
+    identity, _ = _save_receipt(
+        store,
+        stage_id,
+        prefix,
+        result,
+        raw=raw,
+        market=market,
+        namespace=namespace,
+        reusable_receipt=reusable_receipt,
+        input_group=input_group,
+        current_input_stage=current_input_stage,
+    )
+    return identity
 
-    with ExitStack() as stack:
-        if compress_fred and path.stat().st_size <= _MAX_FRED_RECEIPT_BYTES:
-            scratch = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="fred-receipt-")))
-            raw, wire = _measure_fred_storage(path, scratch / "receipts.sqlite.zst")
-        else:
-            raw, wire = _ReceiptFile.measure(path), None
-        if closed is not None and closed != _closed_fred_packet(directory):
+
+def save_fred_handoff(
+    store: ObjectStore,
+    stage_id: str,
+    directory: Path,
+    *,
+    validate_packet: Callable[[Path], None],
+) -> str:
+    """Write the sole live FRED format and return its fixed manifest SHA."""
+    prefix = stage_prefix(stage_id, namespace=FRED_HANDOFF_NAMESPACE)
+    closed = _closed_fred_packet(directory)
+    path = directory / "receipts.sqlite"
+    if path.stat().st_size > _MAX_FRED_RECEIPT_BYTES:
+        raise ValueError("FRED receipt exceeds its raw byte bound")
+    result = json.loads((directory / "result.json").read_text(encoding="utf-8"))
+    if not _is_fred_report(result):
+        raise ValueError("FRED receipt requires the FRED acquisition group")
+    validate_packet(directory)
+    with tempfile.TemporaryDirectory(prefix="fred-receipt-") as scratch:
+        raw, wire = _measure_fred_storage(path, Path(scratch) / "receipts.sqlite.zst")
+        if closed != _closed_fred_packet(directory):
             raise ValueError("compressed FRED packet changed during validation or measurement")
-        return _save_receipt(
-            store,
-            stage_id,
-            prefix,
-            result,
-            raw=raw,
-            wire=wire,
-            fred=fred,
-            market=market,
-            namespace=namespace,
-            reusable_receipt=reusable_receipt,
-            input_group=input_group,
-            current_input_stage=current_input_stage,
-        )
+        if wire is None:
+            raise ValueError("FRED receipt does not reduce stored bytes")
+        _, manifest = _save_receipt(store, stage_id, prefix, result, raw=raw, wire=wire)
+    return hashlib.sha256(manifest).hexdigest()
 
 
 def _save_receipt(
@@ -191,14 +214,13 @@ def _save_receipt(
     result: object,
     *,
     raw: _ReceiptFile,
-    wire: _ReceiptFile | None,
-    fred: bool,
-    market: bool,
-    namespace: str | None,
-    reusable_receipt: dict[str, object] | None,
-    input_group: str | None,
-    current_input_stage: str | None,
-) -> str:
+    wire: _ReceiptFile | None = None,
+    market: bool = False,
+    namespace: str | None = None,
+    reusable_receipt: dict[str, object] | None = None,
+    input_group: str | None = None,
+    current_input_stage: str | None = None,
+) -> tuple[str, bytes]:
     receipt_format = (
         _PLANNING_INPUT_FORMATS.get(input_group or "") if namespace == "source-inputs" else None
     )
@@ -208,8 +230,7 @@ def _save_receipt(
             raise ValueError("planning input is not a market receipt handoff")
         validate_planning_input(raw.path, _PLANNING_INPUT_GROUPS[receipt_format])
     raw_key = f"{prefix}/receipts-{raw.sha256}.sqlite"
-    encoded_key = raw_key + ".zst"
-    key = encoded_key if wire is not None else raw_key
+    key = raw_key + ".zst" if wire is not None else raw_key
     chosen = wire or raw
     if reusable_receipt is not None and reusable_receipt.get("receipt_sha256") == raw.sha256:
         if namespace != "source-inputs" or input_group is None:
@@ -227,13 +248,14 @@ def _save_receipt(
             key = reusable_receipt_key
 
     manifest_key = prefix + "/handoff.json"
-    prior = read_write_once_private(store, manifest_key) if fred else None
-    if fred and prior is None and store.head(raw_key if wire is not None else encoded_key):
-        # An interrupted upload may not have a manifest yet. Retry its original format.
-        raise LakePublishError("FRED receipt already staged in a different representation")
+    prior = read_write_once_private(store, manifest_key) if wire is not None else None
     remote = store.head(key)
-    if key not in (raw_key, encoded_key) and (
-        remote is None or remote.size != raw.size or remote.metadata.get("sha256") != raw.sha256
+    if (
+        wire is None
+        and key != raw_key
+        and (
+            remote is None or remote.size != raw.size or remote.metadata.get("sha256") != raw.sha256
+        )
     ):
         # A retired receipt may be missing or invalid; publish this stage's own object.
         key = raw_key
@@ -269,7 +291,7 @@ def _save_receipt(
                 if_none_match=True,
             )
         except LakeCASConflict:
-            if not fred:
+            if wire is None:
                 raise
             remote = store.head(key)
             reused_body = True
@@ -288,21 +310,21 @@ def _save_receipt(
         and json.dumps({**reusable_receipt, "result": result}, sort_keys=True).encode() == manifest
     ):
         # The same complete manifest would be written with only a new issue time.
-        return current_input_stage
-    if not fred:
+        return current_input_stage, manifest
+    if wire is None:
         prior = read_write_once_private(store, manifest_key)
     if prior is None:
         try:
             put_private(store, manifest_key, manifest, previous_etag=None)
         except LakeCASConflict:
-            if not fred:
+            if wire is None:
                 raise
             prior = read_write_once_private(store, manifest_key)
             if prior is None:
                 raise
     if prior is not None and prior.payload != manifest:
         raise LakePublishError("source handoff identity already has different receipts")
-    return stage_id
+    return stage_id, manifest
 
 
 def load_handoff(
@@ -316,24 +338,24 @@ def load_handoff(
     expected_manifest_sha256: str | None = None,
 ) -> None:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
-    saved = read_write_once_private(store, prefix + "/handoff.json")
-    if expected_manifest_sha256 is not None and (
-        saved is None or hashlib.sha256(saved.payload).hexdigest() != expected_manifest_sha256
-    ):
-        raise LakePublishError("fixed source handoff manifest changed")
-    if saved is None:
-        raise LakePublishError("source private handoff is not complete")
-    manifest = json.loads(saved.payload)
-    receipt_format = manifest.get("receipt_format") if isinstance(manifest, dict) else None
-    if receipt_format == _FRED_RECEIPT_FORMAT:
-        if not _fred_stage(stage_id, market=market, namespace=namespace, input_group=input_group):
-            raise ValueError("compressed FRED requires its economic acquisition stage")
+    legacy_economic = not market and namespace in (None, "economic-sources")
+    if legacy_economic and is_fred_handoff(stage_id):
+        raise ValueError("raw FRED acquisition handoffs are archived")
+    manifest = _fixed_handoff_manifest(store, prefix, expected_manifest_sha256)
+    if not isinstance(manifest, dict):
+        raise ValueError("invalid source handoff manifest")
+    if namespace == FRED_HANDOFF_NAMESPACE:
+        if input_group is not None or not is_current_fred_manifest(manifest):
+            raise ValueError("FRED inbox accepts only its compressed receipt format")
         _load_fred_receipt(store, prefix, directory, manifest)
         return
+    if legacy_economic and _is_fred_report(manifest.get("result")):
+        raise ValueError("raw FRED acquisition handoffs are archived")
+    receipt_format = manifest.get("receipt_format")
     planning_group = (
         _PLANNING_INPUT_GROUPS.get(receipt_format) if isinstance(receipt_format, str) else None
     )
-    if isinstance(manifest, dict) and "receipt_format" in manifest and planning_group is None:
+    if "receipt_format" in manifest and planning_group is None:
         raise ValueError("invalid source handoff manifest: unsupported receipt format")
     if planning_group is not None:
         if (
@@ -345,8 +367,7 @@ def load_handoff(
             raise ValueError("planning input is not a source receipt handoff")
         manifest["receipt_key"] = manifest.get("planning_key")
     if (
-        not isinstance(manifest, dict)
-        or not isinstance(manifest.get("receipt_sha256"), str)
+        not isinstance(manifest.get("receipt_sha256"), str)
         or type(manifest.get("receipt_bytes")) is not int
         or not isinstance(manifest.get("receipt_key"), str)
         or not isinstance(manifest.get("result"), dict)
@@ -381,16 +402,32 @@ def load_handoff(
     (directory / "result.json").write_text(json.dumps(manifest["result"]), encoding="utf-8")
 
 
+def is_current_fred_manifest(manifest: dict[str, object]) -> bool:
+    return (
+        manifest.get("receipt_format") == _FRED_RECEIPT_FORMAT
+        and _is_fred_report(manifest.get("result"))
+        and "planning_key" not in manifest
+    )
+
+
+def _fixed_handoff_manifest(
+    store: ObjectStore, prefix: str, expected_manifest_sha256: str | None
+) -> object:
+    saved = read_write_once_private(store, prefix + "/handoff.json")
+    if expected_manifest_sha256 is not None and (
+        saved is None or hashlib.sha256(saved.payload).hexdigest() != expected_manifest_sha256
+    ):
+        raise LakePublishError("fixed source handoff manifest changed")
+    if saved is None:
+        raise LakePublishError("source private handoff is not complete")
+    manifest: object = json.loads(saved.payload)
+    return manifest
+
+
 def _load_fred_receipt(
     store: ObjectStore, prefix: str, directory: Path, manifest: dict[str, object]
 ) -> None:
-    result = manifest.get("result")
-    if (
-        not isinstance(result, dict)
-        or result.get("group") != "fred_csv"
-        or "planning_key" in manifest
-    ):
-        raise ValueError("compressed receipt requires the FRED acquisition group")
+    result = cast("dict[str, object]", manifest["result"])
 
     raw_sha, raw_bytes = manifest.get("receipt_sha256"), manifest.get("receipt_bytes")
     stored_sha, stored_bytes = manifest.get("stored_sha256"), manifest.get("stored_bytes")

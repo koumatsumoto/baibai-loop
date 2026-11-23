@@ -4,7 +4,8 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.native_handoff import save_test_handoff
+from tests.helpers.r2_store import VerifiedMemoryR2Store
 
 from baibai_engine.data_collection.acquisition.policy import acquisition_groups
 from baibai_engine.data_collection.receipts.native_sources.confirmations import (
@@ -13,7 +14,7 @@ from baibai_engine.data_collection.receipts.native_sources.confirmations import 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
-from baibai_jobs.acquisition.economic_staging import save_handoff
+from baibai_jobs.acquisition.economic_staging import FRED_HANDOFF_NAMESPACE, save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs
 from baibai_jobs.acquisition.source_inputs import input_key, load_input
 from baibai_jobs.integration.economic_sources import integrate
@@ -26,7 +27,7 @@ SOURCE = "fred-payems"
 
 @pytest.fixture
 def setup(tmp_path):
-    store = MemoryR2Store()
+    store = VerifiedMemoryR2Store()
     path = tmp_path / "initial.sqlite"
     with closing(initialize_database(path)):
         pass
@@ -54,7 +55,7 @@ def stage(tmp_path, store, value="A", clock=AT, name="one", *, source=SOURCE, gr
             }
         )
     )
-    save_handoff(store, group + "-" + name, directory)
+    save_test_handoff(store, group + "-" + name, directory, group)
 
 
 def run(tmp_path, setup, name="run"):
@@ -472,7 +473,7 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(
             }
         )
     )
-    save_handoff(store, "fred_csv-failure", directory)
+    save_test_handoff(store, "fred_csv-failure", directory, "fred_csv")
     report = run(tmp_path, setup)
     assert report["l1_published"]
     assert report["l1_sealed"]
@@ -635,7 +636,7 @@ def test_unsealed_recheck_uses_complete_response_proof_and_next_acquisition_adva
                 }
             )
         )
-        save_handoff(store, group + "-" + name, packet)
+        save_test_handoff(store, group + "-" + name, packet, group)
 
     for index, value in enumerate("AAB"):
         packet = tmp_path / f"stage-{index}"
@@ -643,10 +644,11 @@ def test_unsealed_recheck_uses_complete_response_proof_and_next_acquisition_adva
         clock = AT + timedelta(hours=index)
         received(packet / "receipts.sqlite", value, clock)
         publish(packet, str(index), clock)
+    namespace = FRED_HANDOFF_NAMESPACE if group == "fred_csv" else "economic-sources"
     immutable = {
         key: value.body
         for key, value in store.values.items()
-        if key.startswith("coordination/economic-sources/")
+        if key.startswith(f"coordination/{namespace}/")
     }
     real = store.put_file
 
@@ -675,7 +677,7 @@ def test_unsealed_recheck_uses_complete_response_proof_and_next_acquisition_adva
         "failed" if recovery else "completed"
     )
     assert bool(render_source_failures(retried)) is recovery
-    marker = "coordination/economic-sources/" + group + "-1/integrated.json"
+    marker = f"coordination/{namespace}/{group}-1/integrated.json"
     marker_status = "needs_explicit_recovery" if recovery else "integrated"
     assert json.loads(store.get_bytes(marker))["status"] == marker_status
     assert retried["l1_published"]

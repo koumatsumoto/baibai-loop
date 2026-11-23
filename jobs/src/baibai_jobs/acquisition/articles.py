@@ -123,7 +123,6 @@ def acquire_source(
     directory: Path,
     session: requests.Session,
     group_budget: GroupBudget | None = None,
-    rss_native_index: bool = False,
 ) -> dict[str, Any]:
     started = datetime.now(UTC)
     state, etag = load_planning(store, source)
@@ -364,6 +363,11 @@ def acquire_source(
             budget.check()
             previous = planning.get(url)
             baseline = ArticleReceipt.model_validate(previous["receipt"]) if previous else None
+            current_rss = kind == "index" and source in RSS_SOURCES
+            if current_rss and baseline is not None and baseline.rss_index_revision is None:
+                # The next ordinary slot obtains a current index; keep old evidence and
+                # document validators, but do not extend a legacy index with another 304.
+                baseline = None
             if (
                 previous is not None
                 and baseline is not None
@@ -415,12 +419,7 @@ def acquire_source(
             final = responses[-1].receipt
             for response in responses:
                 receipt = response.receipt
-                if (
-                    rss_native_index
-                    and kind == "index"
-                    and source in RSS_SOURCES
-                    and receipt.status == "ok"
-                ):
+                if current_rss and receipt.status == "ok":
                     receipt = receipt.model_copy(update={"rss_index_revision": RSS_NATIVE_V1})
                 final = receipt
                 with conn:
@@ -766,7 +765,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
     parser.add_argument("--identity", required=True)
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("--rss-native-index", action="store_true")
     args = parser.parse_args(argv)
     if args.created_at.tzinfo is None or args.created_at > datetime.now(UTC):
         parser.error("created-at must be a past timezone-aware clock")
@@ -790,7 +788,6 @@ def main(argv: list[str] | None = None) -> int:
                         directory=args.directory / source,
                         session=session,
                         group_budget=group_budget,
-                        rss_native_index=args.rss_native_index,
                     )
                 except Exception as error:
                     report = {"source": source, "status": "failed", "reason": type(error).__name__}

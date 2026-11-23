@@ -33,7 +33,9 @@ def test_economic_target_uses_original_schedule_slot_or_manual_date(
 
 
 def test_economic_workflow_passes_schedule_mode_only_for_scheduled_runs():
-    path = Path(__file__).resolve().parents[3] / ".github/workflows/cloud-economic-sources.yml"
+    path = (
+        Path(__file__).resolve().parents[3] / ".github/workflows/cloud-economic-sources-current.yml"
+    )
     workflow = yaml.safe_load(path.read_text())
     plan = next(step for step in workflow["jobs"]["plan"]["steps"] if step.get("id") == "plan")
     assert 'if [ "$GITHUB_EVENT_NAME" = schedule ]; then args+=(--scheduled); fi' in plan["run"]

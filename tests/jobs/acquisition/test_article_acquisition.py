@@ -330,7 +330,6 @@ def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, mon
             identity=f"rss-{index}",
             directory=stage,
             session=session,
-            rss_native_index=True,
         )
         assert report["failures"] == []
         assert report["bodies"] == 1
@@ -364,7 +363,7 @@ def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, mon
     assert session.headers[2]["If-None-Match"] == '"feed-v1"'
 
 
-def test_rss_opt_in_does_not_reclassify_unmarked_200_via_304_without_document_evidence(
+def test_cutover_replaces_only_legacy_rss_index_validator_and_keeps_fixed_original(
     tmp_path, monkeypatch
 ):
     source = "boj_news"
@@ -379,40 +378,45 @@ def test_rss_opt_in_does_not_reclassify_unmarked_200_via_304_without_document_ev
     class Clock(datetime):
         @classmethod
         def now(cls, _tz):
-            return SLOT + timedelta(hours=5)
+            return SLOT + timedelta(hours=9)
 
     monkeypatch.setattr(articles, "datetime", Clock)
     store = MemoryR2Store()
     publish_planning_input(store, source, {})
-    session = Session([Response(200, feed), Response(304, b"")])
-    for index in range(2):
+    session = Session([Response(200, feed), Response(200, feed), Response(304, b"")])
+    for index in range(3):
         directory = tmp_path / f"old-source-{index}"
-        report = articles.acquire_source(
-            store,
-            source=source,
-            slot=SLOT + timedelta(hours=index * 4),
-            identity=f"old-source-{index}",
-            directory=directory,
-            session=session,
-            rss_native_index=bool(index),
-        )
+        with monkeypatch.context() as archived:
+            if index == 0:
+                archived.setattr(articles, "RSS_SOURCES", articles.RSS_SOURCES - {source})
+            report = articles.acquire_source(
+                store,
+                source=source,
+                slot=SLOT + timedelta(hours=index * 4),
+                identity=f"old-source-{index}",
+                directory=directory,
+                session=session,
+            )
         assert report["bodies"] == 0
         assert json.loads((directory / "result.json").read_text())["document_evidence"] == {}
         with closing(connect_read_only(directory / "receipts.sqlite")) as conn:
-            assert all(
-                "rss_index_revision" not in json.loads(row[0])
+            receipts = [
+                json.loads(row[0])
                 for row in conn.execute("SELECT receipt_json FROM article_source_receipts")
-            )
+            ]
+            assert sum("rss_index_revision" in row for row in receipts) == int(index > 0)
         database = tmp_path / f"old-source-{index}.sqlite"
         replay = import_handoff(source, database, directory)
         assert replay.complete
         with closing(connect_read_only(database)) as conn:
             observed = read_observations(conn, replay.report["observation_ids"])
+        archived_item = [("/item/0", "https://www.boj.or.jp/foreign.htm")] if index == 0 else []
         assert [(row.native_locator, row.original_url) for row in observed] == [
-            ("/item/0", "https://www.boj.or.jp/foreign.htm"),
+            *archived_item,
             ("/item/1", "https://www.boj.or.jp/native.htm"),
         ]
-    assert session.headers[1]["If-None-Match"] == '"feed-v1"'
+    assert "If-None-Match" not in session.headers[1]
+    assert session.headers[2]["If-None-Match"] == '"feed-v1"'
 
 
 def test_native_rss_frontier_resumes_with_prior_stage_positions(tmp_path, monkeypatch):
@@ -453,7 +457,6 @@ def test_native_rss_frontier_resumes_with_prior_stage_positions(tmp_path, monkey
             identity=f"rss-frontier-{index}",
             directory=tmp_path / f"slot-{index}",
             session=session,
-            rss_native_index=True,
         )
         assert report["failures"] == []
         assert report["pending_url_count"] == 1 - index

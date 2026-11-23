@@ -34,7 +34,7 @@ def _steps(workflow: dict[str, object], job: str) -> list[dict[str, object]]:
 
 @pytest.mark.parametrize(
     "workflow_name",
-    ["cloud-daily-batch.yml"],
+    ["cloud-daily-batch-current.yml"],
 )
 def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -> None:
     workflow = _workflow(workflow_name)
@@ -51,7 +51,7 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
 @pytest.mark.parametrize(
     ("workflow_name", "job", "first_read", "last_write", "purpose"),
     [
-        ("cloud-daily-batch.yml", "daily", "pull", "portfolio-views", "daily"),
+        ("cloud-daily-batch-current.yml", "daily", "pull", "portfolio-views", "daily"),
         (
             "cloud-materialize.yml",
             "materialize",
@@ -139,7 +139,7 @@ def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     assert "pull-runs" not in commands
     assert "upload-portfolio-views" in commands
     assert "publish-serving-tail" not in commands
-    daily = _steps(_workflow("cloud-daily-batch.yml"), "daily")
+    daily = _steps(_workflow("cloud-daily-batch-current.yml"), "daily")
     by_id = {step.get("id"): step for step in daily}
     assert "upload-stores.outputs.machine == 'success'" in by_id["portfolio-views"]["if"]
     assert daily.index(by_id["portfolio-views"]) > daily.index(by_id["source-seal"])
@@ -157,7 +157,7 @@ def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
 
 
 def test_shared_transfer_callers_pass_the_acquired_publication_handle():
-    daily = _steps(_workflow("cloud-daily-batch.yml"), "daily")
+    daily = _steps(_workflow("cloud-daily-batch-current.yml"), "daily")
     materialize = _steps(_workflow("cloud-materialize.yml"), "materialize")
     callers = [
         step

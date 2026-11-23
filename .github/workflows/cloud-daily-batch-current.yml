@@ -1,0 +1,369 @@
+name: cloud-daily-batch
+# The watchdog reads the actual as-of from the terminal result.
+run-name: "daily ${{ inputs.asof || '' }}"
+
+on:
+  schedule:
+    # 22:43 JST, independently of every acquisition workflow. Late receipts wait
+    # for the next integration; weekends still generate models from saved inputs.
+    - cron: "43 13 * * *"
+  workflow_dispatch:
+    inputs:
+      asof:
+        description: "モデル基準日 YYYY-MM-DD。空欄は元run作成時のJST日（直近完了日ではない）。寄前・場中はJSTの前日を明示"
+        required: false
+        type: string
+      preserve_existing_generations:
+        description: "この手動実行で既存の全モデル世代とSelectionを保持する（scheduleは常に保持）"
+        required: false
+        type: boolean
+        default: false
+      edinet_metrics_acceptance:
+        description: "事前比較したEDINET固定入力・revision・有限sample結果の受入JSON。空欄は通常統合"
+        required: false
+        type: string
+      article_semantic_recovery:
+        description: "比較済みの有限 article observation ID/hash/revision/result を再抽出する JSON。空欄は通常統合"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: common-source-integration
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  retirement:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    uses: ./.github/workflows/cloud-writer-retirement.yml
+    permissions:
+      contents: read
+      actions: read
+
+  daily:
+    needs: retirement
+    if: ${{ needs.retirement.outputs.attempt == github.run_attempt }}
+    concurrency:
+      group: cloud-publish
+      queue: max
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    # Keep ten minutes for termination/release before the daily lease expires.
+    timeout-minutes: 210
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # Notification must work on system Python even when setup fails.
+      - name: Smoke-check notification script
+        id: smoke
+        env:
+          PYTHONPATH: jobs/src
+        run: python3 -c "import baibai_jobs.observability.discord"
+
+      # Validate untrusted dispatch values before any credential-bearing step.
+      # Scheduled runs retain the comparison/restart history without manual input.
+      - name: Validate dispatch input
+        id: validate-input
+        env:
+          MANUAL_ASOF: ${{ inputs.asof }}
+          PRESERVE_EXISTING_GENERATIONS: ${{ inputs.preserve_existing_generations }}
+          EDINET_METRICS_ACCEPTANCE: ${{ inputs.edinet_metrics_acceptance }}
+          ARTICLE_SEMANTIC_RECOVERY: ${{ inputs.article_semantic_recovery }}
+          PYTHONPATH: jobs/src
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == 'schedule' ]]; then
+            PRESERVE_EXISTING_GENERATIONS=true
+          fi
+          python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF" --preserve-existing-generations "$PRESERVE_EXISTING_GENERATIONS" --edinet-metrics-acceptance "${EDINET_METRICS_ACCEPTANCE:-}" --article-semantic-recovery "${ARTICLE_SEMANTIC_RECOVERY:-}"
+          echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
+          echo "preserve_existing_generations=$PRESERVE_EXISTING_GENERATIONS" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: setup
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        id: setup-uv
+        with:
+          enable-cache: true
+
+      - name: Sync Python environment
+        id: sync
+        run: uv sync --locked
+
+      - name: Pin the original integration run clock
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
+
+      - name: Fix the integration date
+        id: source-plan
+        env:
+          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
+          RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
+        run: |
+          asof="$MANUAL_ASOF"
+          if [ -z "$asof" ]; then asof=$(uv run python -c 'import os; from datetime import datetime; from baibai_jobs.schedule import integration_target_date; print(integration_target_date(datetime.fromisoformat(os.environ["RUN_CREATED_AT"]), scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule"))'); fi
+          echo "asof=$asof" >> "$GITHUB_OUTPUT"
+
+      - name: Acquire publication lease
+        id: lease-acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.publication.lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      - name: Pull stores and verify the Market generation before publication
+        id: pull
+        env:
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: jobs/scripts/r2_transfer.sh pull-machine --daily-preflight
+
+      - name: Publish economic L1 and refresh acquisition inputs before L2
+        id: economic-l1
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+        run: uv run python -m baibai_jobs.integration.economic_sources --asof "$ASOF" --directory "$RUNNER_TEMP/economic-integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      - name: Freeze currently ready market handoffs
+        id: market-plan
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.integration.sources plan --directory "$RUNNER_TEMP/integration"
+
+      # Incomplete hydration must not reach screening as an empty universe.
+      - name: Hydrate market store from the lake release
+        id: hydrate
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: jobs/scripts/r2_transfer.sh hydrate-market-for-daily
+
+      - name: Apply fixed original receipts and common offline extraction
+        id: source-integration
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+        run: uv run python -m baibai_jobs.integration.sources apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
+
+      # Core publication owns one fixed market release and native economic selection.
+      - name: Verify explicitly requested EDINET metric acceptance before core publication
+        id: edinet-metrics-acceptance
+        if: ${{ inputs.edinet_metrics_acceptance != '' }}
+        env:
+          EDINET_METRICS_ACCEPTANCE: ${{ inputs.edinet_metrics_acceptance }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_STOP_ON_REJECTION: '1'
+        run: |
+          umask 077
+          printf '%s' "$EDINET_METRICS_ACCEPTANCE" > "$RUNNER_TEMP/edinet-metrics-acceptance.json"
+          uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
+          uv run python -m baibai_jobs.integration.edinet_metric_acceptance --conditions "$RUNNER_TEMP/edinet-metrics-acceptance.json" --integration-report "$RUNNER_TEMP/integration/applied.json" --market stores/market/market.sqlite
+
+      - name: Refresh explicitly fixed article semantic artifacts
+        id: article-semantic-recovery
+        if: ${{ inputs.article_semantic_recovery != '' }}
+        env:
+          ARTICLE_SEMANTIC_RECOVERY: ${{ inputs.article_semantic_recovery }}
+          INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_STOP_ON_REJECTION: '1'
+        run: |
+          umask 077
+          printf '%s' "$ARTICLE_SEMANTIC_RECOVERY" > "$RUNNER_TEMP/article-semantic-conditions.json"
+          uv run python -m baibai_jobs.integration.article_semantic_recovery apply --conditions "$RUNNER_TEMP/article-semantic-conditions.json" --report "$RUNNER_TEMP/article-semantic-report.json" --asof "$INTEGRATION_ASOF" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      # The opt-in checks are before model-integration, which also publishes its release.
+      # Web is not part of the engine's success or publication path.
+      - name: Generate models and candidates, then publish the same fixed release
+        id: batch
+        shell: bash
+        env:
+          INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
+          PRESERVE_EXISTING_GENERATIONS: ${{ steps.validate-input.outputs.preserve_existing_generations }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          args=(--asof "$INTEGRATION_ASOF" --integration-report "$RUNNER_TEMP/integration/applied.json" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" --notice-output "$RUNNER_TEMP/batch-notice.json" --daily-origin)
+          if [[ "$PRESERVE_EXISTING_GENERATIONS" == 'true' ]]; then args+=(--preserve-existing-generations); fi
+          set +e
+          uv run baibai-jobs model-integration "${args[@]}"
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "asof=$INTEGRATION_ASOF" >> "$GITHUB_OUTPUT"
+          if [[ $code -eq 0 ]]; then
+            echo "models_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "models_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
+
+      - name: Upload the core machine stores
+        id: upload-stores
+        if: steps.batch.outputs.models_ready == 'true'
+        shell: bash
+        env:
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          code=0
+          jobs/scripts/r2_transfer.sh push-machine --daily-notice "$RUNNER_TEMP/batch-notice.json" || code=$?
+          if [[ $code -eq 0 ]]; then
+            echo "machine=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "machine=failure" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
+
+      - name: Verify the explicitly refreshed article closure
+        id: article-semantic-readback
+        if: ${{ always() && inputs.article_semantic_recovery != '' && steps.article-semantic-recovery.outcome == 'success' && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
+        env:
+          INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_STOP_ON_REJECTION: '1'
+        run: uv run python -m baibai_jobs.integration.article_semantic_recovery verify --conditions "$RUNNER_TEMP/article-semantic-conditions.json" --report "$RUNNER_TEMP/article-semantic-report.json" --asof "$INTEGRATION_ASOF" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      - name: Seal canonical market handoffs
+        id: source-seal
+        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python -m baibai_jobs.integration.sources seal \
+            --directory "$RUNNER_TEMP/integration" \
+            --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" \
+            --daily-readback-notice "$RUNNER_TEMP/batch-notice.json"
+      - name: Refresh source-scoped inputs from this canonical generation
+        id: source-inputs
+        if: ${{ always() && steps.source-seal.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+          IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: uv run python -m baibai_jobs.integration.sources inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Report retained economic source failures
+        id: economic-check
+        if: ${{ always() && steps.economic-l1.outcome == 'success' }}
+        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/economic-integration"
+
+      - name: Report integration failures and deferred source inputs
+        id: source-check
+        if: ${{ always() && steps.source-seal.outcome == 'success' }}
+        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration" --quality-output "$GITHUB_OUTPUT"
+
+      # Presentation follows core persistence; it never gates model generation or sealing.
+      - name: Publish retained portfolio views
+        id: portfolio-views
+        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
+        env:
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          # Validation errors may include private application payloads.
+          umask 077
+          set +e
+          (
+            set -e
+            jobs/scripts/r2_transfer.sh pull-app
+            uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
+            jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
+          ) > "$RUNNER_TEMP/portfolio-views-private.log" 2>&1
+          code=$?
+          set -e
+          printf 'portfolio_views_exit_code=%s\n' "$code"
+          exit "$code"
+
+      - name: Release publication lease
+        id: lease-release
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.publication.lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      # Status functions cannot be interpolated directly into a run block.
+      - name: Record cancellation
+        id: cancellation
+        if: ${{ cancelled() }}
+        run: echo "cancelled=true" >> "$GITHUB_OUTPUT"
+
+      # `always()` includes timeouts, which GitHub reports as cancellations.
+      # Notification failure must not overwrite the publication result.
+      - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || steps.source-plan.outputs.asof || 'unknown' }}${{ steps.source-check.outputs.tv_quality_asof != '' && steps.source-check.outputs.tv_quality_asof == steps.batch.outputs.asof && ' [fixed TradingView receipt quality]' || '' }}"
+        id: notify
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SOURCE_INPUTS_OUTCOME: ${{ steps.source-inputs.outcome }}
+          PYTHONPATH: jobs/src
+        run: |
+          python3 -m baibai_jobs.observability.discord \
+            --notice-path "$RUNNER_TEMP/batch-notice.json" \
+            --integration-report-path "$RUNNER_TEMP/integration/applied.json" \
+            --economic-report-path "$RUNNER_TEMP/economic-integration/applied.json" \
+            --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \
+            --smoke-outcome "${{ steps.smoke.outcome }}" \
+            --setup-outcome "${{ steps.setup.outcome }}" \
+            --sync-outcome "${{ steps.sync.outcome }}" \
+            --lease-acquire-outcome "${{ steps.lease-acquire.outcome }}" \
+            --economic-l1-outcome "${{ steps.economic-l1.outcome }}" \
+            --economic-check-outcome "${{ steps.economic-check.outcome }}" \
+            --pull-outcome "${{ steps.pull.outcome }}" \
+            --hydrate-outcome "${{ steps.hydrate.outcome }}" \
+            --edinet-metrics-acceptance-outcome "${{ steps.edinet-metrics-acceptance.outcome }}" \
+            --article-semantic-recovery-outcome "${{ steps.article-semantic-recovery.outcome }}" \
+            --publish-lake-outcome "${{ steps.batch.outcome }}" \
+            --upload-stores-outcome "${{ steps.upload-stores.outcome }}" \
+            --article-semantic-readback-outcome "${{ steps.article-semantic-readback.outcome }}" \
+            --source-integration-outcome "${{ steps.source-integration.outcome }}" \
+            --source-seal-outcome "${{ steps.source-seal.outcome }}" \
+            --source-inputs-outcome "$SOURCE_INPUTS_OUTCOME" \
+            --source-check-outcome "${{ steps.source-check.outcome }}" \
+            --portfolio-views-outcome "${{ steps.portfolio-views.outcome }}" \
+            --lease-release-outcome "${{ steps.lease-release.outcome }}" \
+            --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

@@ -185,11 +185,11 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     assert any("--confirmed-partial" in text for text in runs)
     assert not any("hydrate-market" in text or "publication_lease" in text for text in runs)
     common = yaml.load(
-        WORKFLOW.with_name("cloud-daily-batch.yml").read_text(), Loader=yaml.BaseLoader
+        WORKFLOW.with_name("cloud-daily-batch-current.yml").read_text(), Loader=yaml.BaseLoader
     )
     daily = common["jobs"]["daily"]
     assert daily["concurrency"]["group"] == "cloud-publish"
-    assert "needs" not in daily
+    assert daily["needs"] == "retirement"
     assert timedelta(minutes=int(daily["timeout-minutes"])) < DAILY_LEASE_TTL
     assert "refs/heads/main" in workflow["jobs"]["plan"]["if"]
     assert not any(

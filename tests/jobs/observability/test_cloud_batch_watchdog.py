@@ -750,7 +750,7 @@ def test_the_observed_cross_midnight_failure_stays_on_its_cron_day() -> None:
 
 
 def test_the_batch_cron_this_anchors_on_is_the_one_the_workflow_declares() -> None:
-    raw = (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+    raw = (ROOT / ".github/workflows/cloud-daily-batch-current.yml").read_text(encoding="utf-8")
     crons = [entry["cron"] for entry in declared_schedule(raw)]
 
     assert len(crons) == 1
@@ -763,7 +763,7 @@ def test_the_batch_cron_this_anchors_on_is_the_one_the_workflow_declares() -> No
 
 def test_the_batch_run_name_is_the_one_the_watchdog_parses() -> None:
     workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+        (ROOT / ".github/workflows/cloud-daily-batch-current.yml").read_text(encoding="utf-8")
     )
     run_name = workflow["run-name"]
 
@@ -780,7 +780,7 @@ def test_financial_evening_scope_matches_the_workflow_run_name() -> None:
 
 def test_daily_queue_age_reference_matches_the_existing_job_budget():
     workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+        (ROOT / ".github/workflows/cloud-daily-batch-current.yml").read_text(encoding="utf-8")
     )
     assert (
         timedelta(minutes=workflow["jobs"]["daily"]["timeout-minutes"]) == DAILY_QUEUED_ALERT_AFTER
@@ -1022,7 +1022,9 @@ def test_the_watchdog_uses_only_checkout_as_an_external_action() -> None:
 def test_the_watchdog_covers_daily_integration_and_acquisition_schedules() -> None:
     workflow = yaml.load(WATCHDOG_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert isinstance(workflow, dict)
-    daily_raw = (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+    daily_raw = (ROOT / ".github/workflows/cloud-daily-batch-current.yml").read_text(
+        encoding="utf-8"
+    )
     daily = yaml.load(daily_raw, Loader=yaml.BaseLoader)
     assert isinstance(daily, dict)
 
@@ -1108,7 +1110,8 @@ def test_economic_acquisition_clock_is_independent_of_the_late_integration(tmp_p
     assert code == 0
     assert transport.calls == []
     source = yaml.load(
-        (ROOT / ".github/workflows/cloud-economic-source.yml").read_text(), Loader=yaml.BaseLoader
+        (ROOT / ".github/workflows/cloud-economic-source-current.yml").read_text(),
+        Loader=yaml.BaseLoader,
     )
     assert "publish" not in source["jobs"]
     assert any(
@@ -1296,9 +1299,9 @@ def test_quality_proof_is_wired_only_to_the_existing_post_seal_check_and_notice(
         TV_QUALITY_SUFFIX,
     )
 
-    raw = (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+    raw = (ROOT / ".github/workflows/cloud-daily-batch-current.yml").read_text(encoding="utf-8")
     workflow = yaml.load(raw, Loader=yaml.BaseLoader)
-    assert list(workflow["jobs"]) == ["daily"]
+    assert list(workflow["jobs"]) == ["retirement", "daily"]
     steps = {s["id"]: s for s in workflow["jobs"]["daily"]["steps"] if "id" in s}
     assert {
         steps[key]["name"]

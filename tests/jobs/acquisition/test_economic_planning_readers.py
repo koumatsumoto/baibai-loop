@@ -435,7 +435,7 @@ def test_raw_handoff_download_rejects_head_length_different_from_body(tmp_path):
                 return replace(remote, size=remote.size + 1)
             return remote
 
-    stage = "fred_csv-fixed"
+    stage = "boj-fixed"
     prefix = stage_prefix(stage)
     raw = b"synthetic unchanged receipt bytes"
     digest = hashlib.sha256(raw).hexdigest()
@@ -446,7 +446,7 @@ def test_raw_handoff_download_rejects_head_length_different_from_body(tmp_path):
         f"{prefix}/handoff.json",
         json.dumps(
             {
-                "result": {"group": "fred_csv"},
+                "result": {"group": "boj"},
                 "receipt_key": receipt_key,
                 "receipt_sha256": digest,
                 "receipt_bytes": len(raw) + 1,

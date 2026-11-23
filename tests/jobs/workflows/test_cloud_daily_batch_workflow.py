@@ -11,7 +11,7 @@ import yaml
 from baibai_jobs.publication.lease import DAILY_LEASE_TTL
 
 ROOT = Path(__file__).resolve().parents[3]
-WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch.yml"
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch-current.yml"
 
 
 @pytest.fixture(scope="module")
@@ -33,7 +33,7 @@ def test_common_integration_runs_without_acquisition(workflow):
     job = workflow["jobs"]["daily"]
     assert int(job["timeout-minutes"]) == 210
     assert timedelta(minutes=int(job["timeout-minutes"])) == DAILY_LEASE_TTL - timedelta(minutes=10)
-    assert "needs" not in job
+    assert job["needs"] == "retirement"
     for secret in ("JQUANTS_API_KEY", "EDINET_API_KEY", "ESTAT_APP_ID"):
         assert secret not in str(job)
     for source in ("MASTER", "CALENDAR", "PRICE", "FINANCIAL"):

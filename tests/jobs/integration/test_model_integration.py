@@ -307,7 +307,8 @@ def test_daily_attempt_is_stamped_only_on_a_successful_model_notice(tmp_path, mo
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
     monkeypatch.setenv(
-        "GITHUB_WORKFLOW_REF", "owner/repo/.github/workflows/cloud-daily-batch.yml@refs/heads/main"
+        "GITHUB_WORKFLOW_REF",
+        "owner/repo/.github/workflows/cloud-daily-batch-current.yml@refs/heads/main",
     )
     monkeypatch.setenv("GITHUB_RUN_ID", "12345")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")

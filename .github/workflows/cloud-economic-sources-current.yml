@@ -1,0 +1,112 @@
+name: cloud-economic-sources
+run-name: "economic ${{ inputs.group || 'all' }} ${{ inputs.source_id || 'all' }} ${{ inputs.asof || '' }}"
+
+on:
+  schedule:
+    - cron: "43 7 * * *" # Preserve the former daily start; include holidays/weekends.
+  workflow_dispatch:
+    inputs:
+      group:
+        description: "取得group または all（baibai-jobs acquire-economic groups で一覧）"
+        type: string
+        default: all
+      source_id:
+        description: "Optional one source ID within the selected group"
+        type: string
+        default: ''
+      asof:
+        description: "Optional YYYY-MM-DD; current-only pages cannot recover historical dates"
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  retirement:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    uses: ./.github/workflows/cloud-writer-retirement.yml
+    permissions:
+      contents: read
+      actions: read
+
+  plan:
+    needs: retirement
+    env:
+      UV_NO_DEV: "true"
+    if: ${{ needs.retirement.outputs.attempt == github.run_attempt }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      groups: ${{ steps.plan.outputs.groups }}
+      asof: ${{ steps.plan.outputs.asof }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Pin the original run clock for scheduled retries
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
+      - name: Validate the source selection before data credentials
+        id: plan
+        env:
+          GROUP: ${{ inputs.group || 'all' }}
+          SOURCE_ID: ${{ inputs.source_id }}
+          ASOF: ${{ inputs.asof }}
+          CREATED_AT: ${{ steps.clock.outputs.created_at }}
+        run: |
+          args=(--group "$GROUP" --source-id "$SOURCE_ID" --run-created-at "$CREATED_AT")
+          if [ -n "$ASOF" ]; then args+=(--asof "$ASOF"); fi
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then args+=(--scheduled); fi
+          uv run python -m baibai_jobs.integration.economic_handoff plan "${args[@]}"
+
+  source:
+    needs: [retirement, plan]
+    if: ${{ needs.retirement.outputs.attempt == github.run_attempt }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.groups) }}
+    uses: ./.github/workflows/cloud-economic-source-current.yml
+    with:
+      group: ${{ matrix.group }}
+      source_id: ${{ inputs.source_id || '' }}
+      asof: ${{ needs.plan.outputs.asof }}
+      current_only_now: ${{ github.event_name == 'schedule' || inputs.asof == '' }}
+      retirement_attempt: ${{ needs.retirement.outputs.attempt }}
+    secrets: inherit
+
+  notify-plan-failure:
+    needs: [retirement, plan]
+    if: ${{ always() && needs.retirement.outputs.attempt == github.run_attempt && needs.plan.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Report the failed economic selection
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PYTHONPATH: jobs/src
+          SOURCE_GROUP: economic-plan
+          ACQUIRE_RESULT: ${{ needs.plan.result }}
+          STAGE_RESULT: skipped
+        run: python3 -m baibai_jobs.observability.source_discord

@@ -51,6 +51,6 @@ describe('shared primary navigation', () => {
 describe('ACTIONS_URL', () => {
   it('points at the daily batch workflow over https', () => {
     expect(ACTIONS_URL.startsWith('https://github.com/')).toBe(true)
-    expect(ACTIONS_URL).toContain('cloud-daily-batch.yml')
+    expect(ACTIONS_URL).toContain('cloud-daily-batch-current.yml')
   })
 })

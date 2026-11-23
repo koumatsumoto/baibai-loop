@@ -40,7 +40,7 @@ def test_transfer_dispatches_the_requested_hydration_scope(tmp_path, command):
 @pytest.mark.parametrize(
     ("workflow", "job", "pull", "first_reader"),
     [
-        ("cloud-daily-batch.yml", "daily", "pull-machine", "integration.sources apply"),
+        ("cloud-daily-batch-current.yml", "daily", "pull-machine", "integration.sources apply"),
     ],
 )
 def test_machine_pull_and_daily_hydrate_precede_first_market_reader(
@@ -72,7 +72,7 @@ def test_machine_pull_and_daily_hydrate_precede_first_market_reader(
 def test_source_acquisitions_never_pull_or_hydrate_the_full_machine():
     for workflow, job in (
         ("cloud-market-source.yml", "acquire"),
-        ("cloud-economic-source.yml", "acquire"),
+        ("cloud-economic-source-current.yml", "acquire"),
         ("cloud-external-assessment-source.yml", "acquire"),
     ):
         document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
