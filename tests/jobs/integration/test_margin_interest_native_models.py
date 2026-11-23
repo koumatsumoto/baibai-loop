@@ -143,6 +143,7 @@ def test_old_boolean_projection_cannot_reuse_weekly_or_daily_rows(
     tmp_path, monkeypatch, boolean, balance
 ):
     from baibai_engine.machine_analysis.observations import jquants_writer
+    from baibai_jobs.publication import l1_margin_interest_export as exporter
 
     store, owner, cal, market, mirror = setup(tmp_path, monkeypatch)
     publication = date(2026, 9, 28) if balance == DAY else None
@@ -166,6 +167,8 @@ def test_old_boolean_projection_cannot_reuse_weekly_or_daily_rows(
             lambda value: float(value) if isinstance(value, bool) else current_float(value),
         )
         old.setattr(projection, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v1")
+        # Historical producer fixture: its Parquet footer had no numeric revision.
+        old.setattr(exporter, "require_current_projection_revision", lambda _summary: None)
         before, previous = build(store, fixed, cal, market, mirror, at=AT + timedelta(hours=1))
     assert all(manifest.coverage_status == "complete" for manifest in previous.values())
     old_rows = rows(market)

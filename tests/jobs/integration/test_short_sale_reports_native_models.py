@@ -147,6 +147,7 @@ def test_fixed_raw_short_sale_input_can_rebuild_with_current_code(tmp_path):
 def test_old_boolean_projection_is_rebuilt_once_then_reused(tmp_path, monkeypatch, boolean):
     from baibai_engine.machine_analysis.observations import jquants_writer
     from baibai_jobs.integration import short_sale_reports_native as projection
+    from baibai_jobs.publication import l1_short_sale_reports_export as exporter
 
     store, owner, market, mirror, _, _ = fixture(tmp_path)
     owner.commit([attempt("boolean", at=AT + timedelta(hours=1), rows=records(ratio=boolean))])
@@ -159,6 +160,8 @@ def test_old_boolean_projection_is_rebuilt_once_then_reused(tmp_path, monkeypatc
             lambda value: float(value) if isinstance(value, bool) else current_float(value),
         )
         old.setattr(projection, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v1")
+        # Historical producer fixture: its Parquet footer had no numeric revision.
+        old.setattr(exporter, "require_current_projection_revision", lambda _summary: None)
         before, previous = build(store, fixed, market, mirror, at=AT + timedelta(hours=1))
     with closing(sqlite3.connect(market)) as conn:
         assert conn.execute(
@@ -218,7 +221,11 @@ def test_old_text_coercion_cache_rebuilds_same_fixed_report_without_changing_ori
     with monkeypatch.context() as old:
         old.setattr(jquants_writer, "code_quality", lambda value, **_kwargs: code_quality(value))
         old.setattr(projection, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v2")
-        old.setattr(publication, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v2")
+        old.setattr(
+            publication,
+            "require_current_projection_revision",
+            lambda _summary: "jquants-numeric-v2",
+        )
         before, previous = build(store, fixed, market, mirror, at=at)
     assert previous.coverage_status == "complete"
     assert any(row[3] == "TRUE" for row in rows(market))

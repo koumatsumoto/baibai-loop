@@ -29,17 +29,24 @@ class SavedProjectionRevisionMismatch(ValueError):
     """The saved projection must not be rebuilt with a different interpretation."""
 
 
+def require_current_projection_revision(summary: dict[str, JsonValue]) -> str:
+    """Require the numeric revision before treating a selection as a projection."""
+    if summary.get("projection_revision") != JQUANTS_NUMERIC_PROJECTION_REVISION:
+        raise SavedProjectionRevisionMismatch(
+            "Saved J-Quants projection revision is missing or differs from this code; "
+            "use the recorded producer commit to rebuild or read the exact published release."
+        )
+    return JQUANTS_NUMERIC_PROJECTION_REVISION
+
+
 def require_current_saved_projection(summary: dict[str, JsonValue]) -> None:
     # A raw fixed selection carries no projection claim. An explicit revision,
     # unlike a disposable cache hint, is part of the saved input identity.
     # All three derived credit/report writers stored projection coverage even
     # before 1ea707991 added the revision. Raw selections do not have that field.
     has_projection = "projection_revision" in summary or "coverage_status" in summary
-    if has_projection and summary.get("projection_revision") != JQUANTS_NUMERIC_PROJECTION_REVISION:
-        raise SavedProjectionRevisionMismatch(
-            "Saved J-Quants projection revision is missing or differs from this code; "
-            "use the recorded producer commit to rebuild or read the exact published release."
-        )
+    if has_projection:
+        require_current_projection_revision(summary)
 
 
 def verified_cached_scopes(

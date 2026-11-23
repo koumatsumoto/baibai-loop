@@ -25,6 +25,11 @@ from baibai_jobs.integration import (
     short_sale_reports_native,
 )
 from baibai_jobs.integration import native_projection_cache as cache
+from baibai_jobs.publication import (
+    l1_margin_alerts_export,
+    l1_margin_interest_export,
+    l1_short_sale_reports_export,
+)
 
 
 def projection(tmp_path, revisions):
@@ -208,6 +213,65 @@ def test_sha_is_proved_before_footer_is_read(tmp_path, monkeypatch):
     monkeypatch.setattr(cache.pq, "read_metadata", forbidden)
     assert cached(store, market, mirror, manifest, forbidden) == {}
     assert store.get_keys == [obj.key]
+
+
+@pytest.mark.parametrize(
+    ("handler", "writer", "export"),
+    [
+        (
+            margin_alerts_native,
+            l1_margin_alerts_export,
+            l1_margin_alerts_export.export_margin_alerts_from_native_input,
+        ),
+        (
+            margin_interest_native,
+            l1_margin_interest_export,
+            l1_margin_interest_export.export_margin_interest_from_native_input,
+        ),
+        (
+            short_sale_reports_native,
+            l1_short_sale_reports_export,
+            l1_short_sale_reports_export.export_short_sale_reports_from_native_input,
+        ),
+    ],
+    ids=["margin-alerts", "margin-interest", "short-sale-reports"],
+)
+@pytest.mark.parametrize(
+    "revision_marker", [{}, {"projection_revision": "jquants-numeric-v2"}], ids=["absent", "older"]
+)
+def test_current_writers_refuse_an_unproven_projection_before_export(
+    tmp_path, monkeypatch, handler, writer, export, revision_marker
+):
+    day = "2026-11-02"
+    descriptor = {
+        "format": handler.INPUT_FORMAT,
+        "selection_sha256": "b" * 64,
+        "summary": {
+            "selection_start": day,
+            "selection_end": day,
+            "coverage_status": "complete",
+            "weekly_coverage_status": "complete",
+            "daily_coverage_status": "complete",
+            **revision_marker,
+        },
+    }
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    saved = InputSnapshot(
+        kind="native_l1", reference="fixture-" + digest, sha256=digest, descriptor=descriptor
+    )
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("unproven projection reached the Parquet writer")
+
+    monkeypatch.setattr(writer, "export_dataset_snapshot", forbidden)
+    with pytest.raises(cache.SavedProjectionRevisionMismatch, match="projection revision"):
+        export(
+            source_snapshot=None,
+            saved=saved,
+            mirror_root=tmp_path,
+            producer_git_commit="a" * 40,
+        )
+    assert not any(tmp_path.iterdir())
 
 
 def test_no_objects_is_not_vacuous_normalization_proof(tmp_path):
