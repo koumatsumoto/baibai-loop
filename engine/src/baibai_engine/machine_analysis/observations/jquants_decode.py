@@ -12,7 +12,7 @@ from baibai_engine.primitives.missing import is_missing_scalar
 from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 
 # A changed interpretation invalidates only the disposable credit/short projections.
-JQUANTS_NUMERIC_PROJECTION_REVISION = "jquants-numeric-v3"
+JQUANTS_NUMERIC_PROJECTION_REVISION = "jquants-numeric-v4"
 
 
 class JQuantsProviderError(RuntimeError):

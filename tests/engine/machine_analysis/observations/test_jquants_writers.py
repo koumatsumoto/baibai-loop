@@ -287,6 +287,70 @@ def test_complete_empty_receipt_projects_identically_with_or_without_old_rows(
     assert target_coverage[0] == target_coverage[1]
 
 
+@pytest.mark.parametrize(
+    ("field", "bad"),
+    [
+        ("PubDate", "20261016"),
+        ("PubDate", "2026-W42-5"),
+        ("PubDate", "2026-10-16junk"),
+        ("AppDate", "2026-02-30"),
+        ("AppDate", False),
+    ],
+)
+def test_invalid_margin_dates_do_not_certify_phantom_rows(db_path, field, bad):
+    day = date.fromisoformat(DAY)
+    original = source_record("margin_alerts", DAY)
+    mixed = [
+        {**original, "Code": "72030", field: bad},
+        {**original, "PubDate": DAY + "T00:00:00"},
+    ]
+    count = store_jquants_margin_alerts(db_path, mixed, requested_start=day, requested_end=day)
+    assert count == 1
+    with closing(sqlite3.connect(db_path)) as connection:
+        assert connection.execute(
+            "SELECT publication_date,ticker,applied_date FROM jquants_margin_alerts"
+        ).fetchall() == [(DAY, "1301", DAY)]
+    [receipt] = coverage(db_path, "jquants_margin_alerts")
+    assert receipt[4:6] == (1, "partial")
+
+
+@pytest.mark.parametrize(
+    ("source", "writer", "day", "scope", "malformed"),
+    [
+        (
+            "margin_interest",
+            store_jquants_weekly_margin,
+            "2026-07-24",
+            ("week_end",),
+            {"Date": "2026-07-24garbage"},
+        ),
+        (
+            "margin_interest",
+            store_jquants_all_issues_daily_margin,
+            "2026-10-02",
+            ("balance_date",),
+            {"Date": "2026-10-02garbage"},
+        ),
+        (
+            "short_sale_reports",
+            store_jquants_short_sale_reports,
+            DAY,
+            ("requested_start", "requested_end"),
+            {"CalcDate": False},
+        ),
+    ],
+)
+def test_credit_and_report_partitions_do_not_claim_malformed_required_days(
+    db_path, source, writer, day, scope, malformed
+):
+    rejected = {**source_record(source, day), **malformed}
+    assert writer(db_path, [rejected], **dict.fromkeys(scope, date.fromisoformat(day))) == 0
+    with closing(sqlite3.connect(db_path)) as connection:
+        assert connection.execute("SELECT record_count,status FROM source_coverage").fetchall() == [
+            (0, "partial")
+        ]
+
+
 def test_offline_readers_report_missing_input_without_store_or_http(tmp_path, monkeypatch):
     database = tmp_path / "absent.sqlite"
     day = date.fromisoformat(DAY)

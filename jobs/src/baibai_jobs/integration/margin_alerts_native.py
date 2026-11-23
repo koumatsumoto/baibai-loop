@@ -343,10 +343,19 @@ def model_input(
         )
         connection.execute("DELETE FROM source_coverage WHERE source=?", (MARGIN_ALERT_SOURCE,))
         connection.execute("DELETE FROM jquants_source_pages WHERE source='margin_alerts'")
-        connection.execute(
-            "DELETE FROM jquants_margin_alerts WHERE publication_date < ? OR publication_date > ?",
-            (first.isoformat(), last.isoformat()),
-        )
+        if reusable:
+            # Year-prefix parity does not read legacy keys such as YYYYMMDD.
+            # Keep its verified canonical rows, not rows outside those partitions.
+            connection.execute(
+                "DELETE FROM jquants_margin_alerts "
+                "WHERE publication_date < ? OR publication_date > ? "
+                "OR publication_date IS NOT date(publication_date, '+0 days')",
+                (first.isoformat(), last.isoformat()),
+            )
+        else:
+            # An unproved disposable copy can contain noncanonical keys unreachable by
+            # per-day replacement even inside this selected interval.
+            connection.execute("DELETE FROM jquants_margin_alerts")
         # Coalescing retains the last day's clock, not the most recent receipt.
         for start, end in merge_date_ranges((day, day) for day in reusable):
             record_range_source_coverage(
