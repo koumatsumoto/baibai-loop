@@ -188,7 +188,7 @@ def acquire_source(
     downloaded: dict[str, Path] = {}
     cooldown = state.not_before
     pages = 0
-    rss_statuses: dict[str, set[int]] = {}
+    rss_statuses: set[int] = set()
     bodies = 0
     access_denied = False
     next_page: str | None = None
@@ -552,17 +552,13 @@ def acquire_source(
                 status = receipt.http_status
                 if (
                     source == "boj_news"
+                    and rss_index_revision == RSS_NATIVE_V1
                     and status is not None
                     and (receipt.status, status) in (("ok", 200), ("not_modified", 304))
                     and _parsed_rss_root(body)
                 ):
-                    # A bound 304 uses its actual original 200's revision, not this run's flag.
-                    field = (
-                        "rss_index_http_statuses"
-                        if rss_index_revision == RSS_NATIVE_V1
-                        else "rss_unversioned_index_http_statuses"
-                    )
-                    rss_statuses.setdefault(field, set()).add(status)
+                    # The revision comes from the concrete original 200, even for a 304.
+                    rss_statuses.add(status)
                 if frontier is not None:
                     reference = {
                         "stage": {"stage_id": stage_id},
@@ -784,7 +780,7 @@ def acquire_source(
         },
         "stage_id": saved_stage["stage_id"],
         "manifest_sha256": saved_stage["manifest_sha256"],
-        **{field: sorted(statuses) for field, statuses in rss_statuses.items()},
+        **({"rss_index_http_statuses": sorted(rss_statuses)} if rss_statuses else {}),
     }
 
 

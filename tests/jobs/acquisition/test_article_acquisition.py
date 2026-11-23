@@ -275,7 +275,6 @@ def test_boj_rss_structure_distinguishes_empty_from_parse_failure(tmp_path, feed
     assert result["status"] == ("completed" if valid else "partial")
     assert result["failures"] == ([] if valid else ["ValueError"])
     assert result.get("rss_index_http_statuses") == ([200] if valid and rss else None)
-    assert "rss_unversioned_index_http_statuses" not in result
     assert session.urls == [articles.SOURCES[source].entry_url]
     planning, _ = load_planning(store, source)
     fixed = tmp_path / "fixed"
@@ -345,7 +344,6 @@ def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, mon
         assert report["bodies"] == 1
         assert report["pending_url_count"] == 0
         assert report["rss_index_http_statuses"] == [200 if index == 0 else 304]
-        assert "rss_unversioned_index_http_statuses" not in report
         planning, _ = load_planning(store, source)
         fixed = tmp_path / f"fixed-{index}"
         download_fixed(store, planning.last_stage, fixed)
@@ -396,7 +394,6 @@ def test_rss_index_witness_does_not_claim_document_success_or_unbound_304(tmp_pa
     )
     assert report["status"] == "partial"
     assert report.get("rss_index_http_statuses") == ([200] if index_status == 200 else None)
-    assert "rss_unversioned_index_http_statuses" not in report
 
 
 def test_rss_witness_ignores_unbound_304_and_document_status(tmp_path, monkeypatch, capsys):
@@ -479,10 +476,12 @@ def test_cutover_replaces_only_legacy_rss_index_validator_and_keeps_fixed_origin
         assert report["bodies"] == 0
         current = [200] if index == 1 else [304] if index == 2 else None
         assert report.get("rss_index_http_statuses") == current
-        assert report.get("rss_unversioned_index_http_statuses") == ([200] if index == 0 else None)
+        assert {key for key in report if key.startswith("rss_")} == (
+            {"rss_index_http_statuses"} if current else set()
+        )
         packet = json.loads((directory / "result.json").read_text())
         assert packet["document_evidence"] == {}
-        assert {"rss_index_http_statuses", "rss_unversioned_index_http_statuses"}.isdisjoint(packet)
+        assert not any(key.startswith("rss_") for key in packet)
         with closing(connect_read_only(directory / "receipts.sqlite")) as conn:
             receipts = [
                 json.loads(row[0])
