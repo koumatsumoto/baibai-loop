@@ -49,6 +49,17 @@ class SecFilingWitness:
 
 
 @dataclass(frozen=True, slots=True)
+class SecPublicFilingObservation:
+    """An independently pinned original SEC filing-index receipt, not a release time."""
+
+    issuer_cik: str
+    accession: str
+    observed_at: datetime
+    receipt_id: str
+    index_url: str
+
+
+@dataclass(frozen=True, slots=True)
 class SecRevenueObservation:
     """An entire-filing-entity observation, not a cross-concept net-sales mapping."""
 
@@ -63,6 +74,7 @@ class SecRevenueObservation:
     concept: SecRevenueConcept
     unit: Literal["USD"] = "USD"
     scope: Literal["filing_entity"] = "filing_entity"
+    publicly_observed_by: SecPublicFilingObservation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,13 +110,16 @@ def observe_sec_revenue(
     period_start: date,
     period_end: date,
     cutoff: datetime,
+    publicly_observed_by: SecPublicFilingObservation | None = None,
 ) -> SecRevenueResult:
     """Interpret one fixed request; neither choose an amendment nor infer standalone periods.
 
     `published_at` means evidenced publication of the pinned accession, not just
-    acceptance time or the time a later witness happened to find it. The two
-    receipts remain independent. Absent scope is not an economic zero; invalid
-    or internally contradictory evidence within one concept is an error.
+    acceptance time or the time a later witness happened to find it.
+    `publicly_observed_by` can attest availability only from its own original
+    SEC index receipt onward. It does not become a publication timestamp.
+    Absent scope is not an economic zero; internally contradictory evidence
+    within one concept is an error.
     Different issuer-wide concepts are not interchangeable even at equal amounts.
     """
     issuer = _cik(expected_cik)
@@ -140,6 +155,17 @@ def observe_sec_revenue(
     ):
         raise ValueError("invalid SEC filing acceptance/publication/receipt order")
 
+    verified_filing = replace(filing, issuer_cik=issuer)
+    observed = _public_index_asof(
+        publicly_observed_by,
+        verified_filing,
+        asof=asof,
+        accepted=accepted,
+        published=published,
+        companyfacts_receipt_id=capture.receipt_id,
+    )
+    known_public = published is not None or observed is not None
+
     document = _read_companyfacts(capture)
     if _cik(document.get("cik"), allow_integer=True) != issuer:
         raise ValueError("CompanyFacts CIK does not match the expected issuer")
@@ -147,7 +173,6 @@ def observe_sec_revenue(
     # Periods are date-only, not exchange sessions. UTC+14 bounds the latest
     # possible local date without assuming the issuer's reporting timezone or close.
     latest_civil_date = (accepted + timedelta(hours=14)).date()
-    verified_filing = replace(filing, issuer_cik=issuer)
     matches: list[SecRevenueObservation] = []
     for concept, rows in rows_by_concept.items():
         tag = concept.removeprefix("us-gaap:")
@@ -183,7 +208,7 @@ def observe_sec_revenue(
             if amount is None or value.compare_total(amount) < 0:
                 amount = value
             paths.append(f"/facts/us-gaap/{tag}/units/USD/{index}")
-        if amount is not None and published is not None:
+        if amount is not None and known_public:
             matches.append(
                 SecRevenueObservation(
                     amount=amount,
@@ -195,10 +220,11 @@ def observe_sec_revenue(
                     companyfacts_body_sha256=capture.body_sha256,
                     fact_paths=tuple(paths),
                     concept=concept,
+                    publicly_observed_by=observed,
                 )
             )
 
-    if published is None:
+    if not known_public:
         return "publication_unverified"
     if not rows_by_concept:
         return "unmapped_concept_or_unit"
@@ -207,6 +233,51 @@ def observe_sec_revenue(
     if len(matches) == 1:
         return matches[0]
     return SecRevenueAmbiguity(tuple(matches))
+
+
+def _public_index_asof(
+    observation: SecPublicFilingObservation | None,
+    filing: SecFilingWitness,
+    *,
+    asof: datetime,
+    accepted: datetime,
+    published: datetime | None,
+    companyfacts_receipt_id: str,
+) -> SecPublicFilingObservation | None:
+    if observation is None:
+        return None
+    observed_at = _clock(observation.observed_at)
+    if observed_at > asof:
+        return None
+    if _cik(observation.issuer_cik) != filing.issuer_cik:
+        raise ValueError("SEC public observation CIK does not match the filing")
+    if _accession(observation.accession) != filing.accession:
+        raise ValueError("SEC public observation accession does not match the filing")
+    if (
+        not _present_ref(observation.receipt_id)
+        or observation.receipt_id != observation.receipt_id.strip()
+    ):
+        raise ValueError("invalid SEC public observation receipt reference")
+    # Padding a legacy reference cannot make the same receipt independent evidence.
+    receipt_id = observation.receipt_id.strip()
+    if any(
+        ref is not None and ref.strip() == receipt_id
+        for ref in (companyfacts_receipt_id, filing.receipt_id, filing.publication_ref)
+    ):
+        raise ValueError("SEC public observation requires a distinct original index receipt")
+    accession_folder = filing.accession.replace("-", "")
+    cik_folder = filing.issuer_cik.lstrip("0")
+    expected_url = (
+        f"https://www.sec.gov/Archives/edgar/data/{cik_folder}/{accession_folder}/"
+        f"{filing.accession}-index.htm"
+    )
+    if observation.index_url != expected_url:
+        raise ValueError("SEC public observation index URL does not match the original filing")
+    if observed_at < accepted:
+        raise ValueError("SEC public observation is before filing acceptance")
+    if published is not None and observed_at < published:
+        raise ValueError("SEC public observation is before witnessed filing publication")
+    return replace(observation, issuer_cik=filing.issuer_cik, observed_at=observed_at)
 
 
 def _present_ref(value: object) -> bool:
