@@ -96,9 +96,13 @@ class FixedRelease:
 
 
 def resolve_current_release(
-    source: LakeObjectSource, *, policy: ReleasePolicy, catalog: Mapping[str, LakeDataset]
+    source: LakeObjectSource,
+    *,
+    policy: ReleasePolicy,
+    catalog: Mapping[str, LakeDataset],
+    published_coverage_start: Mapping[str, date] | None = None,
 ) -> FixedRelease:
-    """Freeze current and require it to satisfy policy structurally."""
+    """Freeze current and require policy, including a history floor if supplied."""
     catalog = freeze_catalog(catalog)
 
     pointer = _read_current_pointer(source)
@@ -112,6 +116,7 @@ def resolve_current_release(
             release.manifest,
             release.dataset_manifests,
             policy=policy,
+            published_coverage_start=published_coverage_start,
             catalog={
                 name: descriptor.read_contract(release.dataset_manifests[name].contract_version)
                 if name in release.dataset_manifests
@@ -209,6 +214,21 @@ def _read_manifest_bytes(
     return payload
 
 
+def read_release_manifest(
+    source: LakeObjectSource, release_id: str, *, manifest_sha256: str
+) -> ReleaseManifest:
+    """Read only the exact release header, without loading the dataset graph."""
+    key = release_manifest_key(release_id=release_id)
+    payload = _read_manifest_bytes(source, key, manifest_sha256)
+    try:
+        release = load_lake_model_json(payload, ReleaseManifest)
+    except ValueError:
+        raise LakeReadError("market release manifest is invalid") from None
+    if release.release_id != release_id:
+        raise LakeReadError("market release manifest identifies a different release")
+    return release
+
+
 def _load_release(
     source: LakeObjectSource,
     *,
@@ -216,14 +236,7 @@ def _load_release(
     expected_manifest_sha256: str,
 ) -> FixedRelease:
     manifest_key = release_manifest_key(release_id=release_id)
-    payload = _read_manifest_bytes(source, manifest_key, expected_manifest_sha256)
-    try:
-        release = load_lake_model_json(payload, ReleaseManifest)
-    except ValueError:
-        raise LakeReadError("market release manifest is invalid") from None
-    if release.release_id != release_id:
-        raise LakeReadError("market release manifest identifies a different release")
-
+    release = read_release_manifest(source, release_id, manifest_sha256=expected_manifest_sha256)
     manifests: dict[str, DatasetManifest] = {}
     digests: dict[str, str] = {}
     for name, entry in sorted(release.datasets.items()):

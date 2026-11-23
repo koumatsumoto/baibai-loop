@@ -329,10 +329,15 @@ def test_integration_date_uses_original_run_and_manual_clock():
     assert integration_target_date(morning, scheduled=True) == date(2026, 10, 23)
 
 
-def test_economic_l1_finishes_before_any_market_or_l2_dependency(steps, by_id):
+def test_economic_l1_follows_machine_admission_but_not_hydration(steps, by_id):
     ids = [step.get("id") for step in steps]
-    assert ids.index("lease-acquire") < ids.index("economic-l1")
-    for later in ("market-plan", "pull", "hydrate", "source-integration", "batch"):
+    assert ids.index("lease-acquire") < ids.index("pull") < ids.index("economic-l1")
+    assert by_id["pull"]["run"] == "jobs/scripts/r2_transfer.sh pull-machine --daily-preflight"
+    assert "publication-lease-handle.json" in by_id["pull"]["env"]["PUBLICATION_LEASE_HANDLE"]
+    assert "if" not in by_id["pull"]
+    assert "continue-on-error" not in by_id["pull"]
+    assert "if" not in by_id["economic-l1"]  # Normal success only, not an always() publisher.
+    for later in ("market-plan", "hydrate", "source-integration", "batch"):
         assert ids.index("economic-l1") < ids.index(later)
     assert "economic_sources" in by_id["economic-l1"]["run"]
     assert "--lease-handle" in by_id["economic-l1"]["run"]

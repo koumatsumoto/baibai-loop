@@ -45,8 +45,9 @@ gh run watch "${RUN_ID:?対象の日次run IDを指定}" --exit-status --interva
 
 | 同じrun・attemptで確認する到達点 | 成功してもまだ保証しないこと |
 | --- | --- |
+| lease内でMarket/Runsの対応receiptを照合して一度取得し、Market schema・DB内originと現行Lakeのmanifestを確認 | 完全hydrateや全データの受入ではない。不一致なら経済にも手をつけない。 |
 | 経済L1の受領を公開・読戻し・sealし、次の経済取得inputを発行 | 他のmarket入力、L2、Web。後段が失敗しても経済L1を戻さない。 |
-| 到着済みmarket受領を固定し、market/runsを取得・hydrate。固定原本の投影とEDINET抽出を適用 | 全providerの充足。個別の失敗/延期は残し、他sourceを進める。 |
+| 到着済みmarket受領を固定し、取得済みMarketをhydrate。固定原本の投影とEDINET抽出を適用 | 全providerの充足。個別の失敗/延期は残し、他sourceを進める。 |
 | [モデル生成](src/baibai_jobs/integration/models.py)で候補外も含むGenerationと、そのSelectionを保存し、対応するlake releaseを公開 | machine転送。個社投影失敗では新Generation・Selection・releaseを出さず、索引だけ失敗すれば作業DBにGenerationは残り得る。 |
 | market/runsを転送し、公開releaseの読戻しを経て受領をseal。成功後、その世代から次の取得inputを発行 | 全体の原子性。[部分公開](#部分-push-からの復旧)と[seal/input](#machine公開後の失敗再開)は別に復旧する。 |
 | core成功後の[Web生成・転送](#web-serving)、lease解放、通知 | 受領・提案・取引の成否。表示はseal成功を条件にせず、表示・通知の失敗だけで正本を再公開しない。 |
@@ -135,7 +136,7 @@ model-integrationは生成に使ったreleaseも公開するため、後からpu
 
 まず元runの証拠と現objectを読み、未公開local成果を別copyに保全する。確認pullで唯一のcopyを上書きしない。
 
-- **lakeだけ進んだ:** market/runs両ETagが旧receiptと一致すれば、その組は通常pullで取得できるが、旧dailyの入力sealや表示復旧には使えない。storeを巻き戻さず、既存L1から前向きに実行する。失われたrunner上のモデルと同じIDを作り直さない。
+- **lakeだけ進んだ:** market/runs両ETagが旧receiptと一致すれば、その組は通常pullで取得できる。日次はMarketが現行schemaで、取得した旧originより新しく、現行schemaの一つのSQLite snapshotを根拠にし、公開済みの履歴保持datasetを欠かさず、対象日・期間も後退しないLakeだけを前向きにhydrateする。意図した履歴縮小は自動再開と分け、固定入力と影響範囲を運用者が確認する。旧dailyの入力sealや表示復旧には使わない。旧版DBの暗黙移行・store巻戻し・失われたrunner上のモデルと同じIDの再作成はしない。
 - **receiptだけ欠落、または旧ペアを指している:** 両storeが既知の元receiptに一致するときだけ、元bodyと信頼できるSHA-256（元runの出力、保存済み転送証拠、初回seed候補）で次を実行する。現objectのETagを拾ってreceiptを新作しない。
 - **片方のstoreだけ進んだ、または元receiptの証拠がない:** 両方の再送や経済pushで直さない。元成果・origin・取得世代を保った[反映経路](#machine-publication)を選ぶ。たとえばmarket成功/runs失敗の後に`push-market`だけを行うとreceiptは整ってもrunsは旧世代のまま。公開後に新Generation/Selectionと保持対象の旧内容を照合する。既知の前世代が必要ならwriter停止後にexact key/key.bakの由来を確認し、復旧の入力として保全する。通常の `push-market` は現行の保持データと統合する前向き反映であり、旧 `key.bak` のバイトへの巻戻しではない。復元時にETagが変われば元receiptは使えない。未知の組や無条件の巻戻しは認めない。
 

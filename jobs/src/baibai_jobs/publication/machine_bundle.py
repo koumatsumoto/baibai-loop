@@ -23,6 +23,23 @@ from baibai_jobs.publication.machine_origin import origin_fields
 from baibai_jobs.publication.snapshot_release import read_pointer_snapshot
 
 
+def decode_machine_receipt(
+    receipt: bytes, *, expected_receipt_sha256: str | None = None
+) -> dict[str, object]:
+    if (
+        expected_receipt_sha256 is not None
+        and hashlib.sha256(receipt).hexdigest() != expected_receipt_sha256
+    ):
+        raise LakePublishError("published machine receipt differs from the requested run")
+    try:
+        manifest = json.loads(receipt)
+    except (ValueError, UnicodeDecodeError) as error:
+        raise LakePublishError("published machine bundle receipt is unavailable") from error
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
+        raise LakePublishError("published machine bundle receipt is invalid")
+    return manifest
+
+
 def read_published_machine(
     store: ObjectStore,
     *,
@@ -35,16 +52,9 @@ def read_published_machine(
         raise ValueError("a published lake release is required")
     try:
         receipt = store.get_bytes("machine-manifest.json")
-        if (
-            expected_receipt_sha256 is not None
-            and hashlib.sha256(receipt).hexdigest() != expected_receipt_sha256
-        ):
-            raise LakePublishError("published machine receipt differs from the requested run")
-        manifest = json.loads(receipt)
-    except (KeyError, ValueError, UnicodeDecodeError) as error:
+    except (KeyError, ValueError) as error:
         raise LakePublishError("published machine bundle receipt is unavailable") from error
-    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
-        raise LakePublishError("published machine bundle receipt is invalid")
+    manifest = decode_machine_receipt(receipt, expected_receipt_sha256=expected_receipt_sha256)
     daily = manifest.get("daily_publication")
     if expected_origin is not None and daily != expected_origin:
         raise LakePublishError("machine receipt is not from the requested daily run and release")
