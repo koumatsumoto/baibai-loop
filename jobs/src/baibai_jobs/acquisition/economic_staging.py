@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from stat import S_ISREG
-from typing import cast
+from typing import TypedDict, cast
 
 from compression import zstd
 
@@ -180,14 +180,22 @@ def save_handoff(
     return identity
 
 
+class FredHandoffCommit(TypedDict):
+    stage_id: str
+    manifest_sha256: str
+    receipt_format: str
+    receipt_bytes: int
+    stored_bytes: int
+
+
 def save_fred_handoff(
     store: ObjectStore,
     stage_id: str,
     directory: Path,
     *,
     validate_packet: Callable[[Path], None],
-) -> str:
-    """Write the sole live FRED format and return its fixed manifest SHA."""
+) -> FredHandoffCommit:
+    """Return the bounded descriptor only after the fixed FRED manifest is committed."""
     prefix = stage_prefix(stage_id, namespace=FRED_HANDOFF_NAMESPACE)
     closed = _closed_fred_packet(directory)
     path = directory / "receipts.sqlite"
@@ -203,8 +211,14 @@ def save_fred_handoff(
             raise ValueError("compressed FRED packet changed during validation or measurement")
         if wire is None:
             raise ValueError("FRED receipt does not reduce stored bytes")
-        _, manifest = _save_receipt(store, stage_id, prefix, result, raw=raw, wire=wire)
-    return hashlib.sha256(manifest).hexdigest()
+        identity, manifest = _save_receipt(store, stage_id, prefix, result, raw=raw, wire=wire)
+    return {
+        "stage_id": identity,
+        "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+        "receipt_format": _FRED_RECEIPT_FORMAT,
+        "receipt_bytes": raw.size,
+        "stored_bytes": wire.size,
+    }
 
 
 def _save_receipt(

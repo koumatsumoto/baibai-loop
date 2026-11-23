@@ -143,7 +143,7 @@ def test_only_fixed_zstd_is_live_and_replay_keeps_the_raw_result(
     raw = (directory / "receipts.sqlite").read_bytes()
     result = json.loads((directory / "result.json").read_bytes())
     store = VerifiedReads()
-    manifest_sha = save_live(store, directory)
+    manifest_sha = save_live(store, directory)["manifest_sha256"]
     key = f"{live_prefix()}/handoff.json"
     assert manifest_sha == digest(store.values[key].body)
     manifest = json.loads(store.values[key].body)
@@ -380,7 +380,9 @@ def test_retry_of_uncertain_stage_never_adds_a_second_payload(
     assert len(store.put_keys) == puts
     assert store.values == published
 
-    assert save_live(store, directory) == digest(store.values[f"{live_prefix()}/handoff.json"].body)
+    assert save_live(store, directory)["manifest_sha256"] == digest(
+        store.values[f"{live_prefix()}/handoff.json"].body
+    )
     assert len(store.values) == 2
     assert len(set(store.put_keys)) == len(store.put_keys) == 2
     assert len(store.verified_reads) == (1 if failure_point == "after_payload_put" else 0)
@@ -402,7 +404,9 @@ def test_same_codec_conditional_races_accept_only_identical_objects(packet, monk
         raise LakeCASConflict("the exact object appeared concurrently")
 
     monkeypatch.setattr(store, "put_file", raced)
-    assert save_live(store, directory) == digest(store.values[f"{live_prefix()}/handoff.json"].body)
+    assert save_live(store, directory)["manifest_sha256"] == digest(
+        store.values[f"{live_prefix()}/handoff.json"].body
+    )
     assert len(store.values) == len(store.put_keys) == 2
     old_objects = dict(store.values)
     result = directory / "result.json"
@@ -489,11 +493,41 @@ def test_current_cli_stages_only_zstd_and_daily_leaves_old_raw_untouched(
     assert not outputs.exists()
     assert store.values == preserved
 
+    manifest_key = f"{live_prefix()}/handoff.json"
     assert handoff.main(command) == 0
     witness = json.loads(capsys.readouterr().out)
-    manifest_sha256 = digest(store.values[f"{live_prefix()}/handoff.json"].body)
-    assert witness == {"stage_id": STAGE, "manifest_sha256": manifest_sha256}
+    frozen = store.values[manifest_key].body
+    manifest = json.loads(frozen)
+    assert witness == {
+        "stage_id": STAGE,
+        "manifest_sha256": digest(frozen),
+        "receipt_format": FORMAT,
+        "receipt_bytes": manifest["receipt_bytes"],
+        "stored_bytes": manifest["stored_bytes"],
+    }
+    assert witness["receipt_bytes"] == (directory / "receipts.sqlite").stat().st_size
+    assert witness["stored_bytes"] == len(store.values[manifest["receipt_key"]].body)
     assert outputs.read_text() == f"handoff={STAGE}\n"
+    assert not store.get_keys
+    assert not store.verified_reads
+
+    # An equal resume reports the same committed descriptor without another payload request.
+    heads, puts = len(store.head_keys), len(store.put_keys)
+    assert handoff.main(command) == 0
+    assert json.loads(capsys.readouterr().out) == witness
+    assert outputs.read_text() == f"handoff={STAGE}\n" * 2
+    assert store.get_keys == [manifest_key]
+    assert store.head_keys[heads:] == [manifest_key, manifest_key, manifest["receipt_key"]]
+    assert len(store.put_keys) == puts
+    assert not store.verified_reads
+
+    result_path = directory / "result.json"
+    result_path.write_text(json.dumps({**manifest["result"], "changed": True}))
+    assert handoff.main(command) == 1
+    assert capsys.readouterr().out == ""
+    assert outputs.read_text() == f"handoff={STAGE}\n" * 2
+    assert store.values[manifest_key].body == frozen
+    assert len(store.put_keys) == puts
     assert set(store.values) - set(preserved) == {
         f"{live_prefix()}/handoff.json",
         *(
@@ -599,7 +633,7 @@ def test_live_rejects_wal_receipt_before_store_writes(tmp_path, packet):
     assert not store.put_keys
 
     assert not wal.exists()
-    fixed = save_live(store, directory)
+    fixed = save_live(store, directory)["manifest_sha256"]
     restored = tmp_path / "restored"
     load_live(store, restored, expected=fixed)
     assert (restored / "receipts.sqlite").read_bytes() == db.read_bytes()
@@ -669,7 +703,7 @@ def test_pending_compressed_candidate_must_prove_body_bytes_before_manifest(
 def test_active_fred_terminal_requires_source_and_clock_and_never_uses_old_alias(packet):
     _, directory = packet
     store = VerifiedReads()
-    fixed = save_live(store, directory)
+    fixed = save_live(store, directory)["manifest_sha256"]
     key = f"{live_prefix()}/integrated.json"
     store.store_object(key, json.dumps({"status": "integrated", "manifest_sha256": fixed}).encode())
     [entry] = available_handoffs(store, market=False, source="economic-fred_csv")

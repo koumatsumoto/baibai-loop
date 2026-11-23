@@ -246,13 +246,13 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("stage-fred requires a FRED acquisition stage")
         if args.command == "stage" and is_fred:
             raise ValueError("FRED requires the post-cutoff stage-fred entrypoint")
-        fred_manifest_sha256 = None
+        fred_commit = None
         with closing(
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         ) as store:
             if args.command in ("stage", "stage-fred"):
                 if args.command == "stage-fred":
-                    fred_manifest_sha256 = save_fred_handoff(
+                    fred_commit = save_fred_handoff(
                         store,
                         args.stage_id,
                         args.directory,
@@ -260,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
                             directory, "fred_csv", args.source_id or None, standalone=True
                         ),
                     )
-                    identity = args.stage_id
+                    identity = fred_commit["stage_id"]
                 else:
                     identity = save_handoff(store, args.stage_id, args.directory)
                 if output := os.environ.get("GITHUB_OUTPUT"):
@@ -273,8 +273,8 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 else:
                     load_handoff(store, args.stage_id, args.directory)
-        if fred_manifest_sha256 is not None:
-            print(json.dumps({"stage_id": args.stage_id, "manifest_sha256": fred_manifest_sha256}))
+        if fred_commit is not None:
+            print(json.dumps(fred_commit))
         return 0
     except (
         OSError,

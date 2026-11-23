@@ -266,14 +266,14 @@ def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
     directory = handoff(tmp_path, "fred_csv", "fred-payems", "A")
     store = VerifiedMemoryR2Store()
     stage = "fred_csv-2026-10-24-42-1"
-    fingerprint = save_fred_handoff(store, stage, directory, validate_packet=lambda _: None)
+    commit = save_fred_handoff(store, stage, directory, validate_packet=lambda _: None)
     downloaded = tmp_path / "downloaded"
     load_handoff(
         store,
         stage,
         downloaded,
         namespace=FRED_HANDOFF_NAMESPACE,
-        expected_manifest_sha256=fingerprint,
+        expected_manifest_sha256=commit["manifest_sha256"],
     )
     assert (downloaded / "receipts.sqlite").read_bytes() == (
         directory / "receipts.sqlite"
@@ -283,7 +283,7 @@ def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
         "artifact" in str(workflow(name))
         for name in ("cloud-economic-source-current.yml", "cloud-economic-sources-current.yml")
     )
-    assert save_fred_handoff(store, stage, directory, validate_packet=lambda _: None) == fingerprint
+    assert save_fred_handoff(store, stage, directory, validate_packet=lambda _: None) == commit
     key = next(key for key in store.values if key.endswith(".sqlite.zst"))
     store.values[key].body = b"tampered"
     with pytest.raises(LakePublishError, match="receipt"):
