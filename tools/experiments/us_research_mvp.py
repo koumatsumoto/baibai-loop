@@ -94,6 +94,9 @@ def _content_headers(record: _Record) -> Headers:
 def _recorded_sec(
     query: SecEdgarQuery, record: _Record, load: _Loader
 ) -> SecEdgarReceipt | Literal["transport_error"]:
+    attempt_id = record["attempt_id"]
+    if not isinstance(attempt_id, str):
+        raise ValueError("a fixed SEC attempt ID must be a UUID string")
     body, status, received = _native(record, load)
     headers = _content_headers(record)
 
@@ -104,7 +107,7 @@ def _recorded_sec(
         query,
         transport=MockTransport(recorded_response),
         contact_email="offline-replay@example.invalid",
-        attempt_id=UUID(record["attempt_id"]),
+        attempt_id=UUID(attempt_id),
         clock=lambda: received,
     )
 

@@ -370,3 +370,31 @@ def test_submissions_source_must_match_before_financials_are_joined(defect):
     assert f"sec_identity:{reason}" in report
     assert "観測20本のSMA" in report
     assert "SEC実績売上" not in report
+
+
+@pytest.mark.parametrize(
+    ("source", "reason"),
+    [
+        ("submissions", "sec_identity:invalid_fixed_submissions"),
+        ("companyfacts", "sec_invalid_fixed_evidence"),
+    ],
+)
+def test_bad_sec_attempt_id_holds_only_that_finance_in_external_bundle(
+    source, reason, tmp_path, capsys
+):
+    bundle, files = _fixture()
+    _, untouched = render_research(bundle, files.__getitem__, synthetic=False).split("## NVDA |")
+    # A 32-digit JSON number would parse as a UUID if coerced to text.
+    bundle["subjects"][0][source]["attempt_id"] = 12345678_12345678_12345678_12345678
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(bundle), encoding="utf-8")
+    for name, body in files.items():
+        (tmp_path / name).write_bytes(body)
+
+    assert main(["--bundle", str(manifest)]) == 0
+    affected, other = capsys.readouterr().out.split("## NVDA |")
+    assert "AAPL | hold_for_evidence" in affected
+    assert reason in affected
+    assert "SEC実績売上" not in affected
+    assert "観測20本のSMA: USD 102.50" in affected
+    assert other == untouched
