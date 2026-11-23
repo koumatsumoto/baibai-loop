@@ -9,6 +9,7 @@ repository rootのBashで、依頼された対象だけを操作する。[archit
 | 取得・再抽出をやり直す | [経済](#economic-acquisition)／[記事](#article-acquisition)／[JPX PDF](#jpx-pdf)／[外部評価](#external-assessment-acquisition)／[TradingView](#tradingview-expectations)／[J-Quants](#jquants-native-operations)／[EDINET](#edinet-list-native-l1) |
 | 公開済みの内容を読む | [固定release](#fixed-release-read)。release IDとmanifest SHAを固定する。 |
 | 反映が一部だけ成功した | [market/runsの部分公開](#部分-push-からの復旧)／[seal・次input](#machine公開後の失敗再開)／[経済単独の再開](#経済単独公開と失敗再開)。日次を丸ごと再送しない。 |
+| 日本株の新規提案を本番データで検証する | [本番データで新規の売買提案を受け入れる](#production-proposal-acceptance)。日次成功・保存済み提案の表示とは別。 |
 | 提案・台帳を保存する | [application DBの更新](#application-db-を反映する)。[バックアップからの復元](#application-db-を復元する)とは異なる。 |
 | Webだけを更新する | [表示の生成・原本との照合・配備](#web-serving)。表示失敗でcoreを巻き戻さない。 |
 
@@ -96,6 +97,24 @@ uv run baibai-jobs snapshots hydrate \
 完全mirrorならbucket不要。認可済みR2の固定releaseから読む場合は同じコマンドに `--bucket baibai-stores` を加える。作業DBに旧EDINET原受領cacheが残る場合も[照合](#edinet-list-native-l1)にbucketが必要。hydrateはlake所管tableを置換するため、対象契約に合う既存のmarket作業DBと一時snapshot容量が必要。空ファイルや唯一の未公開copyに実行しない。store-local取得coverageは作らない。対象契約が古ければ元commitのreaderを使い、未収録・欠損・破損を別release/providerで補わない。Parquetは[reader](../engine/src/baibai_engine/storage/snapshots/reader.py)の検証済みpathで読み、globで混ぜない。
 
 ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済みParquetの `baibai.source_kind` に保存した `legacy_sqlite_import` は、既存objectのSHA・key・固定releaseの読取を変えないためそのまま使う。物理タグの変更は既存releaseの読取を含む別の契約移行とし、通常publishで既存objectを書き換えない。
+
+<a id="production-proposal-acceptance"></a>
+## 本番データで新規の売買提案を受け入れる
+
+[日次](#daily)は材料を作り、[表示生成](#web-serving)は既存提案を表示する。どちらの成功も新規提案の受入ではない。正規の入口は [Investment Judgment](../.agents/skills/investment-judgment/SKILL.md)。既存コマンドを本番入力が揃う認可済み作業環境で実行する。入力が揃っていればDBの再取得や別環境への転送は不要。
+
+1. 対象コード、日次の同一run/attempt、release ID・manifest SHA・machine receipt SHAを固定する。receiptに合うMarket/Runsとそのorigin、GenerationとSelectionの対応を確認する。Appは別正本なので、[取得元を確認した作業copy](#application-db-を反映する)を使う。保存先は隔離Appのみ。必要な入力を同じ出所で読めない場合は、別日や最新のデータで補わず、そこで止める。
+2. `selection-context` にそのGeneration・Selection・研究基準日・情報締切を明示し、`selection-context` と `prepare` には同じ `--runs-path` を渡して[選定と調査・評価の保存](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)へ進む。正式終値と一次資料は別に照合する。価値と価格の差、市場・同業との比較、欠測、判断を変える条件を確認し、評価を独立査読する。買いを件数目標にしない。
+3. [提案の手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)に沿って `trade-proposal-context` → `trade-proposal-check` → 提案本文の独立査読 → `trade-proposal-check` で `review_binding=match` を確認 → `trade-proposal-publish` → `operation complete`。3つの提案コマンドには同じ `--db` と `--sqlite-path` を明示する。正式保存された同じ提案IDを読戻す。ここでのpublishは隔離Appへの保存であり、R2や実配信への公開・発注ではない。
+4. 固定Marketと隔離Appを正規配置した作業rootからローカル表示を生成し、同じAppと提案IDで照合する。複数ケースは各提案がそのAppのlatestのうちに照合する。完了条件は「新規正式提案が保存され、Operation完了と表示が同じIDで読めた」。受入で見つけた問題は、根拠と再現条件を残して修正後に同じ入力で再確認する。実配信まで確認する場合だけ [Webの照合](#web-serving) を別に行う。
+
+```bash
+uv run python -m baibai_web.materialize --root "$WORK_ROOT" --output-dir "$PRIVATE_OUTPUT"
+uv run python -m tools.diagnostics.check_served_proposal \
+  --db "$APP_COPY" --latest-json "$PRIVATE_OUTPUT/views/latest-proposal.json" \
+  --history-json "$PRIVATE_OUTPUT/views/proposal-history.json" \
+  --proposal-id "$PROPOSAL_ID" --require-completed
+```
 
 <a id="machine-publication"></a>
 ## 共通公開とmachineの復旧
