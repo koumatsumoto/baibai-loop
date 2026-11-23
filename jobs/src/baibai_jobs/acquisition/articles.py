@@ -16,6 +16,7 @@ from typing import Any, Literal
 import requests
 
 from baibai_engine.data_collection.providers.articles.contracts import (
+    RSS_SOURCES,
     SOURCES,
     WORLD_NEWS_SOURCES,
     NativeArticle,
@@ -26,13 +27,18 @@ from baibai_engine.data_collection.providers.articles.native import (
     next_index_url,
     parse_index,
 )
-from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt
+from baibai_engine.data_collection.receipts.articles.contracts import (
+    RSS_NATIVE_V1,
+    ArticleReceipt,
+    RssIndexRevision,
+)
 from baibai_engine.data_collection.receipts.articles.store import (
     ArticleStoreError,
     connect_read_only,
     copy_receipt_closure,
     read_body,
     read_receipt,
+    read_receipt_body,
     retain_receipt,
 )
 from baibai_engine.data_collection.receipts.articles.store import (
@@ -117,6 +123,7 @@ def acquire_source(
     directory: Path,
     session: requests.Session,
     group_budget: GroupBudget | None = None,
+    rss_native_index: bool = False,
 ) -> dict[str, Any]:
     started = datetime.now(UTC)
     state, etag = load_planning(store, source)
@@ -248,10 +255,10 @@ def acquire_source(
             if key in index_cache:
                 return index_cache[key]
             if entry["stage_id"] == stage_id:
-                original = read_receipt(conn, receipt_id)
-                if original.body_ref is None:
+                index_receipt = read_receipt(conn, receipt_id)
+                if index_receipt.body_ref is None:
                     raise ArticleStoreError("frontier index has no original body")
-                body = read_body(conn, original.body_ref)
+                original, body = read_receipt_body(conn, index_receipt)
             else:
                 if (
                     entry.get("source") != source
@@ -264,17 +271,21 @@ def acquire_source(
                     download_fixed(store, entry, packet)
                     downloaded[entry["stage_id"]] = packet / "receipts.sqlite"
                 with closing(connect_read_only(downloaded[entry["stage_id"]])) as old:
-                    original = read_receipt(old, receipt_id)
-                    if original.body_ref is None:
+                    index_receipt = read_receipt(old, receipt_id)
+                    if index_receipt.body_ref is None:
                         raise ArticleStoreError("frontier index has no original body")
-                    body = read_body(old, original.body_ref)
-            if original.source != source:
+                    original, body = read_receipt_body(old, index_receipt)
+            if index_receipt.source != source:
                 raise ArticleStoreError("frontier index differs from its source")
             items = parse_index(
-                source, body, url=original.requested_url, encoding=original.encoding or "utf-8"
+                source,
+                body,
+                url=index_receipt.requested_url,
+                encoding=index_receipt.encoding or "utf-8",
+                rss_index_revision=original.rss_index_revision,
             )
             index_cache[key] = items
-            index_receipts[key] = original
+            index_receipts[key] = index_receipt
             return items
 
         def restore_discovery(reference: dict[str, Any]) -> tuple[ArticleReceipt, bytes]:
@@ -348,7 +359,7 @@ def acquire_source(
 
         def receive(
             url: str, kind: Literal["index", "document"]
-        ) -> tuple[ArticleReceipt, bytes | None]:
+        ) -> tuple[ArticleReceipt, bytes | None, RssIndexRevision | None]:
             nonlocal access_denied, cooldown
             budget.check()
             previous = planning.get(url)
@@ -401,8 +412,17 @@ def acquire_source(
             )
             if group_budget is not None:
                 group_budget.remaining_bytes -= budget.bytes_used - before_bytes
+            final = responses[-1].receipt
             for response in responses:
                 receipt = response.receipt
+                if (
+                    rss_native_index
+                    and kind == "index"
+                    and source in RSS_SOURCES
+                    and receipt.status == "ok"
+                ):
+                    receipt = receipt.model_copy(update={"rss_index_revision": RSS_NATIVE_V1})
+                final = receipt
                 with conn:
                     retain_receipt(conn, receipt, body=response.body)
                 receipt_ids.append(receipt.receipt_id)
@@ -430,9 +450,12 @@ def acquire_source(
                         or datetime.fromisoformat(cooldown) < receipt.cooldown_until
                     ):
                         cooldown = proposed
-            final = responses[-1].receipt
-            body = read_body(conn, final.body_ref) if final.body_ref is not None else None
-            return final, body
+            if final.body_ref is None:
+                return final, None, None
+            if kind == "index":
+                original, body = read_receipt_body(conn, final)
+                return final, body, original.rss_index_revision
+            return final, read_body(conn, final.body_ref), None
 
         if source in FRONTIER_SOURCES:
             frontier = ArticleFrontier(cursor, resolve_index)
@@ -486,7 +509,7 @@ def acquire_source(
                     partial = True
                     break
                 seen_pages.add(page_url)
-                receipt, body = receive(page_url, "index")
+                receipt, body, rss_index_revision = receive(page_url, "index")
                 pages += 1
                 if body is None:
                     partial = True
@@ -498,7 +521,11 @@ def acquire_source(
                     break
                 try:
                     native = parse_index(
-                        source, body, url=page_url, encoding=receipt.encoding or "utf-8"
+                        source,
+                        body,
+                        url=page_url,
+                        encoding=receipt.encoding or "utf-8",
+                        rss_index_revision=rss_index_revision,
                     )
                 except ValueError:
                     if source != "nhk_news" and source not in WORLD_NEWS_SOURCES:
@@ -586,7 +613,7 @@ def acquire_source(
                 for edge in parent_links:
                     restore_discovery(edge["parent"])
                 link = evidence_for(url) if frontier is not None else None
-                receipt, body = receive(url, "document")
+                receipt, body, _ = receive(url, "document")
                 bodies += 1
                 target = policy.document_redirect(url, receipt.http_status, receipt.location)
                 if target is not None:
@@ -739,6 +766,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
     parser.add_argument("--identity", required=True)
     parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--rss-native-index", action="store_true")
     args = parser.parse_args(argv)
     if args.created_at.tzinfo is None or args.created_at > datetime.now(UTC):
         parser.error("created-at must be a past timezone-aware clock")
@@ -762,6 +790,7 @@ def main(argv: list[str] | None = None) -> int:
                         directory=args.directory / source,
                         session=session,
                         group_budget=group_budget,
+                        rss_native_index=args.rss_native_index,
                     )
                 except Exception as error:
                     report = {"source": source, "status": "failed", "reason": type(error).__name__}

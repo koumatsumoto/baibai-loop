@@ -296,6 +296,182 @@ def test_rss_shape_check_preserves_existing_item_positions_across_namespaces():
     ]
 
 
+def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, monkeypatch):
+    source = "boj_news"
+    index_url = articles.SOURCES[source].entry_url
+    document_url = "https://www.boj.or.jp/synthetic.htm"
+    feed = (
+        '<rss xmlns="urn:synthetic:rss" xmlns:ext="urn:synthetic:extension"><channel>'
+        "<ext:item><ext:link>https://www.boj.or.jp/foreign.htm</ext:link></ext:item>"
+        "<ext:item/>"
+        f"<item><title>Native title</title><link>{document_url}</link>"
+        "<ext:title>Extension title</ext:title>"
+        "<ext:link>https://www.boj.or.jp/replacement.htm</ext:link></item></channel></rss>"
+    ).encode()
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, _tz):
+            return SLOT + timedelta(hours=5)
+
+    monkeypatch.setattr(articles, "datetime", Clock)
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {})
+    session = Session(
+        [Response(200, feed), Response(200, b"<main>Body</main>"), *[Response(304, b"")] * 2]
+    )
+    original_id = None
+    for index in range(2):
+        stage = tmp_path / f"rss-{index}"
+        report = articles.acquire_source(
+            store,
+            source=source,
+            slot=SLOT + timedelta(hours=index * 4),
+            identity=f"rss-{index}",
+            directory=stage,
+            session=session,
+            rss_native_index=True,
+        )
+        assert report["failures"] == []
+        assert report["bodies"] == 1
+        assert report["pending_url_count"] == 0
+        planning, _ = load_planning(store, source)
+        fixed = tmp_path / f"fixed-{index}"
+        download_fixed(store, planning.last_stage, fixed)
+        replay = import_handoff(source, tmp_path / f"market-{index}.sqlite", fixed)
+        assert replay.complete
+        packet = json.loads((fixed / "result.json").read_text())
+        (link,) = packet["document_evidence"].values()
+        assert (link["native_locator"], link["title"]) == ("/item/2", "Native title")
+        with closing(connect_read_only(fixed / "receipts.sqlite")) as conn:
+            receipt = read_receipt(conn, link["index_receipt_id"])
+            assert receipt.body_ref is not None
+            if index == 0:
+                assert receipt.http_status == 200
+                assert receipt.rss_index_revision == "rss-native-v1"
+                original_id = receipt.receipt_id
+            else:
+                assert receipt.http_status == 304
+                assert receipt.rss_index_revision is None
+                assert receipt.body_ref.receipt_id == original_id
+                assert read_receipt(conn, original_id).rss_index_revision == "rss-native-v1"
+        with closing(connect_read_only(tmp_path / f"market-{index}.sqlite")) as conn:
+            observed = read_observations(conn, replay.report["observation_ids"])
+        (headline,) = [item for item in observed if item.native_locator.startswith("/item/")]
+        assert (headline.native_locator, headline.original_url) == ("/item/2", document_url)
+        assert len(observed) == 2
+    assert session.urls == [index_url, document_url, index_url, document_url]
+    assert session.headers[2]["If-None-Match"] == '"feed-v1"'
+
+
+def test_rss_opt_in_does_not_reclassify_unmarked_200_via_304_without_document_evidence(
+    tmp_path, monkeypatch
+):
+    source = "boj_news"
+    policy = replace(articles.SOURCES[source], max_bodies=0)
+    monkeypatch.setitem(articles.SOURCES, source, policy)
+    feed = (
+        b'<rss xmlns:ext="urn:synthetic:extension"><channel>'
+        b"<ext:item><ext:link>https://www.boj.or.jp/foreign.htm</ext:link></ext:item>"
+        b"<item><link>https://www.boj.or.jp/native.htm</link></item></channel></rss>"
+    )
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, _tz):
+            return SLOT + timedelta(hours=5)
+
+    monkeypatch.setattr(articles, "datetime", Clock)
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {})
+    session = Session([Response(200, feed), Response(304, b"")])
+    for index in range(2):
+        directory = tmp_path / f"old-source-{index}"
+        report = articles.acquire_source(
+            store,
+            source=source,
+            slot=SLOT + timedelta(hours=index * 4),
+            identity=f"old-source-{index}",
+            directory=directory,
+            session=session,
+            rss_native_index=bool(index),
+        )
+        assert report["bodies"] == 0
+        assert json.loads((directory / "result.json").read_text())["document_evidence"] == {}
+        with closing(connect_read_only(directory / "receipts.sqlite")) as conn:
+            assert all(
+                "rss_index_revision" not in json.loads(row[0])
+                for row in conn.execute("SELECT receipt_json FROM article_source_receipts")
+            )
+        database = tmp_path / f"old-source-{index}.sqlite"
+        replay = import_handoff(source, database, directory)
+        assert replay.complete
+        with closing(connect_read_only(database)) as conn:
+            observed = read_observations(conn, replay.report["observation_ids"])
+        assert [(row.native_locator, row.original_url) for row in observed] == [
+            ("/item/0", "https://www.boj.or.jp/foreign.htm"),
+            ("/item/1", "https://www.boj.or.jp/native.htm"),
+        ]
+    assert session.headers[1]["If-None-Match"] == '"feed-v1"'
+
+
+def test_native_rss_frontier_resumes_with_prior_stage_positions(tmp_path, monkeypatch):
+    source = "nhk_news"
+    policy = replace(articles.SOURCES[source], max_pages=1, max_bodies=1, additional_entry_urls=())
+    monkeypatch.setitem(articles.SOURCES, source, policy)
+    first_url = "https://news.web.nhk/news/example"
+    later_url = "https://news.web.nhk/news/later"
+    feed = (
+        '<rss xmlns:ext="urn:synthetic:extension"><channel><ext:item/>'
+        f"<item><guid>first</guid><link>{first_url}</link><title>First</title></item>"
+        f"<item><guid>later</guid><link>{later_url}</link><title>Later</title></item></channel></rss>"
+    ).encode()
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, _tz):
+            return SLOT + timedelta(hours=5)
+
+    monkeypatch.setattr(articles, "datetime", Clock)
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {})
+    session = Session(
+        [
+            Response(200, feed),
+            Response(200, _nhk_description("First body")),
+            Response(200, b"<rss><channel/></rss>"),
+            Response(
+                200, _nhk_description("Later body").replace(first_url.encode(), later_url.encode())
+            ),
+        ]
+    )
+    for index in range(2):
+        report = articles.acquire_source(
+            store,
+            source=source,
+            slot=SLOT + timedelta(hours=index * 4),
+            identity=f"rss-frontier-{index}",
+            directory=tmp_path / f"slot-{index}",
+            session=session,
+            rss_native_index=True,
+        )
+        assert report["failures"] == []
+        assert report["pending_url_count"] == 1 - index
+    assert session.urls == [policy.entry_url, first_url, policy.entry_url, later_url]
+    planning, _ = load_planning(store, source)
+    fixed = tmp_path / "fixed-frontier"
+    download_fixed(store, planning.last_stage, fixed)
+    packet = json.loads((fixed / "result.json").read_text())
+    (link,) = packet["document_evidence"].values()
+    assert (link["article_id"], link["native_locator"], link["title"]) == (
+        "nhk_news:later",
+        "/item/2",
+        "Later",
+    )
+    replay = import_handoff(source, tmp_path / "market-frontier.sqlite", fixed)
+    assert replay.complete
+
+
 @pytest.mark.parametrize("first_schema", [49, 50])
 def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch, first_schema):
     first_packet_market_schema(monkeypatch, first_schema)

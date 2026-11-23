@@ -392,6 +392,8 @@ validateはL2算式/L3履歴の証明でない。原本更新時だけ経済push
 
 - **計画と受領:** 初回は`integration.sources inputs`、以降は不変stage保存後に[planning](src/baibai_jobs/acquisition/article_planning.py)をCAS更新する。sealはcursorを変更しない。CAS失敗やplanning上限に達した場合はstageと未完worksetを保ち、[exact回復](#記事のexact遅着回復)へ。件数上限を合わせるため未完URLを捨てない。
 - **部分取得:** `continuation_only`は正常継続であり完了ではない。HTTP/解析/deadline/CAS/保存を区別する。401/403では当該sourceのpassを止め、失敗受領と未完worksetを保存する。200同値は別受領、304は以前の200 bodyを参照する。
+- **RSSの原本と位置:** `--rss-native-index`で取得した新規index原本は、正規チャネル内の記事と同じ名前空間のリンクを採る。304や再開・固定再生は元の200に記録した読取方式を使う。旧受領・観測は読み替えず、`/item/N`は拡張要素を飛ばしても詰めない。RDFとサイトマップは従来どおり扱う。旧版で拡張要素が記事の指紋に入っていた場合は、最初の新版200でその記事の版・取得候補が更新され得る。
+- **RSS方式の切替:** 定期・手動workflowではこのoptionをまだ有効にしない。先に受領・固定再生を読む新版を配備し、旧日次・記事取得・回復の実行中/待機runがないことを確認する。以降は旧commitの再実行やローカル旧版を現行storeに向けない。optionを戻しても付与済み原本は新版で読む。
 - **対象が消えた場合:** トウシルの正常な一覧から消えた持越し本文の404だけは次回pendingから外す。失敗と欠測は残し、再掲載時は再発見可能。掲載中404、一覧未完、403/429/5xxに当てはめない。同hostの公開301/308は既存予算内で扱い、親子受領・Locationを分ける。一般redirect・認証URL・未許可host・財務省の全期間巡回へ広げない。
 - **結果の読み方:** [summary](src/baibai_jobs/acquisition/articles.py)の`bodies`はHTTP失敗も含む本文receive回数。通信は`requests_used`/`bytes_used`、本文保持はstageの受領とbody参照、正式統合は固定releaseの原本/抽出artifactの読戻しとsealで確認する。[取得契約と予算](../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)
 

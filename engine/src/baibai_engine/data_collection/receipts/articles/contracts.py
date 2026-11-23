@@ -20,6 +20,9 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from baibai_engine.primitives.json import canonical_json
 
+type RssIndexRevision = Literal["rss-native-v1"]
+RSS_NATIVE_V1: RssIndexRevision = "rss-native-v1"
+
 
 def digest_json(value: object) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
@@ -52,6 +55,16 @@ class ArticleReceipt(ArticleValue):
     cooldown_until: AwareDatetime | None = None
     body_ref: BodyRef | None = None
     error_code: str | None = None
+    # A 304 follows the concrete 200's revision via body_ref, never its own clock.
+    rss_index_revision: RssIndexRevision | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def rss_revision_belongs_to_original(self) -> ArticleReceipt:
+        if self.rss_index_revision is not None and (self.status != "ok" or self.http_status != 200):
+            raise ValueError("RSS index revision belongs to the original 200 receipt")
+        return self
 
     @property
     def sha256(self) -> str:

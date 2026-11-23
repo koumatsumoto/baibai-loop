@@ -238,6 +238,33 @@ def test_rss_empty_description_and_news_sitemap_do_not_claim_full_body_or_lastmo
     assert native_time(None, source="boj_news").value is None
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'<rss xmlns="urn:synthetic:rss"><channel/></rss>',
+        b'<rss xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><item><link>https://www.boj.or.jp/native.htm</link><dc:date>2026-11-22</dc:date></item></channel></rss>',
+        b'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/"><item><link>https://www.boj.or.jp/native.htm</link><dc:date>2026-11-22</dc:date></item></rdf:RDF>',
+        b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://www.boj.or.jp/native.htm</loc></url></urlset>',
+    ],
+)
+def test_explicit_rss_revision_does_not_change_clean_items_rdf_sitemap_or_empty(body):
+    url = SOURCES["boj_news"].entry_url
+    assert parse_index(
+        "boj_news", body, url=url, rss_index_revision="rss-native-v1"
+    ) == parse_index("boj_news", body, url=url)
+
+
+def test_native_rss_index_cannot_use_extension_link_without_native_link():
+    body = (
+        b'<rss xmlns:ext="urn:synthetic:extension"><channel><item>'
+        b"<ext:link>https://www.boj.or.jp/foreign.htm</ext:link></item></channel></rss>"
+    )
+    with pytest.raises(ValueError, match="feed item has no link"):
+        parse_index(
+            "boj_news", body, url=SOURCES["boj_news"].entry_url, rss_index_revision="rss-native-v1"
+        )
+
+
 def test_rakuten_login_links_are_headlines_only_and_minkabu_overlap_deduplicates():
     html = b'<a href="https://www.rakuten-sec.co.jp/Direct_Login/?story=1">Synthetic headline</a>'
     (item,) = parse_index("rakuten_news", html, url=SOURCES["rakuten_news"].entry_url)
