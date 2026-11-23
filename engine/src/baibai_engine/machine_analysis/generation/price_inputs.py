@@ -45,7 +45,6 @@ _CONTRACT = FullDayInputContract(
     INPUT_FORMAT,
     "jquants-price-selection-v1",
     "jquants-price-month-v1",
-    allow_legacy_inline=False,
 )
 _PRE_CALENDAR_PROOF_CONTRACT = replace(_CONTRACT, input_format="jquants-price-input-v1")
 

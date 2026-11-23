@@ -80,7 +80,6 @@ class FullDayInputContract:
     input_format: str
     selection_format: str
     month_format: str
-    allow_legacy_inline: bool = False
     receipt_fields: tuple[str, ...] = ("adopted", "failure", "held")
 
 
@@ -283,20 +282,11 @@ def read_full_day_input(
     days: Sequence[date] | None,
     contract: FullDayInputContract,
 ) -> dict[str, Any]:
-    """Resolve a fixed selection, including old inline inputs, without latest/head/runs.
+    """Resolve a compact fixed selection without reading latest heads or Runs.
 
     Read only requested months, or the entire compact interval when days is
     None. Receipt statuses still come from the original packs.
     """
-    if "format" not in descriptor and contract.allow_legacy_inline:
-        if days is None:
-            raise ValueError("a complete selection requires its compact fixed interval")
-        legacy_scopes, legacy_receipts = descriptor["scopes"], descriptor["receipts"]
-        if not isinstance(legacy_scopes, dict) or not isinstance(legacy_receipts, dict):
-            raise ValueError("saved full-day input lacks its fixed selection")
-        if any(day.isoformat() not in legacy_scopes for day in days):
-            raise ValueError("requested interval is outside the saved full-day selection")
-        return _bounded_input(legacy_scopes, legacy_receipts, days, contract)
     if descriptor.get("format") != contract.input_format:
         raise ValueError("unsupported fixed full-day input format")
     digest = descriptor.get("selection_sha256")
