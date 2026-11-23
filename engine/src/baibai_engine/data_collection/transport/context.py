@@ -94,17 +94,13 @@ class FetchContext:
         self.session = requests.Session()
         self.bytes_cache: dict[BytesCacheKey, bytes] = {}
         self.read_deadlines: dict[str, ReadDeadline] = {}
-        # Navigation URL -> why the browser was turned away there. The reason is
-        # kept, not just the fact: a later series that skips the navigation is
-        # the only one reporting, so the evidence has to travel with the record.
-        self.blocked_browser_urls: dict[str, str] = {}
         self.purpose = purpose
         self._browser: BrowserFetcher | None = None
 
     def discard_cached_bytes(
         self, url: str, params: Mapping[str, str] | None, *, allow_redirects: bool = True
     ) -> None:
-        """Drop only this unusable response, keeping other receipts and browser evidence."""
+        """Drop only this unusable response, keeping other cached responses."""
         self.bytes_cache.pop(_bytes_cache_key(url, params, allow_redirects=allow_redirects), None)
 
     def browser_fetcher(self) -> BrowserFetcher:

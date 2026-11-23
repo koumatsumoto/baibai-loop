@@ -170,7 +170,7 @@ class IndicatorsProviderParserTests(TestCase):
                 self.assertEqual(read(allow_redirects=not good), "repaired")
                 self.assertEqual(session.get.call_count, 3)
 
-    def test_discard_cached_bytes_keeps_other_responses_and_browser_evidence(self) -> None:
+    def test_discard_cached_bytes_keeps_other_responses(self) -> None:
         with FetchContext() as context:
             read = partial(
                 fetch_bytes,
@@ -181,20 +181,14 @@ class IndicatorsProviderParserTests(TestCase):
             )
             read(params=None)
             read(params={"month": "1"})
-            context.blocked_browser_urls["https://example.test/data"] = "turned away"
 
             context.discard_cached_bytes("https://example.test/data", None)
 
             self.assertEqual(
                 context.bytes_cache, {("https://example.test/data", (("month", "1"),), True): b"ok"}
             )
-            self.assertEqual(
-                context.blocked_browser_urls, {"https://example.test/data": "turned away"}
-            )
 
     def test_browser_launch_failure_is_reported_as_the_browser_being_unavailable(self) -> None:
-        # The provider's decision not to record a block hangs on this type, so it
-        # is fixed where it is raised rather than only where a fake supplies it.
         # Imported here so Playwright stays off the whole suite's import path,
         # the same reason the production launch is lazy.
         from playwright.sync_api import Error as PlaywrightError
