@@ -25,6 +25,7 @@ from baibai_engine.data_collection.receipts.articles.store import (
     ArticleStoreError,
     read_body,
     read_receipt,
+    read_receipt_body,
 )
 from baibai_engine.machine_analysis.observations.articles.contracts import (
     ArticleObservation,
@@ -113,7 +114,12 @@ def project_receipt(
         status = "unsupported"
         error_code = f"receipt_{receipt.status}"
     else:
-        body = read_body(conn, receipt.body_ref)
+        rss_index_revision = None
+        if kind == "index":
+            original, body = read_receipt_body(conn, receipt)
+            rss_index_revision = original.rss_index_revision
+        else:
+            body = read_body(conn, receipt.body_ref)
         try:
             if kind == "index":
                 native = parse_index(
@@ -121,6 +127,7 @@ def project_receipt(
                     body,
                     url=receipt.requested_url,
                     encoding=receipt.encoding or "utf-8",
+                    rss_index_revision=rss_index_revision,
                 )
             elif kind == "document":
                 native = (

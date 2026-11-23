@@ -131,6 +131,19 @@ def read_body(conn: sqlite3.Connection, ref: BodyRef) -> bytes:
     return _read_original_body(conn, read_receipt(conn, ref.receipt_id), ref)
 
 
+def read_receipt_body(
+    conn: sqlite3.Connection, receipt: ArticleReceipt
+) -> tuple[ArticleReceipt, bytes]:
+    """Read exact bytes and the receipt that owns them, even when replaying a 304."""
+    ref = receipt.body_ref
+    if ref is None:
+        raise ArticleStoreError("article receipt has no original body")
+    original = (
+        receipt if ref.receipt_id == receipt.receipt_id else read_receipt(conn, ref.receipt_id)
+    )
+    return original, _read_original_body(conn, original, ref)
+
+
 def _read_original_body(conn: sqlite3.Connection, receipt: ArticleReceipt, ref: BodyRef) -> bytes:
     if receipt.status != "ok" or receipt.receipt_id != ref.receipt_id or receipt.body_ref != ref:
         raise ArticleStoreError("body reference must name its original 200 receipt")

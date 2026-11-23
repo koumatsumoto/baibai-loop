@@ -21,7 +21,7 @@ from baibai_engine.data_collection.providers.articles.contracts import (
 )
 from baibai_engine.data_collection.providers.articles.html import Node, parse_html, plain_text
 from baibai_engine.data_collection.providers.articles.workbook import parse_workbook
-from baibai_engine.data_collection.receipts.articles.contracts import digest_json
+from baibai_engine.data_collection.receipts.articles.contracts import RssIndexRevision, digest_json
 
 PARSER_REVISION = "article-native-v2"
 MINKABU_PARSER_REVISION = "article-native-minkabu-v3"
@@ -30,6 +30,7 @@ MOF_PARSER_REVISION = "article-native-mof-v7"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024
+_DUBLIN_CORE_DATE = "{http://purl.org/dc/elements/1.1/}date"
 _MOF_YIELD_CSV_URLS = frozenset(
     {
         "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
@@ -117,7 +118,12 @@ def _https(url: str) -> str:
 
 
 def parse_index(
-    source: str, body: bytes, *, url: str, encoding: str = "utf-8"
+    source: str,
+    body: bytes,
+    *,
+    url: str,
+    encoding: str = "utf-8",
+    rss_index_revision: RssIndexRevision | None = None,
 ) -> tuple[NativeArticle, ...]:
     if source in {"tsr_data", "tsr_flash"}:
         entries = json.loads(body.decode("utf-8-sig"))
@@ -192,14 +198,19 @@ def parse_index(
                     )
                 )
             return tuple(result)
+        native_items: set[ET.Element] | None = None
+        namespace = ""
         if root_tag == "rss":
             namespace = root.tag.removesuffix("rss")
             channels = root.findall(namespace + "channel")
             if len(channels) != 1:
                 raise ValueError("RSS requires one direct channel; not a confirmed empty feed")
             item_tag = namespace + "item"
-            if len(channels[0].findall(item_tag)) != sum(1 for _ in root.iter(item_tag)):
+            channel_items = channels[0].findall(item_tag)
+            if len(channel_items) != sum(1 for _ in root.iter(item_tag)):
                 raise ValueError("RSS item outside channel; not a confirmed empty feed")
+            if rss_index_revision is not None:
+                native_items = set(channel_items)
         elif root_tag != "RDF":
             raise ValueError("unsupported article feed root")
         # This order also defines saved locators. Shape checks must not renumber
@@ -207,7 +218,19 @@ def parse_index(
         for index, entry in enumerate(
             node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "item"
         ):
-            fields = {node.tag.rsplit("}", 1)[-1]: node.text or "" for node in entry}
+            if native_items is not None and entry not in native_items:
+                continue
+            children = [
+                (node.tag.rsplit("}", 1)[-1], node.text or "")
+                for node in entry
+                if native_items is None or node.tag == namespace + node.tag.rsplit("}", 1)[-1]
+            ]
+            fields = dict(children)
+            if native_items is not None and "date" not in fields:
+                # Keep the standard Dublin Core date as a fallback, not a core-field override.
+                dc_date = entry.find(_DUBLIN_CORE_DATE)
+                if dc_date is not None:
+                    fields["date"] = dc_date.text or ""
             link = fields.get("link")
             if not link:
                 raise ValueError("feed item has no link")
@@ -225,11 +248,7 @@ def parse_index(
                     "feed_url": url,
                     # ECB's native URL section is retained without interpreting it as a decision.
                     "publication_path": urlsplit(link).path,
-                    "categories": [
-                        node.text or ""
-                        for node in entry
-                        if node.tag.rsplit("}", 1)[-1] == "category"
-                    ],
+                    "categories": [value for name, value in children if name == "category"],
                 }
             result.append(
                 NativeArticle(
