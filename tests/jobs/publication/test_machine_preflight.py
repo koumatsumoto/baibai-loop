@@ -19,7 +19,11 @@ from baibai_engine.storage.snapshots.keys import (
     release_manifest_key,
 )
 from baibai_engine.storage.snapshots.models import DatasetManifest, canonical_lake_model_bytes
-from baibai_engine.storage.snapshots.reader import LakeReadError
+from baibai_engine.storage.snapshots.reader import (
+    LakeReadError,
+    accepted_dataset,
+    resolve_release,
+)
 from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
@@ -65,6 +69,7 @@ def pulled(tmp_path, monkeypatch):
         schema_version=SQLITE_SCHEMA_VERSION,
         observation_days=("2026-11-05", "2026-11-15"),
         keep_optional_history=True,
+        legacy_metrics=False,
     ):
         # The same EDINET wire contract can have been exported by another SQLite version.
         with closing(sqlite3.connect(source)) as db, db:
@@ -74,15 +79,33 @@ def pulled(tmp_path, monkeypatch):
                 "INSERT INTO edinet_metrics(asof_date,ticker,fcf_ttm) VALUES(?,'0000',2)",
                 [(day,) for day in observation_days],
             )
+        catalog = LAKE_DATASETS
+        export_source = source
+        if legacy_metrics:
+            current = catalog[METRICS]
+            legacy = max(current.legacy_read_contracts, key=lambda item: item.contract_version)
+            catalog = {**catalog, METRICS: legacy}
+            export_source = tmp_path / f"{name}.sqlite"
+            with (
+                closing(sqlite3.connect(source)) as live,
+                closing(sqlite3.connect(export_source)) as historical,
+            ):
+                live.backup(historical)
+                previous_columns = {column.name for column in legacy.columns}
+                for column in current.columns:
+                    if column.name not in previous_columns:
+                        historical.execute(
+                            f'ALTER TABLE edinet_metrics DROP COLUMN "{column.name}"'
+                        )
         with monkeypatch.context() as writer_version:
             writer_version.setattr(
                 "baibai_engine.storage.snapshots.writer.SQLITE_SCHEMA_VERSION", schema_version
             )
-            with sealed_sqlite_snapshot(sqlite_path=source, mirror_root=mirror) as snapshot:
+            with sealed_sqlite_snapshot(sqlite_path=export_source, mirror_root=mirror) as snapshot:
                 datasets = (METRICS, OPTIONAL_HISTORY) if keep_optional_history else (METRICS,)
                 reports = [
                     export_dataset_snapshot(
-                        dataset=LAKE_DATASETS[dataset],
+                        dataset=catalog[dataset],
                         mirror_root=mirror,
                         producer_git_commit="a" * 40,
                         source_snapshot=snapshot,
@@ -92,7 +115,7 @@ def pulled(tmp_path, monkeypatch):
                     for dataset in datasets
                 ]
         path, manifest = create_release(
-            catalog=LAKE_DATASETS,
+            catalog=catalog,
             policy=release_policy_for_profile("production"),
             dataset_manifest_paths=[report.manifest_path for report in reports],
             mirror_root=mirror,
@@ -194,6 +217,46 @@ def test_pointer_only_partial_recovery_keeps_strict_source_seal_read(pulled, is_
         with pytest.raises(LakePublishError, match="differs from the current lake release"):
             read_published_machine(remote)
     assert remote.put_keys == []
+    assert sha256_file(market) == before
+
+
+@pytest.mark.parametrize("stale", ["paired", "forward-origin", "forward-target"])
+def test_readable_historical_edinet_metrics_do_not_authorize_daily(pulled, stale):
+    market, remote, receipt, publish, set_pointer = pulled
+
+    class FixedMetadata:
+        read_bytes = remote.get_bytes
+
+    newer = AT + timedelta(seconds=1)
+    name, _, digest = publish(
+        "historic-metrics",
+        created_at=newer if stale == "forward-target" else AT,
+        schema_version=SQLITE_SCHEMA_VERSION
+        if stale == "forward-target"
+        else SQLITE_SCHEMA_VERSION - 1,
+        legacy_metrics=True,
+    )
+    historical = resolve_release(FixedMetadata(), name, manifest_sha256=digest)
+    current = LAKE_DATASETS[METRICS]
+    assert accepted_dataset(historical, current).contract_version < current.contract_version
+
+    if stale != "forward-target":
+        supplied = LakeStoreOrigin(name, digest)
+        with closing(sqlite3.connect(market)) as db, db:
+            write_lake_store_origin(db, supplied)
+        remote.store_object("market.sqlite", market.read_bytes())
+        receipt["keys"]["market.sqlite"] = remote.values["market.sqlite"].etag
+        receipt["daily_publication"] = origin_fields("12345-1", supplied)
+    payload = json.dumps(receipt).encode()
+    remote.store_object("machine-manifest.json", payload)
+    if stale == "forward-origin":
+        name, _, digest = publish("forward-current", created_at=newer)
+    set_pointer(name, digest)
+
+    before = sha256_file(market)
+    with pytest.raises(machine_preflight.MachinePreflightError, match="current EDINET metrics"):
+        machine_preflight.check_daily_input(remote, market=market, receipt=payload)
+    assert not remote.put_keys
     assert sha256_file(market) == before
 
 

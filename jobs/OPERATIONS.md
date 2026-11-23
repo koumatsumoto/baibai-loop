@@ -45,7 +45,7 @@ gh run watch "${RUN_ID:?対象の日次run IDを指定}" --exit-status --interva
 
 | 同じrun・attemptで確認する到達点 | 成功してもまだ保証しないこと |
 | --- | --- |
-| lease内でMarket/Runsの対応receiptを照合して一度取得し、Market schema・DB内originと現行Lakeのmanifestを確認 | 完全hydrateや全データの受入ではない。不一致なら経済にも手をつけない。 |
+| lease内でMarket/Runsの対応receiptを照合して一度取得し、Market schema・DB内origin・有効なLakeのEDINET指標契約が現行版か確認 | 完全hydrateや全データの受入ではない。前向き再開でも旧契約は引き継がず、不一致なら経済にも手をつけない。 |
 | 経済L1の受領を公開・読戻し・sealし、次の経済取得inputを発行 | 他のmarket入力、L2、Web。後段が失敗しても経済L1を戻さない。 |
 | 到着済みmarket受領を固定し、取得済みMarketをhydrate。固定原本の投影とEDINET抽出を適用 | 全providerの充足。個別の失敗/延期は残し、他sourceを進める。 |
 | [モデル生成](src/baibai_jobs/integration/models.py)で候補外も含むGenerationと、そのSelectionを保存し、対応するlake releaseを公開 | machine転送。個社投影失敗では新Generation・Selection・releaseを出さず、索引だけ失敗すれば作業DBにGenerationは残り得る。 |
@@ -131,6 +131,14 @@ with_publication_lease jobs/scripts/r2_transfer.sh push-indicators
 model-integrationは生成に使ったreleaseも公開するため、後からpublish-lakeを挟まない。単独のL2修正は上表のpublish-lakeを使う。machineはmarket/runsへ非原子的にPUTし、全成功後にmachine-manifest.jsonを作る。前世代backupはkey.bakの一世代で次回置換される。
 
 実際の転送を検証する切替では、`push-machine --evidence-dir <新しいprivate dir>`を使う。市場の転送用DB、compact済みruns、manifestの送信body・If-Match・応答ETagを新規private directoryに保持する。証拠保持失敗や応答不明では後続PUTを止め、先行ackと未確認keyを分ける。3件のackはpair・内容の受入ではない。実body SHAと別の読戻しを結び、新旧世代・manifest/pointerを照合する。runner消失で唯一の証拠を失わない保存先を用意し、本文・ETagを公表しない。
+
+### Market保存契約の単発切替
+
+日次・通常pushでは契約を移行しない。旧版の内容は[版を固定して](#fixed-release-read)調べられるが、日次への旧契約の持込みを許すものではない。
+
+切替前に旧reader/writerを止め、lease内でMarket/Runs/receipt/Lake pointerの一致と元の版を固定・保全する。固定した元releaseを旧版で隔離copyにhydrateし、列も含めて明示的に新版へ移行してから書き出す。必要な履歴の旧列・範囲を比較し、SQLite由来の全datasetを同じ新sealで検証する。旧Parquetや受領を上書きしない。
+
+Lake pointer・Market・receiptは一括更新ではない。通常の `publish-lake → push-market` を跨バージョン切替に使わない。最後のreceiptまで各応答・送信body・読戻しを保全し、途中で結果が不明なら停止して確定済みの境界を確認する。元bodyに戻してもETagが変われば元receiptは使えない。復元または前向き完了を隔離リハーサルで確認できるまでは、混在状態で再開しない。切替後は現行版で新たにpullし、手動の日次でrelease・seal・lease解放まで確認する。
 
 ### 部分 push からの復旧
 

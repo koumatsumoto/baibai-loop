@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
-from baibai_engine.storage.snapshots.models import SQLiteSnapshotSourceRef
+from baibai_engine.storage.snapshots.models import ReleaseManifest, SQLiteSnapshotSourceRef
 from baibai_engine.storage.snapshots.reader import (
     LakeReadError,
     read_release_manifest,
@@ -46,6 +46,13 @@ class _ReleaseMetadata:
 
     def read_bytes(self, key: str) -> bytes:
         return self.get_bytes(key)
+
+
+def _require_active_edinet_metrics(manifest: ReleaseManifest) -> None:
+    dataset = LAKE_DATASETS["edinet.metrics"]
+    entry = manifest.datasets.get(dataset.name)
+    if entry is None or entry.contract_version != dataset.contract_version:
+        raise MachinePreflightError("daily Market requires the current EDINET metrics contract")
 
 
 def check_daily_input(store: ObjectStore, *, market: Path, receipt: bytes) -> bool:
@@ -84,6 +91,8 @@ def check_daily_input(store: ObjectStore, *, market: Path, receipt: bytes) -> bo
     required = {item.dataset for item in policy.datasets if item.required}
     if not required <= target.datasets.keys() <= permitted:
         raise MachinePreflightError("current Lake does not declare the required Market datasets")
+    # Historical decoders do not authorize using a stale release in the daily writer.
+    _require_active_edinet_metrics(target)
     for name, entry in target.datasets.items():
         contract = LAKE_DATASETS[name].read_contract(entry.contract_version)
         if entry.layer != contract.layer:
@@ -98,6 +107,7 @@ def check_daily_input(store: ObjectStore, *, market: Path, receipt: bytes) -> bo
     previous = resolve_release(
         source, supplied.release_id, manifest_sha256=supplied.release_manifest_sha256
     )
+    _require_active_edinet_metrics(previous.manifest)
     if target.created_at <= previous.manifest.created_at:
         raise MachinePreflightError("forward hydrate needs a newer Lake than the pulled origin")
     fixed = resolve_current_release(
