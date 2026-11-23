@@ -54,11 +54,40 @@ def attempt(identity, *, at=AT, value=1, extra=()):
     )
 
 
+def test_generation_requires_fixed_financial_input_instead_of_the_sqlite_projection(tmp_path):
+    market = market_store(
+        tmp_path / "market.sqlite",
+        daily_bars=(("1301", DAY.isoformat(), 100.0, 1.0),),
+        short_sale_reports=(),
+    )
+    # A valid historical row must not turn an omitted input into a successful generation.
+    payload = json.dumps({"Code": "13010", "DiscDate": DAY.isoformat(), "DiscNo": "1", "Sales": 99})
+    with sqlite3.connect(market) as connection:
+        connection.execute(
+            "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
+            ("1301", DAY.isoformat(), "1", payload),
+        )
+    with (
+        sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "mirror") as snapshot,
+        pytest.raises(TypeError, match="financial_input"),
+    ):
+        generation.read_and_generate_models(
+            generation_id="missing-financial",
+            market_snapshot=snapshot,
+            market_release=InputRelease(release_id="market-only", manifest_sha256="a" * 64),
+            economic_input=None,
+            as_of=DAY,
+            evaluation_time=AT,
+            ttm_rules=DEFAULT_TTM_RULES,
+            tickers=("1301",),
+        )
+
+
 @pytest.mark.parametrize(
     ("value", "expected_sales"), [(1, 1.0), (10**400, None), (-(10**400), None)]
 )
 def test_native_financial_inputs_generate_all_models_without_old_financial_projection(
-    tmp_path, monkeypatch, value, expected_sales
+    tmp_path, value, expected_sales
 ):
     store = MemoryR2Store()
     owner = FinancialL1(store, tmp_path / "native")
@@ -74,11 +103,12 @@ def test_native_financial_inputs_generate_all_models_without_old_financial_proje
         daily_bars=(("1301", DAY.isoformat(), 100.0, 1.0),),
         short_sale_reports=(),
     )
-    monkeypatch.setattr(
-        generation,
-        "read_financial_documents",
-        lambda *a, **k: pytest.fail("old financial projection was read"),
-    )
+    # Fail if generation tries to decode the stale projection instead of fixed L1.
+    with sqlite3.connect(market) as connection:
+        connection.execute(
+            "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
+            ("1301", DAY.isoformat(), "1", "invalid SQLite projection"),
+        )
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "mirror") as snapshot:
         stream = generation.read_and_generate_models(
             generation_id="native-financial",
