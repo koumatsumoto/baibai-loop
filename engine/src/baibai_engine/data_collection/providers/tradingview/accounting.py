@@ -40,6 +40,12 @@ def account_batch(
         raise BatchAccountingError("duplicate_missing_symbol")
     if set(data) & set(names) or set(data) | set(names) != set(symbols):
         raise BatchAccountingError("response_accounting_mismatch")
-    if payload.get("count") != len(data) or payload.get("missing_count") != len(names):
+    count, missing_count = payload.get("count"), payload.get("missing_count")
+    if (
+        type(count) is not int
+        or type(missing_count) is not int
+        or count != len(data)
+        or missing_count != len(names)
+    ):
         raise BatchAccountingError("response_count_mismatch")
     return data, set(names)

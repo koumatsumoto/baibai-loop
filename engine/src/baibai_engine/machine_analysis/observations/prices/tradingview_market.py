@@ -71,6 +71,7 @@ def read_market_observation(capture: MarketToolCapture) -> dict[str, Any]:
         or payload.get("format") != "rows"
         or not isinstance(bars, list)
         or len(bars) > args["count"]
+        or type(payload.get("count")) is not int
         or payload.get("count") != len(bars)
     ):
         raise ValueError("market bars differ from the exact request")
@@ -225,11 +226,15 @@ def stored_market_context(path: Path, *, asof: date, known_at: datetime) -> dict
                 "last_bar_may_change": bool(last),
                 "price_adjustment": observation.get("price_adjustment"),
             }
+            if last is not None and not _usable_volume(last["v"]):
+                # Volume can be absent for an index. Keep valid prices and the exact receipt.
+                candidate["last_bar"] = {**last, "v": None}
+                candidate["volume_status"] = "invalid"
             _keep_latest(
                 bars,
                 symbol,
                 candidate,
-                compare=("status", "last_bar_at", "last_bar", "price_adjustment"),
+                compare=("status", "last_bar_at", "last_bar", "price_adjustment", "volume_status"),
             )
     partial = (
         invalid
@@ -237,6 +242,7 @@ def stored_market_context(path: Path, *, asof: date, known_at: datetime) -> dict
         or not quotes
         or not bars
         or any(x["status"] != "received" for x in [*quotes.values(), *bars.values()])
+        or any("volume_status" in row for row in bars.values())
     )
     return {
         "coverage": "not_observed" if not rows else "partial" if partial else "received",
@@ -251,6 +257,14 @@ def stored_market_context(path: Path, *, asof: date, known_at: datetime) -> dict
             "supplemental_provider_observations_not_official_close_or_execution_price"
         ),
     }
+
+
+def _usable_volume(value: Any) -> bool:
+    return (
+        value is None
+        or (type(value) is int and value >= 0)
+        or (type(value) is float and math.isfinite(value) and value >= 0)
+    )
 
 
 def _positive_finite(value: Any) -> bool:
