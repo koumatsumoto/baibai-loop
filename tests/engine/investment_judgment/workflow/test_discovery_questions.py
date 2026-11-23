@@ -1,13 +1,16 @@
 """未知の銘柄を価格対権利の問いから実際の根拠へ。発見は割安・発注の認定ではない。"""
 
+import gzip
 import json
 from datetime import UTC, datetime, timedelta
+from unittest.mock import Mock
 
 import pytest
 from tests.engine.investment_judgment.workflow.test_technical_financial_context import seed
 
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.workflow.discovery import PriceCoordinateMinimum, _explore
+from baibai_engine.machine_analysis.screening import selection_store
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoveryPolicy,
@@ -306,3 +309,72 @@ def test_explicit_comparison_does_not_mix_groups_or_fill_a_missing_value():
     )["next_args"] == ["--discovery-question", "universe", *minimum.args(), "--screening-page", "1"]
     with pytest.raises(ValueError, match="finite"):
         PriceCoordinateMinimum("earning_power", "annual_ttm", "reported", float("nan"))
+
+
+@pytest.mark.parametrize("with_older_current", [False, True])
+def test_cli_implicit_discovery_stops_at_newest_old_index(
+    tmp_path, monkeypatch, capsys, with_older_current
+):
+    runs, app = tmp_path / "runs", tmp_path / "absent-app"
+    generation, source, now = seed(runs)
+    store = ScreeningSelectionStore(runs)
+    rows = tuple(observation(ticker) for ticker in source.universe_tickers)
+    with monkeypatch.context() as patch:
+        clock = Mock(wraps=datetime)
+        patch.setattr(selection_store, "datetime", clock)
+        if with_older_current:
+            clock.now.return_value = now + timedelta(seconds=1)
+            store.publish(
+                discovery_publication_id(generation.generation_id),
+                ScreeningSelection(
+                    generation.generation_id,
+                    source.universe_tickers,
+                    DiscoverySelection(DiscoveryPolicy(), rows, {}),
+                ),
+            )
+        clock.now.return_value = now + timedelta(seconds=2)
+        archived_policy = DiscoveryPolicy(method="opportunity-discovery-v1")
+        archived_id = discovery_publication_id(
+            generation.generation_id, method=archived_policy.method
+        )
+        store.publish(
+            archived_id,
+            ScreeningSelection(
+                generation.generation_id,
+                source.universe_tickers,
+                DiscoverySelection(archived_policy, rows, {}),
+            ),
+        )
+    now += timedelta(seconds=3)
+    args = [
+        "selection-context",
+        "--request",
+        "株を調べる",
+        "--scope",
+        "discover_new",
+        "--runs-path",
+        str(runs),
+        "--db",
+        str(app),
+    ]
+    before = runs.read_bytes()
+
+    with monkeypatch.context() as patch:
+        decompress = Mock(wraps=gzip.decompress)
+        patch.setattr(gzip, "decompress", decompress)
+        assert main(args, now=now) == 3
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "inputs_required"
+        assert result["missing_inputs"] == [{"code": "current_discovery_index_required"}]
+        assert result["screening_selection_id"] == archived_id
+        assert "repeat_command_args" not in result
+        assert "discovery" not in result
+        decompress.assert_not_called()
+
+    assert main([*args, "--screening-selection-id", archived_id], now=now) == 0
+    historic = json.loads(capsys.readouterr().out)
+    assert historic["status"] == "ready"
+    assert historic["screening_selection_id"] == archived_id
+    assert historic["discovery"]["coverage"]["universe_count"] == len(rows)
+    assert runs.read_bytes() == before
+    assert not app.exists()

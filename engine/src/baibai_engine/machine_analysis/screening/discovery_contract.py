@@ -80,7 +80,7 @@ class DiscoveryRow(TypedDict):
 
 @dataclass(frozen=True, slots=True)
 class DiscoveryIndexRead:
-    status: Literal["no_publication", "publication_without_index", "indexed"]
+    status: Literal["no_publication", "publication_without_index", "noncurrent_index", "indexed"]
     selection_id: str | None = None
     generation_id: str | None = None
     as_of: date | None = None
@@ -122,10 +122,6 @@ def discovery_publication_method(selection_id: str, generation_id: str) -> Disco
     if suffix.startswith("opportunity-discovery-") or "-opportunity-discovery-" in suffix:
         raise ValueError("unknown discovery publication version or identity")
     return None
-
-
-def is_discovery_publication(selection_id: str, generation_id: str) -> bool:
-    return discovery_publication_method(selection_id, generation_id) is not None
 
 
 _ROW_CODEC = TypeAdapter(tuple[DiscoveryRow, ...])
