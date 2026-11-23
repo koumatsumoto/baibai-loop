@@ -138,9 +138,14 @@ def test_manual_exact_plan_is_not_rebound_and_invalid_cycle_is_rejected():
 @pytest.mark.parametrize("day", [date(2026, 10, 9), date(2026, 10, 11), date(2026, 10, 12)])
 def test_new_daily_plan_reads_calendar_and_exact_master_only_and_resumes_its_release(tmp_path, day):
     store, _master = build_native_master(tmp_path, snapshot=FRIDAY, calendar=CALENDAR)
-    run_id = f"external-assessment-daily-{day.isoformat()}"
+    run_id = f"external-assessment-daily-monex-{day.isoformat()}"
     p = daily.initialize(
-        store, run_id=run_id, master_asof=None, observation_date=day, mirror=tmp_path / "cache"
+        store,
+        run_id=run_id,
+        master_asof=None,
+        observation_date=day,
+        mirror=tmp_path / "cache",
+        source="monex",
     )
     assert json.loads(p.universe_binding)["master_asof"] == FRIDAY.isoformat()
     assert json.loads(p.universe_binding)["master_native_input"]["kind"] == "native_l1"
@@ -149,7 +154,14 @@ def test_new_daily_plan_reads_calendar_and_exact_master_only_and_resumes_its_rel
     store.get_keys.clear()
     store.head_keys.clear()
     assert (
-        daily.initialize(store, run_id=run_id, master_asof=None, observation_date=day, mirror=None)
+        daily.initialize(
+            store,
+            run_id=run_id,
+            master_asof=None,
+            observation_date=day,
+            mirror=None,
+            source="monex",
+        )
         == p
     )
     assert current_release_pointer_key() not in store.head_keys
@@ -177,6 +189,7 @@ def test_unavailable_calendar_or_exact_master_creates_no_plan(tmp_path, fault):
             master_asof=None,
             observation_date=date(2026, 10, 12),
             mirror=tmp_path / "cache",
+            source="monex",
         )
     assert not any(key.endswith("/plan.json") for key in store.put_keys)
 
@@ -199,10 +212,11 @@ def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path):
     store, _ = build_native_master(tmp_path, snapshot=basis, calendar=calendar)
     p = daily.initialize(
         store,
-        run_id="external-assessment-daily-2026-01-02",
+        run_id="external-assessment-daily-monex-2026-01-02",
         master_asof=None,
         observation_date=date(2026, 1, 2),
         mirror=tmp_path / "cache",
+        source="monex",
     )
     assert json.loads(p.universe_binding)["master_asof"] == basis.isoformat()
     assert not any(key.endswith(".parquet") for key in store.get_keys)
@@ -308,3 +322,69 @@ def test_workflow_pins_original_clock_and_passes_inputs_through_env(tmp_path, ev
         assert "manual-fixed" in args
         assert "--master-asof" in args
         assert "--run-created-at" not in args
+
+
+@pytest.mark.parametrize("scheduled", [True, False])
+def test_workflow_all_builds_independent_current_source_plans(
+    tmp_path, monkeypatch, capsys, scheduled
+):
+    parent = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
+    caller = parent["jobs"]["source"]
+    assert caller["with"]["source"] == "${{ matrix.source }}"
+    child = yaml.load(
+        WORKFLOW.with_name(Path(caller["uses"]).name).read_text(), Loader=yaml.BaseLoader
+    )
+    job = child["jobs"]["acquire"]
+    assert job["env"]["SOURCE"] == "${{ inputs.source }}"
+    acquire = job["steps"][-1]["run"]
+    fake_uv = tmp_path / "uv"
+    fake_uv.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    fake_uv.chmod(0o700)
+    clock(monkeypatch, CREATED)
+    args = ["prepare", "--source", "all"]
+    if scheduled:
+        args += ["--run-created-at", CREATED.isoformat()]
+    else:
+        args += ["--batch-id", "manual", "--master-asof", FRIDAY.isoformat()]
+    assert sources.main(args) == 0
+    matrix = json.loads(capsys.readouterr().out)
+    store = FakeObjectStore()
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: store)
+    monkeypatch.setattr(
+        daily,
+        "_native_master_universe",
+        lambda *a, **kw: (("7203",), '{"master_asof":"2026-10-09"}'),
+    )
+    acquired = []
+
+    def acquire_source(store, plan, *, source, collect_before):
+        acquired.append((source, plan.run_id, plan.sources, plan.collector_binding))
+        return {"status": "acquired"}
+
+    monkeypatch.setattr(sources, "acquire_source", acquire_source)
+    for row in json.loads(matrix["source_runs"]):
+        env = {
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "SOURCE": row["source"],
+            "SOURCE_RUN_ID": row["run_id"],
+            "MASTER_ASOF": matrix["master_asof"],
+            "OBSERVATION_DATE": matrix["observation_date"],
+            "RUNNER_TEMP": str(tmp_path / row["source"]),
+        }
+        command = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", acquire],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        assert command[:4] == ["run", "python", "-m", sources.__name__]
+        assert sources.main(command[4:]) == 0
+    label = "external-assessment-daily-{}-2026-10-11" if scheduled else "{}-manual"
+    assert acquired == [
+        (source, label.format(source), (source,), collection.collector_binding(source=source))
+        for source in ("monex", "kabumap")
+    ]
+    assert set(store.objects) == {
+        staging.prefix(run_id) + "/plan.json" for _, run_id, *_ in acquired
+    }

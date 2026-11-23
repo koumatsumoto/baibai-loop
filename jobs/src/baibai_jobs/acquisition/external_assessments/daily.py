@@ -95,11 +95,11 @@ def initialize(
     run_id: str,
     master_asof: date | None,
     mirror: Path | None,
+    source: ExternalAssessmentSource,
     require_existing: bool = False,
     observation_date: date | None = None,
-    source: ExternalAssessmentSource | None = None,
 ) -> RunPlan:
-    if source is not None and source not in SOURCES:
+    if source not in SOURCES:
         raise ValueError("unsupported acquisition source")
     if (master_asof is None) == (observation_date is None):
         raise ValueError(
@@ -107,7 +107,7 @@ def initialize(
         )
     existing = read_plan(store, run_id)
     if existing is not None:
-        if source is not None and existing.sources != (source,):
+        if existing.sources != (source,):
             raise ValueError("saved plan source differs; old multi-source plans cannot be reused")
         saved_master = date.fromisoformat(json.loads(existing.universe_binding)["master_asof"])
         if master_asof is not None and saved_master != master_asof:
@@ -129,7 +129,7 @@ def initialize(
         tickers=tickers,
         universe_binding=binding,
         collector_binding=external_assessment_collector_binding(source=source),
-        sources=(source,) if source is not None else SOURCES,
+        sources=(source,),
     )
     save_new_plan(store, plan)
     return plan

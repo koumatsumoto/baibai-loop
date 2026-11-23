@@ -45,10 +45,15 @@ def test_saved_plan_master_assertion_is_checked_without_refreezing(monkeypatch):
 
     monkeypatch.setattr(daily, "_native_master_universe", unexpected_master)
     assert (
-        daily.initialize(store, run_id=p.run_id, master_asof=date(2026, 10, 11), mirror=None) == p
+        daily.initialize(
+            store, run_id=p.run_id, master_asof=date(2026, 10, 11), mirror=None, source="monex"
+        )
+        == p
     )
     with pytest.raises(ValueError, match="master assertion changed"):
-        daily.initialize(store, run_id=p.run_id, master_asof=date(2026, 10, 12), mirror=None)
+        daily.initialize(
+            store, run_id=p.run_id, master_asof=date(2026, 10, 12), mirror=None, source="monex"
+        )
 
 
 def test_initial_native_plan_and_saved_resume_keep_immutable_universe(tmp_path):
@@ -56,7 +61,9 @@ def test_initial_native_plan_and_saved_resume_keep_immutable_universe(tmp_path):
 
     store, _master = build_native_master(tmp_path)
     cache = tmp_path / "private-plan-cache"
-    p = daily.initialize(store, run_id="new-master-only", master_asof=ASOF, mirror=cache)
+    p = daily.initialize(
+        store, run_id="new-master-only", master_asof=ASOF, mirror=cache, source="monex"
+    )
     assert p.tickers == tuple(sorted((*map(str, range(1000, 3500)), "130A")))
     assert json.loads(p.universe_binding)["master_native_input"]["kind"] == "native_l1"
     assert cache.stat().st_mode & 0o777 == 0o700
@@ -64,17 +71,25 @@ def test_initial_native_plan_and_saved_resume_keep_immutable_universe(tmp_path):
     assert not list(tmp_path.rglob("*.sqlite"))
     del store.values[HEAD_KEY]
     store.get_keys.clear()
-    assert daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None) == p
+    assert (
+        daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None, source="monex") == p
+    )
     assert store.get_keys == [staging.prefix(p.run_id) + "/plan.json"]
 
 
 def test_new_plan_requires_cache_and_native_master_before_plan_writes(tmp_path):
     store = MemoryR2Store()
     with pytest.raises(ValueError, match="master cache directory"):
-        daily.initialize(store, run_id="missing-cache", master_asof=ASOF, mirror=None)
+        daily.initialize(
+            store, run_id="missing-cache", master_asof=ASOF, mirror=None, source="monex"
+        )
     with pytest.raises(LakePublishError, match="explicit cutover"):
         daily.initialize(
-            store, run_id="missing-native", master_asof=ASOF, mirror=tmp_path / "cache"
+            store,
+            run_id="missing-native",
+            master_asof=ASOF,
+            mirror=tmp_path / "cache",
+            source="monex",
         )
     assert not store.put_keys
 
@@ -84,8 +99,23 @@ def test_old_saved_collector_binding_can_load_without_release_reads(monkeypatch)
     store = FakeObjectStore()
     staging.save_new_plan(store, p)
     store.events.clear()
-    assert daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None) == p
+    assert (
+        daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None, source="monex") == p
+    )
     assert all(key == staging.prefix(p.run_id) + "/plan.json" for _, key in store.events)
+
+
+def test_initialization_cannot_reuse_a_plan_without_one_source():
+    prior = plan(sources=("monex", "kabumap"))
+    store = FakeObjectStore()
+    staging.save_new_plan(store, prior)
+    before = store.objects.copy()
+    with pytest.raises(TypeError, match="source"):
+        daily.initialize(store, run_id=prior.run_id, master_asof=ASOF, mirror=None)
+    with pytest.raises(ValueError, match="old multi-source"):
+        daily.initialize(store, run_id=prior.run_id, master_asof=ASOF, mirror=None, source="monex")
+    assert staging.read_plan(store, prior.run_id) == prior
+    assert store.objects == before
 
 
 def test_corrupt_native_master_cannot_publish_a_new_plan(tmp_path):
@@ -97,7 +127,11 @@ def test_corrupt_native_master_cannot_publish_a_new_plan(tmp_path):
         (ValueError, LakePublishError), match="fixed full-day L1 pack is unavailable"
     ):
         daily.initialize(
-            store, run_id="corrupt-master", master_asof=ASOF, mirror=tmp_path / "cache"
+            store,
+            run_id="corrupt-master",
+            master_asof=ASOF,
+            mirror=tmp_path / "cache",
+            source="monex",
         )
     assert not any(key.endswith("/plan.json") for key in store.put_keys)
 
