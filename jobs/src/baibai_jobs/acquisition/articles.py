@@ -161,6 +161,7 @@ def acquire_source(
         min_interval_seconds=policy.min_interval_seconds or 5.0,
     )
     planning = dict(state.requests)
+    rss_index_http_statuses: set[int] = set()
     discovery_replays = 0
     discovery_edges: dict[str, list[dict[str, Any]]] = {}
     pending_urls = list(cursor.get("pending_urls", []))
@@ -535,6 +536,15 @@ def acquire_source(
                     partial = True
                     page_url = entry_urls.pop(0) if entry_urls else None
                     continue
+                # Count only parsed indexes with a verified current body, never a
+                # document response or an unsolicited 304 that needed a fresh GET.
+                status = receipt.http_status
+                if (
+                    rss_index_revision == RSS_NATIVE_V1
+                    and status is not None
+                    and status in (200, 304)
+                ):
+                    rss_index_http_statuses.add(status)
                 if frontier is not None:
                     reference = {
                         "stage": {"stage_id": stage_id},
@@ -756,6 +766,11 @@ def acquire_source(
         },
         "stage_id": saved_stage["stage_id"],
         "manifest_sha256": saved_stage["manifest_sha256"],
+        **(
+            {"rss_index_http_statuses": sorted(rss_index_http_statuses)}
+            if rss_index_http_statuses
+            else {}
+        ),
     }
 
 

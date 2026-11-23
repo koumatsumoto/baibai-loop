@@ -423,7 +423,7 @@ stage原本の読取はrelease所属/抽出成功/長期保持の証明でなく
 3. **必要な現行入力だけを引き継ぐ。** RSSはsource別の最後のstage、未統合stage、保留URL/frontierと固定出典を照合する。正規と証明できない旧pendingは新出典に付け替えず、一覧不明なら中止する。FREDは移行0件を優先し、なお必要な適格pendingだけを固定の旧stage ID・manifest SHAで隔離読取し、原本bytes・時刻・範囲のまま現行zstdへ一度移す。既済・明示回復要・真の遅着を変換せず、旧成功watermarkを進める新受付より先に照合する。既存leaseやCASを無視して並行書込みをしない。
 4. **後継だけを開始する。** 旧pathは無権限・定期/手動triggerなしの履歴用とし、後継3入口は従来のcronと直列queueを引き継ぐ。runにひもづくSHAをcheckoutし、同じattemptの旧writer停止確認に合格するまで資格情報を使わない。失敗jobだけの旧確認再利用で開始しない。日次のlease内Market先行preflightと経済L1、source適用、seal、既存通知tagを保持する。FREDの保存は `stage-fred` だけ。過去を調べるために旧コードを使う場合は、固定原本の隔離copyだけに向ける。現行復旧は現行コードに固定stage IDとmanifest SHAを与える。
 5. **後継の初回受入を確認する。** 別途承認された切替時だけ、最初の取得対象枠で通常の手動 `group=scheduled` を一度使い、日銀新着（`boj_news`）のRSS indexが実際にHTTP 200を受けたことと、その固定stageが普通の日次で採用・照合されたことを結ぶ。単にjobが成功したことや未到来・対象外でのskipは代用しない。後続で自然に発生した304が同じ200を参照する確認は追加証拠であり、304を強制しない。FREDは先に許可した `group=fred_csv` の一つの `source_id` だけを通常入口で取得し、単一zstdのstage ID・manifest SHA・圧縮/展開サイズ・codecを、普通の日次での同一受領の適用・正本読戻し・sealに結ぶ。強制再取得、旧入口や別の試験用writerは使わない。
-   - 記事の現行stdoutは実index HTTP statusを示さず、FREDの現行staging stdoutはmanifest SHAを示さない。この差分だけでは受入を証明できない。承認済みの既存証拠で両方を個別に照合できない場合は、切替前に対象source/runに限定した受入証跡を別途用意する。秘密・原本本文は出力せず、未確認の証拠を成功扱いしない。不一致・未確認なら新受付を止め、現行readerと最後に確認した正本を残す。旧workflow・旧形式で運用を再開しない。
+   - 記事の `rss_index_http_statuses` はその固定stageで受領した現行RSS indexの200/304だけを示す。本文取得の失敗やpartialを成功に変えない。FREDのstagingログは確定した `stage_id` と `manifest_sha256` だけを示す。codec・圧縮/展開サイズはログに出さないため、承認された読取で同じmanifestを照合して補う。stageの成立と日次の正本読戻しは別に確認する。秘密・原本本文は出力せず、未確認の証拠を成功扱いしない。不一致・未確認なら新受付を止め、現行readerと最後に確認した正本を残す。旧workflow・旧形式で運用を再開しない。
 
 ### 記事のexact遅着回復
 

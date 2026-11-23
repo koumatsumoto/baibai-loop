@@ -468,7 +468,7 @@ def archived_raw(store, stage, directory, *, prefix=None):
 
 
 def test_current_cli_stages_only_zstd_and_daily_leaves_old_raw_untouched(
-    tmp_path, packet, monkeypatch
+    tmp_path, packet, monkeypatch, capsys
 ):
     canonical, directory = packet
     store = VerifiedReads()
@@ -481,7 +481,19 @@ def test_current_cli_stages_only_zstd_and_daily_leaves_old_raw_untouched(
 
     monkeypatch.setattr(handoff, "Boto3R2Store", lambda **kwargs: store)
     monkeypatch.setattr(store, "close", lambda: None, raising=False)
-    assert handoff.main(["stage-fred", "--stage-id", STAGE, "--directory", str(directory)]) == 0
+    outputs = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+    command = ["stage-fred", "--stage-id", STAGE, "--directory", str(directory)]
+    assert handoff.main([*command, "--source-id", "fred-payems"]) == 1
+    assert capsys.readouterr().out == ""
+    assert not outputs.exists()
+    assert store.values == preserved
+
+    assert handoff.main(command) == 0
+    witness = json.loads(capsys.readouterr().out)
+    manifest_sha256 = digest(store.values[f"{live_prefix()}/handoff.json"].body)
+    assert witness == {"stage_id": STAGE, "manifest_sha256": manifest_sha256}
+    assert outputs.read_text() == f"handoff={STAGE}\n"
     assert set(store.values) - set(preserved) == {
         f"{live_prefix()}/handoff.json",
         *(
@@ -493,7 +505,8 @@ def test_current_cli_stages_only_zstd_and_daily_leaves_old_raw_untouched(
     heads, gets = len(store.head_keys), len(store.get_keys)
     report = integrate_economic(store, tmp_path / "live", canonical, ASOF)
     [outcome] = report["handoffs"]
-    assert outcome["entry"]["stage_id"] == STAGE
+    assert outcome["entry"]["stage_id"] == witness["stage_id"]
+    assert outcome["entry"]["manifest_sha256"] == witness["manifest_sha256"]
     assert outcome["entry"]["namespace"] == FRED_HANDOFF_NAMESPACE
     assert outcome["applied"] is True
     assert outcome["failed"] is False

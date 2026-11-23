@@ -1,7 +1,7 @@
 import gzip
 import json
 import sqlite3
-from contextlib import closing
+from contextlib import closing, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
@@ -334,12 +334,14 @@ def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, mon
         assert report["failures"] == []
         assert report["bodies"] == 1
         assert report["pending_url_count"] == 0
+        assert report["rss_index_http_statuses"] == [200 if index == 0 else 304]
         planning, _ = load_planning(store, source)
         fixed = tmp_path / f"fixed-{index}"
         download_fixed(store, planning.last_stage, fixed)
         replay = import_handoff(source, tmp_path / f"market-{index}.sqlite", fixed)
         assert replay.complete
         packet = json.loads((fixed / "result.json").read_text())
+        assert "rss_index_http_statuses" not in packet
         (link,) = packet["document_evidence"].values()
         assert (link["native_locator"], link["title"]) == ("/item/2", "Native title")
         with closing(connect_read_only(fixed / "receipts.sqlite")) as conn:
@@ -361,6 +363,49 @@ def test_new_boj_rss_200_and_304_queue_and_replay_only_native_link(tmp_path, mon
         assert len(observed) == 2
     assert session.urls == [index_url, document_url, index_url, document_url]
     assert session.headers[2]["If-None-Match"] == '"feed-v1"'
+
+
+def test_rss_witness_ignores_unbound_304_and_document_status(tmp_path, monkeypatch, capsys):
+    source = "boj_news"
+    marker = "not-for-public-output"
+    url = f"https://www.boj.or.jp/{marker}.htm"
+    feed = f"<rss><channel><item><title>{marker}</title><link>{url}</link></item></channel></rss>"
+    session = Session([Response(304, b""), Response(200, feed.encode()), Response(403, b"")])
+    store = CLIStore()
+    publish_planning_input(store, source, {})
+    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(articles.requests, "Session", lambda: nullcontext(session))
+    monkeypatch.setitem(articles.GROUPS, "scheduled", (source,))
+    assert (
+        articles.main(
+            [
+                "--group",
+                "scheduled",
+                "--created-at",
+                SLOT.isoformat(),
+                "--identity",
+                "witness",
+                "--directory",
+                str(tmp_path),
+            ]
+        )
+        == 1
+    )
+    public = capsys.readouterr().out
+    [report] = json.loads(public)["sources"]
+    saved = load_planning(store, source)[0].last_stage
+    assert saved is not None
+    assert report["rss_index_http_statuses"] == [200]
+    assert report["stage_id"] == saved["stage_id"]
+    assert report["manifest_sha256"] == saved["manifest_sha256"]
+    assert session.urls == [articles.SOURCES[source].entry_url] * 2 + [url]
+    assert marker not in public
+    assert {"receipt_ids", "projection_kinds", "document_evidence", "discovery_edges"}.isdisjoint(
+        report
+    )
+    assert "rss_index_http_statuses" not in json.loads(
+        (tmp_path / source / "result.json").read_text()
+    )
 
 
 def test_cutover_replaces_only_legacy_rss_index_validator_and_keeps_fixed_original(
