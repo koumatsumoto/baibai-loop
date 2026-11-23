@@ -7,26 +7,35 @@ import json
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
+from html.parser import HTMLParser
 from math import isfinite
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import urljoin
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from httpx2 import ByteStream, MockTransport, Request, Response
+from httpx2 import ByteStream, Headers, MockTransport, Request, Response
 
 from baibai_engine.data_collection.providers.alpaca import (
     BarsResponse,
     DailyBarsQuery,
     capture_daily_bars,
 )
-from baibai_engine.data_collection.providers.sec_edgar import SecEdgarQuery, capture_sec_edgar
+from baibai_engine.data_collection.providers.sec_edgar import (
+    SecEdgarQuery,
+    SecEdgarReceipt,
+    SecReportedTicker,
+    capture_sec_edgar,
+    observe_reported_ticker,
+)
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
     simple_moving_average,
 )
 from baibai_engine.machine_analysis.observations.financials.sec_companyfacts import (
     SecCompanyFactsCapture,
     SecFilingWitness,
+    SecPublicFilingObservation,
     SecRevenueAmbiguity,
     observe_sec_revenue,
 )
@@ -71,6 +80,62 @@ def _native(row: _Record, load: _Loader) -> tuple[bytes, int, datetime]:
     if type(status) is not int or not 100 <= status <= 599:
         raise ValueError("invalid captured HTTP status")
     return body, status, _clock(row["received_at"])
+
+
+def _content_headers(record: _Record) -> Headers:
+    raw = record.get("headers", {})
+    if not isinstance(raw, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str) for key, value in raw.items()
+    ):
+        raise ValueError("invalid captured SEC response headers")
+    return Headers({key: value for key, value in raw.items() if key.lower() in _CONTENT_HEADERS})
+
+
+def _recorded_sec(
+    query: SecEdgarQuery, record: _Record, load: _Loader
+) -> SecEdgarReceipt | Literal["transport_error"]:
+    body, status, received = _native(record, load)
+    headers = _content_headers(record)
+
+    def recorded_response(request: Request) -> Response:
+        return Response(status, stream=ByteStream(body), headers=headers, request=request)
+
+    return capture_sec_edgar(
+        query,
+        transport=MockTransport(recorded_response),
+        contact_email="offline-replay@example.invalid",
+        attempt_id=UUID(record["attempt_id"]),
+        clock=lambda: received,
+    )
+
+
+def _complete_single_hop(record: _Record, url: str) -> bool:
+    return (
+        record.get("request_url") == record.get("response_url") == url
+        and record.get("complete") is True
+        and record.get("redirected") is False
+    )
+
+
+def _ticker_identity(
+    subject: _Record, symbol: str, cik: str, load: _Loader, cutoff: datetime
+) -> SecReportedTicker | str:
+    record = subject.get("submissions")
+    if record is None:
+        return "sec_identity:submissions_receipt_missing"
+    try:
+        if _clock(record["received_at"]) > cutoff:
+            return "sec_identity:not_yet_received"
+        query = SecEdgarQuery("submissions", cik)
+        if not _complete_single_hop(record, query.url):
+            return "sec_identity:submissions_response_scope_unverified"
+        receipt = _recorded_sec(query, record, load)
+        if isinstance(receipt, str):
+            return f"sec_identity:{receipt}"
+        observed = observe_reported_ticker(receipt, symbol=symbol, expected_cik=cik, cutoff=cutoff)
+        return f"sec_identity:{observed}" if isinstance(observed, str) else observed
+    except (KeyError, TypeError, ValueError, OSError, ArithmeticError):
+        return "sec_identity:invalid_fixed_submissions"
 
 
 def _alpaca(
@@ -124,6 +189,97 @@ def _filing(record: _Record) -> SecFilingWitness:
     )
 
 
+class _IndexDocument(HTMLParser):
+    """Recognize the SEC index title and the complete submission link in its body."""
+
+    def __init__(self, index_url: str) -> None:
+        super().__init__()
+        self._index_url = index_url
+        self._submission_url = index_url.removesuffix("-index.htm") + ".txt"
+        self.titles: list[str] = []
+        self.has_submission = False
+        self.complete = False
+        self._in_head = False
+        self._in_body = False
+        self._body_closed = False
+        self._text: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "head":
+            self._in_head = True
+        elif tag == "title" and self._in_head:
+            self._text = []
+        elif tag == "body":
+            self._in_body = True
+        elif tag == "a" and self._in_body and not self.has_submission:
+            self.has_submission = any(
+                key == "href"
+                and value is not None
+                and urljoin(self._index_url, value) == self._submission_url
+                for key, value in attrs
+            )
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "head":
+            self._in_head = False
+            self._text = None
+        elif tag == "title" and self._text is not None:
+            self.titles.append(" ".join("".join(self._text).split()))
+            self._text = None
+        elif tag == "body" and self._in_body:
+            self._in_body = False
+            self._body_closed = True
+        elif tag == "html" and self._body_closed:
+            self.complete = True
+
+    def handle_data(self, data: str) -> None:
+        if self._text is not None:
+            self._text.append(data)
+
+
+def _public_index(
+    record: _Record | None, load: _Loader, filing: SecFilingWitness, cutoff: datetime
+) -> SecPublicFilingObservation | None:
+    # A future receipt must not contribute evidence or invalidate an earlier proof.
+    if record is None or _clock(record["received_at"]) > cutoff:
+        return None
+    url = record["request_url"]
+    if not isinstance(url, str) or not _complete_single_hop(record, url):
+        raise ValueError("SEC filing index requires a complete, single-hop response")
+    body, status, observed_at = _native(record, load)
+    if status != 200:
+        raise ValueError("SEC filing index was not received with HTTP 200")
+    headers = _content_headers(record)
+    length = headers.get("Content-Length")
+    transfer = headers.get("Transfer-Encoding")
+    media = headers.get("Content-Type", "text/html").split(";", 1)[0].strip().lower()
+    if (
+        "Content-Range" in headers
+        or headers.get("Content-Encoding", "identity").strip().lower() != "identity"
+        or (transfer is not None and (transfer.strip().lower() != "chunked" or length is not None))
+        or (length is not None and (length.strip().lstrip("0") or "0") != str(len(body)))
+        or media not in {"text/html", "application/xhtml+xml"}
+    ):
+        raise ValueError("incomplete, encoded or inconsistent SEC filing index response")
+    parser = _IndexDocument(url)
+    parser.feed(body.decode("utf-8", errors="replace"))
+    parser.close()
+    if not (
+        parser.complete
+        and parser.has_submission
+        and parser.titles == [f"EDGAR Filing Documents for {filing.accession}"]
+    ):
+        raise ValueError("SEC filing index body is incomplete or identifies another accession")
+    identity = json.dumps([url, observed_at.isoformat(), record["sha256"]]).encode()
+    return SecPublicFilingObservation(
+        issuer_cik=filing.issuer_cik,
+        accession=filing.accession,
+        observed_at=observed_at,
+        receipt_id=f"sec-index:{sha256(identity).hexdigest()}",
+        index_url=url,
+    )
+
+
 def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], str | None]:
     source = subject.get("companyfacts")
     if source is None:
@@ -132,26 +288,10 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
     try:
         if _clock(source["received_at"]) > cutoff:
             return [], "sec_companyfacts_not_yet_received"
-        body, status, received = _native(source, load)
-        headers = {
-            key: value
-            for key, value in source.get("headers", {}).items()
-            if key.lower() in _CONTENT_HEADERS
-        }
-
-        def recorded_response(request: Request) -> Response:
-            return Response(status, stream=ByteStream(body), headers=headers, request=request)
-
         query = SecEdgarQuery("companyfacts", subject["cik"])
         if source.get("request_url", query.url) != query.url:
             return [], "sec_request_scope_mismatch"
-        wire = capture_sec_edgar(
-            query,
-            transport=MockTransport(recorded_response),
-            contact_email="offline-replay@example.invalid",
-            attempt_id=UUID(source["attempt_id"]),
-            clock=lambda: received,
-        )
+        wire = _recorded_sec(query, source, load)
         if isinstance(wire, str):
             return [], "sec_transport_error"
         evidence.append(
@@ -166,12 +306,13 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
             return evidence, "sec_filing_witness_missing"
         if _clock(filing_record["received_at"]) > cutoff:
             return evidence, "sec_filing_not_yet_received"
-        public_seen = filing_record.get("public_seen_at")
+        public_index = filing_record.get("public_index")
+        public_seen = filing_record.get("public_seen_at") if public_index is None else None
         if public_seen is not None and (seen := _clock(public_seen)) <= cutoff:
             if seen < _clock(filing_record["accepted_at"]):
                 return evidence, "sec_invalid_fixed_evidence"
             evidence.append(
-                f"提出の公開を確認した時刻: {seen.isoformat()}（初回公表の証明ではない）"
+                f"公開を見た申告時刻: {seen.isoformat()}（原本未照合・初回公表の証明ではない）"
             )
         if filing_record["published_at"] is None:
             evidence.append("独立した初回公表時刻は未確認。")
@@ -185,6 +326,7 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
             period_start=_day(subject["period_start"]),
             period_end=_day(subject["period_end"]),
             cutoff=cutoff,
+            publicly_observed_by=_public_index(public_index, load, filing, cutoff),
         )
         if isinstance(result, str):
             return evidence, f"sec_{result}"
@@ -195,7 +337,16 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
                     f"原本位置 `{', '.join(candidate.fact_paths)}`"
                 )
             return evidence, f"sec_revenue_concepts_unresolved:{result.reason}"
-        publication_ref = _label(result.filing.publication_ref)
+        if result.filing.publication_ref is not None:
+            proof = f"独立公表証拠 `{_label(result.filing.publication_ref)}`"
+        elif (observed := result.publicly_observed_by) is not None:
+            proof = (
+                f"SEC提出索引の公開確認: {observed.observed_at.isoformat()}"
+                "（初回公表の証明ではない）; "
+                f"`{observed.receipt_id}`; {observed.index_url}"
+            )
+        else:
+            raise ValueError("SEC revenue observation has no publication evidence")
         evidence += [
             (
                 f"SEC実績売上: USD {result.amount:,} "
@@ -203,7 +354,7 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
             ),
             (
                 f"提出 `{result.filing.accession}` ({result.filing.form}); "
-                f"独立公表証拠 `{publication_ref}`; 原本位置 `{', '.join(result.fact_paths)}`"
+                f"{proof}; 原本位置 `{', '.join(result.fact_paths)}`"
             ),
         ]
         return evidence, None
@@ -309,15 +460,20 @@ def render_research(bundle: _Record, load: _Loader, *, synthetic: bool) -> str:
         symbol = subject["symbol"]
         # Validate the native label even if there is no usable page.
         DailyBarsQuery((symbol,), cutoff.date(), cutoff.date(), "-", "split")
-        ref = _label(subject["identity_ref"])
         cik = SecEdgarQuery("companyfacts", subject["cik"]).cik
         price_notes, price_problem = _price(symbol, observations, problem)
-        sec_notes, sec_problem = _sec(subject, load, cutoff)
+        identity = _ticker_identity(subject, symbol, cik, load, cutoff)
+        sec_notes, sec_problem = (
+            ([], identity) if isinstance(identity, str) else _sec(subject, load, cutoff)
+        )
         reasons = [reason for reason in (price_problem, sec_problem) if reason is not None]
         state = "hold_for_evidence" if reasons else "research_candidate"
-        lines.extend(
-            ["", f"## {symbol} | {state}", f"- 固定した発行体 CIK `{cik}`（対応根拠 `{ref}`）"]
-        )
+        lines.extend(["", f"## {symbol} | {state}", f"- 照会した発行体 CIK `{cik}`。"])
+        if not isinstance(identity, str):
+            lines.append(
+                f"- SEC提出一覧の銘柄対応: `{identity.identity_ref}` "
+                f"（受領 {identity.received_at.isoformat()}）。市場・株式クラスは表紙で別確認。"
+            )
         lines.extend(f"- {note}" for note in price_notes + sec_notes)
         if reasons:
             lines.append(f"- 未充足: `{', '.join(reasons)}`")
@@ -363,6 +519,25 @@ def _fixture() -> tuple[_Record, dict[str, bytes]]:
             **meta,
         }
 
+    def submissions(symbol: str, cik: str, attempt: int) -> _Record:
+        url = SecEdgarQuery("submissions", cik).url
+        return add(
+            f"{symbol}-submissions.json",
+            {
+                "cik": cik,
+                "tickers": [symbol],
+                "filings": {
+                    "recent": {"accessionNumber": [], "form": [], "acceptanceDateTime": []},
+                    "files": [],
+                },
+            },
+            request_url=url,
+            response_url=url,
+            attempt_id=str(UUID(int=attempt)),
+            complete=True,
+            redirected=False,
+        )
+
     query = DailyBarsQuery(("AAPL", "NVDA"), start, days[-1], "-", "split")
     page = add(
         "alpaca.json",
@@ -407,7 +582,7 @@ def _fixture() -> tuple[_Record, dict[str, bytes]]:
             {
                 "symbol": "AAPL",
                 "cik": "0000320193",
-                "identity_ref": "fixture-only-apple",
+                "submissions": submissions("AAPL", "320193", 2),
                 **period,
                 "companyfacts": companyfacts,
                 "filing": {
@@ -424,7 +599,7 @@ def _fixture() -> tuple[_Record, dict[str, bytes]]:
             {
                 "symbol": "NVDA",
                 "cik": "0001045810",
-                "identity_ref": "fixture-only-nvidia",
+                "submissions": submissions("NVDA", "1045810", 3),
                 **period,
                 "companyfacts": None,
                 "filing": None,
