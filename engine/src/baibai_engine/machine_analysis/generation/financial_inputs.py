@@ -28,7 +28,6 @@ _CONTRACT = FullDayInputContract(
     INPUT_FORMAT,
     "jquants-financial-selection-v1",
     "jquants-financial-month-v1",
-    allow_legacy_inline=True,
 )
 
 

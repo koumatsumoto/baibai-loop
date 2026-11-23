@@ -13,7 +13,6 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     PREFIX,
     FinancialAttempt,
     FinancialL1,
-    read_financial_requests,
 )
 from baibai_engine.machine_analysis.generation.financial_inputs import (
     INPUT_PREFIX,
@@ -164,7 +163,7 @@ def test_missing_or_corrupt_fixed_objects_fail_without_latest_fallback(tmp_path,
     assert not (tmp_path / "failed").exists()
 
 
-def test_legacy_inline_membership_is_readable_but_not_a_current_projection(tmp_path):
+def test_legacy_inline_membership_is_rejected_before_reading_fixed_objects(tmp_path):
     store = MemoryR2Store()
     owner = FinancialL1(store, tmp_path / "native")
     owner.initialize()
@@ -182,24 +181,16 @@ def test_legacy_inline_membership_is_readable_but_not_a_current_projection(tmp_p
         sha256=hashlib.sha256(canonical_json(descriptor).encode()).hexdigest(),
         descriptor=descriptor,
     )
-    for key in tuple(store.values):
-        if key.startswith(INPUT_PREFIX) or key == HEAD_KEY:
-            del store.values[key]
-    store.get_keys.clear()
-    selected = read_financial_input(store, descriptor, days=(day,))
-    assert set(selected["scopes"]) == {day.isoformat()}
-    assert set(selected["receipts"]) == {"feb"}
-    assert not store.get_keys
-    (retained,) = read_financial_requests(store, **selected, days=(day,))
-    assert retained.request_id == "feb"
-    assert retained.request.pages[0].body == b'{"data":[]}'
-
     store.get_keys.clear()
     store.head_keys.clear()
+    store.put_keys.clear()
+    with pytest.raises(ValueError, match="unsupported fixed full-day input format"):
+        read_financial_input(store, descriptor, days=(day,))
+
     output = tmp_path / "legacy"
     with pytest.raises(SavedFinancialProjectionRevisionMismatch, match="projection revision"):
         rebuild_saved_input(store, saved, start=day, end=day, output=output)
-    assert store.get_keys == store.head_keys == []
+    assert store.get_keys == store.head_keys == store.put_keys == []
     assert not output.exists()
 
 
