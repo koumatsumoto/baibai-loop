@@ -62,6 +62,15 @@ def _transfer_commands(log: Path) -> list[str]:
     ]
 
 
+def _store_get(command: str, key: str | None = None) -> bool:
+    if (
+        not command.startswith("s3api get-object ")
+        or "--query [ETag, ContentLength]" not in command
+    ):
+        return False
+    return key is None or f"--key {key} " in command
+
+
 def test_sqlite_helpers_run_from_the_repository_when_called_elsewhere(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     root = _fake_repo(tmp_path)
@@ -548,8 +557,7 @@ def test_a_bundle_pull_refuses_a_set_the_receipt_does_not_name(tmp_path: Path) -
     assert "jobs/OPERATIONS.md" in completed.stderr
     # The refusal happens before anything is downloaded, so the local stores stand.
     assert not any(
-        command.startswith("s3 cp s3://baibai-stores/")
-        for command in _transfer_commands(tmp_path / "pull" / "aws.log")
+        _store_get(command) for command in _transfer_commands(tmp_path / "pull" / "aws.log")
     )
 
 
@@ -1460,9 +1468,7 @@ def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) 
     assert completed.returncode == 0
     commands = _transfer_commands(log)
     downloads = [
-        index
-        for index, command in enumerate(commands)
-        if command.startswith("s3 cp s3://baibai-stores/indicators.sqlite ")
+        index for index, command in enumerate(commands) if _store_get(command, "indicators.sqlite")
     ]
     merges = [index for index, command in enumerate(commands) if command.startswith("merge ")]
     uploads = [
@@ -1530,9 +1536,7 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
     assert completed.returncode == 0
     commands = _transfer_commands(log)
     downloads = [
-        index
-        for index, command in enumerate(commands)
-        if command.startswith("s3 cp s3://baibai-stores/market.sqlite ")
+        index for index, command in enumerate(commands) if _store_get(command, "market.sqlite")
     ]
     merges = [index for index, command in enumerate(commands) if command.startswith("merge ")]
     uploads = [
@@ -1722,12 +1726,101 @@ def test_pull_machine_refuses_a_snapshot_that_straddles_a_push(tmp_path: Path) -
         for index, line in enumerate(commands)
         if line.startswith("s3api head-object ") and "--query ETag" in line
     ]
-    downloads = [index for index, line in enumerate(commands) if line.startswith("s3 cp s3://")]
+    downloads = [index for index, line in enumerate(commands) if _store_get(line)]
     # Every store's version is read before any download and re-read after all of
     # them; a straddle is only visible from both sides.
     assert len(downloads) == 2
     assert versions[:2] == [0, 1]
     assert min(versions[2:]) > max(downloads)
+
+
+@pytest.mark.parametrize(
+    ("args", "key"),
+    [
+        (["pull-machine"], "market.sqlite"),
+        (["pull-machine"], "runs.sqlite"),
+        (["pull-machine", "--daily-preflight"], "runs.sqlite"),
+        (["pull-market"], "market.sqlite"),
+        (["pull-runs"], "runs.sqlite"),
+        (["pull-indicators"], "indicators.sqlite"),
+        (["push-market"], "market.sqlite"),
+        (["push-indicators"], "indicators.sqlite"),
+    ],
+)
+def test_get_between_two_identical_heads_cannot_install_or_merge_another_store(
+    tmp_path: Path, args: list[str], key: str
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    _install_fixture_receipt(env)
+    state = Path(env["AWS_FAKE_STATE"])
+    local = {
+        **_machine_stores(root),
+        "indicators.sqlite": root / "stores/market_context/indicators.sqlite",
+    }
+    # SQLite's own integrity check cannot distinguish two valid generations.
+    for path, label in (
+        (state / f"put-{key}", "receipt A"),
+        (state / f"transient-{key}", "intervening B"),
+    ):
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("CREATE TABLE origin(value TEXT) STRICT")
+            connection.execute("INSERT INTO origin VALUES (?)", (label,))
+            assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
+    for path in local.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"prior working copy")
+
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", *args],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "synthetic-private-value" not in result.stdout + result.stderr
+    assert all(p.read_bytes() == b"prior working copy" for p in local.values())
+    commands = _transfer_commands(log)
+    assert not _remote_writes(log)
+    assert not any(line.startswith("merge ") for line in commands)
+    (download,) = [line for line in commands if _store_get(line, key)]
+    assert '--if-match "etag-stable"' in download
+    if args[0].startswith("pull-"):
+        names = ("market.sqlite", "runs.sqlite") if args[0] == "pull-machine" else (key,)
+        assert not any((Path(env["R2_GENERATION_DIR"]) / f"{k}.etag").exists() for k in names)
+    assert not list(root.glob(".r2-transfer.*"))
+
+
+@pytest.mark.parametrize("metadata", ['"etag-other"\t1', '"etag-stable"\t2'])
+def test_successful_conditional_get_still_checks_the_returned_version_and_length(
+    tmp_path: Path, metadata: str
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    _install_fixture_receipt(env)
+    (Path(env["AWS_FAKE_STATE"]) / "get-metadata-runs.sqlite").write_text(metadata)
+    local = _machine_stores(root)
+    for path in local.values():
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"before")
+
+    completed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-machine"],
+        cwd=root,
+        env=env,
+        check=False,
+        capture_output=True,
+    )
+
+    assert completed.returncode != 0
+    assert all(path.read_bytes() == b"before" for path in local.values())
+    assert not any((Path(env["R2_GENERATION_DIR"]) / f"{k}.etag").exists() for k in local)
+    assert not _remote_writes(log)
 
 
 def test_pull_machine_replaces_every_store_when_no_push_intervened(tmp_path: Path) -> None:
@@ -1790,7 +1883,7 @@ def test_pull_machine_without_a_readable_receipt_preserves_local_store_bytes(
     assert {file.name for file in Path(env["R2_GENERATION_DIR"]).iterdir()} == {
         "indicators.sqlite.etag"
     }
-    assert not any(line.startswith("s3 cp ") for line in _transfer_commands(log))
+    assert not any(_store_get(line) for line in _transfer_commands(log))
     assert not _remote_writes(log)
     assert not list(root.glob(".r2-transfer.*"))
 
@@ -2640,9 +2733,7 @@ def test_explicit_fred_recovery_is_bound_to_the_fresh_download_and_conditional_p
     assert completed.returncode == 0, completed.stderr
     commands = _transfer_commands(log)
     download = next(
-        i
-        for i, command in enumerate(commands)
-        if command.startswith("s3 cp s3://baibai-stores/indicators.sqlite ")
+        i for i, command in enumerate(commands) if _store_get(command, "indicators.sqlite")
     )
     recheck = next(i for i, command in enumerate(commands) if command.startswith("merge "))
     upload = next(

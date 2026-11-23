@@ -215,6 +215,35 @@ remote_object_exists() {
   exit 2
 }
 
+# Only the GET that supplied a SQLite body can attest its version and length.
+# Surrounding HEADs alone cannot distinguish A -> B -> A during the transfer.
+download_store_snapshot() {
+  local key="$1" body="$2" expected="${3:-}" response version length
+  local -a condition=()
+  if [[ $# -eq 3 ]]; then
+    etag_body "${expected}" >/dev/null || return
+    condition+=(--if-match "${expected}")
+  fi
+  if ! response="$(aws s3api get-object --bucket "${stores_bucket}" --key "${key}" \
+    "${condition[@]}" --endpoint-url "${endpoint}" --query '[ETag, ContentLength]' \
+    --output text "${body}" 2>/dev/null)"; then
+    printf 'store download failed for %s (details withheld)\n' "${key}" >&2
+    return 1
+  fi
+  IFS=$'\t' read -r version length <<< "${response}"
+  if [[ "${response}" != "${version}"$'\t'"${length}" || ! "${length}" =~ ^[1-9][0-9]*$ ]] \
+    || [[ ! -f "${body}" || "$(wc -c < "${body}")" != "${length}" ]]; then
+    printf 'store download length or metadata differs for %s (details withheld)\n' "${key}" >&2
+    return 1
+  fi
+  etag_body "${version}" >/dev/null || return
+  if [[ -n "${expected}" && "${version}" != "${expected}" ]]; then
+    printf 'store download did not return the requested generation for %s\n' "${key}" >&2
+    return 1
+  fi
+  printf '%s\n' "${version}"
+}
+
 store_path() {
   case "$1" in
     market.sqlite) printf '%s/stores/market/market.sqlite\n' "${repo_root}" ;;
@@ -637,9 +666,11 @@ pull_keys() {
     done
     require_machine_receipt "${observed[@]}"
   fi
+  index=0
   for key in "$@"; do
-    aws_s3 cp "s3://${stores_bucket}/${key}" "${transfer_staging}/${key}"
+    download_store_snapshot "${key}" "${transfer_staging}/${key}" "${versions[index]}" >/dev/null
     check_sqlite "${transfer_staging}/${key}"
+    index=$((index + 1))
   done
   if [[ ${daily_preflight} -eq 1 ]]; then
     (cd "${repo_root}" && uv run python -m baibai_jobs.publication.machine_preflight \
@@ -893,7 +924,7 @@ pull_app() {
   # cloud へ反映する)。未公開変更を失わないよう、既存の作業copyは置換しない。
   # ファイルがあれば止める。publish 済みで未 push の判断は再生成できず、上書きすると
   # 復元手段が無い。CI は checkout 直後で stores/application/ が空なので素通りする。
-  local key=baibai.sqlite target body response version length current pull_fd
+  local key=baibai.sqlite target body version current pull_fd
   target="$(store_path "${key}")"
   # Another pull must not retire our marker after our App and marker are installed.
   # Lock the stable local directory, not either file; process exit releases the lock.
@@ -910,20 +941,7 @@ pull_app() {
   clear_pulled_versions "${key}"
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   body="${transfer_staging}/${key}"
-  # The same GET must identify the bytes we install. Matching HEADs around an
-  # unpinned copy can miss an intervening version if the original is restored.
-  if ! response="$(aws s3api get-object --bucket "${stores_bucket}" --key "${key}" \
-    --endpoint-url "${endpoint}" --query '[ETag, ContentLength]' --output text "${body}" 2>/dev/null)"; then
-    printf 'application store download failed (details withheld)\n' >&2
-    return 1
-  fi
-  IFS=$'\t' read -r version length <<< "${response}"
-  if [[ "${response}" != "${version}"$'\t'"${length}" || ! "${length}" =~ ^[1-9][0-9]*$ ]] \
-    || [[ ! -f "${body}" || "$(wc -c < "${body}")" != "${length}" ]]; then
-    printf 'application store download length or metadata differs (details withheld)\n' >&2
-    return 1
-  fi
-  etag_body "${version}" >/dev/null || return
+  version="$(download_store_snapshot "${key}" "${body}")"
   check_sqlite "${body}"
   current="$(remote_version "${key}" 2>/dev/null)" || {
     printf 'application store generation could not be checked (details withheld)\n' >&2
@@ -1096,7 +1114,7 @@ case "${1:-}" in
     # A local copy can miss newer cloud rows. Merge them before the conditional PUT.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
     market_version="$(remote_version market.sqlite)"
-    aws_s3 cp "s3://${stores_bucket}/market.sqlite" "${transfer_staging}/market.sqlite"
+    download_store_snapshot market.sqlite "${transfer_staging}/market.sqlite" "${market_version}" >/dev/null
     check_sqlite "${transfer_staging}/market.sqlite"
     merge_market_store "${transfer_staging}/market.sqlite" "$(store_path market.sqlite)"
     cleanup_staging
@@ -1112,7 +1130,7 @@ case "${1:-}" in
     # A late or unconfirmed receipt remains local for explicit source recovery.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
     indicator_version="$(remote_version indicators.sqlite)"
-    aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
+    download_store_snapshot indicators.sqlite "${transfer_staging}/indicators.sqlite" "${indicator_version}" >/dev/null
     check_sqlite "${transfer_staging}/indicators.sqlite"
     merge_economic_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)" "$@"
     cleanup_staging

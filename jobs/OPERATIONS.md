@@ -79,7 +79,7 @@ gh workflow run cloud-batch-watchdog.yml --ref main -f "check_date=${ASOF:?対�
 uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores --format json
 ```
 
-現在のmarket・runs・経済の作業copyを一括で用意するのは `jobs/scripts/pull.sh`。market/runsはreceiptと両ETagを照合した組だけを取得する。receiptの不存在・読取失敗・不一致では作業DBを置換せず、古いpush用ETagも無効にする。hydrate時のmarket origin照合は別に行う。applicationは`pull-app`で取得する。歴史の固定入力を現在のcopyへ付け替えない。
+現在のmarket・runs・経済の作業copyを一括で用意するのは `jobs/scripts/pull.sh`。market/runsはreceiptが指す両ETagを条件に取得する。各GETと同じ応答のETag・サイズ、取得後の両ETagが一致した組だけを作業DBに置く。receiptの不存在・読取失敗・不一致では作業DBを置換せず、古いpush用ETagも無効にする。hydrate時のmarket origin照合は別に行う。applicationは`pull-app`で取得する。歴史の固定入力を現在のcopyへ付け替えない。
 
 <a id="local-release-hydrate"></a>
 ### 完全local mirrorからのhydrate
@@ -100,7 +100,7 @@ ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済
 <a id="machine-publication"></a>
 ## 共通公開とmachineの復旧
 
-market/runs・経済の更新は、作業を準備してから同一の[publication lease](src/baibai_jobs/publication/lease.py)内でfresh正本と取得ETagを照合する。market/runsは元bundleの組を保つ。lake tableを変更するなら先にhydrateし、公開と転送の間に値を変更しない。転送側のoriginと件数確認では同数の書換えを検出できない。未知のschemaや照合未了のEDINET原本を捨てない。
+market/runs・経済の更新は、作業を準備してから同一の[publication lease](src/baibai_jobs/publication/lease.py)内でfresh正本と取得ETagを照合する。market/runsは元bundleの組を保つ。Market・経済の単独pushでは、取得ETagを指定して読んだ正本だけをmergeし、そのETagで条件付きPUTする。lake tableを変更するなら先にhydrateし、公開と転送の間に値を変更しない。転送側のoriginと件数確認では同数の書換えを検出できない。未知のschemaや照合未了のEDINET原本を捨てない。
 
 `push-machine`・`push-runs`・`push-market`・`push-indicators`・`restore-machine-receipt`・`upload-portfolio-views`には`PUBLICATION_LEASE_HANDLE`が必要。途中でownerが失効/交代したら次writeを止め、[部分公開の状態](#部分-push-からの復旧)を確認する。`uv run python -m baibai_jobs.publication.lease verify --handle "$PUBLICATION_LEASE_HANDLE"`は延長でも、writeとの一括保証でもない。application更新・初回seed・source固有CASのnative L1はこの共通leaseの対象外。
 

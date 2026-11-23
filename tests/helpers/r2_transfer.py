@@ -135,7 +135,8 @@ if [[ "$1 $2" == "s3api get-object" ]]; then
   key=""
   destination=""
   wants_etag=""
-  wants_app_metadata=""
+  wants_store_metadata=""
+  if_match=""
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == "--key" ]]; then
       key="$2"
@@ -144,24 +145,43 @@ if [[ "$1 $2" == "s3api get-object" ]]; then
       wants_etag=1
     fi
     if [[ "$1" == "--query" && "$2" == "[ETag, ContentLength]" ]]; then
-      wants_app_metadata=1
+      wants_store_metadata=1
+    fi
+    if [[ "$1" == "--if-match" ]]; then
+      if_match="$2"
     fi
     destination="$1"
     shift
   done
   slug="$(printf '%s' "$key" | tr / _)"
   stored="${AWS_FAKE_STATE}/put-${slug}"
-  if [[ "$key" == baibai.sqlite && -n "$wants_app_metadata" ]]; then
-    if [[ -n "${AWS_FAKE_APP_GET_ERROR:-}" ]]; then
-      printf 'synthetic-private-value' >&2
+  if [[ -n "$wants_store_metadata" ]]; then
+    version="$(object_etag "$slug")"
+    if [[ "$key" == "${AWS_FAKE_CHANGED_KEY:-}" ]]; then
+      version='"etag-'"$(wc -c < "$AWS_FAKE_STATE/calls-$slug" | tr -d ' ')"'"'
+    fi
+    if [[ -f "$AWS_FAKE_STATE/transient-$slug" ]]; then
+      stored="$AWS_FAKE_STATE/transient-$slug"
+      version='"etag-transient"'
+    fi
+    if [[ "$key" == baibai.sqlite ]]; then
+      if [[ -n "${AWS_FAKE_APP_GET_ERROR:-}" ]]; then
+        printf 'synthetic-private-value' >&2
+        exit 254
+      fi
+      version="${AWS_FAKE_APP_GET_ETAG:-$version}"
+    fi
+    if [[ -n "$if_match" && "$if_match" != "$version" ]]; then
+      printf 'PreconditionFailed (synthetic-private-value)' >&2
       exit 254
     fi
     if [[ -f "$stored" ]]; then cp "$stored" "$destination"; else printf x > "$destination"; fi
-    if [[ -v AWS_FAKE_APP_GET_METADATA ]]; then
-      printf '%s\n' "$AWS_FAKE_APP_GET_METADATA"
+    if [[ -f "$AWS_FAKE_STATE/get-metadata-$slug" ]]; then
+      cat "$AWS_FAKE_STATE/get-metadata-$slug"
+    elif [[ "$key" == baibai.sqlite && -v AWS_FAKE_APP_GET_METADATA ]]; then
+      printf '%s\n' "${AWS_FAKE_APP_GET_METADATA}"
     else
-      printf '%s\t%s\n' "${AWS_FAKE_APP_GET_ETAG:-$(object_etag "$slug")}" \
-        "$(wc -c < "$destination")"
+      printf '%s\t%s\n' "$version" "$(wc -c < "$destination")"
     fi
     exit 0
   fi
@@ -246,6 +266,11 @@ if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then
   key="${3#s3://}"
   key="${key#*/}"
   stored="${AWS_FAKE_STATE}/put-$(printf '%s' "$key" | tr / _)"
+  # High-level cp cannot report the ETag of the bytes it actually read.
+  transient="${AWS_FAKE_STATE}/transient-$(printf '%s' "$key" | tr / _)"
+  if [[ -f "$transient" ]]; then
+    cp "$transient" "$4"; exit 0
+  fi
   if [[ "$key" == "${AWS_FAKE_FAIL_DOWNLOAD_KEY:-}" ]]; then
     printf 'synthetic-private-value' >&2
     exit 254

@@ -140,8 +140,9 @@ exec "$(dirname "$0")/uv-transfer-fixture" "$@"
     assert result.returncode == preflight_exit, result.stderr
     calls = log.read_text().splitlines()
     assert calls.count("preflight") == 1
-    assert sum(line.startswith("s3 cp s3://") for line in calls) == 2
-    assert sum(line.startswith("s3api get-object ") for line in calls) == 1
+    gets = [line for line in calls if line.startswith("s3api get-object ")]
+    assert len(gets) == 3  # one receipt and the two original store bodies
+    assert sum('--if-match "etag-stable"' in line for line in gets) == 2
     assert all(
         path.read_text() == (f"original {key}" if preflight_exit else "x")
         for key, path in local.items()
