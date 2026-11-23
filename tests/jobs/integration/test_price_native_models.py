@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pyarrow.parquet as pq
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
-from tests.helpers.financial_native import seed_empty_financial
+from tests.helpers.financial_native import fixed_empty_financial_input, seed_empty_financial
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
@@ -201,6 +201,7 @@ def test_invalid_native_prices_do_not_enter_market_model_populations(tmp_path, i
         generation = materialize_generation(
             read_and_generate_models(
                 generation_id="invalid-native-price",
+                financial_input=fixed_empty_financial_input(tmp_path / "financial-native", as_of),
                 market_snapshot=snapshot,
                 market_release=InputRelease(release_id="synthetic", manifest_sha256="a" * 64),
                 economic_input=None,

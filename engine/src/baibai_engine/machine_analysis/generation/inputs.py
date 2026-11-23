@@ -64,9 +64,6 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.financials.pdf_statement_reader import (
     read_pdf_statements,
 )
-from baibai_engine.machine_analysis.observations.financials.reader import (
-    read_financial_documents,
-)
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     read_price_calendar,
@@ -264,12 +261,12 @@ def read_and_generate_models(
     market_snapshot: SealedSQLiteSnapshot,
     market_release: InputRelease,
     economic_input: EconomicModelInput | None,
+    financial_input: FinancialModelInput,
     as_of: date,
     evaluation_time: datetime,
     ttm_rules: TTMRules,
     tickers: Sequence[str] | None = None,
     growth_start: date | None = None,
-    financial_input: FinancialModelInput | None = None,
     edinet_input: EdinetModelInput | None = None,
     comparison_evidence: SavedComparisonEvidence | None = None,
     price_identity: InputSnapshot | None = None,
@@ -322,18 +319,13 @@ def read_and_generate_models(
     else:
         subjects = tuple(sorted({normalize_ticker(ticker) for ticker in tickers}))
     documents: dict[str, list[JQuantsFinancialSummary]] = defaultdict(list)
+    for row in financial_input.documents:
+        documents[row.ticker].append(row)
     read_prices = partial(
         _read_market_price_inputs, path, as_of=as_of, subjects=subjects, master=master
     )
     with ExitStack() as reads, closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
-        financial_rows = (
-            financial_input.documents
-            if financial_input is not None
-            else read_financial_documents(connection, start=date.min, end=date.max)
-        )
-        for row in financial_rows:
-            documents[row.ticker].append(row)
         # Only fixed native EDINET waits on archives. The other lane reads the same
         # private seal, with its own read-only connections and no remote requests.
         price_read = _schedule_price_read(reads, read_prices) if edinet_input is not None else None
@@ -453,11 +445,9 @@ def read_and_generate_models(
             ),
             **({"master": master_identity} if master_identity is not None else {}),
             **({"price": price_identity} if price_identity is not None else {}),
-            **({"financial": financial_input.identity} if financial_input is not None else {}),
+            "financial": financial_input.identity,
         },
-        financial_release=market_release
-        if financial_input is None
-        else InputRelease(
+        financial_release=InputRelease(
             release_id=financial_input.identity.reference,
             manifest_sha256=financial_input.identity.sha256,
             collection_boundary="fixed_source_head",
