@@ -29,7 +29,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import connect_existing, initialize_database
 
 
 class ResearchConflictError(ValueError):
@@ -323,7 +323,7 @@ class AssessmentStoreService:
         supersedes_id: str | None = None,
     ) -> ReviewedAssessment:
         initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 pair = publish_reviewed_assessment(

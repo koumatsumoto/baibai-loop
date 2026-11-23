@@ -16,7 +16,7 @@ from baibai_engine.portfolio.performance.contracts import PortfolioOutcomePayloa
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import connect_existing, initialize_database
 from baibai_engine.storage.sqlite.read import read_rows
 
 _OUTCOME_COORDINATES = ("horizon", "period_start_date", "period_end_date", "status")
@@ -65,7 +65,7 @@ class PortfolioOutcomeStore:
         payload = _validate(publication, json.loads(encoded))
         digest = _payload_sha256(encoded)
         initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 existing = connection.execute(

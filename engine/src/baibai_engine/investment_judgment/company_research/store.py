@@ -18,7 +18,7 @@ from baibai_engine.investment_judgment.company_research.document import (
 from baibai_engine.investment_judgment.contracts import _datetime
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import connect_existing, initialize_database
 
 
 class ResearchConflictError(ValueError):
@@ -105,7 +105,7 @@ class ResearchStoreService:
         # model_copy/model_construct can bypass nested document/source validation.
         draft = ResearchDraft.model_validate(draft.model_dump(mode="python"))
         initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 result = self._save(connection, draft)

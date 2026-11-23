@@ -17,7 +17,7 @@ from baibai_engine.storage.sqlite.application.schema import (
 
 
 def connect_rw(path: Path | None = None) -> sqlite3.Connection:
-    """Open a writable connection with domain integrity checks enabled."""
+    """Open for bootstrap without schema admission; domain writes use connect_existing."""
     resolved = _database_path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(resolved, isolation_level=None)

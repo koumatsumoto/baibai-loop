@@ -62,7 +62,6 @@ from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import (
     connect_existing,
-    connect_rw,
     initialize_database,
 )
 from baibai_engine.storage.sqlite.machine_analysis import (
@@ -182,7 +181,7 @@ class OperationService:
         ):
             raise OperationConflictError("position-review Operation admits only holding targets")
         initialize_database(self._db_path, require_empty_on_bootstrap=True)
-        with closing(connect_rw(self._db_path)) as connection:
+        with closing(connect_existing(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 active = connection.execute(
