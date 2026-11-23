@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -85,3 +86,83 @@ def test_source_acquisitions_never_pull_or_hydrate_the_full_machine():
             "publication_lease",
         ):
             assert command not in text
+
+
+@pytest.mark.parametrize("preflight_exit", [0, 41])
+def test_daily_pull_gates_the_same_transfer_before_installing_both_copies(tmp_path, preflight_exit):
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "machine-manifest.json"
+    (Path(env["AWS_FAKE_STATE"]) / "put-machine-manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "keys": {"market.sqlite": "etag-stable", "runs.sqlite": "etag-stable"},
+            }
+        )
+    )
+    local = {
+        "market.sqlite": root / "stores/market/market.sqlite",
+        "runs.sqlite": root / "stores/screening/runs.sqlite",
+    }
+    for key, path in local.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"original {key}")
+    uv = bin_dir / "uv"
+    fallback = bin_dir / "uv-transfer-fixture"
+    uv.rename(fallback)
+    env["PREFLIGHT_FIXTURE_EXIT"] = str(preflight_exit)
+    uv.write_text(
+        r"""#!/bin/bash
+set -euo pipefail
+if [[ "${1} ${2} ${3} ${4}" == 'run python -m baibai_jobs.publication.machine_preflight' ]]; then
+  [[ "$5" == --market && "$7" == --receipt && "$9" == --bucket ]]
+  [[ "${11}" == --lease-handle && "${12}" == "$PUBLICATION_LEASE_HANDLE" ]]
+  [[ $(dirname "$6") == $(dirname "$8") && $(cat "$6") == x ]]
+  [[ $(cat "$(dirname "$6")/runs.sqlite") == x ]]
+  grep -q etag-stable "$8"
+  printf 'preflight\n' >> "$AWS_LOG"
+  exit "$PREFLIGHT_FIXTURE_EXIT"
+fi
+exec "$(dirname "$0")/uv-transfer-fixture" "$@"
+"""
+    )
+    uv.chmod(0o755)
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-machine", "--daily-preflight"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == preflight_exit, result.stderr
+    calls = log.read_text().splitlines()
+    assert calls.count("preflight") == 1
+    assert sum(line.startswith("s3 cp s3://") for line in calls) == 2
+    assert sum(line.startswith("s3api get-object ") for line in calls) == 1
+    assert all(
+        path.read_text() == (f"original {key}" if preflight_exit else "x")
+        for key, path in local.items()
+    )
+    for key in local:
+        assert (Path(env["R2_GENERATION_DIR"]) / f"{key}.etag").exists() is (preflight_exit == 0)
+    assert not any(line.startswith(("s3api put-object", "s3api copy-object")) for line in calls)
+
+
+def test_daily_pull_requires_a_handle_before_any_transfer(tmp_path):
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    env = _environment(bin_dir, log)
+    env.pop("PUBLICATION_LEASE_HANDLE")
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-machine", "--daily-preflight"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert not log.exists()

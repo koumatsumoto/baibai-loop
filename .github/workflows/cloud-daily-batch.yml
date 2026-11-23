@@ -116,6 +116,15 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.publication.lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
 
+      - name: Pull stores and verify the Market generation before publication
+        id: pull
+        env:
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: jobs/scripts/r2_transfer.sh pull-machine --daily-preflight
+
       - name: Publish economic L1 and refresh acquisition inputs before L2
         id: economic-l1
         env:
@@ -132,15 +141,6 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.integration.sources plan --directory "$RUNNER_TEMP/integration"
-
-      - name: Pull stores
-        id: pull
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          jobs/scripts/r2_transfer.sh pull-machine
 
       # Incomplete hydration must not reach screening as an empty universe.
       - name: Hydrate market store from the lake release

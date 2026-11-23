@@ -605,10 +605,14 @@ require_machine_receipt() {
 }
 
 pull_keys() {
-  local verify_receipt=0
+  local verify_receipt=0 daily_preflight=0
   if [[ "${1:-}" == "--bundle-receipt" ]]; then
     verify_receipt=1
     shift
+    if [[ "${1:-}" == "--daily-preflight" ]]; then
+      daily_preflight=1
+      shift
+    fi
   fi
   local key target index
   for key in "$@"; do
@@ -637,6 +641,12 @@ pull_keys() {
     aws_s3 cp "s3://${stores_bucket}/${key}" "${transfer_staging}/${key}"
     check_sqlite "${transfer_staging}/${key}"
   done
+  if [[ ${daily_preflight} -eq 1 ]]; then
+    (cd "${repo_root}" && uv run python -m baibai_jobs.publication.machine_preflight \
+      --market "${transfer_staging}/market.sqlite" \
+      --receipt "${transfer_staging}/${machine_receipt_key}" --bucket "${stores_bucket}" \
+      --lease-handle "${PUBLICATION_LEASE_HANDLE}")
+  fi
   index=0
   for key in "$@"; do
     if [[ "$(remote_version "${key}")" != "${versions[index]}" ]]; then
@@ -996,7 +1006,10 @@ validate_command() {
     restore-machine-receipt)
       [[ $# -eq 3 && -n "$2" && "$2" != -* && "$3" =~ ^[0-9a-f]{64}$ ]]
       ;;
-    pull-app|pull-machine|pull-market|pull-runs|pull-indicators|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|seed-all|publish-lake|push-market|push-runs|push-app)
+    pull-machine)
+      [[ $# -eq 1 || ( $# -eq 2 && "$2" == "--daily-preflight" && -n "${PUBLICATION_LEASE_HANDLE:-}" ) ]]
+      ;;
+    pull-app|pull-market|pull-runs|pull-indicators|hydrate-market|hydrate-market-for-daily|hydrate-portfolio|seed-all|publish-lake|push-market|push-runs|push-app)
       [[ $# -eq 1 ]]
       ;;
     *)
@@ -1033,7 +1046,7 @@ case "${1:-}" in
     pull_app
     ;;
   pull-machine)
-    pull_keys --bundle-receipt "${machine_bundle_keys[@]}"
+    pull_keys --bundle-receipt "${@:2}" "${machine_bundle_keys[@]}"
     ;;
   # The market store arrives holding only what the lake does not own; these two are the
   # halves that put the rest in and take it back out. They are separate from the pull and
