@@ -1,4 +1,4 @@
-"""Reader-first transport acceptance; these fixtures do not activate a writer."""
+"""FRED storage format acceptance using only local packets and a simulated store."""
 
 import hashlib
 import json
@@ -10,6 +10,7 @@ from shutil import copyfile
 
 import pytest
 from compression import zstd
+from tests.helpers.native_handoff import integrate_economic
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.acquisition.economic_staging as staging
@@ -21,8 +22,9 @@ from baibai_engine.data_collection.receipts.native_sources.handoff import (
     accept_rechecks,
     export_receipts,
 )
+from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_engine.storage.objects.r2 import LakePublishError
+from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff, stage_prefix
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.integration.economic_handoff import validate_handoff
@@ -131,7 +133,13 @@ def test_legacy_writer_and_compressed_reader_keep_exact_raw_replay_and_fixed_mar
     key = f"{prefix}/handoff.json"
     assert "receipt_format" not in json.loads(baseline.values[key].body)
     assert set(baseline.values) == {key, f"{prefix}/receipts-{digest(raw)}.sqlite"}
-    candidate, manifest = compressed(raw, result)
+    candidate = VerifiedReads()
+    assert save_handoff(candidate, STAGE, directory, compress_fred=True) == STAGE
+    manifest = json.loads(candidate.values[key].body)
+    assert manifest["receipt_format"] == FORMAT
+    assert manifest["receipt_sha256"] == digest(raw)
+    assert manifest["receipt_bytes"] == len(raw)
+    assert manifest["stored_bytes"] + 512 < len(raw)
     assert set(candidate.values) == {key, manifest["receipt_key"]}
 
     replays = []
@@ -142,6 +150,7 @@ def test_legacy_writer_and_compressed_reader_keep_exact_raw_replay_and_fixed_mar
         frozen_manifest = store.values[key].body
         [entry] = available_handoffs(store, market=False)
         puts = list(store.put_keys)
+        heads = len(store.head_keys)
         download_fixed(store, entry, restored)
         assert store.put_keys == puts
         assert {path.name for path in restored.iterdir()} == {"result.json", "receipts.sqlite"}
@@ -151,7 +160,7 @@ def test_legacy_writer_and_compressed_reader_keep_exact_raw_replay_and_fixed_mar
             assert candidate.verified_reads == [
                 (manifest["receipt_key"], manifest["stored_sha256"], manifest["stored_bytes"])
             ]
-            assert manifest["receipt_key"] not in candidate.head_keys
+            assert manifest["receipt_key"] not in candidate.head_keys[heads:]
             assert all(path.stat().st_mode & 0o777 == 0o600 for path in restored.iterdir())
             assert restored.stat().st_mode & 0o777 == 0o700
         validate_handoff(restored, "fred_csv", SOURCE)
@@ -352,3 +361,274 @@ def test_compressed_restore_rejects_symlink_to_an_empty_destination(tmp_path, pa
     assert link.is_symlink()
     assert not list(destination.iterdir())
     assert not store.verified_reads
+
+
+@pytest.mark.parametrize("failure_point", ["after_payload_put", "after_manifest_put"])
+def test_retry_of_uncertain_stage_never_adds_a_second_payload(
+    tmp_path, packet, monkeypatch, failure_point
+):
+    _, directory = packet
+    store = VerifiedReads()
+    manifest_key = f"{stage_prefix(STAGE)}/handoff.json"
+    real_put = store.put_file
+
+    def interrupted(key, *args, **kwargs):
+        remote = real_put(key, *args, **kwargs)
+        if (failure_point == "after_manifest_put") == (key == manifest_key):
+            raise R2Error("simulated lost PUT acknowledgement")
+        return remote
+
+    monkeypatch.setattr(store, "put_file", interrupted)
+    with pytest.raises(R2Error):
+        save_handoff(store, STAGE, directory, compress_fred=True)
+    published = dict(store.values)
+    monkeypatch.setattr(store, "put_file", real_put)
+    puts = len(store.put_keys)
+    with pytest.raises(LakePublishError, match="different"):
+        save_handoff(store, STAGE, directory)
+    assert len(store.put_keys) == puts
+    assert store.values == published
+
+    assert save_handoff(store, STAGE, directory, compress_fred=True) == STAGE
+    assert len(store.values) == 2
+    assert len(set(store.put_keys)) == len(store.put_keys) == 2
+    assert len(store.verified_reads) == (1 if failure_point == "after_payload_put" else 0)
+    [entry] = available_handoffs(store, market=False)
+    download_fixed(store, entry, tmp_path / "replayed")
+    assert (tmp_path / "replayed" / "receipts.sqlite").read_bytes() == (
+        directory / "receipts.sqlite"
+    ).read_bytes()
+
+
+def test_same_codec_conditional_races_accept_only_identical_objects(packet, monkeypatch):
+    _, directory = packet
+    store = VerifiedReads()
+    real_put = store.put_file
+
+    def raced(key, *args, **kwargs):
+        assert kwargs["if_none_match"] is True
+        real_put(key, *args, **kwargs)
+        raise LakeCASConflict("the exact object appeared concurrently")
+
+    monkeypatch.setattr(store, "put_file", raced)
+    assert save_handoff(store, STAGE, directory, compress_fred=True) == STAGE
+    assert len(store.values) == len(store.put_keys) == 2
+    old_objects = dict(store.values)
+    result = directory / "result.json"
+    result.write_text(json.dumps({**json.loads(result.read_bytes()), "changed": True}))
+    with pytest.raises(LakePublishError, match="different receipts"):
+        save_handoff(store, STAGE, directory, compress_fred=True)
+    assert store.values == old_objects
+    assert len(store.put_keys) == 2
+
+
+@pytest.mark.parametrize("reason", ["raw_above_bound", "not_enough_savings"])
+def test_only_one_raw_object_when_compression_is_not_eligible(packet, monkeypatch, reason):
+    _, directory = packet
+    raw = (directory / "receipts.sqlite").read_bytes()
+    if reason == "raw_above_bound":
+        monkeypatch.setattr(staging, "_MAX_FRED_RECEIPT_BYTES", len(raw) - 1)
+    else:
+        monkeypatch.setattr(staging, "_FRED_MANIFEST_OVERHEAD_BYTES", len(raw))
+    raw_store, opted_in = VerifiedReads(), VerifiedReads()
+    save_handoff(raw_store, STAGE, directory)
+    save_handoff(opted_in, STAGE, directory, compress_fred=True)
+    assert opted_in.values == raw_store.values
+    assert len(opted_in.values) == len(opted_in.put_keys) == 2
+
+
+@pytest.mark.parametrize(
+    ("case", "scope"),
+    [
+        ("wrong_source", {}),
+        ("wrong_stage", {}),
+        ("market", {"market": True}),
+        ("source_input", {"namespace": "source-inputs", "input_group": "economic-fred_csv"}),
+        ("not_sqlite", {}),
+    ],
+)
+def test_writer_does_not_publish_wrong_scope_or_invalid_sqlite(packet, case, scope):
+    _, directory = packet
+    if case == "wrong_source":
+        result = directory / "result.json"
+        result.write_text(json.dumps({**json.loads(result.read_bytes()), "group": "boj"}))
+    if case == "not_sqlite":
+        (directory / "receipts.sqlite").write_bytes(b"not SQLite" * 1024)
+    store = VerifiedReads()
+    stage = "boj-2026-11-22-42-1" if case == "wrong_stage" else STAGE
+    with pytest.raises(ValueError, match="compressed FRED requires"):
+        save_handoff(store, stage, directory, compress_fred=True, **scope)
+    assert not store.values
+    assert not store.head_keys
+    assert not store.get_keys
+    assert not store.put_keys
+
+
+def test_opt_in_stage_cli_reaches_actual_economic_readback_seal_and_scoped_input(
+    tmp_path, packet, monkeypatch
+):
+    canonical, directory = packet
+    raw = (directory / "receipts.sqlite").read_bytes()
+    paths = []
+    expected = None
+    for compression in (False, True):
+        store = VerifiedReads()
+        monkeypatch.setattr(store, "close", lambda: None, raising=False)
+        monkeypatch.setattr(handoff, "Boto3R2Store", lambda store=store, **kwargs: store)
+        args = ["stage", "--stage-id", STAGE, "--directory", str(directory)]
+        if compression:
+            args.append("--compress-fred-receipt")
+        assert handoff.main(args) == 0
+        prefix = stage_prefix(STAGE)
+        manifest_key = f"{prefix}/handoff.json"
+        manifest_body = store.values[manifest_key].body
+        manifest = json.loads(manifest_body)
+        key = manifest["receipt_key"]
+        assert set(store.values) == {manifest_key, key}
+        assert key.endswith(".zst" if compression else ".sqlite")
+        assert manifest["receipt_sha256"] == digest(raw)
+        assert manifest["receipt_bytes"] == len(raw)
+        if compression:
+            assert manifest["stored_sha256"] == digest(store.values[key].body)
+            assert manifest["stored_bytes"] == len(store.values[key].body)
+            assert store.values[key].content_type == "application/zstd"
+
+        work = tmp_path / str(compression)
+        output = tmp_path / f"canonical-{compression}.sqlite"
+        copyfile(canonical, output)
+        report = integrate_economic(store, work, output, ASOF)
+        assert report["l1_published"] is report["l1_sealed"] is True
+        assert "economic-fred_csv" in report["inputs_updated"]
+        [outcome] = report["handoffs"]
+        assert outcome["applied"] is True
+        assert outcome["failed"] is outcome["recovery"] is False
+        marker = json.loads(store.values[f"{prefix}/integrated.json"].body)
+        assert marker["status"] == "integrated"
+        assert (
+            marker["manifest_sha256"]
+            == outcome["entry"]["manifest_sha256"]
+            == digest(manifest_body)
+        )
+        assert marker["canonical_generations"] == report["canonical_generations"]
+        assert not available_handoffs(store, market=False)
+        inputs = sorted(key for key, _, _ in store.verified_reads)
+        if compression:
+            assert key in inputs
+        assert len([name for name in store.values if name.startswith(prefix + "/receipts-")]) == 1
+        original = work.glob("*/receipt-00000/receipts.sqlite")
+        assert next(original).read_bytes() == raw
+        if expected is None:
+            expected = outcome["result"]
+        else:
+            assert outcome["result"] == expected
+        paths.append(output)
+    assert paths[0].read_bytes() == paths[1].read_bytes()
+
+
+def test_opted_in_stage_rejects_wal_receipt_before_store_writes(tmp_path, packet, monkeypatch):
+    _, directory = packet
+    db = directory / "receipts.sqlite"
+    wal = db.with_suffix(".sqlite-wal")
+    store = VerifiedReads()
+    monkeypatch.setattr(handoff, "Boto3R2Store", lambda **kwargs: store)
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
+    args = ["stage", "--stage-id", STAGE, "--directory", str(directory), "--compress-fred-receipt"]
+    with closing(sqlite3.connect(db)) as writer:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        raw = db.read_bytes()
+        store_snapshot(
+            writer,
+            source_id=SOURCE,
+            observed_at=date(2026, 11, 2),
+            fetched_at=CLOCK + timedelta(hours=1),
+            records=[{"value": "committed in WAL"}],
+        )
+        writer.commit()
+        assert wal.stat().st_size > 0
+        assert db.read_bytes() == raw
+        assert (
+            writer.execute(
+                "SELECT count(*) FROM economic_source_records WHERE observed_at='2026-11-02'"
+            ).fetchone()[0]
+            == 1
+        )
+        assert handoff.main(args) == 1
+    assert not store.values
+    assert not store.put_keys
+
+    # Closing the only writer checkpoints the row without changing the handoff identity.
+    assert not wal.exists()
+    assert handoff.main(args) == 0
+    restored = tmp_path / "restored"
+    load_handoff(store, STAGE, restored)
+    assert (restored / "receipts.sqlite").read_bytes() == db.read_bytes()
+    with closing(sqlite3.connect(restored / "receipts.sqlite")) as reader:
+        assert (
+            reader.execute(
+                "SELECT count(*) FROM economic_source_records WHERE observed_at='2026-11-02'"
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_opted_in_stage_rejects_packet_replacement_after_validation(packet, monkeypatch):
+    _, directory = packet
+    store = VerifiedReads()
+    monkeypatch.setattr(handoff, "Boto3R2Store", lambda **kwargs: store)
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
+    real_validate = handoff.validate_handoff
+
+    def validate_then_replace(*args, **kwargs):
+        real_validate(*args, **kwargs)
+        report = directory / "result.json"
+        replacement = report.with_suffix(".new")
+        replacement.write_text(report.read_text(), encoding="utf-8")
+        replacement.replace(report)
+
+    monkeypatch.setattr(handoff, "validate_handoff", validate_then_replace)
+    assert (
+        handoff.main(
+            ["stage", "--stage-id", STAGE, "--directory", str(directory), "--compress-fred-receipt"]
+        )
+        == 1
+    )
+    assert not store.values
+    assert not store.put_keys
+
+
+@pytest.mark.parametrize("fault", ["already_present", "appears_during_cas"])
+def test_pending_compressed_candidate_must_prove_body_bytes_before_manifest(
+    packet, monkeypatch, fault
+):
+    _, directory = packet
+    original = VerifiedReads()
+    save_handoff(original, STAGE, directory, compress_fred=True)
+    prefix = stage_prefix(STAGE)
+    manifest = json.loads(original.values[f"{prefix}/handoff.json"].body)
+    key = manifest["receipt_key"]
+    payload = original.values[key].body
+    wrong = bytes([payload[0] ^ 0xFF]) + payload[1:]
+    store = VerifiedReads()
+    if fault == "already_present":
+        store.store_object(
+            key, wrong, sha256=manifest["stored_sha256"], content_type="application/zstd"
+        )
+    else:
+        real_put = store.put_file
+
+        def race(requested_key, *args, **kwargs):
+            if requested_key != key:
+                return real_put(requested_key, *args, **kwargs)
+            store.store_object(
+                key, wrong, sha256=manifest["stored_sha256"], content_type="application/zstd"
+            )
+            raise LakeCASConflict("another packet already appeared")
+
+        monkeypatch.setattr(store, "put_file", race)
+    with pytest.raises(LakePublishError, match="fixed read failed"):
+        save_handoff(store, STAGE, directory, compress_fred=True)
+    assert set(store.values) == {key}
+    assert store.values[key].body == wrong
+    assert store.verified_reads == [(key, manifest["stored_sha256"], manifest["stored_bytes"])]
+    assert not available_handoffs(store, market=False)

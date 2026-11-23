@@ -139,7 +139,13 @@ def acquire(
     return int(any(isinstance(item, EconomicSourceRefreshFailure) for item in outcomes))
 
 
-def validate_handoff(directory: Path, group: str, source_id: str | None = None) -> None:
+def validate_handoff(
+    directory: Path,
+    group: str,
+    source_id: str | None = None,
+    *,
+    standalone: bool = False,
+) -> None:
     allowed = selected_sources(group)
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
     expected = [row["source_id"] for row in report["sources"]]
@@ -152,7 +158,11 @@ def validate_handoff(directory: Path, group: str, source_id: str | None = None) 
     ):
         raise ValueError("economic handoff selection differs from the requested source plan")
     source = directory / "receipts.sqlite"
-    with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+    uri = source.resolve().as_uri() + "?mode=ro"
+    if standalone:
+        # The staging owner already checked for live sidecars and fences this read.
+        uri += "&immutable=1"
+    with closing(sqlite3.connect(uri, uri=True)) as conn:
         validate_economic_schema(conn)
         for table in (
             *ECONOMIC_RECEIPT_KEYS,
@@ -175,9 +185,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--current-only-now", action="store_true")
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--stage-id")
+    parser.add_argument(
+        "--compress-fred-receipt",
+        action="store_true",
+        help="opt in for a new FRED stage; requires compatible economic integration",
+    )
     parser.add_argument("--db", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)
     args = parser.parse_args(argv)
     try:
+        if args.compress_fred_receipt and args.command != "stage":
+            raise ValueError("FRED receipt compression is only available for stage")
         if args.command == "plan":
             groups = economic_acquisition_groups() if args.group == "all" else (args.group,)
             for group in groups:
@@ -221,11 +238,24 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.stage_id is None:
             raise ValueError("--stage-id is required")
+        if args.compress_fred_receipt and args.group not in ("all", "fred_csv"):
+            raise ValueError("compressed receipts are only available for the FRED group")
         with closing(
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         ) as store:
             if args.command == "stage":
-                identity = save_handoff(store, args.stage_id, args.directory)
+                if args.compress_fred_receipt:
+                    identity = save_handoff(
+                        store,
+                        args.stage_id,
+                        args.directory,
+                        compress_fred=True,
+                        validate_fred=lambda directory: validate_handoff(
+                            directory, "fred_csv", args.source_id or None, standalone=True
+                        ),
+                    )
+                else:
+                    identity = save_handoff(store, args.stage_id, args.directory)
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print(f"handoff={identity}", file=stream)
