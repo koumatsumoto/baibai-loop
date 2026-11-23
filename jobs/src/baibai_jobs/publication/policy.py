@@ -6,8 +6,10 @@ from baibai_engine.machine_analysis.observations.external_assessments.identity i
     MODEL_VALUATION_DATASET,
     QUANTS_SCORE_DATASET,
 )
+from baibai_engine.machine_analysis.observations.financials.snapshot_contracts import EDINET_METRICS
 from baibai_engine.storage.snapshots.models import (
     ReleaseDatasetPolicy,
+    ReleaseManifest,
     ReleasePolicy,
     ReleaseProfile,
 )
@@ -171,7 +173,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
-            dataset="edinet.metrics",
+            dataset=EDINET_METRICS.name,
             required=True,
             carries_history=True,
             require_complete_coverage=False,
@@ -249,6 +251,12 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
     max_manifest_bytes=16 * 1024 * 1024,
     max_objects=10_000,
 )
+
+
+def edinet_metrics_contract_is_current(manifest: ReleaseManifest) -> bool | None:
+    """Compare the wire version; required presence belongs to release admission."""
+    entry = manifest.datasets.get(EDINET_METRICS.name)
+    return None if entry is None else entry.contract_version == EDINET_METRICS.contract_version
 
 
 def release_policy_for_profile(profile: ReleaseProfile) -> ReleasePolicy:
