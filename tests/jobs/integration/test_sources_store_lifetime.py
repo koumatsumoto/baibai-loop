@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from baibai_engine.storage.objects.r2 import R2OperationStopped
+from baibai_engine.storage.objects.r2 import R2Error, R2OperationStopped
 from baibai_jobs.integration import sources
 
 
@@ -198,3 +198,57 @@ def test_close_failure_does_not_repeat_successful_apply(tmp_path, monkeypatch, c
     output = capsys.readouterr()
     assert json.loads(output.out)["handoffs"] == []
     assert output.err == "common source integration failed: OSError\n"
+
+
+@pytest.mark.parametrize(
+    ("phase", "boundary", "status"),
+    [
+        ("canonical_machine", "canonical_generations", 503),
+        ("jpx_readback", "verify_jpx_publication", None),
+        ("external_readback_and_seal", "verify_and_seal", None),
+        ("handoff_terminal", "seal_integrated", None),
+    ],
+)
+def test_seal_logs_only_safe_phase_and_r2_exception_class_once(
+    tmp_path, monkeypatch, capsys, phase, boundary, status
+):
+    args, events, _ = _case(tmp_path, monkeypatch, "seal")
+    path = tmp_path / "integration" / "applied.json"
+    report = json.loads(path.read_bytes())
+    if phase == "jpx_readback":
+        stage = report["handoffs"][0]
+        stage["entry"]["source"] = "jpx-earnings"
+        stage["result"]["retained_bundles"] = ["PRIVATE_BUNDLE"]
+    if phase == "external_readback_and_seal":
+        report["external"] = {"plans": ["PRIVATE_PLAN"]}
+    payload = json.dumps(report).encode()
+    path.write_bytes(payload)
+
+    def fail(*_args, **_kwargs):
+        events.append("r2-failure")
+        try:
+            raise TimeoutError("PRIVATE_ENDPOINT")
+        except TimeoutError as cause:
+            raise R2Error("PRIVATE_KEY", http_status=status) from cause
+
+    monkeypatch.setattr(sources, boundary, fail)
+    assert sources.main(args) == 1
+    assert events == ["construct", "lease", "r2-failure", "close"]
+    assert path.read_bytes() == payload
+    assert capsys.readouterr().err.splitlines() == [
+        (
+            f"source seal failed: phase={phase} exception=R2Error cause=TimeoutError "
+            f"status={status if status is not None else 'unknown'}"
+        ),
+        "common source integration failed: R2Error",
+    ]
+
+
+def test_other_command_keeps_existing_r2_diagnostic(tmp_path, monkeypatch, capsys):
+    args, events, _ = _case(tmp_path, monkeypatch, "plan", R2Error)
+    assert sources.main(args) == 1
+    assert events == ["construct", "plan", "close"]
+    err = capsys.readouterr().err
+    assert "source seal failed" not in err
+    assert "PRIVATE_CANARY" not in err
+    assert err.endswith("common source integration failed: R2Error\n")
