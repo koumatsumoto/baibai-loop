@@ -158,8 +158,8 @@ def _alpaca(
             page = next(receipts, None)
             if page is None:
                 raise OSError("no fixed receipt for next page")
-            if page["request_url"] != url:
-                raise ValueError("Alpaca page request does not match the fixed query")
+            if not _complete_single_hop(page, url):
+                raise ValueError("Alpaca page was not fully received from the fixed query")
             body, status, received = _native(page, load)
             return BarsResponse(status, received, body)
 
@@ -547,6 +547,9 @@ def _fixture() -> tuple[_Record, dict[str, bytes]]:
         # The native terminal-page cursor is JSON null, not a credential.
         {"bars": {"AAPL": bars, "NVDA": bars[-1:]}, "next_page_token": None},  # nosec B105
         request_url=query.url(),
+        response_url=query.url(),
+        complete=True,
+        redirected=False,
     )
     accession = "0000000000-26-000001"
     fact = {

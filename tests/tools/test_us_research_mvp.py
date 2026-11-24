@@ -71,6 +71,9 @@ def test_empty_terminal_page_must_be_known_before_whole_chain_is_used():
         "status": 200,
         "received_at": "2026-11-21T07:00:00Z",
         "request_url": query.url(page_token="end+opaque"),
+        "response_url": query.url(page_token="end+opaque"),
+        "complete": True,
+        "redirected": False,
     }
     _replace_body(terminal, files, {"bars": {}, "next_page_token": None})
     spec["pages"].append(terminal)
@@ -278,10 +281,21 @@ def test_simultaneous_native_concepts_do_not_become_a_sales_measure(changed):
     assert "SEC実績売上" not in report
 
 
-def test_alpaca_request_mismatch_does_not_erase_independent_sec_observation():
+@pytest.mark.parametrize("defect", ["request", "response", "redirect", "incomplete", "unknown"])
+def test_unbound_alpaca_page_preserves_financials_but_cannot_supply_iex_prices(defect):
     bundle, files = _fixture()
-    bundle["alpaca"]["pages"][0]["request_url"] += "&feed=sip"
-    report = render_research(bundle, files.__getitem__, synthetic=True)
+    page = bundle["alpaca"]["pages"][0]
+    actual = page["request_url"]
+    if defect in {"request", "response"}:
+        page[f"{defect}_url"] = actual.replace("feed=iex", "feed=sip")
+    elif defect == "redirect":
+        page["redirected"] = True
+    elif defect == "incomplete":
+        page["complete"] = False
+    else:
+        del page["response_url"]
+
+    report = render_research(bundle, files.__getitem__, synthetic=False)
     assert "AAPL | hold_for_evidence" in report
     assert "alpaca_invalid_fixed_receipt" in report
     assert "観測20本のSMA" not in report
@@ -298,7 +312,7 @@ def test_alphabet_price_cannot_join_valid_apple_financials(symbol):
     data = json.loads(files[page["file"]])
     data["bars"][symbol] = data["bars"].pop("AAPL")
     _replace_body(page, files, data)
-    page["request_url"] = DailyBarsQuery(
+    page["request_url"] = page["response_url"] = DailyBarsQuery(
         (symbol, "NVDA"),
         date.fromisoformat(spec["start"]),
         date.fromisoformat(spec["end"]),
