@@ -15,12 +15,14 @@ from uuid import uuid4
 from baibai_engine.machine_analysis.screening.discovery_contract import discovery_publication_id
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
     ImmutableMultipartWriter,
     LakeCASConflict,
     LakePublishError,
     ObjectStore,
     R2Error,
     R2OperationStopped,
+    RemoteObject,
     VerifiedObjectReader,
 )
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
@@ -362,6 +364,10 @@ def activate_machine(
         raise MachineSwitchUnconfirmed("machine current switch is not confirmed") from cause
     if current.payload == payload:
         return MachineCommit(current=current)
+    if current.pointer is None:
+        # A missing read does not fence an accepted or still in-flight PUT.
+        # Only a validated, different head can prove that the candidate lost.
+        raise MachineSwitchUnconfirmed("machine current switch is not confirmed") from error
     if _machine_id(current.pointer) == members.publication_id:
         # A receipt-only update is not proof that the selected bodies are detached.
         raise MachineSwitchUnconfirmed("candidate machine remains selected by another receipt")
@@ -380,6 +386,12 @@ def _retirement_keys(pointer: LakeReleasePointer | None) -> tuple[str, ...]:
     return () if previous is None else tuple(machine_member_key(previous, role) for role in _ROLES)
 
 
+def _head_detached(store: MachineWriteStore, key: str) -> RemoteObject | None:
+    if isinstance(store, Boto3R2Store):
+        return store.head(key, single_attempt=True)
+    return store.head(key)
+
+
 def _retire_detached(
     store: MachineWriteStore, keys: tuple[str, ...], *, while_held: Callable[[], None]
 ) -> None:
@@ -388,10 +400,10 @@ def _retire_detached(
         return
     while_held()
     for key in keys:
-        if store.head(key) is None:
+        if _head_detached(store, key) is None:
             continue
         store.delete_object(key)
-        if store.head(key) is not None:
+        if _head_detached(store, key) is not None:
             raise LakePublishError("detached machine member remains after deletion")
 
 

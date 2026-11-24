@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from botocore.exceptions import ClientError
 from tests.helpers.lake_release import lake as lake
 from tests.helpers.lake_release import market_store
 from tests.helpers.model_generation import publish_machine_generation
@@ -15,6 +16,7 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
     R2Error,
@@ -1004,3 +1006,133 @@ def test_different_receipt_still_selecting_candidate_never_authorizes_its_deleti
     pointer = machine.read_machine_current(store).pointer
     assert pointer is not None
     assert pointer.release_id == lake.pointer.release_id
+
+
+def _offline_r2() -> Boto3R2Store:
+    return Boto3R2Store(
+        bucket="service-free",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "offline",
+            "R2_SECRET_ACCESS_KEY": "offline",
+        },
+    )
+
+
+@pytest.mark.parametrize("acknowledged", [True, False])
+def test_absent_read_after_machine_pointer_put_never_authorizes_cleanup(
+    incumbent, tmp_path, monkeypatch, acknowledged
+):
+    store, _, _base = incumbent
+    lake = _stage_lake(store, tmp_path, "missing-current-reply")
+    market, runs = _files(tmp_path, lake.pointer)
+    adapter = _offline_r2()
+    real_put = store.put_file
+    pointer_attempted = False
+    deferred_path = tmp_path / "deferred-head.json"
+    deferred_options = {}
+
+    class AmbiguousResponse:
+        def get_object(self, **_):
+            # The service has not proved absence. Default reads interpret the
+            # service error code as missing even when HTTP says it failed.
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey"}, "ResponseMetadata": {"HTTPStatusCode": 503}},
+                "GetObject",
+            )
+
+    monkeypatch.setattr(adapter, "_client", lambda *_, **__: AmbiguousResponse())
+
+    def put(key, path, **kwargs):
+        nonlocal pointer_attempted
+        if key != HEAD:
+            return real_put(key, path, **kwargs)
+        pointer_attempted = True
+        if acknowledged:
+            return real_put(key, path, **kwargs)
+        deferred_path.write_bytes(path.read_bytes())
+        deferred_options.update(kwargs)
+        raise R2Error("pointer PUT may still commit")
+
+    def get_checked(key, *, max_bytes):
+        nonlocal pointer_attempted
+        if pointer_attempted and key == HEAD:
+            pointer_attempted = False
+            return adapter.get_checked_object(key, max_bytes=max_bytes)
+        return store.get_bytes_with_metadata(key)
+
+    monkeypatch.setattr(store, "put_file", put)
+    monkeypatch.setattr(store, "get_checked_object", get_checked, raising=False)
+    with pytest.raises(LakePublishError) as raised:
+        _publish_machine(store, lake=lake, market=market, runs=runs, while_held=lambda: None)
+    if not acknowledged:
+        real_put(HEAD, deferred_path, **deferred_options)
+    assert store.delete_keys == []
+    assert isinstance(raised.value, machine.MachineSwitchUnconfirmed)
+    current = machine.read_machine_current(store).pointer
+    assert current is not None
+    assert current.release_id == lake.pointer.release_id
+
+
+@pytest.mark.parametrize("after_delete", [False, True])
+def test_detached_machine_requires_http_404_before_accepting_absence(
+    incumbent, tmp_path, monkeypatch, after_delete
+):
+    store, _old, _base = incumbent
+    committed = _activate(store, _candidate(store, tmp_path, "detached-head-proof"))
+    adapter = _offline_r2()
+    key = committed.detached[0]
+    requests = []
+
+    class MissingOrUnavailable:
+        def head_object(self, *, Bucket, Key):
+            assert Bucket == "service-free"
+            if Key != key:
+                assert Key == committed.detached[1]
+                raise ClientError(
+                    {"Error": {"Code": "404"}, "ResponseMetadata": {"HTTPStatusCode": 404}},
+                    "HeadObject",
+                )
+            if after_delete and len(requests) == 1:
+                return {"ETag": '"old-body"', "ContentLength": 1}
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
+
+        def delete_object(self, *, Bucket, Key):
+            assert Bucket == "service-free"
+            assert Key == key
+
+    def select_client(*_, single_attempt=False):
+        requests.append(single_attempt)
+        return MissingOrUnavailable()
+
+    monkeypatch.setattr(adapter, "_client", select_client)
+    monkeypatch.setattr(machine, "read_pointer_snapshot", lambda _: committed.current)
+    with pytest.raises(R2Error, match="head-object failed"):
+        machine.finish_machine_retirement(adapter, committed.current, while_held=lambda: None)
+    assert requests == ([True, True, True] if after_delete else [True])
+
+
+def test_detached_machine_skips_members_with_verified_http_404(incumbent, tmp_path, monkeypatch):
+    store, _old, _base = incumbent
+    committed = _activate(store, _candidate(store, tmp_path, "confirmed-absent"))
+    adapter = _offline_r2()
+    absent = []
+
+    class Gone:
+        def head_object(self, *, Bucket, Key):
+            assert Bucket == "service-free"
+            absent.append(Key)
+            raise ClientError(
+                {"Error": {"Code": "404"}, "ResponseMetadata": {"HTTPStatusCode": 404}},
+                "HeadObject",
+            )
+
+    monkeypatch.setattr(adapter, "_client", lambda *_, **__: Gone())
+    monkeypatch.setattr(machine, "read_pointer_snapshot", lambda _: committed.current)
+    assert (
+        machine.finish_machine_retirement(
+            adapter, committed.current, while_held=lambda: None
+        ).snapshot
+        == committed.current
+    )
+    assert absent == list(committed.detached)
