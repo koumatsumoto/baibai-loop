@@ -94,11 +94,15 @@ def test_publication_scope_clocks_values_and_old_body_is_never_opened(tmp_path, 
     assert sha256(gzip.decompress(wire)).hexdigest() == (
         "7f234ba481f9ecd8339dfd57462884d054f3a9d34aff34fc6e5052bb4af9c741"
     )
-    normal = discovery_index.read_discovery_index(path=path)
-    assert normal.status == "indexed"
-    assert normal.selection_id == identity
-    assert normal.universe_tickers == legacy.universe_tickers
-    for r, old in zip(normal.rows, legacy.result.rows, strict=True):
+    with monkeypatch.context() as m:
+        m.setattr(gzip, "decompress", lambda *_: pytest.fail("implicit read opened the old index"))
+        latest = discovery_index.read_discovery_index(path=path)
+    assert (latest.status, latest.selection_id, latest.rows) == ("noncurrent_index", identity, ())
+    archived = discovery_index.read_discovery_index(path=path, selection_id=identity)
+    assert archived.status == "indexed"
+    assert archived.selection_id == identity
+    assert archived.universe_tickers == legacy.universe_tickers
+    for r, old in zip(archived.rows, legacy.result.rows, strict=True):
         assert (r["ticker"], r["screening_lane"], r["technical_state"], r["financial_state"]) == (
             old.ticker,
             old.screening_lane,
@@ -127,15 +131,15 @@ def test_publication_scope_clocks_values_and_old_body_is_never_opened(tmp_path, 
         assert {"technical", "financial_gate", "financial_paths", "evidence"}.isdisjoint(r)
     assert (
         discovery_index.read_discovery_index(
-            path=path, selection_id=identity, known_at=normal.published_at
+            path=path, selection_id=identity, known_at=archived.published_at
         ).rows
-        == normal.rows
+        == archived.rows
     )
     assert (
         discovery_index.read_discovery_index(
             path=path,
             selection_id=identity,
-            known_at=normal.published_at - timedelta(microseconds=1),
+            known_at=archived.published_at - timedelta(microseconds=1),
         ).status
         == "no_publication"
     )
@@ -205,7 +209,7 @@ def test_retained_discovery_scope_still_reads_and_retries_exactly(tmp_path):
     before = runs.read_bytes()
     assert store.read(identity) == historical
     assert (
-        discovery_index.read_discovery_index(path=runs).universe_tickers
+        discovery_index.read_discovery_index(path=runs, selection_id=identity).universe_tickers
         == historical.universe_tickers
     )
     assert store.publish(identity, historical) is False
@@ -281,14 +285,18 @@ def test_writer_rejects_incomplete_evidence_instead_of_publishing_empty_meaning(
     assert discovery_index.read_discovery_index(path=path).status == "no_publication"
 
 
+@pytest.mark.parametrize("archived", [False, True], ids=["implicit-current", "fixed-archived"])
 @pytest.mark.parametrize("bad", [True, False, "0.50", "NaN", float("nan"), float("inf")])
-def test_non_numbers_and_nonfinite_amounts_never_become_observed_value(tmp_path, bad):
+def test_non_numbers_and_nonfinite_amounts_never_become_observed_value(tmp_path, bad, archived):
     from pydantic import TypeAdapter, ValidationError
 
     from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 
     path = tmp_path / "runs"
-    _, _, source, identity = fixed(path)
+    meta, _, source, identity = fixed(path)
+    if not archived:
+        identity = discovery_publication_id(meta.generation_id)
+        source = replace(source, result=replace(source.result, policy=DiscoveryPolicy()))
     coord = {
         "path_id": "earning_power",
         "variant": "annual_ttm",
@@ -312,7 +320,7 @@ def test_non_numbers_and_nonfinite_amounts_never_become_observed_value(tmp_path,
         wire = json.dumps(original, allow_nan=True).encode()
         c.execute("update screening_selection set payload_gzip=?", (gzip.compress(wire),))
     with pytest.raises(ValidationError):
-        discovery_index.read_discovery_index(path=path)
+        discovery_index.read_discovery_index(path=path, selection_id=identity if archived else None)
     with pytest.raises(ValidationError):
         TypeAdapter(ScreeningSelection).validate_python(original)
     row = source.result.rows[selected]
@@ -364,3 +372,18 @@ def test_saved_v1_and_new_v3_require_exact_policy_identity(tmp_path):
             "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (old_id,)
         ).fetchone()
     assert retained_blob == old_blob
+
+
+@pytest.mark.parametrize("pinned", [False, True])
+def test_unknown_discovery_index_does_not_open_body(tmp_path, monkeypatch, pinned):
+    runs = tmp_path / "runs"
+    _, _, v1, old_id = fixed(runs)
+    assert ScreeningSelectionStore(runs).publish(old_id, v1)
+    reserved = old_id.removesuffix("v1") + "v2"
+    with sqlite3.connect(runs) as connection:
+        connection.execute("UPDATE screening_selection SET selection_id=?", (reserved,))
+    before = runs.read_bytes()
+    monkeypatch.setattr(gzip, "decompress", lambda *_: pytest.fail("unknown index body was opened"))
+    with pytest.raises(ValueError, match="unknown discovery publication version or identity"):
+        discovery_index.read_discovery_index(path=runs, selection_id=reserved if pinned else None)
+    assert runs.read_bytes() == before

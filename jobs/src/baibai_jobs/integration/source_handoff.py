@@ -19,7 +19,11 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+from baibai_jobs.acquisition.economic_staging import (
+    NATIVE_JQUANTS_MARKET_SOURCES,
+    load_handoff,
+    save_handoff,
+)
 from baibai_jobs.integration.jpx_handoff import export_handoff as export_jpx_handoff
 from baibai_jobs.integration.jpx_handoff import import_handoff as import_jpx_handoff
 from baibai_jobs.integration.replay_result import ReplayResult
@@ -37,8 +41,7 @@ FINANCIAL_REVISION_OVERLAP_DAYS = 7
 
 SOURCES = (
     "tradingview",
-    "jquants-market",
-    "jquants-financial",
+    *NATIVE_JQUANTS_MARKET_SOURCES,
     "jpx-earnings",
     "jpx-regulations",
     "edinet-list",
@@ -495,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
-        if args.source in {"jquants-market", "jquants-financial"} and args.command != "acquire":
+        if args.source in NATIVE_JQUANTS_MARKET_SOURCES and args.command != "acquire":
             raise ValueError("J-Quants sources publish directly to native L1")
         if args.command in {"input", "resume"} and args.source != "tradingview":
             raise ValueError("only TradingView uses a scoped market source input")
@@ -559,7 +562,13 @@ def main(argv: list[str] | None = None) -> int:
                 Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
             ) as store:
                 if args.command == "stage":
-                    save_handoff(store, args.stage_id, directory, market=True)
+                    save_handoff(
+                        store,
+                        args.stage_id,
+                        directory,
+                        market=True,
+                        expected_market_source=args.source,
+                    )
                     if output := os.environ.get("GITHUB_OUTPUT"):
                         with Path(output).open("a", encoding="utf-8") as stream:
                             print(f"handoff={args.stage_id}", file=stream)
@@ -578,7 +587,7 @@ def main(argv: list[str] | None = None) -> int:
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print("stage_ready=false\nnative_l1=true", file=stream)
                 return int(not ok)
-            if args.command == "acquire" and args.source in {"jquants-financial", "jquants-market"}:
+            if args.command == "acquire" and args.source in NATIVE_JQUANTS_MARKET_SOURCES:
                 acquire = (
                     _acquire_financial_l1
                     if args.source == "jquants-financial"

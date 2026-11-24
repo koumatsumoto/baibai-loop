@@ -139,6 +139,13 @@ def discovery_context(
             "missing_inputs": [{"code": "unindexed_legacy_publication"}],
             "meaning": "発行時の索引が未記録。候補0社ではなく、保存した証拠本文も開いていない。",
         }
+    if data.status == "noncurrent_index":
+        return {
+            **result,
+            "status": "inputs_required",
+            "missing_inputs": [{"code": "current_discovery_index_required"}],
+            "meaning": "最新公表物の索引が旧版。候補ゼロではなく、開始には現行索引の発行が必要。",
+        }
     base = [
         "investment-judgment",
         "selection-context",

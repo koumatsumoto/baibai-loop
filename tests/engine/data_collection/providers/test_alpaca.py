@@ -181,6 +181,27 @@ def test_transport_failure_keeps_prior_page_without_fabricating_a_receipt():
     assert "arbitrary transport text" not in repr(result)
 
 
+def test_backward_sequential_receipt_keeps_offending_wire_and_stops():
+    first = _page({"META": [{}]}, "next", when=AT + timedelta(seconds=1))
+    backward = _page({"BRK.B": [{}]}, "do-not-follow", when=AT)
+    result, calls = _capture(first, backward, _page())
+
+    assert not result.complete
+    assert result.failure == "receipt_time_order"
+    assert [receipt.response for receipt in result.pages] == [first, backward]
+    assert [receipt.returned_symbols for receipt in result.pages] == [("META",), ("BRK.B",)]
+    assert result.pages[-1].body_sha256 == hashlib.sha256(backward.body).hexdigest()
+    assert len(calls) == 2
+
+
+def test_same_sequential_receipt_time_is_permitted_at_native_precision():
+    first = _page({"META": [{}]}, "next", when=AT)
+    second = _page({"BRK.B": [{}]}, when=AT)
+    result, calls = _capture(first, second)
+    assert result.complete
+    assert len(calls) == 2
+
+
 @pytest.mark.parametrize(
     ("body", "failure"),
     [
