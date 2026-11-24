@@ -8,6 +8,7 @@ import tempfile
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
@@ -337,12 +338,18 @@ def activate_machine(
     etag = base.precondition.etag
     key = current_release_pointer_key()
     error: LakePublishError | None = None
+    # One Python call is not enough: S3 region discovery can reissue its signed PUT.
+    put_pointer = (
+        partial(store.put_file, single_attempt=True)
+        if isinstance(store, Boto3R2Store)
+        else store.put_file
+    )
     with tempfile.NamedTemporaryFile(prefix="baibai-machine-current-", suffix=".json") as temporary:
         temporary.write(payload)
         temporary.flush()
         before_switch()
         try:
-            store.put_file(
+            put_pointer(
                 key,
                 Path(temporary.name),
                 sha256=hashlib.sha256(payload).hexdigest(),

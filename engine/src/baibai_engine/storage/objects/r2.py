@@ -381,7 +381,7 @@ class Boto3R2Store:
             ),
         )
         if single_attempt:
-            for operation in ("DeleteObject", "GetObject", "HeadObject"):
+            for operation in ("DeleteObject", "GetObject", "HeadObject", "PutObject"):
                 client.meta.events.register_first(
                     f"needs-retry.s3.{operation}", _refuse_exact_reissue
                 )
@@ -620,6 +620,7 @@ class Boto3R2Store:
         content_type: str,
         if_match: str | None = None,
         if_none_match: bool = False,
+        single_attempt: bool = False,
     ) -> RemoteObject:
         request: PutObjectRequestTypeDef = {
             "Bucket": self.bucket,
@@ -640,7 +641,13 @@ class Boto3R2Store:
         try:
             with self._request("put-object"), path.open("rb") as body:
                 request["Body"] = body
-                response = self._client(path.stat().st_size).put_object(**request)
+                size = path.stat().st_size
+                client = (
+                    self._client(size, single_attempt=True)
+                    if single_attempt
+                    else self._client(size)
+                )
+                response = client.put_object(**request)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             _log_r2_failure("put-object", exc, key=key)
             raise R2Error("R2 put-object timed out") from exc
