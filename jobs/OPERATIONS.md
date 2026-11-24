@@ -34,7 +34,7 @@ set +a
 <a id="日次実行と結果確認"></a>
 ## 日次と到達点
 
-[共通日次](../.github/workflows/cloud-daily-batch-current.yml)は22:43 JSTの独立した統合枠。各[取得枠](#sources)の完了を待たず、遅着は次の統合に回る。手動実行前に、対象の`main`と[日足](#price-native-l1)の受領を確認する。`asof`はモデルの基準日で、価格日でも全sourceの観測日でもない。
+[共通日次](../.github/workflows/cloud-daily-batch-current.yml)は22:43 JSTの独立した統合枠。各[取得枠](#sources)の完了を待たず、遅着は次の統合に回る。手動実行前に、対象の`main`と[日足](#price-native-l1)の受領を確認する。 切替後の確認・復旧は受入済みの`main`を指定して新規dispatchする。GitHubの「Re-run jobs」は元runのSHAで動くため、同じ現行workflow名でも旧SHAを再実行しない。ローカルも旧checkoutから操作しない。`asof`はモデルの基準日で、価格日でも全sourceの観測日でもない。
 
 ```bash
 gh workflow run cloud-daily-batch-current.yml --ref main -f "asof=${ASOF:?基準日をYYYY-MM-DDで指定}"
