@@ -24,6 +24,7 @@ from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
     ObjectStore,
+    R2Error,
     VerifiedObjectMetadataReader,
 )
 
@@ -55,6 +56,10 @@ _FRED_DECODE_CHUNK = 1024**2
 _FRED_MAX_WINDOW_LOG = 23  # 8 MiB
 _FRED_MANIFEST_OVERHEAD_BYTES = 512
 _SQLITE_HEADER = b"SQLite format 3\x00"
+
+
+class ScopedInputMissing(LakePublishError):
+    """An explicitly absent scoped input member, not an invalid or unknown response."""
 
 
 def _validate_stage_identity(stage_id: str) -> None:
@@ -377,12 +382,14 @@ def load_handoff(
     namespace: str | None = None,
     input_group: str | None = None,
     expected_manifest_sha256: str | None = None,
+    input_generations: dict[str, object] | None = None,
 ) -> None:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
+    scoped = namespace == "source-inputs" and input_group is not None
     legacy_economic = not market and namespace in (None, "economic-sources")
     if legacy_economic and is_fred_handoff(stage_id):
         raise ValueError("raw FRED acquisition handoffs are archived")
-    manifest = _fixed_handoff_manifest(store, prefix, expected_manifest_sha256)
+    manifest = _fixed_handoff_manifest(store, prefix, expected_manifest_sha256, scoped=scoped)
     if not isinstance(manifest, dict):
         raise ValueError("invalid source handoff manifest")
     if namespace == FRED_HANDOFF_NAMESPACE:
@@ -410,10 +417,16 @@ def load_handoff(
     if (
         not isinstance(manifest.get("receipt_sha256"), str)
         or type(manifest.get("receipt_bytes")) is not int
+        or (scoped and manifest["receipt_bytes"] <= 0)
         or not isinstance(manifest.get("receipt_key"), str)
         or not isinstance(manifest.get("result"), dict)
     ):
         raise ValueError("invalid source handoff manifest")
+    if input_generations is not None and (
+        manifest["result"].get("group") != input_group
+        or manifest["result"].get("canonical_generations") != input_generations
+    ):
+        raise LakePublishError("scoped source input differs from its generation binding")
     digest, size = manifest["receipt_sha256"], manifest["receipt_bytes"]
     if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
         raise LakePublishError("source handoff receipt identity differs")
@@ -428,11 +441,18 @@ def load_handoff(
     if manifest["receipt_key"] != key:
         raise LakePublishError("source handoff receipt identity differs")
     remote = store.head(key)
+    if remote is None and scoped:
+        raise ScopedInputMissing("scoped source input body is missing")
     if remote is None or remote.size != size or remote.metadata.get("sha256") != digest:
         raise LakePublishError("source handoff receipt metadata differs")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
-    store.download_file(key, path, expect_bytes=size)
+    try:
+        store.download_file(key, path, expect_bytes=size)
+    except R2Error as error:
+        if scoped and error.http_status == 404:
+            raise ScopedInputMissing("scoped source input body is missing") from error
+        raise
     with path.open("rb") as stream:
         actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != digest:
@@ -452,7 +472,7 @@ def is_current_fred_manifest(manifest: dict[str, object]) -> bool:
 
 
 def _fixed_handoff_manifest(
-    store: ObjectStore, prefix: str, expected_manifest_sha256: str | None
+    store: ObjectStore, prefix: str, expected_manifest_sha256: str | None, *, scoped: bool = False
 ) -> object:
     saved = read_write_once_private(store, prefix + "/handoff.json")
     if expected_manifest_sha256 is not None and (
@@ -460,6 +480,8 @@ def _fixed_handoff_manifest(
     ):
         raise LakePublishError("fixed source handoff manifest changed")
     if saved is None:
+        if scoped:
+            raise ScopedInputMissing("scoped source input manifest is missing")
         raise LakePublishError("source private handoff is not complete")
     manifest: object = json.loads(saved.payload)
     return manifest
