@@ -568,6 +568,95 @@ def test_runs_size_gate_stops_before_sending_market_or_runs(incumbent, tmp_path)
     assert machine.read_machine_current(store) == base
 
 
+@pytest.mark.parametrize(
+    "mode", ["at-limit", "large", "large-lost-ack", "large-denied", "large-expired"]
+)
+def test_only_large_fresh_runs_use_multipart_and_keep_the_same_reader(
+    incumbent, tmp_path, monkeypatch, mode
+):
+    store, selected, base = incumbent
+    lake = _stage_lake(store, tmp_path, "large-runs")
+    market, runs = _files(tmp_path, lake.pointer)
+    with closing(sqlite3.connect(runs)) as db, db:
+        db.execute("CREATE TABLE harmless_filler (payload BLOB)")
+        db.execute("INSERT INTO harmless_filler VALUES (zeroblob(?))", (market.stat().st_size,))
+    size = runs.stat().st_size
+    assert size > market.stat().st_size
+    limit = size if mode == "at-limit" else size - 1
+    monkeypatch.setattr(machine, "MAX_MACHINE_PUT_BYTES", limit)
+    multipart_keys: list[str] = []
+    lease_checks = 0
+
+    def held():
+        nonlocal lease_checks
+        lease_checks += 1
+        if mode == "large-expired" and lease_checks > 1:
+            raise LeaseError("previous lease expired")
+
+    def multipart(key, path, *, while_held, size, sha256, content_md5, content_type):
+        assert key.startswith("machine/payloads/")
+        assert key.endswith("/runs.sqlite")
+        assert key != selected.machine.runs.key
+        assert size == path.stat().st_size
+        assert size > limit
+        while_held()
+        multipart_keys.append(key)
+        if mode == "large-denied":
+            raise R2Error("unauthorized without strict-stop hook", http_status=401)
+        while_held()
+        store.put_file(
+            key,
+            path,
+            sha256=sha256,
+            content_md5=content_md5,
+            content_type=content_type,
+            if_none_match=True,
+        )
+        store.values[key].etag = "0" * 32 + "-2"
+        if mode == "large-lost-ack":
+            raise R2Error("completion acknowledgement was lost")
+        return store.head(key)
+
+    monkeypatch.setattr(store, "put_immutable_multipart_file", multipart, raising=False)
+    store.put_keys.clear()
+    if mode != "at-limit":
+        # A transport with multipart capability alone cannot authorize the new write.
+        with pytest.raises(machine.MachineMemberTooLarge, match="without multipart"):
+            _stage_members(store, lake=lake, market=market, runs=runs)
+        assert store.put_keys == []
+    if mode in {"large-denied", "large-expired"}:
+        with pytest.raises(R2Error if mode == "large-denied" else LeaseError):
+            _publish_machine(store, lake=lake, market=market, runs=runs, while_held=held)
+        assert len(multipart_keys) == 1
+        assert len(store.put_keys) == 1
+        assert store.put_keys[0].endswith("/market.sqlite")
+        assert store.delete_keys == []
+        assert machine.read_machine_current(store) == base
+        assert lease_checks == (1 if mode == "large-denied" else 2)
+    elif mode == "large-lost-ack":
+        with pytest.raises(machine.MachineStageInterrupted) as raised:
+            _publish_machine(store, lake=lake, market=market, runs=runs, while_held=held)
+        assert multipart_keys == [raised.value.unconfirmed]
+        assert store.put_keys == [raised.value.detached[0], raised.value.unconfirmed]
+        assert store.delete_keys == list(raised.value.detached)
+        assert machine.read_machine_current(store) == base
+        assert all(store.head(selected.machine.member(role).key) for role in ("market", "runs"))
+    else:
+        committed, retired = _publish_machine(
+            store, lake=lake, market=market, runs=runs, while_held=held
+        )
+        assert retired
+        published = committed.current.pointer
+        assert store.put_keys == [published.machine.market.key, published.machine.runs.key, HEAD]
+        assert multipart_keys == ([published.machine.runs.key] if mode == "large" else [])
+        with pull_current_machine(store, store, directory=tmp_path / "reader") as pair:
+            assert pair.current == committed.current
+            assert pair.runs.read_bytes() == runs.read_bytes()
+        assert (published.machine.runs.key, published.machine.runs.etag) in store.downloads
+    assert lease_checks >= 1
+    assert all(not key.endswith(".bak") for key in store.put_keys)
+
+
 @pytest.mark.parametrize("mode", ["confirmed", "retire-refused", "ambiguous"])
 def test_ordinary_publish_only_retires_exact_proven_noncurrent_keys(
     incumbent, tmp_path, monkeypatch, mode

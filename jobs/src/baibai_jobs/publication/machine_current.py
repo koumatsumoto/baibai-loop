@@ -15,6 +15,7 @@ from uuid import uuid4
 from baibai_engine.machine_analysis.screening.discovery_contract import discovery_publication_id
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.objects.r2 import (
+    ImmutableMultipartWriter,
     LakeCASConflict,
     LakePublishError,
     ObjectStore,
@@ -158,10 +159,8 @@ def require_runs_publication(pointer: LakeReleasePointer, runs: Path) -> None:
         raise LakePublishError("Runs generation differs from the selected Lake release")
 
 
-def _require_sealed_body(path: Path) -> None:
+def _require_sealed_body(path: Path) -> int:
     size = path.stat().st_size
-    if size > MAX_MACHINE_PUT_BYTES:
-        raise MachineMemberTooLarge("machine member exceeds the R2 single PUT limit")
     if not path.is_file() or size == 0:
         raise LakePublishError("machine member must be a nonempty sealed file")
     for suffix in ("-wal", "-journal"):
@@ -170,6 +169,7 @@ def _require_sealed_body(path: Path) -> None:
                 raise LakePublishError("machine member has outstanding SQLite sidecar bytes")
         except FileNotFoundError:
             pass
+    return size
 
 
 def _checksums(path: Path) -> tuple[str, str, int]:
@@ -186,16 +186,37 @@ def _checksums(path: Path) -> tuple[str, str, int]:
     return sha.hexdigest(), base64.b64encode(md5.digest()).decode(), size
 
 
-def _stage_member(store: ObjectStore, key: str, path: Path) -> MachineMember:
+def _stage_member(
+    store: ObjectStore,
+    key: str,
+    path: Path,
+    *,
+    expected_size: int,
+    multipart_lease: Callable[[], None] | None = None,
+) -> MachineMember:
     sha256, md5, size = _checksums(path)
-    ack = store.put_file(
-        key,
-        path,
-        sha256=sha256,
-        content_md5=md5,
-        content_type=_SQLITE_CONTENT_TYPE,
-        if_none_match=True,
-    )
+    if size != expected_size:
+        raise LakePublishError("sealed machine member size changed before staging")
+    if multipart_lease is None:
+        ack = store.put_file(
+            key,
+            path,
+            sha256=sha256,
+            content_md5=md5,
+            content_type=_SQLITE_CONTENT_TYPE,
+            if_none_match=True,
+        )
+    else:
+        assert isinstance(store, ImmutableMultipartWriter)
+        ack = store.put_immutable_multipart_file(
+            key,
+            path,
+            size=size,
+            sha256=sha256,
+            content_md5=md5,
+            content_type=_SQLITE_CONTENT_TYPE,
+            while_held=multipart_lease,
+        )
     if (
         ack.size != size
         or ack.metadata.get("sha256") != sha256
@@ -207,7 +228,13 @@ def _stage_member(store: ObjectStore, key: str, path: Path) -> MachineMember:
 
 
 def stage_machine_members(
-    store: ObjectStore, *, lake: StagedLake, base: ReadyMachineBase, market: Path, runs: Path
+    store: ObjectStore,
+    *,
+    lake: StagedLake,
+    base: ReadyMachineBase,
+    market: Path,
+    runs: Path,
+    while_held: Callable[[], None] | None = None,
 ) -> StagedMachine:
     """Bind verified graph and locally paired snapshots to the original current head."""
     if (
@@ -216,18 +243,32 @@ def stage_machine_members(
         or lake.base.payload != base.snapshot.payload
     ):
         raise LakePublishError("machine base differs from the staged Lake")
-    _require_sealed_body(market)
-    _require_sealed_body(runs)
+    market_size = _require_sealed_body(market)
+    runs_size = _require_sealed_body(runs)
+    if market_size > MAX_MACHINE_PUT_BYTES:
+        raise MachineMemberTooLarge("Market exceeds the R2 single PUT limit")
+    multipart = runs_size > MAX_MACHINE_PUT_BYTES
+    if multipart and (while_held is None or not isinstance(store, ImmutableMultipartWriter)):
+        raise MachineMemberTooLarge("Runs exceeds the R2 single PUT limit without multipart")
     require_market_origin(lake.pointer, market)
     require_runs_publication(lake.pointer, runs)
     publication = uuid4().hex
     members: dict[MachineRole, MachineMember] = {}
     paths: dict[MachineRole, Path] = {"market": market, "runs": runs}
+    sizes: dict[MachineRole, int] = {"market": market_size, "runs": runs_size}
     for role, path in paths.items():
         key = machine_member_key(publication, role)
         try:
-            members[role] = _stage_member(store, key, path)
+            members[role] = _stage_member(
+                store,
+                key,
+                path,
+                expected_size=sizes[role],
+                multipart_lease=while_held if multipart and role == "runs" else None,
+            )
         except (LakePublishError, OSError, ValueError) as cause:
+            if isinstance(cause, R2Error) and cause.http_status in {401, 403, 429}:
+                raise
             # These fresh keys cannot be selected: no StagedMachine was returned.
             # A timed-out PUT can still create the unconfirmed key later.
             raise MachineStageInterrupted(
@@ -380,7 +421,9 @@ def publish_staged_machine(
 ) -> tuple[MachineCommit, bool]:
     """Publish fresh members and retire only the now-demoted pair, never the old Lake."""
     try:
-        staged = stage_machine_members(store, lake=lake, base=base, market=market, runs=runs)
+        staged = stage_machine_members(
+            store, lake=lake, base=base, market=market, runs=runs, while_held=while_held
+        )
     except MachineStageInterrupted as error:
         # The original publication failure is still the outcome.
         with suppress(LakePublishError, LeaseError, R2OperationStopped):

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
+from botocore.awsrequest import AWSResponse
 from botocore.exceptions import ClientError, ReadTimeoutError
+from botocore.httpsession import URLLib3Session
 
 from baibai_engine.storage.objects import r2 as object_storage
 from baibai_engine.storage.objects.r2 import (
@@ -13,6 +19,7 @@ from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
     R2Error,
+    R2OperationStopped,
 )
 
 
@@ -161,6 +168,295 @@ def test_r2_conditional_header_survives_sdk_serialization(tmp_path, monkeypatch,
     else:
         assert headers[0]["If-Match"] == f'"{etag}"'
         assert "If-None-Match" not in headers[0]
+
+
+@pytest.mark.parametrize(
+    ("failure", "error", "finish"),
+    [
+        ("none", None, ["lease", "complete", "head"]),
+        ("part-etag", R2Error, ["lease", "abort"]),
+        ("abort-401", R2Error, ["lease", "abort"]),
+        ("abort-403", R2OperationStopped, ["lease", "abort"]),
+        ("abort-lease-401", R2Error, ["lease"]),
+        ("sha256", R2Error, ["lease", "abort"]),
+        ("whole-md5", R2Error, ["lease", "abort"]),
+        ("lease-expired", ValueError, ["lease"]),
+        ("part-403", R2OperationStopped, []),
+        ("part-429", R2OperationStopped, []),
+        ("part-cancel", KeyboardInterrupt, []),
+        ("complete-conflict", LakeCASConflict, ["lease", "complete"]),
+        ("complete-lost-ack", R2Error, ["lease", "complete"]),
+        ("complete-invalid-etag", R2Error, ["lease", "complete"]),
+        ("head-other-etag", R2Error, ["lease", "complete", "head"]),
+        ("head-other-size", R2Error, ["lease", "complete", "head"]),
+        ("head-other-sha", R2Error, ["lease", "complete", "head"]),
+    ],
+)
+def test_immutable_multipart_uses_conditional_complete_and_fails_closed(
+    tmp_path, monkeypatch, failure, error, finish
+):
+    from botocore.serialize import create_serializer
+    from botocore.session import get_session
+
+    key = "machine/payloads/00000000000000000000000000000001/runs.sqlite"
+    raw = b"abcdefghi"
+    content_type = "application/vnd.sqlite3"
+    source = tmp_path / "runs.sqlite"
+    source.write_bytes(raw)
+    sha = hashlib.sha256(raw).hexdigest()
+    md5 = base64.b64encode(hashlib.md5(raw, usedforsecurity=False).digest()).decode()
+    chunks = [b"abcd", b"efgh", b"i"]
+    digests = [hashlib.md5(chunk, usedforsecurity=False).digest() for chunk in chunks]
+    composite = hashlib.md5(b"".join(digests), usedforsecurity=False).hexdigest() + "-3"
+    monkeypatch.setattr(object_storage, "_MULTIPART_PART_BYTES", 4)
+    store = Boto3R2Store(
+        bucket="isolated-test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "unused",
+            "R2_SECRET_ACCESS_KEY": "unused",
+            "R2_STOP_ON_REJECTION": "1",
+        },
+        verify_put_with_head=False,
+    )
+    model = get_session().get_service_model("s3")
+    serializer = create_serializer(model.metadata["protocol"])
+    events = []
+    client_events = get_session().get_component("event_emitter")
+    metadata: dict[str, str] = {}
+    identity = {"Bucket": "isolated-test", "Key": key, "UploadId": "one-fresh-upload"}
+
+    def while_held():
+        events.append("lease")
+        if failure == "lease-expired" and events.count("lease") > 1:
+            raise ValueError("lease expired")
+        if failure == "abort-lease-401" and events.count("lease") > 1:
+            raise R2Error("lease check was rejected", http_status=401)
+
+    class RecordingClient:
+        meta = SimpleNamespace(events=client_events)
+
+        def create_multipart_upload(self, **kwargs):
+            events.append("create")
+            request = serializer.serialize_to_request(
+                kwargs, model.operation_model("CreateMultipartUpload")
+            )
+            assert "If-None-Match" not in request["headers"]
+            assert request["headers"]["Content-Type"] == content_type
+            metadata.update(kwargs["Metadata"])
+            return {"UploadId": identity["UploadId"]}
+
+        def upload_part(self, **kwargs):
+            number = kwargs["PartNumber"]
+            events.append(f"part-{number}")
+            assert all(kwargs[name] == item for name, item in identity.items())
+            assert kwargs["Body"] == chunks[number - 1]
+            request = serializer.serialize_to_request(kwargs, model.operation_model("UploadPart"))
+            assert request["headers"]["Content-MD5"] == (
+                base64.b64encode(digests[number - 1]).decode()
+            )
+            assert int(request["headers"]["Content-Length"]) == len(chunks[number - 1])
+            if failure in {"part-403", "part-429"}:
+                status = int(failure[-3:])
+                raise ClientError(
+                    {
+                        "Error": {"Code": str(status)},
+                        "ResponseMetadata": {"HTTPStatusCode": status},
+                    },
+                    "UploadPart",
+                )
+            if failure == "part-cancel":
+                raise KeyboardInterrupt
+            bad_etag = failure == "part-etag" or failure.startswith("abort-")
+            etag = "wrong" if bad_etag else digests[number - 1].hex()
+            return {"ETag": f'"{etag}"'}
+
+        def complete_multipart_upload(self, **kwargs):
+            events.append("complete")
+            assert all(kwargs[name] == item for name, item in identity.items())
+            request = serializer.serialize_to_request(
+                kwargs, model.operation_model("CompleteMultipartUpload")
+            )
+            assert request["headers"]["If-None-Match"] == "*"
+            assert "If-Match" not in request["headers"]
+            assert kwargs["MultipartUpload"]["Parts"] == [
+                {"PartNumber": i, "ETag": f'"{digest.hex()}"'}
+                for i, digest in enumerate(digests, start=1)
+            ]
+            if failure == "complete-conflict":
+                raise ClientError(
+                    {
+                        "Error": {"Code": "PreconditionFailed"},
+                        "ResponseMetadata": {"HTTPStatusCode": 412},
+                    },
+                    "CompleteMultipartUpload",
+                )
+            if failure == "complete-lost-ack":
+                raise ReadTimeoutError(endpoint_url="https://unused.invalid")
+            return {
+                "ETag": '"unexpected"' if failure == "complete-invalid-etag" else f'"{composite}"'
+            }
+
+        def abort_multipart_upload(self, **kwargs):
+            events.append("abort")
+            assert kwargs == identity
+            if failure in {"abort-401", "abort-403"}:
+                status = int(failure[-3:])
+                raise ClientError(
+                    {
+                        "Error": {"Code": str(status)},
+                        "ResponseMetadata": {"HTTPStatusCode": status},
+                    },
+                    "AbortMultipartUpload",
+                )
+
+        def head_object(self, **kwargs):
+            events.append("head")
+            assert kwargs == {name: identity[name] for name in ("Bucket", "Key")}
+            return {
+                "ETag": '"same-size-different-etag"'
+                if failure == "head-other-etag"
+                else f'"{composite}"',
+                "ContentLength": len(raw) + (failure == "head-other-size"),
+                "ContentType": content_type,
+                "Metadata": metadata
+                if failure != "head-other-sha"
+                else {**metadata, "sha256": "0"},
+            }
+
+    monkeypatch.setattr(store, "_client", lambda *_: RecordingClient())
+
+    def publish():
+        return store.put_immutable_multipart_file(
+            key,
+            source,
+            size=len(raw),
+            sha256=sha if failure != "sha256" else "0" * 64,
+            content_md5=md5 if failure != "whole-md5" else "wrong",
+            content_type=content_type,
+            while_held=while_held,
+        )
+
+    if error is None:
+        result = publish()
+        assert result.etag == composite
+        assert result.size == len(raw)
+        assert result.metadata == {"sha256": sha, "content-md5": md5, "integrity": "part-md5-v1"}
+    else:
+        with pytest.raises(error) as caught:
+            publish()
+        if failure in {"abort-401", "abort-lease-401"}:
+            assert caught.value.http_status == 401
+    partial = failure in {
+        "part-etag",
+        "part-403",
+        "part-429",
+        "part-cancel",
+        "abort-401",
+        "abort-403",
+        "abort-lease-401",
+    }
+    assert events == [
+        "lease",
+        "create",
+        "part-1",
+        *([] if partial else ["part-2", "part-3"]),
+        *finish,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "region"),
+    [
+        (301, "PermanentRedirect", "us-west-2"),
+        (301, "PermanentRedirect", None),
+        (200, "AuthorizationHeaderMalformed", "us-west-2"),
+        (200, "InternalError", None),
+        (403, "AuthorizationHeaderMalformed", "us-west-2"),
+        (429, "AuthorizationHeaderMalformed", "us-west-2"),
+    ],
+)
+def test_complete_never_sends_a_redirect_or_discovery_request(
+    tmp_path, monkeypatch, status, code, region
+):
+    # This uses the pinned SDK's actual signing and response/redirect handlers.
+    # Stubber would bypass the retry handlers that used to resend Complete.
+    raw = b"abcdefghi"
+    source = tmp_path / "runs.sqlite"
+    source.write_bytes(raw)
+    calls = []
+    monkeypatch.setattr(object_storage, "_MULTIPART_PART_BYTES", 4)
+
+    class Body:
+        def __init__(self, value):
+            self.value = value
+
+        def stream(self, *_args, **_kwargs):
+            return iter([self.value])
+
+    def send(_session, request):
+        query = parse_qs(urlparse(request.url).query, keep_blank_values=True)
+        if request.method == "POST" and "uploads" in query:
+            calls.append("create")
+            return AWSResponse(
+                request.url,
+                200,
+                {"content-type": "application/xml"},
+                Body(
+                    b"<InitiateMultipartUploadResult><UploadId>one</UploadId>"
+                    b"</InitiateMultipartUploadResult>"
+                ),
+            )
+        if request.method == "PUT" and "partNumber" in query:
+            calls.append("part")
+            payload = request.body if isinstance(request.body, bytes) else request.body.read()
+            etag = hashlib.md5(payload, usedforsecurity=False).hexdigest()
+            return AWSResponse(request.url, 200, {"etag": f'"{etag}"'}, Body(b""))
+        if request.method == "POST" and query.get("uploadId") == ["one"]:
+            calls.append("complete")
+            assert calls.count("complete") == 1
+            condition = request.headers["If-None-Match"]
+            authorization = request.headers["Authorization"]
+            assert condition in {b"*", "*"}
+            assert "if-none-match" in (
+                authorization.decode() if isinstance(authorization, bytes) else authorization
+            )
+            headers = {"content-type": "application/xml"}
+            if status == 301 and region:
+                headers["x-amz-bucket-region"] = region
+            xml_region = f"<Region>{region}</Region>" if region else ""
+            error = f"<Error><Code>{code}</Code>{xml_region}</Error>".encode()
+            return AWSResponse(request.url, status, headers, Body(error))
+        pytest.fail(f"unexpected follow-up request: {request.method}")
+
+    monkeypatch.setattr(URLLib3Session, "send", send)
+    stop_file = tmp_path / "stopped"
+    store = Boto3R2Store(
+        bucket="isolated-test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "offline-test",
+            "R2_SECRET_ACCESS_KEY": "offline-test",
+            "R2_STOP_ON_REJECTION": "1",
+            "R2_REJECTION_STOP_FILE": str(stop_file),
+        },
+    )
+    expected_error = R2OperationStopped if code == "AuthorizationHeaderMalformed" else R2Error
+    with pytest.raises(expected_error):
+        store.put_immutable_multipart_file(
+            "multipart-test",
+            source,
+            size=len(raw),
+            sha256=hashlib.sha256(raw).hexdigest(),
+            content_md5=base64.b64encode(hashlib.md5(raw, usedforsecurity=False).digest()).decode(),
+            content_type="application/vnd.sqlite3",
+            while_held=lambda: None,
+        )
+    assert calls == ["create", "part", "part", "part", "complete"]
+    if status in {403, 429}:
+        assert stop_file.read_text() == f"{status}\n"
+    else:
+        assert not stop_file.exists()
 
 
 @pytest.mark.parametrize("existing", [False, True])

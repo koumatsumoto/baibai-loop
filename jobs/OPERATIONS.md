@@ -151,7 +151,9 @@ with_publication_lease() (
 
 承認された一回作業でそのDBを新しい固有keyへ転送し、両者の実bytes・SQLite・参照を検証する。この間、旧canonicalは変更しない。旧ポインタのETagを条件に同じkeyへ一回CASし、新ポインタと両DBを読み戻す。新CLIでの全ペア取得、Marketだけの表示、次の日次の同一公開・seal・表示・lease解放を確認。旧版の再実行や新readerの旧方式fallbackは残さない。旧通常日次は新ポインタを読めず止まるが、旧ローカル `push-runs` は旧固定keyがある間はポインタを読まずに書ける。旧経路を凍結したまま、旧 `market.sqlite`、`runs.sqlite`、`machine-manifest.json` と既存の `market.sqlite.bak`、`runs.sqlite.bak` は受入後、別途削除承認を得たexact keyだけを扱う。削除承認待ちでも旧writerは再開しない。指標の旧 `indicators.sqlite.bak` もこのMachine移行では削除しない。
 
-転送はR2の単一PUT上限 5,363,466,240 bytes（5 GiB − 5 MiB）以内。切替前に受入済みの通常日次の実Runsサイズ・直近の通常日次の正の最大増分を確認し、同じ増分を7日加えても上限内か確認する。許可された隔離環境で、切替後の前世代キーに対するDELETEと不在確認も通す。欠測、上限超過、または余裕なしなら切り替えない。過去の目安や小さなfixtureで実寸受入の代わりにしない。
+Market・ポインタの書き込みは従来どおり単一PUT。RunsはR2の単一PUT上限 5,363,466,240 bytes（5 GiB − 5 MiB）を超える場合だけ、新規固有keyへの逐次multipartを使う。両方で同じSQLiteを送り、読取とポインタの形式は変えない。multipartは各partと全体の転送元、完了応答と完成objectを照合し、lease下で `If-None-Match: *` により完成させる。完成の応答不明は再送・削除しない。未完partの失効設定は既存bucketで確認する。これは完成済みで未選択のobjectを消す設定ではない。
+
+切替前に、実寸の現行組に加え、単一PUT上限を超える合成Runsを許可された隔離環境で検証する。現行構成のdisk・job時間・有効なlease内で転送と同一pair読戻しが完了すること、前世代キーのDELETEと不在確認が通ることを確かめる。欠測、条件不一致、または余裕なしなら切り替えない。過去の目安や小さなfixtureで実寸受入の代わりにしない。
 
 ### 保持copyから欠落Generationを戻す
 
@@ -241,7 +243,7 @@ schemaが合わない・台帳を読めない場合に初期化や変換はし�
 
 [workflow](../.github/workflows/cloud-economic-sources-current.yml)は休場日もgroup別に取得し、部分受領をprivate stageへ保存する。限定再実行は所属groupとsource IDを指定する。
 
-経済L1の正本は `indicators.sqlite` 一件。日次統合は読んだ正本のETagを条件に更新し、実際の読戻しを確認してからhandoffを確定する。正本更新後にhandoff確定や次回入力の発行が止まった場合、古いDBには戻さず次回の通常統合を現行の正本と残っているhandoffから続ける。手動の `push-indicators` も固定 `.bak` を作らない。
+経済L1の正本は `indicators.sqlite` 一件。日次統合は読んだ正本のETagを条件に更新し、実際の読戻しを確認してからhandoffを確定する。正本更新後にhandoff確定や次回入力の発行が止まった場合、古いDBには戻さず次回の通常統合を現行の正本と残っているhandoffから続ける。手動の `push-indicators` も固定 `.bak` を作らない。 手動の `pull-indicators` と `push-indicators` のマージ用取得は正本のETagを1回のGETに指定し、同じ応答のETagと受信バイト数が一致しなければローカル置換やマージを行わない。
 
 取得summaryの`failed`はHTTP試行件数ではない。`blocked_by_source_id`は先行sourceが止めた未試行分であり、自身のHTTP statusを持たない。status・例外型だけで拒否原因を断定せず、旧summaryの欠落診断や受付時計を推測しない。
 
