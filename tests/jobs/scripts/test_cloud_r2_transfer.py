@@ -1131,6 +1131,87 @@ def test_store_backup_waits_past_the_cli_default_read_timeout(tmp_path: Path) ->
     assert int(arguments[arguments.index("--cli-read-timeout") + 1]) > 60
 
 
+_INDICATOR_GET = "s3api get-object --bucket baibai-stores --key indicators.sqlite "
+
+
+def _indicator_fixture(path: Path, value: str) -> bytes:
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("CREATE TABLE sample (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO sample VALUES (?)", (value,))
+    return path.read_bytes()
+
+
+@pytest.mark.parametrize("operation", ["pull-indicators", "push-indicators"])
+@pytest.mark.parametrize("failure", ["aba", "wrong_etag", "wrong_length"])
+def test_indicator_download_refuses_unproven_body(tmp_path, operation, failure):
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    state = Path(env["AWS_FAKE_STATE"])
+    canonical = _indicator_fixture(state / "put-indicators.sqlite", "a")
+    local_path = root / "stores/market_context/indicators.sqlite"
+    local_path.parent.mkdir(parents=True)
+    local = _indicator_fixture(local_path, "c")
+    if failure == "aba":
+        transient = _indicator_fixture(state / "transient-indicators.sqlite", "b")
+        assert transient != canonical
+        assert len(transient) == len(canonical)
+    else:
+        etag = '"etag-other"' if failure == "wrong_etag" else '"etag-stable"'
+        length = len(canonical) + (failure == "wrong_length")
+        (state / "get-metadata-indicators.sqlite").write_text(f"{etag}\t{length}\n")
+
+    completed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", operation],
+        cwd=root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    commands = _transfer_commands(log)
+    downloads = [command for command in commands if command.startswith(_INDICATOR_GET)]
+    assert len(downloads) == 1
+    assert '--if-match "etag-stable"' in downloads[0]
+    assert not any(command.startswith("merge ") for command in commands)
+    assert _remote_writes(log) == []
+    assert "synthetic-private-value" not in completed.stderr
+    assert local_path.read_bytes() == local
+    if operation == "pull-indicators":
+        assert not (Path(env["R2_GENERATION_DIR"]) / "indicators.sqlite.etag").exists()
+    assert not list(root.glob(".r2-transfer.*"))
+
+
+def test_indicator_pull_installs_the_single_pinned_get(tmp_path):
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    canonical = _indicator_fixture(Path(env["AWS_FAKE_STATE"]) / "put-indicators.sqlite", "a")
+
+    completed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-indicators"],
+        cwd=root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    commands = _transfer_commands(log)
+    downloads = [command for command in commands if command.startswith(_INDICATOR_GET)]
+    assert len(downloads) == 1
+    assert '--if-match "etag-stable"' in downloads[0]
+    assert sum(command.startswith("s3api head-object ") for command in commands) == 2
+    assert _remote_writes(log) == []
+    assert (root / "stores/market_context/indicators.sqlite").read_bytes() == canonical
+    assert (
+        Path(env["R2_GENERATION_DIR"]) / "indicators.sqlite.etag"
+    ).read_text() == '"etag-stable"\n'
+
+
 def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> None:
     # Runs outside GitHub Actions on purpose: the deep history this publishes is fetched
     # locally, and the merge — not the caller's environment — is what guarantees the cloud
@@ -1151,9 +1232,7 @@ def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) 
     assert completed.returncode == 0
     commands = _transfer_commands(log)
     downloads = [
-        index
-        for index, command in enumerate(commands)
-        if command.startswith("s3 cp s3://baibai-stores/indicators.sqlite ")
+        index for index, command in enumerate(commands) if command.startswith(_INDICATOR_GET)
     ]
     merges = [index for index, command in enumerate(commands) if command.startswith("merge ")]
     uploads = [
@@ -1182,7 +1261,7 @@ def test_indicator_push_checks_lease_and_generation_after_merging(tmp_path, fail
     env = _environment(bin_dir, log)
     env["AWS_FAKE_EXISTING_KEY"] = "indicators.sqlite"
     if failure == "lease":
-        env["LEASE_FAKE_RELEASE_ON"] = "s3 cp s3://baibai-stores/indicators.sqlite "
+        env["LEASE_FAKE_RELEASE_ON"] = _INDICATOR_GET
     else:
         env["AWS_FAKE_CHANGED_KEY"] = "indicators.sqlite"
 
@@ -2350,11 +2429,7 @@ def test_explicit_fred_recovery_is_bound_to_the_fresh_download_and_conditional_p
     )
     assert completed.returncode == 0, completed.stderr
     commands = _transfer_commands(log)
-    download = next(
-        i
-        for i, command in enumerate(commands)
-        if command.startswith("s3 cp s3://baibai-stores/indicators.sqlite ")
-    )
+    download = next(i for i, command in enumerate(commands) if command.startswith(_INDICATOR_GET))
     recheck = next(i for i, command in enumerate(commands) if command.startswith("merge "))
     upload = next(
         i
