@@ -671,44 +671,16 @@ pull_keys() {
 }
 
 backup_key_for() {
-  # One fixed backup for each machine store; App generations have their own owner.
+  # One fixed backup for each machine store.
   # Machine data is derived/acquired, but expired upstream history may not be
   # recoverable; this backup is recovery protection, not proof of rebuildability.
   printf '%s.bak\n' "$1"
-}
-
-prune_app_backups() {
-  local candidates key
-  candidates="$(cd "${repo_root}" && uv run python -m baibai_jobs.maintenance.application_backup_retention \
-    --bucket "${stores_bucket}" --endpoint-url "${endpoint}")" || {
-    local status=$?
-    printf 'application DB already uploaded; no backup was pruned. Do not repeat the App upload.\n' >&2
-    return "${status}"
-  }
-  while IFS= read -r key; do
-    [[ -n "${key}" ]] || continue
-    aws s3api delete-object \
-      --bucket "${stores_bucket}" \
-      --key "${key}" \
-      --endpoint-url "${endpoint}" \
-      >/dev/null
-    printf 'pruned application store backup: %s\n' "${key}"
-  done <<< "${candidates}"
 }
 
 backup_remote_key() {
   # Retain the prior generation: some source history cannot be fetched again.
   # R2 needs direct CopyObject rather than `aws s3 cp`; large copies need a longer timeout.
   local key="$1" expected_version="${2:-}"
-  if [[ "${key}" == "baibai.sqlite" ]]; then
-    if [[ "${R2_APP_BACKUP_CREATE:-retain}" == "skip" ]]; then
-      printf 'application backup creation explicitly skipped\n'
-      return
-    fi
-    (cd "${repo_root}" && uv run python -m baibai_jobs.maintenance.application_backup \
-      --bucket "${stores_bucket}" --expected-etag "${expected_version}")
-    return
-  fi
   if remote_object_exists "${key}"; then
     local backup_key
     backup_key="$(backup_key_for "${key}")"
@@ -735,8 +707,8 @@ _push_keys() {
     return 2
   fi
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  # Report snapshot, backup and upload times separately for each store.
-  local key source body started uploaded_version put_started upload_parts=""
+  # Report snapshot and upload times; machine writes also report their backup time.
+  local key source body started uploaded_version put_started backup_part upload_parts=""
   local -a snapshot_seconds=() seed_versions=()
   for key in "$@"; do
     source="$(store_path "${key}")"
@@ -764,13 +736,16 @@ _push_keys() {
   for key in "$@"; do
     body="${transfer_staging}/${key}"
     started="${SECONDS}"
-    if [[ -n "${expected_version}" ]]; then
-      if [[ "${key}" != "baibai.sqlite" ]]; then verify_publication_lease; fi
-      transfer_evidence backup_started "${key}" "${expected_version}"
-      backup_remote_key "${key}" "${expected_version}"
-      transfer_evidence backup_checked "${key}" "${expected_version}"
+    backup_part=""
+    if [[ "${key}" != "baibai.sqlite" ]]; then
+      if [[ -n "${expected_version}" ]]; then
+        verify_publication_lease
+        transfer_evidence backup_started "${key}" "${expected_version}"
+        backup_remote_key "${key}" "${expected_version}"
+        transfer_evidence backup_checked "${key}" "${expected_version}"
+      fi
+      backup_part=" backup=$((SECONDS - started))s"
     fi
-    local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
     if [[ -n "${expected_version}" ]]; then
       if [[ "${key}" != "baibai.sqlite" ]]; then verify_publication_lease; fi
@@ -820,11 +795,11 @@ _push_keys() {
         seed_versions+=("${uploaded_version}")
       fi
     fi
-    printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss%s\n' \
+    printf 'store push: key=%s bytes=%s snapshot=%ss%s upload=%ss%s\n' \
       "${key}" \
       "$(wc -c < "${body}" | tr -d ' \n')" \
       "${snapshot_seconds[index]}" \
-      "${backup_elapsed}" \
+      "${backup_part}" \
       "$((SECONDS - started))" "${upload_parts}"
     index=$((index + 1))
   done
@@ -1120,21 +1095,8 @@ case "${1:-}" in
     push_key_if_version indicators.sqlite "${indicator_version}"
     ;;
   push-app)
-    case "${R2_APP_BACKUP_CREATE:-retain}" in
-      retain|skip) ;;
-      *) printf 'R2_APP_BACKUP_CREATE must be retain or skip\n' >&2; exit 2 ;;
-    esac
-    case "${R2_APP_BACKUP_PRUNE:-retain}" in
-      retain|skip) ;;
-      *) printf 'R2_APP_BACKUP_PRUNE must be retain or skip\n' >&2; exit 2 ;;
-    esac
     app_version="$(pulled_version baibai.sqlite)"
     push_key_if_version baibai.sqlite "${app_version}"
-    if [[ "${R2_APP_BACKUP_PRUNE:-retain}" == "skip" ]]; then
-      printf 'application backup pruning skipped\n'
-    else
-      prune_app_backups
-    fi
     ;;
   upload-portfolio-views)
     [[ "${GITHUB_ACTIONS:-}" == "true" ]] || {
