@@ -61,7 +61,7 @@ uv run baibai-engine portfolio sell-execution-draft --db stores/application/baib
 
 draftのpayloadとcash・予約・保有の差分を人間に確認し、`portfolio apply-draft <DRAFT> --db stores/application/baibai.sqlite --confirmed`で適用する。staleは再作成/再確認し、矛盾時は書かない。記帳は報告の整合を検証し現在の購入適格性を再審査しない。Operation開始・無関係なmarket更新/充足は不要。
 
-未作成/未登録と破損を分け、不正storeを空保有にしない。現在条件で過去取引を変えず、[復元](../../../jobs/OPERATIONS.md#application-db-を復元する)へ戻る。
+未作成/未登録と破損を分け、不正storeを空保有にしない。現在条件で過去取引を変えず、必要なら[ローカルcheckpointを確認する](../../../jobs/OPERATIONS.md#inspect-local-application-db)。
 
 ## 時価と権利basis
 

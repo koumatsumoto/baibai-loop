@@ -959,44 +959,15 @@ def test_machine_store_push_reports_where_each_key_spends_its_time(tmp_path: Pat
     assert reported == {"market.sqlite": "1", "runs.sqlite": "1"}
 
 
-def _backup_page(keys: list[str]) -> dict[str, object]:
-    return {
-        "Name": "baibai-stores",
-        "Prefix": "baibai.sqlite.bak-",
-        "IsTruncated": False,
-        "KeyCount": len(keys),
-        "Contents": [{"Key": key} for key in keys],
-    }
-
-
-def _push_app(
-    tmp_path: Path,
-    *,
-    listed: list[str] | None = None,
-    list_output: str | None = None,
-    list_exit: int = 0,
-    publish: bool = False,
-) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def _push_app(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
     (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text(
         '"etag-stable"\n', encoding="utf-8"
     )
-    if listed is not None:
-        env["AWS_FAKE_LIST_OUTPUT"] = json.dumps(_backup_page(listed))
-    if list_output is not None:
-        env["AWS_FAKE_LIST_OUTPUT"] = list_output
-    if list_exit:
-        env["AWS_FAKE_LIST_EXIT"] = str(list_exit)
-    command = [str(TRANSFER_SCRIPT), "push-app"]
-    if publish:
-        command = [str(TRANSFER_SCRIPT.with_name("publish.sh"))]
-        gh = bin_dir / "gh"
-        gh.write_text('#!/bin/sh\nprintf \'gh %s\\n\' "$*" >> "$AWS_LOG"\n')
-        gh.chmod(0o755)
     completed = subprocess.run(
-        command,
+        [TRANSFER_SCRIPT, "push-app"],
         cwd=REPO_ROOT,
         env=env,
         check=False,
@@ -1006,27 +977,12 @@ def _push_app(
     return completed, _transfer_commands(log)
 
 
-def test_application_store_push_keeps_a_dated_generation(tmp_path: Path) -> None:
-    """The judgments and the ledger are the one thing here nothing regenerates, and a
-    single `.bak` is a single undo: a damaged store pushed twice has already spent it."""
-
-    completed, commands = _push_app(tmp_path)
-
-    assert completed.returncode == 0, completed.stderr
-    backups = [command for command in commands if command.startswith("app-backup ")]
-    assert len(backups) == 1
-    assert '--expected-etag "etag-stable"' in backups[0]
-    assert "--bucket baibai-stores" in backups[0]
-
-
-@pytest.mark.parametrize("backup_mode", ["retain", "skip"])
 @pytest.mark.parametrize("failure", ["unknown", "empty", "changed", "put-race"])
 def test_application_push_refuses_unknown_or_changed_generation(
-    tmp_path: Path, failure: str, backup_mode: str
+    tmp_path: Path, failure: str
 ) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
-    env["R2_APP_BACKUP_CREATE"] = backup_mode
     env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
     if failure != "unknown":
         (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text(
@@ -1061,11 +1017,14 @@ def test_application_push_refuses_unknown_or_changed_generation(
 def test_application_push_records_its_own_put_generation(tmp_path: Path) -> None:
     result, commands = _push_app(tmp_path)
     assert result.returncode == 0, result.stderr
-    puts = [command for command in commands if command.startswith("s3api put-object ")]
-    assert len(puts) == 1
-    assert "--key baibai.sqlite " in puts[0]
-    assert '--if-match "etag-stable"' in puts[0]
-    assert any('--expected-etag "etag-stable"' in command for command in commands)
+    assert [command.split()[:2] for command in commands] == [
+        ["s3api", "head-object"],
+        ["s3api", "put-object"],
+    ]
+    head, put = commands
+    assert "--key baibai.sqlite " in head
+    assert "--key baibai.sqlite " in put
+    assert '--if-match "etag-stable"' in put
     assert (tmp_path / "r2-generations/baibai.sqlite.etag").read_text() == '"etag-put-1"\n'
 
 
@@ -1090,7 +1049,7 @@ def test_application_can_publish_again_using_its_put_response(tmp_path: Path) ->
     assert '--if-match "etag-put-1"' in puts[1]
 
 
-def test_application_put_without_etag_stops_before_prune(tmp_path: Path) -> None:
+def test_application_put_without_etag_removes_stale_marker(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["AWS_FAKE_MISSING_PUT_ETAG"] = "1"
@@ -1108,276 +1067,6 @@ def test_application_put_without_etag_stops_before_prune(tmp_path: Path) -> None
     assert "application uploaded but no ETag returned" in result.stderr
     assert not generation.exists()
     assert (Path(env["AWS_FAKE_STATE"]) / "generation-baibai.sqlite").exists()
-    assert not any("list-objects-v2" in line for line in _transfer_commands(log))
-
-
-def test_application_store_push_prunes_beyond_the_kept_generations(tmp_path: Path) -> None:
-    listed = [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)]
-
-    completed, commands = _push_app(tmp_path, listed=listed)
-    deletes = [command for command in commands if command.startswith("s3api delete-object ")]
-
-    assert completed.returncode == 0, completed.stderr
-    # Sixteen generations, fourteen kept: the two oldest go, named exactly.
-    assert [command.split("--key ")[1].split(" ")[0] for command in deletes] == [
-        "baibai.sqlite.bak-20260802",
-        "baibai.sqlite.bak-20260801",
-    ]
-
-
-def test_application_store_push_can_skip_backup_pruning(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
-    env["AWS_FAKE_LIST_OUTPUT"] = json.dumps(
-        _backup_page([f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)])
-    )
-    env["R2_APP_BACKUP_PRUNE"] = "skip"
-    (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text(
-        '"etag-stable"\n', encoding="utf-8"
-    )
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "push-app"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    commands = _transfer_commands(log)
-
-    assert completed.returncode == 0, completed.stderr
-    assert "application backup pruning skipped" in completed.stdout
-    assert any(command.startswith("app-backup ") for command in commands)
-    assert any(command.startswith("s3api put-object ") for command in commands)
-    assert not any("list-objects-v2" in command for command in commands)
-    assert not any("delete-object" in command for command in commands)
-
-
-def test_manual_backup_names_do_not_consume_application_retention_dates(tmp_path: Path) -> None:
-    dates = [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 15)]
-    manual = [
-        "baibai.sqlite.bak-20260815 before migration",
-        "baibai.sqlite.bak-20260816\tmanual",
-        "baibai.sqlite.bak-20260817\nmanual",
-    ]
-    result, commands = _push_app(tmp_path, listed=dates + manual)
-    assert result.returncode == 0, result.stderr
-    assert not any(command.startswith("s3api delete-object ") for command in commands)
-
-
-def test_impossible_calendar_dates_are_not_owned_application_backups(tmp_path: Path) -> None:
-    regular = [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 15)]
-    impossible = [
-        "baibai.sqlite.bak-20999999",
-        "baibai.sqlite.bak-20270229-" + "a" * 64,
-        "baibai.sqlite.bak-00000101",
-    ]
-    valid_leap_day = "baibai.sqlite.bak-20240229"
-    result, commands = _push_app(tmp_path, listed=[*impossible, *regular, valid_leap_day])
-    assert result.returncode == 0, result.stderr
-    assert [
-        command.split("--key ")[1].split(" ")[0]
-        for command in commands
-        if command.startswith("s3api delete-object ")
-    ] == [valid_leap_day]
-    assert all(
-        f"unrecognised key under the application backup prefix: {key!r}" in result.stderr
-        for key in impossible
-    )
-
-
-def test_future_backup_days_do_not_displace_or_get_pruned(tmp_path: Path) -> None:
-    # More than 14 future dates would evict a future key too if the filter ran after ranking.
-    legitimate = [f"baibai.sqlite.bak-200008{day:02d}" for day in range(1, 15)]
-    future = [f"baibai.sqlite.bak-999912{day:02d}" for day in range(1, 16)]
-    result, commands = _push_app(tmp_path, listed=[*legitimate, *future, f"{future[0]}-{'a' * 64}"])
-    assert result.returncode == 0, result.stderr
-    assert not any(command.startswith("s3api delete-object ") for command in commands)
-
-
-@pytest.mark.parametrize("omit_contents", [False, True])
-def test_complete_empty_backup_page_continues_publication(
-    tmp_path: Path, omit_contents: bool
-) -> None:
-    page = _backup_page([])
-    if omit_contents:
-        del page["Contents"]
-    result, commands = _push_app(tmp_path, list_output=json.dumps(page), publish=True)
-    assert result.returncode == 0, result.stderr
-    assert not any(command.startswith("s3api delete-object ") for command in commands)
-    assert commands[-1] == "gh workflow run cloud-materialize.yml --ref main"
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        "missing-key",
-        "null-key",
-        "non-text-key",
-        "empty-key",
-        "non-object",
-        "no-list",
-        "null-list",
-        "bad-root",
-        "truncated-json",
-        "partial-list",
-        "resume-token",
-        "empty-object",
-        "wrong-prefix",
-        "wrong-bucket",
-        "missing-count",
-        "bool-count",
-        "wrong-count",
-        "missing-flag",
-        "unexpected-grouping",
-        "orphan-token",
-        "aws-error",
-    ],
-)
-def test_prune_stops_before_deleting_on_invalid_or_failed_listing(
-    tmp_path: Path, case: str
-) -> None:
-    page = _backup_page([f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)])
-    entries = page["Contents"]
-    assert isinstance(entries, list)
-    bad_entries = {
-        "missing-key": {"Size": 5},
-        "null-key": {"Key": None},
-        "non-text-key": {"Key": 7},
-        "empty-key": {"Key": ""},
-        "non-object": "baibai.sqlite.bak-20260817",
-    }
-    if case in bad_entries:
-        output = json.dumps(
-            {**page, "KeyCount": len(entries) + 1, "Contents": [*entries, bad_entries[case]]}
-        )
-    else:
-        output = {
-            "no-list": json.dumps({**page, "Contents": {"Key": "baibai.sqlite.bak-20260817"}}),
-            "null-list": json.dumps({**page, "Contents": None}),
-            "bad-root": json.dumps(entries),
-            "truncated-json": json.dumps(page)[:-1],
-            "partial-list": json.dumps({**page, "IsTruncated": True}),
-            "resume-token": json.dumps({**page, "NextToken": "remaining-page"}),
-            "empty-object": "{}",
-            "wrong-prefix": json.dumps({**page, "Prefix": "unrelated/"}),
-            "wrong-bucket": json.dumps({**page, "Name": "other-stores"}),
-            "missing-count": json.dumps({k: v for k, v in page.items() if k != "KeyCount"}),
-            "bool-count": json.dumps({**page, "KeyCount": False, "Contents": []}),
-            "wrong-count": json.dumps({**page, "KeyCount": len(entries) + 1}),
-            "missing-flag": json.dumps({k: v for k, v in page.items() if k != "IsTruncated"}),
-            "unexpected-grouping": json.dumps({**page, "CommonPrefixes": [{"Prefix": "hidden/"}]}),
-            "orphan-token": json.dumps({**page, "NextContinuationToken": "-next+/%="}),
-            "aws-error": json.dumps(page),
-        }[case]
-    result, commands = _push_app(
-        tmp_path, list_output=output, list_exit=2 if case == "aws-error" else 0
-    )
-    assert result.returncode != 0
-    assert "application DB already uploaded; no backup was pruned" in result.stderr
-    put = next(i for i, cmd in enumerate(commands) if cmd.startswith("s3api put-object "))
-    listing = next(i for i, cmd in enumerate(commands) if cmd.startswith("s3api list-objects-v2 "))
-    assert put < listing
-    assert not any(command.startswith("s3api delete-object ") for command in commands)
-
-
-@pytest.mark.parametrize(
-    "second_page",
-    [
-        "complete",
-        "count-without-contents",
-        "foreign-key",
-        "repeated-cursor",
-        "wrong-echo",
-        "cli-error",
-    ],
-)
-def test_publish_plans_from_all_raw_backup_pages_before_first_delete(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, second_page: str
-) -> None:
-    dates = [f"baibai.sqlite.bak-200010{day:02d}" for day in range(1, 16)]
-    first = {**_backup_page(dates), "IsTruncated": True, "NextContinuationToken": "-next+/%="}
-    oldest_version = f"{dates[0]}-{'a' * 64}"
-    last = _backup_page([oldest_version, f"{dates[1]}-{'b' * 64}", "baibai.sqlite.bak-99990101"])
-    last["ContinuationToken"] = "-next+/%="
-    if second_page == "count-without-contents":
-        del last["Contents"]
-    if second_page == "foreign-key":
-        last.update(_backup_page([oldest_version, "unrelated/folder/object"]))
-    if second_page == "repeated-cursor":
-        last.update(IsTruncated=True, NextContinuationToken="-next+/%=")
-    if second_page == "wrong-echo":
-        last["ContinuationToken"] = "a-different-page"
-    if second_page == "cli-error":
-        monkeypatch.setenv("AWS_FAKE_NEXT_LIST_EXIT", "17")
-    monkeypatch.setenv("AWS_FAKE_NEXT_LIST_OUTPUT", json.dumps(last))
-    result, commands = _push_app(tmp_path, list_output=json.dumps(first), publish=True)
-    pages = [i for i, cmd in enumerate(commands) if cmd.startswith("s3api list-objects-v2 ")]
-    assert len(pages) == 2
-    assert "--no-paginate" in commands[pages[0]]
-    assert '--cli-input-json {"ContinuationToken": "-next+/%="}' in commands[pages[1]]
-    deletes = [i for i, cmd in enumerate(commands) if cmd.startswith("s3api delete-object ")]
-    dispatches = [cmd for cmd in commands if cmd.startswith("gh workflow run ")]
-    assert (tmp_path / "r2-generations/baibai.sqlite.etag").read_text() == '"etag-put-1"\n'
-    if second_page == "complete":
-        assert result.returncode == 0, result.stderr
-        assert [commands[i].split("--key ")[1].split(" ")[0] for i in deletes] == [
-            oldest_version,
-            dates[0],
-        ]
-        assert pages[1] < deletes[0]
-        assert dispatches == ["gh workflow run cloud-materialize.yml --ref main"]
-    else:
-        assert result.returncode != 0
-        assert "application DB already uploaded; no backup was pruned" in result.stderr
-        assert not deletes
-        assert not dispatches
-
-
-def test_application_store_push_rejects_unknown_backup_prune_mode_before_write(
-    tmp_path: Path,
-) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env["R2_APP_BACKUP_PRUNE"] = "unknown"
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "push-app"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "R2_APP_BACKUP_PRUNE must be retain or skip" in completed.stderr
-    assert not any(
-        command.startswith(("s3api copy-object ", "s3api put-object ", "s3api delete-object "))
-        for command in _transfer_commands(log)
-    )
-
-
-def test_application_store_prune_leaves_keys_it_did_not_write(tmp_path: Path) -> None:
-    """A manual key within the LIST prefix belongs to the operator, not the retention job."""
-
-    listed = [
-        "baibai.sqlite.bak-notadate",
-        *(f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)),
-    ]
-
-    completed, commands = _push_app(tmp_path, listed=listed)
-    deleted = [
-        command.split("--key ")[1].split(" ")[0]
-        for command in commands
-        if command.startswith("s3api delete-object ")
-    ]
-
-    assert completed.returncode == 0, completed.stderr
-    assert deleted == ["baibai.sqlite.bak-20260802", "baibai.sqlite.bak-20260801"]
-    assert "leaving an unrecognised key" in completed.stderr
 
 
 def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
@@ -2214,7 +1903,6 @@ def test_application_and_initial_seed_do_not_require_the_common_lease(tmp_path, 
     binary, log = _fake_aws(tmp_path)
     env = _environment(binary, log)
     env.pop("PUBLICATION_LEASE_HANDLE")
-    env["R2_APP_BACKUP_PRUNE"] = "skip"
     (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text('"etag-stable"\n')
     result = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", operation],
@@ -2725,98 +2413,3 @@ def test_transfer_compacts_only_runs_and_never_uploads_failed_snapshots(tmp_path
     assert '--if-match "etag-put-1"' in writes[1]
     assert (state / "generation-market.sqlite").read_bytes() == b"xx"
     assert {name: (state / name).read_bytes() for name in before} == before
-
-
-def test_application_backup_failure_stops_before_live_put_and_prune(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env["APP_BACKUP_FAKE_EXIT"] = "1"
-    env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
-    (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text('"etag-stable"\n')
-    result = subprocess.run(
-        [TRANSFER_SCRIPT, "push-app"],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode != 0
-    commands = _transfer_commands(log)
-    assert any(command.startswith("app-backup ") for command in commands)
-    assert not any(
-        "put-object" in command or "delete-object" in command or "list-objects" in command
-        for command in commands
-    )
-
-
-def test_application_retention_counts_dates_and_keeps_all_versions_of_retained_day(tmp_path):
-    dates = [f"baibai.sqlite.bak-202608{day:02d}" for day in range(1, 17)]
-    extra = [f"baibai.sqlite.bak-202608{day:02d}-{'a' * 64}" for day in (1, 3, 16)]
-    result, commands = _push_app(tmp_path, listed=dates + extra)
-    assert result.returncode == 0, result.stderr
-    deleted = [
-        command.split("--key ")[1].split(" ")[0]
-        for command in commands
-        if command.startswith("s3api delete-object ")
-    ]
-    assert set(deleted) == {dates[0], dates[1], extra[0]}
-
-
-def test_application_can_skip_new_backup_without_touching_old_backups(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env.update(R2_APP_BACKUP_CREATE="skip", R2_APP_BACKUP_PRUNE="skip", APP_BACKUP_FAKE_EXIT="1")
-    env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
-    generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
-    generation.write_text('"etag-stable"\n')
-    result = subprocess.run(
-        [TRANSFER_SCRIPT, "push-app"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "application backup creation explicitly skipped" in result.stdout
-    commands = _transfer_commands(log)
-    assert not any(
-        command.startswith(
-            (
-                "app-backup ",
-                "s3api copy-object ",
-                "s3api get-object ",
-                "s3api delete-object ",
-                "s3api list-objects",
-            )
-        )
-        for command in commands
-    )
-    puts = [command for command in commands if command.startswith("s3api put-object ")]
-    assert len(puts) == 1
-    assert "--key baibai.sqlite " in puts[0]
-    assert '--if-match "etag-stable"' in puts[0]
-    assert generation.read_text() == '"etag-put-1"\n'
-
-
-def test_application_rejects_unknown_backup_create_mode_before_write(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env["R2_APP_BACKUP_CREATE"] = "unknown"
-    result = subprocess.run(
-        [TRANSFER_SCRIPT, "push-app"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 2
-    assert "R2_APP_BACKUP_CREATE must be retain or skip" in result.stderr
-    assert not any(
-        command.startswith(
-            ("app-backup ", "s3api put-object ", "s3api copy-object ", "s3api delete-object ")
-        )
-        for command in _transfer_commands(log)
-    )
