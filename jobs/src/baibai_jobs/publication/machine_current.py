@@ -371,9 +371,9 @@ def activate_machine(
     if _machine_id(current.pointer) == members.publication_id:
         # A receipt-only update is not proof that the selected bodies are detached.
         raise MachineSwitchUnconfirmed("candidate machine remains selected by another receipt")
-    if isinstance(error, LakeCASConflict) or current.precondition != base.precondition:
+    if current.precondition != base.precondition:
         raise LakeCASConflict("machine current does not match the candidate") from error
-    # A read of the predecessor does not cancel an earlier in-flight request.
+    # Even a conflict-shaped response does not fence a PUT against the same ETag.
     raise MachineSwitchUnconfirmed("machine current switch is not confirmed") from error
 
 

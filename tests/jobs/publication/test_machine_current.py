@@ -1074,6 +1074,81 @@ def test_absent_read_after_machine_pointer_put_never_authorizes_cleanup(
     assert current.release_id == lake.pointer.release_id
 
 
+@pytest.mark.parametrize(
+    ("status", "selected"),
+    [(503, "predecessor"), (None, "predecessor"), (503, "candidate"), (503, "competitor")],
+)
+def test_machine_conflict_reply_only_retires_keys_after_positive_readback(
+    incumbent, tmp_path, monkeypatch, status, selected
+):
+    store, _, base = incumbent
+    lake = _stage_lake(store, tmp_path, "new-candidate")
+    market, runs = _files(tmp_path, lake.pointer)
+    competitor = (
+        _candidate(store, tmp_path, "winning-competitor") if selected == "competitor" else None
+    )
+    adapter = _offline_r2()
+    real_put = store.put_file
+    held_body = tmp_path / "pending-pointer.json"
+    held_options = {}
+    submitted_preconditions = []
+
+    class ConflictReply:
+        def put_object(self, *, IfMatch, **_):
+            submitted_preconditions.append(IfMatch)
+            metadata = {} if status is None else {"HTTPStatusCode": status}
+            raise ClientError(
+                {"Error": {"Code": "PreconditionFailed"}, "ResponseMetadata": metadata},
+                "PutObject",
+            )
+
+    monkeypatch.setattr(adapter, "_client", lambda *_, **__: ConflictReply())
+
+    def put(key, path, **kwargs):
+        if key != HEAD:
+            return real_put(key, path, **kwargs)
+        held_body.write_bytes(path.read_bytes())
+        held_options.update(kwargs)
+        if selected == "candidate":
+            real_put(key, path, **kwargs)
+        elif competitor is not None:
+            with monkeypatch.context() as unpatched:
+                unpatched.setattr(store, "put_file", real_put)
+                _activate(store, competitor)
+        return adapter.put_file(key, path, **kwargs)
+
+    monkeypatch.setattr(store, "put_file", put)
+
+    if selected == "candidate":
+        committed, retired = _publish_machine(
+            store, lake=lake, market=market, runs=runs, while_held=lambda: None
+        )
+        assert retired
+        assert committed.current.payload == held_body.read_bytes()
+        assert tuple(store.delete_keys) == committed.detached
+        assert machine.read_machine_current(store) == committed.current
+    else:
+        with pytest.raises(LakePublishError) as raised:
+            _publish_machine(store, lake=lake, market=market, runs=runs, while_held=lambda: None)
+        assert isinstance(raised.value.__cause__, LakeCASConflict)
+        pending = load_lake_model_json(held_body.read_bytes(), LakeReleasePointer)
+        assert pending.machine is not None
+        if competitor is None:
+            assert read_pointer_snapshot(store) == base
+            # The real conditional request can still win on the captured predecessor.
+            real_put(HEAD, held_body, **held_options)
+            assert store.delete_keys == []
+            assert isinstance(raised.value, machine.MachineSwitchUnconfirmed)
+            assert machine.read_machine_current(store).pointer == pending
+        else:
+            assert isinstance(raised.value, LakeCASConflict)
+            assert store.delete_keys == [pending.machine.market.key, pending.machine.runs.key]
+            with pytest.raises(LakeCASConflict):
+                real_put(HEAD, held_body, **held_options)
+            assert machine.read_machine_current(store).pointer == competitor.pointer
+    assert submitted_preconditions == [f'"{base.precondition.etag}"']
+
+
 @pytest.mark.parametrize("after_delete", [False, True])
 def test_detached_machine_requires_http_404_before_accepting_absence(
     incumbent, tmp_path, monkeypatch, after_delete
