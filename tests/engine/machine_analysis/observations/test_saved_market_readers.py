@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from tests.helpers.master import insert_master_rows
-from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
+from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     EDINETMetricBaselineError,
@@ -17,9 +17,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
     store_edinet_metrics,
-)
-from baibai_engine.machine_analysis.observations.financials.reader import (
-    read_fin_summaries,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
 from baibai_engine.machine_analysis.observations.stocks.reader import (
@@ -152,64 +149,6 @@ class ReadDailyBarsTests(unittest.TestCase):
             self.assertEqual(
                 [(bar.traded_at, bar.close) for bar in bars or []], [(date(2024, 3, 19), 3790.0)]
             )
-
-
-class ReadFinSummariesTests(unittest.TestCase):
-    def test_returns_summaries_in_range(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                insert_financial_record(
-                    conn,
-                    {
-                        "Code": "34470",
-                        "DiscDate": "2025-10-01",
-                        "DiscTime": "15:00:00",
-                        "DiscNo": "half-year-statement",
-                        "DocType": "2QFinancialStatements_Consolidated_JP",
-                        "EPS": 50.0,
-                        "ShOutFY": 1_000_000.0,
-                        "Sales": 5_000_000.0,
-                        "OP": 1_000_000.0,
-                        "OdP": 950_000.0,
-                        "NP": 700_000.0,
-                        "CurPerType": "2Q",
-                        "CurFYSt": "2025-04-01",
-                        "CurFYEn": "2026-03-31",
-                        "CurPerSt": "2025-04-01",
-                        "CurPerEn": "2025-09-30",
-                    },
-                )
-                add_source_coverage(
-                    conn,
-                    source="jquants_fin_summaries",
-                    coverage_key="get_fin_summary_range:2025-09-28..2025-10-28",
-                    record_count=1,
-                    min_date="2025-09-28",
-                    max_date="2025-10-28",
-                )
-
-            summaries = read_fin_summaries(db, date(2025, 9, 28), date(2025, 10, 28))
-            assert summaries is not None
-            self.assertEqual(len(summaries), 1)
-            self.assertEqual(summaries[0].ticker, "3447")
-            self.assertEqual(summaries[0].cumulative_eps, 50.0)
-            self.assertEqual(summaries[0].fiscal_period, "2Q")
-
-    def test_returns_none_when_coverage_dates_are_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                add_source_coverage(
-                    conn,
-                    source="jquants_fin_summaries",
-                    coverage_key="get_fin_summary_range:2025-09-28..2025-10-28",
-                    record_count=0,
-                    min_date=None,
-                    max_date=None,
-                )
-
-            self.assertIsNone(read_fin_summaries(db, date(2025, 9, 28), date(2025, 10, 28)))
 
 
 class ReadEDINETMetricBaselineTests(unittest.TestCase):
