@@ -52,6 +52,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.machine_current import (
     activate_machine,
+    finish_machine_retirement,
     read_machine_current,
     stage_machine_members,
 )
@@ -1096,8 +1097,9 @@ def test_staged_lake_and_machine_are_visible_together_to_the_existing_lake_reade
     publish_machine_generation(
         runs, release_id=staged.pointer.release_id, release_sha256=staged.pointer.manifest_sha256
     )
+    ready = finish_machine_retirement(store, base, while_held=lambda: None)
     candidate = stage_machine_members(
-        store, lake=staged, market=tmp_path / "market.sqlite", runs=runs
+        store, lake=staged, base=ready, market=tmp_path / "market.sqlite", runs=runs
     )
     assert read_pointer_snapshot(store) == base
     result = activate_machine(store, candidate, before_switch=lambda: None)

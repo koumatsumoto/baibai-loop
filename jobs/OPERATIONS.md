@@ -119,7 +119,7 @@ uv run python -m tools.diagnostics.check_served_proposal \
 <a id="machine-publication"></a>
 ## 共通公開とmachineの復旧
 
-Machineの正本は `lake/pointers/market/current.json` が指す一件のLake releaseと一組のMarket/Runs。日次の `model-integration` だけがその組を更新する。固定Lakeのimmutable graphと、SQLiteの整合・origin・Generation/Selectionを照合した両DBを、再利用しない `machine/payloads/<UUID>/` に準備する。leaseを確認し、取得時のポインタETagを条件に一回だけ切り替え、候補と同じbytesを読み戻す。成功後に外れた旧Machine二件だけを除き、固定 `.bak` は作らず旧Lake・原本は触らない。
+Machineの正本は `lake/pointers/market/current.json` が指す一件のLake releaseと一組のMarket/Runs。日次の `model-integration` だけがその組を更新する。固定Lakeのimmutable graphと、SQLiteの整合・origin・Generation/Selectionを照合した両DBを、再利用しない `machine/payloads/<UUID>/` に準備する。leaseを確認し、取得時のポインタETagを条件に一回だけ切り替え、候補と同じbytesを読み戻す。切替と同時に外れた一組のUUIDだけをポインタに記録し、読戻し後に該当する転送ファイル二件だけを除く。固定 `.bak` は作らず、旧Lake・原本は触らない。
 
 `jobs/scripts/r2_transfer.sh pull-machine` は同じポインタから両DBを検証し、Marketをhydrateしてから作業copyに反映する。既存のDBを置き換えるため他のローカル作業を閉じてから使う。`--daily-preflight` はleaseと現行契約を確認して取得までを行う。経済L1の後、`hydrate-market-for-daily` はMarket内の同じoriginから展開し、currentを読み直さない。`pull-portfolio-market` は表示に必要なMarketだけを取得する。正本の切替と衝突して取得できなければ、別世代の片方を混ぜず現行から取得し直す。 現行の探索には取得結果の `generation_id` と `selection_id` を既存CLIの `--generation-id`・`--screening-selection-id` へ渡す。ID省略は保存済み基準日順の検索であり、過去日指定で発行した現行を選ぶとは限らない。
 
@@ -143,7 +143,7 @@ with_publication_lease() (
 ### machine公開の結果不明
 
 - 候補と実際のポインタが一致すると確認できるまで、公開成功とはみなさずseal/input/表示を進めない。通信拒否で別経路を使わず、応答不明のPUTを再送しない。旧ポインタが見えても、応答を失ったPUTがまだ到着し得る間は候補を削除しない。
-- 現行を確認し、失敗したrunnerの作業copyを正本へ戻さずfresh pullで前進する。旧Machineの除去失敗は公開・sealの成否と分ける。現行・進行中の候補と無関係と確定できるexact keyだけを扱う。Lake graphや原本の一掃は行わない。
+- 現行を確認し、失敗したrunnerの作業copyを正本へ戻さずfresh pullで前進する。旧Machineの除去失敗は、確認済みの公開・seal・表示の成否と分ける。次の日次は同じ現行ポインタが記録した旧2キーの不在を確認するまで、新しいLake・Machineをstageしない。切替前に停止した未公開候補はこの前世代UUIDには含まれない。応答不明の送信が落ち着くまでは、404だけを削除の根拠にしない。Lake graphや原本の一掃は行わない。
 
 ### MachineとLakeを単一ポインタに切り替える一回作業
 
@@ -151,7 +151,7 @@ with_publication_lease() (
 
 承認された一回作業でそのDBを新しい固有keyへ転送し、両者の実bytes・SQLite・参照を検証する。この間、旧canonicalは変更しない。旧ポインタのETagを条件に同じkeyへ一回CASし、新ポインタと両DBを読み戻す。新CLIでの全ペア取得、Marketだけの表示、次の日次の同一公開・seal・表示・lease解放を確認。旧版の再実行や新readerの旧方式fallbackは残さない。旧通常日次は新ポインタを読めず止まるが、旧ローカル `push-runs` は旧固定keyがある間はポインタを読まずに書ける。旧経路を凍結したまま、旧 `market.sqlite`、`runs.sqlite`、`machine-manifest.json` と既存の `market.sqlite.bak`、`runs.sqlite.bak` は受入後、別途削除承認を得たexact keyだけを扱う。削除承認待ちでも旧writerは再開しない。指標の旧 `indicators.sqlite.bak` もこのMachine移行では削除しない。
 
-転送はR2の単一PUT上限 5,363,466,240 bytes（5 GiB − 5 MiB）以内。切替前に受入済みの通常日次の実Runsサイズ・直近の通常日次の正の最大増分を確認し、同じ増分を7日加えても上限内か確認する。欠測、上限超過、または余裕なしなら切り替えない。過去の目安や小さなfixtureで実寸受入の代わりにしない。
+転送はR2の単一PUT上限 5,363,466,240 bytes（5 GiB − 5 MiB）以内。切替前に受入済みの通常日次の実Runsサイズ・直近の通常日次の正の最大増分を確認し、同じ増分を7日加えても上限内か確認する。許可された隔離環境で、切替後の前世代キーに対するDELETEと不在確認も通す。欠測、上限超過、または余裕なしなら切り替えない。過去の目安や小さなfixtureで実寸受入の代わりにしない。
 
 ### 保持copyから欠落Generationを戻す
 

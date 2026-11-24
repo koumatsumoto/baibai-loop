@@ -75,17 +75,27 @@ class MachineStageInterrupted(LakePublishError):
 
 
 @dataclass(frozen=True, slots=True)
+class ReadyMachineBase:
+    """The captured head's former pair is already synchronously absent."""
+
+    snapshot: PointerSnapshot
+
+
+@dataclass(frozen=True, slots=True)
 class StagedMachine:
-    """A candidate is inseparable from the head against which it was prepared."""
+    """The original head supplies both retirement proof and activation precondition."""
 
     pointer: LakeReleasePointer
-    base: PointerSnapshot
+    base: ReadyMachineBase
 
 
 @dataclass(frozen=True, slots=True)
 class MachineCommit:
     current: PointerSnapshot
-    detached: tuple[str, ...]
+
+    @property
+    def detached(self) -> tuple[str, ...]:
+        return _retirement_keys(self.current.pointer)
 
 
 def _machine(pointer: LakeReleasePointer | None) -> MachineMembers:
@@ -197,11 +207,15 @@ def _stage_member(store: ObjectStore, key: str, path: Path) -> MachineMember:
 
 
 def stage_machine_members(
-    store: ObjectStore, *, lake: StagedLake, market: Path, runs: Path
+    store: ObjectStore, *, lake: StagedLake, base: ReadyMachineBase, market: Path, runs: Path
 ) -> StagedMachine:
     """Bind verified graph and locally paired snapshots to the original current head."""
-    if lake.base is None:
-        raise ValueError("machine staging requires the head captured before preparation")
+    if (
+        lake.base is None
+        or lake.base != base.snapshot
+        or lake.base.payload != base.snapshot.payload
+    ):
+        raise LakePublishError("machine base differs from the staged Lake")
     _require_sealed_body(market)
     _require_sealed_body(runs)
     require_market_origin(lake.pointer, market)
@@ -225,8 +239,9 @@ def stage_machine_members(
         manifest_key=lake.pointer.manifest_key,
         manifest_sha256=lake.pointer.manifest_sha256,
         machine=MachineMembers(market=members["market"], runs=members["runs"]),
+        retired_publication_id=_machine_id(base.snapshot.pointer),
     )
-    return StagedMachine(pointer=staged, base=lake.base)
+    return StagedMachine(pointer=staged, base=base)
 
 
 def _require_staged_lake(store: ObjectStore, candidate: LakeReleasePointer) -> None:
@@ -259,12 +274,13 @@ def activate_machine(
     An initial migration checks the legacy pair before invoking this operation. The
     same CAS is used for every subsequent publication; readers never fall back.
     """
-    candidate, base = staged.pointer, staged.base
+    candidate, base = staged.pointer, staged.base.snapshot
     members = _machine(candidate)
-    prior = None if base.pointer is None else base.pointer.machine
-    detached = () if prior is None else tuple(prior.member(role).key for role in _ROLES)
-    if set(detached) & {members.member(role).key for role in _ROLES}:
-        raise LakePublishError("a new machine publication must use fresh member keys")
+    prior = _machine_id(base.pointer)
+    if members.publication_id == prior or candidate.retired_publication_id != prior:
+        raise LakePublishError(
+            "machine publication must use fresh keys and identify its former pair"
+        )
     if (
         base.pointer is not None
         and base.pointer.release_id == candidate.release_id
@@ -304,11 +320,23 @@ def activate_machine(
     except LakePublishError as cause:
         raise MachineSwitchUnconfirmed("machine current switch is not confirmed") from cause
     if current.payload == payload:
-        return MachineCommit(current=current, detached=detached)
+        return MachineCommit(current=current)
+    if _machine_id(current.pointer) == members.publication_id:
+        # A receipt-only update is not proof that the selected bodies are detached.
+        raise MachineSwitchUnconfirmed("candidate machine remains selected by another receipt")
     if isinstance(error, LakeCASConflict) or current.precondition != base.precondition:
         raise LakeCASConflict("machine current does not match the candidate") from error
     # A read of the predecessor does not cancel an earlier in-flight request.
     raise MachineSwitchUnconfirmed("machine current switch is not confirmed") from error
+
+
+def _machine_id(pointer: LakeReleasePointer | None) -> str | None:
+    return None if pointer is None or pointer.machine is None else pointer.machine.publication_id
+
+
+def _retirement_keys(pointer: LakeReleasePointer | None) -> tuple[str, ...]:
+    previous = None if pointer is None else pointer.retired_publication_id
+    return () if previous is None else tuple(machine_member_key(previous, role) for role in _ROLES)
 
 
 def _retire_detached(
@@ -319,9 +347,26 @@ def _retire_detached(
         return
     while_held()
     for key in keys:
+        if store.head(key) is None:
+            continue
         store.delete_object(key)
         if store.head(key) is not None:
             raise LakePublishError("detached machine member remains after deletion")
+
+
+def finish_machine_retirement(
+    store: MachineWriteStore, snapshot: PointerSnapshot, *, while_held: Callable[[], None]
+) -> ReadyMachineBase:
+    """Discharge at most one former pair before any new publication data is staged."""
+
+    def while_current() -> None:
+        while_held()
+        observed = read_pointer_snapshot(store)
+        if observed != snapshot or observed.payload != snapshot.payload:
+            raise LakeCASConflict("machine current changed before completing retirement")
+
+    _retire_detached(store, _retirement_keys(snapshot.pointer), while_held=while_current)
+    return ReadyMachineBase(snapshot)
 
 
 def publish_staged_machine(
@@ -331,10 +376,11 @@ def publish_staged_machine(
     market: Path,
     runs: Path,
     while_held: Callable[[], None],
+    base: ReadyMachineBase,
 ) -> tuple[MachineCommit, bool]:
     """Publish fresh members and retire only the now-demoted pair, never the old Lake."""
     try:
-        staged = stage_machine_members(store, lake=lake, market=market, runs=runs)
+        staged = stage_machine_members(store, lake=lake, base=base, market=market, runs=runs)
     except MachineStageInterrupted as error:
         # The original publication failure is still the outcome.
         with suppress(LakePublishError, LeaseError, R2OperationStopped):

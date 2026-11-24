@@ -6,13 +6,21 @@ from datetime import UTC, date, datetime
 
 import pytest
 from tests.engine.storage.test_market_lake import _dataset_payload, _load_dataset
+from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key, release_manifest_key
 from baibai_engine.storage.snapshots.models import (
     ReleaseDatasetPolicy,
     ReleaseManifest,
     ReleasePolicy,
     canonical_lake_model_bytes,
     validate_release_policy,
+)
+from baibai_engine.storage.snapshots.release import (
+    LakeReleasePointer,
+    MachineMember,
+    MachineMembers,
+    machine_member_key,
 )
 from baibai_jobs.integration import models
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -62,13 +70,32 @@ def fail_acceptance(*, reason):
 
 
 def run_failure(tmp_path, monkeypatch, error):
+    remote = MemoryR2Store()
+
+    def member(role):
+        key = machine_member_key("a" * 32, role)
+        remote.store_object(key, role.encode())
+        meta = remote.head(key)
+        assert meta is not None
+        return MachineMember(key=key, etag=meta.etag, size=meta.size)
+
+    pointer = LakeReleasePointer(
+        pointer_version=2,
+        release_id="fixture-current",
+        manifest_key=release_manifest_key(release_id="fixture-current"),
+        manifest_sha256="b" * 64,
+        machine=MachineMembers(market=member("market"), runs=member("runs")),
+    )
+    remote.store_object(current_release_pointer_key(), canonical_lake_model_bytes(pointer))
+
     def fail(**kwargs):
+        assert kwargs["base"].pointer == pointer
         if callable(error):
             error()
         else:
             raise error
 
-    monkeypatch.setattr(models, "Boto3R2Store", lambda **kwargs: object())
+    monkeypatch.setattr(models, "Boto3R2Store", lambda **_: remote)
     monkeypatch.setattr(models, "integrate_models", fail)
     notice = tmp_path / "private-notice.json"
     assert (

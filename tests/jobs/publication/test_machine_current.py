@@ -18,6 +18,7 @@ from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
     R2Error,
+    R2OperationStopped,
     R2PinnedObjectMismatch,
 )
 from baibai_engine.storage.snapshots.duck import lake_session
@@ -35,10 +36,11 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     read_lake_store_origin,
     write_lake_store_origin,
 )
+from baibai_jobs.integration import models
 from baibai_jobs.publication import machine_current as machine
 from baibai_jobs.publication import machine_pull, snapshot_write_cli
 from baibai_jobs.publication.datasets import LAKE_DATASETS
-from baibai_jobs.publication.lease import LeaseError, acquire, release, verify_held
+from baibai_jobs.publication.lease import LeaseError, _save_handle, acquire, release, verify_held
 from baibai_jobs.publication.machine_pull import pull_current_machine
 from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_release import read_pointer_snapshot, stage_release
@@ -80,10 +82,22 @@ def _stage_lake(store, tmp_path, name):
     )
 
 
+def _stage_members(store, *, lake, market, runs):
+    ready = machine.finish_machine_retirement(store, lake.base, while_held=lambda: None)
+    return machine.stage_machine_members(store, lake=lake, base=ready, market=market, runs=runs)
+
+
+def _publish_machine(store, *, lake, market, runs, while_held, base=None):
+    ready = base or machine.finish_machine_retirement(store, lake.base, while_held=while_held)
+    return machine.publish_staged_machine(
+        store, lake=lake, market=market, runs=runs, while_held=while_held, base=ready
+    )
+
+
 def _candidate(store, tmp_path, name):
     lake = _stage_lake(store, tmp_path, name)
     market, runs = _files(tmp_path, lake.pointer)
-    return machine.stage_machine_members(store, lake=lake, market=market, runs=runs)
+    return _stage_members(store, lake=lake, market=market, runs=runs)
 
 
 def _activate(store, candidate, before_switch=lambda: None):
@@ -304,7 +318,7 @@ def test_a_delayed_previous_detach_plan_cannot_remove_later_current(incumbent, t
     assert second.pointer.machine is not None
     assert third.pointer.machine is not None
     for detached in third_commit.detached + second_commit.detached:
-        store.values.pop(detached)
+        store.values.pop(detached, None)
     assert sorted(key for key in store.values if key.startswith("machine/payloads/")) == sorted(
         (third.pointer.machine.market.key, third.pointer.machine.runs.key)
     )
@@ -364,7 +378,7 @@ def test_stage_rejects_structurally_valid_wrong_members(incumbent, tmp_path, dam
         )
     count = len(store.put_keys)
     with pytest.raises(LakePublishError, match="selected Lake release"):
-        machine.stage_machine_members(store, lake=lake, market=market, runs=runs)
+        _stage_members(store, lake=lake, market=market, runs=runs)
     assert len(store.put_keys) == count
     assert machine.read_machine_current(store) == incumbent_head
 
@@ -384,7 +398,7 @@ def test_current_identity_is_not_latest_asof_with_more_recent_retained_selection
     wrong = read_publication(path=runs)
     assert wrong is not None
     assert wrong.generation.generation_id == "models-more-recent-asof"
-    candidate = machine.stage_machine_members(store, lake=lake, market=market, runs=runs)
+    candidate = _stage_members(store, lake=lake, market=market, runs=runs)
     commit = _activate(store, candidate)
     assert commit.current.pointer == candidate.pointer
     with pull_current_machine(store, store, directory=tmp_path) as pair:
@@ -535,7 +549,7 @@ def test_sealing_will_not_validate_a_wal_other_than_the_bytes_it_will_ship(incum
             )
         count = len(store.put_keys)
         with pytest.raises(LakePublishError, match="outstanding SQLite sidecar"):
-            machine.stage_machine_members(store, lake=lake, market=market, runs=runs)
+            _stage_members(store, lake=lake, market=market, runs=runs)
         assert len(store.put_keys) == count
     assert machine.read_machine_current(store) == base
 
@@ -549,7 +563,7 @@ def test_runs_size_gate_stops_before_sending_market_or_runs(incumbent, tmp_path)
         output.truncate(machine.MAX_MACHINE_PUT_BYTES + 1)
     count = len(store.put_keys)
     with pytest.raises(machine.MachineMemberTooLarge, match="R2 single PUT limit"):
-        machine.stage_machine_members(store, lake=lake, market=market, runs=runs)
+        _stage_members(store, lake=lake, market=market, runs=runs)
     assert len(store.put_keys) == count
     assert machine.read_machine_current(store) == base
 
@@ -581,7 +595,7 @@ def test_ordinary_publish_only_retires_exact_proven_noncurrent_keys(
     monkeypatch.setattr(store, "delete_object", delete)
     if mode == "ambiguous":
         with pytest.raises(machine.MachineSwitchUnconfirmed):
-            machine.publish_staged_machine(
+            _publish_machine(
                 store,
                 lake=lake,
                 market=market,
@@ -591,7 +605,7 @@ def test_ordinary_publish_only_retires_exact_proven_noncurrent_keys(
         assert machine.read_machine_current(store) == base
         assert not store.delete_keys
     else:
-        committed, retired = machine.publish_staged_machine(
+        committed, retired = _publish_machine(
             store,
             lake=lake,
             market=market,
@@ -711,3 +725,193 @@ def test_working_pair_install_preserves_both_old_files_if_second_replace_fails(
         (pointer.machine.market.key, pointer.machine.market.etag),
         (pointer.machine.runs.key, pointer.machine.runs.etag),
     ]
+
+
+class _WorkerKilled(BaseException):
+    """Simulate a runner interruption that cannot execute cleanup logic."""
+
+
+@pytest.mark.parametrize("failure", ["delete-refused", "killed-after-cas", "killed-mid-delete"])
+def test_committed_predecessor_is_recovered_before_any_further_publication(
+    incumbent, tmp_path, monkeypatch, failure
+):
+    store, old, _ = incumbent
+    assert old.machine is not None
+    old_market, old_runs = old.machine.market.key, old.machine.runs.key
+    second = _stage_lake(store, tmp_path, "second")
+    market, runs = _files(tmp_path, second.pointer)
+    real_put, real_delete = store.put_file, store.delete_object
+
+    def put_then_stop(key, path, **kwargs):
+        result = real_put(key, path, **kwargs)
+        if key == HEAD and failure == "killed-after-cas":
+            raise _WorkerKilled()
+        return result
+
+    def delete_then_stop(key):
+        if key == old_runs:
+            if failure == "killed-mid-delete":
+                raise _WorkerKilled()
+            raise R2OperationStopped("delete denied")
+        real_delete(key)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(store, "put_file", put_then_stop)
+        patched.setattr(store, "delete_object", delete_then_stop)
+        if failure == "delete-refused":
+            committed, retired = _publish_machine(
+                store, lake=second, market=market, runs=runs, while_held=lambda: None
+            )
+            assert not retired
+            assert committed.current.pointer is not None
+            assert committed.current.pointer.release_id == "second"
+        else:
+            with pytest.raises(_WorkerKilled):
+                _publish_machine(
+                    store, lake=second, market=market, runs=runs, while_held=lambda: None
+                )
+    assert old_runs in store.values
+    assert (old_market in store.values) is (failure == "killed-after-cas")
+    snapshot = machine.read_machine_current(store)
+    assert snapshot.pointer is not None
+    assert snapshot.pointer.machine is not None
+    assert snapshot.pointer.retired_publication_id == old.machine.publication_id
+    b_id = snapshot.pointer.machine.publication_id
+
+    # A new normal run encounters real deletion denial before *any* Market Lake
+    # graph or Machine PUT. B remains usable for other readers and source seals.
+    lease, _ = acquire(store, "daily")
+    handle = tmp_path / "handle.json"
+    _save_handle(handle, lease)
+    writes = len(store.put_keys)
+
+    def still_denied(_key):
+        raise R2OperationStopped("delete denied again")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(store, "delete_object", still_denied)
+        with pull_current_machine(store, store, directory=tmp_path) as pulled:
+            assert pulled.release.release_id == "second"
+            assert pulled.runs is not None
+            with pytest.raises(R2OperationStopped, match="denied again"):
+                models.integrate_models(
+                    store=store,
+                    market=pulled.market,
+                    runs=pulled.runs,
+                    economic=tmp_path / "economic.sqlite",
+                    mirror=tmp_path / "new-mirror",
+                    as_of=date(2026, 10, 24),
+                    lease_handle=handle,
+                    growth_start=None,
+                    base=pulled.current,
+                )
+    assert len(store.put_keys) == writes
+    assert machine.read_machine_current(store) == snapshot
+
+    # A successful repair leaves the existing receipt byte-for-byte untouched.
+    def while_held():
+        verify_held(store, lease)
+
+    ready = machine.finish_machine_retirement(store, snapshot, while_held=while_held)
+    assert old_market not in store.values
+    assert old_runs not in store.values
+    assert machine.read_machine_current(store) == snapshot
+    third = _stage_lake(store, tmp_path, "third")
+    market, runs = _files(tmp_path, third.pointer)
+    committed, retired = _publish_machine(
+        store, lake=third, base=ready, market=market, runs=runs, while_held=while_held
+    )
+    assert retired
+    now = machine.read_machine_current(store)
+    assert now == committed.current
+    assert now.pointer is not None
+    assert now.pointer.machine is not None
+    assert now.pointer.retired_publication_id == b_id
+    assert {key for key in store.values if key.startswith("machine/payloads/")} == {
+        now.pointer.machine.market.key,
+        now.pointer.machine.runs.key,
+    }
+    assert (
+        len(
+            {old.manifest_key, second.pointer.manifest_key, third.pointer.manifest_key}
+            & store.values.keys()
+        )
+        == 3
+    )
+
+
+def test_retirement_never_uses_a_stale_receipt_even_for_metadata_only_change(incumbent, tmp_path):
+    store, first, _ = incumbent
+    next_pair = _candidate(store, tmp_path, "next")
+    committed = _activate(store, next_pair)
+    assert first.machine is not None
+    original = committed.current
+    assert original.pointer is not None
+    # Readers still see the very same active pair, but this is no longer the
+    # exact receipt that authorized cleanup.
+    changed = original.pointer.model_copy(update={"retired_publication_id": None})
+    store.store_object(HEAD, canonical_lake_model_bytes(changed))
+    with pytest.raises(LakeCASConflict, match="changed before completing retirement"):
+        machine.finish_machine_retirement(store, original, while_held=lambda: None)
+    assert not store.delete_keys
+    assert machine.read_machine_current(store).pointer == changed
+
+
+def test_retired_uuid_cannot_be_the_live_pair_or_an_unmanaged_key(incumbent):
+    _, live, _ = incumbent
+    assert live.machine is not None
+    for bad in (live.machine.publication_id, "runs.sqlite.bak"):
+        wire = live.model_dump(mode="json")
+        wire["retired_publication_id"] = bad
+        with pytest.raises(ValueError, match=r"machine retirement|String should match pattern"):
+            LakeReleasePointer.model_validate(wire)
+
+
+def test_stage_never_rebases_an_earlier_retirement_proof(incumbent, tmp_path):
+    store, _, old_snapshot = incumbent
+    stale = machine.finish_machine_retirement(store, old_snapshot, while_held=lambda: None)
+    _activate(store, _candidate(store, tmp_path, "second"))
+    later = _stage_lake(store, tmp_path, "third")
+    market, runs = _files(tmp_path, later.pointer)
+    sent = len(store.put_keys)
+    with pytest.raises(LakePublishError, match="differs from the staged Lake"):
+        machine.stage_machine_members(
+            store,
+            lake=later,
+            base=stale,
+            market=market,
+            runs=runs,
+        )
+    assert len(store.put_keys) == sent
+
+
+def test_different_receipt_still_selecting_candidate_never_authorizes_its_deletion(
+    incumbent, tmp_path, monkeypatch
+):
+    store, _, _ = incumbent
+    lake = _stage_lake(store, tmp_path, "concurrent-metadata")
+    market, runs = _files(tmp_path, lake.pointer)
+    real_put = store.put_file
+
+    def change_receipt_metadata(key, path, **kwargs):
+        ack = real_put(key, path, **kwargs)
+        if key == HEAD:
+            pointer = read_pointer_snapshot(store).pointer
+            assert pointer is not None
+            changed = pointer.model_copy(update={"retired_publication_id": "f" * 32})
+            store.store_object(key, canonical_lake_model_bytes(changed))
+        return ack
+
+    monkeypatch.setattr(store, "put_file", change_receipt_metadata)
+    with pytest.raises(machine.MachineSwitchUnconfirmed, match="remains selected"):
+        _publish_machine(
+            store,
+            lake=lake,
+            market=market,
+            runs=runs,
+            while_held=lambda: None,
+        )
+    assert not store.delete_keys
+    pointer = machine.read_machine_current(store).pointer
+    assert pointer is not None
+    assert pointer.release_id == lake.pointer.release_id

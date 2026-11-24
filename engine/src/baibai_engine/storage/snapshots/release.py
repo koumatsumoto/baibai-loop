@@ -78,6 +78,11 @@ class MachineMembers(BaseModel):
             raise ValueError("machine members must name one fresh key pair")
         return self
 
+    @property
+    def publication_id(self) -> str:
+        # Both keys were validated as members of this UUID.
+        return self.market.key.split("/")[2]
+
     def member(self, role: MachineRole) -> MachineMember:
         return self.market if role == "market" else self.runs
 
@@ -90,6 +95,9 @@ class LakeReleasePointer(BaseModel):
     manifest_key: str
     manifest_sha256: str
     machine: MachineMembers | None = Field(default=None, exclude_if=lambda value: value is None)
+    retired_publication_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{32}$", exclude_if=lambda value: value is None
+    )
 
     @field_validator("release_id")
     @classmethod
@@ -104,6 +112,10 @@ class LakeReleasePointer(BaseModel):
             raise ValueError("machine pointers require both machine members")
         if self.machine is not None:
             validate_sha256(self.manifest_sha256)
+        if self.retired_publication_id is not None and (
+            self.machine is None or self.retired_publication_id == self.machine.publication_id
+        ):
+            raise ValueError("machine retirement must name a different pair")
         return self
 
 

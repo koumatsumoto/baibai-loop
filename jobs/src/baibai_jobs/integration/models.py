@@ -67,6 +67,8 @@ from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.machine_current import (
     MAX_MACHINE_PUT_BYTES,
     MachineWriteStore,
+    ReadyMachineBase,
+    finish_machine_retirement,
     publish_staged_machine,
     read_machine_current,
     require_market_origin,
@@ -80,7 +82,11 @@ from baibai_jobs.publication.snapshot_publication import (
     prepare_market_lake,
     stage_prepared_market_lake,
 )
-from baibai_jobs.publication.snapshot_release import PointerSnapshot, StagedLake
+from baibai_jobs.publication.snapshot_release import (
+    PointerSnapshot,
+    StagedLake,
+    read_pointer_snapshot,
+)
 from baibai_jobs.publication.snapshot_write_cli import prepare_market_transfer
 
 
@@ -168,6 +174,7 @@ def _publish_machine(
     *,
     store: MachineWriteStore,
     staged: StagedLake,
+    base: ReadyMachineBase,
     market: Path,
     runs: Path,
     mirror: Path,
@@ -197,6 +204,7 @@ def _publish_machine(
         committed, retired = publish_staged_machine(
             store,
             lake=staged,
+            base=base,
             market=transfer_market,
             runs=transfer_runs,
             while_held=while_held,
@@ -237,11 +245,14 @@ def integrate_models(
         verify_held(machine_writer, handle)
 
     while_held()
+    snapshot = read_pointer_snapshot(machine_writer) if base is None else base
     if base is not None:
         if base.pointer is None or base.pointer.machine is None:
             raise LakePublishError("current machine pair is required before model integration")
         require_market_origin(base.pointer, market)
         require_runs_publication(base.pointer, runs)
+    # Complete the former pair before publishing a new Lake graph or Machine.
+    ready = finish_machine_retirement(machine_writer, snapshot, while_held=while_held)
 
     mirror.mkdir(parents=True, exist_ok=True)
     if edinet_input is None:
@@ -269,7 +280,7 @@ def integrate_models(
                     store=store,
                     as_of=as_of,
                     edinet_input=edinet_input,
-                    base=base,
+                    base=snapshot,
                 )
             )
         evaluation_time = max(evaluated_at, prepared.source_snapshot.sealed_at)
@@ -364,6 +375,7 @@ def integrate_models(
     committed = _publish_machine(
         store=machine_writer,
         staged=staged,
+        base=ready,
         market=market,
         runs=runs,
         mirror=mirror,
