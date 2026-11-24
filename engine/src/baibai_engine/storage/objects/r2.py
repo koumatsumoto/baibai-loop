@@ -33,6 +33,7 @@ from baibai_engine.storage.filesystem import fsync_directory
 
 if TYPE_CHECKING:
     from botocore.awsrequest import AWSResponse
+    from botocore.exceptions import _ClientErrorResponseTypeDef
     from botocore.model import OperationModel
     from mypy_boto3_s3 import S3Client
     from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
@@ -158,7 +159,7 @@ class ObjectStore(Protocol):
 def _refuse_exact_reissue(
     *,
     operation: OperationModel,
-    response: tuple[AWSResponse, dict[str, Any]] | None = None,
+    response: tuple[AWSResponse, _ClientErrorResponseTypeDef] | None = None,
     **_: object,
 ) -> None:
     # Region redirect is independent of total_max_attempts and can send a

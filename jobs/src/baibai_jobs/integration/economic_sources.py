@@ -285,10 +285,11 @@ def integrate(
                 economic_readback=work / ("input-" + group),
             )
         except EconomicRetirementDeferred as error:
-            stage = error.accepted_stage
-            retirement_pending[name] = "verified_successor" if stage else "advance_blocked"
-            if stage is None:
+            accepted_stage = error.accepted_stage
+            retirement_pending[name] = "verified_successor" if accepted_stage else "advance_blocked"
+            if accepted_stage is None:
                 continue
+            stage = accepted_stage
         (updated if stage == f"{name}-{identity}" else reused).append(name)
     before_put()
     report.update(inputs_updated=updated, inputs_reused=reused)
