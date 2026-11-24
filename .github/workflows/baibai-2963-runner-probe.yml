@@ -2,7 +2,7 @@ name: Temporary synthetic Machine disk probe 2963
 on:
   pull_request:
     branches: [main]
-    types: [opened]
+    types: [opened, synchronize]
 
 permissions:
   contents: read
@@ -44,6 +44,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
+          version: '0.12.17'
           enable-cache: false
 
       - name: Install locked candidate runtime and fixture dependencies
