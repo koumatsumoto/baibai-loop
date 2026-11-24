@@ -10,7 +10,7 @@ repository rootのBashで、依頼された対象だけを操作する。[archit
 | 公開済みの内容を読む | [固定release](#fixed-release-read)。release IDとmanifest SHAを固定する。 |
 | 反映が一部だけ成功した | [market/runsの部分公開](#部分-push-からの復旧)／[seal・次input](#machine公開後の失敗再開)／[経済単独の再開](#経済単独公開と失敗再開)。日次を丸ごと再送しない。 |
 | 日本株の新規提案を本番データで検証する | [本番データで新規の売買提案を受け入れる](#production-proposal-acceptance)。日次成功・保存済み提案の表示とは別。 |
-| 提案・台帳を保存する | [application DBの更新](#application-db-を反映する)。[バックアップからの復元](#application-db-を復元する)とは異なる。 |
+| 提案・台帳を保存する | [application DBの更新](#application-db-を反映する)。[ローカルcheckpointの確認](#inspect-local-application-db)とは異なる。 |
 | Webだけを更新する | [表示の生成・原本との照合・配備](#web-serving)。表示失敗でcoreを巻き戻さない。 |
 
 <a id="actions-write-boundary"></a>
@@ -206,7 +206,7 @@ uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_W
 
 ### 経済単独公開と失敗再開
 
-fresh正本＋固定handoffの受入→一世代backup→条件付きPUT/全bytes読戻し→seal→経済の全group inputの順。byte不変時は同ETag/leaseを確認し、初回検証済みの正本copyを再利用する。seal/input直前にも同ETag/leaseを確認し、読戻し経済入力からモデルを作る。同一日・同じ正本世代で取得グループの計画本文/形式が変わらなければ、既発行のstageをそのまま読み戻す。途中で止まった組や異なる日・世代は通常どおり発行する。L2失敗でL1を再PUT/rollbackしない。
+fresh正本＋固定handoffの受入→条件付きPUT/全bytes読戻し→seal→経済の全group inputの順。byte不変時は同ETag/leaseを確認し、初回検証済みの正本copyを再利用する。seal/input直前にも同ETag/leaseを確認し、読戻し経済入力からモデルを作る。同一日・同じ正本世代で取得グループの計画本文/形式が変わらなければ、既発行のstageをそのまま読み戻す。途中で止まった組や異なる日・世代は通常どおり発行する。L2失敗でL1を再PUT/rollbackしない。
 
 - 公開/readback失敗: 後段を止め、実bytesを照合する。未確認ではsealせず空DB/旧値へfallbackしない。
 - PUT後/seal前: fresh runnerで未sealの同じ不変stageを再適用する。同sourceの後続watermarkを先に進めない。
@@ -221,123 +221,26 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
 
 ```bash
 jobs/scripts/r2_transfer.sh pull-app
-# 正規CLIでこのDBを更新した後（通常どおり新backupを作り、旧backupは削除しない）
-R2_APP_BACKUP_PRUNE=skip jobs/scripts/publish.sh
+# 正規CLIでこのDBを更新した後
+jobs/scripts/publish.sh
 ```
 
-[`publish.sh`](scripts/publish.sh)は引数なしで、台帳preflight → 元Appのbackup → 取得ETagを条件とする本体PUT → 次回用ETagの記録 → Web生成の依頼、の順に進む。時価不足と台帳破損は別。DBとETagは組で扱い、未確認世代を現HEADから補わない。
-
-| backupの扱い | 条件 |
-| --- | --- |
-| 作成（標準） | 元Appを読戻し、実行JST日と本文SHAに結びつくkeyへcreate-onlyで保持して読戻す。同日同SHAは本文一致時だけ再利用し、旧日付だけのkeyを置換しない。正規の単一PUT由来ETagがない、競合・拒否・結果不明なら本体を上書きしない。 |
-| 旧backupを残す | 上例の`R2_APP_BACKUP_PRUNE=skip`を使う。通常整理は、`baibai.sqlite.bak-YYYYMMDD`またはその末尾に`-`と小文字SHA-256を付けた名前だけを対象に、実行時のJST日付以前に実在するbackup日のうち新しい14日分の全世代を残す。未来日・存在しない日付・固定`.bak`・規則外の手動退避は数えず、削除もしない。反映回数によって保管量・読戻し転送量・一時容量も増える。 |
-| 新backupを作らない（例外） | `R2_APP_BACKUP_CREATE=skip`は本人の明示指示があり、追加専用で旧提案・評価・台帳等の全旧行が残ることを旧新の正規copyで照合した時だけ。ETag/最終If-Matchは省略しない。旧backup削除の停止は別の`PRUNE=skip`。 |
+[`publish.sh`](scripts/publish.sh)は引数なしで、台帳preflight → 取得ETagを条件とする本体PUT → PUT応答のETagを記録 → Web生成の依頼、の順に進む。時価不足と台帳破損は別。DBとETagは組で扱い、未確認世代を現HEADから補わない。通常のApp反映ではR2に日付別backupを作成せず、過去の退避物の整理もしない。
 
 成功は正本から対象Proposal/評価等のIDで読戻す。競合したら未公開差分を保ち、fresh正本へ正規serviceで再適用する。非0・応答不明では元世代と対象IDを確認し、盲再送しない。PUT済みで表示runがない時だけ`cloud-materialize`を再依頼する。旧schemaや未公開の事実のあるDBは原copyを保ち、正本へ丸ごと戻さない。
 
-backup一覧は全ページを確認してから整理する。取得失敗・不完全なページ・不正応答では一件も削除しない。この時点ではApp本体のPUTとETagの記録は済んでいるが、表示生成は未依頼。上記の正本確認を行い、必要な表示生成だけを再依頼する。
+<a id="inspect-local-application-db"></a>
+### ローカルの application DB を確認する
 
-### application DB を復元する
-
-判断/ledgerの正本を再生成せず、明示選択した過去snapshotへ戻す手順。通常更新は前節を使う。
-
-全writer停止→未公開copyのconsistent snapshot退避→空の作業領域へ`pull-app`し、現在の正本/世代を取得・検査してから同じshellで進める。取得・検査不能なら停止。key消失は[初回seed](#storeをseedする)の既存key確認を含む別判断とし、無条件PUTで迂回しない。候補はR2日別世代か、出所・時点を照合できるlocal checkpoint。localを自動的に正本より新しいとみなさない。
-
-**1. 復元前backup。** 現正本のWAL込みconsistent snapshotを作り、失敗なら停止する。
+出所と時点を確認できるローカルcheckpointは、反映用のDBや取得ETagと分け、現行storeを置かない隔離checkoutのルートで読み取りだけ行う。確認するcheckpointのパスを `LOCAL_CHECKPOINT` に指定する。
 
 ```bash
-restore_backup=
-if test -f stores/application/baibai.sqlite; then
-  restore_backup="$(
-    set -o pipefail
-    uv run baibai-engine db backup --db stores/application/baibai.sqlite | \
-      uv run python -c 'import sys, yaml; print(yaml.safe_load(sys.stdin)["path"])'
-  )" || exit 1
-  test "$restore_backup" != None && test -f "$restore_backup" || exit 1
-fi
+test -f "${LOCAL_CHECKPOINT:?隔離したローカルcheckpointを指定}" || exit 1
+uv run baibai-engine db info --db "$LOCAL_CHECKPOINT"
+uv run baibai-engine portfolio ledger --db "$LOCAL_CHECKPOINT"
 ```
 
-**2. 候補選択。** backup commandが保持する検証済みlocal snapshotは直近10世代。
-
-```bash
-ls -t stores/application/backups/ || exit 1
-read -r -p '復元するcheckpoint path: ' target || exit 1
-test -f "$target" || exit 1
-```
-
-R2候補なら上の選択に代えて一覧を確認する。
-
-```bash
-(
-  set -e
-  set -a; source .env; set +a
-  export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" AWS_DEFAULT_REGION=auto
-  aws s3api list-objects-v2 --bucket baibai-stores --prefix baibai.sqlite.bak- \
-    --query 'Contents[].[Key,LastModified]' --output text \
-    --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-)
-```
-
-一覧取得成功後、exact keyを一意なstaging fileへ取得する。
-
-```bash
-read -r -p '復元するexact R2 key: ' restore_key || exit 1
-target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
-(
-  set -a
-  source .env || exit 1
-  set +a
-  export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" AWS_DEFAULT_REGION=auto
-  aws s3api get-object --bucket baibai-stores --key "$restore_key" \
-    --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" "$target"
-) || exit 1
-```
-
-**3. 共通検査。** integrityがexact `ok`、foreign key違反0行、user_versionとcurrent schema一致を出力で確認する。exit 0だけでは合格にせず、自動移行もしない。
-
-```bash
-(
-  set -e
-  test -f "$target"
-  sqlite3 "$target" 'PRAGMA integrity_check;'
-  sqlite3 "$target" 'PRAGMA foreign_key_check;'
-  sqlite3 "$target" 'PRAGMA user_version;'
-)
-```
-
-**4. 配置と照合。** 検査合格・writer停止後、copy成功まで現copyを動かさない。明示復旧として現クラウド世代を保持し、検査済み候補へ置換する。
-
-```bash
-(
-  set -e
-  restore_stage="$(mktemp stores/application/baibai-restore.XXXXXX.sqlite)"
-  cp "$target" "$restore_stage"
-  rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
-  mv -f "$restore_stage" stores/application/baibai.sqlite
-  uv run baibai-engine portfolio ledger --db stores/application/baibai.sqlite
-)
-```
-
-ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手順5へ。成功なら取得ETagを保ち、再pullせず[通常の反映](#application-db-を反映する)でbackup・公開・読戻し後に判断を再開する。公開途中の失敗では検証済みlocalを戻さず、upload/readbackの到達点から反映側を復旧する。
-
-**5. ローカル復元の検証失敗時。** 復元前backupがある場合だけ次で戻す。なければ判断を再開せず、別候補の取得・検査へ戻る。
-
-```bash
-(
-  set -e
-  test -n "$restore_backup" && test -f "$restore_backup"
-  restore_stage="$(mktemp stores/application/baibai-rollback.XXXXXX.sqlite)"
-  cp "$restore_backup" "$restore_stage"
-  failed_restore="stores/application/backups/failed-restore-$(date +%Y%m%dT%H%M%S).sqlite"
-  test ! -e "$failed_restore"
-  mv stores/application/baibai.sqlite "$failed_restore"
-  rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
-  mv -f "$restore_stage" stores/application/baibai.sqlite
-  uv run baibai-engine portfolio ledger --db stores/application/baibai.sqlite
-)
-```
-
-途中停止では残存pathと失敗commandを確認し、blockを無条件反復しない。
+schemaが合わない・台帳を読めない場合に初期化や変換はしない。台帳表示は現在の正本や当時の時価を証明しない。旧checkpointで反映用Appを置換せず、現行の取得ETagを流用して再公開しない。訂正が必要なら、最新の正本に対して正規の手順で該当する事実だけを反映する。
 
 <a id="sources"></a>
 ## source取得と再開
@@ -359,6 +262,8 @@ ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手�
 ### 経済原本
 
 [workflow](../.github/workflows/cloud-economic-sources-current.yml)は休場日もgroup別に取得し、部分受領をprivate stageへ保存する。限定再実行は所属groupとsource IDを指定する。
+
+経済L1の正本は `indicators.sqlite` 一件。日次統合は読んだ正本のETagを条件に更新し、実際の読戻しを確認してからhandoffを確定する。正本更新後にhandoff確定や次回入力の発行が止まった場合、古いDBには戻さず次回の通常統合を現行の正本と残っているhandoffから続ける。手動の `push-indicators` も固定 `.bak` を作らない。 手動の `pull-indicators` と `push-indicators` のマージ用取得は正本のETagを1回のGETに指定し、同じ応答のETagと受信バイト数が一致しなければローカル置換やマージを行わない。
 
 取得summaryの`failed`はHTTP試行件数ではない。`blocked_by_source_id`は先行sourceが止めた未試行分であり、自身のHTTP statusを持たない。status・例外型だけで拒否原因を断定せず、旧summaryの欠落診断や受付時計を推測しない。
 
@@ -392,7 +297,7 @@ uv run python -m tools.diagnostics.inspect_economic_confirmation_gaps \
 
 stage指定は必要分を繰り返す。終了0は固定copyの診断完了だけで、全stage網羅・remote headの現在性・保存済みL2への影響や回復を証明しない。canonicalのfetched_atは確認時計がなければ既知の下限にすぎない。欠落を空応答へ変えず、同時計衝突は要確認とする。
 
-回復時だけcanonical確認時計以降〜固定cutoffのstage欠落/後続受領を人が調べる。原本が揃い一意なら再GETせず既存accept_rechecks/merge/verifyで別copyを準備する。不足時の限定再取得は現在の実確認であり、過去時計の復元や衝突解消の証明ではない。実公開は対応code、lease/CAS・backup・全bytes読戻し・input再発行を別に確認し、元stage/marker・保存L2/L3を変えない。
+回復時だけcanonical確認時計以降〜固定cutoffのstage欠落/後続受領を人が調べる。原本が揃い一意なら再GETせず既存accept_rechecks/merge/verifyで別copyを準備する。不足時の限定再取得は現在の実確認であり、過去時計の復元や衝突解消の証明ではない。実公開は対応code、lease/CAS・全bytes読戻し・input再発行を別に確認し、元stage/marker・保存L2/L3を変えない。
 
 current-onlyは実取得日を使い、他handoffの日付は動かさない。松井の過去asofを現在pageで埋めず、optionsの古い訂正は明示期間で取得する。
 

@@ -112,30 +112,12 @@ if [[ "$1 $2" == "s3api delete-object" ]]; then
   rm -f "${AWS_FAKE_STATE}/generation-${slug}" "${AWS_FAKE_STATE}/put-${slug}"
   exit 0
 fi
-if [[ "$1 $2" == "s3api list-objects-v2" ]]; then
-  [[ " $* " == *" --output json "* && " $* " != *" --query "* ]] || exit 2
-  [[ " $* " == *" --no-paginate "* ]] || exit 2
-  for argument in "$@"; do
-    case "$argument" in
-      '{"ContinuationToken": "-next+/%="}')
-        [[ -v AWS_FAKE_NEXT_LIST_OUTPUT ]] || exit 2
-        printf '%s\\n' "${AWS_FAKE_NEXT_LIST_OUTPUT}"
-        exit "${AWS_FAKE_NEXT_LIST_EXIT:-0}" ;;
-      *ContinuationToken*|--continuation-token*) exit 2 ;;
-    esac
-  done
-  if [[ -v AWS_FAKE_LIST_OUTPUT ]]; then
-    printf '%s\\n' "${AWS_FAKE_LIST_OUTPUT}"
-  else
-    printf '%s\\n' '{"Prefix":"baibai.sqlite.bak-","KeyCount":0,"IsTruncated":false}'
-  fi
-  exit "${AWS_FAKE_LIST_EXIT:-0}"
-fi
 if [[ "$1 $2" == "s3api get-object" ]]; then
   key=""
   destination=""
   wants_etag=""
-  wants_app_metadata=""
+  wants_store_metadata=""
+  if_match=""
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == "--key" ]]; then
       key="$2"
@@ -144,14 +126,17 @@ if [[ "$1 $2" == "s3api get-object" ]]; then
       wants_etag=1
     fi
     if [[ "$1" == "--query" && "$2" == "[ETag, ContentLength]" ]]; then
-      wants_app_metadata=1
+      wants_store_metadata=1
+    fi
+    if [[ "$1" == "--if-match" ]]; then
+      if_match="$2"
     fi
     destination="$1"
     shift
   done
   slug="$(printf '%s' "$key" | tr / _)"
   stored="${AWS_FAKE_STATE}/put-${slug}"
-  if [[ "$key" == baibai.sqlite && -n "$wants_app_metadata" ]]; then
+  if [[ "$key" == baibai.sqlite && -n "$wants_store_metadata" ]]; then
     if [[ -n "${AWS_FAKE_APP_GET_ERROR:-}" ]]; then
       printf 'synthetic-private-value' >&2
       exit 254
@@ -162,6 +147,28 @@ if [[ "$1 $2" == "s3api get-object" ]]; then
     else
       printf '%s\t%s\n' "${AWS_FAKE_APP_GET_ETAG:-$(object_etag "$slug")}" \
         "$(wc -c < "$destination")"
+    fi
+    exit 0
+  fi
+  if [[ "$key" == indicators.sqlite && -n "$wants_store_metadata" ]]; then
+    version="$(object_etag "$slug")"
+    if [[ "$key" == "${AWS_FAKE_CHANGED_KEY:-}" ]]; then
+      # Tests change the version on the next HEAD, not this pinned GET.
+      version='"etag-'"$(wc -c < "${AWS_FAKE_STATE}/calls-${slug}" | tr -d ' ')"'"'
+    fi
+    if [[ -f "${AWS_FAKE_STATE}/transient-${slug}" ]]; then
+      version='"etag-transient"'
+      stored="${AWS_FAKE_STATE}/transient-${slug}"
+    fi
+    if [[ "$if_match" != "$version" || "$key" == "${AWS_FAKE_FAIL_DOWNLOAD_KEY:-}" ]]; then
+      printf 'synthetic-private-value\\n' >&2
+      exit 254
+    fi
+    if [[ -f "$stored" ]]; then cp "$stored" "$destination"; else printf x > "$destination"; fi
+    if [[ -f "${AWS_FAKE_STATE}/get-metadata-${slug}" ]]; then
+      cat "${AWS_FAKE_STATE}/get-metadata-${slug}"
+    else
+      printf '%s\\t%s\\n' "$version" "$(wc -c < "$destination")"
     fi
     exit 0
   fi
@@ -245,7 +252,12 @@ fi
 if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then
   key="${3#s3://}"
   key="${key#*/}"
-  stored="${AWS_FAKE_STATE}/put-$(printf '%s' "$key" | tr / _)"
+  slug="$(printf '%s' "$key" | tr / _)"
+  stored="${AWS_FAKE_STATE}/put-${slug}"
+  # The unpinned legacy read can see B even when both HEADs report A.
+  if [[ "$key" == indicators.sqlite && -f "${AWS_FAKE_STATE}/transient-${slug}" ]]; then
+    stored="${AWS_FAKE_STATE}/transient-${slug}"
+  fi
   if [[ "$key" == "${AWS_FAKE_FAIL_DOWNLOAD_KEY:-}" ]]; then
     printf 'synthetic-private-value' >&2
     exit 254
@@ -286,8 +298,7 @@ if [[ "$1 $2 $3" == "run python -c" ]]; then
   exec "$@"
 fi
 if [[ "$1 $2 $3 $4" == "run baibai-engine portfolio ledger" ]]; then exit 0; fi
-if [[ "$1 $2 $3 $4" == "run python -m baibai_jobs.publication.machine_origin" \
-   || "$1 $2 $3 $4" == "run python -m baibai_jobs.maintenance.application_backup_retention" ]]; then
+if [[ "$1 $2 $3 $4" == "run python -m baibai_jobs.publication.machine_origin" ]]; then
   shift 3
   exec python3 -m "$@"
 fi
@@ -312,14 +323,9 @@ for argument in "$@"; do
     baibai_jobs.observability.repository_layout) script=layout ;;
     baibai_jobs.publication.snapshot_publication) script=publish ;;
     baibai_jobs.publication.lease) script=lease ;;
-    baibai_jobs.maintenance.application_backup) script=app_backup ;;
   esac
 done
 case "${script}" in
-  app_backup)
-    printf 'app-backup %s\\n' "$*" >> "$AWS_LOG"
-    exit "${APP_BACKUP_FAKE_EXIT:-0}"
-    ;;
   lease)
     printf 'verify %s\\n' "$R2_STORES_BUCKET" >> "$AWS_FAKE_STATE/lease-checks"
     handle=""

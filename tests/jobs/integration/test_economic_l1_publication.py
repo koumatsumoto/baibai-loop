@@ -129,6 +129,10 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
 ):
     store, _, _ = setup
     stage(tmp_path, store)
+    original = store.head("indicators.sqlite")
+    old_bytes = store.get_bytes("indicators.sqlite")
+    store.store_object("indicators.sqlite.bak", old_bytes)
+    legacy = store.values["indicators.sqlite.bak"]
     real_put, real_get = store.put_file, store.download_file
     uploaded = False
 
@@ -138,6 +142,8 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
             raise R2Error("stop before seal")
         if point == "inputs" and key.startswith("coordination/source-inputs/economic-fred_csv"):
             raise R2Error("stop midway inputs")
+        if key == "indicators.sqlite":
+            assert kwargs["if_match"] == original.etag
         result = real_put(key, *args, **kwargs)
         if key == "indicators.sqlite":
             uploaded = True
@@ -152,11 +158,24 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
     monkeypatch.setattr(store, "download_file", get)
     with pytest.raises(LakePublishError):
         run(tmp_path, setup)
-    assert not any(key.endswith("/integrated.json") for key in store.values) or point == "inputs"
+    assert uploaded
+    published = store.head("indicators.sqlite")
+    assert published.etag != original.etag
+    new_bytes = store.get_bytes("indicators.sqlite")
+    assert new_bytes != old_bytes
+    if point != "inputs":
+        assert not any(key.endswith("/integrated.json") for key in store.values)
+        assert len(available_handoffs(store, market=False)) == 1
     monkeypatch.setattr(store, "put_file", real_put)
     monkeypatch.setattr(store, "download_file", real_get)
     result = run(tmp_path, setup, "retry")
     assert result["l1_sealed"]
+    assert result["canonical_generations"] == {"economic_etag": published.etag}
+    assert store.get_bytes("indicators.sqlite") == new_bytes
+    assert store.put_keys.count("indicators.sqlite") == 1
+    assert store.values["indicators.sqlite.bak"] is legacy
+    assert "indicators.sqlite.bak" not in store.head_keys + store.get_keys + store.put_keys
+    assert not available_handoffs(store, market=False)
     assert sorted(result["inputs_updated"] + result["inputs_reused"]) == sorted(
         "economic-" + group for group in acquisition_groups()
     )
@@ -167,6 +186,7 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
         ]
     with closing(sqlite3.connect(tmp_path / "retry.sqlite")) as conn:
         assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 1
+        assert next(read_snapshots(conn, DAY, DAY, source_id=SOURCE)).records == ({"value": "A"},)
 
 
 def test_wrong_group_source_isolated_from_valid_handoff(tmp_path, setup):
@@ -261,12 +281,10 @@ def test_ordered_seal_failure_never_skips_forward_to_later_source_clock(
     assert run(tmp_path, setup, "retry")["l1_sealed"]
 
 
-def test_backup_is_exact_fresh_base_and_no_stage_does_not_republish(tmp_path, setup):
+def test_current_is_the_only_database_published_and_no_stage_does_not_republish(tmp_path, setup):
     store, _, _ = setup
-    old = store.get_bytes("indicators.sqlite")
     stage(tmp_path, store)
     run(tmp_path, setup)
-    assert store.get_bytes("indicators.sqlite.bak") == old
     before = len([key for key in store.put_keys if key == "indicators.sqlite"])
     downloads = store.get_keys.count("indicators.sqlite")
     original = store.head("indicators.sqlite")
@@ -280,7 +298,8 @@ def test_backup_is_exact_fresh_base_and_no_stage_does_not_republish(tmp_path, se
     assert result["canonical_generations"] == {"economic_etag": original.etag}
     assert result["inputs_updated"] == []
     assert result["inputs_reused"] == ["economic-" + group for group in acquisition_groups()]
-    assert store.get_bytes("indicators.sqlite.bak") == old
+    assert "indicators.sqlite.bak" not in store.values
+    assert "indicators.sqlite.bak" not in store.head_keys + store.get_keys + store.put_keys
 
 
 def test_changed_planning_pointer_after_checked_get_stops_before_any_new_put(
@@ -360,23 +379,35 @@ def test_unchanged_canonical_does_not_reuse_read_after_lease_expiry(tmp_path, se
     assert not (tmp_path / "run.sqlite").exists()
 
 
-def test_backup_failure_does_not_replace_canonical_or_seal(tmp_path, setup, monkeypatch):
+def test_current_put_conflict_keeps_the_winning_database_and_unsealed_handoff(
+    tmp_path, setup, monkeypatch
+):
     store, _, _ = setup
-    old = store.get_bytes("indicators.sqlite")
+    original = store.head("indicators.sqlite")
     stage(tmp_path, store)
+    winner = tmp_path / "winner.sqlite"
+    with closing(initialize_database(winner)) as conn, conn:
+        confirm_source_response(
+            conn, source_id=SOURCE, fetched_at=AT, records_by_day={DAY: [{"value": "B"}]}
+        )
+    winning_bytes = winner.read_bytes()
     real = store.put_file
 
     def put(key, *args, **kwargs):
-        if key == "indicators.sqlite.bak":
-            raise R2Error("backup unavailable")
+        if key == "indicators.sqlite":
+            assert kwargs["if_match"] == original.etag
+            # The current version changes after the publisher's last HEAD.
+            store.store_object(key, winning_bytes)
         return real(key, *args, **kwargs)
 
     monkeypatch.setattr(store, "put_file", put)
-    with pytest.raises((ValueError, LakePublishError)):
+    with pytest.raises(LakePublishError, match="economic PUT is not confirmed"):
         run(tmp_path, setup)
-    assert store.get_bytes("indicators.sqlite") == old
-    assert "indicators.sqlite" not in store.put_keys
+    assert store.get_bytes("indicators.sqlite") == winning_bytes
+    assert store.put_keys.count("indicators.sqlite") == 1
+    assert "indicators.sqlite.bak" not in store.head_keys + store.get_keys + store.put_keys
     assert not any(key.endswith("/integrated.json") for key in store.values)
+    assert len(available_handoffs(store, market=False)) == 1
 
 
 def test_tradingview_explicit_native_capture_remains_independent(tmp_path, setup):

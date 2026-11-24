@@ -30,7 +30,12 @@ from baibai_engine.storage.objects.r2 import (
     ObjectStore,
     RemoteObject,
 )
-from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff, stage_prefix
+from baibai_jobs.acquisition.economic_staging import (
+    ScopedInputMissing,
+    load_handoff,
+    save_handoff,
+    stage_prefix,
+)
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.inputs import export_source_input as export_market_source_input
 
@@ -237,23 +242,53 @@ def load_input(
     expected_stage: str | None = None,
 ) -> dict[str, object]:
     """Download only this group's immutable input; never fall back to the full DB."""
-    saved = read_private(store, input_key(group))
+    key = input_key(group)
+    saved = read_private(store, key)
     if saved is None:
         raise LakePublishError(
             "scoped source input is missing; initialize through common integration"
         )
-    pointer = json.loads(saved.payload)
-    if expected_stage is not None and pointer["stage_id"] != expected_stage:
+
+    def selection(payload: bytes) -> tuple[str, dict[str, object]]:
+        pointer = json.loads(payload)
+        if not isinstance(pointer, dict):
+            raise LakePublishError("invalid scoped source input pointer")
+        stage_id, generations = pointer.get("stage_id"), pointer.get("canonical_generations")
+        if (
+            not isinstance(stage_id, str)
+            or not stage_id.startswith(group + "-")
+            or not isinstance(generations, dict)
+        ):
+            raise LakePublishError("invalid scoped source input pointer")
+        return stage_id, generations
+
+    stage_id, generations = selection(saved.payload)
+    if expected_stage is not None and stage_id != expected_stage:
         raise LakePublishError("economic scoped input stage changed during readback")
-    load_handoff(
-        store, pointer["stage_id"], directory, namespace="source-inputs", input_group=group
-    )
+    for retry in (False, True):
+        try:
+            load_handoff(
+                store,
+                stage_id,
+                directory,
+                namespace="source-inputs",
+                input_group=group,
+                input_generations=generations,
+            )
+        except ScopedInputMissing:
+            # Only latest consumers may repin, and only when a selected member disappeared.
+            if retry or expected_stage is not None:
+                raise
+            latest = read_private(store, key)
+            if latest is None or latest.etag == saved.etag:
+                raise
+            next_stage, next_generations = selection(latest.payload)
+            if next_stage == stage_id:
+                raise
+            stage_id, generations = next_stage, next_generations
+        else:
+            break
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
-    if (
-        report["group"] != group
-        or report["canonical_generations"] != pointer["canonical_generations"]
-    ):
-        raise LakePublishError("scoped source input differs from its generation binding")
     if database is not None:
         database.parent.mkdir(parents=True, exist_ok=True)
         if database.exists():

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
@@ -24,32 +23,16 @@ from baibai_jobs.acquisition.economic_staging import (
     FRED_HANDOFF_NAMESPACE,
     is_current_fred_manifest,
     is_fred_handoff,
+    is_retired_jquants_handoff,
     load_handoff,
     stage_prefix,
 )
 
 _FRED_SOURCE = "economic-fred_csv"
-_RETIRED_JQUANTS_HANDOFF = re.compile(
-    r"coordination/market-sources/jquants-(?:market|financial)-"
-    r"([0-9]{4}-[0-9]{2}-[0-9]{2})-[0-9]+-[0-9]+/handoff\.json"
-)
 
 
 class ReceiptStore(ObjectStore, Protocol):
     def iter_objects(self, prefix: str) -> Iterator[tuple[str, int]]: ...
-
-
-def _retired_jquants_handoff(key: str) -> bool:
-    # Only the old scheduled SQL writer reserved source-day-run-attempt IDs.
-    # Other IDs need manifest provenance, even if their source prefix looks familiar.
-    match = _RETIRED_JQUANTS_HANDOFF.fullmatch(key)
-    if match is None:
-        return False
-    try:
-        date.fromisoformat(match[1])
-    except ValueError:
-        return False
-    return True
 
 
 def _integration_marker(
@@ -216,7 +199,7 @@ def available_handoffs(
             (market, selected_namespace, key)
             for key, _ in store.iter_objects(f"coordination/{selected_namespace}/{selection}")
             if key.endswith("/handoff.json")
-            and not _retired_jquants_handoff(key)
+            and not is_retired_jquants_handoff(key)
             and (market or not is_fred_handoff(key.split("/")[-2]))
         )
     # Only create-once manifests and terminal markers are read here. Merge in listing order.
@@ -293,6 +276,8 @@ def seal_integrated(
     if archived_fred or (entry["source"] == _FRED_SOURCE) != (namespace == FRED_HANDOFF_NAMESPACE):
         raise ValueError("only the live FRED inbox can write a FRED terminal marker")
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
+    if is_retired_jquants_handoff(prefix + "/handoff.json", source=entry["source"]):
+        raise ValueError("retired J-Quants market handoffs cannot be sealed")
     terminal = (
         f"recovered-{entry['manifest_sha256']}.json"
         if (entry.get("explicit_article_recovery") or entry.get("explicit_jpx_recovery"))
