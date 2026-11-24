@@ -1,16 +1,24 @@
 """Independent daily price acquisition survives unrelated projection/publication failures."""
 
+import gzip
 import json
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.jquants_receipts import Session, body
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsPage,
 )
-from baibai_engine.data_collection.providers.jquants.price_native import PREFIX, PriceL1
+from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
+from baibai_engine.data_collection.providers.jquants.price_native import (
+    PREFIX,
+    PriceAttempt,
+    PriceL1,
+)
+from baibai_engine.machine_analysis.observations.prices.from_l1 import rebuild_price_days
 from baibai_jobs.acquisition.jquants_price_native import acquire_price_native
 
 DAY = date(2026, 11, 2)
@@ -96,6 +104,118 @@ def test_price_partial_or_no_page_failure_is_durable_and_recoverable(tmp_path, n
     )
     assert failed.value()["scopes"][DAY.isoformat()]["failure"]
     assert fresh.fixed().value()["scopes"][DAY.isoformat()]["failure"] is None
+
+
+@pytest.mark.parametrize("other_code", ["13010", "13011"])
+def test_price_wrong_date_on_later_page_is_retained_but_never_adopted(tmp_path, other_code):
+    store = MemoryR2Store()
+    owner = PriceL1(store, tmp_path / "first")
+    owner.initialize()
+    first = acquire_price_native(
+        owner, start=DAY, end=DAY, revision_overlap_days=0, client=Client(), clock=lambda: AT
+    )
+    assert first["changed"] == 1
+    normal = owner.fixed()
+    good_id = normal.value()["scopes"][DAY.isoformat()]["adopted"]
+
+    second_at = AT + timedelta(hours=1)
+    request_day = DAY.strftime("%Y%m%d")
+    source_day = DAY.isoformat()
+    no_trade = dict.fromkeys(("O", "H", "L", "C", "Vo", "Va"))
+    first_body = body([{"Code": "13010", "Date": source_day, **no_trade}], cursor="next")
+    wrong_day = (DAY - timedelta(days=1)).isoformat()
+    second_body = body([{"Code": other_code, "Date": wrong_day, "C": 777}])
+    session = Session(first_body, second_body)
+    client = JQuantsHTTP("synthetic", session=session, clock=lambda: second_at)
+    next_owner = PriceL1(store, tmp_path / "wrong")
+    report = acquire_price_native(
+        next_owner,
+        start=DAY,
+        end=DAY,
+        revision_overlap_days=0,
+        client=client,
+        clock=lambda: second_at,
+    )
+    assert [meta["params"] for _, meta in session.calls] == [
+        {"date": request_day},
+        {"date": request_day, "pagination_key": "next"},
+    ]
+    assert report["failed"] == 1
+    assert report["changed"] == report["equal"] == report["halted"] == 0
+
+    fixed = next_owner.fixed()
+    head = fixed.value()
+    scope = head["scopes"][source_day]
+    assert scope["adopted"] == good_id
+    assert scope["confirmed_at"] == normal.value()["scopes"][source_day]["confirmed_at"]
+    failed_id = scope["failure"]
+    assert failed_id
+    assert DAY in fixed.plan(start=DAY, end=DAY + timedelta(days=8), revision_overlap_days=7)
+
+    pack = head["receipts"][failed_id]["pack"]
+    [saved] = json.loads(gzip.decompress(store.values[PREFIX + f"packs/{pack}.json.gz"].body))
+    attempt = PriceAttempt.from_value(saved)
+    assert attempt.request_id == failed_id
+    assert next_owner.commit([attempt])["retried"] == [failed_id]
+    assert next_owner.fixed().payload == fixed.payload
+    assert [page.body for page in attempt.pages] == [first_body, second_body]
+    assert all(page.received_at == second_at for page in attempt.pages)
+    retained = tuple(fixed.requests(store, days=[DAY]))
+    bad = next(item for item in retained if item.request_id == failed_id)
+    assert bad.request is None
+    assert bad.error is not None
+    projected = rebuild_price_days(retained, days=[DAY])[DAY]
+    assert projected.incomplete_requests == 1
+    assert projected.request_id == good_id
+    assert projected.rows[0][5] == 100
+    assert next(normal.requests(store, days=[DAY])).request_id == good_id
+
+    third_at = second_at + timedelta(hours=1)
+    recovered = PriceL1(store, tmp_path / "recovered")
+    corrected = Session(body([{"Code": "13010", "Date": source_day, "C": 105}]))
+    report = acquire_price_native(
+        recovered,
+        start=DAY,
+        end=DAY,
+        revision_overlap_days=0,
+        client=JQuantsHTTP("synthetic", session=corrected, clock=lambda: third_at),
+        clock=lambda: third_at,
+    )
+    assert report["changed"] == 1
+    assert recovered.fixed().value()["scopes"][source_day]["failure"] is None
+    assert DAY not in recovered.fixed().plan(
+        start=DAY, end=DAY + timedelta(days=8), revision_overlap_days=7
+    )
+    assert json.loads(gzip.decompress(store.values[PREFIX + f"packs/{pack}.json.gz"].body)) == [
+        saved
+    ]
+
+
+def test_same_day_null_and_nonprimary_issue_do_not_fail_l1_scope(tmp_path):
+    store = MemoryR2Store()
+    owner = PriceL1(store, tmp_path)
+    owner.initialize()
+    data = [
+        {
+            "Code": "13010",
+            "Date": DAY.isoformat(),
+            **dict.fromkeys(("O", "H", "L", "C", "Vo", "Va")),
+        },
+        {"Code": "13011", "Date": DAY.isoformat(), "C": 100},
+    ]
+    client = JQuantsHTTP("synthetic", session=Session(body(data)), clock=lambda: AT)
+    report = acquire_price_native(
+        owner, start=DAY, end=DAY, revision_overlap_days=0, client=client, clock=lambda: AT
+    )
+    assert report["changed"] == 1
+    assert report["failed"] == 0
+    [retained] = owner.fixed().requests(store, days=[DAY])
+    assert retained.request.records() == data
+    projected = rebuild_price_days([retained], days=[DAY])[DAY]
+    assert projected.status == "ok"
+    assert projected.excluded_count == 1
+    assert len(projected.rows) == 1
+    assert projected.rows[0][2:8] == (None,) * 6
 
 
 def native_market_dependencies(store, tmp_path, monkeypatch):

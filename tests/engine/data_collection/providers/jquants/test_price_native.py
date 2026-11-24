@@ -135,7 +135,18 @@ def test_price_partial_is_retained_and_replanned_without_a_projection(tmp_path):
     ] == [("old", False), ("partial", True)]
 
 
-@pytest.mark.parametrize("records", [[], [{"Code": "13010"}]])
+@pytest.mark.parametrize(
+    "records",
+    [
+        [],
+        [{"Code": "13010"}],
+        [{"Code": "13010", "Date": False}],
+        [{"Code": "13010", "Date": "20261101"}],
+        [{"Code": "13010", "Date": "2026-W44-7"}],
+        [{"Code": "13010", "Date": "2026-02-30"}],
+        [{"Code": "13010", "Date": "2026-11-01T00:00:00"}],
+    ],
+)
 def test_fixed_price_plan_preserves_complete_receipts_and_rechecks_explicit_overlap(
     tmp_path, records
 ):

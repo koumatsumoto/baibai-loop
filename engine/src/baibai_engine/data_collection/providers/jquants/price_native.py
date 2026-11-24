@@ -29,7 +29,7 @@ FORMAT = "jquants-price-native-v1"
 MAX_PACK_BYTES = 16 * 1024 * 1024
 # A v1 writer bounds uncompressed JSON; incompressible gzip has a little overhead.
 _MAX_COMPRESSED_PACK_BYTES = MAX_PACK_BYTES + 128 * 1024
-_CONTRACT = FullDayContract("daily_bars", PREFIX, FORMAT)
+_CONTRACT = FullDayContract("daily_bars", PREFIX, FORMAT, response_day_key="Date")
 PriceObjectStore = FullDayObjectStore
 
 
