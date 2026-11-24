@@ -11,7 +11,7 @@ from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master_calendar_native import seed_calendar, seed_master
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
 from tests.helpers.tradingview import (
     DAY,
     NOW,
@@ -24,6 +24,7 @@ from tests.helpers.tradingview import (
 from tests.helpers.tradingview import store as tradingview_store
 
 from baibai_engine.storage.objects.r2 import LakePublishError
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -36,7 +37,7 @@ from baibai_jobs.publication import tradingview_verification as verification
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _load_handle, _save_handle, acquire, release
 from baibai_jobs.publication.policy import release_policy_for_profile
-from baibai_jobs.publication.snapshot_release import publish_release
+from baibai_jobs.publication.snapshot_release import read_pointer_snapshot, stage_release
 
 DATASETS = (
     "jquants.daily_bars",
@@ -79,22 +80,13 @@ def publication(tmp_path, monkeypatch):
             catalog=LAKE_DATASETS,
             policy=release_policy_for_profile("production"),
         )
-        publish_release(mirror_root=mirror, release_manifest_path=manifest, store=remote)
-        for key in ("market.sqlite", "runs.sqlite"):
-            remote.store_object(
-                key, source.read_bytes() if key == "market.sqlite" else b"saved runs"
-            )
-        remote.store_object(
-            "machine-manifest.json",
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "keys": {
-                        key: remote.values[key].etag for key in ("market.sqlite", "runs.sqlite")
-                    },
-                }
-            ).encode(),
+        staged = stage_release(
+            mirror_root=mirror,
+            release_manifest_path=manifest,
+            store=remote,
+            base=read_pointer_snapshot(remote),
         )
+        seed_machine_current(remote, staged.pointer, market=source.read_bytes())
         return sources.canonical_generations(remote)
 
     return remote, database, publish
@@ -160,7 +152,7 @@ def test_unpublished_tradingview_cannot_be_sealed_against_a_coherent_old_bundle(
 ):
     remote, database, publish = publication
     publish(identity="old")
-    remote_before = remote.values["market.sqlite"]
+    remote_before = remote.values[current_release_pointer_key()]
     identity, entry, replay = new_stage(tmp_path, remote, database)
     expected = (
         verification.capture_publication(database, [DAY], receipt_ids=[identity])
@@ -171,7 +163,7 @@ def test_unpublished_tradingview_cannot_be_sealed_against_a_coherent_old_bundle(
     remote.put_keys.clear()
     assert sources.main(command) == 1
     assert remote.put_keys == []
-    assert remote.values["market.sqlite"] == remote_before
+    assert remote.values[current_release_pointer_key()] == remote_before
     assert available_handoffs(remote, market=True) == [entry]
 
 
@@ -291,7 +283,7 @@ def test_context_failure_keeps_the_original_stage_pending_without_readback_closu
     after_raw_commit = failure == "receipt_context"
     remote, database, publish = publication
     publish(identity="old")
-    old_remote = remote.values["market.sqlite"]
+    old_remote = remote.values[current_release_pointer_key()]
     raw = tradingview_store(tmp_path / "source.sqlite", 2)
     seed_calendar(remote, database, tmp_path / "calendar", as_of=DAY)
     native_master = seed_master(remote, database, tmp_path / "master", as_of=DAY)
@@ -368,7 +360,7 @@ def test_context_failure_keeps_the_original_stage_pending_without_readback_closu
         remote.put_keys.clear()
         assert sources.main(["seal", "--directory", str(work), "--lease-handle", str(lease)]) == 0
         assert remote.put_keys == []
-        assert remote.values["market.sqlite"] == old_remote
+        assert remote.values[current_release_pointer_key()] == old_remote
         assert available_handoffs(remote, market=True) == [available_entry]
         assert all(remote.values[key] == value for key, value in saved_handoff.items())
 

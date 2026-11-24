@@ -52,7 +52,12 @@ def test_article_seal_requires_readback_but_never_acknowledges_l1(tmp_path, monk
     monkeypatch.setattr(store, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(sources, "_load_handle", lambda _: object())
-    monkeypatch.setattr(sources, "canonical_generations", lambda _: {"lake_release_id": "fixed"})
+
+    def fixed_generations(_store, *, market=None):
+        assert market is None
+        return {"lake_release_id": "fixed"}
+
+    monkeypatch.setattr(sources, "canonical_generations", fixed_generations)
     calls = []
     planning = store.values[source_key("boj_news")]
 

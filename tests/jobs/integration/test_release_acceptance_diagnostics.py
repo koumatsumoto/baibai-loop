@@ -6,9 +6,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 from tests.engine.storage.test_market_lake import _dataset_payload, _load_dataset
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
 
-from baibai_engine.storage.snapshots.keys import current_release_pointer_key, release_manifest_key
+from baibai_engine.storage.snapshots.keys import release_manifest_key
 from baibai_engine.storage.snapshots.models import (
     ReleaseDatasetPolicy,
     ReleaseManifest,
@@ -16,12 +16,7 @@ from baibai_engine.storage.snapshots.models import (
     canonical_lake_model_bytes,
     validate_release_policy,
 )
-from baibai_engine.storage.snapshots.release import (
-    LakeReleasePointer,
-    MachineMember,
-    MachineMembers,
-    machine_member_key,
-)
+from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_jobs.integration import models
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 
@@ -72,21 +67,14 @@ def fail_acceptance(*, reason):
 def run_failure(tmp_path, monkeypatch, error):
     remote = MemoryR2Store()
 
-    def member(role):
-        key = machine_member_key("a" * 32, role)
-        remote.store_object(key, role.encode())
-        meta = remote.head(key)
-        assert meta is not None
-        return MachineMember(key=key, etag=meta.etag, size=meta.size)
-
-    pointer = LakeReleasePointer(
-        pointer_version=2,
-        release_id="fixture-current",
-        manifest_key=release_manifest_key(release_id="fixture-current"),
-        manifest_sha256="b" * 64,
-        machine=MachineMembers(market=member("market"), runs=member("runs")),
+    pointer = seed_machine_current(
+        remote,
+        LakeReleasePointer(
+            release_id="fixture-current",
+            manifest_key=release_manifest_key(release_id="fixture-current"),
+            manifest_sha256="b" * 64,
+        ),
     )
-    remote.store_object(current_release_pointer_key(), canonical_lake_model_bytes(pointer))
 
     def fail(**kwargs):
         assert kwargs["base"].pointer == pointer

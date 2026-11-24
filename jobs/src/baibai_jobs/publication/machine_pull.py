@@ -169,10 +169,10 @@ def _install_working_files(pulled: PulledMachine, *, market: Path, runs: Path | 
                 fsync_directory(target_directory)
         except BaseException:
             for target in reversed(installed):
-                if (prior := previous.get(target)) is None:
+                if (rollback := previous.get(target)) is None:
                     target.unlink()
                 else:
-                    prior.replace(target)
+                    rollback.replace(target)
             raise
 
 

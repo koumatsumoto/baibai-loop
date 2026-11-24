@@ -73,18 +73,7 @@ jobs:
 
       - name: Type check
         if: ${{ !cancelled() }}
-        run: |
-          output="$RUNNER_TEMP/mypy-errors.txt"
-          set +e
-          uv run mypy --no-pretty --no-color-output 2>&1 | tee "$output"
-          status=${PIPESTATUS[0]}
-          set -e
-          if [[ "$status" != 0 ]]; then
-            while IFS= read -r line; do
-              printf '::error::%s\n' "${line//%/%25}"
-            done < <(grep -m 12 -E '(^|[[:space:]])error:|INTERNAL ERROR' "$output" || true)
-          fi
-          exit "$status"
+        run: uv run mypy
 
       - name: Import contracts
         if: ${{ !cancelled() }}
@@ -110,18 +99,7 @@ jobs:
         # `coverage run -m pytest` would only see the controller and report a near-empty run.
         env:
           TMPDIR: /dev/shm
-        run: |
-          output="$RUNNER_TEMP/pytest-errors.txt"
-          set +e
-          uv run pytest -n 4 --color=no --maxfail=0 --cov --cov-report=term-missing --durations=25 --durations-min=0.1 2>&1 | tee "$output"
-          status=${PIPESTATUS[0]}
-          set -e
-          if [[ "$status" != 0 ]]; then
-            while IFS= read -r line; do
-              printf '::error::%s\n' "${line//%/%25}"
-            done < <(grep -m 12 -E '^(FAILED|ERROR) tests/' "$output" || true)
-          fi
-          exit "$status"
+        run: uv run pytest -n 4 --maxfail=0 --cov --cov-report=term-missing --durations=25 --durations-min=0.1
 
       # The scanners share this job to avoid a second billed runner, so they are asked
       # even after an earlier gate has failed. A red test would otherwise hide a CVE
