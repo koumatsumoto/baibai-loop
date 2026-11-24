@@ -2,6 +2,15 @@
 
 ## 手元で始める
 
+初めて作業コピーを作るときは、`main` の先端だけを取得する。
+
+```bash
+git clone --depth=1 --single-branch --branch main https://github.com/koumatsumoto/baibai-loop.git
+cd baibai-loop
+```
+
+過去の差分を調べるときだけ、履歴の浅い作業コピーで `git fetch --deepen=50 origin main` を実行する。`main` の全履歴が必要なら `git fetch --unshallow origin` を使う。既存の作業コピーを作り直す必要はない。
+
 Linux / Bash、bootstrap用Python 3.11以上、uvを用意し、リポジトリのルートで実行する。利用版は[.python-version](../.python-version)・[pyproject.toml](../pyproject.toml)、依存は[uv.lock](../uv.lock)で固定する。
 
 ```bash

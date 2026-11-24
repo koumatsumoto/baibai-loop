@@ -4,6 +4,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from botocore.exceptions import ReadTimeoutError
 from tests.helpers.native_handoff import save_test_handoff
 from tests.helpers.r2_store import VerifiedMemoryR2Store
 
@@ -13,12 +14,17 @@ from baibai_engine.data_collection.receipts.native_sources.confirmations import 
 )
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
+from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
+    LakePublishError,
+    R2Error,
+    R2OperationStopped,
+)
 from baibai_jobs.acquisition.economic_staging import FRED_HANDOFF_NAMESPACE, save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs
 from baibai_jobs.acquisition.source_inputs import input_key, load_input
 from baibai_jobs.integration.economic_sources import integrate
-from baibai_jobs.publication.lease import _save_handle, acquire, release
+from baibai_jobs.publication.lease import LeaseError, _save_handle, acquire, release
 
 DAY = date(2020, 1, 1)
 AT = datetime(2026, 11, 1, tzinfo=UTC)
@@ -58,10 +64,10 @@ def stage(tmp_path, store, value="A", clock=AT, name="one", *, source=SOURCE, gr
     save_test_handoff(store, group + "-" + name, directory, group)
 
 
-def run(tmp_path, setup, name="run"):
+def run(tmp_path, setup, name="run", *, asof=DAY):
     store, lease, _ = setup
     return integrate(
-        store, tmp_path / name, database=tmp_path / f"{name}.sqlite", asof=DAY, lease_handle=lease
+        store, tmp_path / name, database=tmp_path / f"{name}.sqlite", asof=asof, lease_handle=lease
     )
 
 
@@ -129,6 +135,10 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
 ):
     store, _, _ = setup
     stage(tmp_path, store)
+    original = store.head("indicators.sqlite")
+    old_bytes = store.get_bytes("indicators.sqlite")
+    store.store_object("indicators.sqlite.bak", old_bytes)
+    legacy = store.values["indicators.sqlite.bak"]
     real_put, real_get = store.put_file, store.download_file
     uploaded = False
 
@@ -138,6 +148,8 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
             raise R2Error("stop before seal")
         if point == "inputs" and key.startswith("coordination/source-inputs/economic-fred_csv"):
             raise R2Error("stop midway inputs")
+        if key == "indicators.sqlite":
+            assert kwargs["if_match"] == original.etag
         result = real_put(key, *args, **kwargs)
         if key == "indicators.sqlite":
             uploaded = True
@@ -152,11 +164,24 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
     monkeypatch.setattr(store, "download_file", get)
     with pytest.raises(LakePublishError):
         run(tmp_path, setup)
-    assert not any(key.endswith("/integrated.json") for key in store.values) or point == "inputs"
+    assert uploaded
+    published = store.head("indicators.sqlite")
+    assert published.etag != original.etag
+    new_bytes = store.get_bytes("indicators.sqlite")
+    assert new_bytes != old_bytes
+    if point != "inputs":
+        assert not any(key.endswith("/integrated.json") for key in store.values)
+        assert len(available_handoffs(store, market=False)) == 1
     monkeypatch.setattr(store, "put_file", real_put)
     monkeypatch.setattr(store, "download_file", real_get)
     result = run(tmp_path, setup, "retry")
     assert result["l1_sealed"]
+    assert result["canonical_generations"] == {"economic_etag": published.etag}
+    assert store.get_bytes("indicators.sqlite") == new_bytes
+    assert store.put_keys.count("indicators.sqlite") == 1
+    assert store.values["indicators.sqlite.bak"] is legacy
+    assert "indicators.sqlite.bak" not in store.head_keys + store.get_keys + store.put_keys
+    assert not available_handoffs(store, market=False)
     assert sorted(result["inputs_updated"] + result["inputs_reused"]) == sorted(
         "economic-" + group for group in acquisition_groups()
     )
@@ -167,6 +192,7 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
         ]
     with closing(sqlite3.connect(tmp_path / "retry.sqlite")) as conn:
         assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 1
+        assert next(read_snapshots(conn, DAY, DAY, source_id=SOURCE)).records == ({"value": "A"},)
 
 
 def test_wrong_group_source_isolated_from_valid_handoff(tmp_path, setup):
@@ -261,12 +287,10 @@ def test_ordered_seal_failure_never_skips_forward_to_later_source_clock(
     assert run(tmp_path, setup, "retry")["l1_sealed"]
 
 
-def test_backup_is_exact_fresh_base_and_no_stage_does_not_republish(tmp_path, setup):
+def test_current_is_the_only_database_published_and_no_stage_does_not_republish(tmp_path, setup):
     store, _, _ = setup
-    old = store.get_bytes("indicators.sqlite")
     stage(tmp_path, store)
     run(tmp_path, setup)
-    assert store.get_bytes("indicators.sqlite.bak") == old
     before = len([key for key in store.put_keys if key == "indicators.sqlite"])
     downloads = store.get_keys.count("indicators.sqlite")
     original = store.head("indicators.sqlite")
@@ -280,7 +304,8 @@ def test_backup_is_exact_fresh_base_and_no_stage_does_not_republish(tmp_path, se
     assert result["canonical_generations"] == {"economic_etag": original.etag}
     assert result["inputs_updated"] == []
     assert result["inputs_reused"] == ["economic-" + group for group in acquisition_groups()]
-    assert store.get_bytes("indicators.sqlite.bak") == old
+    assert "indicators.sqlite.bak" not in store.values
+    assert "indicators.sqlite.bak" not in store.head_keys + store.get_keys + store.put_keys
 
 
 def test_changed_planning_pointer_after_checked_get_stops_before_any_new_put(
@@ -360,23 +385,35 @@ def test_unchanged_canonical_does_not_reuse_read_after_lease_expiry(tmp_path, se
     assert not (tmp_path / "run.sqlite").exists()
 
 
-def test_backup_failure_does_not_replace_canonical_or_seal(tmp_path, setup, monkeypatch):
+def test_current_put_conflict_keeps_the_winning_database_and_unsealed_handoff(
+    tmp_path, setup, monkeypatch
+):
     store, _, _ = setup
-    old = store.get_bytes("indicators.sqlite")
+    original = store.head("indicators.sqlite")
     stage(tmp_path, store)
+    winner = tmp_path / "winner.sqlite"
+    with closing(initialize_database(winner)) as conn, conn:
+        confirm_source_response(
+            conn, source_id=SOURCE, fetched_at=AT, records_by_day={DAY: [{"value": "B"}]}
+        )
+    winning_bytes = winner.read_bytes()
     real = store.put_file
 
     def put(key, *args, **kwargs):
-        if key == "indicators.sqlite.bak":
-            raise R2Error("backup unavailable")
+        if key == "indicators.sqlite":
+            assert kwargs["if_match"] == original.etag
+            # The current version changes after the publisher's last HEAD.
+            store.store_object(key, winning_bytes)
         return real(key, *args, **kwargs)
 
     monkeypatch.setattr(store, "put_file", put)
-    with pytest.raises((ValueError, LakePublishError)):
+    with pytest.raises(LakePublishError, match="economic PUT is not confirmed"):
         run(tmp_path, setup)
-    assert store.get_bytes("indicators.sqlite") == old
-    assert "indicators.sqlite" not in store.put_keys
+    assert store.get_bytes("indicators.sqlite") == winning_bytes
+    assert store.put_keys.count("indicators.sqlite") == 1
+    assert "indicators.sqlite.bak" not in store.head_keys + store.get_keys + store.put_keys
     assert not any(key.endswith("/integrated.json") for key in store.values)
+    assert len(available_handoffs(store, market=False)) == 1
 
 
 def test_tradingview_explicit_native_capture_remains_independent(tmp_path, setup):
@@ -792,3 +829,125 @@ def test_cli_logs_only_this_attempts_confirmed_publication(
         assert report["handoffs"][0]["entry"]["stage_id"] == "fred_csv-one"
         assert len(report["handoffs"][0]["entry"]["manifest_sha256"]) == 64
         assert report["handoffs"][0]["result"]["late_recovery_required"] == []
+
+
+def _first_retirement(store):
+    group = "economic-" + acquisition_groups()[0]
+    pointer = input_key(group)
+    stage_id = json.loads(store.values[pointer].body)["stage_id"]
+    return group, pointer, f"coordination/source-inputs/{stage_id}/handoff.json"
+
+
+@pytest.mark.parametrize("fault", ["503", "read-timeout"])
+@pytest.mark.parametrize("resume_boundary", ["delete", "old-manifest"])
+def test_detached_retirement_failure_allows_l2_and_other_groups_but_bounds_one_group(
+    tmp_path, setup, monkeypatch, fault, resume_boundary
+):
+    store, _, _ = setup
+    run(tmp_path, setup, "first")
+    group, pointer, old = _first_retirement(store)
+    delete = store.delete_object
+
+    def failure():
+        if fault == "503":
+            raise R2Error("known transient service reply", http_status=503)
+        try:
+            raise ReadTimeoutError(endpoint_url="https://private.invalid")
+        except ReadTimeoutError as cause:
+            raise R2Error("uncertain detached transport") from cause
+
+    def unavailable(key):
+        return failure() if key == old else delete(key)
+
+    monkeypatch.setattr(store, "delete_object", unavailable)
+    second = run(tmp_path, setup, "second", asof=DAY + timedelta(days=1))
+    assert second["inputs_retirement_pending"] == {group: "verified_successor"}
+    assert second["inputs_updated"] == ["economic-" + g for g in acquisition_groups()]
+    b = store.values[pointer]
+    assert old in store.values
+    if resume_boundary == "old-manifest":
+        fixed = store.get_verified_object
+
+        def old_manifest(key, **contract):
+            return failure() if key == old else fixed(key, **contract)
+
+        monkeypatch.setattr(store, "get_verified_object", old_manifest)
+        monkeypatch.setattr(store, "delete_object", delete)
+    third = run(tmp_path, setup, "third", asof=DAY + timedelta(days=2))
+    assert third["inputs_retirement_pending"] == {group: "advance_blocked"}
+    assert third["inputs_updated"] == [
+        "economic-" + g for g in acquisition_groups() if "economic-" + g != group
+    ]
+    assert group not in third["inputs_reused"]
+    assert store.values[pointer] is b
+    assert old in store.values
+    assert (tmp_path / "third.sqlite").read_bytes() == (tmp_path / "second.sqlite").read_bytes()
+
+
+@pytest.mark.parametrize("status", [403, 429, None, "strict"])
+def test_unclassified_or_refused_cleanup_never_attempts_another_remote_operation(
+    tmp_path, setup, monkeypatch, status
+):
+    store, _, _ = setup
+    run(tmp_path, setup, "first")
+    _, _, old = _first_retirement(store)
+    observed = []
+
+    def refused(key):
+        assert key == old
+        observed.append((len(store.get_keys), len(store.head_keys), len(store.put_keys)))
+        if status == "strict":
+            raise R2OperationStopped("confirmed policy stop")
+        raise R2Error("external instruction not established", http_status=status)
+
+    monkeypatch.setattr(store, "delete_object", refused)
+    expected = R2OperationStopped if status == "strict" else R2Error
+    with pytest.raises(expected):
+        run(tmp_path, setup, "refused", asof=DAY + timedelta(days=1))
+    assert observed == [(len(store.get_keys), len(store.head_keys), len(store.put_keys))]
+    assert old in store.values
+
+
+@pytest.mark.parametrize("fault", ["active-missing", "lease-lost", "retired-429"])
+def test_deferred_old_manifest_read_requires_active_successor_and_owner(
+    tmp_path, setup, monkeypatch, fault
+):
+    store, _, handle = setup
+    run(tmp_path, setup, "first")
+    _, pointer, old = _first_retirement(store)
+    delete = store.delete_object
+
+    def defer_once(key):
+        if key == old:
+            raise R2Error("defer detached deletion", http_status=503)
+        return delete(key)
+
+    monkeypatch.setattr(store, "delete_object", defer_once)
+    run(tmp_path, setup, "second", asof=DAY + timedelta(days=1))
+    monkeypatch.setattr(store, "delete_object", delete)
+    b = store.values[pointer]
+    if fault == "active-missing":
+        b_stage = json.loads(b.body)["stage_id"]
+        del store.values[f"coordination/source-inputs/{b_stage}/handoff.json"]
+    fixed = store.get_verified_object
+    last_read = []
+
+    def old_manifest(key, **contract):
+        if key != old:
+            return fixed(key, **contract)
+        if fault == "lease-lost":
+            release(store, handle)
+        last_read.append((len(store.get_keys), len(store.head_keys), len(store.put_keys)))
+        raise R2Error(
+            "failure on detached manifest", http_status=429 if fault == "retired-429" else 503
+        )
+
+    monkeypatch.setattr(store, "get_verified_object", old_manifest)
+    with pytest.raises(LeaseError if fault == "lease-lost" else LakePublishError):
+        run(tmp_path, setup, "third", asof=DAY + timedelta(days=2))
+    assert last_read
+    assert len(store.put_keys) == last_read[0][2]
+    if fault == "retired-429":
+        assert last_read == [(len(store.get_keys), len(store.head_keys), len(store.put_keys))]
+    assert store.values[pointer] is b
+    assert old in store.values

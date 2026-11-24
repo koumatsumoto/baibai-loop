@@ -20,11 +20,21 @@ from typing import TYPE_CHECKING, Any, Never, Protocol, runtime_checkable
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError, ConnectTimeoutError, ReadTimeoutError
+from botocore.exceptions import (
+    BotoCoreError,
+    ClientError,
+    ConnectionClosedError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+)
 
 from baibai_engine.storage.filesystem import fsync_directory
 
 if TYPE_CHECKING:
+    from botocore.awsrequest import AWSResponse
+    from botocore.exceptions import _ClientErrorResponseTypeDef
+    from botocore.model import OperationModel
     from mypy_boto3_s3 import S3Client
     from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
 
@@ -46,6 +56,14 @@ class R2Error(LakePublishError):
     def __init__(self, message: str, *, http_status: int | None = None) -> None:
         super().__init__(message)
         self.http_status = http_status
+
+    @property
+    def transport_uncertain(self) -> bool:
+        """An identified transport failure, not an unclassified response or credentials error."""
+        return self.http_status is None and isinstance(
+            self.__cause__,
+            (ConnectTimeoutError, ReadTimeoutError, ConnectionClosedError, EndpointConnectionError),
+        )
 
 
 class LakeCASConflict(LakePublishError):
@@ -138,6 +156,23 @@ class ObjectStore(Protocol):
     ) -> RemoteObject: ...
 
 
+def _refuse_exact_reissue(
+    *,
+    operation: OperationModel,
+    response: tuple[AWSResponse, _ClientErrorResponseTypeDef] | None = None,
+    **_: object,
+) -> None:
+    # Region redirect is independent of total_max_attempts and can send a
+    # second signed request or a HeadBucket probe. Surface the original failure.
+    if response is not None and response[0].status_code >= 300:
+        raise ClientError(response[1], operation.name)
+
+
+@runtime_checkable
+class ImmutableObjectDeleter(ObjectStore, Protocol):
+    def delete_object(self, key: str) -> None: ...
+
+
 @runtime_checkable
 class ObjectMetadataReader(Protocol):
     """Optional atomic GET response access; byte-only stores retain their read contract."""
@@ -188,7 +223,7 @@ class Boto3R2Store:
         self.endpoint = f"https://{account_id}.r2.cloudflarestorage.com"
         self.access_key_id = _required(source, "R2_ACCESS_KEY_ID")
         self.secret_access_key = _required(source, "R2_SECRET_ACCESS_KEY")
-        self._clients: dict[tuple[int, int], S3Client] = {}
+        self._clients: dict[tuple[int, int, bool], S3Client] = {}
         self._serial: _SerialRequests | None = None
         self._scope_lock = Lock()
         self.verify_put_with_head = verify_put_with_head
@@ -265,10 +300,12 @@ class Boto3R2Store:
                         ) from None
                 raise R2OperationStopped(f"R2 operation stopped after HTTP {status}") from None
 
-    def _client(self, payload_bytes: int | None = None) -> S3Client:
+    def _client(
+        self, payload_bytes: int | None = None, *, single_attempt: bool = False
+    ) -> S3Client:
         timeout = _operation_timeout(payload_bytes)
-        attempts = 1 if self._stop_on_rejection or self._serial is not None else 3
-        cache_key = (timeout, attempts)
+        attempts = 1 if single_attempt or self._stop_on_rejection or self._serial is not None else 3
+        cache_key = (timeout, attempts, single_attempt)
         cached = self._clients.get(cache_key)
         if cached is not None:
             return cached
@@ -288,6 +325,11 @@ class Boto3R2Store:
                 response_checksum_validation="when_required",
             ),
         )
+        if single_attempt:
+            for operation in ("DeleteObject", "GetObject", "HeadObject"):
+                client.meta.events.register_first(
+                    f"needs-retry.s3.{operation}", _refuse_exact_reissue
+                )
         self._clients[cache_key] = client
         return client
 
@@ -297,12 +339,24 @@ class Boto3R2Store:
             client.close()
         self._clients.clear()
 
-    def head(self, key: str) -> RemoteObject | None:
+    def delete_object(self, key: str) -> None:
+        """Delete one detached immutable key; the owner verifies its absence."""
+        try:
+            with self._request("delete-object"):
+                self._client(single_attempt=True).delete_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            _raise_r2_error("delete-object", exc, key=key)
+        except BotoCoreError as exc:
+            _log_r2_failure("delete-object", exc, key=key)
+            raise R2Error("R2 delete-object failed") from exc
+
+    def head(self, key: str, *, single_attempt: bool = False) -> RemoteObject | None:
         try:
             with self._request("head-object"):
-                value = self._client().head_object(Bucket=self.bucket, Key=key)
+                client = self._client(single_attempt=True) if single_attempt else self._client()
+                value = client.head_object(Bucket=self.bucket, Key=key)
         except ClientError as exc:
-            if _error_code(exc) in {"404", "NoSuchKey", "NotFound"}:
+            if _object_not_found(exc, require_http_404=single_attempt):
                 return None
             _raise_r2_error("head-object", exc, key=key)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
@@ -381,17 +435,19 @@ class Boto3R2Store:
         return result[0] if result is not None else None
 
     def get_verified_object(
-        self, key: str, *, sha256: str, max_bytes: int
+        self, key: str, *, sha256: str, max_bytes: int, single_attempt: bool = False
     ) -> tuple[bytes, RemoteObject] | None:
         if re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
             raise ValueError("invalid fixed object read contract")
-        return self._get_checked_object(key, sha256=sha256, max_bytes=max_bytes)
+        return self._get_checked_object(
+            key, sha256=sha256, max_bytes=max_bytes, single_attempt=single_attempt
+        )
 
     def get_checked_object(self, key: str, *, max_bytes: int) -> tuple[bytes, RemoteObject] | None:
         return self._get_checked_object(key, sha256=None, max_bytes=max_bytes)
 
     def _get_checked_object(
-        self, key: str, *, sha256: str | None, max_bytes: int
+        self, key: str, *, sha256: str | None, max_bytes: int, single_attempt: bool = False
     ) -> tuple[bytes, RemoteObject] | None:
         """Use one response for bounded metadata/body integrity and an optional fixed digest.
 
@@ -403,7 +459,8 @@ class Boto3R2Store:
             raise ValueError("invalid fixed object read contract")
         try:
             with self._request("get-object"):
-                response = self._client().get_object(Bucket=self.bucket, Key=key)
+                client = self._client(single_attempt=True) if single_attempt else self._client()
+                response = client.get_object(Bucket=self.bucket, Key=key)
                 body = response["Body"]
                 try:
                     metadata = _remote_object(response)
@@ -428,7 +485,7 @@ class Boto3R2Store:
             _log_r2_failure("get-object", exc, key=key)
             raise R2Error("R2 get-object timed out") from exc
         except ClientError as exc:
-            if _error_code(exc) in {"404", "NoSuchKey", "NotFound"}:
+            if _object_not_found(exc, require_http_404=single_attempt):
                 return None
             _raise_r2_error("get-object", exc, key=key)
         except BotoCoreError as exc:
@@ -568,6 +625,13 @@ def _http_status(error: ClientError) -> int | None:
     if isinstance(status, str) and re.fullmatch(r"[1-5][0-9]{2}", status):
         return int(status)
     return status if type(status) is int and 100 <= status <= 599 else None
+
+
+def _object_not_found(error: ClientError, *, require_http_404: bool) -> bool:
+    # A detached read is evidence for deletion; a service code cannot override HTTP status.
+    return _error_code(error) in {"404", "NoSuchKey", "NotFound"} and (
+        not require_http_404 or _http_status(error) == 404
+    )
 
 
 def _log_r2_failure(

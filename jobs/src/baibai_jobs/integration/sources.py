@@ -462,6 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.group is not None and args.command != "inputs":
         print("--group is only valid with inputs", file=sys.stderr)
         return 1
+    seal_phase = "setup"
     try:
         if (
             args.group is not None
@@ -610,8 +611,10 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 if args.lease_handle is None:
                     raise ValueError("common integration writes require the publication lease")
+                seal_phase = "publication_lease"
                 handle = _load_handle(args.lease_handle)
                 verify_held(store, handle)
+                seal_phase = "canonical_machine"
                 generations = canonical_generations(store)
                 guarded = GuardedInputStore(store, lambda: verify_held(store, handle))
                 if args.command == "inputs":
@@ -661,6 +664,7 @@ def main(argv: list[str] | None = None) -> int:
                     and item["result"]["retained_bundles"]
                     for item in report["handoffs"]
                 ):
+                    seal_phase = "jpx_readback"
                     report["jpx_readback"] = verify_jpx_publication(
                         store,
                         expected=report.get("jpx_publication", {}),
@@ -668,6 +672,7 @@ def main(argv: list[str] | None = None) -> int:
                         generations=generations,
                     )
                 if report.get("external"):
+                    seal_phase = "external_readback_and_seal"
                     readback_directory = _daily_external_readback(
                         args.daily_readback_notice,
                         directory,
@@ -685,6 +690,7 @@ def main(argv: list[str] | None = None) -> int:
                     item["entry"]["source"] == "tradingview" and item["applied"]
                     for item in report["handoffs"]
                 ):
+                    seal_phase = "tradingview_readback"
                     report["tradingview_readback"] = verify_tradingview_publication(
                         store,
                         expected=report.get("tradingview_publication", {}),
@@ -708,21 +714,33 @@ def main(argv: list[str] | None = None) -> int:
                         outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
                         and outcome["applied"]
                     ):
+                        seal_phase = "article_readback"
                         outcome["article_readback"] = verify_delta(
                             store,
                             delta=outcome["article_delta"],
                             directory=directory / "article-readback",
                             generations=generations,
                         )
+                    seal_phase = "handoff_terminal"
                     seal_integrated(
                         guarded,
                         outcome["entry"],
                         generations=generations,
                         recovery=outcome["recovery"],
                     )
+                seal_phase = "local_report"
                 report["canonical_generations"] = generations
                 write_json_atomic(directory / "applied.json", report)
+                seal_phase = "close"
     except Exception as error:
+        if args.command == "seal" and isinstance(error, R2Error):
+            cause = type(error.__cause__).__name__ if error.__cause__ is not None else "none"
+            status = error.http_status
+            print(
+                f"source seal failed: phase={seal_phase} exception={type(error).__name__} "
+                f"cause={cause} status={status if type(status) is int else 'unknown'}",
+                file=sys.stderr,
+            )
         print(f"common source integration failed: {type(error).__name__}", file=sys.stderr)
         return 1
     return 0

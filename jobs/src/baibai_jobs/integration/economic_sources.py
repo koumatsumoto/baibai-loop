@@ -40,6 +40,7 @@ from baibai_engine.storage.objects.r2 import (
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.sqlite.merge import MergeError
 from baibai_engine.storage.sqlite.snapshot import create_snapshot
+from baibai_jobs.acquisition.economic_input_retirement import EconomicRetirementDeferred
 from baibai_jobs.acquisition.market_context import validate_packet
 from baibai_jobs.acquisition.receipts import (
     ReceiptStore,
@@ -47,7 +48,7 @@ from baibai_jobs.acquisition.receipts import (
     download_fixed,
     seal_integrated,
 )
-from baibai_jobs.acquisition.source_inputs import GuardedInputStore, load_input, publish_input
+from baibai_jobs.acquisition.source_inputs import GuardedInputStore, publish_input
 from baibai_jobs.integration.economic_handoff import validate_handoff
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_jobs.publication.lease import _load_handle, verify_held
@@ -55,12 +56,12 @@ from baibai_jobs.publication.lease import _load_handle, verify_held
 KEY = "indicators.sqlite"
 
 
-def _read(store: ObjectStore, path: Path, *, key: str = KEY) -> RemoteObject:
-    before = store.head(key)
+def _read(store: ObjectStore, path: Path) -> RemoteObject:
+    before = store.head(KEY)
     if before is None:
         raise ValueError("economic canonical is missing; provision it explicitly")
-    store.download_file(key, path, expect_bytes=before.size)
-    after = store.head(key)
+    store.download_file(KEY, path, expect_bytes=before.size)
+    after = store.head(KEY)
     if after is None or after.etag != before.etag or path.stat().st_size != before.size:
         raise LakePublishError("economic canonical changed during download")
     with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
@@ -69,13 +70,12 @@ def _read(store: ObjectStore, path: Path, *, key: str = KEY) -> RemoteObject:
     return after
 
 
-def _put_readback(
+def _publish_current(
     store: ObjectStore,
-    key: str,
     path: Path,
     readback: Path,
     *,
-    expected: str | None,
+    expected: str,
     before_put: Callable[[], None],
 ) -> RemoteObject:
     digest = sha256_file(path)
@@ -84,17 +84,16 @@ def _put_readback(
     before_put()
     with suppress(LakePublishError):
         store.put_file(
-            key,
+            KEY,
             path,
             sha256=digest,
             content_md5=base64.b64encode(md5).decode(),
             content_type="application/vnd.sqlite3",
             if_match=expected,
-            if_none_match=expected is None,
         )
-    remote = _read(store, readback, key=key)
+    remote = _read(store, readback)
     if sha256_file(readback) != digest:
-        raise LakePublishError(f"economic PUT is not confirmed: {key}; keep original handoffs")
+        raise LakePublishError(f"economic PUT is not confirmed: {KEY}; keep original handoffs")
     return remote
 
 
@@ -232,18 +231,8 @@ def integrate(
     published, readback = original, base
     if candidate != base and sha256_file(candidate) != sha256_file(base):
         readback = work / "readback.sqlite"
-        backup = store.head(KEY + ".bak")
-        _put_readback(
+        published = _publish_current(
             store,
-            KEY + ".bak",
-            base,
-            work / "backup-readback.sqlite",
-            expected=backup.etag if backup else None,
-            before_put=before_canonical_put,
-        )
-        published = _put_readback(
-            store,
-            KEY,
             candidate,
             readback,
             expected=original.etag,
@@ -280,24 +269,32 @@ def integrate(
     write_json_atomic(directory / "applied.json", report)
     updated: list[str] = []
     reused: list[str] = []
+    retirement_pending: dict[str, str] = {}
     # Complete every group even if the preceding run stopped part-way through.
     for group in acquisition_groups():
         name = "economic-" + group
-        stage = publish_input(
-            guarded,
-            market=work / "unused-market",
-            economic=readback,
-            identity=identity,
-            asof=asof,
-            generations=generations,
-            group=name,
-        )
-        metadata = load_input(store, name, None, work / ("input-" + group), expected_stage=stage)
-        if metadata["canonical_generations"] != generations:
-            raise LakePublishError("economic scoped input generation changed during readback")
+        try:
+            stage = publish_input(
+                guarded,
+                market=work / "unused-market",
+                economic=readback,
+                identity=identity,
+                asof=asof,
+                generations=generations,
+                group=name,
+                economic_readback=work / ("input-" + group),
+            )
+        except EconomicRetirementDeferred as error:
+            accepted_stage = error.accepted_stage
+            retirement_pending[name] = "verified_successor" if accepted_stage else "advance_blocked"
+            if accepted_stage is None:
+                continue
+            stage = accepted_stage
         (updated if stage == f"{name}-{identity}" else reused).append(name)
     before_put()
     report.update(inputs_updated=updated, inputs_reused=reused)
+    if retirement_pending:
+        report["inputs_retirement_pending"] = retirement_pending
     write_json_atomic(directory / "applied.json", report)
     return report
 
