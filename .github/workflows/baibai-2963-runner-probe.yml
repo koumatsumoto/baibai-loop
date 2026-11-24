@@ -1,0 +1,58 @@
+name: Temporary synthetic Machine disk probe 2963
+on:
+  pull_request:
+    branches: [main]
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-machine-disk:
+    name: Synthetic Machine disk only (not daily or R2 acceptance)
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop'
+          && github.event.repository.visibility == 'public'
+          && github.event.pull_request.draft
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.head_ref == 'scratch/2963-runner-disk-probe' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      CANDIDATE_SHA: 2490e9fa31a9a620567d74fb4cf4a2574441e95d
+    steps:
+      - name: Checkout probe harness from the ephemeral PR
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: harness
+          sparse-checkout: .github/temporary/baibai-2963
+
+      - name: Checkout exact reviewed candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: candidate
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: candidate/.python-version
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+
+      - name: Install locked candidate runtime and fixture dependencies
+        working-directory: candidate
+        run: uv sync --locked --no-dev --group test
+
+      - name: Measure the full-size synthetic Machine roundtrip on SSD
+        working-directory: candidate
+        run: |
+          bundle="$GITHUB_WORKSPACE/harness/.github/temporary/baibai-2963"
+          df -PT "$PWD/stores" "$RUNNER_TEMP" /tmp
+          python "$bundle/disk_probe.py" --checkout "$PWD" --runner-temp "$RUNNER_TEMP" --fixture "$bundle/probe.py"
