@@ -39,8 +39,9 @@ def test_empty_local_copy_needs_no_bucket_or_native_head(tmp_path, monkeypatch, 
     remote = Mock(side_effect=AssertionError("empty cache must not connect to R2"))
     monkeypatch.setattr("baibai_engine.storage.objects.r2.Boto3R2Store", remote)
     release = SimpleNamespace(dataset_names=lambda: ("jquants.fin_summaries",))
-    args = SimpleNamespace(store=database, mirror=tmp_path / "mirror", bucket=None)
-    _clear_independent_list_cache(args, release)
+    _clear_independent_list_cache(
+        release, path=database, mirror=tmp_path / "mirror", bucket=None, timed=False
+    )
     assert database.exists() is existing
     remote.assert_not_called()
     assert capsys.readouterr().err == ""
@@ -62,12 +63,16 @@ def test_nonempty_cache_requires_native_verification_only_when_release_omits_ori
     release = SimpleNamespace(
         dataset_names=lambda: ("edinet.list_responses",) if legacy_release else ()
     )
-    args = SimpleNamespace(store=database, mirror=tmp_path / "mirror", bucket=None)
+    mirror = tmp_path / "mirror"
     if legacy_release:
-        _clear_independent_list_cache(args, release)
+        _clear_independent_list_cache(
+            release, path=database, mirror=mirror, bucket=None, timed=False
+        )
     else:
         with pytest.raises(ValueError, match="requires --bucket"):
-            _clear_independent_list_cache(args, release)
+            _clear_independent_list_cache(
+                release, path=database, mirror=mirror, bucket=None, timed=False
+            )
     assert database.read_bytes() == original
     remote.assert_not_called()
 
@@ -94,15 +99,16 @@ def test_native_cache_clear_uses_the_original_receipt_proof(tmp_path, monkeypatc
             ),
         )
     monkeypatch.setattr("baibai_engine.storage.objects.r2.Boto3R2Store", lambda **_: store)
-    args = SimpleNamespace(store=database, mirror=tmp_path / "mirror", bucket="fixture")
     with monkeypatch.context() as log_context:
         if mode == "broken-stderr":
             write = Mock(side_effect=OSError("diagnostic stream unavailable"))
             log_context.setattr("baibai_jobs.publication.snapshot_write_cli.os.write", write)
         _clear_independent_list_cache(
-            args,
             SimpleNamespace(dataset_names=lambda: ()),
-            store_path=None if mode == "working-store" else database,
+            path=database,
+            mirror=tmp_path / "mirror",
+            bucket="fixture",
+            timed=mode != "working-store",
         )
         if mode == "broken-stderr":
             write.assert_called_once()
