@@ -292,8 +292,8 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
         if _clock(source["received_at"]) > cutoff:
             return [], "sec_companyfacts_not_yet_received"
         query = SecEdgarQuery("companyfacts", subject["cik"])
-        if source.get("request_url", query.url) != query.url:
-            return [], "sec_request_scope_mismatch"
+        if not _complete_single_hop(source, query.url):
+            return [], "sec_companyfacts_response_scope_unverified"
         wire = _recorded_sec(query, source, load)
         if isinstance(wire, str):
             return [], "sec_transport_error"
@@ -556,6 +556,7 @@ def _fixture() -> tuple[_Record, dict[str, bytes]]:
         "end": "2026-09-30",
         "val": 1234567890,
     }
+    companyfacts_url = SecEdgarQuery("companyfacts", "0000320193").url
     companyfacts = add(
         "apple.json",
         {
@@ -569,7 +570,10 @@ def _fixture() -> tuple[_Record, dict[str, bytes]]:
             },
         },
         attempt_id="00000000-0000-0000-0000-000000000001",
-        request_url=SecEdgarQuery("companyfacts", "0000320193").url,
+        request_url=companyfacts_url,
+        response_url=companyfacts_url,
+        complete=True,
+        redirected=False,
     )
     period = {"period_start": fact["start"], "period_end": fact["end"]}
     return {

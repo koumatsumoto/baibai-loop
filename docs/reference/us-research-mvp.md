@@ -63,6 +63,9 @@ SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-appli
       "received_at": "<actual-UTC-receipt>",
       "attempt_id": "<nonzero-UUID>",
       "request_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
+      "response_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
+      "complete": true,
+      "redirected": false,
       "headers": {"Content-Type": "application/json"}
     },
     "filing": {
@@ -90,6 +93,6 @@ SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-appli
 }
 ```
 
-`submissions` / `companyfacts` / `filing` は不足時にnull。Submissionsは正規URLへの単一GETを実際に完了した原本だけを使う。CompanyFactsの `request_url` とcontent系 `headers` は既に固定できたものだけ。
+`submissions` / `companyfacts` / `filing` は不足時にnull。SubmissionsとCompanyFactsは、実際の要求URLと応答URLがどちらも指定CIKの正規URLで、リダイレクトなしに全文を受領した原本だけを使う。取得時の `request_url`・`response_url`・`complete`・`redirected` とcontent系 `headers` を固定し、不明な値は補わない。応答の範囲を確認できない場合は当該銘柄の財務だけ保留する。
 
 `public_index` はCompanyFactsや提出情報とは別の受領。正規HTTPS URLへ、リダイレクトせず `Accept-Encoding: identity` でGETし、全文受領した時だけ `complete: true` とする。実際の応答URL・本文SHA・[索引](https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/0000320193-25-000073-index.htm)のaccessionタイトルと同じ提出の全文リンクを照合する。取得時にあったcontent系 `headers` を保存し、部分応答、圧縮、内容長の矛盾や本文の手書き・転記を原本にしない。入力の取得・銘柄対応・公表証拠は供給元で固定し、このCLIは再認証しない。cutoffより遅い索引・原本受領で、当時の不足を埋めない。

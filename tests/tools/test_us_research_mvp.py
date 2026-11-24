@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta
 from hashlib import sha256
+from pathlib import Path
 
 import pytest
 from tools.experiments.us_research_mvp import _fixture, main, render_research
@@ -398,3 +399,59 @@ def test_bad_sec_attempt_id_holds_only_that_finance_in_external_bundle(
     assert "SEC実績売上" not in affected
     assert "観測20本のSMA: USD 102.50" in affected
     assert other == untouched
+
+
+@pytest.mark.parametrize(
+    "defect", ["wrong-response-url", "incomplete", "redirected", "missing-urls"]
+)
+def test_companyfacts_capture_scope_holds_only_affected_finance_in_cli(
+    defect, tmp_path, capsys, monkeypatch
+):
+    bundle, files = _fixture()
+    record = bundle["subjects"][0]["companyfacts"]
+    manifest = tmp_path / "manifest.json"
+    for name, body in files.items():
+        (tmp_path / name).write_bytes(body)
+
+    def run():
+        manifest.write_text(json.dumps(bundle), encoding="utf-8")
+        assert main(["--bundle", str(manifest)]) == 0
+        return capsys.readouterr().out.split("## NVDA |")
+
+    def price_lines(affected):
+        return [
+            line
+            for line in affected.splitlines()
+            if line.startswith(("- IEX", "- 同観測", "- 観測20本"))
+        ]
+
+    valid, unaffected = run()
+    assert "AAPL | research_candidate" in valid
+    assert "SEC実績売上: USD 1,234,567,890" in valid
+    assert "観測20本のSMA: USD 102.50" in valid
+    if defect == "wrong-response-url":
+        record["response_url"] = record["response_url"].replace("0000320193", "0001652044")
+    elif defect == "incomplete":
+        record["complete"] = False
+    elif defect == "redirected":
+        record["redirected"] = True
+    else:
+        del record["request_url"]
+        del record["response_url"]
+
+    reads = []
+    read_bytes = Path.read_bytes
+
+    def record_read(path):
+        reads.append(path)
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", record_read)
+    affected, other = run()
+    assert "AAPL | hold_for_evidence" in affected
+    assert "sec_companyfacts_response_scope_unverified" in affected
+    assert "SEC実績売上" not in affected
+    assert "売買: `no_action`" in affected
+    assert price_lines(affected) == price_lines(valid)
+    assert other == unaffected
+    assert tmp_path / record["file"] not in reads
