@@ -35,10 +35,7 @@ from baibai_engine.machine_analysis.generation.economic_inputs import (
 )
 from baibai_engine.machine_analysis.generation.full_day_inputs import share_full_day_input_reads
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
-from baibai_engine.machine_analysis.generation.query import (
-    read_generation_ids,
-    read_generation_storage_totals,
-)
+from baibai_engine.machine_analysis.generation.query import read_generation_ids
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
@@ -257,21 +254,6 @@ def integrate_models(
         saved = generations.publish_stream(
             replace(generation, models=_project_company_models(generation, rows))
         )
-        try:
-            storage_totals = read_generation_storage_totals(
-                generation.metadata.generation_id, path=runs
-            )
-        except (sqlite3.DatabaseError, OSError) as error:
-            logging.getLogger(__name__).warning(
-                "model storage: state=unmeasured error_type=%s", type(error).__name__
-            )
-        else:
-            for model_id, count, size in storage_totals:
-                print(
-                    f"model storage: model_id={model_id} count={count} payload_gzip_bytes={size}",
-                    file=sys.stderr,
-                    flush=True,
-                )
         _phase_progress("model_generation", phase_started)
         subjects = generation.subjects
         phase_started = _phase_progress("screening")
