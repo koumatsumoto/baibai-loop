@@ -188,6 +188,10 @@ uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_W
 
 fresh正本＋固定handoffの受入→条件付きPUT/全bytes読戻し→seal→経済の全group inputの順。byte不変時は同ETag/leaseを確認し、初回検証済みの正本copyを再利用する。seal/input直前にも同ETag/leaseを確認し、読戻し経済入力からモデルを作る。同一日・同じ正本世代で取得グループの計画本文/形式が変わらなければ、既発行のstageをそのまま読み戻す。途中で止まった組や異なる日・世代は通常どおり発行する。L2失敗でL1を再PUT/rollbackしない。
 
+取得用の経済scoped inputは、現pointerのmanifestとそこから実際に参照するSQLiteだけを使う。新pointerに直前manifestの正確なID/hashを1件だけ記録し、その新しい固定stageの全文を読戻してから、共通leaseのまま旧物件を退役する。新旧が同じ物理bodyなら消さない。異なるときは旧bodyの不在確認を先に行い、旧manifestは最後に消す。切り離した物件だけの一時的な通信失敗や不在未確認は `inputs_retirement_pending` に記録し、確認済みの正本利用と他groupの更新は続ける。該当groupだけ、次の世代へ進む前に同じ債務を解消する。切り離した物件へのGET/HEAD/DELETEは各一回だけ送る。そこでの403/429や分類できない応答、lease/現pointer/現役読戻しの異常はそのまま停止する。新旧に関係ないraw/別groupを探索・退役しない。pointer切替前に中断した未公開stageは別で、自動探索は行わない。
+
+有効化前に、稼働・待機中の旧checkout（v2 leaseを使える旧dailyを含む）とlocal手動処理を排出し、以後旧版からの経済公開・元SHAのActions再実行を行わない。v2 lease自体は旧v2対応publisherを止めない。取得側も#2965以前の送受信中のcopyを排出する。実行主体のR2 DeleteObject権限を別途確認する。新readerは選択済み旧stageの明示不在と実際のpointer前進に限り一度だけ最新へ移れる。固定stageの読戻しは別の版にすり替えない。
+
 - 公開/readback失敗: 後段を止め、実bytesを照合する。未確認ではsealせず空DB/旧値へfallbackしない。
 - PUT後/seal前: fresh runnerで未sealの同じ不変stageを再適用する。同sourceの後続watermarkを先に進めない。
 - seal後/input途中: 次cycleのfresh copy・新attemptで全groupを照合し、未完・差分だけを発行する。旧local出力を上書きしない。
