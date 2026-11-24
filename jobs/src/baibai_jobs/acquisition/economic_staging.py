@@ -9,6 +9,7 @@ import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from stat import S_ISREG
 from typing import TypedDict, cast
@@ -43,6 +44,11 @@ _PLANNING_INPUT_GROUPS = {
 _PLANNING_INPUT_FORMATS = {group: wire for wire, group in _PLANNING_INPUT_GROUPS.items()}
 _FRED_RECEIPT_FORMAT = "fred-acquisition-receipts-zstd-v1"
 _FRED_STAGE_PREFIX = "fred_csv-"
+NATIVE_JQUANTS_MARKET_SOURCES = ("jquants-market", "jquants-financial")
+_RETIRED_JQUANTS_HANDOFF = re.compile(
+    r"coordination/market-sources/jquants-(?:market|financial)-"
+    r"([0-9]{4}-[0-9]{2}-[0-9]{2})-[0-9]+-[0-9]+/handoff\.json"
+)
 FRED_HANDOFF_NAMESPACE = "economic-fred-sources"
 _MAX_FRED_RECEIPT_BYTES = 128 * 1024**2
 _FRED_DECODE_CHUNK = 1024**2
@@ -103,6 +109,21 @@ def is_fred_handoff(stage_id: str) -> bool:
     return stage_id.startswith(_FRED_STAGE_PREFIX) and stage_id != _FRED_STAGE_PREFIX
 
 
+def is_retired_jquants_handoff(key: str, *, source: object = None) -> bool:
+    if source in NATIVE_JQUANTS_MARKET_SOURCES and key.startswith("coordination/market-sources/"):
+        return True
+    # Only the old scheduled SQL writer reserved source-day-run-attempt IDs.
+    # Other IDs need manifest provenance, even if their source prefix looks familiar.
+    match = _RETIRED_JQUANTS_HANDOFF.fullmatch(key)
+    if match is None:
+        return False
+    try:
+        date.fromisoformat(match[1])
+    except ValueError:
+        return False
+    return True
+
+
 def _is_fred_report(report: object) -> bool:
     return isinstance(report, dict) and report.get("group") == "fred_csv"
 
@@ -150,6 +171,7 @@ def save_handoff(
     *,
     market: bool = False,
     namespace: str | None = None,
+    expected_market_source: str | None = None,
     reusable_receipt: dict[str, object] | None = None,
     input_group: str | None = None,
     current_input_stage: str | None = None,
@@ -158,6 +180,11 @@ def save_handoff(
     if namespace == FRED_HANDOFF_NAMESPACE:
         raise ValueError("FRED inbox accepts only its compressed writer")
     result = json.loads((directory / "result.json").read_text(encoding="utf-8"))
+    source = result.get("source") if isinstance(result, dict) else None
+    if expected_market_source is not None and source != expected_market_source:
+        raise ValueError("market handoff source differs from the requested source")
+    if is_retired_jquants_handoff(prefix + "/handoff.json", source=source):
+        raise ValueError("retired J-Quants market handoffs cannot be staged")
     if (
         not market
         and namespace in (None, "economic-sources")
