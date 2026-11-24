@@ -55,12 +55,12 @@ from baibai_jobs.publication.lease import _load_handle, verify_held
 KEY = "indicators.sqlite"
 
 
-def _read(store: ObjectStore, path: Path, *, key: str = KEY) -> RemoteObject:
-    before = store.head(key)
+def _read(store: ObjectStore, path: Path) -> RemoteObject:
+    before = store.head(KEY)
     if before is None:
         raise ValueError("economic canonical is missing; provision it explicitly")
-    store.download_file(key, path, expect_bytes=before.size)
-    after = store.head(key)
+    store.download_file(KEY, path, expect_bytes=before.size)
+    after = store.head(KEY)
     if after is None or after.etag != before.etag or path.stat().st_size != before.size:
         raise LakePublishError("economic canonical changed during download")
     with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
@@ -69,13 +69,12 @@ def _read(store: ObjectStore, path: Path, *, key: str = KEY) -> RemoteObject:
     return after
 
 
-def _put_readback(
+def _publish_current(
     store: ObjectStore,
-    key: str,
     path: Path,
     readback: Path,
     *,
-    expected: str | None,
+    expected: str,
     before_put: Callable[[], None],
 ) -> RemoteObject:
     digest = sha256_file(path)
@@ -84,17 +83,16 @@ def _put_readback(
     before_put()
     with suppress(LakePublishError):
         store.put_file(
-            key,
+            KEY,
             path,
             sha256=digest,
             content_md5=base64.b64encode(md5).decode(),
             content_type="application/vnd.sqlite3",
             if_match=expected,
-            if_none_match=expected is None,
         )
-    remote = _read(store, readback, key=key)
+    remote = _read(store, readback)
     if sha256_file(readback) != digest:
-        raise LakePublishError(f"economic PUT is not confirmed: {key}; keep original handoffs")
+        raise LakePublishError(f"economic PUT is not confirmed: {KEY}; keep original handoffs")
     return remote
 
 
@@ -232,18 +230,8 @@ def integrate(
     published, readback = original, base
     if candidate != base and sha256_file(candidate) != sha256_file(base):
         readback = work / "readback.sqlite"
-        backup = store.head(KEY + ".bak")
-        _put_readback(
+        published = _publish_current(
             store,
-            KEY + ".bak",
-            base,
-            work / "backup-readback.sqlite",
-            expected=backup.etag if backup else None,
-            before_put=before_canonical_put,
-        )
-        published = _put_readback(
-            store,
-            KEY,
             candidate,
             readback,
             expected=original.etag,
