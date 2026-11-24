@@ -1136,11 +1136,13 @@ def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) 
     # locally, and the merge — not the caller's environment — is what guarantees the cloud
     # store is not rolled back.
     bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "indicators.sqlite:indicators.sqlite.bak"
 
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "push-indicators"],
         cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
+        env=env,
         check=False,
         capture_output=True,
         text=True,
@@ -1168,14 +1170,38 @@ def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) 
     assert "--source" not in commands[merges[0]]
     assert "stores/market_context/indicators.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
-    # The indicator push does not publish machine stores or their receipt.
-    writes = [
-        command
-        for command in commands
-        if command.startswith(("s3api put-object ", "s3api copy-object ", "s3 cp "))
-    ]
-    assert all("market.sqlite" not in command for command in writes)
-    assert all("runs.sqlite" not in command for command in writes)
+    assert _remote_writes(log) == [commands[uploads[0]]]
+    assert not any("indicators.sqlite.bak" in command for command in commands)
+    assert "backup=" not in completed.stdout
+
+
+@pytest.mark.parametrize("failure", ["lease", "generation"])
+def test_indicator_push_checks_lease_and_generation_after_merging(tmp_path, failure):
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "indicators.sqlite"
+    if failure == "lease":
+        env["LEASE_FAKE_RELEASE_ON"] = "s3 cp s3://baibai-stores/indicators.sqlite "
+    else:
+        env["AWS_FAKE_CHANGED_KEY"] = "indicators.sqlite"
+
+    completed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "push-indicators"],
+        cwd=root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    if failure == "lease":
+        assert "publication lease" in completed.stderr
+    else:
+        assert "indicators.sqlite changed on R2" in completed.stderr
+    assert any(command.startswith("merge ") for command in _transfer_commands(log))
+    assert _remote_writes(log) == []
 
 
 def test_indicator_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> None:
@@ -1860,7 +1886,6 @@ def test_shared_transfer_refuses_unavailable_lease_before_any_remote_write(
             "s3api put-object --bucket baibai-stores --key market.sqlite ",
             "market.sqlite",
         ),
-        ("push-indicators", "s3api copy-object ", "indicators.sqlite.bak"),
         (
             "upload-portfolio-views",
             "s3://baibai-serving/views/portfolio-dashboard.json",
@@ -1876,8 +1901,6 @@ def test_shared_transfer_stops_the_next_write_after_release(
     env = _environment(binary, log)
     env["LEASE_FAKE_RELEASE_ON"] = release_on
     args = [root / "jobs/scripts/r2_transfer.sh", operation]
-    if operation == "push-indicators":
-        env["AWS_FAKE_EXISTING_KEY"] = "indicators.sqlite"
     if operation == "upload-portfolio-views":
         env["GITHUB_ACTIONS"] = "true"
         views = tmp_path / "serving/views"

@@ -737,7 +737,7 @@ _push_keys() {
     body="${transfer_staging}/${key}"
     started="${SECONDS}"
     backup_part=""
-    if [[ "${key}" != "baibai.sqlite" ]]; then
+    if [[ "${key}" != "baibai.sqlite" && "${key}" != "indicators.sqlite" ]]; then
       if [[ -n "${expected_version}" ]]; then
         verify_publication_lease
         transfer_evidence backup_started "${key}" "${expected_version}"
