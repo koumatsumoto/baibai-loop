@@ -263,7 +263,7 @@ schemaが合わない・台帳を読めない場合に初期化や変換はし�
 
 [workflow](../.github/workflows/cloud-economic-sources-current.yml)は休場日もgroup別に取得し、部分受領をprivate stageへ保存する。限定再実行は所属groupとsource IDを指定する。
 
-経済L1の正本は `indicators.sqlite` 一件。日次統合は読んだ正本のETagを条件に更新し、実際の読戻しを確認してからhandoffを確定する。正本更新後にhandoff確定や次回入力の発行が止まった場合、古いDBには戻さず次回の通常統合を現行の正本と残っているhandoffから続ける。手動の `push-indicators` も固定 `.bak` を作らない。
+経済L1の正本は `indicators.sqlite` 一件。日次統合は読んだ正本のETagを条件に更新し、実際の読戻しを確認してからhandoffを確定する。正本更新後にhandoff確定や次回入力の発行が止まった場合、古いDBには戻さず次回の通常統合を現行の正本と残っているhandoffから続ける。手動の `push-indicators` も固定 `.bak` を作らない。 手動の `pull-indicators` と `push-indicators` のマージ用取得は正本のETagを1回のGETに指定し、同じ応答のETagと受信バイト数が一致しなければローカル置換やマージを行わない。
 
 取得summaryの`failed`はHTTP試行件数ではない。`blocked_by_source_id`は先行sourceが止めた未試行分であり、自身のHTTP statusを持たない。status・例外型だけで拒否原因を断定せず、旧summaryの欠落診断や受付時計を推測しない。
 

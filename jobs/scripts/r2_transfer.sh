@@ -378,6 +378,30 @@ etag_body() {
   printf '%s\n' "${value}"
 }
 
+download_indicator_snapshot() {
+  local body="$1" expected response version length
+  expected="$(etag_body "$2")" || return
+  # The bytes used by the pull or merge must come from the selected generation.
+  # HEADs around an unpinned copy can both see A even if the GET served B.
+  if ! response="$(aws s3api get-object --bucket "${stores_bucket}" --key indicators.sqlite \
+    --if-match "\"${expected}\"" --endpoint-url "${endpoint}" \
+    --query '[ETag, ContentLength]' --output text "${body}" 2>/dev/null)"; then
+    printf 'indicators store download failed (details withheld)\n' >&2
+    return 1
+  fi
+  IFS=$'\t' read -r version length <<< "${response}"
+  if [[ "${response}" != "${version}"$'\t'"${length}" || ! "${length}" =~ ^[1-9][0-9]*$ ]] \
+    || [[ ! -f "${body}" || "$(wc -c < "${body}")" != "${length}" ]]; then
+    printf 'indicators store download length or metadata differs (details withheld)\n' >&2
+    return 1
+  fi
+  version="$(etag_body "${version}")" || return
+  if [[ "${version}" != "${expected}" ]]; then
+    printf 'indicators store download did not return the requested generation\n' >&2
+    return 1
+  fi
+}
+
 live_machine_versions() {
   local key version
   for key in "${machine_bundle_keys[@]}"; do
@@ -637,9 +661,15 @@ pull_keys() {
     done
     require_machine_receipt "${observed[@]}"
   fi
+  index=0
   for key in "$@"; do
-    aws_s3 cp "s3://${stores_bucket}/${key}" "${transfer_staging}/${key}"
+    if [[ "${key}" == indicators.sqlite ]]; then
+      download_indicator_snapshot "${transfer_staging}/${key}" "${versions[index]}"
+    else
+      aws_s3 cp "s3://${stores_bucket}/${key}" "${transfer_staging}/${key}"
+    fi
     check_sqlite "${transfer_staging}/${key}"
+    index=$((index + 1))
   done
   if [[ ${daily_preflight} -eq 1 ]]; then
     (cd "${repo_root}" && uv run python -m baibai_jobs.publication.machine_preflight \
@@ -1087,7 +1117,7 @@ case "${1:-}" in
     # A late or unconfirmed receipt remains local for explicit source recovery.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
     indicator_version="$(remote_version indicators.sqlite)"
-    aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
+    download_indicator_snapshot "${transfer_staging}/indicators.sqlite" "${indicator_version}"
     check_sqlite "${transfer_staging}/indicators.sqlite"
     merge_economic_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)" "$@"
     cleanup_staging
