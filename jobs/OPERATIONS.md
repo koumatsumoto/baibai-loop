@@ -155,6 +155,18 @@ Market・ポインタの書き込みは従来どおり単一PUT。RunsはR2の�
 
 切替前に、実寸の現行組に加え、単一PUT上限を超える合成Runsを許可された隔離環境で検証する。現行構成のdisk・job時間・有効なlease内で転送と同一pair読戻しが完了すること、前世代キーのDELETEと不在確認が通ることを確かめる。欠測、条件不一致、または余裕なしなら切り替えない。過去の目安や小さなfixtureで実寸受入の代わりにしない。
 
+### Lakeだけが先行した場合の一回復旧
+
+旧方式の日次がLakeだけを公開して止まり、旧固定Market/Runs（A）が旧受領票どおりに読める場合に限る。実行・書込み先は[実行前の確認](#actions-write-boundary)に従う。現行のLake-onlyポインタ（T）は新しいMarketの材料で、Tに対応するRunsではない。Aのモデルに新しいIDや時点を付け直さず、固定した原本から再計算して新しいLake・Market・Runs（T2）を作る。通常の `pull-machine` / `model-integration` がLake-onlyで止まる仕様は変えず、正常系のbase検査を外して回避しない。旧runの再実行、旧形式へのfallback、A・T・既存backupの上書きや削除は行わない。
+
+1. **基点を確認する。** 旧版の日次・表示の稼働/待機/再実行と手動writerを[一回切替](#machineとlakeを単一ポインタに切り替える一回作業)と同じように排出する。Aは `machine-manifest.json` の実bytes・SHA・ETag、両固定DBのETag・長さ、Marketのorigin、RunsのGenerationとSelectionで照合する。Tは現行ポインタの実bytes・ETagと、release ID・manifest SHAを固定する。AからTに前向きhydrateできることを、両方の固定manifestとAのMarketで検証する。取得した両DBは固定ETag・長さとSQLiteを照合する。検証済み原copyは閉じたまま保持し、新しい隔離copyだけを使う。
+2. **実入力を固定する。** Tの照合済みobjectからMarketをhydrateし、経済正本の検証済みcopy、EDINETのlist/archive、J-Quantsの財務・暦・銘柄・日足と有効な信用/空売り系native入力を、通常のownerと計画で固定する。取得workerのsource固有CASは共通leaseでは止まらない。固定内容を使い、hydrate・抽出・転送時に別のheadを読み直さない。入力レシピの既存の保持処理はR2へ書く場合がある。必要な固定本文を読めることと、その保持の範囲を分けて確認する。受領済みのstageを取り込む場合は固定 `plan` → `apply` の実結果を使い、元受領を変更しない。遅着は次の統合へ。既にseal済みの経済原本・取得inputの再発行やproviderへの取り直しはしない。基準日、実評価時刻、原本の受領・公表時刻は区別し、失敗runの時点を再現したとは扱わない。
+3. **通常の計算・保存でT2を作る。** 新releaseと `read_and_generate_models` は同じ封印済みMarketを使う。新GenerationはT2のrelease ID・manifest SHAを指し、候補外を含む通常の対象全体について再計算する。`ModelGenerationStore.publish_stream` と通常の探索結果から、そのGenerationの `ScreeningSelection` を保存する。生成されなかったTの結果や比較材料は捏造しない。利用可能な固定L1原本は通常どおり参照する。通常の再計算で値が等しいことと、古い本文を代入することは別。
+4. **封印した転送物を照合し、一回だけ切り替える。** Runsのcompaction後、新IDの既存行がないことと、Aの既存履歴がすべて元のままであることを一回比較する。増分は新Generation、そのモデルとSelectionだけとする。新モデルは生成されたID・対象・計算revisionと、通常writerに渡した本文を保存行の展開後のbytesと照合する。各対象の財務・成長・テクニカルは必須。任意モデルの未出力を一律に失敗とせず、予定件数との一致だけで通さない。Lake graphと同じT2のoriginを持つMarket、検証済みRunsを新規固有keyへstageする。公開直前に有効なv2 operator lease、変わっていないAの受領票・両固定DB、Tの実bytes・ETagを確認し、TのETagを条件に既存の単一送信CASで選ぶ。基点や固定入力の不一致、未排出の旧writer、lease交代があれば中止する。結果不明は[公開の結果不明](#machine公開の結果不明)に従い、再送・削除・後段実行はしない。
+5. **読戻しと通常運用を別に確認する。** 選んだポインタの実bytesを確認し、通常のpair readerで両DBを固定して取得する。SQLite、origin、Generation/Selection、両DBのSHA-256をstage前の結果と照合する。この一回復旧は取得markerや次input、Web、提案の完了ではない。失敗runの `applied.json` がなければ捏造せず、未sealのstageだけを新しい通常日次の `plan` / `apply` から再確認する。既存markerを変えず、通常探索できないstageは[source取得と再開](#sources)で扱う。復旧のleaseを解放し、同じ対象の別runがないことを確認して、切替済みのmainから[日次を手動実行](#daily)し、正本の前進、seal、未完のinput、Web、lease解放をそのrunで確認する。[新規の正式提案](#production-proposal-acceptance)は別受入とする。
+
+現行が既に別の世代へ進んでいたら、この復旧は実行しない。この復旧専用の入口は通常CLIにない。実行前に、固定A/Tだけを受ける一回用の手順・入力を固定する処理・候補の封印後照合を、採用commitで独立レビューする。fixtureの小規模な成功では足りない。既存の[一回切替](#machineとlakeを単一ポインタに切り替える一回作業)と同じ実寸R2検証に加え、保護したAのcopy・作業DB・Lake展開・SQLite一時ファイル・読戻しを置く容量と、operator leaseの有効時間内での実測を確認する。operator leaseの有効時間は[leaseの実装](src/baibai_jobs/publication/lease.py)に従う。通常日次のjob時間を当てにしない。新しい互換機能、定期監査、backup、保存形式は足さず、判定に使った固定ID・結果と未確認事項だけを対象PRに残す。
+
 ### 保持copyから欠落Generationを戻す
 
 現在のrunsを古いcopyで丸ごと戻すと、後発Generation/Selectionを失う。検証済み・静止中のcurrentと旧sourceのSHAを固定し、必要なGeneration IDを明示して、新しい隔離copyへ欠落分だけ追記する。同IDのheader・revision・圧縮payload・Selectionが異なれば全体を停止する。再計算・再圧縮・時点更新はせず、current側の追加政策や他tableも残す。
