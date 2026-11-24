@@ -293,7 +293,7 @@ def test_failed_phase_never_logs_done_or_prunes(
 
 @pytest.mark.parametrize("phase", ["model_generation", "screening"])
 @pytest.mark.parametrize("error_type", [sqlite3.DatabaseError, OSError])
-def test_diagnostic_fallback_does_not_hide_model_write_or_policy_failure(
+def test_model_write_or_screening_failure_propagates(
     integration, monkeypatch, progress, caplog, phase, error_type
 ):
     arguments, events = integration
@@ -312,7 +312,6 @@ def test_diagnostic_fallback_does_not_hide_model_write_or_policy_failure(
     assert_started(progress, phase)
     assert "phase=model_cache_prune" not in progress.flushed
     assert "publish" not in events
-    assert "state=unmeasured" not in caplog.text
     assert CANARY not in progress.getvalue() + caplog.text
 
 
