@@ -13,8 +13,13 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.native_sources import store as sqlite_store
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
-from baibai_engine.storage.objects.r2 import LakePublishError, R2Error
-from baibai_jobs.acquisition.source_inputs import input_key, load_input, publish_input
+from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
+from baibai_jobs.acquisition.source_inputs import (
+    GuardedInputStore,
+    input_key,
+    load_input,
+    publish_input,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -96,15 +101,16 @@ def subject(tmp_path):
     insert_day(source, DAY)
     remote.store_object(RAW, b"raw-original")
 
-    def publish(identity, *, group=GROUP, asof=DAY, etag="v1"):
+    def publish(identity, *, group=GROUP, asof=DAY, etag="v1", retire=False, guard=lambda: None):
         return publish_input(
-            remote,
+            GuardedInputStore(remote, guard) if retire else remote,
             market=tmp_path / "unused",
             economic=source,
             group=group,
             asof=asof,
             identity=identity,
             generations={"economic_etag": etag},
+            economic_readback=tmp_path / ("publication-" + identity) if retire else None,
         )
 
     return remote, source, publish
@@ -435,3 +441,177 @@ def test_same_asof_etag_still_compares_real_projection_bytes(subject, tmp_path):
         etag="v1",
         expected_days=[DAY, next_day],
     )
+
+
+def test_economic_retirement_borrows_body_then_deletes_it_before_last_manifest(subject):
+    remote, source, publish = subject
+    a = publish("a", retire=True)
+    body_a = physical(stage_data(remote, a))
+    unrelated = publish("unrelated", group=FRED)
+    fred = manifest_key(unrelated)
+    b = publish("b", retire=True, etag="v2")
+    assert physical(stage_data(remote, b)) == body_a
+    assert remote.delete_keys == [manifest_key(a)]
+    before = list(remote.put_keys)
+    assert publish("same", retire=True, etag="v2") == b
+    assert remote.put_keys == before
+    assert remote.delete_keys == [manifest_key(a)]
+    insert_day(source, DAY + timedelta(days=1))
+    c = publish("c", retire=True, etag="v3")
+    assert physical(stage_data(remote, c)) != body_a
+    assert remote.delete_keys == [manifest_key(a), body_a, manifest_key(b)]
+    assert set(remote.values) == {
+        RAW,
+        input_key(FRED),
+        fred,
+        physical(stage_data(remote, unrelated)),
+        input_key(GROUP),
+        manifest_key(c),
+        physical(stage_data(remote, c)),
+    }
+
+
+@pytest.mark.parametrize("outcome", ["known-conflict", "committed-timeout", "readback"])
+def test_retirement_waits_for_pointer_cas_and_full_body_readback(subject, monkeypatch, outcome):
+    remote, _, publish = subject
+    a = publish("a", retire=True)
+    before = set(remote.values)
+    original_put = remote.put_file
+    if outcome != "readback":
+
+        def put(key, path, **options):
+            if key == input_key(GROUP):
+                if outcome == "known-conflict":
+                    raise LakeCASConflict("explicitly rejected")
+                original_put(key, path, **options)
+                raise R2Error("pointer response unknown")
+            return original_put(key, path, **options)
+
+        monkeypatch.setattr(remote, "put_file", put)
+    else:
+
+        def interrupted(phase, key):
+            if phase == "body_get":
+                raise R2Error("body readback transport failed")
+
+        remote.interrupt = interrupted
+    with pytest.raises(LakePublishError):
+        publish("b", retire=True, etag="v2")
+    assert not remote.delete_keys
+    assert before <= set(remote.values)
+    if outcome == "known-conflict":
+        assert json.loads(remote.values[input_key(GROUP)].body)["stage_id"] == a
+        return
+    pointer = json.loads(remote.values[input_key(GROUP)].body)
+    assert pointer["stage_id"] == f"{GROUP}-b"
+    assert pointer["retired"]["stage_id"] == a
+    remote.interrupt = None
+    monkeypatch.setattr(remote, "put_file", original_put)
+    before_puts = list(remote.put_keys)
+    assert publish("recover-b", retire=True, etag="v2") == f"{GROUP}-b"
+    assert remote.put_keys == before_puts
+    assert remote.delete_keys == [manifest_key(a)]
+    assert physical(stage_data(remote, f"{GROUP}-b")) in remote.values
+
+
+@pytest.mark.parametrize("deletion_effect", ["rejected", "absent_ack_lost", "ack_but_exists"])
+def test_old_body_payment_is_confirmed_before_losing_old_manifest(
+    subject, tmp_path, monkeypatch, deletion_effect
+):
+    remote, source, publish = subject
+    a = publish("a", retire=True)
+    body_a = physical(stage_data(remote, a))
+    next_day = DAY + timedelta(days=1)
+    insert_day(source, next_day)
+    original_delete = remote.delete_object
+
+    def fault(key):
+        assert key == body_a
+        if deletion_effect == "absent_ack_lost":
+            original_delete(key)
+        if deletion_effect != "ack_but_exists":
+            raise R2Error("unknown or rejected delete")
+
+    monkeypatch.setattr(remote, "delete_object", fault)
+    with pytest.raises(LakePublishError):
+        publish("b", retire=True, etag="v2")
+    b = f"{GROUP}-b"
+    assert manifest_key(a) in remote.values
+    inspect_bound(
+        tmp_path, remote, "b-still-current", b, asof=DAY, etag="v2", expected_days=[DAY, next_day]
+    )
+    if deletion_effect != "absent_ack_lost":
+        before = list(remote.put_keys)
+        with pytest.raises(LakePublishError):
+            publish("blocked", retire=True, etag="v3")
+        assert remote.put_keys == before
+    monkeypatch.setattr(remote, "delete_object", original_delete)
+    c = publish("c", retire=True, etag="v3")
+    assert body_a not in remote.values
+    assert manifest_key(a) not in remote.values
+    assert manifest_key(b) not in remote.values
+    assert physical(stage_data(remote, c)) in remote.values
+    assert remote.delete_keys == [body_a, manifest_key(a), manifest_key(b)]
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_paused_reader_repin_is_limited_to_latest_consumer(subject, tmp_path, strict):
+    remote, source, publish = subject
+    a = publish("a", retire=True)
+    old_body = physical(stage_data(remote, a))
+    day = DAY + timedelta(days=1)
+
+    def advance(phase, key):
+        if (phase, key) != ("body_get", old_body):
+            return
+        remote.interrupt = None
+        insert_day(source, day)
+        publish("b", retire=True, etag="v2")
+
+    remote.interrupt = advance
+    if strict:
+        with pytest.raises(LakePublishError):
+            inspect_bound(tmp_path, remote, "paused", a, asof=DAY, etag="v1", expected_days=[DAY])
+    else:
+        inspect_bound(
+            tmp_path, remote, "paused", None, asof=DAY, etag="v2", expected_days=[DAY, day]
+        )
+    assert remote.delete_keys == [old_body, manifest_key(a)]
+
+
+def test_missing_selected_manifest_cannot_pay_an_outstanding_older_debt(subject, monkeypatch):
+    remote, _, publish = subject
+    a = publish("a", retire=True)
+    force_failure = Mock(side_effect=R2Error("delete outcome unconfirmed"))
+    monkeypatch.setattr(remote, "delete_object", force_failure)
+    with pytest.raises(R2Error):
+        publish("b", retire=True, etag="v2")
+    force_failure.assert_called_once_with(manifest_key(a))
+    with pytest.raises(LakePublishError):
+        # Even current code outside the economic owner may not erase the obligation.
+        publish("no-owner", etag="v2")
+    del remote.values[manifest_key(f"{GROUP}-b")]
+    before = list(remote.put_keys)
+    with pytest.raises(LakePublishError):
+        publish("c", retire=True, etag="v3")
+    assert remote.put_keys == before
+    assert manifest_key(a) in remote.values
+    force_failure.assert_called_once()
+
+
+def test_lease_lost_during_confirmed_publication_does_not_retire_old_input(subject):
+    remote, _, publish = subject
+    a = publish("a", retire=True)
+    key = input_key(GROUP)
+
+    def fence():
+        if json.loads(remote.values[key].body)["stage_id"] != a:
+            raise LakeCASConflict("lease changed after successful readback")
+
+    with pytest.raises(LakeCASConflict):
+        publish("b", retire=True, etag="v2", guard=fence)
+    active = json.loads(remote.values[key].body)
+    assert active["stage_id"] == f"{GROUP}-b"
+    assert active["retired"]["stage_id"] == a
+    assert manifest_key(a) in remote.values
+    assert not remote.delete_keys

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
     CheckedObjectMetadataReader,
     LakePublishError,
     ObjectStore,
@@ -62,10 +63,18 @@ def read_write_once_private(store: ObjectStore, key: str) -> SavedObject | None:
     return read_private(store, key)
 
 
-def read_fixed_private(store: ObjectStore, key: str, *, sha256: str) -> SavedObject | None:
+def read_fixed_private(
+    store: ObjectStore, key: str, *, sha256: str, single_attempt: bool = False
+) -> SavedObject | None:
     """Read content-addressed JSON; mutable markers must use read_private instead."""
     if isinstance(store, VerifiedObjectMetadataReader):
-        response = store.get_verified_object(key, sha256=sha256, max_bytes=MAX_PRIVATE_OBJECT_BYTES)
+        response = (
+            store.get_verified_object(
+                key, sha256=sha256, max_bytes=MAX_PRIVATE_OBJECT_BYTES, single_attempt=True
+            )
+            if single_attempt and isinstance(store, Boto3R2Store)
+            else store.get_verified_object(key, sha256=sha256, max_bytes=MAX_PRIVATE_OBJECT_BYTES)
+        )
         saved = SavedObject(response[0], response[1].etag) if response is not None else None
     else:
         saved = read_private(store, key)
