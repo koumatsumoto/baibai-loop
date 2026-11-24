@@ -79,6 +79,8 @@ def test_unaccounted_envelopes_and_explicit_missing_are_not_field_absences(tmp_p
     symbol = "TSE:1000"
     mismatch = payload([symbol])
     mismatch["count"] += 1
+    false_zero = payload([symbol])
+    false_zero["missing_count"] = False
     invalid_projection = payload([symbol])
     invalid_projection["data"][symbol]["close"] = "PRIVATE_INVALID_VALUE"
 
@@ -89,6 +91,7 @@ def test_unaccounted_envelopes_and_explicit_missing_are_not_field_absences(tmp_p
         _sdk(payload([symbol], missing=[symbol])),
         _sdk(invalid_projection),
         _sdk(mismatch),
+        _sdk(false_zero),
         _sdk({"success": True}),
         tool_failed("PRIVATE_BODY"),
         tool_failed("HTTP 429 PRIVATE"),
@@ -106,7 +109,7 @@ def test_unaccounted_envelopes_and_explicit_missing_are_not_field_absences(tmp_p
     assert r["receipt_outcomes"] == {
         "all_explicit_missing": 1,
         "complete_shape": 1,
-        "response_count_mismatch": 1,
+        "response_count_mismatch": 2,
         "malformed_envelope": 1,
         "tool_error": 1,
         "provider_http_429": 1,

@@ -82,7 +82,9 @@ def _edinet_ifrs_parent_csv_zip(*, parent_yen: int = 9_800) -> bytes:
             str(parent_yen),
         ),
     )
-    text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join("\t".join(row) for row in rows)
+    text = "要素ID\tコンテキストID\t期間・時点\tユニットID\t値\n" + "\n".join(
+        f"{element}\t{context}\t時点\t{unit}\t{value}" for element, context, unit, value in rows
+    )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("XBRL_TO_CSV/parent.csv", text.encode("utf-16"))

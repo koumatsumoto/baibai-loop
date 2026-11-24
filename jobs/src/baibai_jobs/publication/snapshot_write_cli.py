@@ -46,7 +46,10 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 )
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.publication.datasets import LAKE_DATASETS
-from baibai_jobs.publication.policy import release_policy_for_profile
+from baibai_jobs.publication.policy import (
+    edinet_metrics_contract_is_current,
+    release_policy_for_profile,
+)
 
 WRITE_COMMANDS = frozenset(
     {
@@ -150,6 +153,13 @@ def _resolve_release_target(
     release = resolve_current_release(
         source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
     )
+    # Production policy already requires EDINET metrics. Historical decoding does
+    # not authorize using that wire in a current full Market fill or transfer.
+    if (
+        args.command != "hydrate-portfolio"
+        and edinet_metrics_contract_is_current(release.manifest) is False
+    ):
+        raise LakeReadError("current Market requires the current EDINET metrics contract")
     return release, lambda: recheck_current_release(source, release)
 
 

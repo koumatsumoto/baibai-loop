@@ -48,7 +48,7 @@ CONTEXT = f"InterimInstant_{MEMBER}"
 SEP = "\t"
 STANDARD = "jpdei_cor:AccountingStandardsDEI"
 CONS = "jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI"
-HEADER = "要素ID\tコンテキストID\tユニットID\t値\n"
+HEADER = "要素ID\tコンテキストID\t期間・時点\tユニットID\t値\n"
 AS_OF = date(2026, 11, 18)
 NEXT = date(2026, 11, 19)
 
@@ -70,6 +70,13 @@ def _parse(text: str, doc_type: str = "160", *, doc_id: str = "S100TEST", ticker
     )
 
 
+def _csv(*rows: tuple[str, str, str, str]) -> str:
+    return HEADER + "\n".join(
+        SEP.join((element, context, "期間" if "Duration" in context else "時点", unit, value))
+        for element, context, unit, value in rows
+    )
+
+
 def _interim(*facts: tuple[str, str, str, str], standard="IFRS", consolidated="true"):
     rows = [
         (STANDARD, "FilingDateInstant", "－", standard),
@@ -77,7 +84,7 @@ def _interim(*facts: tuple[str, str, str, str], standard="IFRS", consolidated="t
         (ELEMENT, "InterimInstant", "JPY", "10000"),
         *facts,
     ]
-    return _parse(HEADER + "\n".join(SEP.join(row) for row in rows))
+    return _parse(_csv(*rows))
 
 
 @pytest.mark.parametrize(
@@ -138,15 +145,28 @@ def test_explicit_ifrs_and_consolidation_are_required():
         _interim(parent, (CONS, "FilingDateInstant", "－", "false")).parent_attributable_equity
         is None
     )
-    text = HEADER + f"{ELEMENT}\tInterimInstant\tJPY\t10000\n{SEP.join(parent)}\n"
+    text = _csv((ELEMENT, "InterimInstant", "JPY", "10000"), parent)
     assert _parse(text).parent_attributable_equity is None
+
+
+def test_missing_period_column_leaves_only_parent_equity_unobserved():
+    text = _csv(
+        (STANDARD, "FilingDateInstant", "－", "IFRS"),
+        (CONS, "FilingDateInstant", "－", "true"),
+        (ELEMENT, "InterimInstant", "JPY", "10000"),
+        (ELEMENT, CONTEXT, "JPY", "9800"),
+    )
+    complete = _parse(text)
+    without_period = _parse(text.replace("\t期間・時点", "").replace("\t時点", ""))
+    assert complete.parent_attributable_equity is not None
+    assert complete.parent_attributable_equity.amount_yen == 9800
+    assert without_period.parent_attributable_equity is None
+    assert without_period.equity == complete.equity == 10_000
+    assert metric_result_sha256(without_period) == metric_result_sha256(complete)
 
 
 @pytest.mark.parametrize("competing", [False, True])
 def test_parent_fact_does_not_cross_zip_csv_members(competing):
-    def csv(*rows):
-        return HEADER + "\n".join(SEP.join(row) for row in rows) + "\n"
-
     current_group = (
         (STANDARD, "FilingDateInstant", "－", "IFRS"),
         (CONS, "FilingDateInstant", "－", "true"),
@@ -155,8 +175,8 @@ def test_parent_fact_does_not_cross_zip_csv_members(competing):
     own = (ELEMENT, CONTEXT, "JPY", "9800")
     # The first test tries to borrow the consolidated fact and DEIs from CSV A.
     # The second makes both members look valid; even equal facts cannot prove one source.
-    source = csv(*current_group, own) if competing else csv(*current_group)
-    other = csv(*current_group, own) if competing else csv(own)
+    source = _csv(*current_group, own) if competing else _csv(*current_group)
+    other = _csv(*current_group, own) if competing else _csv(own)
     record = parse_csv_zip_metric_record(
         ticker="1605",
         doc_id="S100TEST",
@@ -171,7 +191,7 @@ def test_parent_fact_does_not_cross_zip_csv_members(competing):
         ticker="1605",
         doc_id="S100TEST",
         doc_type_code="160",
-        content=_zipped(csv((ELEMENT, f"Prior1{CONTEXT}", "JPY", "4")), csv(*current_group, own)),
+        content=_zipped(_csv((ELEMENT, f"Prior1{CONTEXT}", "JPY", "4")), _csv(*current_group, own)),
     ).parent_attributable_equity
     assert complete is not None
     assert complete.amount_yen == 9800
@@ -190,16 +210,13 @@ def test_parent_fact_does_not_cross_zip_csv_members(competing):
 def test_exact_current_group_equity_must_agree_across_native_members(
     first_total, second_context, second_total, certified
 ):
-    primary = HEADER + "\n".join(
-        SEP.join(row)
-        for row in (
-            (STANDARD, "FilingDateInstant", "－", "IFRS"),
-            (CONS, "FilingDateInstant", "－", "true"),
-            (ELEMENT, "InterimInstant", "JPY", first_total),
-            (ELEMENT, CONTEXT, "JPY", "9800"),
-        )
+    primary = _csv(
+        (STANDARD, "FilingDateInstant", "－", "IFRS"),
+        (CONS, "FilingDateInstant", "－", "true"),
+        (ELEMENT, "InterimInstant", "JPY", first_total),
+        (ELEMENT, CONTEXT, "JPY", "9800"),
     )
-    secondary = HEADER + SEP.join((ELEMENT, second_context, "JPY", second_total))
+    secondary = _csv((ELEMENT, second_context, "JPY", second_total))
     record = parse_csv_zip_metric_record(
         ticker="1605", doc_id="S100TEST", doc_type_code="160", content=_zipped(primary, secondary)
     )
@@ -271,34 +288,33 @@ def test_manual_rows_without_native_revision_cannot_certify_parent_observation(t
 
 
 def test_source_observation_cannot_change_cf_debt_or_financial_book_selection():
-    text = HEADER + "\n".join(
-        SEP.join(row)
-        for row in [
-            (STANDARD, "FilingDateInstant", "－", "IFRS"),
-            (CONS, "FilingDateInstant", "－", "true"),
-            (ELEMENT, "InterimInstant", "JPY", "5650"),
-            ("jpigp_cor:AssetsIFRS", "InterimInstant", "JPY", "10000"),
-            ("jpigp_cor:CashAndCashEquivalentsIFRS", "InterimInstant", "JPY", "1000"),
-            ("jpigp_cor:BondsAndBorrowingsCLIFRS", "InterimInstant", "JPY", "20"),
-            ("jpigp_cor:BondsAndBorrowingsNCLIFRS", "InterimInstant", "JPY", "30"),
-            ("jpigp_cor:LeaseLiabilitiesCLIFRS", "InterimInstant", "JPY", "40"),
-            ("jpigp_cor:LeaseLiabilitiesNCLIFRS", "InterimInstant", "JPY", "50"),
-            (
-                "jpigp_cor:NetCashProvidedByUsedInOperatingActivitiesIFRS",
-                "InterimDuration",
-                "JPY",
-                "500",
-            ),
-            (
-                "jpigp_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCFIFRS",
-                "InterimDuration",
-                "JPY",
-                "-100",
-            ),
-        ]
+    rows = (
+        (STANDARD, "FilingDateInstant", "－", "IFRS"),
+        (CONS, "FilingDateInstant", "－", "true"),
+        (ELEMENT, "InterimInstant", "JPY", "5650"),
+        ("jpigp_cor:AssetsIFRS", "InterimInstant", "JPY", "10000"),
+        ("jpigp_cor:CashAndCashEquivalentsIFRS", "InterimInstant", "JPY", "1000"),
+        ("jpigp_cor:BondsAndBorrowingsCLIFRS", "InterimInstant", "JPY", "20"),
+        ("jpigp_cor:BondsAndBorrowingsNCLIFRS", "InterimInstant", "JPY", "30"),
+        ("jpigp_cor:LeaseLiabilitiesCLIFRS", "InterimInstant", "JPY", "40"),
+        ("jpigp_cor:LeaseLiabilitiesNCLIFRS", "InterimInstant", "JPY", "50"),
+        (
+            "jpigp_cor:NetCashProvidedByUsedInOperatingActivitiesIFRS",
+            "InterimDuration",
+            "JPY",
+            "500",
+        ),
+        (
+            "jpigp_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCFIFRS",
+            "InterimDuration",
+            "JPY",
+            "-100",
+        ),
     )
-    facts = [SEP.join((ELEMENT, CONTEXT, "JPY", raw)) for raw in ("5401", "5399")]
-    old, first, second = [_parse(text + ("\n" + value if value else "")) for value in ["", *facts]]
+    old = _parse(_csv(*rows))
+    first, second = [
+        _parse(_csv(*rows, (ELEMENT, CONTEXT, "JPY", raw))) for raw in ("5401", "5399")
+    ]
     for parsed in (first, second):
         assert parsed.parent_attributable_equity is not None
         assert metric_result_sha256(parsed) == metric_result_sha256(old)

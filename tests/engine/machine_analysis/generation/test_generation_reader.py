@@ -49,7 +49,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
         )
     ]
     mocker.patch(
-        "baibai_engine.machine_analysis.generation.runners.market_snapshot.read_price_bars",
+        "baibai_engine.machine_analysis.generation.runners.market_snapshot.read_adjusted_bars",
         side_effect=AssertionError("must reuse shared prices"),
     )
     financial = fixed_empty_financial_input(tmp_path / "financial-native", date(2026, 1, 5))

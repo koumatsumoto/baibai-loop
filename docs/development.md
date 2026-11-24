@@ -2,6 +2,15 @@
 
 ## 手元で始める
 
+初めて作業コピーを作るときは、`main` の先端だけを取得する。
+
+```bash
+git clone --depth=1 --single-branch --branch main https://github.com/koumatsumoto/baibai-loop.git
+cd baibai-loop
+```
+
+過去の差分を調べるときだけ、履歴の浅い作業コピーで `git fetch --deepen=50 origin main` を実行する。`main` の全履歴が必要なら `git fetch --unshallow origin` を使う。既存の作業コピーを作り直す必要はない。
+
 Linux / Bash、bootstrap用Python 3.11以上、uvを用意し、リポジトリのルートで実行する。利用版は[.python-version](../.python-version)・[pyproject.toml](../pyproject.toml)、依存は[uv.lock](../uv.lock)で固定する。
 
 ```bash
@@ -32,6 +41,8 @@ uv run lint-imports
 | 受領の読戻しとseal | [公開前は消費せず、同じ原本と投影でsealする](../tests/jobs/publication/test_tradingview_verification.py) |
 | 探索索引の問いとページ送り | [入力不足・分類・固定した個社比較を区別する](../tests/engine/investment_judgment/workflow/test_discovery_questions.py) |
 | 提案の指値・価格・数量 | [観測価格と指値を分け、未確定の根拠で数量を作らない](../tests/engine/investment_judgment/trade_proposal/test_conditional_buy_terms.py) |
+
+外部入力の採用を変えるときは、正常例に、期間・型・対象範囲の一つだけ違う行を混ぜる。行順が選択規則でない場合は、並びを逆にしても採用値と採用理由が同じかを試す。行順が変わった原本のハッシュまで同じである必要はない。受領を扱う場合は、同じ受領の再読、同じ内容の別受領、同じIDで内容が矛盾する受領を分け、締め時刻の前後で使える原本を確認する。不具合修正では旧版で失敗する反例を残し、別担当が最終差分で再実行する。正当なゼロ・欠測・対象外の資料・版を固定した過去結果を、新しい入力規則で壊さない。
 
 PR全体の検査は[Python CI](../.github/workflows/ci.yml)と[Web CI](../.github/workflows/web.yml)が正本。通常のPythonテストは[fixture](../tests/conftest.py)で実通信を止め、公開や配備を検証しない。[R2実通信の受入テスト](../tests/integration/test_lake_r2_acceptance.py)は通常スキップする。明示依頼された時だけ、書込・削除が許可された専用の非本番bucketで `-n 0` を使う。ケースごとの固有prefixで作成を確認できたkeyだけを掃除する。書込結果が不明なら実行ログのprefixを確認する。mock・CI・実データ受入の結果を混同しない。
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -22,11 +24,17 @@ from baibai_engine.machine_analysis.models.market_context.snapshot import (
     _Series,
     calculate_market_snapshot,
 )
-from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_adjusted_bars
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_reader import (
+    read_latest_daily_bar_date,
+)
 from baibai_engine.machine_analysis.observations.stocks.contracts import MasterSnapshot
 from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
 from baibai_engine.primitives.stocks import sector_33_peer_key
+from baibai_engine.storage.sqlite.read import read_store_if_written
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +111,10 @@ def prepare_market_context_from_bars(
     )
 
 
+class NoCachedDailyBars(ValueError):
+    """There was no cached trading day at or before the requested ceiling."""
+
+
 def build_market_snapshot(
     *,
     sqlite_path: Path,
@@ -111,6 +123,7 @@ def build_market_snapshot(
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
     min_breadth_sample: int = DEFAULT_MIN_BREADTH_SAMPLE,
     prepared: PreparedMarketContext | None = None,
+    use_latest_cached_day: bool = False,
 ) -> dict[str, object]:
     """Assemble the market snapshot as of ``asof_date``.
 
@@ -119,34 +132,45 @@ def build_market_snapshot(
     aggregates per-sector returns and breadth at ``asof_date`` only. Breadth
     uses common-stock membership from the latest master available at each point;
     ETFs and later master constituents cannot enter a historical stock sample.
+    A raw store read can instead resolve its latest cached price day through
+    ``asof_date`` on the same snapshot as the observations.
     """
-    point_dates = [
-        asof_date - timedelta(days=7 * offset) for offset in range(history_weeks - 1, -1, -1)
-    ]
-    start = point_dates[0] - timedelta(days=_POINT_LOOKBACK_CALENDAR_DAYS)
-    if prepared is not None and (
-        prepared.sqlite_path != sqlite_path.resolve()
-        or prepared.asof_date != asof_date
-        or prepared.history_weeks != history_weeks
-        or prepared.benchmark_ticker != benchmark_ticker
-    ):
-        raise ValueError("prepared market context does not match the requested scope")
-    series_by_ticker = (
-        _load_series(sqlite_path, start=start, end=asof_date)
-        if prepared is None
-        else {
+    if prepared is None:
+        raw = read_store_if_written(
+            sqlite_path,
+            lambda: _read_snapshot_inputs(
+                sqlite_path,
+                asof_date=asof_date,
+                history_weeks=history_weeks,
+                use_latest_cached_day=use_latest_cached_day,
+            ),
+        )
+        if raw is None:
+            if use_latest_cached_day:
+                raise NoCachedDailyBars
+            raw = (asof_date, {}, None, {})
+        asof_date, series_by_ticker, master, masters_by_date = raw
+    else:
+        if (
+            use_latest_cached_day
+            or prepared.sqlite_path != sqlite_path.resolve()
+            or prepared.asof_date != asof_date
+            or prepared.history_weeks != history_weeks
+            or prepared.benchmark_ticker != benchmark_ticker
+        ):
+            raise ValueError("prepared market context does not match the requested scope")
+        point_dates = _point_dates(asof_date, history_weeks)
+        start = point_dates[0] - timedelta(days=_POINT_LOOKBACK_CALENDAR_DAYS)
+        series_by_ticker = {
             ticker: series.since(start)
             for ticker, series in prepared.series_by_ticker.items()
             if series.dates and series.dates[-1] >= start
         }
-    )
-    master = (
-        read_master_snapshot(sqlite_path, as_of=asof_date) if prepared is None else prepared.master
-    )
-    masters_by_date = {
-        day: master if day == asof_date else read_master_snapshot(sqlite_path, as_of=day)
-        for day in point_dates
-    }
+        master = prepared.master
+        masters_by_date = {
+            day: master if day == asof_date else read_master_snapshot(sqlite_path, as_of=day)
+            for day in point_dates
+        }
     return calculate_market_snapshot(
         asof_date=asof_date,
         history_weeks=history_weeks,
@@ -158,8 +182,45 @@ def build_market_snapshot(
     )
 
 
-def _load_series(sqlite_path: Path, *, start: date, end: date) -> dict[str, _Series]:
+def _point_dates(asof_date: date, history_weeks: int) -> list[date]:
+    return [asof_date - timedelta(weeks=offset) for offset in range(history_weeks - 1, -1, -1)]
+
+
+type _SnapshotInputs = tuple[
+    date, dict[str, _Series], MasterSnapshot | None, dict[date, MasterSnapshot | None]
+]
+
+
+def _read_snapshot_inputs(
+    path: Path, *, asof_date: date, history_weeks: int, use_latest_cached_day: bool
+) -> _SnapshotInputs | None:
+    # Inferred dates already required a written current store.
+    connection = connect_current(path) if use_latest_cached_day else connect_read_only(path)
+    if connection is None:
+        return None
+    with closing(connection):
+        connection.row_factory = sqlite3.Row
+        connection.execute("BEGIN")
+        if use_latest_cached_day:
+            resolved = read_latest_daily_bar_date(connection, date.min, asof_date)
+            if resolved is None:
+                return None
+            asof_date = resolved
+        days = _point_dates(asof_date, history_weeks)
+        start = days[0] - timedelta(days=_POINT_LOOKBACK_CALENDAR_DAYS)
+        series = _load_series(connection, start=start, end=asof_date)
+        master = read_master_snapshot(path, as_of=asof_date, connection=connection)
+        masters = {
+            day: master
+            if day == asof_date
+            else read_master_snapshot(path, as_of=day, connection=connection)
+            for day in days
+        }
+    return asof_date, series, master, masters
+
+
+def _load_series(connection: sqlite3.Connection, *, start: date, end: date) -> dict[str, _Series]:
     return {
         ticker: _Series(dates=[bar.traded_at for bar in bars], prices=[bar.price for bar in bars])
-        for ticker, bars in read_price_bars(sqlite_path, start=start, end=end).items()
+        for ticker, bars in read_adjusted_bars(connection, start=start, end=end).items()
     }

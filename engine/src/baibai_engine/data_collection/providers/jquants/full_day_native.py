@@ -59,6 +59,7 @@ class FullDayContract:
     format: str
     query_date_format: str = "%Y%m%d"
     query_date_key: Literal["date", "disc_date"] = "date"
+    response_day_key: str | None = None
 
     @property
     def head_key(self) -> str:
@@ -71,8 +72,19 @@ def _day(request: JQuantsRequest, contract: FullDayContract) -> str:
     return date.fromisoformat(request.params[contract.query_date_key]).isoformat()
 
 
+def _declares_other_day(value: object, requested: str) -> bool:
+    # Only an explicit canonical date is evidence of another request's scope.
+    # Missing, malformed and legacy representations belong to the row adapter.
+    if not isinstance(value, str) or value == requested or len(value) != 10:
+        return False
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
+
+
 def full_day_content_facts(request: JQuantsRequest, contract: FullDayContract) -> tuple[str, int]:
-    """Return the semantic digest and native row count without reparsing for the count.
+    """Check the declared scope and derive a digest and count from the same rows.
 
     Row reordering is conservatively a change. Page boundaries without extra
     envelope fields do not change content; non-pagination envelope fields remain.
@@ -88,7 +100,12 @@ def full_day_content_facts(request: JQuantsRequest, contract: FullDayContract) -
         }
         if extra:
             extras.append(extra)
-    return _digest(_json([contract.format, _day(request, contract), rows, extras])), len(rows)
+    day = _day(request, contract)
+    if (key := contract.response_day_key) is not None and any(
+        _declares_other_day(row.get(key), day) for row in rows
+    ):
+        raise JQuantsAcquisitionError("J-Quants response declares a date outside the requested day")
+    return _digest(_json([contract.format, day, rows, extras])), len(rows)
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,11 +355,12 @@ def read_full_day_requests(
             found.add(identity)
             item = attempt_type.from_value(raw)
             records = None
+            scope = scopes.get(item.day.isoformat(), {})
             try:
                 # Never buffer every decoded page across a large or disputed request.
                 if (
                     consume is not None
-                    and (scope := scopes.get(item.day.isoformat(), {})).get("adopted") == identity
+                    and scope.get("adopted") == identity
                     and not (scope.get("failure") or scope.get("held"))
                     and sum(len(page.body) for page in item.pages) <= 4 * 1024**2
                 ):
@@ -350,6 +368,9 @@ def read_full_day_requests(
                 else:
                     request = complete_request(item.pages)
             except JQuantsAcquisitionError:
+                request = None
+            # A complete cursor chain does not make a recorded failed attempt selectable.
+            if scope.get("failure") == identity:
                 request = None
             if records is not None and request is not None and consume is not None:
                 consume(identity, request, records)
@@ -487,14 +508,13 @@ class FullDayL1[Attempt: FullDayAttempt, Fixed: FixedFullDayL1]:
                 request = complete_request(item.pages)
                 if _day(request, self.contract) != day:
                     raise ValueError("full-day request differs from its attempted day")
+                content_id, raw_count = full_day_content_facts(request, self.contract)
             except JQuantsAcquisitionError:
                 request = None
+                content_id, raw_count = None, 0
             stamp = item.order_time
             previous_at = scope.get("last_attempt_at")
             held = previous_at is not None and stamp <= datetime.fromisoformat(previous_at)
-            content_id, raw_count = (
-                full_day_content_facts(request, self.contract) if request else (None, 0)
-            )
             equal = request is not None and content_id == scope.get("content_id")
             if held:
                 kind = "held"

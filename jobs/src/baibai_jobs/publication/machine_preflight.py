@@ -32,7 +32,10 @@ from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import LeaseError, _load_handle, verify_held
 from baibai_jobs.publication.machine_bundle import decode_machine_receipt
 from baibai_jobs.publication.machine_origin import origin_fields
-from baibai_jobs.publication.policy import release_policy_for_profile
+from baibai_jobs.publication.policy import (
+    edinet_metrics_contract_is_current,
+    release_policy_for_profile,
+)
 from baibai_jobs.publication.snapshot_release import read_pointer_snapshot
 
 
@@ -49,9 +52,7 @@ class _ReleaseMetadata:
 
 
 def _require_active_edinet_metrics(manifest: ReleaseManifest) -> None:
-    dataset = LAKE_DATASETS["edinet.metrics"]
-    entry = manifest.datasets.get(dataset.name)
-    if entry is None or entry.contract_version != dataset.contract_version:
+    if edinet_metrics_contract_is_current(manifest) is not True:
         raise MachinePreflightError("daily Market requires the current EDINET metrics contract")
 
 

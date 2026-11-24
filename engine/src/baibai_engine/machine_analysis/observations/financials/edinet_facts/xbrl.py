@@ -161,33 +161,45 @@ def _labels(documents: dict[str, tuple[ET.Element, dict[str, str]]]) -> dict[str
                     "{" + namespace + "}" + element.attrib["name"]
                 )
     result: dict[str, str] = {}
-    for path, (root, _) in documents.items():
-        if not path.endswith("_lab.xml"):
-            continue
-        locators: dict[str, str] = {}
-        labels: dict[str, str] = {}
-        for element in root.iter():
+    # XLink endpoint names are local to each extended link, even in the same file.
+    links = (
+        link
+        for path, (root, _) in documents.items()
+        if path.endswith("_lab.xml")
+        for link in root.iter("{http://www.xbrl.org/2003/linkbase}labelLink")
+    )
+    for link in links:
+        locators: dict[str, set[str]] = {}
+        labels: dict[str, set[str]] = {}
+        for element in link:
             label = element.get(f"{{{XLINK}}}label", "")
             if local_name(element.tag) == "loc":
                 filename, _, fragment = element.get(f"{{{XLINK}}}href", "").partition("#")
                 identity = identities.get((PurePosixPath(filename).name, fragment))
                 if identity:
-                    locators[label] = identity
+                    locators.setdefault(label, set()).add(identity)
             elif (
                 local_name(element.tag) == "label"
                 and element.get("{http://www.w3.org/XML/1998/namespace}lang") == "ja"
                 and element.get(f"{{{XLINK}}}role") == "http://www.xbrl.org/2003/role/label"
             ):
-                labels[label] = "".join(element.itertext()).strip()
-        for arc in root.iter():
+                text = "".join(element.itertext()).strip()
+                if text:
+                    labels.setdefault(label, set()).add(text)
+        for arc in link:
             if local_name(arc.tag) != "labelArc":
                 continue
-            identity = locators.get(arc.get(f"{{{XLINK}}}from", ""))
-            label_text = labels.get(arc.get(f"{{{XLINK}}}to", ""))
-            if identity and label_text:
-                if identity in result and result[identity] != label_text:
+            members = locators.get(arc.get(f"{{{XLINK}}}from", ""))
+            names = labels.get(arc.get(f"{{{XLINK}}}to", ""))
+            if not members or not names:
+                continue
+            # An arc reaches every endpoint with the matching local name.
+            if len(names) != 1:
+                raise SourceFormatError("member_label_conflict")
+            name = next(iter(names))
+            for identity in members:
+                if result.setdefault(identity, name) != name:
                     raise SourceFormatError("member_label_conflict")
-                result[identity] = label_text
     return result
 
 

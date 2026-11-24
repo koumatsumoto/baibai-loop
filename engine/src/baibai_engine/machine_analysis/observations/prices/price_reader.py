@@ -125,12 +125,19 @@ def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | N
     if conn is None:
         return None
     try:
-        row = conn.execute(
-            "SELECT MAX(traded_at) FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?",
-            (start.isoformat(), end.isoformat()),
-        ).fetchone()
+        return read_latest_daily_bar_date(conn, start, end)
     finally:
         conn.close()
+
+
+def read_latest_daily_bar_date(
+    connection: sqlite3.Connection, start: date, end: date
+) -> date | None:
+    """Resolve a stored trading day on the caller's market snapshot."""
+    row = connection.execute(
+        "SELECT MAX(traded_at) FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?",
+        (start.isoformat(), end.isoformat()),
+    ).fetchone()
     if row is None or row[0] is None:
         return None
     return date.fromisoformat(str(row[0]))

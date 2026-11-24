@@ -403,7 +403,7 @@ def _equity_yen_at_context(rows: Sequence[Mapping[str, str]], context: str) -> i
         if _row_element(row) != "jpigp_cor:EquityIFRS" or _row_context(row) != context:
             continue
         value = (row.get("値") or "").strip()
-        if row.get("ユニットID") != "JPY" or row.get("期間・時点", "時点") != "時点":
+        if row.get("ユニットID") != "JPY" or row.get("期間・時点") != "時点":
             values.add(None)
         elif value == "-":
             values.add(0)

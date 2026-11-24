@@ -1,4 +1,4 @@
-"""通常は索引を読み、索引のない発行物はheaderだけ返す。原本の明示読は別経路。"""
+"""現行索引を読み、旧索引は公表IDの明示時だけ開く。索引のない原本の明示読は別経路。"""
 
 from __future__ import annotations
 
@@ -16,9 +16,10 @@ from baibai_engine.machine_analysis.screening.contracts import (
     validate_selection_source,
 )
 from baibai_engine.machine_analysis.screening.discovery_contract import (
+    DISCOVERY_METHOD,
     DiscoveryIndexRead,
     DiscoverySelection,
-    is_discovery_publication,
+    discovery_publication_method,
 )
 from baibai_engine.machine_analysis.screening.selection_query import find_publication_header
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
@@ -55,7 +56,7 @@ def read_discovery_index_from_connection(
     as_of: date | None = None,
     known_at: datetime | None = None,
 ) -> DiscoveryIndexRead:
-    """呼出元の読取transactionで発行時の索引を選ぶ。Noneは未作成で、旧本文は開かない。"""
+    """呼出元の読取transactionで公表物を一度だけ選ぶ。Noneは未作成。"""
     if (
         connection is None
         or (
@@ -74,8 +75,12 @@ def read_discovery_index_from_connection(
         datetime.fromisoformat(evaluation),
         datetime.fromisoformat(published),
     )
-    if not is_discovery_publication(identity, generation):
+    method = discovery_publication_method(identity, generation)
+    if method is None:
         return DiscoveryIndexRead("publication_without_index", *clocks)
+    # 最新が旧版なら、本文を開いたり別の現行版へ遡ったりしない。
+    if selection_id is None and method != DISCOVERY_METHOD:
+        return DiscoveryIndexRead("noncurrent_index", *clocks)
     (wire,) = connection.execute(
         "SELECT payload_gzip FROM screening_selection WHERE selection_id=?", (identity,)
     ).fetchone()
