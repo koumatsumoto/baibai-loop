@@ -2,13 +2,17 @@
 
 import subprocess
 import sys
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from botocore.awsrequest import AWSResponse
 from botocore.exceptions import ClientError
+from botocore.httpsession import URLLib3Session
 
 from baibai_engine.storage.objects import r2
+from baibai_engine.storage.objects.json import read_fixed_private
 
 
 def configuration(tmp_path):
@@ -32,7 +36,9 @@ def failure(status, code="SECRET"):
 
 
 @pytest.mark.parametrize("status", [403, "403", 429, "429"])
-@pytest.mark.parametrize("operation", ["head", "get", "metadata", "download", "put", "list"])
+@pytest.mark.parametrize(
+    "operation", ["head", "get", "metadata", "download", "put", "list", "delete"]
+)
 def test_verified_rejection_aborts_all_paths(tmp_path, monkeypatch, status, operation):
     env = configuration(tmp_path)
     store = r2.Boto3R2Store(bucket="private", env=env)
@@ -50,9 +56,10 @@ def test_verified_rejection_aborts_all_paths(tmp_path, monkeypatch, status, oper
         head_object=reject,
         get_object=reject,
         put_object=reject,
+        delete_object=reject,
         get_paginator=lambda _: SimpleNamespace(paginate=pages),
     )
-    monkeypatch.setattr(store, "_client", lambda *_: client)
+    monkeypatch.setattr(store, "_client", lambda *_args, **_kwargs: client)
     source = tmp_path / "source"
     source.write_bytes(b"abc")
     actions = {
@@ -64,6 +71,7 @@ def test_verified_rejection_aborts_all_paths(tmp_path, monkeypatch, status, oper
             "private-key", source, sha256="sha", content_md5="md5", content_type="application/json"
         ),
         "list": lambda: list(store.iter_objects("private-prefix")),
+        "delete": lambda: store.delete_object("private-key"),
     }
 
     def ordinary_error_handler():
@@ -171,3 +179,91 @@ def test_stop_persistence_failure_remains_fatal(tmp_path, monkeypatch):
 def test_malformed_configuration_rejected(tmp_path, settings):
     with pytest.raises(ValueError, match="R2 rejection stop"):
         r2.Boto3R2Store(bucket="private", env={**configuration(tmp_path), **settings})
+
+
+@pytest.mark.parametrize("method", ["DELETE", "GET", "HEAD"])
+@pytest.mark.parametrize(
+    ("status", "code", "region_header"),
+    [
+        (301, "PermanentRedirect", True),
+        (301, "PermanentRedirect", False),
+        (400, "AuthorizationHeaderMalformed", True),
+        (403, "NoSuchKey", False),
+        (404, "NoSuchKey", False),
+        (404, "NoSuchBucket", False),
+        (429, "NoSuchKey", False),
+        (429, "SlowDown", False),
+        (429, "TooManyRequests", False),
+        (500, "InternalError", False),
+    ],
+)
+def test_exact_detached_operation_uses_one_signed_request_without_changing_default_budget(
+    tmp_path, monkeypatch, status, code, region_header, method
+):
+    env = configuration(tmp_path)
+    del env["R2_STOP_ON_REJECTION"]
+    del env["R2_REJECTION_STOP_FILE"]
+    store = r2.Boto3R2Store(bucket="private", env=env)
+    attempts = []
+
+    class Raw(BytesIO):
+        def stream(self, *_args, **_kwargs):
+            yield self.read()
+
+    def wire(_session, request):
+        attempts.append((request.method, request.url))
+        assert request.headers["Authorization"].startswith(b"AWS4-HMAC-SHA256")
+        if len(attempts) > 1:
+            return AWSResponse(request.url, 204, {}, Raw())
+        payload = (
+            f"<Error><Code>{code}</Code><Message>PRIVATE</Message>"
+            + ("<Region>us-east-2</Region>" if region_header else "")
+            + "</Error>"
+        ).encode()
+        headers = {"content-type": "application/xml", "content-length": str(len(payload))}
+        if region_header:
+            headers["x-amz-bucket-region"] = "us-east-2"
+        return AWSResponse(request.url, status, headers, Raw(payload))
+
+    monkeypatch.setattr(URLLib3Session, "send", wire)
+    default = store._client()
+    actions = {
+        "DELETE": lambda: store.delete_object("exact-key"),
+        "GET": lambda: read_fixed_private(store, "exact-key", sha256="a" * 64, single_attempt=True),
+        "HEAD": lambda: store.head("exact-key", single_attempt=True),
+    }
+    if method != "DELETE" and (status, code) == (404, "NoSuchKey"):
+        assert actions[method]() is None
+    else:
+        with pytest.raises(r2.R2Error) as result:
+            actions[method]()
+        assert result.value.http_status == status
+    assert attempts == [(method, store.endpoint + "/private/exact-key")]
+    assert store._client() is default
+    assert default.meta.config.retries["total_max_attempts"] == 3
+    assert store._client(single_attempt=True).meta.config.retries["total_max_attempts"] == 1
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_exact_detached_read_needs_http_status_even_with_missing_key_code(
+    tmp_path, monkeypatch, method
+):
+    store = r2.Boto3R2Store(bucket="private", env=configuration(tmp_path))
+
+    def missing_status(**_):
+        raise failure(None, code="NoSuchKey")
+
+    client = SimpleNamespace(head_object=missing_status, get_object=missing_status)
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    def read(*, single_attempt):
+        if method == "HEAD":
+            return store.head("exact-key", single_attempt=single_attempt)
+        return read_fixed_private(
+            store, "exact-key", sha256="a" * 64, single_attempt=single_attempt
+        )
+
+    assert read(single_attempt=False) is None
+    with pytest.raises(r2.R2Error) as result:
+        read(single_attempt=True)
+    assert result.value.http_status is None
