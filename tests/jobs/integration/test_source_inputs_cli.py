@@ -16,7 +16,16 @@ from baibai_engine.data_collection.providers.edinet.facts_scope import (
 )
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key, release_manifest_key
 from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
-from baibai_engine.storage.snapshots.release import LakeReleasePointer
+from baibai_engine.storage.snapshots.release import (
+    LakeReleasePointer,
+    MachineMember,
+    MachineMembers,
+    machine_member_key,
+)
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import source_inputs
 from baibai_jobs.acquisition.article_planning import COLLECTION_SOURCES, load_planning, source_key
@@ -32,6 +41,28 @@ from baibai_jobs.publication.lease import (
 )
 
 GENERATIONS = {"lake_release_id": "fixed", "lake_manifest_sha256": "a" * 64}
+_MACHINE_KEYS = {role: machine_member_key("b" * 32, role) for role in ("market", "runs")}
+
+
+def _seed_current(remote, *, machine=True):
+    members = {}
+    if machine:
+        for role, key in _MACHINE_KEYS.items():
+            body = f"fixed {role}".encode()
+            remote.store_object(key, body)
+            members[role] = MachineMember(key=key, etag=remote.values[key].etag, size=len(body))
+    remote.store_object(
+        current_release_pointer_key(),
+        canonical_lake_model_bytes(
+            LakeReleasePointer(
+                pointer_version=2 if machine else 1,
+                release_id=GENERATIONS["lake_release_id"],
+                manifest_key=release_manifest_key(release_id=GENERATIONS["lake_release_id"]),
+                manifest_sha256=GENERATIONS["lake_manifest_sha256"],
+                machine=MachineMembers(**members) if machine else None,
+            )
+        ),
+    )
 
 
 def _input_cli(tmp_path, monkeypatch, *, lease_now=None):
@@ -40,6 +71,7 @@ def _input_cli(tmp_path, monkeypatch, *, lease_now=None):
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
     market = market_store(tmp_path / "market.sqlite", 2)
     with closing(open_connection(market)) as conn, conn:
+        write_lake_store_origin(conn, LakeStoreOrigin("fixed", "a" * 64))
         conn.execute(
             "INSERT INTO edinet_list_responses VALUES(?,?,?,?)",
             ("receipt", str(DAY), f"{DAY}T00:00:00+00:00", gzip.compress(b"{}", mtime=0)),
@@ -49,27 +81,7 @@ def _input_cli(tmp_path, monkeypatch, *, lease_now=None):
             [("S100CSV", 5, str(DAY), b"csv zip"), ("S100XBRL", 1, str(DAY), b"xbrl zip")],
         )
         merge_scope(conn, FactsScope(DAY, frozenset({"S100XBRL"}), frozenset()))
-    for key in ("market.sqlite", "runs.sqlite"):
-        remote.store_object(key, f"fixed {key}".encode())
-    remote.store_object(
-        "machine-manifest.json",
-        json.dumps(
-            {
-                "schema_version": 1,
-                "keys": {key: remote.values[key].etag for key in ("market.sqlite", "runs.sqlite")},
-            }
-        ).encode(),
-    )
-    remote.store_object(
-        current_release_pointer_key(),
-        canonical_lake_model_bytes(
-            LakeReleasePointer(
-                release_id=GENERATIONS["lake_release_id"],
-                manifest_key=release_manifest_key(release_id=GENERATIONS["lake_release_id"]),
-                manifest_sha256=GENERATIONS["lake_manifest_sha256"],
-            )
-        ),
-    )
+    _seed_current(remote)
     handle, _ = acquire(remote, "daily", now=lease_now)
     lease_path = tmp_path / "lease.json"
     _save_handle(lease_path, handle)
@@ -88,6 +100,40 @@ def _input_cli(tmp_path, monkeypatch, *, lease_now=None):
         str(lease_path),
     ]
     return remote, market, command
+
+
+@pytest.mark.parametrize("group", [None, "tradingview"])
+@pytest.mark.parametrize("state", ["missing", "other_release", "wrong_digest"])
+def test_market_input_requires_local_origin_before_any_source_write(
+    tmp_path, monkeypatch, capsys, group, state
+):
+    remote, market, command = _input_cli(tmp_path, monkeypatch)
+    if state == "missing":
+        market.unlink()
+    else:
+        origin = (
+            LakeStoreOrigin("other", "a" * 64)
+            if state == "other_release"
+            else LakeStoreOrigin("fixed", "c" * 64)
+        )
+        with closing(open_connection(market)) as conn, conn:
+            write_lake_store_origin(conn, origin)
+    if group is not None:
+        command += ["--group", group]
+    assert sources.main(command) == 1
+    assert not remote.put_keys
+    assert ("LakeStoreOriginError" if state == "missing" else "LakePublishError") in (
+        capsys.readouterr().err
+    )
+
+
+def test_native_planning_input_does_not_require_local_market(tmp_path, monkeypatch):
+    remote, market, command = _input_cli(tmp_path, monkeypatch)
+    market.unlink()
+    source = "boj_news"
+    assert sources.main([*command, "--group", source]) == 0
+    assert remote.put_keys == [source_key(source)]
+    assert load_planning(remote, source)[0].generations == GENERATIONS
 
 
 def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generation(
@@ -254,15 +300,45 @@ def test_explicit_input_does_not_recreate_retired_article_planning(
     assert source_key(source) not in remote.values
 
 
-@pytest.mark.parametrize("changed_key", ["market.sqlite", "runs.sqlite"])
-def test_native_cli_does_not_publish_inputs_against_a_partial_machine_bundle(
-    tmp_path, monkeypatch, capsys, changed_key
+@pytest.mark.parametrize("command_name", ["inputs", "seal"])
+@pytest.mark.parametrize("role", ["market", "runs"])
+@pytest.mark.parametrize("state", ["missing", "same_size_replacement"])
+def test_shared_source_state_refuses_incomplete_current_machine(
+    tmp_path, monkeypatch, capsys, command_name, role, state
 ):
     remote, _, command = _input_cli(tmp_path, monkeypatch)
-    remote.store_object(changed_key, b"partial replacement")
+    key = _MACHINE_KEYS[role]
+    body = remote.values[key].body
+    if state == "missing":
+        del remote.values[key]
+    else:
+        remote.store_object(key, bytes(len(body)))
+    if command_name == "seal":
+        command = _seal_cli(tmp_path, tmp_path / "lease.json")
     assert sources.main(command) == 1
-    assert "LakePublishError" in capsys.readouterr().err
+    assert "MachineMemberUnavailable" in capsys.readouterr().err
     assert remote.put_keys == []
+
+
+def test_shared_source_state_does_not_fall_back_to_legacy_fixed_pair(tmp_path, monkeypatch, capsys):
+    remote, _, command = _input_cli(tmp_path, monkeypatch)
+    _seed_current(remote, machine=False)
+    legacy = ("market.sqlite", "runs.sqlite")
+    for key in legacy:
+        remote.store_object(key, key.encode())
+    remote.store_object(
+        "machine-manifest.json",
+        json.dumps(
+            {
+                "schema_version": 1,
+                "keys": {key: remote.values[key].etag for key in legacy},
+            }
+        ).encode(),
+    )
+    assert sources.main(command) == 1
+    assert "MachineMemberUnavailable" in capsys.readouterr().err
+    assert not remote.put_keys
+    assert not {*legacy, "machine-manifest.json"}.intersection(remote.head_keys + remote.get_keys)
 
 
 def _seal_cli(tmp_path, lease_path):

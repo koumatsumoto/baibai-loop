@@ -26,7 +26,7 @@ from baibai_engine.storage.filesystem import fsync_directory
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
-    from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
+    from mypy_boto3_s3.type_defs import GetObjectRequestTypeDef, PutObjectRequestTypeDef
 
 # Preserve the established per-attempt transfer budget and conditional-write errors.
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -50,6 +50,10 @@ class R2Error(LakePublishError):
 
 class LakeCASConflict(LakePublishError):
     pass
+
+
+class R2PinnedObjectMismatch(R2Error):
+    """The same response that supplied the body did not name the requested version."""
 
 
 class R2OperationStopped(BaseException):
@@ -313,6 +317,17 @@ class Boto3R2Store:
             raise R2Error("R2 head-object failed") from exc
         return _remote_object(value)
 
+    def delete_object(self, key: str) -> None:
+        """Remove one exact object key; domain callers establish detachment."""
+        try:
+            with self._request("delete-object"):
+                self._client().delete_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            _raise_r2_error("delete-object", exc, key=key)
+        except BotoCoreError as exc:
+            _log_r2_failure("delete-object", exc, key=key)
+            raise R2Error("R2 delete-object failed") from exc
+
     def iter_objects(self, prefix: str) -> Iterator[tuple[str, int]]:
         """List keys and sizes under one prefix without downloading object bodies."""
         if self._serial is not None:
@@ -442,7 +457,11 @@ class Boto3R2Store:
         *,
         expect_bytes: int | None = None,
         max_bytes: int | None = None,
+        expect_etag: str | None = None,
     ) -> None:
+        request: GetObjectRequestTypeDef = {"Bucket": self.bucket, "Key": key}
+        if expect_etag is not None:
+            request["IfMatch"] = f'"{expect_etag}"'
         path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
             dir=path.parent,
@@ -453,9 +472,19 @@ class Boto3R2Store:
         temporary_path = Path(temporary_name)
         try:
             with self._request("get-object"):
-                response = self._client(expect_bytes).get_object(Bucket=self.bucket, Key=key)
+                response = self._client(expect_bytes).get_object(**request)
                 body = response["Body"]
                 try:
+                    if expect_etag is not None and (
+                        response.get("ETag", "").strip('"') != expect_etag
+                        or (
+                            expect_bytes is not None
+                            and response.get("ContentLength") != expect_bytes
+                        )
+                    ):
+                        raise R2PinnedObjectMismatch(
+                            "R2 get-object response differs from the pinned identity"
+                        )
                     written = 0
                     with temporary_path.open("wb") as target:
                         while chunk := body.read(8 * 1024 * 1024):

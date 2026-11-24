@@ -11,14 +11,12 @@ are not carried forward.
 
 from __future__ import annotations
 
-import argparse
 import hashlib
-import json
 import sqlite3
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
@@ -49,7 +47,7 @@ from baibai_engine.machine_analysis.generation.edinet_inputs import (
 )
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.filesystem import fsync_directory
-from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
+from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 from baibai_engine.storage.snapshots.identity import verified_git_commit as lake_verified_git_commit
 from baibai_engine.storage.snapshots.keys import dataset_manifest_key as lake_dataset_manifest_key
 from baibai_engine.storage.snapshots.models import ReleaseManifest as LakeReleaseManifest
@@ -70,7 +68,6 @@ from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_engine.storage.snapshots.release import create_release as create_lake_release
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import (
-    LakeBuildError,
     LakeBuildReport,
     LakeExportReport,
     SealedSQLiteSnapshot,
@@ -107,13 +104,14 @@ from baibai_jobs.publication.l1_price_export import export_prices_from_native_in
 from baibai_jobs.publication.l1_short_sale_reports_export import (
     export_short_sale_reports_from_native_input,
 )
-from baibai_jobs.publication.lease import LeaseError, _load_handle, verify_held
 from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_release import (
     PointerSnapshot,
+    StagedLake,
     TransferReport,
     publish_release,
     read_pointer_snapshot,
+    stage_release,
 )
 
 
@@ -183,6 +181,7 @@ def prepare_market_lake(
     release_id: str | None = None,
     as_of: date | None = None,
     edinet_input: InputSnapshot | None = None,
+    base: PointerSnapshot | None = None,
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
     as_of = _publication_day(as_of, datetime.now(UTC))
@@ -233,7 +232,7 @@ def prepare_market_lake(
     _phase_progress("native_price", phase_started)
     started = time.perf_counter()
     phase_started = _phase_progress("base_resolve")
-    serving = _serving_pointer(store)
+    serving = _serving_pointer(store) if base is None else base
     previous = serving.pointer
     published_coverage_start: dict[str, date] = {}
     serving_release = None
@@ -521,6 +520,44 @@ def daily_external_readback_dir(directory: Path, *, bucket: str, run: str) -> Pa
     return directory / "external-readback" / scope
 
 
+def stage_prepared_market_lake(
+    prepared: PreparedMarketLake,
+    *,
+    store: ObjectStore,
+    retain_verified_readback: Callable[[str, Path], None] | None = None,
+) -> tuple[StagedLake, MarketLakePublishReport]:
+    """Stage the exact graph used by models; only the working SQLite origin changes."""
+    staged = stage_release(
+        mirror_root=prepared.mirror_root,
+        release_manifest_path=prepared.release_manifest_path,
+        expected_release_sha256=prepared.release_sha256,
+        store=store,
+        base=prepared.serving,
+        retain_verified_readback=retain_verified_readback,
+    )
+    advance_lake_store_origin(
+        prepared.sqlite_path,
+        expected=prepared.export.store_origin,
+        target=LakeStoreOrigin(staged.pointer.release_id, staged.pointer.manifest_sha256),
+    )
+    return staged, _market_report(prepared, staged.pointer.release_id, staged.transfers)
+
+
+def _market_report(
+    prepared: PreparedMarketLake, release_id: str, transfers: TransferReport
+) -> MarketLakePublishReport:
+    previous = prepared.serving.pointer
+    return MarketLakePublishReport(
+        release_id=release_id,
+        release_manifest_sha256=prepared.release_sha256,
+        data_as_of=prepared.release.data_as_of.isoformat(),
+        previous_release_id=None if previous is None else previous.release_id,
+        uploaded_objects=transfers.uploaded_objects,
+        uploaded_bytes=transfers.uploaded_bytes,
+        transfers=transfers,
+    )
+
+
 def publish_prepared_market_lake(
     prepared: PreparedMarketLake,
     *,
@@ -563,17 +600,7 @@ def publish_prepared_market_lake(
         f"pointer={published.pointer_seconds:.3f}s",
         file=sys.stderr,
     )
-    transfers = published.transfers.as_dict()
-    previous = prepared.serving.pointer
-    return MarketLakePublishReport(
-        release_id=published.release_id,
-        release_manifest_sha256=prepared.release_sha256,
-        data_as_of=prepared.release.data_as_of.isoformat(),
-        previous_release_id=None if previous is None else previous.release_id,
-        uploaded_objects=int(transfers.get("uploaded_objects", 0)),
-        uploaded_bytes=int(transfers.get("uploaded_bytes", 0)),
-        transfers=published.transfers,
-    )
+    return _market_report(prepared, published.release_id, published.transfers)
 
 
 def publish_market_lake(
@@ -728,44 +755,5 @@ def _fetch(
     return path
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sqlite", type=Path, required=True)
-    parser.add_argument("--mirror", type=Path, required=True)
-    parser.add_argument("--bucket", default="baibai-stores")
-    parser.add_argument("--release-id")
-    parser.add_argument("--lease-handle", type=Path, required=True)
-    parser.add_argument("--saved-edinet-input", type=Path)
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    try:
-        handle = _load_handle(args.lease_handle)
-        store = Boto3R2Store(bucket=args.bucket)
-        verify_held(store, handle)
-        report = publish_market_lake(
-            sqlite_path=args.sqlite,
-            mirror_root=args.mirror,
-            store=store,
-            release_id=args.release_id,
-            before_pointer_switch=lambda: verify_held(store, handle),
-            edinet_input=(
-                InputSnapshot.model_validate_json(args.saved_edinet_input.read_bytes())
-                if args.saved_edinet_input is not None
-                else None
-            ),
-        )
-    except LakeBuildError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-    except (LakePublishError, LeaseError, OSError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-    print(json.dumps(report.as_dict(), sort_keys=True))
-    return 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit("standalone Lake publication was removed; use the paired daily workflow")

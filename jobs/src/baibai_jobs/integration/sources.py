@@ -68,7 +68,7 @@ from baibai_jobs.publication.jpx_verification import (
     verify_publication as verify_jpx_publication,
 )
 from baibai_jobs.publication.lease import _load_handle, verify_held
-from baibai_jobs.publication.machine_bundle import read_published_machine
+from baibai_jobs.publication.machine_current import read_machine_current, require_market_origin
 from baibai_jobs.publication.machine_origin import current_daily_run
 from baibai_jobs.publication.snapshot_publication import daily_external_readback_dir
 from baibai_jobs.publication.tradingview_verification import (
@@ -268,8 +268,11 @@ def apply(
     return report
 
 
-def canonical_generations(store: ObjectStore) -> dict[str, str]:
-    pointer, _ = read_published_machine(store)
+def canonical_generations(store: ObjectStore, *, market: Path | None = None) -> dict[str, str]:
+    pointer = read_machine_current(store).pointer
+    assert pointer is not None
+    if market is not None:
+        require_market_origin(pointer, market)
     return {
         "lake_release_id": pointer.release_id,
         "lake_manifest_sha256": pointer.manifest_sha256,
@@ -612,7 +615,12 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("common integration writes require the publication lease")
                 handle = _load_handle(args.lease_handle)
                 verify_held(store, handle)
-                generations = canonical_generations(store)
+                market_inputs = args.command == "inputs" and (
+                    args.group is None or args.group in SOURCE_INPUT_GROUPS
+                )
+                generations = canonical_generations(
+                    store, market=args.market if market_inputs else None
+                )
                 guarded = GuardedInputStore(store, lambda: verify_held(store, handle))
                 if args.command == "inputs":
                     if args.identity is None or args.asof is None:

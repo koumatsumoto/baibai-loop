@@ -174,8 +174,8 @@ def test_derive_failed_steps_keeps_every_unsuccessful_step_in_order() -> None:
 
 
 def test_derive_failed_steps_keeps_cancelled_steps_but_not_skipped_steps() -> None:
-    assert derive_failed_steps({"upload-stores": "cancelled"}) == ["upload-stores"]
-    assert derive_failed_steps({"upload-stores": "skipped"}) == []
+    assert derive_failed_steps({"machine-publication": "cancelled"}) == ["machine-publication"]
+    assert derive_failed_steps({"machine-publication": "skipped"}) == []
 
 
 @pytest.mark.parametrize(
@@ -184,7 +184,7 @@ def test_derive_failed_steps_keeps_cancelled_steps_but_not_skipped_steps() -> No
         ("0", [], False, "ok"),
         ("3", [], False, "failed"),
         ("1", ["model-integration"], False, "failed"),
-        ("0", ["upload-stores"], False, "failed"),
+        ("0", ["machine-publication"], False, "failed"),
         ("3", ["source-seal"], False, "failed"),
         ("", ["pre-batch"], False, "failed"),
         ("0", [], True, "cancelled"),
@@ -322,7 +322,7 @@ def test_main_delivers_the_ok_message_with_generation_counts(
     message = _sent(transport)
     assert message.startswith("**[OK] 共通統合（cloud-daily-batch）**")
     assert "対象日: 2026-08-26" in message
-    assert "- 工程結果: Lake公開 成功 / Store反映 成功" in message
+    assert "- 工程結果: Machine・Lake公開 成功" in message
     assert "- モデル生成: 3686社 / 18431件 / 候補35社" in message
     assert message.endswith(f"Run: <{RUN_URL}>")
     # The message is also printed so the run log carries it.
@@ -439,9 +439,7 @@ def test_main_reports_all_post_publication_failures_without_losing_core_success(
         monkeypatch,
         "--batch-exit-code",
         "0",
-        "--publish-lake-outcome",
-        "success",
-        "--upload-stores-outcome",
+        "--machine-publication-outcome",
         "success",
         "--portfolio-views-outcome",
         view_outcome,
@@ -452,7 +450,7 @@ def test_main_reports_all_post_publication_failures_without_losing_core_success(
     message = _sent(transport)
     assert message.startswith(f"**[{label}]")
     assert f"- 要確認工程: {failed_steps}" in message.splitlines()
-    assert "工程結果: Lake公開 成功 / Store反映 成功" in message
+    assert "工程結果: Machine・Lake公開 成功" in message
     assert f"保有・運用画面更新 {discord.step_label(view_outcome)}" in message
     assert "モデル生成: 3686社 / 18431件 / 候補35社" in message
 
@@ -463,7 +461,7 @@ def test_main_names_the_failed_explicit_gate_before_model_generation(tmp_path, m
     message = _sent(transport)
     assert message.startswith("**[FAILED]")
     assert f"- 要確認工程: {step}" in message.splitlines()
-    assert "Lake公開 未実行 / Store反映 未実行" in message
+    assert "Machine・Lake公開 未実行" in message
     assert "モデル生成" not in message
 
 
@@ -491,9 +489,7 @@ def test_explicit_readback_outcome_does_not_erase_completed_core_publication(
         monkeypatch,
         "--batch-exit-code",
         "0",
-        "--publish-lake-outcome",
-        "success",
-        "--upload-stores-outcome",
+        "--machine-publication-outcome",
         "success",
         "--article-semantic-readback-outcome",
         readback,
@@ -505,7 +501,7 @@ def test_explicit_readback_outcome_does_not_erase_completed_core_publication(
     )
     message = _sent(transport)
     assert message.startswith(f"**[{label}]")
-    assert "Lake公開 成功 / Store反映 成功" in message
+    assert "Machine・Lake公開 成功" in message
     if failed is None:
         assert "要確認工程" not in message
     else:
@@ -553,20 +549,25 @@ def test_generation_readiness_does_not_reuse_stale_counts_or_legacy_delta():
     assert discord.render_generation({"models_ready": "true"}) == []
 
 
-def test_successful_generation_does_not_hide_a_failed_store_upload():
-    notice = {"models_ready": True, "company_count": 2, "model_count": 11, "candidate_count": 0}
-    outcomes = {"publish-lake": "success", "upload-stores": "failure"}
-    failed = derive_failed_steps(outcomes)
+def test_retirement_failure_leaves_confirmed_publication_and_shows_cleanup_pending():
+    notice = {
+        "models_ready": True,
+        "company_count": 2,
+        "model_count": 11,
+        "candidate_count": 0,
+        "machine": {"superseded_members_removed": False},
+    }
     message = render_message(
-        outcome=decide_outcome(batch_exit_code="0", failed_steps=failed, cancelled=False),
+        outcome="ok",
         asof="2026-10-25",
-        failed_steps=failed,
+        failed_steps=[],
         notice=notice,
         url=RUN_URL,
-        step_outcomes=outcomes,
+        step_outcomes={"machine-publication": "success"},
     )
-    assert "[FAILED]" in message
-    assert "Store反映 失敗" in message
+    assert "[DEGRADED]" in message
+    assert "Machine・Lake公開 成功" in message
+    assert "旧Machine転送ファイル: 削除未完了" in message
     assert "モデル生成: 2社 / 11件 / 候補0社" in message
 
 
@@ -601,10 +602,10 @@ def test_failed_lake_stage_suppresses_stale_success_count():
     message = render_message(
         outcome="failed",
         asof="2026-10-25",
-        failed_steps=["publish-lake"],
+        failed_steps=["machine-publication"],
         url=RUN_URL,
         notice={"models_ready": True, "company_count": 2, "model_count": 11, "candidate_count": 0},
-        step_outcomes={"publish-lake": "failure"},
+        step_outcomes={"machine-publication": "failure"},
     )
     assert "モデル統合: 未完了" in message
     assert "11件" not in message

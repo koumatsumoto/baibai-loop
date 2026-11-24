@@ -450,12 +450,15 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
     from baibai_jobs.acquisition.receipts import available_handoffs
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
-    narrow_release_policy(monkeypatch, datasets=("jquants.master_snapshots", "jquants.daily_bars"))
-    monkeypatch.setattr(
-        publication,
-        "LAKE_DATASETS",
-        {name: LAKE_DATASETS[name] for name in ("jquants.master_snapshots", "jquants.daily_bars")},
+    names = (
+        "jquants.master_snapshots",
+        "jquants.daily_bars",
+        "jquants.market_calendar",
+        "tradingview.source_receipts",
+        "tradingview.forecast_snapshots",
     )
+    narrow_release_policy(monkeypatch, datasets=names)
+    monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
     monkeypatch.setattr(sources, "extract_saved_edinet", lambda *_, **__: {})
     monkeypatch.setattr(models, "_load_handle", lambda *_: None)
@@ -507,7 +510,7 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
             "external": [],
         },
     )
-    target = market_store(tmp_path / "target.sqlite")
+    target = market_store(tmp_path / "target.sqlite", short_sale_reports=())
     with sqlite3.connect(target) as conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
     applied = sources.apply(store, work, market=target, asof=DAY)

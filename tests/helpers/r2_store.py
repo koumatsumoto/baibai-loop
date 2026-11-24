@@ -49,6 +49,14 @@ class MemoryR2Store:
         self.get_keys: list[str] = []
         self.head_keys: list[str] = []
         self.put_keys: list[str] = []
+        self.delete_keys: list[str] = []
+
+    def close(self) -> None:
+        pass
+
+    def delete_object(self, key: str) -> None:
+        self.delete_keys.append(key)
+        self.values.pop(key, None)
 
     def iter_objects(self, prefix: str):
         yield from (

@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import runpy
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.publication.snapshot_publication as publish_module
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
 )
-from baibai_engine.storage.snapshots.writer import LakeBuildError
-from baibai_jobs.publication.lease import _save_handle, acquire
 
 
 class _DownloadStore:
@@ -112,45 +110,10 @@ def test_export_manifests_are_frozen_from_the_checked_models_inside_the_mirror(
         assert paths[0].is_relative_to(tmp_path / "mirror")
 
 
-def test_a_build_error_is_reported_without_prescribing_an_operation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """What is left here cannot be answered by rebuilding, so it names no recovery."""
-
-    def _refuse(**_: object) -> object:
-        raise LakeBuildError("invalid date in sealed SQLite snapshot")
-
-    monkeypatch.setattr(publish_module, "publish_market_lake", _refuse)
-    store = MemoryR2Store()
-    handle, _ = acquire(store, "operator")
-    path = tmp_path / "lease.json"
-    _save_handle(path, handle)
-    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: store)
-
-    exit_code = publish_module.main(
-        ["--sqlite", "market.sqlite", "--mirror", "stores", "--lease-handle", str(path)]
-    )
-
-    assert exit_code == 1
-    printed = capsys.readouterr().err
-    assert "invalid date" in printed
-    assert "full rebuild" not in printed
-
-
-def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:
-    parsed = publish_module.build_parser().parse_args(
-        [
-            "--sqlite",
-            "market.sqlite",
-            "--mirror",
-            "stores",
-            "--bucket",
-            "baibai-stores",
-            "--lease-handle",
-            "lease.json",
-        ]
-    )
-
-    assert not hasattr(parsed, "full_rebuild")
-    assert parsed.bucket == "baibai-stores"
-    assert not hasattr(parsed, "origin_release")
+def test_retired_standalone_entrypoint_cannot_report_success() -> None:
+    # This fixture imports helpers from the same file above.
+    with (
+        pytest.warns(RuntimeWarning, match="found in sys.modules"),
+        pytest.raises(SystemExit, match="standalone Lake publication was removed"),
+    ):
+        runpy.run_module(publish_module.__name__, run_name="__main__", alter_sys=True)

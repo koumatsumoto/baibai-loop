@@ -14,6 +14,7 @@ from tests.helpers.lake_release import export_market_fixture, market_store
 from tests.helpers.master_calendar_native import (
     native_master_calendar_publication as native_master_calendar_publication,
 )
+from tests.helpers.model_generation import publish_machine_generation
 from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -27,7 +28,8 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_engine.storage.snapshots import models as lake_models
 from baibai_engine.storage.snapshots import writer as lake_writer_module
-from baibai_engine.storage.snapshots.keys import dataset_manifest_key
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key, dataset_manifest_key
+from baibai_engine.storage.snapshots.reader import resolve_current_release
 from baibai_engine.storage.snapshots.release import (
     LakeReleasePointer,
     canonical_lake_model_bytes,
@@ -48,11 +50,17 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.publication.datasets import LAKE_DATASETS
-from baibai_jobs.publication.lease import _save_handle, acquire, release
+from baibai_jobs.publication.machine_current import (
+    activate_machine,
+    read_machine_current,
+    stage_machine_members,
+)
 from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_release import (
     PointerPrecondition,
     publish_release,
+    read_pointer_snapshot,
+    stage_release,
 )
 
 
@@ -764,48 +772,6 @@ def test_remote_manifest_digest_mismatch_stops_before_export(
     assert export_called is False
 
 
-def test_market_publish_logs_one_phase_line_without_polluting_stdout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    mirror, _ = _release(tmp_path)
-    store = MemoryR2Store()
-    handle, _ = acquire(store, "operator")
-    handle_path = tmp_path / "lease.json"
-    _save_handle(handle_path, handle)
-    monkeypatch.setattr(market_publish_module, "Boto3R2Store", lambda **_: store)
-    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
-
-    assert (
-        market_publish_module.main(
-            [
-                "--sqlite",
-                str(tmp_path / "market.sqlite"),
-                "--mirror",
-                str(mirror),
-                "--release-id",
-                "timed-release",
-                "--lease-handle",
-                str(handle_path),
-            ]
-        )
-        == 0
-    )
-
-    output = capsys.readouterr()
-    assert len(output.out.splitlines()) == 1
-    assert json.loads(output.out)["release_id"] == "timed-release"
-    assert output.err.count("lake publish phases:") == 1
-    for phase in (
-        "base_resolve=",
-        "seal_plan_export=",
-        "release_create=",
-        "local_graph=",
-        "remote_closure=",
-        "pointer=",
-    ):
-        assert phase in output.err
-
-
 def test_publish_rejects_local_graph_symlinks_outside_mirror(tmp_path: Path) -> None:
     mirror = tmp_path / "mirror"
     mirror.mkdir()
@@ -1056,54 +1022,6 @@ def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
     assert second.transfers.downloaded_bytes < closure_bytes
 
 
-@pytest.mark.parametrize("lose_during_upload", [False, True])
-def test_market_cli_refuses_a_lost_lease_before_pointer_switch(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    lose_during_upload: bool,
-) -> None:
-    mirror, _ = _release(tmp_path)
-    store = MemoryR2Store()
-    handle, _ = acquire(store, "operator")
-    path = tmp_path / "lease.json"
-    _save_handle(path, handle)
-    monkeypatch.setattr(market_publish_module, "Boto3R2Store", lambda **_: store)
-    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
-    released = False
-    if lose_during_upload:
-        ensure = lake_publish_module._ensure_immutable
-
-        def lose_lease(*args, **kwargs):
-            nonlocal released
-            result = ensure(*args, **kwargs)
-            if not released:
-                release(store, handle)
-                released = True
-            return result
-
-        monkeypatch.setattr(lake_publish_module, "_ensure_immutable", lose_lease)
-    else:
-        release(store, handle)
-    assert (
-        market_publish_module.main(
-            [
-                "--sqlite",
-                str(tmp_path / "market.sqlite"),
-                "--mirror",
-                str(mirror),
-                "--lease-handle",
-                str(path),
-            ]
-        )
-        == 1
-    )
-    assert "lake/pointers/market/current.json" not in store.values
-    assert "publication lease" in capsys.readouterr().err
-    if lose_during_upload:
-        assert released
-
-
 def test_prepared_release_reuses_one_seal_without_publishing_or_reexporting(tmp_path, monkeypatch):
     mirror, _ = _release(tmp_path)
     store = MemoryR2Store()
@@ -1152,3 +1070,54 @@ def test_failure_after_prepare_does_not_advance_pointer_or_origin(tmp_path, monk
 pytestmark = pytest.mark.usefixtures(
     "native_price_publication", "native_master_calendar_publication"
 )
+
+
+def test_staged_lake_and_machine_are_visible_together_to_the_existing_lake_reader(tmp_path):
+    mirror, first_path = _release(tmp_path)
+    store = MemoryR2Store()
+    publish_release(mirror_root=mirror, release_manifest_path=first_path, store=store)
+    base = read_pointer_snapshot(store)
+    assert base.pointer is not None
+    assert base.pointer.release_id == "release-1"
+    head = current_release_pointer_key()
+    store.head_keys.clear()
+    store.get_keys.clear()
+    staged = stage_release(
+        mirror_root=mirror,
+        release_manifest_path=_successor_release(mirror, "release-2"),
+        store=store,
+        base=base,
+    )
+    assert head not in store.head_keys + store.get_keys
+    assert store.put_keys.count(head) == 1
+    assert staged.pointer.manifest_key == store.put_keys[-1]
+    _bind_market_store_to_pointer(tmp_path / "market.sqlite", staged.pointer)
+    runs = tmp_path / "runs.sqlite"
+    publish_machine_generation(
+        runs, release_id=staged.pointer.release_id, release_sha256=staged.pointer.manifest_sha256
+    )
+    candidate = stage_machine_members(
+        store, lake=staged, market=tmp_path / "market.sqlite", runs=runs
+    )
+    assert read_pointer_snapshot(store) == base
+    result = activate_machine(store, candidate, before_switch=lambda: None)
+    assert result.detached == ()  # This simulation starts with a Lake-only pointer.
+    assert read_machine_current(store).pointer == candidate.pointer
+    assert store.put_keys.count(head) == 2
+    assert "machine-manifest.json" not in store.values
+
+    class LakeSource:
+        def read_bytes(self, key: str) -> bytes:
+            return store.get_bytes(key)
+
+    fixed = resolve_current_release(
+        LakeSource(), catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+    )
+    assert (fixed.release_id, fixed.manifest_sha256) == (
+        candidate.pointer.release_id,
+        candidate.pointer.manifest_sha256,
+    )
+    with pytest.raises(LakePublishError, match="cannot replace machine current"):
+        publish_release(mirror_root=mirror, release_manifest_path=first_path, store=store)
+    assert read_machine_current(store) == result.current
+    assert store.put_keys.count(head) == 2

@@ -1336,7 +1336,6 @@ def test_quality_proof_is_wired_only_to_the_existing_post_seal_check_and_notice(
             "lease-acquire",
             "source-integration",
             "batch",
-            "upload-stores",
             "source-seal",
             "source-inputs",
             "economic-check",

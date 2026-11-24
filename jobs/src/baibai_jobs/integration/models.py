@@ -9,13 +9,14 @@ import os
 import shutil
 import sqlite3
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterator
-from contextlib import ExitStack, nullcontext, suppress
+from contextlib import ExitStack, closing, nullcontext, suppress
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import Protocol, TypedDict
 
 from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialL1,
@@ -35,10 +36,7 @@ from baibai_engine.machine_analysis.generation.economic_inputs import (
 )
 from baibai_engine.machine_analysis.generation.full_day_inputs import share_full_day_input_reads
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
-from baibai_engine.machine_analysis.generation.query import (
-    read_generation_ids,
-    read_generation_storage_totals,
-)
+from baibai_engine.machine_analysis.generation.query import read_generation_storage_totals
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
@@ -57,23 +55,37 @@ from baibai_engine.machine_analysis.screening.policies.discovery import (
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.json import write_json_atomic
-from baibai_engine.storage.objects.r2 import (
-    Boto3R2Store,
-)
+from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, R2OperationStopped
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
 from baibai_engine.storage.snapshots.models import ReleasePolicyError
-from baibai_engine.storage.snapshots.objects import LakeObjectError, mirror_path
+from baibai_engine.storage.snapshots.objects import LakeObjectError, LocalMirrorSource, mirror_path
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.sqlite.snapshot import create_snapshot
 from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
-from baibai_jobs.maintenance.model_cache import prune_model_cache
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _load_handle, verify_held
+from baibai_jobs.publication.machine_current import (
+    MAX_MACHINE_PUT_BYTES,
+    MachineWriteStore,
+    publish_staged_machine,
+    read_machine_current,
+    require_market_origin,
+    require_runs_publication,
+)
 from baibai_jobs.publication.machine_origin import current_daily_run
+from baibai_jobs.publication.policy import edinet_metrics_contract_is_current
 from baibai_jobs.publication.snapshot_publication import (
     PreparedMarketLake,
     daily_external_readback_dir,
     prepare_market_lake,
-    publish_prepared_market_lake,
+    stage_prepared_market_lake,
 )
+from baibai_jobs.publication.snapshot_release import PointerSnapshot, StagedLake
+from baibai_jobs.publication.snapshot_write_cli import prepare_market_transfer
+
+
+class ModelIntegrationStore(FinancialObjectStore, MachineWriteStore, Protocol):
+    """Lake/native preparation and the exact Machine operations needed by this job."""
 
 
 def _phase_progress(phase: str, started: float | None = None) -> float:
@@ -152,9 +164,57 @@ def _external_readback_options(
     return {"retain_verified_readback": retain}
 
 
+def _publish_machine(
+    *,
+    store: MachineWriteStore,
+    staged: StagedLake,
+    market: Path,
+    runs: Path,
+    mirror: Path,
+    bucket: str | None,
+    while_held: Callable[[], None],
+) -> dict[str, object]:
+    # The preparation context (large SQLite seal) has closed before these two copies.
+    release = resolve_release(
+        LocalMirrorSource(mirror),
+        staged.pointer.release_id,
+        manifest_sha256=staged.pointer.manifest_sha256,
+    )
+    if edinet_metrics_contract_is_current(release.manifest) is False:
+        raise LakePublishError("cannot publish obsolete EDINET metrics as current")
+    with tempfile.TemporaryDirectory(prefix=".machine-publish-", dir=mirror) as directory:
+        transfer_market = Path(directory) / "market.sqlite"
+        transfer_runs = Path(directory) / "runs.sqlite"
+        prepare_market_transfer(
+            market,
+            transfer_market,
+            release=release,
+            mirror=mirror,
+            bucket=bucket,
+        )
+        create_snapshot(runs, transfer_runs, compact=True)
+        while_held()
+        committed, retired = publish_staged_machine(
+            store,
+            lake=staged,
+            market=transfer_market,
+            runs=transfer_runs,
+            while_held=while_held,
+        )
+    pointer = committed.current.pointer
+    assert pointer is not None
+    assert pointer.machine is not None
+    return {
+        "market_bytes": pointer.machine.market.size,
+        "runs_bytes": pointer.machine.runs.size,
+        "single_put_limit_bytes": MAX_MACHINE_PUT_BYTES,
+        "superseded_members_removed": retired,
+    }
+
+
 def integrate_models(
     *,
-    store: FinancialObjectStore,
+    store: ModelIntegrationStore,
     market: Path,
     economic: Path,
     runs: Path,
@@ -163,13 +223,26 @@ def integrate_models(
     lease_handle: Path,
     growth_start: date | None,
     edinet_input: InputSnapshot | None = None,
-    preserve_existing_generations: bool = False,
+    base: PointerSnapshot | None = None,
+    machine_store: MachineWriteStore | None = None,
+    bucket: str | None = None,
     external_readback_dir: Path | None = None,
     external_partitions: frozenset[tuple[str, int, int]] = frozenset(),
 ) -> dict[str, object]:
     """leaseで順序を守り、モデル生成後に別releaseを作らない。"""
     handle = _load_handle(lease_handle)
-    verify_held(store, handle)
+    machine_writer = store if machine_store is None else machine_store
+
+    def while_held() -> None:
+        verify_held(machine_writer, handle)
+
+    while_held()
+    if base is not None:
+        if base.pointer is None or base.pointer.machine is None:
+            raise LakePublishError("current machine pair is required before model integration")
+        require_market_origin(base.pointer, market)
+        require_runs_publication(base.pointer, runs)
+
     mirror.mkdir(parents=True, exist_ok=True)
     if edinet_input is None:
         raise ValueError("normal model integration requires its fixed EDINET input")
@@ -180,9 +253,7 @@ def integrate_models(
     financial_input = native_financial_model_input(
         store, fixed, as_of=as_of, evaluated_at=evaluated_at
     )
-    # This is the downloaded execution copy, not L1 or application data.
-    # It must not retain an unpublished old projection when push-machine
-    # later verifies/dehydrates the new release.
+    # The execution copy must not carry the old projection into the new transfer.
     with sqlite3.connect(market) as connection:
         connection.execute("DELETE FROM jquants_fin_summaries")
         connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
@@ -198,6 +269,7 @@ def integrate_models(
                     store=store,
                     as_of=as_of,
                     edinet_input=edinet_input,
+                    base=base,
                 )
             )
         evaluation_time = max(evaluated_at, prepared.source_snapshot.sealed_at)
@@ -280,34 +352,27 @@ def integrate_models(
         selection_id = discovery_publication_id(generation.metadata.generation_id)
         ScreeningSelectionStore(runs).publish(selection_id, selection)
         _phase_progress("screening", phase_started)
-        phase_started = _phase_progress("lake_publish")
-
-        def before_pointer_switch() -> None:
-            verify_held(store, handle)
-
+        phase_started = _phase_progress("lake_stage")
         readback_options = _external_readback_options(
             prepared, external_readback_dir, external_partitions
         )
-        publication = publish_prepared_market_lake(
-            prepared, store=store, before_pointer_switch=before_pointer_switch, **readback_options
-        )
-        _phase_progress("lake_publish", phase_started)
-    pruned_count: int | None = 0
-    if not preserve_existing_generations:
-        phase_started = _phase_progress("model_cache_prune")
-        try:
-            pruned = prune_model_cache(runs, keep=3, preserve=(generation.metadata.generation_id,))
-        except (OSError, sqlite3.Error) as error:
-            # Cache retention is optional; store upload still checks the SQLite snapshot.
-            logging.getLogger(__name__).warning(
-                "model cache prune: state=failed error_type=%s", type(error).__name__
-            )
-            pruned_count = None
-        else:
-            pruned_count = len(pruned)
-        _phase_progress("model_cache_prune", phase_started)
+        staged, publication = stage_prepared_market_lake(prepared, store=store, **readback_options)
+        _phase_progress("lake_stage", phase_started)
+    # Do not discard already saved Runs generations during ordinary publication.
+    # App can admit a new case independently of the machine lease.
+    phase_started = _phase_progress("machine_publish")
+    committed = _publish_machine(
+        store=machine_writer,
+        staged=staged,
+        market=market,
+        runs=runs,
+        mirror=mirror,
+        bucket=bucket,
+        while_held=while_held,
+    )
+    _phase_progress("machine_publish", phase_started)
     return {
-        "pruned_generation_count": pruned_count,
+        "machine": committed,
         "asof": as_of.isoformat(),
         "models_ready": True,
         "generation_id": generation.metadata.generation_id,
@@ -345,11 +410,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional accounting-period start; omitted retains all available periods",
     )
     parser.add_argument("--integration-report", type=Path)
-    parser.add_argument(
-        "--preserve-existing-generations",
-        action="store_true",
-        help="retain every existing model generation and its selections for this integration",
-    )
     return parser
 
 
@@ -374,24 +434,33 @@ def main(argv: list[str] | None = None) -> int:
                 external_readback_dir = daily_external_readback_dir(
                     args.integration_report.parent, bucket=bucket, run=publication_run
                 )
-        if args.preserve_existing_generations:
-            # Keep the preflight read: an absent or unreadable history is not an empty one.
-            read_generation_ids(path=args.runs)
-        result = integrate_models(
-            store=Boto3R2Store(bucket=bucket),
-            market=args.market,
-            economic=args.economic,
-            runs=args.runs,
-            mirror=args.mirror,
-            as_of=args.asof,
-            lease_handle=args.lease_handle,
-            growth_start=args.growth_start,
-            edinet_input=edinet_input,
-            preserve_existing_generations=args.preserve_existing_generations,
-            external_readback_dir=external_readback_dir,
-            external_partitions=external_partitions,
-        )
-    except Exception as error:
+        with (
+            closing(Boto3R2Store(bucket=bucket)) as store,
+            closing(
+                Boto3R2Store(
+                    bucket=bucket,
+                    env={**os.environ, "R2_STOP_ON_REJECTION": "1"},
+                    verify_put_with_head=False,
+                )
+            ) as machine_store,
+        ):
+            result = integrate_models(
+                store=store,
+                machine_store=machine_store,
+                bucket=bucket,
+                base=read_machine_current(machine_store),
+                market=args.market,
+                economic=args.economic,
+                runs=args.runs,
+                mirror=args.mirror,
+                as_of=args.asof,
+                lease_handle=args.lease_handle,
+                growth_start=args.growth_start,
+                edinet_input=edinet_input,
+                external_readback_dir=external_readback_dir,
+                external_partitions=external_partitions,
+            )
+    except (Exception, R2OperationStopped) as error:
         notice: dict[str, object] = {
             "asof": args.asof.isoformat(),
             "models_ready": False,

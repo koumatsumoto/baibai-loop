@@ -25,14 +25,11 @@ def _validate_optional_date(value: str, *, label: str) -> None:
 def validate_daily_input(
     *,
     asof: str,
-    preserve_existing_generations: str = "",
     edinet_metrics_acceptance: str = "",
     article_semantic_recovery: str = "",
 ) -> None:
-    """Validate the manual daily-batch date and explicit retention choice."""
+    """Validate the manual daily-batch date and exact dates for explicit checks."""
     _validate_optional_date(asof, label="asof")
-    if preserve_existing_generations not in ("", "true", "false"):
-        raise WorkflowInputError("preserve_existing_generations must be empty, true, or false")
     if article_semantic_recovery:
         from baibai_jobs.integration.article_semantic_recovery import decode_recovery
 
@@ -40,10 +37,8 @@ def validate_daily_input(
             recovery = decode_recovery(article_semantic_recovery)
         except (ValueError, TypeError) as exc:
             raise WorkflowInputError("article semantic recovery input is invalid") from exc
-        if recovery["as_of"] != asof or preserve_existing_generations != "true":
-            raise WorkflowInputError(
-                "article recovery requires the explicit date and generation retention"
-            )
+        if recovery["as_of"] != asof:
+            raise WorkflowInputError("article recovery requires the matching explicit date")
     if edinet_metrics_acceptance:
         from baibai_jobs.integration.edinet_metric_acceptance import decode_acceptance
 
@@ -51,10 +46,8 @@ def validate_daily_input(
             acceptance = decode_acceptance(edinet_metrics_acceptance)
         except (ValueError, TypeError) as exc:
             raise WorkflowInputError("EDINET metric acceptance input is invalid") from exc
-        if acceptance["as_of"] != asof or preserve_existing_generations != "true":
-            raise WorkflowInputError(
-                "EDINET acceptance requires the explicit date and generation retention"
-            )
+        if acceptance["as_of"] != asof:
+            raise WorkflowInputError("EDINET acceptance requires the matching explicit date")
 
 
 def validate_watchdog_input(*, check_date: str) -> None:
@@ -68,7 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     daily = subparsers.add_parser("daily")
     daily.add_argument("--asof", default="")
-    daily.add_argument("--preserve-existing-generations", default="")
     daily.add_argument("--edinet-metrics-acceptance", default="")
     daily.add_argument("--article-semantic-recovery", default="")
 
@@ -83,7 +75,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "daily":
             validate_daily_input(
                 asof=args.asof,
-                preserve_existing_generations=args.preserve_existing_generations,
                 edinet_metrics_acceptance=args.edinet_metrics_acceptance,
                 article_semantic_recovery=args.article_semantic_recovery,
             )

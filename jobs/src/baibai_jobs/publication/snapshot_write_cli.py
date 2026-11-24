@@ -14,7 +14,10 @@ from contextlib import closing, suppress
 from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import LakePublishError
+from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.hydrate import (
+    DehydrateReport,
+    HydrateReport,
     LakeHydrateError,
     dehydrate_market_store,
     hydrate_market_store,
@@ -23,6 +26,7 @@ from baibai_engine.storage.snapshots.models import LakeReleaseSourceRef, load_la
 from baibai_engine.storage.snapshots.objects import (
     MAX_BUFFERED_OBJECT_BYTES,
     LakeCredentialError,
+    LakeObjectCache,
     LakeObjectError,
     LakeObjectSource,
     open_lake,
@@ -164,9 +168,8 @@ def _resolve_release_target(
 
 
 def _clear_independent_list_cache(
-    args: argparse.Namespace, release: FixedRelease, *, store_path: Path | None = None
+    release: FixedRelease, *, path: Path, mirror: Path, bucket: str | None, timed: bool
 ) -> None:
-    path = args.store if store_path is None else store_path
     if "edinet.list_responses" in release.dataset_names() or not path.exists():
         return
     with closing(connect_read_only(path)) as connection:
@@ -176,11 +179,11 @@ def _clear_independent_list_cache(
     from baibai_engine.storage.objects.r2 import Boto3R2Store
     from baibai_jobs.integration.edinet_list_native import clear_verified_receipt_cache
 
-    if args.bucket is None:
+    if bucket is None:
         raise ValueError("native EDINET receipt cache verification requires --bucket")
-    started = time.perf_counter() if store_path is not None else None
-    with closing(Boto3R2Store(bucket=args.bucket)) as store:
-        fixed = EdinetListL1(store, args.mirror / "edinet-native").freeze()
+    started = time.perf_counter() if timed else None
+    with closing(Boto3R2Store(bucket=bucket)) as store:
+        fixed = EdinetListL1(store, mirror / "edinet-native").freeze()
         verified = clear_verified_receipt_cache(fixed, path)
     if started is not None and verified:
         # Use the unbuffered stderr descriptor: a failed flush can otherwise be
@@ -236,58 +239,77 @@ def _daily_rebuilds_prices(release: FixedRelease, store: Path) -> bool:
         )
 
 
-def _hydrate(args: argparse.Namespace) -> int:
-    """Resolve one release, then fill the market store's lake-owned tables from it."""
+def hydrate_release(
+    session: LakeSession,
+    cache: LakeObjectCache,
+    *,
+    store: Path,
+    release: FixedRelease,
+    bucket: str | None,
+    mode: str,
+    still_current: Callable[[], tuple[str, str]] | None = None,
+) -> HydrateReport:
+    """Fill the working store from one resolved release, never from a second head."""
+    deferred = None
+    if mode == "portfolio":
+        # App owns saved proposals/outcomes; only prices, calendar and names are needed.
+        dataset_names: tuple[str, ...] = (
+            "jquants.daily_bars",
+            "jquants.market_calendar",
+            "jquants.master_snapshots",
+        )
+    else:
+        dataset_names = release.dataset_names()
+        if mode == "daily" and _daily_rebuilds_prices(release, store):
+            deferred = "jquants.daily_bars"
+            dataset_names = tuple(name for name in dataset_names if name != deferred)
+    with prefetching_hydration_cache(
+        cache, release=release, dataset_names=dataset_names, bucket=bucket
+    ) as hydration_cache:
+        if (
+            mode == "daily"
+            and hydration_cache.evict_large_after_read
+            and hydration_cache.root.is_dir()
+        ):
+            hydration_cache.keep_for_export = _publication_web_inputs(
+                release, disk_free=shutil.disk_usage(hydration_cache.root).free
+            )
+        return hydrate_market_store(
+            session,
+            release=release,
+            cache=hydration_cache,
+            store=store,
+            dataset_names=dataset_names,
+            still_current=still_current,
+            catalog=LAKE_DATASETS,
+            require_empty_dataset=deferred,
+            prepare_copy=(
+                lambda path: _clear_independent_list_cache(
+                    release, path=path, mirror=cache.root, bucket=bucket, timed=True
+                )
+            )
+            if mode != "portfolio" and "edinet.list_responses" not in dataset_names
+            else None,
+        )
 
+
+def _hydrate(args: argparse.Namespace) -> int:
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
             release, still_current = _resolve_release_target(args, cache.source)
-            deferred = None
-            if args.command == "hydrate-portfolio":
-                # Saved proposals/outcomes live in App. Only valuation and names need
-                # market rows; unrelated native receipt caches are not ours to clear.
-                dataset_names: tuple[str, ...] = (
-                    "jquants.daily_bars",
-                    "jquants.market_calendar",
-                    "jquants.master_snapshots",
-                )
-            else:
-                dataset_names = release.dataset_names()
-                if args.command == "hydrate-for-daily" and _daily_rebuilds_prices(
-                    release, args.store
-                ):
-                    deferred = "jquants.daily_bars"
-                    dataset_names = tuple(name for name in dataset_names if name != deferred)
-            with prefetching_hydration_cache(
+            report = hydrate_release(
+                session,
                 cache,
+                store=args.store,
                 release=release,
-                dataset_names=dataset_names,
                 bucket=args.bucket,
-            ) as hydration_cache:
-                if (
-                    args.command == "hydrate-for-daily"
-                    and hydration_cache.evict_large_after_read
-                    and hydration_cache.root.is_dir()
-                ):
-                    hydration_cache.keep_for_export = _publication_web_inputs(
-                        release, disk_free=shutil.disk_usage(hydration_cache.root).free
-                    )
-                report = hydrate_market_store(
-                    session,
-                    release=release,
-                    cache=hydration_cache,
-                    store=args.store,
-                    dataset_names=dataset_names,
-                    still_current=still_current,
-                    catalog=LAKE_DATASETS,
-                    require_empty_dataset=deferred,
-                    prepare_copy=(
-                        lambda path: _clear_independent_list_cache(args, release, store_path=path)
-                    )
-                    if args.command != "hydrate-portfolio"
-                    and "edinet.list_responses" not in dataset_names
-                    else None,
-                )
+                mode={
+                    "hydrate": "full",
+                    "hydrate-for-daily": "daily",
+                    "hydrate-portfolio": "portfolio",
+                }[args.command],
+                still_current=still_current,
+            )
     except (
         sqlite3.Error,
         LakeCredentialError,
@@ -305,6 +327,27 @@ def _hydrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def prepare_market_transfer(
+    source: Path,
+    output: Path,
+    *,
+    release: FixedRelease,
+    mirror: Path,
+    bucket: str | None,
+    still_current: Callable[[], tuple[str, str]] | None = None,
+) -> DehydrateReport:
+    return make_market_transfer(
+        source,
+        output,
+        release=release,
+        still_current=still_current,
+        catalog=LAKE_DATASETS,
+        prepare_copy=lambda path: _clear_independent_list_cache(
+            release, path=path, mirror=mirror, bucket=bucket, timed=True
+        ),
+    )
+
+
 def _dehydrate(args: argparse.Namespace) -> int:
     """Empty a market SQLite copy of every row the named release already publishes."""
 
@@ -312,20 +355,20 @@ def _dehydrate(args: argparse.Namespace) -> int:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (_, cache):
             release, still_current = _resolve_release_target(args, cache.source)
             if args.source is None:
-                _clear_independent_list_cache(args, release)
+                _clear_independent_list_cache(
+                    release, path=args.store, mirror=args.mirror, bucket=args.bucket, timed=False
+                )
                 report = dehydrate_market_store(
                     args.store, release=release, still_current=still_current, catalog=LAKE_DATASETS
                 )
             else:
-                report = make_market_transfer(
+                report = prepare_market_transfer(
                     args.source,
                     args.store,
                     release=release,
+                    mirror=args.mirror,
+                    bucket=args.bucket,
                     still_current=still_current,
-                    catalog=LAKE_DATASETS,
-                    prepare_copy=lambda path: _clear_independent_list_cache(
-                        args, release, store_path=path
-                    ),
                 )
     except (
         LakeCredentialError,

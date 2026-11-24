@@ -70,7 +70,9 @@ def _case(tmp_path, monkeypatch, command, failure=None, *, failed_input=False):
     monkeypatch.setattr(sources, "apply", apply)
     monkeypatch.setattr(sources, "_load_handle", lambda _: object())
     monkeypatch.setattr(sources, "verify_held", lambda store, _: use(store, "lease"))
-    monkeypatch.setattr(sources, "canonical_generations", lambda _: {"lake_release_id": "fixed"})
+    monkeypatch.setattr(
+        sources, "canonical_generations", lambda _, **__: {"lake_release_id": "fixed"}
+    )
     monkeypatch.setattr(sources, "publish_inputs", publish)
     monkeypatch.setattr(sources, "seal_integrated", seal)
     args = [command, "--directory", str(directory)]

@@ -444,3 +444,46 @@ def test_get_metadata_failure_closes_stream(monkeypatch, fault):
     with pytest.raises(R2Error if fault == "timeout" else KeyError):
         store.get_bytes_with_metadata("body")
     assert body.closed
+
+
+@pytest.mark.parametrize("header", ["foreign-etag", "wrong-size", "matching"])
+def test_r2_pinned_sqlite_get_validates_response_before_replacing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, header: str
+) -> None:
+    import sqlite3
+    from contextlib import closing
+    from io import BytesIO
+
+    target = tmp_path / "current.sqlite"
+    candidate = tmp_path / "candidate.sqlite"
+    for path, value in ((target, 10), (candidate, 20)):
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("CREATE TABLE payload (value int)")
+            db.execute("INSERT INTO payload VALUES (?)", (value,))
+    old_data, new_data = target.read_bytes(), candidate.read_bytes()
+    assert len(old_data) == len(new_data)
+    assert old_data != new_data
+    calls = []
+    body = BytesIO(new_data)
+
+    class Client:
+        def get_object(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "Body": body,
+                "ETag": '"foreign"' if header == "foreign-etag" else '"exact"',
+                "ContentLength": len(new_data) + (header == "wrong-size"),
+            }
+
+    store = metadata_store()
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    if header == "matching":
+        store.download_file("once", target, expect_bytes=len(new_data), expect_etag="exact")
+        assert target.read_bytes() == new_data
+    else:
+        with pytest.raises(R2Error, match="pinned identity"):
+            store.download_file("once", target, expect_bytes=len(new_data), expect_etag="exact")
+        assert target.read_bytes() == old_data
+    assert calls == [{"Bucket": store.bucket, "Key": "once", "IfMatch": '"exact"'}]
+    assert body.closed
+    assert not list(tmp_path.glob("*.part"))

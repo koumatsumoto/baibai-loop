@@ -223,23 +223,19 @@ def test_input_rejects_implicit_or_ambiguous_scope_before_credentials(compared, 
         decode_recovery(json.dumps(request))
 
 
-def test_explicit_retention_and_date_are_required_only_when_opted_in(compared):
+def test_matching_explicit_date_is_required_only_when_opted_in(compared):
     raw = json.dumps(compared[1])
-    validate_daily_input(asof="", preserve_existing_generations="")
+    validate_daily_input(asof="")
     validate_daily_input(
         asof=NOW.date().isoformat(),
-        preserve_existing_generations="true",
         article_semantic_recovery=raw,
     )
-    for asof, preserve in (("", "true"), ("2026-01-01", "true"), (NOW.date().isoformat(), "false")):
+    for asof in ("", "2026-01-01"):
         with pytest.raises(WorkflowInputError):
-            validate_daily_input(
-                asof=asof, preserve_existing_generations=preserve, article_semantic_recovery=raw
-            )
+            validate_daily_input(asof=asof, article_semantic_recovery=raw)
     with pytest.raises(WorkflowInputError):
         validate_daily_input(
             asof=NOW.date().isoformat(),
-            preserve_existing_generations="true",
             article_semantic_recovery="x" * 16_385,
         )
 

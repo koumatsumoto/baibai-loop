@@ -116,7 +116,7 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
-    names = ("jquants.master_snapshots", "jquants.daily_bars")
+    names = ("jquants.master_snapshots", "jquants.daily_bars", "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)

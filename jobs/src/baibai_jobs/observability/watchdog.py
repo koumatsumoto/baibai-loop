@@ -143,8 +143,7 @@ RETIREMENT_PROOF_STEP = "Verify the event checkout and retired writer run invent
 PUBLISHED_STEPS = {
     "Acquire publication lease",
     "Apply fixed original receipts and common offline extraction",
-    "Generate models and candidates, then publish the same fixed release",
-    "Upload the core machine stores",
+    "Generate models and candidates, then publish one current Machine and Lake release",
     "Seal canonical market handoffs",
     "Refresh source-scoped inputs from this canonical generation",
     "Report retained economic source failures",

@@ -49,14 +49,16 @@ def seed(path, *, value="100000", at=CLOCK):
 
 @pytest.fixture
 def integration(tmp_path, monkeypatch):
-    names = ("jquants.daily_bars", "jquants.master_snapshots")
+    names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
     monkeypatch.setattr(job, "_load_handle", lambda _: None)
     monkeypatch.setattr(job, "verify_held", lambda *_: None)
     market = market_store(
-        tmp_path / "market.sqlite", daily_bars=(("1301", DAY.isoformat(), 100, 1),)
+        tmp_path / "market.sqlite",
+        daily_bars=(("1301", DAY.isoformat(), 100, 1),),
+        short_sale_reports=(),
     )
     with closing(sqlite3.connect(market)) as connection, connection:
         insert_master_rows(

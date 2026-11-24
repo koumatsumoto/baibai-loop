@@ -210,11 +210,11 @@ def test_stream_failure_rolls_back_models_and_never_publishes_policy(
         return replace(stream, models=iter(models))
 
     def forbidden(*_args, **_kwargs):
-        pytest.fail("failed stream reached policy publication or pruning")
+        pytest.fail("failed stream reached policy publication or machine staging")
 
     monkeypatch.setattr(job, "read_and_generate_models", generate_stream)
     monkeypatch.setattr(job, "evaluate_discovery_rows", forbidden)
-    monkeypatch.setattr(job, "prune_model_cache", forbidden)
+    monkeypatch.setattr(job, "stage_prepared_market_lake", forbidden)
     if failure == "projection":
 
         def fail(*_args, **_kwargs):
