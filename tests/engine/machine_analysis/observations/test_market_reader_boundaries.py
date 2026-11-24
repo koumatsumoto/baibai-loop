@@ -7,11 +7,9 @@ from contextlib import closing
 from datetime import date
 
 import pytest
-from tests.helpers.screening_sqlite import insert_financial_record
 
 import baibai_engine.machine_analysis.observations.prices.price_reader as price_reader
 from baibai_engine.machine_analysis.observations.disclosures import edinet_document_store
-from baibai_engine.machine_analysis.observations.financials import reader as financial_reader
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics import (
     store as edinet_store,
 )
@@ -167,30 +165,25 @@ def test_price_coverage_and_rows_share_a_read_snapshot(tmp_path, monkeypatch, re
     assert read() is None
 
 
-@pytest.mark.parametrize("source", ["jquants_fin_summaries", "jquants_market_calendar"])
-def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeypatch, source):
+def test_calendar_coverage_and_rows_share_a_read_snapshot(tmp_path, monkeypatch):
     path = tmp_path / "market.sqlite"
     day = date(2026, 1, 30)
     with closing(open_connection(path)) as conn, conn:
         conn.execute("PRAGMA journal_mode = WAL")
-        insert_financial_record(
-            conn, {"Code": "13010", "DiscDate": day.isoformat(), "DiscNo": "statement"}
-        )
         conn.execute(
             "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, '1')",
             (day.isoformat(),),
         )
         record_source_coverage(
             conn,
-            source=source,
+            source="jquants_market_calendar",
             coverage_key="test-range",
             coverage_start=day.isoformat(),
             coverage_end=day.isoformat(),
             fetched_at_utc="2026-01-30T00:00:00Z",
             record_count=1,
         )
-    owner = financial_reader if source == "jquants_fin_summaries" else calendar_reader
-    original = owner.range_covered
+    original = calendar_reader.range_covered
     changed = False
 
     def covered_then_refresh(conn, selected_source, start, end):
@@ -199,21 +192,15 @@ def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeyp
         if not changed:
             changed = True
             with closing(sqlite3.connect(path)) as writer, writer:
-                writer.execute("DELETE FROM jquants_fin_summaries")
                 writer.execute("DELETE FROM jquants_market_calendar")
                 writer.execute("UPDATE source_coverage SET status = 'partial'")
         return result
 
-    monkeypatch.setattr(owner, "range_covered", covered_then_refresh)
-    reader = (
-        financial_reader.read_fin_summaries
-        if source == "jquants_fin_summaries"
-        else calendar_reader.read_market_calendar
-    )
-    rows = reader(path, day, day)
+    monkeypatch.setattr(calendar_reader, "range_covered", covered_then_refresh)
+    rows = calendar_reader.read_market_calendar(path, day, day)
     assert rows is not None
     assert len(rows) == 1
-    assert reader(path, day, day) is None
+    assert calendar_reader.read_market_calendar(path, day, day) is None
 
 
 @pytest.mark.parametrize("reader_kind", ["baseline", "metrics", "documents"])

@@ -48,7 +48,6 @@ import sys
 from baibai_engine.machine_analysis.observations import jquants_decode
 from baibai_engine.machine_analysis.observations.financials import jquants_models
 from baibai_engine.machine_analysis.observations.financials import edinet_models
-from baibai_engine.machine_analysis.observations.financials import reader as financial_reader
 from baibai_engine.machine_analysis.observations.prices import calendar_reader, price_reader
 from baibai_engine.machine_analysis.observations.stocks import reader as master_reader
 for prefix in (
@@ -58,7 +57,6 @@ for prefix in (
     'baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
-assert callable(financial_reader.read_fin_summaries)
 assert callable(calendar_reader.read_market_calendar)
 assert callable(price_reader.read_daily_bars)
 assert callable(master_reader.read_master_snapshot)

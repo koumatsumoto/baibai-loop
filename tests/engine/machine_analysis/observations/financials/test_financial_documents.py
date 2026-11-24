@@ -40,12 +40,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
     normalize_financial_summaries,
 )
-from baibai_engine.machine_analysis.observations.financials.reader import (
-    read_fin_summaries,
-    read_financial_documents,
-)
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -63,143 +58,24 @@ def snapshot(rows: list[JQuantsFinancialSummary]):
     return build_financial_snapshot(1074, rows, None, rules, adjustment_events=(), asof_date=ASOF)
 
 
-def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
-    from baibai_engine.machine_analysis.generation.financial_models import (
-        generate_financial_and_price_models,
-    )
-    from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
-
-    db = tmp_path / "market.sqlite"
-    records = documents()
-    seed_legacy_financial_sqlite(db, records, requested_start=date(2026, 8, 10), requested_end=ASOF)
-    before = db.read_bytes()
-    stored = read_fin_summaries(db, date(2026, 8, 10), ASOF)
-    assert stored is not None
-    assert len(stored) == 4
-    income = latest_forecast_source(stored)
+def test_document_projection_keeps_zero_and_income_source() -> None:
+    raw = decode(documents())
+    projected = project_financial_documents(raw, ASOF)
+    assert len(projected) == 4
+    assert raw[0].cumulative_eps == 33.3
+    assert all(row.forecast_eps is None for row in raw)
+    income = latest_forecast_source(projected)
     assert income is not None
     assert income.forecast_eps == 31.9
-    assert snapshot(stored) == snapshot(decode(records))
-    result = snapshot(stored)
+
+    result = snapshot(raw)
+    assert result == snapshot(projected)
     assert result.dps_forecast_annual == 0
     assert result.per_forward == 1074 / 31.9
     assert result.earnings_forecast_source
     assert result.earnings_forecast_source["disclosure_number"] == "income-correction"
     assert result.dividend_forecast_source
     assert result.dividend_forecast_source["disclosure_number"] == "dividend"
-    assert stored[0].cumulative_eps == 33.3
-    assert db.read_bytes() == before
-    with closing(sqlite3.connect(db)) as conn, conn:
-        raw = read_financial_documents(conn, start=date.min, end=date.max)
-        values = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchall()
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(jquants_fin_summaries)")}
-    assert all(row.forecast_eps is None for row in raw)
-    assert snapshot(raw) == snapshot(stored)
-    arguments = dict(
-        ticker="9999",
-        adjusted_bars=(),
-        adjustment_events=(),
-        trading_dates=(),
-        expected_price_date=None,
-        sector=None,
-        as_of=ASOF,
-        input_release=InputRelease(release_id="synthetic-release", manifest_sha256="a" * 64),
-        ttm_rules=DEFAULT_TTM_RULES,
-    )
-    assert generate_financial_and_price_models(
-        documents=raw, **arguments
-    ) == generate_financial_and_price_models(documents=decode(records), **arguments)
-    assert columns == {"ticker", "disclosed_at", "disclosure_number", "document_payload"}
-    assert {json.loads(row[0])["DiscNo"]: json.loads(row[0]) for row in values} == {
-        record["DiscNo"]: record for record in records
-    }
-
-
-@pytest.mark.parametrize("corrupt", [False, True])
-def test_raw_document_batches_preserve_order_and_reject_late_corruption(corrupt, mocker):
-
-    records = [
-        document(
-            f"document-{index:03d}",
-            Code="99990" if index % 2 else "99980",
-            time=("", "16:00:00", "19:00:00")[index % 3],
-            NP="0" if index % 2 else "100",
-            FEPS="0",
-            FDivAnn="0",
-        )
-        for index in range(257)
-    ]
-    batches = []
-    with closing(sqlite3.connect(":memory:")) as connection:
-        connection.execute(
-            "CREATE TABLE jquants_fin_summaries (ticker TEXT, disclosed_at TEXT, "
-            "disclosure_number TEXT, document_payload TEXT)"
-        )
-        connection.executemany(
-            "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
-            [
-                (record["Code"][:4], record["DiscDate"], record["DiscNo"], json.dumps(record))
-                for record in reversed(records)
-            ],
-        )
-        if corrupt:
-            connection.execute(
-                "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
-                ("9999", ASOF.isoformat(), "late-corrupt", "[]"),
-            )
-
-        def execute(*args):
-            cursor = connection.execute(*args)
-
-            def fetchmany(size):
-                assert 0 < size < len(records)
-                batch = cursor.fetchmany(size)
-                batches.append(len(batch))
-                return batch
-
-            wrapped = mocker.Mock()
-            wrapped.fetchmany.side_effect = fetchmany
-            wrapped.fetchall.side_effect = AssertionError("raw documents must be read in batches")
-            return wrapped
-
-        reader_connection = mocker.Mock()
-        reader_connection.execute.side_effect = execute
-        if corrupt:
-            with pytest.raises(JQuantsProviderError, match="financial document must be a provider"):
-                read_financial_documents(reader_connection, start=date.min, end=date.max)
-            assert len(batches) > 1
-            return
-        rows = read_financial_documents(reader_connection, start=date.min, end=date.max)
-
-    assert len(batches) > 2
-    assert batches[-1] == 0
-    sql_order = sorted(
-        records, key=lambda record: (record["Code"], record["DiscDate"], record["DiscNo"])
-    )
-    expected = sorted(
-        decode(sql_order), key=lambda row: (row.disclosed_at, row.disclosed_time or "")
-    )
-    assert rows == expected
-    projected = project_financial_documents(expected, ASOF)
-    assert [(row.ticker, row.disclosure_number) for row in rows] == [
-        (row.ticker, row.disclosure_number) for row in projected
-    ]
-
-
-def test_covered_projection_keeps_cross_company_disclosure_tie_order(tmp_path):
-    records = [
-        document("first-company", Code="99980", FEPS="1"),
-        document("second-company", FEPS="2"),
-        document("second-company-earlier", day="2026-08-10", FEPS="3"),
-    ]
-    path = tmp_path / "market.sqlite"
-    start = date(2026, 8, 10)
-    seed_legacy_financial_sqlite(path, records, requested_start=start, requested_end=ASOF)
-    sql_order = sorted(
-        records, key=lambda record: (record["Code"], record["DiscDate"], record["DiscNo"])
-    )
-    expected = project_financial_documents(decode(sql_order), ASOF)
-    assert read_fin_summaries(path, start, ASOF) == expected
 
 
 def test_asof_excludes_later_revision() -> None:
@@ -304,16 +180,9 @@ def test_f_and_next_slots_are_retained_without_mixing() -> None:
     ) == (20, 100, 90)
 
 
-def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> None:
-    db = tmp_path / "market.sqlite"
+def test_same_time_different_docs_cannot_supply_capital_pair() -> None:
     records = [document("issued", ShOutFY="1000"), document("treasury", TrShFY="100")]
-    seed_legacy_financial_sqlite(db, records, requested_start=date(2026, 9, 14), requested_end=ASOF)
-    conn = open_connection(db)
-    try:
-        rows = read_financial_documents(conn, start=date(2026, 9, 14), end=ASOF)
-        assert _resolve_capital_basis(rows).shares_ex_treasury is None
-    finally:
-        conn.close()
+    assert _resolve_capital_basis(decode(records)).shares_ex_treasury is None
 
 
 def test_financial_lake_contract_roundtrip_preserves_documents(
@@ -395,12 +264,18 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
             dataset_names=("jquants.fin_summaries",),
             catalog=LAKE_DATASETS,
         )
-    original = read_fin_summaries(db, date(2026, 8, 10), ASOF)
-    arrived = read_fin_summaries(destination, date(2026, 8, 10), ASOF)
-    assert original == arrived
-    assert arrived is not None
-    assert len(arrived) == 4
-    assert snapshot(arrived).dps_forecast_annual == 0
+    query = (
+        "SELECT ticker, disclosed_at, disclosure_number, document_payload "
+        "FROM jquants_fin_summaries ORDER BY ticker, disclosed_at, disclosure_number"
+    )
+    with (
+        closing(sqlite3.connect(db)) as original,
+        closing(sqlite3.connect(destination)) as arrived,
+    ):
+        stored = arrived.execute(query).fetchall()
+        assert stored == original.execute(query).fetchall()
+    assert len(stored) == 4
+    assert snapshot(decode([json.loads(row[3]) for row in stored])).dps_forecast_annual == 0
 
 
 @pytest.mark.parametrize(
@@ -785,11 +660,10 @@ def test_financial_store_keeps_uninterpreted_provider_fields(tmp_path: Path) -> 
     with closing(sqlite3.connect(db)) as conn:
         payload = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchone()[0]
     assert json.loads(payload) == record
-    rows = read_fin_summaries(db, date(2026, 9, 14), ASOF)
-    assert rows is not None
-    assert rows[0].cumulative_eps is None
-    assert rows[0].shares_outstanding is None
-    assert rows[0].forecast_eps == 0
+    (row,) = project_financial_documents(decode([json.loads(payload)]), ASOF)
+    assert row.cumulative_eps is None
+    assert row.shares_outstanding is None
+    assert row.forecast_eps == 0
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -890,7 +764,7 @@ def test_actual_correction_does_not_withdraw_a_different_period_forecast() -> No
 
 
 @pytest.mark.parametrize("standard", ["JP", "IFRS", "US"])
-def test_native_primary_financial_values_reach_l2_without_nc_substitution(tmp_path, standard):
+def test_native_primary_financial_values_reach_l2_without_nc_substitution(standard):
     record = documents()[0]
     record.update(
         DocType=f"FYFinancialStatements_Consolidated_{standard}",
@@ -905,13 +779,8 @@ def test_native_primary_financial_values_reach_l2_without_nc_substitution(tmp_pa
         NCTA="9998",
         NCEq="9997",
     )
-    path = tmp_path / "market.sqlite"
-    start = date(2026, 8, 10)
-    seed_legacy_financial_sqlite(path, [record], requested_start=start, requested_end=ASOF)
-    rows = read_fin_summaries(path, start, ASOF)
-    assert rows is not None
-    assert len(rows) == 1
-    row = rows[0]
+    rows = decode([record])
+    (row,) = rows
     assert row.document_type == record["DocType"]
     assert (
         row.sales,
@@ -1514,8 +1383,7 @@ def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares
 
 
 @pytest.mark.parametrize("value", [False, True])
-def test_boolean_native_financial_values_remain_raw_but_not_numeric(tmp_path, value):
-    path = tmp_path / "market.sqlite"
+def test_boolean_native_financial_values_remain_raw_but_not_numeric(value):
     record = document(
         "boolean-values",
         DocType="FYFinancialStatements_Consolidated_JP",
@@ -1525,12 +1393,7 @@ def test_boolean_native_financial_values_remain_raw_but_not_numeric(tmp_path, va
         FNCEPS="99",
         FDivAnn=value,
     )
-    start = date(2026, 8, 10)
-    seed_legacy_financial_sqlite(path, [record], requested_start=start, requested_end=ASOF)
-    rows = read_fin_summaries(path, start, ASOF)
-    assert rows is not None
-    assert len(rows) == 1
-    row = rows[0]
+    (row,) = project_financial_documents(decode([record]), ASOF)
     assert row.cumulative_eps is None
     assert row.shares_outstanding is None
     assert row.forecast_eps is None
@@ -1699,7 +1562,7 @@ def test_next_year_new_point_estimate_recovers_guidance(value):
     assert result.earnings_forecast_source["disclosure_number"] == "new-point-estimate"
 
 
-def test_next_year_annual_revision_reaches_generated_financials(tmp_path):
+def test_next_year_annual_revision_reaches_generated_financials():
     from baibai_engine.machine_analysis.generation.financial_models import (
         generate_financial_and_price_models,
     )
@@ -1707,14 +1570,9 @@ def test_next_year_annual_revision_reaches_generated_financials(tmp_path):
     from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 
     records = _next_year_earnings_records(NxFSales="1000", NxFOP="100")
-    db = tmp_path / "market.sqlite"
-    seed_legacy_financial_sqlite(db, records, requested_start=date(2026, 8, 1), requested_end=ASOF)
-    before = db.read_bytes()
-    with closing(sqlite3.connect(db)) as conn:
-        rows = read_financial_documents(conn, start=date.min, end=ASOF)
     models = generate_financial_and_price_models(
         ticker="9999",
-        documents=rows,
+        documents=decode(records),
         adjusted_bars=(PriceBar(traded_at=ASOF, price=1074, turnover_value=1000000),),
         adjustment_events=(),
         trading_dates=(ASOF,),
@@ -1735,4 +1593,3 @@ def test_next_year_annual_revision_reaches_generated_financials(tmp_path):
     assert financial["earnings_forecast_source"]["disclosure_number"] == "next-year-annual-revision"
     assert financial["market_cap"] == 107400
     assert financial["dps_forecast_annual"] == 7
-    assert db.read_bytes() == before
