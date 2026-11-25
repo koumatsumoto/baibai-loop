@@ -69,6 +69,19 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
     assert 'integration.sources check --directory "$RUNNER_TEMP/integration"' in check["run"]
 
 
+def test_optional_local_probe_is_independent_of_daily_publication(workflow, steps, by_id):
+    option = workflow["on"]["workflow_dispatch"]["inputs"]["jp_input_probe_ticker"]
+    assert option["required"] == "false"
+    probe = by_id["jp-input-probe"]
+    assert steps.index(probe) > steps.index(by_id["notify"])
+    assert probe["if"] == (
+        "${{ !cancelled() && github.event_name == 'workflow_dispatch' "
+        "&& inputs.jp_input_probe_ticker != '' && steps.batch.outcome == 'success' }}"
+    )
+    assert probe["continue-on-error"] == "true"
+    assert "env" not in probe  # Neither private dispatch values in logs nor writer credentials.
+
+
 def test_optional_edinet_acceptance_is_before_any_model_publication(workflow, steps, by_id):
     declaration = workflow["on"]["workflow_dispatch"]["inputs"]["edinet_metrics_acceptance"]
     assert declaration["type"] == "string"
