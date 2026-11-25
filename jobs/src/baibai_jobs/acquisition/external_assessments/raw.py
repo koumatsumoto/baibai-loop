@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import argparse
 import base64
 import gzip
 import hashlib
 import io
 import json
-import os
 import re
-import sys
 import tarfile
 import tempfile
 import uuid
@@ -25,7 +22,6 @@ from baibai_engine.data_collection.receipts.public_pages.receipts import (
     validate_response as equity_web_validate_response,
 )
 from baibai_engine.storage.objects.r2 import (
-    Boto3R2Store,
     LakePublishError,
     ObjectMetadataReader,
     ObjectStore,
@@ -36,7 +32,7 @@ from baibai_jobs.acquisition.external_assessments.identity import (
     RAW_PREFIX,
     RETAINED_RAW_PREFIX,
 )
-from baibai_jobs.acquisition.external_assessments.staging import prefix, read_plan, read_stages
+from baibai_jobs.acquisition.external_assessments.staging import prefix
 
 _RECEIPT_FIELDS = {
     "receipt_id",
@@ -257,57 +253,23 @@ def retained_key(key: str) -> str:
     raise ValueError("external original is outside retained raw scope")
 
 
-def preserve_raw_bundle(store: ObjectStore, key: str) -> str:
-    """旧3日prefixの原本を同一bytesで保全する。元key・stage・原IDは変更しない。"""
+def verify_retained_raw_bundle(store: ObjectStore, key: str) -> None:
+    """参照が旧keyでも、retainedの同じ原本が既にあることだけを検証する。"""
     target = retained_key(key)
     existing = store.head(target)
-    if existing is not None:
-        payload = store.get_bytes(target)
-        if hashlib.sha256(payload).hexdigest() != existing.metadata.get("sha256"):
-            raise ValueError("retained external original failed integrity")
-        _decode_raw_bundle(payload, key)
-        if (
-            target != key
-            and (original := store.head(key)) is not None
-            and (
-                original.size != len(payload)
-                or original.metadata.get("sha256") != hashlib.sha256(payload).hexdigest()
-            )
-        ):
-            raise ValueError("retained external original conflicts with legacy bytes")
-        return target
-    if target == key:
+    if existing is None:
         raise ValueError("retained external original is missing")
-    original = store.head(key)
-    if original is None:
-        raise ValueError("legacy external original is missing; do not recreate its reception")
-    payload = store.get_bytes(key)
+    payload = store.get_bytes(target)
     digest = hashlib.sha256(payload).hexdigest()
-    if len(payload) != original.size or original.metadata.get("sha256") != digest:
-        raise ValueError("legacy external original failed integrity")
+    if digest != existing.metadata.get("sha256"):
+        raise ValueError("retained external original failed integrity")
     _decode_raw_bundle(payload, key)
-    with tempfile.TemporaryDirectory(prefix="baibai-retain-original-") as directory:
-        path = Path(directory) / "original.tar.gz"
-        path.write_bytes(payload)
-        path.chmod(0o600)
-        try:
-            store.put_file(
-                target,
-                path,
-                sha256=digest,
-                content_md5=base64.b64encode(
-                    hashlib.md5(payload, usedforsecurity=False).digest()
-                ).decode(),
-                content_type="application/gzip",
-                if_none_match=True,
-            )
-        except Exception:
-            # PUT結果不明なら同じ保存先を照合するだけ。上書きや新しい原本生成はしない。
-            if store.head(target) is None or store.get_bytes(target) != payload:
-                raise
-    if store.get_bytes(target) != payload:
-        raise ValueError("retained external original readback mismatch")
-    return target
+    if (
+        target != key
+        and (original := store.head(key)) is not None
+        and (original.size != len(payload) or original.metadata.get("sha256") != digest)
+    ):
+        raise ValueError("retained external original conflicts with legacy bytes")
 
 
 def _decode_raw_bundle(
@@ -418,57 +380,3 @@ def _decode_raw_bundle(
             raise ValueError("invalid external assessment raw tar tail")
     _validate_lineage(responses)
     return manifest, tuple(responses)
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Preserve the originals from one explicit external assessment plan"
-    )
-    parser.add_argument(
-        "--preserve-run-id", required=True, help="Copy originals for one exact plan; never delete"
-    )
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    try:
-        store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-        plan = read_plan(store, args.preserve_run_id)
-        if plan is None:
-            raise ValueError("exact external plan is missing")
-        preserved = []
-        for index, (stage, _) in sorted(read_stages(store, plan).items()):
-            for key in stage.raw_bundle_keys:
-                manifest, _ = read_raw_bundle(store, key)
-                if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
-                    raise ValueError("external preservation plan binding changed")
-                target = preserve_raw_bundle(store, key)
-                remote = store.head(target)
-                assert remote is not None
-                preserved.append(
-                    {
-                        "original_key": key,
-                        "retained_key": target,
-                        "bytes": remote.size,
-                        "sha256": remote.metadata["sha256"],
-                    }
-                )
-        report = {
-            "mode": "preserve_exact_plan",
-            "run_id": plan.run_id,
-            "plan_sha256": plan.plan_sha256,
-            "preserved": preserved,
-        }
-        print(json.dumps(report, sort_keys=True))
-        return 0
-    except Exception as error:
-        print(
-            f"External Assessment raw preservation failed; type={type(error).__name__}",
-            file=sys.stderr,
-        )
-        return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
