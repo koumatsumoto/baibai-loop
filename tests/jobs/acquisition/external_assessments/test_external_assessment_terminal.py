@@ -215,7 +215,7 @@ def test_historical_terminal_cli_reads_no_checkpoint_lease_db_or_l1(
     def forbidden(*args, **kwargs):
         pytest.fail("history CLI cannot acquire, refreeze, or read stages/L1")
 
-    monkeypatch.setattr(daily, "read_stages", forbidden)
+    monkeypatch.setattr(daily, "read_stage", forbidden)
     monkeypatch.setattr(daily, "initialize", forbidden)
     monkeypatch.setattr(daily, "acquire_cohort", forbidden)
     assert daily.main(["terminal", "--run-id", p.run_id]) == 0

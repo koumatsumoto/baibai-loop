@@ -38,7 +38,6 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     R2Error,
 )
-from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
 
 
 def bundles(store):
@@ -79,10 +78,7 @@ def test_exact_bytes_encoding_reparse_and_typed_idempotency(tmp_path, connect):
     manifest_bytes = json.dumps(metadata).encode()
     assert b"private-cookie-header" not in manifest_bytes
     assert b"private-authorization-header" not in manifest_bytes
-    assert len(store.puts) == 3
-    assert store.puts[0][0] == saved.raw_bundle_keys[0]
-    assert "/attempts/" in store.puts[1][0]
-    assert store.puts[2][0].endswith("cohort-0000.json")
+    assert [key for key, *_ in store.puts] == [saved.raw_bundle_keys[0], staging.stage_key(p, 0)]
 
 
 def test_retained_rakuten_outer_and_iframe_bytes_are_in_one_archive():
@@ -169,13 +165,6 @@ def test_projection_failure_keeps_batch_bodies_outcomes_and_same_plan_resume(
     assert tuple(item.attempt_id for item in restored) == tuple(
         entry.attempt_id for entry in saved.result.entries
     )
-    journal = read_attempts(store, p)
-    assert [attempt["outcomes"][0]["status"] for attempt in journal[0]["attempts"]] == [
-        "observed",
-        "parse_failure",
-        "observed",
-    ]
-    assert journal[0]["attempts"][1]["outcomes"][0]["reason"] == reason
     assert len(session.calls) == 3
     before = list(store.puts)
     assert daily.acquire_cohort(store, p, 0)["provider_requests"] == 0
@@ -226,20 +215,21 @@ def test_local_raw_failure_prevents_stage_commit(
     assert "private secret" not in error
 
 
-def test_projection_failure_raw_and_attempt_survive_unsaved_stage_cas(connect, monkeypatch):
+def test_projection_failure_raw_survives_unsaved_stage_cas(connect, monkeypatch):
     body = monex_html().encode()
     session = Session([(200, body, "utf-8")])
     connect(session)
     monkeypatch.setattr(collection, "parse_source_html", _unexpected_projection)
     p, store = plan(), FakeObjectStore()
-    store.put_fault = (3, "cas")
+    store.put_fault = (2, "cas")
     with pytest.raises(LakePublishError):
         daily.acquire_cohort(store, p, 0)
     assert stage_or_none(store, p) is None
     assert len(session.calls) == 1
-    assert len(store.puts) == 3
-    journal = read_attempts(store, p)
-    candidate = staging.load_stage(p, json.dumps(journal[0]["candidate_stage"]).encode())
+    (key,) = bundles(store)
+    assert [path for path, *_ in store.puts] == [key, staging.stage_key(p, 0)]
+    candidate = staging.load_stage(p, store.puts[-1][3])
+    assert candidate.raw_bundle_keys == (key,)
     entry = candidate.result.entries[0]
     assert (entry.state, entry.reason) == ("failure", "unclassified_parse_failure")
     assert candidate.result.observations == ()
@@ -272,8 +262,10 @@ def test_projection_failure_keeps_candidate_raw_when_competing_success_wins(conn
     monkeypatch.setattr(store, "put_file", conflict)
     assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
     assert stage(store, p) == winner
-    journal = read_attempts(store, p)
-    candidate = staging.load_stage(p, json.dumps(journal[0]["candidate_stage"]).encode())
+    (key,) = (key for key in bundles(store) if key != winner_key)
+    assert [path for path, *_ in store.puts] == [key, staging.stage_key(p, 0)]
+    candidate = staging.load_stage(p, store.puts[-1][3])
+    assert candidate.raw_bundle_keys == (key,)
     assert candidate.result.entries[0].state == "failure"
     assert candidate.result.observations == ()
     assert candidate.raw_bundle_keys != winner.raw_bundle_keys

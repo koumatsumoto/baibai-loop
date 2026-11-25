@@ -167,43 +167,16 @@ with_publication_lease() (
 
 ### MachineとLakeを単一ポインタに切り替える一回作業
 
-日次の中で移行しない。旧方式で稼働中・待機中・再実行可能な旧commitのActionsと手動/ローカルwriterを止め、旧readerも止めてからv2 publication leaseを取得する。既存leaseを強制上書きしない。旧 `current.json` の実bytes・ETagとrelease manifest SHA、`machine-manifest.json` の実bytesと両固定DBのETagを固定する。受入済みの同じ旧組か実DBで確認し、Market内originはそのLake、RunsのGenerationとSelectionはそのmanifestを指すこと。旧方式の分裂・不明結果はこの移行で取り繕わない。native L1・App・指標は移行しない。
+旧SHAの再実行を含む旧Actions、手動・ローカルwriterと旧readerを止める。旧 `push-runs` は固定keyが残る間、ポインタを読まずに書けるので、leaseだけを排出の証拠にしない。採用commit・書込み先・実行機・範囲をレビューし、既存v2 leaseをoperatorとして取得する。強制取得・延長はしない。
 
-承認された一回作業で両DBを封印し、**送信元のSHA-256を各1つ**計算してから新しい固有keyへ転送する。この間、旧canonicalは変更しない。旧ポインタのETagを条件に同じkeyへ一回CASする。旧writerを止めたまま、同じlease内の単発処理で通常のペアreaderを用い、確定ポインタの実bytes・ETag、SQLite、Marketのorigin、RunsのGeneration/Selectionと受信した両DBのSHA-256を照合する。下のゲートが終わるまで旧ファイルを残す。次にMarketだけの表示、切替済みmainから新規の日次を起動して同一公開・seal・表示・lease解放を確認。旧版の再実行や新readerの旧方式fallbackは残さない。旧通常日次は新ポインタを読めず止まるが、旧ローカル `push-runs` は旧固定keyがある間はポインタを読まずに書ける。旧経路を凍結したまま、旧 `market.sqlite`、`runs.sqlite`、`machine-manifest.json` と既存の `market.sqlite.bak`、`runs.sqlite.bak` は受入後、別途削除承認を得たexact keyだけを扱う。削除承認待ちでも旧writerは再開しない。指標の旧 `indicators.sqlite.bak` もこのMachine移行では削除しない。
+1. **組と経路を確定する。** v1 currentの本文・ETag・Lake release ID/manifest SHAを固定する。旧受領票の本文・公開時のSHA-256・ETag、固定Market/RunsのETag・長さ・実体を照合し、MarketのoriginとRunsのGeneration/Selectionが受領票のLakeを指すことを確認する。既に証明済みの保護copyは新しい固定ETag・長さと再照合して使える。本文未検証のHEADだけは使わない。current Lakeと旧組が同一のときだけ、そのままの実ペアを移す。Lakeだけが先行していれば[前向き復旧](#lakeだけが先行した場合の一回復旧)だけを使い、不明・改変・不一致を旧組への巻き戻しで通さない。
+2. **実寸で一回の書込み範囲を決める。** 実際に封印した転送用Market/Runsがどちらも `MAX_MACHINE_PUT_BYTES`（5,363,466,240 B）以下であることを、新候補のR2 stageより前に確認する。最初の切替は単一PUTのみ。転送元と独立readbackを一緒に置ける実行機で、hydrate・SQLite封印の一時容量も別に足して計測し、120分のoperator lease内で完結できなければ止める。上限を超えたら最初の切替を止め、multipartの実機受入と個別承認なしに切り替えない。上限内の実ペアに対する本番受入に、上限超の合成試験を前提としない。実通信、実使用量、実時間が未確認なら検証済みとは扱わない。
+3. **未選択のまま実バイトを読む。** 既存の `stage_machine_members` で再利用しない固有キーへ条件付き単一PUTし、旧canonicalは変更しない。別のR2 readerで、固定したLake graphを解決し、両keyのHEADに加えETag/長さ指定GETで各本体を新しい作業ファイルへ取得する。実長さと全SHA-256を封印した送信元と照合し、SQLite整合・Marketの現行版とorigin・RunsのGeneration/Selectionを通常ownerで確かめる。前向き復旧ではこの前に新規生成本文とAから保持した履歴も照合する。応答のmetadataだけや送信元ファイルの再読取りは独立検証ではない。
+4. **一回だけ選び、通常readerで確かめる。** 同一lease内、既存 `activate_machine` の直前に、旧受領票と両固定DB、旧ポインタの本文・ETagが全て固定時のままで、同じv2 leaseが有効であることを確認。旧ETagを条件に一回だけCASする。切替後、通常の `pull_current_machine` が実currentから取得した両DB・Lake/Origin・Generation/Selection・全SHA-256と、現行ポインタの本文・ETagを同じlease内で再確認する。切替専用でreaderを差し替えず、旧形式fallbackを付けない。応答不明、lease交代、読戻し失敗では成功扱いせず凍結を継続する。CASの再送、旧ポインタへの書戻し、候補削除、後段sealはしない。
 
-Market・ポインタの書き込みは従来どおり単一PUT。RunsはR2の単一PUT上限 5,363,466,240 bytes（5 GiB − 5 MiB）を超える場合だけ、新規固有keyへの逐次multipartを使う。両方で同じSQLiteを送り、読取とポインタの形式は変えない。multipartは各partと全体の転送元、完了応答と完成objectを照合し、lease下で `If-None-Match: *` により完成させる。完成の応答不明は再送・削除しない。未完partの失効設定は既存bucketで確認する。これは完成済みで未選択のobjectを消す設定ではない。
+この一回作業は `publish_staged_machine` や `finish_machine_retirement` を呼ばず、旧 `market.sqlite`、`runs.sqlite`、`machine-manifest.json`、固定の `.bak` を作成・削除・上書きしない。旧writerは再開しない。切替の読戻しとlease解放を確認後、切替済みmainの新しい日次とMarket単独表示を別に受入する。次回日次の封印Runsが上限超になる可能性があれば、通常日次による暗黙のmultipart実行を受入試験の代用にしない。別の実機検証と承認が済むまでその起動・定期再開は保留する。旧キーの削除は実データと利用経路を別途確認したexact keyの判断であり、この実行には含めない。
 
-切替前に、現行組の実寸と単一PUT上限を超える合成Runsを、書込・費用・削除範囲が確定した本番外の隔離先で検証する。正規readerの固定条件GETによる両SHA-256の照合、disk・所要時間・lease残時間を確認し、**確認に合格した後でだけ**隔離した前組の正確な2キーを退役して不在を確認する。HEAD・ETagだけ、および模擬S3・縮小fixtureでは実R2受入としない。
-
-単発の実装では自動退役も行う `publish_staged_machine` を使わない。既存の `stage_machine_members` → `activate_machine` で選んだペアを、以下のように独立readerで検証する。 `while_held` は現在のleaseを検査する関数、`expected_sha256` は封印済み送信元のMarket/Runs（この順）のSHA-256とする。既存の隔離作業領域・認可だけを使用する。
-
-```python
-from baibai_engine.storage.objects.r2 import LakePublishError
-from baibai_engine.storage.snapshots.sources import sha256_file
-from baibai_jobs.publication.machine_pull import pull_current_machine
-from baibai_jobs.publication.snapshot_release import read_pointer_snapshot
-
-expected = committed.current
-
-
-def require_same_pointer(observed):
-    if observed != expected or observed.payload != expected.payload:
-        raise LakePublishError("Machine cutover pointer changed")
-
-
-while_held()
-with pull_current_machine(reader, lake_source, directory=work) as pulled:
-    require_same_pointer(pulled.current)
-    if (
-        pulled.runs is None
-        or (sha256_file(pulled.market), sha256_file(pulled.runs)) != expected_sha256
-    ):
-        raise LakePublishError("Machine cutover readback differs from sealed files")
-while_held()
-require_same_pointer(read_pointer_snapshot(reader))
-```
-
-読取・SHA・lease・ポインタのどれかが不一致なら成功扱いせず、旧組は削除しない。上記ゲートを通ってから、隔離先だけ `finish_machine_retirement(writer, expected, while_held=while_held)` で前組2キーを退役する。本番の旧**固定**キーはこのAPIの対象ではなく、次の日次・表示も通った後、別途承認されたexact keyを扱う。
+日次の通常writerはMarket・ポインタを単一PUTし、上限超のRunsのみ固有キーへmultipartする。条件付き完成と応答不明時の停止、未完partの期限、実転送・独立読戻しは別のmultipart受入。模擬S3や縮小fixtureを実R2の証拠にはしない。
 
 ### Lakeだけが先行した場合の一回復旧
 
@@ -212,10 +185,10 @@ require_same_pointer(read_pointer_snapshot(reader))
 1. **基点を確認する。** 旧版の日次・表示の稼働/待機/再実行と手動writerを[一回切替](#machineとlakeを単一ポインタに切り替える一回作業)と同じように排出する。Aは `machine-manifest.json` の実bytes・SHA・ETag、両固定DBのETag・長さ、Marketのorigin、RunsのGenerationとSelectionで照合する。Tは現行ポインタの実bytes・ETagと、release ID・manifest SHAを固定する。AからTに前向きhydrateできることを、両方の固定manifestとAのMarketで検証する。取得した両DBは固定ETag・長さとSQLiteを照合する。検証済み原copyは閉じたまま保持し、新しい隔離copyだけを使う。
 2. **実入力を固定する。** Tの照合済みobjectからMarketをhydrateし、経済正本の検証済みcopy、EDINETのlist/archive、J-Quantsの財務・暦・銘柄・日足と有効な信用/空売り系native入力を、通常のownerと計画で固定する。取得workerのsource固有CASは共通leaseでは止まらない。固定内容を使い、hydrate・抽出・転送時に別のheadを読み直さない。入力レシピの既存の保持処理はR2へ書く場合がある。必要な固定本文を読めることと、その保持の範囲を分けて確認する。受領済みのstageを取り込む場合は固定 `plan` → `apply` の実結果を使い、元受領を変更しない。遅着は次の統合へ。既にseal済みの経済原本・取得inputの再発行やproviderへの取り直しはしない。基準日、実評価時刻、原本の受領・公表時刻は区別し、失敗runの時点を再現したとは扱わない。
 3. **通常の計算・保存でT2を作る。** 新releaseと `read_and_generate_models` は同じ封印済みMarketを使う。新GenerationはT2のrelease ID・manifest SHAを指し、候補外を含む通常の対象全体について再計算する。`ModelGenerationStore.publish_stream` と通常の探索結果から、そのGenerationの `ScreeningSelection` を保存する。生成されなかったTの結果や比較材料は捏造しない。利用可能な固定L1原本は通常どおり参照する。通常の再計算で値が等しいことと、古い本文を代入することは別。
-4. **封印した転送物を照合し、一回だけ切り替える。** Runsのcompaction後、新IDの既存行がないことと、Aの既存履歴がすべて元のままであることを一回比較する。増分は新Generation、そのモデルとSelectionだけとする。新モデルは生成されたID・対象・計算revisionと、通常writerに渡した本文を保存行の展開後のbytesと照合する。各対象の財務・成長・テクニカルは必須。任意モデルの未出力を一律に失敗とせず、予定件数との一致だけで通さない。Lake graphと同じT2のoriginを持つMarket、検証済みRunsを新規固有keyへstageする。公開直前に有効なv2 operator lease、変わっていないAの受領票・両固定DB、Tの実bytes・ETagを確認し、TのETagを条件に既存の単一送信CASで選ぶ。基点や固定入力の不一致、未排出の旧writer、lease交代があれば中止する。結果不明は[公開の結果不明](#machine公開の結果不明)に従い、再送・削除・後段実行はしない。
+4. **新しく封印した組だけを選ぶ。** Runsのcompaction後、新IDの既存行がないことと、Aの既存履歴がすべて元のままであることを一回比較する。増分は新Generation、そのモデルとSelectionだけとする。新モデルは生成されたID・対象・計算revisionと、通常writerに渡した本文を保存行の展開後のbytesと照合する。各対象の財務・成長・テクニカルは必須。任意モデルの未出力を一律に失敗とせず、予定件数との一致だけで通さない。T2はAともTとも異なるreleaseとする。実寸の封印Market/Runsが単一PUT上限内と確認してから、既存 `stage_release` でT2のimmutable graphを置き、[一回切替](#machineとlakeを単一ポインタに切り替える一回作業)と同じ未選択の両DBの実バイト検証を行う。Aの固定組とTの本文・ETagが不変の時だけTのETagを条件に一回CASする。
 5. **読戻しと通常運用を別に確認する。** 選んだポインタの実bytesを確認し、通常のpair readerで両DBを固定して取得する。SQLite、origin、Generation/Selection、両DBのSHA-256をstage前の結果と照合する。この一回復旧は取得markerや次input、Web、提案の完了ではない。失敗runの `applied.json` がなければ捏造せず、未sealのstageだけを新しい通常日次の `plan` / `apply` から再確認する。既存markerを変えず、通常探索できないstageは[source取得と再開](#sources)で扱う。復旧のleaseを解放し、同じ対象の別runがないことを確認して、切替済みのmainから[日次を手動実行](#daily)し、正本の前進、seal、未完のinput、Web、lease解放をそのrunで確認する。[新規の正式提案](#production-proposal-acceptance)は別受入とする。
 
-現行が既に別の世代へ進んでいたら、この復旧は実行しない。この復旧専用の入口は通常CLIにない。実行前に、固定A/Tだけを受ける一回用の手順・入力を固定する処理・候補の封印後照合を、採用commitで独立レビューする。fixtureの小規模な成功では足りない。既存の[一回切替](#machineとlakeを単一ポインタに切り替える一回作業)と同じ実寸R2検証に加え、保護したAのcopy・作業DB・Lake展開・SQLite一時ファイル・読戻しを置く容量と、operator leaseの有効時間内での実測を確認する。operator leaseの有効時間は[leaseの実装](src/baibai_jobs/publication/lease.py)に従う。通常日次のjob時間を当てにしない。新しい互換機能、定期監査、backup、保存形式は足さず、判定に使った固定ID・結果と未確認事項だけを対象PRに残す。
+現行が既に別の世代へ進んでいたら、この復旧は実行しない。この復旧専用の入口は通常CLIにない。通常CLIのbase検査を省いて起動したり、固定作業copyを公開し直したりしない。固定A/Tと各原本の実体・通常の生成と本文照合を、採用commitの一回用手順として独立レビューする。Aの保護copy・作業DB・Lake展開・SQLite一時ファイル・読戻しを置ける実行機と、[既存operator lease](src/baibai_jobs/publication/lease.py)内の実測時間を確認する。別々のvolumeの空きは合算しない。合成fixtureは手順の反証に限り、今回の本番受入では未選択の実ペアと切替後の通常readerを使う。新しい互換機能、定期監査、backup、保存形式は足さない。
 
 ### 保持copyから欠落Generationを戻す
 
@@ -452,7 +425,7 @@ gh workflow run cloud-external-assessment.yml --ref main -f source=monex -f batc
 
 新原本はretainedにのみ保存する。旧参照でも同じretained原本が検証できれば再開できる。原本がなければ停止し、旧rawからの複写や現在の再取得で埋めない。
 
-lease外でacquire→inspect→ready --cumulative、共通統合で固定集合を公開/readbackしてackする。通常の探索は、同じplanにreadyが一つだけでその本文SHAへ正式ackがあるとき、採用済みstageを再監査しない。別のreadyがあれば固定集合の包含を確認し、後着小集合で後退させない。確定分で明示終了するときだけworkflowの-f operation=stage_confirmed_partialを使う。401/403/429/未完を自動closeしない。pointer後terminal失敗は現状態を読み、未sealならfresh hydrateから再適用する。hard kill前の未保存試行・期限切れ原本の復元は保証しない。history_digestsは保存後baselineで、更新前の全履歴保全を証明しない。
+lease外でacquire→inspect→ready --cumulative、共通統合で固定集合を公開/readbackしてackする。通常の探索は、同じplanにreadyが一つだけでその本文SHAへ正式ackがあるとき、採用済みstageを再監査しない。別のreadyがあれば固定集合の包含を確認し、後着小集合で後退させない。確定分で明示終了するときだけworkflowの-f operation=stage_confirmed_partialを使う。401/403/429/未完を自動closeしない。pointer後terminal失敗は現状態を読み、未sealならfresh hydrateから再適用する。再開は確定済みstageだけを使い、stage確定前の試行を別の監査台帳に保存しない。中断時の未確定試行・期限切れ原本の復元は保証しない。history_digestsは保存後baselineで、更新前の全履歴保全を証明しない。
 
 保存原本の再解析が必要なときは、現行の隔離copyへ対象attemptだけを `external-assessment rebuild-raw` で再解析する。元の受領日、対象L2の差分、直前/直後cutoffの値を確かめて[共通公開](#machine-publication)へ進む。HTTPを再試行せず、未公開の旧copyは本番へ戻さない。
 
@@ -576,7 +549,9 @@ uv run baibai-jobs edinet-archives-native acquire --bucket <ISOLATED_BUCKET> --d
 uv run baibai-jobs edinet-archives-native freeze --bucket <ISOLATED_BUCKET> --directory <READ_DIR>
 ```
 
-手動source=allは一覧/stage成功後にarchiveへ進む。一覧失敗時はall内archiveを止め、有効一覧を確認できる場合だけ同asofのarchiveを再実行する。metricsは取得窓の一覧に未受領日があっても、固定一覧で判明した許可CSVを先に保持する。未受領日はlist_unavailable_days、失敗受領日はlist_failed_daysへ残し、取得全体は失敗のままにする。明示refresh-edinet-metricsも既知CSVを先に保存する。要求窓内に未受領日または最新一覧の失敗日が残る場合は、先着の有効一覧があっても既存metrics/coverageを変えず失敗終了する。窓外の失敗は停止理由にしない。L2の完全window条件を緩めず、一覧回復後は保存済みZIPを再利用する。保持docID/typeを再GETせず、L2成否/revisionを取得条件にしない。holder/訂正の未保存分は既存batchを使う。CSV/XBRLともHTTP 401/403と、HTTP 200本文のStatusCode 401で当該passを止め、保存済みの部分原本を保ち、次の通常取得は未保存docID/typeだけを進める。
+手動source=allは一覧/stage成功後にarchiveへ進む。一覧失敗時はall内archiveを止め、有効一覧を確認できる場合だけ同asofのarchiveを再実行する。metricsは取得窓の一覧に未受領日があっても、固定一覧で判明した許可CSVを先に保持する。未受領日はlist_unavailable_days、失敗受領日はlist_failed_daysへ残し、取得全体は失敗のままにする。明示refresh-edinet-metricsも既知CSVを先に保存する。要求窓内に未受領日または最新一覧の失敗日が残る場合は、先着の有効一覧があっても既存metrics/coverageを変えず失敗終了する。窓外の失敗は停止理由にしない。L2の完全window条件を緩めず、一覧回復後は保存済みZIPを再利用する。保持docID/typeを再GETせず、L2成否/revisionを取得条件にしない。年次訂正の未保存分は同じ年次取得で扱う。CSV/XBRLともHTTP 401/403と、HTTP 200本文のStatusCode 401で当該passを止め、保存済みの部分原本を保ち、次の通常取得は未保存docID/typeだけを進める。
+
+大量保有報告（書類種別350/360）のZIPは通常のモデル・提案の入力ではないため、一括取得しない。保存済み原本は変更せず、必要な案件だけ原典を個別に確認する。
 
 一覧/archive未到着はdeferred_inputsで適格保存値を使い、到着後に再抽出する。解析失敗/原本破損を延期で隠さず、不正dayは正常投影を保ちながらsource-check失敗を残す。延期だけの継続とpartial/日別成功を分ける。誤orphanは現年度CSVを確保して次統合で回復し、全期間GETを代行しない。
 
@@ -585,7 +560,7 @@ uv run baibai-jobs edinet-archives-native freeze --bucket <ISOLATED_BUCKET> --di
 
 固定releaseから[facts reader](../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_facts/)を使い、文書/ticker/対象JST日とusable_documentを確認する。日末cutoffはintraday PITでなく、未選択は書類不存在を意味しない。segment/debtはdocID・期・連結・通貨を揃え、抽出行だけで全債務/資金余命を確定しない。
 
-facts scopeはL1取得範囲。L2品質でglobal開始日/docID集合を狭めず、failed/未提供/交代のfamilyも出所と共に保つ。初回annual取得は明示initialize成功後だけ有効化し、holderは独立。途中失敗は同じrefreshで再開し、ticker限定で他社/globalを置換しない。offline extractのinitializeは将来GETを有効にしない。
+facts scopeはL1取得範囲。L2品質でglobal開始日/docID集合を狭めず、failed/未提供/交代のfamilyも出所と共に保つ。初回annual取得は明示initialize成功後だけ有効化する。途中失敗は同じrefreshで再開し、ticker限定で他社/globalを置換しない。offline extractのinitializeは将来GETを有効にしない。
 
 ```bash
 uv run baibai-jobs maintain-market refresh-edinet-facts --asof <YYYY-MM-DD> --initialize --sqlite-path <STAGED_MARKET_SQLITE>

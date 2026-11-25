@@ -32,12 +32,8 @@ from baibai_jobs.acquisition.calendar_dependencies import (
     saved_calendar_context,
 )
 from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
-from baibai_jobs.acquisition.external_assessments.attempts import (
-    attempt_value,
-    read_attempts,
-    save_attempts,
-)
 from baibai_jobs.acquisition.external_assessments.cohorts import (
+    CohortResult,
     RunPlan,
     make_plan,
     new_result,
@@ -47,9 +43,6 @@ from baibai_jobs.acquisition.external_assessments.cohorts import (
 from baibai_jobs.acquisition.external_assessments.collection import (
     DEFAULT_PAIR_TIME_LIMIT_SECONDS,
     SOURCES,
-)
-from baibai_jobs.acquisition.external_assessments.collection import (
-    CollectionResult as ExternalAssessmentCollectionResult,
 )
 from baibai_jobs.acquisition.external_assessments.collection import (
     collect_pair as external_assessment_collect_pair,
@@ -63,7 +56,6 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     commit_stage,
     read_plan,
     read_stage,
-    read_stages,
     read_terminal,
     save_new_plan,
     terminal_result,
@@ -229,7 +221,6 @@ def acquire_cohort(
     require_binding(plan)
     original = stage
     provider_requests = 0
-    attempts: list[dict[str, object]] = []
     stop_reason = None
     # Quota waits survive run/cycle changes, unlike per-pair retry counters.
     storage_started = time.monotonic()
@@ -254,7 +245,7 @@ def acquire_cohort(
             if time.monotonic() - started + PAIR_AND_STAGE_RESERVE_SECONDS >= soft_budget_seconds:
                 stop_reason = "soft_budget"
                 break
-            final_result: ExternalAssessmentCollectionResult | None = None
+            final_result: CohortResult | None = None
             for retry in range(MAX_PAIR_RETRIES + 1):
                 pair_seconds = (
                     min(
@@ -297,8 +288,12 @@ def acquire_cohort(
                 if result.outcomes[0].status == "not_attempted":
                     stop_reason = result.stop_reason or "soft_budget"
                     break
-                attempts.append(attempt_value(plan, index, result, completed_at=datetime.now(UTC)))
-                final_result = result
+                final_result = record_outcome(
+                    plan,
+                    stage.result,
+                    result.outcomes[0],
+                    result.observations[0] if result.observations else None,
+                )
                 if result.retry_after_not_before_utc is not None:
                     deadline = result.retry_after_not_before_utc
                     new_deadlines[entry.source] = max(
@@ -335,15 +330,7 @@ def acquire_cohort(
                     )
                     break
             if final_result is not None:
-                stage = replace(
-                    stage,
-                    result=record_outcome(
-                        plan,
-                        stage.result,
-                        final_result.outcomes[0],
-                        final_result.observations[0] if final_result.observations else None,
-                    ),
-                )
+                stage = replace(stage, result=final_result)
             if stop_reason:
                 break
         storage_started = time.monotonic()
@@ -375,16 +362,14 @@ def acquire_cohort(
             for source, deadline in new_deadlines.items():
                 if deadline > datetime.now(UTC):
                     extend(store, quota_key(source), deadline)
-            # 原本upload後・mutable CAS前に候補も固定。競合で採用されなかった受領も残る。
-            save_attempts(store, plan, stage, attempts)
             stage = commit_stage(store, plan, stage, previous=previous)
         timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
     return _cohort_report(plan, stage, stop_reason, started, timings, provider_requests)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Read-only fixed-plan history and audit")
-    parser.add_argument("command", choices=("status", "audit", "terminal"))
+    parser = argparse.ArgumentParser(description="Read-only fixed-plan status and terminal report")
+    parser.add_argument("command", choices=("status", "terminal"))
     parser.add_argument("--run-id", required=True)
     args = parser.parse_args(argv)
     try:
@@ -394,11 +379,6 @@ def main(argv: list[str] | None = None) -> int:
             report: dict[str, object] = {"plan_exists": plan is not None}
         elif plan is None:
             raise ValueError("external assessment fixed plan is missing")
-        elif args.command == "audit":
-            report = summarize(
-                plan, [stage.result for stage, _ in read_stages(store, plan).values()]
-            )
-            report["attempt_journals"] = read_attempts(store, plan)
         else:
             terminal = read_terminal(store, plan)
             if terminal is None:
