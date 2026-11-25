@@ -67,8 +67,11 @@ type _Loader = Callable[[str], bytes]
 
 def _clock(value: str) -> datetime:
     stamp = datetime.fromisoformat(value)
-    if stamp.utcoffset() is None:
-        raise ValueError("fixed receipt clocks require an offset")
+    if stamp.utcoffset() is None or not re.search(r"(?:Z|[+-][0-9]{2}:[0-5][0-9])\Z", value):
+        raise ValueError("fixed receipt clocks require a Z or ±HH:MM offset")
+    # fromisoformat silently truncates; do not collapse a later receipt into the cutoff.
+    if any(fraction[6:].strip("0") for fraction in re.findall(r"[.,]([0-9]+)", value)):
+        raise ValueError("fixed receipt clocks require exact microsecond precision")
     return stamp.astimezone(UTC)
 
 

@@ -243,6 +243,43 @@ def test_explicit_sec_index_receipt_enables_observation_but_not_exact_publicatio
     assert report.count("売買: `no_action`") == 2
 
 
+def test_fixed_clock_does_not_round_a_future_index_into_the_cutoff(tmp_path, capsys):
+    bundle, files, index = _public_index_bundle()
+    manifest = tmp_path / "manifest.json"
+    for name, body in files.items():
+        (tmp_path / name).write_bytes(body)
+
+    def invoke(cutoff):
+        bundle["cutoff"] = cutoff
+        manifest.write_text(json.dumps(bundle), encoding="utf-8")
+        return main(["--bundle", str(manifest)])
+
+    # Actual SEC capture clock and the instant one nanosecond before it.
+    index["received_at"] = "2026-11-25T19:53:01.447438103Z"
+    with pytest.raises(SystemExit) as error:
+        invoke("2026-11-25T19:53:01.447438102Z")
+    assert error.value.code == 2
+    assert capsys.readouterr().out == ""
+
+    for unrepresentable in (
+        index["received_at"],
+        # Negative offset is 100 ms later than the rendered local clock.
+        "2026-11-25T19:53:01.447438-00:00:00.100000",
+    ):
+        index["received_at"] = unrepresentable
+        assert invoke("2026-11-25T19:53:01.447438000Z") == 0
+        before = capsys.readouterr().out
+        assert "AAPL | hold_for_evidence" in before
+        assert "sec_invalid_fixed_evidence" in before
+        assert "SEC実績売上" not in before
+
+    index["received_at"] = "2026-11-26T04:53:01.447439000+09:00"
+    assert invoke("2026-11-25T19:53:01.4474390Z") == 0
+    at = capsys.readouterr().out
+    assert "AAPL | research_candidate" in at
+    assert "SEC実績売上: USD 1,234,567,890" in at
+
+
 def _native_index_bundle():
     bundle, files, index = _public_index_bundle()
     head, table = files[index["file"]].split(b"<table>", 1)
