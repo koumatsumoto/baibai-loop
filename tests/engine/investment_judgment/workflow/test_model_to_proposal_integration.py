@@ -14,7 +14,6 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from functools import partial
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -253,6 +252,33 @@ def _discover_second(generation, *, runs, app, request, monkeypatch):
     return publication_id, chosen["ticker"]
 
 
+def _bind_historical_article_inputs(monkeypatch, snapshot, release):
+    """Build the old persisted shape without reopening article inputs in routine generation."""
+    from baibai_engine.machine_analysis.generation.assembly import generate_models
+    from baibai_engine.machine_analysis.generation.runners.trend_inputs import (
+        DEFAULT_INDUSTRIES,
+        read_trend_inputs,
+    )
+
+    # The synthetic business link is independent of the security's JPX33 sector.
+    industry = DEFAULT_INDUSTRIES[0].model_copy(update={"related_tickers": ("1234",)})
+    trends = read_trend_inputs(
+        snapshot,
+        release_id=release.release_id,
+        release_sha256=release.manifest_sha256,
+        cutoff=START,
+        as_of=START.date(),
+        industries=(industry,),
+    )
+
+    def historical_assembly(**inputs):
+        return generate_models(**{**inputs, "trends": trends})
+
+    monkeypatch.setattr(
+        "baibai_engine.machine_analysis.generation.inputs.generate_models", historical_assembly
+    )
+
+
 def _prepare_case(
     tmp_path,
     monkeypatch,
@@ -346,19 +372,7 @@ def _prepare_case(
         financial_store, financial_owner.fixed(), as_of=START.date(), evaluated_at=START
     )
     if shared_trends:
-        from baibai_engine.machine_analysis.generation.runners.trend_inputs import (
-            DEFAULT_INDUSTRIES,
-            read_trend_inputs,
-        )
-
         _retain_shared_articles(market)
-        # Only this fictional company's business-scope membership is supplied by
-        # the fixture. Do not infer production ticker membership from JPX33.
-        industry = DEFAULT_INDUSTRIES[0].model_copy(update={"related_tickers": ("1234",)})
-        monkeypatch.setattr(
-            "baibai_engine.machine_analysis.generation.inputs.read_trend_inputs",
-            partial(read_trend_inputs, industries=(industry,)),
-        )
     if monex_original:
         html = (
             (monex_html("1234") + monex_eps_section())
@@ -410,7 +424,12 @@ def _prepare_case(
         ),
         expected_head=None,
     )
-    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "sealed") as snapshot:
+    with (
+        sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "sealed") as snapshot,
+        monkeypatch.context() as assembly,
+    ):
+        if shared_trends:
+            _bind_historical_article_inputs(assembly, snapshot.path, model_release)
         generation = read_and_generate_models(
             generation_id="synthetic-five-models",
             financial_input=financial,
