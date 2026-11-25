@@ -415,12 +415,18 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
         if filing_record["form"] in ("10-K", "10-K/A"):
             return evidence, "sec_filing_form_not_covered"
         filing = _filing(filing_record)
+        period_start, period_end = _day(subject["period_start"]), _day(subject["period_end"])
+        if period_start > period_end:
+            raise ValueError("invalid fixed SEC revenue period")
+        # A 10-Q also contains cumulative amounts. This MVP only reads regular-quarter spans.
+        if not 89 <= (period_end - period_start).days + 1 <= 98:
+            return evidence, "sec_period_outside_supported_quarter"
         result = observe_sec_revenue(
             SecCompanyFactsCapture(wire.receipt_id, wire.received_at, wire.body_sha256, wire.body),
             filing,
             expected_cik=subject["cik"],
-            period_start=_day(subject["period_start"]),
-            period_end=_day(subject["period_end"]),
+            period_start=period_start,
+            period_end=period_end,
             cutoff=cutoff,
             publicly_observed_by=_public_index(public_index, load, filing, cutoff),
         )

@@ -52,6 +52,73 @@ def test_external_body_bytes_actually_drive_report(tmp_path, capsys):
     assert "1234567890" not in report
 
 
+@pytest.mark.parametrize("period_start", ["2026-03-29", "2025-09-28"])
+def test_mvp_accepts_aapl_quarter_but_not_the_same_filing_ytd(period_start):
+    bundle, files = _fixture()
+    subject = bundle["subjects"][0]
+    # AAPL accession 0000320193-26-000020 reports both durations for the same
+    # end date. Keep its dates and values; the surrounding captures are fixtures.
+    accession = "0000320193-26-000020"
+    subject.update(period_start=period_start, period_end="2026-06-27")
+    subject["filing"]["accession"] = accession
+    record = subject["companyfacts"]
+    facts = json.loads(files[record["file"]])
+    (concept,) = facts["facts"]["us-gaap"].values()
+    (row,) = concept["units"]["USD"]
+    row = dict(row, accn=accession, end=subject["period_end"])
+    concept["units"]["USD"] = [
+        dict(row, start="2025-09-28", val=364_357_000_000),
+        dict(row, start="2026-03-29", val=109_417_000_000),
+    ]
+    _replace_body(record, files, facts)
+
+    report = render_research(bundle, files.__getitem__, synthetic=False)
+    assert "観測20本のSMA" in report
+    assert "364,357,000,000" not in report
+    if period_start == "2026-03-29":
+        assert "AAPL | research_candidate" in report
+        assert "SEC実績売上: USD 109,417,000,000 (2026-03-29〜2026-06-27" in report
+    else:
+        assert "AAPL | hold_for_evidence" in report
+        assert "sec_period_outside_supported_quarter" in report
+        assert "SEC実績売上" not in report
+
+
+@pytest.mark.parametrize(
+    ("days", "form", "reason"),
+    [
+        (88, "10-Q", "sec_period_outside_supported_quarter"),
+        (89, "10-Q", None),  # February through April in a non-leap year.
+        (98, "10-Q/A", None),  # A 14-week quarter of a 53-week fiscal year.
+        (99, "10-Q", "sec_period_outside_supported_quarter"),
+        (98, "10-K", "sec_filing_form_not_covered"),
+    ],
+)
+def test_mvp_requires_supported_span_and_filing_form(days, form, reason):
+    bundle, files = _fixture()
+    subject = bundle["subjects"][0]
+    end = date(2026, 4, 30)
+    start = end - timedelta(days=days - 1)
+    subject.update(period_start=start.isoformat(), period_end=end.isoformat())
+    subject["filing"]["form"] = form
+    record = subject["companyfacts"]
+    facts = json.loads(files[record["file"]])
+    (concept,) = facts["facts"]["us-gaap"].values()
+    (row,) = concept["units"]["USD"]
+    row.update(start=start.isoformat(), end=end.isoformat(), form=form)
+    _replace_body(record, files, facts)
+
+    report = render_research(bundle, files.__getitem__, synthetic=False)
+    assert "観測20本のSMA" in report
+    if reason is None:
+        assert "AAPL | research_candidate" in report
+        assert f"SEC実績売上: USD 1,234,567,890 ({start}〜{end}" in report
+    else:
+        assert "AAPL | hold_for_evidence" in report
+        assert f"未充足: `{reason}`" in report
+        assert "SEC実績売上" not in report
+
+
 def test_empty_terminal_page_must_be_known_before_whole_chain_is_used():
     bundle, files = _fixture()
     spec = bundle["alpaca"]
