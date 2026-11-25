@@ -22,6 +22,9 @@ from baibai_engine.investment_judgment.workflow.inputs import project_research_i
 from baibai_engine.investment_judgment.workflow.selection import (
     ResearchSelectionRecord as ResearchSelection,
 )
+from baibai_engine.investment_judgment.workflow.workspace.admission import (
+    LEGACY_WORKSPACE_SCHEMA_VERSION,
+)
 from baibai_engine.investment_judgment.workflow.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
@@ -42,7 +45,11 @@ def _validate_editable_drafts(
     actual = _load_mapping(path, label="domain inputs")
     periods = cast("int | None", manifest.get("company_growth_periods", 12))
     if canonical_json(actual) != canonical_json(
-        project_research_inputs(gate, company_growth_periods=periods)
+        project_research_inputs(
+            gate,
+            company_growth_periods=periods,
+            include_saved_tradingview=manifest["schema_version"] == LEGACY_WORKSPACE_SCHEMA_VERSION,
+        )
     ):
         raise ResearchWorkspaceConflictError(
             "domain inputs differ from the Operation's fixed snapshot"

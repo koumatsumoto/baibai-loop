@@ -179,7 +179,7 @@ def test_empty_current_store_and_missing_file_are_unobserved(tmp_path):
     result = analyze(read_observations(db, "1234", RECEIVED), evaluated_at=RECEIVED)
     assert result.model_valuations == ()
     assert result.analyst_ratings == ()
-    assert result.tradingview.availability == "not_observed"
+    assert "tradingview" not in result.model_dump(mode="json")
 
 
 def test_obsolete_shape_and_corrupt_sqlite_are_errors(tmp_path):
@@ -214,7 +214,7 @@ def test_unknown_or_changed_basis_has_no_delta(field, change, reason):
     assert metric.reason == reason
     assert metric.delta is None
     assert result.model_valuations[0].inputs.latest == latest
-    assert result.method_version == "same-series-v8-tradingview-receipts"
+    assert "tradingview" not in result.model_dump(mode="json")
 
 
 def test_same_value_recovery_and_count_change_are_distinct_from_increase():
