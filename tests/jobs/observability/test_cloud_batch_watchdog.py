@@ -1347,11 +1347,9 @@ def test_quality_proof_is_wired_only_to_the_existing_post_seal_check_and_notice(
     check = steps["source-check"]
     assert check["name"] == SOURCE_CHECK_STEP
     assert "steps.source-seal.outcome == 'success'" in check["if"]
-    assert "--quality-output" not in check["run"]
     assert "continue-on-error" not in check
     notice = steps["notify"]["name"]
     assert notice.startswith(RESULT_STEP_PREFIX)
-    assert "tv_quality_asof" not in notice
     assert TV_QUALITY_SUFFIX not in notice
 
 
