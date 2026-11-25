@@ -48,18 +48,9 @@ def test_safe_category_through_nested_sdk_groups(error, category):
     ],
 )
 def test_internal_diagnostics_identify_leaf_without_exposing_payload(error, detail):
-    from baibai_jobs.observability.tradingview import (
-        CollectionFailure,
-        CollectionProgress,
-    )
-
-    wrapped = ExceptionGroup(
-        "private-group",
-        [CollectionFailure(error, CollectionProgress("2026-10-13", "fetch", 150, 3, 2, 3, 50))],
-    )
+    wrapped = ExceptionGroup("private-group", [ExceptionGroup("private-child", [error])])
     line = diagnostics.failure_line(wrapped)
     assert diagnostics.failure_category(wrapped) == "internal"
-    assert "chunks_completed=2" in line
     assert line.endswith(detail)
     for forbidden in ("private", "https://", "access_token", "Traceback"):
         assert forbidden not in line
@@ -83,26 +74,18 @@ def test_http_status_category(status, category):
     ("status", "category"),
     [(401, "auth"), (403, "auth"), (429, "provider_rate_limit"), (503, "provider_response")],
 )
-def test_provider_http_category_through_collection_and_groups(status, category):
+def test_provider_http_category_through_nested_groups(status, category):
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
-    )
-    from baibai_jobs.observability.tradingview import (
-        CollectionFailure,
-        CollectionProgress,
     )
 
     error = ProviderHTTPError(status)
     error.__cause__ = RuntimeError("private-token private-body")
     assert diagnostics.failure_category(error) == category
     assert f"provider_http_status={status}" in diagnostics.failure_line(error)
-    error = CollectionFailure(error, CollectionProgress("2026-09-24", "fetch", 51, 2, 1, 2, 1))
-    assert diagnostics.failure_category(error) == category
     wrapped = ExceptionGroup("private-token", [ExceptionGroup("private-body", [error])])
     assert diagnostics.failure_category(wrapped) == category
-    assert "chunks_completed=1" in diagnostics.failure_line(wrapped)
     assert "private" not in diagnostics.failure_line(wrapped)
-    assert f"provider_http_status={status}" in diagnostics.failure_line(error)
     assert f"provider_http_status={status}" in diagnostics.failure_line(wrapped)
 
 

@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.lake_release import market_store
-from tests.helpers.tradingview import _sdk, payload, retain_result
+from tests.helpers.tradingview import _sdk, payload, retain_result, stored
 from tests.jobs.integration.test_master_native_models import attempt, records, setup_native
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
@@ -343,12 +343,10 @@ def test_saved_master_preparation_does_not_hide_missing_or_changed_originals(
     assert (directory / "result.json").read_bytes() == report
 
 
-def test_master_recovery_preflight_keeps_existing_tradingview_receipts(tmp_path):
+def test_native_master_recovery_keeps_existing_tradingview_receipts(tmp_path):
     from tests.jobs.acquisition.test_jquants_master_native import Client
 
-    from baibai_jobs.acquisition.tradingview.collector import preflight_snapshot
     from baibai_jobs.maintenance.tradingview_rebuild import rebuild_from_receipts
-    from baibai_jobs.observability.tradingview import SourceDataError, TimeGuardError
 
     store, owner, market, directory = context(tmp_path)
     assert prepare_tradingview_master(
@@ -363,7 +361,9 @@ def test_master_recovery_preflight_keeps_existing_tradingview_receipts(tmp_path)
         symbols=("TSE:1301",),
     )
     rebuild_from_receipts(market, DAY, [receipt])
-    # A new source input carries old TradingView rows, not a prior cycle's fixed master.
+    before = stored(market)
+    assert len(before) == 1
+    # Clearing the failed exact-date master must not touch retained TV data.
     report = json.loads((directory / "result.json").read_bytes())
     report.pop("master_native_input")
     write_json_atomic(directory / "result.json", report)
@@ -371,24 +371,20 @@ def test_master_recovery_preflight_keeps_existing_tradingview_receipts(tmp_path)
     assert not prepare_tradingview_master(
         store, directory=directory, market=market, observation_date=DAY
     )
-    state = preflight_snapshot(market, DAY, now=NOW, master_unavailable=True)
-    assert state["needs_master"] is True
-    assert state["rows"] == 1
-    assert (
-        preflight_snapshot(market, DAY, now=AT - timedelta(hours=2), master_unavailable=True)[
-            "status"
+    assert stored(market) == before
+    with sqlite3.connect(market) as conn:
+        assert conn.execute("SELECT receipt_id FROM tradingview_source_receipts").fetchall() == [
+            (receipt,)
         ]
-        == "before_close"
-    )
-    with pytest.raises(TimeGuardError, match="current acquisition cycle"):
-        preflight_snapshot(market, DAY, now=NOW + timedelta(days=1), master_unavailable=True)
-    with pytest.raises(SourceDataError, match="calendar-required exact-date master"):
-        preflight_snapshot(market, DAY, now=NOW, master_asof=DAY, master_unavailable=True)
     client = Client(records(DAY), AT + timedelta(hours=6))
     assert prepare_tradingview_master(
         store, directory=directory, market=market, observation_date=DAY, acquire=True, client=client
     )
-    assert preflight_snapshot(market, DAY, now=NOW)["status"] == "already_saved"
+    assert stored(market) == before
+    with sqlite3.connect(market) as conn:
+        assert conn.execute("SELECT receipt_id FROM tradingview_source_receipts").fetchall() == [
+            (receipt,)
+        ]
 
 
 def test_native_explicit_dates_do_not_refetch_fulfilled_cohort_dates(tmp_path, monkeypatch):
