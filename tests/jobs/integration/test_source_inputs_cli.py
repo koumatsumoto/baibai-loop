@@ -18,10 +18,7 @@ from baibai_engine.storage.snapshots.keys import current_release_pointer_key, re
 from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition import source_inputs
 from baibai_jobs.acquisition.article_planning import COLLECTION_SOURCES, load_planning, source_key
-from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
-from baibai_jobs.acquisition.source_inputs import input_key, load_input
 from baibai_jobs.integration import sources
 from baibai_jobs.publication.lease import (
     PUBLICATION_LEASE_KEY,
@@ -94,21 +91,10 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
     tmp_path, monkeypatch, capsys
 ):
     remote, _, command = _input_cli(tmp_path, monkeypatch)
-    expected = list(SOURCE_INPUT_GROUPS)
     assert sources.main(command) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report == {"updated": expected + list(COLLECTION_SOURCES), "failed": []}
-    assert {
-        key
-        for key in remote.values
-        if key.startswith("coordination/source-inputs/") and key.count("/") == 2
-    } == {input_key(group) for group in expected}
-    for group in expected:
-        database = tmp_path / f"{group}.sqlite"
-        result = load_input(remote, group, database, tmp_path / f"read-{group}")
-        assert result["canonical_generations"] == GENERATIONS
-        assert result["group"] == group
-        assert result["asof"] == str(DAY)
+    assert report == {"updated": list(COLLECTION_SOURCES), "failed": []}
+    assert not any(key.startswith("coordination/source-inputs/") for key in remote.values)
     for source in COLLECTION_SOURCES:
         assert load_planning(remote, source)[0].generations == GENERATIONS
     assert not any("economic-" in key for key in remote.put_keys)
@@ -141,7 +127,7 @@ def test_reissue_only_failed_article_input_without_touching_other_plans(tmp_path
     monkeypatch.setattr(sources, "publish_planning_input", fail_boj)
     assert sources.main(command) == 1
     assert source_key(failed) not in remote.values
-    assert input_key("tradingview") in remote.values
+    assert "coordination/source-inputs/tradingview.json" not in remote.values
     before = dict(remote.values)
     monkeypatch.setattr(sources, "publish_planning_input", publish)
     remote.get_keys.clear()
@@ -159,39 +145,12 @@ def test_reissue_only_failed_article_input_without_touching_other_plans(tmp_path
     assert load_planning(remote, failed)[0].generations == GENERATIONS
 
 
-@pytest.mark.parametrize("group", ["edinet-list", "edinet-metrics", "edinet-facts"])
-def test_explicit_edinet_input_is_rejected(tmp_path, monkeypatch, capsys, group):
+@pytest.mark.parametrize("group", ["edinet-list", "edinet-metrics", "edinet-facts", "tradingview"])
+def test_explicit_inactive_input_is_rejected(tmp_path, monkeypatch, capsys, group):
     remote, _, command = _input_cli(tmp_path, monkeypatch)
     assert sources.main([*command, "--group", group]) == 1
     assert "ValueError" in capsys.readouterr().err
     assert remote.put_keys == []
-
-
-def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
-    tmp_path, monkeypatch, capsys
-):
-    remote, _market, command = _input_cli(tmp_path, monkeypatch)
-    assert sources.main(command) == 0
-    capsys.readouterr()
-    prior = remote.values[input_key("tradingview")]
-
-    def failed_export(*_, **kwargs):
-        assert kwargs["group"] == "tradingview"
-        raise ValueError("synthetic source-input export failure")
-
-    monkeypatch.setattr(
-        "baibai_jobs.acquisition.source_inputs.export_market_source_input", failed_export
-    )
-    command[command.index("--identity") + 1] = "retry"
-    assert sources.main(command) == 1
-    report = json.loads(capsys.readouterr().out)
-    assert report == {
-        "updated": [group for group in SOURCE_INPUT_GROUPS if group != "tradingview"]
-        + list(COLLECTION_SOURCES),
-        "failed": [{"group": "tradingview", "reason": "ValueError"}],
-    }
-    assert remote.values[input_key("tradingview")] == prior
-    assert not any(key.startswith("coordination/source-inputs/edinet-") for key in remote.values)
 
 
 def test_daily_input_publication_leaves_retired_source_inputs_untouched(
@@ -205,6 +164,7 @@ def test_daily_input_publication_leaves_retired_source_inputs_untouched(
         "edinet-list",
         "edinet-metrics",
         "edinet-facts",
+        "tradingview",
     ):
         for key in (
             f"coordination/source-inputs/{group}.json",
@@ -217,9 +177,11 @@ def test_daily_input_publication_leaves_retired_source_inputs_untouched(
     remote.put_keys.clear()
     assert sources.main(command) == 0
     report = json.loads(capsys.readouterr().out)
-    assert not any(group.startswith(("jpx-", "edinet-")) for group in report["updated"])
     assert not any(
-        key.startswith(("coordination/source-inputs/jpx-", "coordination/source-inputs/edinet-"))
+        group.startswith(("jpx-", "edinet-", "tradingview")) for group in report["updated"]
+    )
+    assert not any(
+        key.startswith("coordination/source-inputs/")
         for key in remote.head_keys + remote.get_keys + remote.put_keys
     )
     assert {key: remote.values[key] for key in previous} == previous
@@ -311,57 +273,6 @@ def test_shared_source_state_refuses_invalid_lease_before_any_write(
     remote.put_keys.clear()
     assert sources.main(command) == 1
     assert remote.put_keys == []
-
-
-@pytest.mark.parametrize("timing", ["during_export", "after_receipt_put"])
-def test_input_publication_stops_next_put_after_release_and_can_reissue(
-    tmp_path, monkeypatch, timing
-):
-    remote, _, command = _input_cli(tmp_path, monkeypatch)
-    handle = _load_handle(tmp_path / "lease.json")
-    put = remote.put_file
-    export = source_inputs.export_market_source_input
-    released = False
-
-    def during_export(*args, **kwargs):
-        nonlocal released
-        if not released:
-            released = True
-            release(remote, handle)
-        return export(*args, **kwargs)
-
-    def after_receipt(key, *args, **kwargs):
-        nonlocal released
-        result = put(key, *args, **kwargs)
-        if (
-            not released
-            and key.startswith("coordination/source-inputs/")
-            and key.endswith(".sqlite")
-        ):
-            released = True
-            release(remote, handle)
-        return result
-
-    if timing == "during_export":
-        monkeypatch.setattr(source_inputs, "export_market_source_input", during_export)
-    else:
-        monkeypatch.setattr(remote, "put_file", after_receipt)
-    command += ["--group", "tradingview"]
-    assert sources.main(command) == 1
-    written = [key for key in remote.put_keys if key != PUBLICATION_LEASE_KEY]
-    assert len(written) == int(timing == "after_receipt_put")
-    assert all(key.endswith(".sqlite") for key in written)
-    assert input_key("tradingview") not in remote.values
-    retained = {key: remote.values[key] for key in written}
-
-    next_handle, _ = acquire(remote, "operator")
-    path = tmp_path / "next-lease.json"
-    _save_handle(path, next_handle)
-    command[command.index("--lease-handle") + 1] = str(path)
-    command[command.index("--identity") + 1] = "reissue"
-    assert sources.main(command) == 0
-    assert input_key("tradingview") in remote.values
-    assert {key: remote.values[key] for key in retained} == retained
 
 
 def test_ordered_market_seals_stop_after_release_and_resume_without_rewriting(

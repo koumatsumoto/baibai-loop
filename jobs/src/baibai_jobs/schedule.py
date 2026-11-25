@@ -16,12 +16,6 @@ MARKET_SOURCE_SCHEDULES = {
     "43 8 * * *": time(8, 43, tzinfo=UTC),
     "13 9 * * *": time(9, 13, tzinfo=UTC),
 }
-TRADINGVIEW_SLOTS = {
-    **{f"37 {hour} * * 1-5": "post-close" for hour in (6, 8, 10, 12, 14)},
-    **{f"37 {hour} * * 0,6": "rest-day" for hour in (0, 4, 8)},
-    "27 9 * * *": "gap-recovery",
-    "23 11 * * *": "gap-recovery",
-}
 
 
 def batch_target_date(instant: datetime) -> date:
@@ -101,23 +95,3 @@ def tradingview_observation_window(
         datetime.combine(day, opening, _JST),
         datetime.combine(day + timedelta(days=1), time(9), _JST),
     )
-
-
-def resolve_tradingview_target(
-    now: datetime, *, event_name: str, schedule: str, manual_observation: bool = False
-) -> tuple[date, str]:
-    """Resolve the current acquisition cycle, including an overnight delayed slot."""
-    if now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError("timezone-aware observation clock required")
-    if manual_observation and event_name != "workflow_dispatch":
-        raise ValueError("manual observation requires workflow_dispatch")
-    if event_name == "schedule":
-        if schedule not in TRADINGVIEW_SLOTS:
-            raise ValueError("unknown TradingView schedule")
-        slot = TRADINGVIEW_SLOTS[schedule]
-    elif event_name == "workflow_dispatch":
-        slot = "manual-observation" if manual_observation else "manual"
-    else:
-        raise ValueError("unknown TradingView event")
-    # The saved calendar still enforces post-close / rest-day opening in preflight.
-    return tradingview_cycle_date(now), slot

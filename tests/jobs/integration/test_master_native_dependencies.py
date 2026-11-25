@@ -6,9 +6,6 @@ from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.edinet_native import empty_edinet_input
-from tests.helpers.financial_native import seed_empty_financial
-from tests.helpers.jquants_receipts import body
 from tests.helpers.lake_release import market_store
 from tests.helpers.tradingview import _sdk, payload, retain_result
 from tests.jobs.integration.test_master_native_models import attempt, records, setup_native
@@ -19,7 +16,6 @@ from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.master_inputs import (
     INPUT_PREFIX as MASTER_INPUT_PREFIX,
 )
-from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.acquisition.master_dependencies import (
@@ -436,127 +432,3 @@ def test_tradingview_scoped_input_omits_disposable_master_copy_in_native_mode(
             == 0
         )
         assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 0
-
-
-def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp_path, monkeypatch):
-    from tests.helpers.lake_policy import narrow_release_policy
-
-    import baibai_jobs.integration.models as models
-    import baibai_jobs.integration.sources as sources
-    import baibai_jobs.publication.snapshot_publication as publication
-    from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
-    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_jobs.acquisition.economic_staging import save_handoff
-    from baibai_jobs.acquisition.receipts import available_handoffs
-    from baibai_jobs.publication.datasets import LAKE_DATASETS
-
-    narrow_release_policy(monkeypatch, datasets=("jquants.master_snapshots", "jquants.daily_bars"))
-    monkeypatch.setattr(
-        publication,
-        "LAKE_DATASETS",
-        {name: LAKE_DATASETS[name] for name in ("jquants.master_snapshots", "jquants.daily_bars")},
-    )
-    monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
-    monkeypatch.setattr(sources, "extract_saved_edinet", lambda *_, **__: {})
-    monkeypatch.setattr(models, "_load_handle", lambda *_: None)
-    monkeypatch.setattr(models, "verify_held", lambda *_: None)
-    store, owner, source, input_directory = context(tmp_path)
-    assert prepare_tradingview_master(
-        store, directory=input_directory, market=source, observation_date=DAY
-    )
-    saved = InputSnapshot.model_validate(
-        json.loads((input_directory / "result.json").read_bytes())["master_native_input"]
-    )
-    retain_result(
-        source,
-        _sdk(payload(["TSE:1301"])),
-        day=DAY,
-        master=DAY,
-        received=NOW,
-        symbols=("TSE:1301",),
-    )
-    packet = tmp_path / "packet"
-    packet.mkdir()
-    selected = export_handoff(
-        source,
-        packet / "receipts.sqlite",
-        day=DAY,
-        since=NOW - timedelta(seconds=1),
-        master_input=saved,
-        calendar_input=InputSnapshot.model_validate(
-            json.loads((input_directory / "result.json").read_bytes())["calendar_native_input"]
-        ),
-    )
-    write_json_atomic(
-        packet / "result.json",
-        {
-            "source": "tradingview",
-            "asof": DAY.isoformat(),
-            "started_at": NOW.isoformat(),
-            **selected.to_json(),
-        },
-    )
-    save_handoff(store, "tradingview-native-e2e", packet, market=True)
-    work = tmp_path / "integration"
-    work.mkdir()
-    write_json_atomic(
-        work / "plan.json",
-        {
-            "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
-            "handoffs": available_handoffs(store, source="tradingview"),
-            "external": [],
-        },
-    )
-    target = market_store(tmp_path / "target.sqlite")
-    with sqlite3.connect(target) as conn:
-        conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
-    applied = sources.apply(store, work, market=target, asof=DAY)
-    assert applied["handoffs"][0]["applied"] is True
-    assert applied["handoffs"][0]["failed"] is False
-    price = PriceL1(store, tmp_path / "price")
-    price.initialize()
-    price.commit(
-        [
-            PriceAttempt(
-                "price",
-                DAY,
-                AT,
-                (
-                    JQuantsPage(
-                        "daily_bars",
-                        {"date": DAY.isoformat()},
-                        AT,
-                        body([{"Code": "13010", "Date": DAY.isoformat(), "C": 100}]),
-                    ),
-                ),
-            )
-        ]
-    )
-
-    seed_empty_financial(store, tmp_path / "financial-native", DAY)
-    economic = tmp_path / "economic.sqlite"
-    initialize_database(economic).close()
-    generated = models.integrate_models(
-        store=store,
-        edinet_input=InputSnapshot.model_validate(applied["edinet_input"]),
-        market=target,
-        economic=economic,
-        runs=tmp_path / "runs",
-        mirror=tmp_path / "mirror",
-        as_of=DAY,
-        lease_handle=tmp_path / "lease",
-        growth_start=None,
-    )
-    assert generated["company_count"] == 1
-    metadata = read_generation(generated["generation_id"], path=tmp_path / "runs")
-    assert metadata.inputs["master"].descriptor["head_sha256"] == owner.fixed().content_id
-    with sqlite3.connect(target) as conn:
-        assert (
-            conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone()[0] == 1
-        )
-        assert (
-            conn.execute(
-                "SELECT COUNT(*) FROM jquants_source_pages WHERE source='master'"
-            ).fetchone()[0]
-            == 0
-        )
