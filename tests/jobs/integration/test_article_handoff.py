@@ -200,7 +200,7 @@ def test_common_integration_accepts_article_shape_from_old_market_version(tmp_pa
             {
                 "handoffs": [
                     entry,
-                    {"source": "tradingview", "market": True, "invalid": "ValueError"},
+                    {"source": "jpx-regulations", "market": True, "invalid": "ValueError"},
                     {"source": "jpx-earnings", "market": True, "late_before_integrated": True},
                 ],
                 "edinet_input": empty_edinet_input(remote, tmp_path).model_dump(mode="json"),

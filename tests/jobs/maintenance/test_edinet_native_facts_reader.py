@@ -60,7 +60,6 @@ def test_manual_facts_shares_post_acquisition_head_until_extraction_finishes(
             "asof": DAY,
             "initialize_facts": initialize,
             "tickers": tickers,
-            "include_holder_archives": False,
         }
         events.append("acquire")
         return {"status": report_status}

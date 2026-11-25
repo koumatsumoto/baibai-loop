@@ -8,6 +8,8 @@ from typing import Literal
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     ENTITY_SCALE_MISMATCH,
+    _book_period_shares,
+    _capital_action_supersedes,
     _common_equity,
     _edinet_passes_entity_scale_check,
     _normalize_summaries_with_status,
@@ -217,6 +219,7 @@ def build_financial_snapshot(
             common_equity_row.total_assets * common_equity_row.equity_to_asset_ratio
         )
     bps_row = _latest_non_null_row(summaries, "bps")
+    bps_period_shares = _book_period_shares(summaries, bps_row)
     # 同一状態の円経路へ直しても、その組がより新しい BPS より古ければstaleな資本を
     # 復活させる。2経路のうち新しい観測を先に選び、同日または円経路が新しい場合だけ
     # 下の普通株basis一致判定へ進める。
@@ -237,17 +240,19 @@ def build_financial_snapshot(
             else None
         ),
         bps=bps,
-        shares_ex_treasury=shares_ex_treasury,
+        bps_period_shares=bps_period_shares,
     )
     if (
         equity is not None
-        and equity[1] == "bps_times_current_shares"
+        and equity[1] == "bps_times_reported_period_shares"
         and bps_row is not None
-        and bps_row.period_end is not None
-        and any(action.effective_date > bps_row.period_end for action in capital_actions)
+        and any(
+            _capital_action_supersedes(action, bps_row.period_end, bps_row.shares_outstanding)
+            for action in capital_actions
+        )
     ):
-        # A new share count cannot remeasure old BPS after an issuance/conversion.
-        # Reject only the selected route, not a separately established yen book.
+        # A completed capital event makes the superseded BPS route unavailable for a
+        # current PBR; it does not invalidate a separately established yen book.
         equity = None
     book_equity: dict[str, object] | None = None
     if equity is not None:
@@ -272,8 +277,9 @@ def build_financial_snapshot(
                 if method == "assets_times_equity_ratio"
                 else {
                     "bps_yen": bps,
-                    "shares_ex_treasury": shares_ex_treasury,
-                    "share_basis_as_of": asof_date,
+                    "shares_ex_treasury": bps_period_shares,
+                    "share_measurement_date": source.period_end,
+                    "share_unit_basis_as_of": asof_date,
                 }
             ),
         }

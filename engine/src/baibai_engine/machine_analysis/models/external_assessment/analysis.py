@@ -6,20 +6,18 @@ from datetime import datetime
 
 from baibai_engine.machine_analysis.models.external_assessment.models import (
     MONEX_DAY_PAIR_METHOD_VERSION,
-    MONEX_FISCAL_METHOD_VERSION,
+    SINGLE_CUTOFF_METHOD_VERSION,
     ExternalAssessment,
     MetricComparison,
     ModelValuationAssessment,
     OriginGroup,
     OriginReference,
     QuantsScoreAssessment,
-    TradingViewReceipts,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ModelValuationHistory,
     ObservationHistory,
     QuantsScoreHistory,
-    TradingViewHistory,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QUANTS_METRICS,
@@ -28,16 +26,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
     MonexEPSReceipt,
     Observation,
     utc_datetime,
-)
-
-from ...observations.external_assessments.tradingview.contract import (
-    FIELDS,
-)
-
-FORECAST_METRICS = tuple(
-    name
-    for name in FIELDS
-    if name not in {"analyst_rating", "recommendation_total", "quote_close", "quote_currency"}
 )
 
 
@@ -111,13 +99,9 @@ def analyze(
     if cutoff > evaluated_at:
         raise ValueError("analysis cutoff cannot be later than evaluation time")
     window = history.monex_generation_window
-    all_series: tuple[
-        ModelValuationHistory | QuantsScoreHistory | TradingViewHistory,
-        ...,
-    ] = (
+    all_series: tuple[ModelValuationHistory | QuantsScoreHistory, ...] = (
         *history.model_valuations,
         *history.quants_scores,
-        history.tradingview,
     )
     for series in all_series:
         for row in (series.latest, series.previous):
@@ -210,41 +194,17 @@ def analyze(
                     origin_reference(
                         score_pair.latest.origin, score_pair.latest, "quants_score", metric
                     )
-    tv = history.tradingview
-    forecast_fields = (
-        ()
-        if tv.latest is None or tv.latest.fetch_status != "ok"
-        else tuple(metric for metric in FORECAST_METRICS if getattr(tv.latest, metric) is not None)
-    )
-    availability = (
-        "not_observed"
-        if tv.latest is None
-        else "unresolved"
-        if tv.latest.fetch_status != "ok"
-        else "forecast_fields_present"
-        if forecast_fields
-        else "all_null"
-    )
-    method = (
-        MONEX_FISCAL_METHOD_VERSION if monex_fiscal_eps else "same-series-v8-tradingview-receipts"
-    )
-    if window is not None:
-        method = MONEX_DAY_PAIR_METHOD_VERSION
     return ExternalAssessment(
         ticker=history.ticker,
         cutoff=cutoff,
         evaluated_at=evaluated_at,
-        method_version=method,
+        method_version=SINGLE_CUTOFF_METHOD_VERSION
+        if window is None
+        else MONEX_DAY_PAIR_METHOD_VERSION,
         monex_fiscal_eps=monex_fiscal_eps,
         model_valuations=tuple(models),
         analyst_ratings=(),
         quants_scores=tuple(scores),
-        tradingview=TradingViewReceipts(
-            inputs=tv,
-            availability=availability,
-            forecast_fields=forecast_fields,
-            comparison_basis="metric_period_mapping_unconfirmed",
-        ),
         origin_groups=tuple(
             OriginGroup(origin=origin, references=tuple(refs))
             for origin, refs in sorted(grouped.items())

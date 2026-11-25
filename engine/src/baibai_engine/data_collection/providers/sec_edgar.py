@@ -97,6 +97,91 @@ class SecEdgarReceipt:
         object.__setattr__(self, "receipt_id", f"sec-edgar:{identity}")
 
 
+@dataclass(frozen=True, slots=True)
+class SecReportedTicker:
+    """One literal ticker the SEC reported for this issuer at receipt, not listing history."""
+
+    symbol: str
+    issuer_cik: str
+    receipt_id: str
+    body_sha256: str
+    received_at: datetime
+    ticker_pointer: str
+
+    @property
+    def identity_ref(self) -> str:
+        return f"{self.receipt_id}#{self.ticker_pointer}"
+
+
+type SecReportedTickerResult = (
+    SecReportedTicker
+    | Literal[
+        "not_yet_received",
+        "unusable_submissions_receipt",
+        "issuer_mismatch",
+        "ticker_list_unverified",
+        "ticker_not_reported",
+    ]
+)
+
+
+def observe_reported_ticker(
+    receipt: SecEdgarReceipt, *, symbol: str, expected_cik: str, cutoff: datetime
+) -> SecReportedTickerResult:
+    """Require successful, fixed Submissions evidence before joining a quote label to a CIK.
+
+    This proves only the native current association as observed, not the listing
+    exchange, share-class title or an effective interval for historical bars.
+    Incomplete SEC coverage cannot prove a symbol does not exist.
+    """
+    expected = SecEdgarQuery("submissions", expected_cik)
+    if type(symbol) is not str or not symbol or symbol != symbol.strip():
+        raise ValueError("SEC ticker association requires an exact symbol label")
+    if cutoff.utcoffset() is None or receipt.received_at.utcoffset() is None:
+        raise ValueError("SEC ticker association clocks require a timezone offset")
+    received_at = receipt.received_at.astimezone(UTC)
+    if received_at > cutoff.astimezone(UTC):
+        return "not_yet_received"
+    if receipt.request.endpoint != "submissions":
+        return "unusable_submissions_receipt"
+    if receipt.request.cik != expected.cik or receipt.state == "issuer_mismatch":
+        return "issuer_mismatch"
+    if (
+        receipt.state != "received"
+        or receipt._transfer_failure is not None
+        or type(receipt.status_code) is not int
+        or receipt.status_code != 200
+        or type(receipt.body) is not bytes
+    ):
+        return "unusable_submissions_receipt"
+
+    payload = _read_payload(receipt.body)
+    state, _ = _payload_state(expected, payload)
+    if state == "issuer_mismatch":
+        return state
+    if state != "received" or payload is None:
+        return "unusable_submissions_receipt"
+    tickers = payload.get("tickers")
+    if (
+        not isinstance(tickers, list)
+        or any(
+            type(ticker) is not str or not ticker or ticker != ticker.strip() for ticker in tickers
+        )
+        or len(set(tickers)) != len(tickers)
+    ):
+        return "ticker_list_unverified"
+    if symbol not in tickers:
+        return "ticker_not_reported"
+    return SecReportedTicker(
+        symbol,
+        expected.cik,
+        receipt.receipt_id,
+        receipt.body_sha256,
+        received_at,
+        f"/tickers/{tickers.index(symbol)}",
+    )
+
+
 def capture_sec_edgar(
     query: SecEdgarQuery,
     *,
@@ -146,7 +231,7 @@ def capture_sec_edgar(
         state, older = (
             (transfer_failure, None)
             if transfer_failure is not None
-            else _payload_state(query, body)
+            else _payload_state(query, _read_payload(body))
         )
         return SecEdgarReceipt(
             request=query,
@@ -224,17 +309,23 @@ def _transfer_failure(
     return None
 
 
-def _payload_state(query: SecEdgarQuery, body: bytes) -> tuple[SecEdgarState, bool | None]:
+def _read_payload(body: bytes) -> dict[str, object] | None:
     try:
-        payload = json.loads(
+        payload: object = json.loads(
             body.decode("utf-8"),
             object_pairs_hook=_unique_object,
             parse_float=Decimal,
             parse_constant=_invalid_constant,
         )
     except (ArithmeticError, RecursionError, ValueError):
-        return "invalid_envelope", None
-    if not isinstance(payload, dict) or (cik := _cik(payload.get("cik"))) is None:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _payload_state(
+    query: SecEdgarQuery, payload: dict[str, object] | None
+) -> tuple[SecEdgarState, bool | None]:
+    if payload is None or (cik := _cik(payload.get("cik"))) is None:
         return "invalid_envelope", None
     if cik != query.cik:
         return "issuer_mismatch", None

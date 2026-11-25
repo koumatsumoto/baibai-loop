@@ -49,7 +49,7 @@
 
 - **個社**：企業財務 `company_financials`、企業成長 `company_growth`、テクニカル分析 `technical_analysis`、外部評価 `external_assessment`。
 - **個社と市場**：市場環境 `market_context`。個社の相対・価格観測と市場全体の観測は別の対象に保存する。
-- **共有**：産業動向 `industry_trends` は業種ごと、社会動向 `social_trends` は共通。取得した全記事に意味抽出・業種対応があるわけではない。
+- **L3で調べるもの**：記事に基づく産業・社会の動向は、判断に必要な場合だけ原典を調べる。日次は記事から `industry_trends` や `social_trends` を新規生成しない。保存済みのモデルは元のGeneration/Selectionから読める。
 
 将来の株主利益・因果・重要性はここでは決めず、L3で判断する。
 

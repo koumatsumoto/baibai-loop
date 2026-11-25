@@ -132,6 +132,7 @@ def project_generated_inputs(
     company_growth_periods: int | None = 12,
     full_growth_tickers: Set[str] = frozenset(),
     proposal_view: bool = False,
+    include_saved_tradingview: bool = False,
 ) -> dict[str, JsonValue]:
     """モデル固有の意味を維持し、未生成と生成内の欠測を区別して提示する。"""
     securities: dict[str, object] = {}
@@ -183,6 +184,12 @@ def project_generated_inputs(
                 payload = _project_market_context(
                     model.payload, full_result_ref=f"/inputs/generation/models/{index}/payload"
                 )
+            elif (
+                scope == "stock"
+                and model.model_id == "external_assessment"
+                and not include_saved_tradingview
+            ):
+                payload = deepcopy({k: v for k, v in model.payload.items() if k != "tradingview"})
             else:
                 payload = deepcopy(model.payload)
             models[model.model_id] = payload

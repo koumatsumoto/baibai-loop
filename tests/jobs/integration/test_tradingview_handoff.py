@@ -75,7 +75,10 @@ def test_late_partial_handoff_adds_missing_rows_without_narrowing_saved_selectio
         TradingViewHandoff.from_json({**selected.to_json(), "master_request_ids": ["other"]})
 
 
-def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticker(tmp_path):
+@pytest.mark.parametrize("has_prior_receipt", [True, False])
+def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticker(
+    tmp_path, has_prior_receipt
+):
     source, canonical = (
         store(tmp_path / "source.sqlite", 1),
         store(tmp_path / "canonical.sqlite", 1),
@@ -83,9 +86,12 @@ def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticke
     first = retain_result(canonical, _sdk(payload(["TSE:1000"])))
     rebuild_from_receipts(canonical, DAY, [first])
     before = stored(canonical)
+    if not has_prior_receipt:
+        with closing(open_connection(canonical)) as conn, conn:
+            conn.execute("DELETE FROM tradingview_source_receipts WHERE receipt_id=?", (first,))
     changed = payload(["TSE:1000"])
     changed["data"]["TSE:1000"]["close"] = 999
-    retain_result(source, _sdk(changed), received=NOW + timedelta(minutes=1))
+    received = retain_result(source, _sdk(changed), received=NOW + timedelta(minutes=1))
     stage = tmp_path / "stage.sqlite"
     remote, master, calendar = native_inputs(source, tmp_path, day=DAY)
     selected = export_handoff(
@@ -95,6 +101,10 @@ def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticke
     assert result.report["rows_added"] == 0
     assert result.report["raw_receipts_added"] == 1
     assert stored(canonical) == before
+    with closing(open_connection(canonical)) as conn:
+        assert {
+            row[0] for row in conn.execute("SELECT receipt_id FROM tradingview_source_receipts")
+        } == ({first, received} if has_prior_receipt else {received})
 
 
 def test_new_canonical_universe_refuses_the_old_handoff_before_receiving_rows(tmp_path):
@@ -136,14 +146,25 @@ def test_declared_receipt_must_exist_in_packet_even_if_canonical_has_it(tmp_path
     assert stored(canonical) == []
 
 
-def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_path):
+@pytest.mark.parametrize("failure", ["provider_rate_limit", "invalid_number", "missing_field"])
+def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_path, failure):
     source, canonical = (
-        store(tmp_path / "source.sqlite", 1),
-        store(tmp_path / "canonical.sqlite", 1),
+        store(tmp_path / "source.sqlite", 2),
+        store(tmp_path / "canonical.sqlite", 2),
     )
-    retain_result(
-        source, CallToolResult(isError=True, content=[TextContent(type="text", text="HTTP 429")])
-    )
+    symbols = ["TSE:1000", "TSE:1001"]
+    reason = "provider_response"
+    if failure == "provider_rate_limit":
+        result = CallToolResult(isError=True, content=[TextContent(type="text", text="HTTP 429")])
+        reason = failure
+    else:
+        response = payload(symbols)
+        if failure == "invalid_number":
+            response["data"][symbols[1]]["close"] = "private-invalid-number"
+        else:
+            del response["data"][symbols[1]]["AnalystRating"]
+        result = _sdk(response)
+    receipt_id = retain_result(source, result, symbols=tuple(symbols))
     stage = tmp_path / "stage.sqlite"
     remote, master, calendar = native_inputs(source, tmp_path, day=DAY)
     selected = export_handoff(
@@ -153,10 +174,11 @@ def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_pa
     assert result.complete is False
     assert result.report["raw_receipts_added"] == 1
     assert result.report["rows_added"] == 0
-    assert result.report["rejected_receipts"] == [
-        {"receipt_id": selected.receipt_ids[0], "reason": "provider_rate_limit"}
-    ]
+    assert result.report["rejected_receipts"] == [{"receipt_id": receipt_id, "reason": reason}]
     assert stored(canonical) == []
+    assert (
+        import_handoff(stage, canonical, selected, store=remote).report["raw_receipts_added"] == 0
+    )
 
 
 def test_overnight_receipt_handoff_keeps_actual_time_and_is_idempotent(tmp_path):

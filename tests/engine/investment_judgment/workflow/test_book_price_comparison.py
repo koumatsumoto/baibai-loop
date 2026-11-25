@@ -176,6 +176,8 @@ def test_assets_cli_uses_all_unfiltered_peers_and_same_book_period(tmp_path, cap
     assert calls[0][1]["model_ids"] == ("company_financials",)
     assert set(calls[0][1]["subjects"]) == set(stocks)
     meta = result["reported_book_comparison"]
+    assert "推計簿価" in result["question"]
+    assert "分母は推計簿価" in meta["meaning"]
     assert [meta[k] for k in ("within_question", "at_or_below", "above", "unavailable")] == [
         6,
         2,
@@ -184,6 +186,7 @@ def test_assets_cli_uses_all_unfiltered_peers_and_same_book_period(tmp_path, cap
     ]
     assert [row["ticker"] for row in result["rows"]] == ["1001", "1002"]
     first, second = [r["book_price_comparison"] for r in result["rows"]]
+    assert (first["reported_pbr"], first["book_method"]) == (0.5, "assets_times_equity_ratio")
     assert first["market"] == {
         "other_companies": 5,
         "same_price_date": {"count": 3, "median_pbr": 3},

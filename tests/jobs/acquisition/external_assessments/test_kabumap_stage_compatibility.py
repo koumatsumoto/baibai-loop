@@ -1,15 +1,10 @@
-"""既存の固定stageと試行hashを保ち、未計算は明示して渡す。"""
+"""既存の固定stageを保ち、未計算は明示して渡す。"""
 
 import hashlib
 import json
 
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_jobs.acquisition.external_assessments.attempts import (
-    journal_prefix,
-    read_attempts,
-    save_attempts,
-)
 from baibai_jobs.acquisition.external_assessments.cohorts import make_plan
 from baibai_jobs.acquisition.external_assessments.identity import STAGE_FORMAT
 from baibai_jobs.acquisition.external_assessments.staging import (
@@ -86,27 +81,12 @@ def _bytes(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
 
-def test_legacy_stage_and_attempt_journal_keep_exact_canonical_bytes():
-    plan, store = _plan(), MemoryR2Store()
+def test_legacy_stage_keeps_exact_canonical_bytes():
+    plan = _plan()
     payload = _legacy_stage(plan)
     stage = load_stage(plan, payload)
     assert stage.result.observations[0].availability == "available"
     assert stage_bytes(plan, stage) == payload
-    journal = _bytes(
-        {
-            "format": "external-assessment-attempt-journal-v1",
-            "plan_sha256": plan.plan_sha256,
-            "candidate_stage": json.loads(payload),
-            "attempts": [],
-        }
-    )
-    key = journal_prefix(plan) + hashlib.sha256(journal).hexdigest() + ".json"
-    store.store_object(key, journal)
-    assert read_attempts(store, plan)[0]["candidate_stage"] == json.loads(payload)
-    before = list(store.put_keys)
-    assert save_attempts(store, plan, stage, []) == key
-    assert store.put_keys == before
-    assert store.get_bytes(key) == journal
 
 
 def test_legacy_ready_reference_is_idempotent_after_new_model_load():

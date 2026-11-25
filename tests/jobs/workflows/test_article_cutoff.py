@@ -102,11 +102,15 @@ def test_state_is_rechecked_after_reading_the_run_inventory():
     ]
 
 
-@pytest.mark.parametrize("legacy_path", list(cutoff.LEGACY_WORKFLOWS.values()))
-def test_legacy_paths_are_inert_archives_and_cannot_use_secrets(legacy_path):
-    archive = _workflow(Path(legacy_path).name)
+@pytest.mark.parametrize(
+    "archive_path",
+    [*cutoff.LEGACY_WORKFLOWS.values(), ".github/workflows/cloud-article-sources-current.yml"],
+)
+def test_retired_paths_have_no_trigger_or_writer(archive_path):
+    archive = _workflow(Path(archive_path).name)
     assert set(archive["on"]) == {"workflow_call"}
     assert archive["permissions"] == {}
+    assert set(archive["jobs"]) == {"retired"}
     assert archive["jobs"]["retired"]["if"] == "${{ false }}"
     assert "secrets" not in str(archive)
 
@@ -114,7 +118,6 @@ def test_legacy_paths_are_inert_archives_and_cannot_use_secrets(legacy_path):
 @pytest.mark.parametrize(
     ("file", "writers"),
     [
-        ("cloud-article-sources-current.yml", ("acquire",)),
         ("cloud-daily-batch-current.yml", ("daily",)),
         ("cloud-economic-sources-current.yml", ("plan", "source", "notify-plan-failure")),
     ],
@@ -263,16 +266,6 @@ WRITER_STEPS = [
         "Acquire publication lease",
         "",
         ("baibai_jobs.publication.lease", "acquire"),
-    ),
-    *(
-        (
-            "cloud-article-sources-current.yml",
-            "acquire",
-            "Acquire due sources and save each partial privately",
-            group,
-            ("baibai_jobs.acquisition.articles", "--group"),
-        )
-        for group in ("scheduled", "public", "world", "rakuten")
     ),
     *(
         (

@@ -25,7 +25,7 @@ uv run baibai-engine investment-judgment selection-context \
 
 銘柄コードを先に知る必要はない。最初の出力の `repeat_command_args` で公表物と情報締切を固定し、問いの `append_args` を付けて会社を見る。続きは同じ基本引数に `next_args`、個社の内訳は問いの引数の**代わりに**行の `detail_args` を付ける。詳細に返るのは保存した索引行・モデル等であり、原典を今回確認したことにはならない。
 
-報告資産の問いで株価水準によって調べる範囲を絞るときは、同じコマンドに `--discovery-question reported_assets --reported-pbr-max <倍率>` を指定する。赤字やテクニカル未生成でも、当時の財務自身に正の簿価と価格・株数基準が揃えば調査できる。別の記録に価格日の矛盾があれば比較不能とする。上限は閲覧条件で、買値や普遍的な基準ではない。各行の市場・業種中央値は**閾値適用前**の他社の観測。揃った株価日だけの比較と、簿価の期末・算出法・連単・会計基準まで揃う比較を分ける。標本なしを市場で補わず、違う事業や拘束資産・負担も調べる。値動きは下記の価格観測から別に読む。
+開示資料を基にした資産の問いで株価水準によって調べる範囲を絞るときは、同じコマンドに `--discovery-question reported_assets --reported-pbr-max <倍率>` を指定する。赤字やテクニカル未生成でも、当時の財務に正の推計簿価と価格・株数基準が揃えば調査できる。別の記録に価格日の矛盾があれば比較不能とする。上限は閲覧条件で、買値や普遍的な基準ではない。各行の市場・業種中央値は**閾値適用前**の他社の観測。揃った株価日だけの比較と、簿価の期末・算出法・連単・会計基準まで揃う比較を分ける。標本なしを市場で補わず、違う事業や拘束資産・負担も調べる。値動きは下記の価格観測から別に読む。
 
 銘柄指定は `--scope specified_stocks --ticker <TICKER>`、保有点検は `--scope review_positions`。指定銘柄は探索の問いに該当する必要はない。比較したい会社は同じ公表物を指定して `--compare-ticker <TICKER>` で読む。照会だけでは調査対象は増えない。新規と保有を混ぜず、依頼の範囲内で深掘りする会社と、比較にだけ使う会社を区別する。
 
@@ -64,6 +64,8 @@ prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inpu
 
 個社の `external_assessment.monex_fiscal_eps` があれば、世代に固定済みの配信元・対象決算期・円/株・受領時刻を用いる。今期／来期のアナリスト予想、会社予想、目標株価、ローリング1年予想を取り違えない。欄なしは実世界での予想なしを証明しない。調査や提案のために原本の全件復元／再取得をせず、過去の判断へ後発データを足さない。
 
+個社TradingViewは標準入力ではない。[L3の補助資料として必要な時だけ](../../../docs/reference/model-observations.md#tradingview)確認し、取得できなくても調査・提案を止めない。
+
 nativeは保存descriptorから[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)へ進みsummary/latestで代用しない。探索行がないこと、表示の省略、モデル未生成、値の欠測は別である。時点・Reading・保存範囲は[観測reference](../../../docs/reference/model-observations.md#judgment-use)に従う。
 
 ### 会社に未関連の共有材料を調べる
@@ -84,7 +86,9 @@ uv run baibai-engine investment-judgment shared-context \
 
 ### 記事の原文へ戻る
 
-共有subjectのcoverage/抽出状態/省略を確認し、[通常生成の範囲](../../../docs/architecture.md#現在の解析モデル)を全ニュースへ一般化せず重要原文だけprivateに読む。
+新規調査は[発表元の見出しから原典を絞る](../../../docs/reference/stock-assessment.md#recent-news-research)。記事Lakeや原本一式の取得は不要。[既存Research](#途中成果の保存と再訪)の `sources[].ref` に原典URL、`retrieved_at` に実際に読んだ時刻（時差付き）を入れる。公表日で実読時刻を埋めない。`used_for` は読んだ箇所・公表時点・用途を記す説明欄で、CLIが原典を照合するわけではない。採った観測を `facts[].source_ids` で結び、対象期・母集団を残す。見出ししか読めない、締切以前の本文か不明などの不足は、`investigated_scope` と `unresolved_questions` に記し、事実に入れない。
+
+既存の調査・判断に記録された **保存原典の参照** を確かめる場合だけ、保持済みの指定版からその参照を読む。発行元の現行ページや別資料で当時の原本を補わない。
 
 ```bash
 uv run baibai-engine articles exact-evidence \
@@ -92,9 +96,7 @@ uv run baibai-engine articles exact-evidence \
   --reference-file <EXACT_DESCRIPTOR_JSON> --cache <PRIVATE_CACHE> --output-dir <NEW_PRIVATE_DIR>
 ```
 
-探索は同じrelease/manifest/cacheの`articles list`へsource・受領UTC月・公表期間を渡す。月ごとにprivate index.jsonから選び、続きは同条件のnext_after。公表日時不明は日時検索に入らない。
-
-lookupは元lineageや旧release全体の再読でない。Research source.refに原典URL、used_forにexact descriptorを残し、日付・本文範囲・限定を後続/再開へ引継ぐ。自動exact照合は保証されず、原文を公開logへ転載しない。受領だけで独立性・変化・実施を認定しない。
+指定参照を読み戻せない場合は「当時の原本は未確認」と残し、発行済みの判断・参照は書き換えない。全文・添付一式を新規に蓄積せず、公開ログにも転載しない。
 
 ## Company Research・Stock Assessment・Independent Review
 
@@ -115,7 +117,7 @@ scaffoldの`--from-research-id`は元日付/ID/hash付き素材コピー、`--fr
 
 ### 途中成果の保存と再訪
 
-`company-research scaffold`はlatestまたは明示ID/hashからdraftを作る。調査範囲と追加/訂正/削除を編集し`company-research save`する。部分的理解のsnapshotとして検索不発も範囲/残る問いを保存でき、価値・価格・Reviewを捏造しない。
+`company-research scaffold --ticker <TICKER> --asof <ASOF> --db <APP_DB> --out <DRAFT>` はlatestまたは明示ID/hashからdraftを作る。調査範囲と追加/訂正/削除を編集し、`company-research save <DRAFT> --db <APP_DB>` の参照を `company-research get --research-id <ID> --sha256 <SHA256> --db <APP_DB>` で読み戻す。検索不発も範囲/残る問いとして保存できる。Researchの保存は査読・正式提案・注文ではない。
 
 as_ofは情報境界で全内容の再検証日でない。元source/fact時刻を保ちコピーを再確認/削除の安全認定にしない。stale priorはlatestと統合して再保存し、同ID同内容は元保存時刻を返す。文字列参照の自動検証は保証しない。中断は理由とResearch ID/digestをrecord-unfinishedへ残し、部分保存をreviewed/完了としない。
 

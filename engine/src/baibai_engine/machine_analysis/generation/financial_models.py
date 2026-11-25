@@ -160,7 +160,7 @@ def generate_financial_and_price_models(
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
             )
             + "-accounting-flags-v2-provider-capital-v1"
-            "-cf-details-v2-book-source-v1-balance-context-v3-cfo-source-v1"
+            "-cf-details-v2-book-source-v2-balance-context-v3-cfo-source-v1"
             f"-{CAPITAL_ACTION_REVISION}-issuer-capital-sources-v2",
             payload=json.loads(
                 canonical_json(

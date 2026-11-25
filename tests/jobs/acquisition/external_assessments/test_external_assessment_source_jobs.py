@@ -342,6 +342,7 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
     )
     assert child["concurrency"]["group"] == "external-assessment-acquire-${{ inputs.source }}"
     acquire = child["jobs"]["acquire"]
+    assert acquire["concurrency"]["group"] == "source-host-external-${{ inputs.source }}"
     assert "inputs.operation == 'collect'" in acquire["if"]
     assert "cloud-publish" not in str(acquire)
     assert "publish" not in child["jobs"]

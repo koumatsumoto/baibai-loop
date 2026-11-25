@@ -23,7 +23,7 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan, summarize
 from baibai_jobs.acquisition.external_assessments.identity import COORDINATION_PREFIX
-from baibai_jobs.acquisition.external_assessments.raw import preserve_raw_bundle
+from baibai_jobs.acquisition.external_assessments.raw import verify_retained_raw_bundle
 from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
     load_stage,
@@ -86,7 +86,7 @@ def save_ready(store: ReceiptStore, item: PreparedPlan) -> dict[str, str]:
         if item.cumulative:
             for key in stage.raw_bundle_keys:
                 if key not in acknowledged:
-                    preserve_raw_bundle(store, key)
+                    verify_retained_raw_bundle(store, key)
         payload = stage_bytes(plan, stage)
         digest = hashlib.sha256(payload).hexdigest()
         key = prefix(plan.run_id) + f"/confirmed-stages/{digest}.json"
