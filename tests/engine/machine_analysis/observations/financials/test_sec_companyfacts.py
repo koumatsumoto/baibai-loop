@@ -310,19 +310,27 @@ def test_received_invalid_bytes_and_issuer_are_not_hidden_by_unverified_publicat
         assert _read(not_received, filing=unknown_publication) == "not_yet_received"
 
 
-def test_companyfacts_and_filing_cannot_share_one_pinned_receipt_reference() -> None:
+@pytest.mark.parametrize("padding", ["", "\t"])
+def test_companyfacts_and_filing_cannot_share_one_pinned_receipt_reference(padding: str) -> None:
     source = _capture(_body(_fact()))
-    filing = replace(_FILING, receipt_id=source.receipt_id)
-    with pytest.raises(
-        ValueError, match="CompanyFacts and filing require distinct receipt references"
-    ):
+    filing = replace(_FILING, receipt_id=f"{padding}{source.receipt_id}{padding}")
+    error = "separate pinned receipt references" if padding else "distinct receipt references"
+    with pytest.raises(ValueError, match=error):
         _read(source, filing=filing)
 
 
-def test_companyfacts_receipt_cannot_pass_as_independent_filing_publication_evidence() -> None:
+@pytest.mark.parametrize("space", ["", "\u00a0"])
+def test_companyfacts_receipt_cannot_pass_as_independent_filing_publication_evidence(
+    space: str,
+) -> None:
     source = _capture(_body(_fact()))
-    filing = replace(_FILING, publication_ref=source.receipt_id)
-    with pytest.raises(ValueError, match="CompanyFacts receipt cannot witness filing publication"):
+    filing = replace(_FILING, publication_ref=source.receipt_id.replace("-", f"-{space}", 1))
+    error = (
+        "invalid SEC filing publication witness reference"
+        if space
+        else "CompanyFacts receipt cannot witness filing publication"
+    )
+    with pytest.raises(ValueError, match=error):
         _read(source, filing=filing)
 
     filing = replace(_FILING, publication_ref=_FILING.receipt_id)
@@ -421,6 +429,7 @@ def test_public_index_never_substitutes_either_pinned_source_receipt(source_late
         ({"receipt_id": _FILING.receipt_id}, "distinct"),
         ({"receipt_id": " "}, "receipt"),
         ({"receipt_id": " companyfacts-capture-a "}, "receipt"),
+        ({"receipt_id": "companyfacts- capture-a"}, "receipt"),
         ({"observed_at": _instant("2026-11-25T20:54:59Z")}, "before filing acceptance"),
     ],
 )
@@ -430,7 +439,7 @@ def test_wrong_public_observation_provenance_is_not_a_public_witness(changes, er
 
 
 def test_future_index_metadata_cannot_change_old_proof_or_hide_invalid_body() -> None:
-    proof = _index_proof(index_url="https://example.invalid/wrong")
+    proof = _index_proof(index_url="https://example.invalid/wrong", receipt_id="future evidence")
     before = _instant("2026-11-25T21:09:59Z")
     source = _capture(_body(_fact()))
     assert _read_observed(source, proof=proof, cutoff=before) == "publication_unverified"
@@ -461,7 +470,7 @@ def test_original_index_can_be_observed_at_filing_acceptance() -> None:
 
 
 @pytest.mark.parametrize("counterpart", ["companyfacts", "filing", "publication"])
-def test_index_receipt_cannot_alias_a_padded_legacy_reference(counterpart: str) -> None:
+def test_whitespace_reference_cannot_become_independent_evidence(counterpart: str) -> None:
     proof = _index_proof()
     padded = f" {proof.receipt_id}\t "
     source = _capture(_body(_fact()))
@@ -473,7 +482,12 @@ def test_index_receipt_cannot_alias_a_padded_legacy_reference(counterpart: str) 
     else:
         filing = replace(filing, publication_ref=padded)
 
-    # Existing exact-evidence-only route has no new reference restrictions.
-    assert isinstance(_read(source, filing=filing), SecRevenueObservation)
-    with pytest.raises(ValueError, match="distinct original index receipt"):
+    error = (
+        "invalid SEC filing publication witness reference"
+        if counterpart == "publication"
+        else "separate pinned receipt references"
+    )
+    with pytest.raises(ValueError, match=error):
+        _read(source, filing=filing)
+    with pytest.raises(ValueError, match=error):
         _read_observed(source, proof=proof, cutoff=_CUTOFF, filing=filing)

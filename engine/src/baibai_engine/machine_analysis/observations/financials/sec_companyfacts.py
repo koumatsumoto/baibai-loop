@@ -137,7 +137,7 @@ def observe_sec_revenue(
     accession = _accession(filing.accession)
     if filing.form not in ("10-Q", "10-Q/A"):
         raise ValueError("SEC revenue requires a pinned quarterly filing form")
-    if not _present_ref(capture.receipt_id) or not _present_ref(filing.receipt_id):
+    if not _valid_receipt_ref(capture.receipt_id) or not _valid_receipt_ref(filing.receipt_id):
         raise ValueError("SEC revenue requires separate pinned receipt references")
     if capture.receipt_id == filing.receipt_id:
         raise ValueError("CompanyFacts and filing require distinct receipt references")
@@ -145,7 +145,7 @@ def observe_sec_revenue(
     accepted = _clock(filing.accepted_at)
     if (filing.published_at is None) != (filing.publication_ref is None):
         raise ValueError("SEC publication time and witness must be supplied together")
-    if filing.publication_ref is not None and not _present_ref(filing.publication_ref):
+    if filing.publication_ref is not None and not _valid_receipt_ref(filing.publication_ref):
         raise ValueError("invalid SEC filing publication witness reference")
     if filing.publication_ref == capture.receipt_id:
         raise ValueError("CompanyFacts receipt cannot witness filing publication")
@@ -253,16 +253,12 @@ def _public_index_asof(
         raise ValueError("SEC public observation CIK does not match the filing")
     if _accession(observation.accession) != filing.accession:
         raise ValueError("SEC public observation accession does not match the filing")
-    if (
-        not _present_ref(observation.receipt_id)
-        or observation.receipt_id != observation.receipt_id.strip()
-    ):
+    if not _valid_receipt_ref(observation.receipt_id):
         raise ValueError("invalid SEC public observation receipt reference")
-    # Padding a legacy reference cannot make the same receipt independent evidence.
-    receipt_id = observation.receipt_id.strip()
-    if any(
-        ref is not None and ref.strip() == receipt_id
-        for ref in (companyfacts_receipt_id, filing.receipt_id, filing.publication_ref)
+    if observation.receipt_id in (
+        companyfacts_receipt_id,
+        filing.receipt_id,
+        filing.publication_ref,
     ):
         raise ValueError("SEC public observation requires a distinct original index receipt")
     accession_folder = filing.accession.replace("-", "")
@@ -280,8 +276,9 @@ def _public_index_asof(
     return replace(observation, issuer_cik=filing.issuer_cik, observed_at=observed_at)
 
 
-def _present_ref(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
+def _valid_receipt_ref(value: object) -> bool:
+    """Receipt references are opaque IDs, not display labels."""
+    return isinstance(value, str) and bool(value) and not any(ch.isspace() for ch in value)
 
 
 def _clock(value: object) -> datetime:
