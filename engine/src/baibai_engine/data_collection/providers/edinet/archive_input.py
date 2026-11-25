@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from baibai_engine.data_collection.providers.edinet.archive_plan import holder_document_scope
 from baibai_engine.data_collection.providers.edinet.document_rows import (
     document_inputs,
     native_document_index,
@@ -26,14 +25,11 @@ class ArchiveListInput:
     available_days: frozenset[date]
     failed_days: tuple[date, ...]
 
-    def observed_documents(
-        self, *, through: date, holder_only: bool = False
-    ) -> list[dict[str, Any]]:
+    def observed_documents(self, *, through: date) -> list[dict[str, Any]]:
         documents = [
             doc for doc in self.projected_documents if str(doc["doc_date"]) <= through.isoformat()
         ]
-        scoped = holder_document_scope(documents) if holder_only else documents
-        return document_inputs(scoped, self.native_rows)
+        return document_inputs(documents, self.native_rows)
 
     def stored_documents(self, *, through: date) -> list[dict[str, Any]]:
         for day in self.failed_days:

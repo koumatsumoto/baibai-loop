@@ -11,14 +11,9 @@ from baibai_engine.data_collection.providers.edinet.annual_filings import (
     annual_documents,
     usable_document,
 )
-from baibai_engine.data_collection.providers.edinet.document_events import (
-    canonicalize_document_events,
-)
-from baibai_engine.data_collection.providers.edinet.document_rows import document_text
 from baibai_engine.data_collection.providers.edinet.facts_scope import FactsScope
 from baibai_engine.data_collection.providers.edinet.fields import (
     filing_submitted_at,
-    is_usable_filing_status,
     parse_sec_code,
 )
 from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
@@ -26,46 +21,6 @@ from baibai_engine.data_collection.providers.edinet.selection import (
     TARGET_DOC_TYPE_CODES,
     select_document_candidates,
 )
-
-
-def holder_document_scope(
-    documents: Sequence[Mapping[str, Any]],
-) -> list[Mapping[str, Any]]:
-    """Keep nullable operation rows for a known holder filing or its correction."""
-    holder_ids = {
-        document_text(doc.get("docID"))
-        for doc in documents
-        if document_text(doc.get("docTypeCode")) in {"350", "360"}
-    }
-    return [
-        doc
-        for doc in documents
-        if (
-            document_text(doc.get("docTypeCode")) in {"350", "360"}
-            or document_text(doc.get("docID")) in holder_ids
-            or document_text(doc.get("parentDocID")) in holder_ids
-        )
-    ]
-
-
-def select_holder_archives(
-    documents: Sequence[Mapping[str, Any]], *, retained: set[tuple[str, int]]
-) -> tuple[list[str], int]:
-    origins, quarantined = canonicalize_document_events(
-        holder_document_scope(documents), origin_start=None
-    )
-    candidates = {
-        str(doc["docID"]): str(doc.get("submitDateTime") or "")
-        for doc in origins
-        if str(doc.get("docTypeCode")) in {"350", "360"}
-        and str(doc.get("xbrlFlag")) == "1"
-        and (str(doc.get("docID")), 1) not in retained
-        and is_usable_filing_status(
-            doc.get("legalStatus"), doc.get("disclosureStatus"), doc.get("withdrawalStatus")
-        )
-    }
-    ordered = sorted(candidates, key=lambda doc_id: (candidates[doc_id], doc_id), reverse=True)
-    return ordered, len(quarantined)
 
 
 def select_metric_archives(

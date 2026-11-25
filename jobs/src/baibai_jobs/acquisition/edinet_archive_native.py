@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import time
 import zipfile
 from datetime import date, timedelta
 from typing import Literal, Protocol
@@ -16,7 +15,6 @@ from baibai_engine.data_collection.providers.edinet.archive_native import (
 from baibai_engine.data_collection.providers.edinet.archive_plan import (
     needs_archive,
     prepare_fact_acquisition,
-    select_holder_archives,
     select_metric_archives,
 )
 from baibai_engine.data_collection.providers.edinet.facts_scope import (
@@ -26,16 +24,11 @@ from baibai_engine.data_collection.providers.edinet.list_native import FixedEdin
 from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAccessDeniedError,
     EdinetAcquisitionError,
-    EDINETProviderError,
     EdinetRateLimitError,
     EdinetResponse,
 )
 from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 from baibai_engine.storage.json import write_json_atomic
-
-# Retained IDs form the queue; distribute this backfill across normal daily runs.
-_HOLDER_ARCHIVES_PER_RUN = 100
-_HOLDER_INTERVAL_SECONDS = 10
 
 
 class ArchiveClient(Protocol):
@@ -52,7 +45,6 @@ def acquire_archives(
     lookback_days: int = 540,
     initialize_facts: bool = False,
     tickers: tuple[str, ...] = (),
-    include_holder_archives: bool = True,
 ) -> dict[str, object]:
     if group not in {"edinet-metrics", "edinet-facts"}:
         raise ValueError("unsupported EDINET archive group")
@@ -71,14 +63,11 @@ def acquire_archives(
             "lookback_days": lookback_days,
             "initialize_facts": initialize_facts,
             "tickers": list(tickers),
-            "include_holder_archives": include_holder_archives,
             "list_head": lists.value(),
             "archive_head": fixed.value(),
         },
     )
     retained = set(fixed.archive_keys)
-    holder_ids: set[str] = set()
-    holder_planning_failed = False
     selected_ids: frozenset[str] = frozenset()
     report: dict[str, object] = {
         "source": group,
@@ -91,6 +80,7 @@ def acquire_archives(
     list_failed_days = [day.isoformat() for day in inputs.failed_days if start <= day <= asof]
     report["list_failed_days"] = list_failed_days
     documents: list[tuple[str, Literal[1, 5]]]
+    quarantined = 0
     if group == "edinet-metrics":
         unavailable_days = [
             (start + timedelta(days=offset)).isoformat()
@@ -118,21 +108,8 @@ def acquire_archives(
         documents = [
             (str(doc["docID"]), 1) for doc in (selected or []) if needs_archive(doc, asof=asof)
         ]
-        holder_pending: list[str] = []
-        quarantined = 0
-        if include_holder_archives:
-            try:
-                holder_pending, quarantined = select_holder_archives(
-                    inputs.observed_documents(through=asof, holder_only=True), retained=retained
-                )
-            except (EDINETProviderError, ValueError, OSError):
-                holder_planning_failed = True
-        holder_ids = set(holder_pending[:_HOLDER_ARCHIVES_PER_RUN])
-        documents.extend((doc_id, 1) for doc_id in holder_pending[:_HOLDER_ARCHIVES_PER_RUN])
-        report.update(
-            annual_archive_plan="available" if selected is not None else "skipped_not_initialized",
-            holder_planning_failed=holder_planning_failed,
-            holder_not_selected_this_batch=max(0, len(holder_pending) - len(holder_ids)),
+        report["annual_archive_plan"] = (
+            "available" if selected is not None else "skipped_not_initialized"
         )
     failed: list[dict[str, str]] = []
     # A usable prior list can justify a known ZIP, not future annual acquisitions.
@@ -158,16 +135,11 @@ def acquire_archives(
             owner.publish([NativeArchive.from_response(doc_id, source_type, response)])
             retained.add((doc_id, source_type))
             downloaded += 1
-        if doc_id in holder_ids:
-            time.sleep(_HOLDER_INTERVAL_SECONDS)
     if initialize_facts and not tickers and selected_ids and not annual_failed:
         owner.publish((), scope=FactsScope(since=asof))
     report.update(
         status="failed"
-        if failed
-        or holder_planning_failed
-        or list_failed_days
-        or report.get("list_unavailable_days")
+        if failed or list_failed_days or report.get("list_unavailable_days")
         else "received",
         downloaded=downloaded,
         retained_archives_reused=reused,
