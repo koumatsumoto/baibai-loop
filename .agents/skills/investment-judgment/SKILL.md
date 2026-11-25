@@ -64,6 +64,8 @@ prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inpu
 
 個社の `external_assessment.monex_fiscal_eps` があれば、世代に固定済みの配信元・対象決算期・円/株・受領時刻を用いる。今期／来期のアナリスト予想、会社予想、目標株価、ローリング1年予想を取り違えない。欄なしは実世界での予想なしを証明しない。調査や提案のために原本の全件復元／再取得をせず、過去の判断へ後発データを足さない。
 
+個社TradingViewは標準入力ではない。[L3の補助資料として必要な時だけ](../../../docs/reference/model-observations.md#tradingview)確認し、取得できなくても調査・提案を止めない。
+
 nativeは保存descriptorから[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)へ進みsummary/latestで代用しない。探索行がないこと、表示の省略、モデル未生成、値の欠測は別である。時点・Reading・保存範囲は[観測reference](../../../docs/reference/model-observations.md#judgment-use)に従う。
 
 ### 会社に未関連の共有材料を調べる

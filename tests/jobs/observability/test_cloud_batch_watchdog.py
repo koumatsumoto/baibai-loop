@@ -1346,14 +1346,12 @@ def test_quality_proof_is_wired_only_to_the_existing_post_seal_check_and_notice(
     check = steps["source-check"]
     assert check["name"] == SOURCE_CHECK_STEP
     assert "steps.source-seal.outcome == 'success'" in check["if"]
-    assert '--quality-output "$GITHUB_OUTPUT"' in check["run"]
-    assert sum("--quality-output" in step.get("run", "") for step in steps.values()) == 1
+    assert "--quality-output" not in check["run"]
     assert "continue-on-error" not in check
     notice = steps["notify"]["name"]
     assert notice.startswith(RESULT_STEP_PREFIX)
-    assert "steps.source-check.outputs.tv_quality_asof != ''" in notice
-    assert "steps.source-check.outputs.tv_quality_asof == steps.batch.outputs.asof" in notice
-    assert f"&& '{TV_QUALITY_SUFFIX}' || ''" in notice
+    assert "tv_quality_asof" not in notice
+    assert TV_QUALITY_SUFFIX not in notice
 
 
 @pytest.mark.parametrize("reverse_jobs", [False, True])

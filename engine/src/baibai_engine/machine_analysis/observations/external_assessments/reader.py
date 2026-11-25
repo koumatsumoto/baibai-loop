@@ -143,7 +143,6 @@ def read_observation_population(
     *,
     tickers: Sequence[str],
     cutoff: datetime,
-    include_tradingview: bool = True,
     include_retired: bool = True,
     monex_window: MonexGenerationWindow | None = None,
 ) -> dict[str, ObservationHistory]:
@@ -207,7 +206,7 @@ def read_observation_population(
                 for row in tradingview_rows_at_cutoff(conn, cutoff, ticker=ticker)
                 if row["ticker"] in selected
             ]
-            if include_tradingview
+            if include_retired
             else []
         )
     finally:

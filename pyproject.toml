@@ -632,7 +632,6 @@ source_modules = [
   "baibai_jobs.maintenance.tradingview_context",
   "baibai_jobs.observability.tradingview",
   "baibai_jobs.acquisition.tradingview.cli",
-  "baibai_jobs.acquisition.tradingview.collector",
   "baibai_jobs.integration.tradingview_handoff",
   "baibai_jobs.maintenance.tradingview_rebuild",
 ]

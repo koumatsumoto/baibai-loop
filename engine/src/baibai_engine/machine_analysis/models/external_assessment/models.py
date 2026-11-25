@@ -24,8 +24,9 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
 )
 
 METHOD_VERSION = "same-series-v4"
-MONEX_FISCAL_METHOD_VERSION = "same-series-v9-monex-fiscal-eps"
-MONEX_DAY_PAIR_METHOD_VERSION = "same-series-v10-monex-asof-pair"
+SINGLE_CUTOFF_METHOD_VERSION = "same-series-v11-no-tradingview"
+MONEX_DAY_PAIR_METHOD_VERSION = "same-series-v11-monex-asof-pair-no-tradingview"
+_CURRENT_METHOD_VERSIONS = {SINGLE_CUTOFF_METHOD_VERSION, MONEX_DAY_PAIR_METHOD_VERSION}
 
 
 class MetricComparison(FrozenModel):
@@ -107,19 +108,28 @@ class ExternalAssessment(FrozenModel):
     model_valuations: tuple[ModelValuationAssessment, ...]
     analyst_ratings: tuple[AnalystRatingAssessment, ...]
     quants_scores: tuple[QuantsScoreAssessment, ...]
-    tradingview: TradingViewReceipts | SavedTradingViewComparisons
+    tradingview: TradingViewReceipts | SavedTradingViewComparisons | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     origin_groups: tuple[OriginGroup, ...]
     minkabu: AnalystForecastHistory = Field(default_factory=AnalystForecastHistory)
     monex_fiscal_eps: MonexEPSReceipt | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @model_validator(mode="after")
     def fiscal_eps_matches_price_original(self) -> Self:
+        if (self.tradingview is None) != (self.method_version in _CURRENT_METHOD_VERSIONS):
+            raise ValueError("TradingView section differs from the external assessment revision")
         eps = self.monex_fiscal_eps
         if eps is None:
             return self
         anchor = latest_monex(item.inputs for item in self.model_valuations)
         if (
-            self.method_version not in {MONEX_FISCAL_METHOD_VERSION, MONEX_DAY_PAIR_METHOD_VERSION}
+            self.method_version
+            not in {
+                "same-series-v9-monex-fiscal-eps",
+                "same-series-v10-monex-asof-pair",
+                *_CURRENT_METHOD_VERSIONS,
+            }
             or anchor is None
             or (eps.ticker, anchor.ticker) != (self.ticker, self.ticker)
             or eps.source_url != monex_public_url(self.ticker)

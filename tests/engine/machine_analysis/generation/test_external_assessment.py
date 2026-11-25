@@ -14,13 +14,13 @@ from tests.helpers.external_assessment_observations import RECEIVED, rating, val
 from baibai_engine.cli.external_assessment import main
 from baibai_engine.machine_analysis.generation.runners.external_assessment import (
     external_assessment,
+    generate_external_assessment,
 )
-from baibai_engine.machine_analysis.models.external_assessment.analysis import (
-    FORECAST_METRICS,
-    analyze,
-)
+from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
 from baibai_engine.machine_analysis.models.external_assessment.models import (
     MONEX_DAY_PAIR_METHOD_VERSION,
+    SINGLE_CUTOFF_METHOD_VERSION,
+    ExternalAssessment,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     MonexGenerationWindow,
@@ -162,7 +162,7 @@ def test_quants_native_scores_keep_separate_scale_and_basis_dates(tmp_path):
     assert result.comparisons[1].state == "missing"
 
 
-def test_tradingview_receipt_forecast_null_and_unresolved_are_distinct(tmp_path):
+def test_historical_tradingview_receipts_keep_zero_null_and_unresolved_distinct(tmp_path):
     path = tmp_path / "market.sqlite"
     first = datetime(2026, 10, 9, 7, 0, tzinfo=UTC)
     second = first + timedelta(days=1)
@@ -170,18 +170,19 @@ def test_tradingview_receipt_forecast_null_and_unresolved_are_distinct(tmp_path)
     tv_row(path, first, eps_forecast_next_fy=0, quote_currency="JPY", quote_close=100)
     tv_row(path, second, quote_currency="JPY", quote_close=101)
     tv_row(path, third, status="unresolved")
-    received = read(path, first).tradingview
-    assert received.availability == "forecast_fields_present"
-    assert received.forecast_fields == ("eps_forecast_next_fy",)
-    assert received.inputs.latest.estimate_currency is None
-    assert received.inputs.latest.quote_currency == "JPY"
-    missing = read(path, second).tradingview
-    assert missing.availability == "all_null"
-    assert missing.inputs.previous.eps_forecast_next_fy == 0
-    assert missing.inputs.latest.eps_forecast_next_fy is None
-    assert not missing.forecast_fields
-    assert read(path, third).tradingview.availability == "unresolved"
-    assert read(path, first - timedelta(microseconds=1)).tradingview.availability == "not_observed"
+    received = read_observations(path, "1234", first).tradingview.latest
+    assert received.eps_forecast_next_fy == 0
+    assert received.estimate_currency is None
+    assert received.quote_currency == "JPY"
+    missing = read_observations(path, "1234", second).tradingview
+    assert missing.previous.eps_forecast_next_fy == 0
+    assert missing.latest.fetch_status == "ok"
+    assert missing.latest.eps_forecast_next_fy is None
+    assert read_observations(path, "1234", third).tradingview.latest.fetch_status == "unresolved"
+    assert (
+        read_observations(path, "1234", first - timedelta(microseconds=1)).tradingview.latest
+        is None
+    )
 
 
 def test_exact_received_cutoff_does_not_include_later_same_day_microsecond(tmp_path):
@@ -191,9 +192,8 @@ def test_exact_received_cutoff_does_not_include_later_same_day_microsecond(tmp_p
     tv_row(path, cutoff, eps_forecast_next_fy=10)
     # One snapshot/day is immutable; use a distinct ticker for a future receipt.
     tv_row(path, cutoff + timedelta(microseconds=1), ticker="5678", eps_forecast_next_fy=99)
-    result = external_assessment(path, ticker="5678", cutoff=cutoff, evaluated_at=cutoff)
-    assert result.tradingview.availability == "not_observed"
-    assert read(path, cutoff).tradingview.inputs.latest.eps_forecast_next_fy == 10
+    assert read_observations(path, "5678", cutoff).tradingview.latest is None
+    assert read_observations(path, "1234", cutoff).tradingview.latest.eps_forecast_next_fy == 10
 
 
 def test_query_and_public_show_have_no_network_or_writes(tmp_path, monkeypatch, capsys):
@@ -254,10 +254,14 @@ assert not any(name.startswith("baibai_jobs.maintenance.tradingview") for name i
     )
 
 
-def test_two_receipts_with_the_same_row_year_are_not_a_forecast_revision(tmp_path):
+def test_historical_observations_keep_reported_period_and_original_values(tmp_path):
     path = tmp_path / "market.sqlite"
     first = datetime(2026, 10, 9, 7, tzinfo=UTC)
-    original = {name: i - 7 for i, name in enumerate(FORECAST_METRICS)}
+    original = {
+        "eps_forecast_next_fy": -7,
+        "price_target_average": 100,
+        "revenue_forecast_next_fy": 300,
+    }
     revised = {name: value + 1 for name, value in original.items()}
     metadata = dict(
         target_period_label="FY2027",
@@ -267,12 +271,8 @@ def test_two_receipts_with_the_same_row_year_are_not_a_forecast_revision(tmp_pat
     )
     tv_row(path, first, **original, **metadata)
     tv_row(path, first + timedelta(days=1), **revised, **metadata)
-    result = read(path).tradingview
-    assert result.availability == "forecast_fields_present"
-    assert set(result.forecast_fields) == set(original)
-    assert result.comparison_basis == "metric_period_mapping_unconfirmed"
-    assert "comparisons" not in result.model_dump()
-    for receipt, values in ((result.inputs.latest, revised), (result.inputs.previous, original)):
+    result = read_observations(path, "1234", RECEIVED + timedelta(days=2)).tradingview
+    for receipt, values in ((result.latest, revised), (result.previous, original)):
         assert receipt.target_period_label == "FY2027"
         assert receipt.target_period_end == "2027-03-31"
         assert {name: getattr(receipt, name) for name in original} == values
@@ -301,12 +301,8 @@ def test_tradingview_population_and_single_reads_agree_at_subsecond_and_offset_b
         "1001",
         "1002",
     }
-    for ticker in ("1001", "1002", "1003"):
-        assessment = external_assessment(
-            path, ticker=ticker, cutoff=requested_cutoff, evaluated_at=requested_cutoff
-        )
-        assert assessment.tradingview.inputs == population[ticker].tradingview
-        assert (assessment.tradingview.inputs.latest is not None) == (ticker in {"1001", "1002"})
+    for ticker, history in population.items():
+        assert read_observations(path, ticker, requested_cutoff) == history
 
 
 def test_show_parser_does_not_import_acquisition_or_store_implementations():
@@ -329,37 +325,40 @@ assert "baibai_engine.machine_analysis.observations.external_assessments.store" 
     )
 
 
-def test_new_generation_retains_tradingview_inputs_without_rewriting_saved_history(tmp_path):
-    from baibai_engine.machine_analysis.generation.runners.external_assessment import (
-        generate_external_assessment,
-    )
-    from baibai_engine.machine_analysis.models.external_assessment.models import ExternalAssessment
-
+def test_generation_omits_historic_tradingview_even_when_given_raw_history(tmp_path):
     path = tmp_path / "market.sqlite"
     tv_row(path, RECEIVED, eps_forecast_next_fy=10, quote_close=100)
     save_observations(path, [valuation()])
     before = path.read_bytes()
     cutoff = RECEIVED + timedelta(days=30)
     history = read_observations(path, "1234", cutoff)
-    personal = external_assessment(path, ticker="1234", cutoff=cutoff, evaluated_at=cutoff)
-    assert personal.tradingview.inputs.latest.fetched_at_utc == RECEIVED
-    assert (
-        personal.tradingview.inputs.latest.snapshot_date
-        == RECEIVED.astimezone(ZoneInfo("Asia/Tokyo")).date()
-    )
-    assert personal.tradingview.inputs.latest.eps_forecast_next_fy == 10
-    fixed_payload = personal.model_dump_json()
+    assert history.tradingview.latest.eps_forecast_next_fy == 10
+    frozen = history.model_dump_json()
     generated = generate_external_assessment(history, evaluated_at=cutoff)
-    assert generated.method_version == "same-series-v8-tradingview-receipts"
-    assert generated.tradingview == personal.tradingview
-    assert generated.tradingview.availability == "forecast_fields_present"
-    assert "eps_forecast_next_fy" in generated.tradingview.forecast_fields
-    assert generated.model_valuations == personal.model_valuations
-    assert ExternalAssessment.model_validate_json(fixed_payload).model_dump_json() == fixed_payload
+    assert generated.method_version == SINGLE_CUTOFF_METHOD_VERSION
+    assert "tradingview" not in generated.model_dump(mode="json")
+    assert generated.model_valuations == read(path, cutoff).model_valuations
+    assert history.model_dump_json() == frozen
     assert path.read_bytes() == before
 
-    # V5 recorded an explicit exclusion. Reading it must not add V8's receipt policy.
-    historical = generated.model_dump(mode="json")
+
+def test_saved_tradingview_revisions_are_read_without_reinterpretation(tmp_path):
+    path = tmp_path / "market.sqlite"
+    tv_row(path, RECEIVED, eps_forecast_next_fy=10, quote_close=100)
+    history = read_observations(path, "1234", RECEIVED)
+    historical = read(path, RECEIVED).model_dump(mode="json")
+    historical.update(
+        method_version="same-series-v8-tradingview-receipts",
+        tradingview={
+            "inputs": history.tradingview.model_dump(mode="json"),
+            "availability": "forecast_fields_present",
+            "forecast_fields": ["eps_forecast_next_fy"],
+            "comparison_basis": "metric_period_mapping_unconfirmed",
+        },
+    )
+    assert ExternalAssessment.model_validate(historical).model_dump(mode="json") == historical
+
+    # V5 recorded an explicit exclusion, V7 recorded its own comparisons.
     historical.update(
         method_version="same-series-v5-no-tradingview",
         tradingview={
@@ -370,33 +369,43 @@ def test_new_generation_retains_tradingview_inputs_without_rewriting_saved_histo
         },
     )
     assert ExternalAssessment.model_validate(historical).model_dump(mode="json") == historical
-
-    # A saved V7 notice is read, not rebuilt from its (here absent) source pair.
     historical["method_version"] = "same-series-v7"
-    historical["tradingview"] = {
-        **historical["tradingview"],
-        "availability": "not_observed",
-        "comparisons": [
-            {"metric": "eps_forecast_next_fy", "state": "not_observed", "reason": "no_observation"}
-        ],
-    }
+    historical["tradingview"]["availability"] = "not_observed"
+    historical["tradingview"]["comparisons"] = [
+        {"metric": "eps_forecast_next_fy", "state": "not_observed", "reason": "no_observation"}
+    ]
     recorded = ExternalAssessment.model_validate(historical).tradingview
     assert [c.reason for c in recorded.comparisons] == ["no_observation"]
     assert "comparison_basis" not in recorded.model_dump()
+    historical.pop("tradingview")
+    with pytest.raises(ValueError, match="TradingView section differs"):
+        ExternalAssessment.model_validate(historical)
 
 
-def test_optional_population_read_can_skip_tradingview_rows(tmp_path):
+def test_current_show_and_population_do_not_query_tradingview(tmp_path, monkeypatch, capsys):
+    from baibai_engine.machine_analysis.observations.external_assessments import reader
+
     path = tmp_path / "market.sqlite"
     tv_row(path, RECEIVED, eps_forecast_next_fy=10)
-    save_observations(path, [valuation()])
-    with sqlite3.connect(path) as conn:
-        conn.execute("UPDATE tradingview_forecast_snapshots SET eps_forecast_next_fy='invalid'")
+    marker = valuation(consensus_target_origin="IFIS")
+    save_observations(path, [marker])
     before = path.read_bytes()
+    assert read_observations(path, "1234", RECEIVED).tradingview.latest.eps_forecast_next_fy == 10
+
+    def no_tradingview(*args, **kwargs):
+        pytest.fail("current external assessment queried retired TradingView inputs")
+
+    monkeypatch.setattr(reader, "tradingview_rows_at_cutoff", no_tradingview)
     result = read_observation_population(
-        path, tickers=("1234",), cutoff=RECEIVED, include_tradingview=False
+        path, tickers=("1234",), cutoff=RECEIVED, include_retired=False
     )
     assert result["1234"].tradingview.latest is None
-    assert result["1234"].model_valuations[0].latest.consensus_target == 1200
+    assert result["1234"].model_valuations[0].latest == marker
+    assert (
+        main(["show", "--db", str(path), "--ticker", "1234", "--cutoff", RECEIVED.isoformat()]) == 0
+    )
+    assert '"tradingview":' not in capsys.readouterr().out
+    assert "tradingview" not in read(path, RECEIVED).model_dump(mode="json")
     assert path.read_bytes() == before
 
 
@@ -508,8 +517,9 @@ def test_only_generation_monex_ranks_within_the_jst_day_even_with_two_later_rece
     by_source = {x.inputs.latest.distributor: x for x in daily.model_valuations}
     legacy = {x.inputs.latest.distributor: x for x in single.model_valuations}
     assert by_source["other"] == legacy["other"]
-    assert daily.tradingview == single.tradingview
-    assert daily.tradingview.inputs.latest.fetched_at_utc == b
+    assert "tradingview" not in daily.model_dump(mode="json")
+    assert "tradingview" not in single.model_dump(mode="json")
+    assert histories["1234"].tradingview.latest.fetched_at_utc == b
     assert (by_source["monex"].inputs.latest, by_source["monex"].inputs.previous) == (last, prior)
     assert by_source["monex"].comparisons[0].delta == 20
     assert {
@@ -520,7 +530,7 @@ def test_only_generation_monex_ranks_within_the_jst_day_even_with_two_later_rece
     } == {a}
     assert legacy["monex"].inputs.latest == mono[-1]
     assert legacy["monex"].inputs.previous == mono[-2]
-    assert single.method_version == "same-series-v8-tradingview-receipts"
+    assert single.method_version == SINGLE_CUTOFF_METHOD_VERSION
 
 
 @pytest.mark.parametrize("seal_first", [False, True])

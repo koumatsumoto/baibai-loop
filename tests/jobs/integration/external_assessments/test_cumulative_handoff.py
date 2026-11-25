@@ -308,3 +308,43 @@ def test_missing_unacknowledged_original_never_seals_or_invents_zero(publication
     assert state["plans"] == []
     assert state["failed"] == [{"reference": reference, "reason": "ValueError"}]
     assert read_acknowledgement(store, load_ready(store, reference), reference) is None
+
+
+def test_legacy_spelled_reference_with_the_same_retained_body_still_seals(publication, monkeypatch):
+    from baibai_jobs.acquisition.external_assessments.identity import (
+        RAW_PREFIX,
+        RETAINED_RAW_PREFIX,
+    )
+
+    store, plan = make_partial(publication)
+    _, _, handle, database, mirror, directory = publication
+    stage, _ = staging.read_stage(store, plan, 0)
+    (retained,) = stage.raw_bundle_keys
+    legacy = RAW_PREFIX + retained.removeprefix(RETAINED_RAW_PREFIX)
+    # Represent a saved predecessor stage with only the durable alias still present.
+    store.store_object(
+        staging.stage_key(plan, 0),
+        staging.stage_bytes(plan, replace(stage, raw_bundle_keys=(legacy,))),
+    )
+    assert legacy not in store.values
+    assert retained in store.values
+
+    put = store.put_file
+
+    def control_only(key, *args, **kwargs):
+        assert key.startswith(staging.prefix(plan.run_id) + "/")
+        assert kwargs["content_type"] == "application/json"
+        return put(key, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "put_file", control_only)
+        reference = save_ready(store, prepare_plan(store, plan, cumulative=True))
+    state = merge_ready(store, [reference], database=database)
+    assert state["failed"] == []
+    assert state["plans"][0]["source_responses_added"] == 1
+    publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    verify_and_seal(store, state, handle=handle, directory=directory / "alias")
+    ack = read_acknowledgement(store, load_ready(store, reference), reference)
+    assert set(ack["bundle_receipts"]) == {legacy}
+    assert legacy not in store.values
+    assert retained in store.values

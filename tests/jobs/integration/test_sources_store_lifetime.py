@@ -52,9 +52,10 @@ def _case(tmp_path, monkeypatch, command, failure=None, *, failed_input=False):
         use(store, "apply")
         return report
 
-    def publish(store, **kwargs):
+    def publish(store, source, generations):
         use(store, "inputs")
-        return {"updated": [], "failed": [{"reason": "ValueError"}] if failed_input else []}
+        if failed_input:
+            raise ValueError("synthetic article planning failure")
 
     def seal(store, *args, **kwargs):
         use(store, "seal")
@@ -70,10 +71,8 @@ def _case(tmp_path, monkeypatch, command, failure=None, *, failed_input=False):
     monkeypatch.setattr(sources, "apply", apply)
     monkeypatch.setattr(sources, "_load_handle", lambda _: object())
     monkeypatch.setattr(sources, "verify_held", lambda store, _: use(store, "lease"))
-    monkeypatch.setattr(
-        sources, "canonical_generations", lambda _, **__: {"lake_release_id": "fixed"}
-    )
-    monkeypatch.setattr(sources, "publish_inputs", publish)
+    monkeypatch.setattr(sources, "canonical_generations", lambda _: {"lake_release_id": "fixed"})
+    monkeypatch.setattr(sources, "publish_planning_input", publish)
     monkeypatch.setattr(sources, "seal_integrated", seal)
     args = [command, "--directory", str(directory)]
     if command in {"apply", "inputs"}:
@@ -81,7 +80,7 @@ def _case(tmp_path, monkeypatch, command, failure=None, *, failed_input=False):
     if command in {"inputs", "seal"}:
         args += ["--lease-handle", str(tmp_path / "lease.json")]
     if command == "inputs":
-        args += ["--identity", "fixed", "--group", "tradingview"]
+        args += ["--identity", "fixed", "--group", "tsr_flash"]
     return args, events, stores
 
 
@@ -116,7 +115,7 @@ def test_failed_input_report_also_closes_before_return(tmp_path, monkeypatch, ca
     assert sources.main(args) == 1
     assert json.loads(capsys.readouterr().out) == {
         "updated": [],
-        "failed": [{"reason": "ValueError"}],
+        "failed": [{"group": "tsr_flash", "reason": "ValueError"}],
     }
     assert events == ["construct", "lease", "inputs", "close"]
     assert stores[0].closed

@@ -25,6 +25,11 @@ from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_in_transaction
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
+# V2 pinned the older display, not just the Selection. A new V3 workspace leaves
+# retired company-level TradingView out even when its Generation is older.
+LEGACY_WORKSPACE_SCHEMA_VERSION = 2
+WORKSPACE_SCHEMA_VERSION = 3
+
 
 def read_workspace_operation(
     manifest: Mapping[str, object],
@@ -62,9 +67,13 @@ def _manifest_operation_id(manifest: Mapping[str, object]) -> str:
         if periods is not None and (type(periods) is not int or periods < 1):
             raise ResearchWorkspaceConflictError("invalid company growth display periods")
     if set(manifest) != expected_keys:
-        raise ResearchWorkspaceConflictError("workspace manifest fields differ from V2")
-    if manifest.get("schema_version") != 2:
-        raise ResearchWorkspaceConflictError("workspace requires an explicit V2 cutover")
+        raise ResearchWorkspaceConflictError("workspace manifest fields differ from the schema")
+    version = manifest.get("schema_version")
+    if type(version) is not int or version not in {
+        LEGACY_WORKSPACE_SCHEMA_VERSION,
+        WORKSPACE_SCHEMA_VERSION,
+    }:
+        raise ResearchWorkspaceConflictError("unsupported workspace schema version")
     return _nonempty_string(manifest.get("operation_id"), label="manifest.operation_id")
 
 
