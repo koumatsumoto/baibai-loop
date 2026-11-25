@@ -173,16 +173,19 @@ from baibai_jobs.publication.snapshot_release import read_pointer_snapshot
 
 expected = committed.current
 
+
 def require_same_pointer(observed):
     if observed != expected or observed.payload != expected.payload:
         raise LakePublishError("Machine cutover pointer changed")
 
+
 while_held()
 with pull_current_machine(reader, lake_source, directory=work) as pulled:
     require_same_pointer(pulled.current)
-    if pulled.runs is None or (
-        sha256_file(pulled.market), sha256_file(pulled.runs)
-    ) != expected_sha256:
+    if (
+        pulled.runs is None
+        or (sha256_file(pulled.market), sha256_file(pulled.runs)) != expected_sha256
+    ):
         raise LakePublishError("Machine cutover readback differs from sealed files")
 while_held()
 require_same_pointer(read_pointer_snapshot(reader))
