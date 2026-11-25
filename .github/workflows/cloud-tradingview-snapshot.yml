@@ -2,18 +2,6 @@ name: cloud-tradingview-snapshot
 run-name: "tradingview ${{ github.event.schedule || 'manual' }}"
 
 on:
-  schedule:
-    - cron: "37 6 * * 1-5"
-    - cron: "37 8 * * 1-5"
-    - cron: "37 10 * * 1-5"
-    - cron: "37 12 * * 1-5"
-    - cron: "37 14 * * 1-5"
-    - cron: "37 0 * * 0,6"
-    - cron: "37 4 * * 0,6"
-    - cron: "37 8 * * 0,6"
-    # Distinct source-only recovery opportunities before the common integration.
-    - cron: "27 9 * * *"
-    - cron: "23 11 * * *"
   workflow_dispatch:
     inputs:
       interval:

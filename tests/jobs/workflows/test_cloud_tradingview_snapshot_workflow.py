@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.helpers.workflow_schedule import declared_schedule
 
 PATH = Path(__file__).resolve().parents[3] / ".github/workflows/cloud-tradingview-snapshot.yml"
 
@@ -25,7 +24,6 @@ def workflow():
 
 def test_metadata_order_and_exclusive_writer():
     data = workflow()
-    from baibai_jobs.schedule import TRADINGVIEW_SLOTS
 
     source = PATH.read_text(encoding="utf-8")
     assert not [
@@ -33,7 +31,7 @@ def test_metadata_order_and_exclusive_writer():
         for old in ("accept-observations", "observations_json", "observations_sha256")
         if old in source
     ]
-    assert [item["cron"] for item in declared_schedule(source)] == list(TRADINGVIEW_SLOTS)
+    assert set(data["on"]) == {"workflow_dispatch"}
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
         "interval",
         "observation_master_asof",
