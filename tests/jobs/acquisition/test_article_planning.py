@@ -3,10 +3,10 @@ from datetime import timedelta
 
 import pytest
 from tests.helpers.article_acquisition import SLOT, _packet
-from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
+from baibai_jobs.acquisition.article_evidence import exact_entry
 from baibai_jobs.acquisition.article_planning import (
     MAX_PLANNING_BYTES,
     ArticlePlanning,
@@ -20,7 +20,6 @@ from baibai_jobs.acquisition.article_planning import (
     source_key,
 )
 from baibai_jobs.acquisition.receipts import seal_integrated
-from baibai_jobs.maintenance.article_recovery import prepare
 
 
 def test_six_wakeups_do_not_assume_a_fixed_tsr_launch_hour():
@@ -141,16 +140,14 @@ def test_unrelated_planning_writer_conflict_keeps_exact_stage_recoverable(tmp_pa
     assert [item["stage_id"] for item in pending_handoffs(remote)] == ["boj_news-orphan"]
     assert "coordination/article-sources/boj_news-orphan/handoff.json" in remote.values
     stage = json.loads((tmp_path / "boj_news" / "stage.json").read_text())
-    empty_edinet_input(remote, tmp_path)
-    prepare(
+    opened = exact_entry(
         remote,
-        tmp_path / "recovery",
         source="boj_news",
         stage_id=stage["stage_id"],
         manifest_sha256=stage["manifest_sha256"],
     )
-    recovery = json.loads((tmp_path / "recovery/plan.json").read_text())["handoffs"][0]
-    assert recovery["explicit_article_recovery"] is True
+    assert opened["manifest_sha256"] == stage["manifest_sha256"]
+    assert opened["stage_id"] == "boj_news-orphan"
 
 
 @pytest.mark.parametrize("source", ["boj_news", "minkabu_news"])

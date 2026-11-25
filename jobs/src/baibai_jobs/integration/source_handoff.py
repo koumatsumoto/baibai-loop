@@ -114,11 +114,6 @@ def _replay(
     calendar_input: InputSnapshot | None = None,
     calendar_head: CurrentCalendarHead | None = None,
 ) -> ReplayResult:
-    from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
-    from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
-
-    if source in ARTICLE_SOURCES:
-        return import_article_handoff(source, database, directory)
     if source not in ("tradingview", *_JPX_COLLECTION):
         raise ValueError("unsupported market handoff source")
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))

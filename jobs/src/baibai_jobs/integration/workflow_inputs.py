@@ -27,23 +27,11 @@ def validate_daily_input(
     asof: str,
     preserve_existing_generations: str = "",
     edinet_metrics_acceptance: str = "",
-    article_semantic_recovery: str = "",
 ) -> None:
     """Validate the manual daily-batch date and explicit retention choice."""
     _validate_optional_date(asof, label="asof")
     if preserve_existing_generations not in ("", "true", "false"):
         raise WorkflowInputError("preserve_existing_generations must be empty, true, or false")
-    if article_semantic_recovery:
-        from baibai_jobs.integration.article_semantic_recovery import decode_recovery
-
-        try:
-            recovery = decode_recovery(article_semantic_recovery)
-        except (ValueError, TypeError) as exc:
-            raise WorkflowInputError("article semantic recovery input is invalid") from exc
-        if recovery["as_of"] != asof or preserve_existing_generations != "true":
-            raise WorkflowInputError(
-                "article recovery requires the explicit date and generation retention"
-            )
     if edinet_metrics_acceptance:
         from baibai_jobs.integration.edinet_metric_acceptance import decode_acceptance
 
@@ -70,7 +58,6 @@ def build_parser() -> argparse.ArgumentParser:
     daily.add_argument("--asof", default="")
     daily.add_argument("--preserve-existing-generations", default="")
     daily.add_argument("--edinet-metrics-acceptance", default="")
-    daily.add_argument("--article-semantic-recovery", default="")
 
     watchdog = subparsers.add_parser("watchdog")
     watchdog.add_argument("--check-date", default="")
@@ -85,7 +72,6 @@ def main(argv: list[str] | None = None) -> int:
                 asof=args.asof,
                 preserve_existing_generations=args.preserve_existing_generations,
                 edinet_metrics_acceptance=args.edinet_metrics_acceptance,
-                article_semantic_recovery=args.article_semantic_recovery,
             )
         else:
             validate_watchdog_input(check_date=args.check_date)

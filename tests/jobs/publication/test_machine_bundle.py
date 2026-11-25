@@ -14,7 +14,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.article_planning import load_planning, source_key
+from baibai_jobs.acquisition.source_inputs import input_key, load_input
 from baibai_jobs.integration import sources
 from baibai_jobs.publication import machine_bundle
 from baibai_jobs.publication.lease import _save_handle, acquire
@@ -134,10 +134,15 @@ def test_scoped_inputs_refuse_an_unpaired_daily_release(tmp_path, monkeypatch, r
     handle, _ = acquire(remote, "operator")
     lease = tmp_path / "lease.json"
     _save_handle(lease, handle)
+    market = tmp_path / "market.sqlite"
+    with closing(open_connection(market)):
+        pass
     command = [
         "inputs",
         "--directory",
         str(tmp_path / "integration"),
+        "--market",
+        str(market),
         "--lease-handle",
         str(lease),
         "--asof",
@@ -145,7 +150,7 @@ def test_scoped_inputs_refuse_an_unpaired_daily_release(tmp_path, monkeypatch, r
         "--identity",
         "synthetic",
         "--group",
-        "boj_news",
+        "tradingview",
     ]
 
     # model-integration can publish the lake before the machine transfer completes.
@@ -164,8 +169,9 @@ def test_scoped_inputs_refuse_an_unpaired_daily_release(tmp_path, monkeypatch, r
         origin={"run": "12346-1", "release_id": release_id, "release_manifest_sha256": digest},
     )
     assert sources.main(command) == 0
-    assert remote.put_keys == [source_key("boj_news")]
-    assert load_planning(remote, "boj_news")[0].generations == {
+    assert input_key("tradingview") in remote.put_keys
+    result = load_input(remote, "tradingview", None, tmp_path / "readback")
+    assert result["canonical_generations"] == {
         "lake_release_id": release_id,
         "lake_manifest_sha256": digest,
     }

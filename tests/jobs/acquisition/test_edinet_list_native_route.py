@@ -651,16 +651,12 @@ def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
         lambda _: {"lake_release_id": "fixed", "lake_manifest_sha256": "a" * 64},
     )
     published = []
-    articles = []
 
     def publish(_store, *, group, identity, **_kwargs):
         published.append(group)
         return f"{group}-{identity}"
 
     monkeypatch.setattr(source_inputs, "publish_input", publish)
-    monkeypatch.setattr(
-        sources, "publish_planning_input", lambda _, group, generations: articles.append(group)
-    )
     argv = [
         "inputs",
         "--directory",
@@ -675,9 +671,8 @@ def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
     assert sources.main(argv) == 0
     expected = [group for group in sources.SOURCE_INPUT_GROUPS if not group.startswith("edinet-")]
     assert published == expected
-    assert articles == list(sources.COLLECTION_SOURCES)
     report = json.loads(capsys.readouterr().out)
-    assert report["updated"] == expected + list(sources.COLLECTION_SOURCES)
+    assert report["updated"] == expected
     assert report["failed"] == []
     published.clear()
     assert sources.main([*argv, "--group", "edinet-list"]) == 1

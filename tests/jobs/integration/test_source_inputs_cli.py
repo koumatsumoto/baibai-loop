@@ -19,7 +19,7 @@ from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import source_inputs
-from baibai_jobs.acquisition.article_planning import COLLECTION_SOURCES, load_planning, source_key
+from baibai_jobs.acquisition.article_planning import source_key
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.source_inputs import input_key, load_input
 from baibai_jobs.integration import sources
@@ -97,7 +97,7 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
     expected = list(SOURCE_INPUT_GROUPS)
     assert sources.main(command) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report == {"updated": expected + list(COLLECTION_SOURCES), "failed": []}
+    assert report == {"updated": expected, "failed": []}
     assert {
         key
         for key in remote.values
@@ -109,9 +109,11 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
         assert result["canonical_generations"] == GENERATIONS
         assert result["group"] == group
         assert result["asof"] == str(DAY)
-    for source in COLLECTION_SOURCES:
-        assert load_planning(remote, source)[0].generations == GENERATIONS
-    assert not any("economic-" in key for key in remote.put_keys)
+    assert not any(
+        key.startswith(("coordination/article-planning/", "coordination/article-sources/"))
+        or "economic-" in key
+        for key in remote.put_keys
+    )
 
 
 @pytest.mark.parametrize("command", ["plan", "apply", "seal", "check"])
@@ -128,35 +130,17 @@ def test_group_cannot_turn_a_scoped_retry_into_an_unscoped_command(
     assert not work.exists()
 
 
-def test_reissue_only_failed_article_input_without_touching_other_plans(tmp_path, monkeypatch):
-    remote, _, command = _input_cli(tmp_path, monkeypatch)
-    failed = "boj_news"
-    publish = sources.publish_planning_input
+def test_retired_article_input_group_is_rejected_before_opening_store(
+    tmp_path, monkeypatch, capsys
+):
+    def unexpected_store(**_):
+        pytest.fail("a retired input group cannot open the store")
 
-    def fail_boj(store, source, generations):
-        if source == failed:
-            raise ValueError("simulated planning failure")
-        publish(store, source, generations)
-
-    monkeypatch.setattr(sources, "publish_planning_input", fail_boj)
-    assert sources.main(command) == 1
-    assert source_key(failed) not in remote.values
-    assert input_key("tradingview") in remote.values
-    before = dict(remote.values)
-    monkeypatch.setattr(sources, "publish_planning_input", publish)
-    remote.get_keys.clear()
-    remote.head_keys.clear()
-    remote.put_keys.clear()
-    assert sources.main([*command, "--group", failed]) == 0
-    assert remote.put_keys == [source_key(failed)]
-    assert {key: remote.values[key] for key in before} == before
-    assert not {
-        key
-        for key in remote.get_keys + remote.head_keys
-        if key.startswith(("coordination/article-planning/", "coordination/source-inputs/"))
-        and key != source_key(failed)
-    }
-    assert load_planning(remote, failed)[0].generations == GENERATIONS
+    monkeypatch.setattr(sources, "Boto3R2Store", unexpected_store)
+    directory = tmp_path / "uncreated"
+    assert sources.main(["inputs", "--directory", str(directory), "--group", "boj_news"]) == 1
+    assert "ValueError" in capsys.readouterr().err
+    assert not directory.exists()
 
 
 @pytest.mark.parametrize("group", ["edinet-list", "edinet-metrics", "edinet-facts"])
@@ -186,8 +170,7 @@ def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
     assert sources.main(command) == 1
     report = json.loads(capsys.readouterr().out)
     assert report == {
-        "updated": [group for group in SOURCE_INPUT_GROUPS if group != "tradingview"]
-        + list(COLLECTION_SOURCES),
+        "updated": [group for group in SOURCE_INPUT_GROUPS if group != "tradingview"],
         "failed": [{"group": "tradingview", "reason": "ValueError"}],
     }
     assert remote.values[input_key("tradingview")] == prior

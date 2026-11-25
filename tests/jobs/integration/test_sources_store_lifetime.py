@@ -13,6 +13,9 @@ def _case(tmp_path, monkeypatch, command, failure=None, *, failed_input=False):
     events, stores = [], []
     directory = tmp_path / "integration"
     report = {"handoffs": [], "extractions": {}, "external": None, "external_failed": []}
+    if command == "apply":
+        directory.mkdir()
+        (directory / "plan.json").write_text(json.dumps({"handoffs": []}))
     if command == "seal":
         directory.mkdir()
         report["handoffs"] = [
@@ -63,7 +66,6 @@ def _case(tmp_path, monkeypatch, command, failure=None, *, failed_input=False):
     monkeypatch.setattr(sources, "Boto3R2Store", Store)
     monkeypatch.setattr(sources, "available_ready", ready)
     monkeypatch.setattr(sources, "available_handoffs", lambda *_, **__: [])
-    monkeypatch.setattr(sources, "pending_handoffs", lambda *_: [])
     monkeypatch.setattr(
         sources, "fix_edinet_input", lambda *_: SimpleNamespace(model_dump=lambda **_: {"fixed": 1})
     )
@@ -121,7 +123,9 @@ def test_failed_input_report_also_closes_before_return(tmp_path, monkeypatch, ca
 
 
 @pytest.mark.parametrize("command", ["plan", "apply", "inputs", "seal"])
-def test_existing_plan_or_missing_required_argument_still_closes(tmp_path, monkeypatch, command):
+def test_existing_plan_or_missing_required_argument_never_leaks_a_client(
+    tmp_path, monkeypatch, command
+):
     args, events, stores = _case(tmp_path, monkeypatch, command)
     if command == "plan":
         directory = tmp_path / "integration"
@@ -132,8 +136,11 @@ def test_existing_plan_or_missing_required_argument_still_closes(tmp_path, monke
         index = args.index(option)
         del args[index : index + 2]
     assert sources.main(args) == 1
-    assert events == ["construct", "close"]
-    assert stores[0].closed
+    if command in {"apply", "seal"}:
+        assert events == stores == []
+    else:
+        assert events == ["construct", "close"]
+        assert stores[0].closed
     if command == "plan":
         assert (directory / "plan.json").read_bytes() == b"fixed plan"
 
