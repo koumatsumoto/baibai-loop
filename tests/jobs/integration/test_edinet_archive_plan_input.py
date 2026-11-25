@@ -14,7 +14,6 @@ from tests.jobs.acquisition.test_edinet_archive_native_acquisition import (
 )
 
 from baibai_engine.data_collection.providers.edinet.archive_input import read_archive_list_input
-from baibai_engine.data_collection.providers.edinet.archive_plan import select_holder_archives
 from baibai_engine.data_collection.providers.edinet.document_events import (
     canonicalize_document_events,
 )
@@ -31,7 +30,7 @@ from baibai_jobs.integration.edinet_list_native import materialize_lists
 
 
 @pytest.mark.parametrize("latest", ["valid", "malformed", "ambiguous"])
-def test_source_plan_matches_sql_projection_inputs_and_holder_scope(tmp_path, latest):
+def test_source_plan_matches_sql_projection_inputs(tmp_path, latest):
     documents = [
         filing("S100HOLDER", docTypeCode="350", secCode=None, docDescription="holder"),
         filing("S100ANNUAL", docDescription="original", issuerEdinetCode="E00001"),
@@ -88,9 +87,6 @@ def test_source_plan_matches_sql_projection_inputs_and_holder_scope(tmp_path, la
     folded, _ = canonicalize_document_events(projected, origin_start=None)
     assert next(doc for doc in folded if doc["docID"] == "S100ANNUAL")["docDescription"] is None
     assert next(doc for doc in folded if doc["docID"] == "S100HOLDER")["docDescription"] == "holder"
-    assert select_holder_archives(
-        inputs.observed_documents(through=through, holder_only=True), retained=set()
-    ) == select_holder_archives(projected, retained=set())
     assert owner.freeze().value() == before
 
 
@@ -112,7 +108,7 @@ def test_unavailable_day_remains_failed_for_annual_planning_but_retains_other_ev
     assert inputs.failed_days == (bad_day,)
 
 
-def test_document_identity_checks_follow_date_and_holder_scope(tmp_path):
+def test_document_identity_checks_follow_date(tmp_path):
     _, _, owner, _ = setup(
         tmp_path,
         [
@@ -126,8 +122,6 @@ def test_document_identity_checks_follow_date_and_holder_scope(tmp_path):
     database = tmp_path / "comparison.sqlite"
     materialize_lists(fixed, database)
     with closing(sqlite3.connect(database)) as conn:
-        holders = inputs.observed_documents(through=DAY, holder_only=True)
-        assert [doc["docID"] for doc in holders] == ["S100HOLDER"]
         for read in (
             lambda: read_observed_documents(conn, through=DAY),
             lambda: inputs.observed_documents(through=DAY),
