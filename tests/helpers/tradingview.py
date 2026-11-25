@@ -132,15 +132,6 @@ def seed_snapshot(
     return rebuild_from_receipts(path, day, ids)
 
 
-class Timer:
-    """Controllable elapsed clock shared by finite acquisition scenarios."""
-
-    value = 0.0
-
-    def __call__(self):
-        return self.value
-
-
 def native_inputs(source: Path, directory: Path, *, day: date, remote=None):
     """Freeze the fixture's real market rows; fillers outside the TV markets keep its small universe."""
     import json

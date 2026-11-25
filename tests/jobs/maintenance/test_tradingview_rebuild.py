@@ -148,6 +148,22 @@ def test_failed_raw_write_and_misdated_receipt_never_create_l2(tmp_path: Path) -
     assert stored(path) == []
 
 
+@pytest.mark.parametrize("at_end", [False, True])
+def test_rebuild_uses_the_end_of_the_original_acquisition_cycle(tmp_path, at_end):
+    path = store(tmp_path / "market.sqlite", 1)
+    next_open = NOW + timedelta(hours=17)  # Next 09:00 JST ends the cycle.
+    received = next_open if at_end else next_open - timedelta(seconds=1)
+    receipt = retain_result(path, _sdk(payload(["TSE:1000"])), received=received)
+    if at_end:
+        with pytest.raises(RebuildError) as error:
+            rebuild_from_receipts(path, DAY, [receipt])
+        assert error.value.rejected == ({"receipt_id": receipt, "reason": "time_guard"},)
+        assert stored(path) == []
+    else:
+        assert rebuild_from_receipts(path, DAY, [receipt])["rows"] == 1
+    assert _ids(path) == [receipt]
+
+
 def test_replay_refuses_overlap_and_wrong_context_without_changing_l2(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
     good = retain_result(path, _sdk(payload(["TSE:1000"])))
