@@ -652,3 +652,53 @@ def test_companyfacts_capture_scope_holds_only_affected_finance_in_cli(
     assert price_lines(affected) == price_lines(valid)
     assert other == unaffected
     assert tmp_path / record["file"] not in reads
+
+
+def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path, capsys):
+    bundle, files = _fixture()
+    subject = bundle["subjects"][0]
+    bundle["subjects"] = [subject, {**subject, "symbol": "SECOND"}]
+    del bundle["alpaca"]
+    record = subject["companyfacts"]
+    facts = json.loads(files[record["file"]])
+    gaap = facts["facts"]["us-gaap"]
+    (sample,) = next(iter(gaap.values()))["units"]["USD"]
+    gaap["OperatingIncomeLoss"] = {
+        "units": {
+            "USD": [
+                dict(sample, val=123),
+                dict(sample, val=100, start="2025-07-01", end="2025-09-30"),
+            ]
+        }
+    }
+    _replace_body(record, files, facts)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(bundle), encoding="utf-8")
+    (tmp_path / record["file"]).write_bytes(files[record["file"]])
+    cmd = [
+        "--bundle",
+        str(manifest),
+        "--compare-sec",
+        subject["cik"],
+        "Q3",
+        "2025-07-01",
+        "2025-09-30",
+        "2026-01-01",
+        "2025-01-01",
+    ]
+    assert main(cmd) == 0
+    report = capsys.readouterr().out
+    assert "operating_income (quarter, current) 2026-07-01〜2026-09-30: USD 123" in report
+    assert "operating_income (quarter, prior) 2025-07-01〜2025-09-30: USD 100" in report
+    assert report.count("operating_income (quarter,") == 2
+    assert "operating_cash_flow (year_to_date, current)" in report
+    assert "unmapped_concept_or_unit" in report
+    assert "SMA" not in report
+    assert "research_candidate" not in report
+
+    bundle["subjects"][1]["period_start"] = "2026-07-02"
+    manifest.write_text(json.dumps(bundle), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        main(cmd)
+    assert exc.value.code == 2
+    assert "invalid fixed US research receipt bundle" in capsys.readouterr().err
