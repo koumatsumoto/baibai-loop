@@ -8,18 +8,11 @@ from tests.helpers.workflow_schedule import declared_schedule
 
 ROOT = Path(__file__).resolve().parents[3]
 SCHEDULES = {
-    "cloud-article-sources-current": ["13 1,5,9,13,17,21 * * *"],
     "cloud-daily-batch-current": ["43 13 * * *"],
     "cloud-economic-sources-current": ["43 7 * * *"],
     "cloud-external-assessment": ["13 10,14,22 * * *"],
     "cloud-market-sources": ["43 7 * * *", "43 8 * * *", "13 9 * * *"],
     "cloud-tradingview-market-daily": ["30 21 * * *"],
-    "cloud-tradingview-snapshot": [
-        *(f"37 {hour} * * 1-5" for hour in (6, 8, 10, 12, 14)),
-        *(f"37 {hour} * * 0,6" for hour in (0, 4, 8)),
-        "27 9 * * *",
-        "23 11 * * *",
-    ],
 }
 
 

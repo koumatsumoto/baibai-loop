@@ -14,7 +14,6 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from functools import partial
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -88,7 +87,9 @@ from baibai_engine.investment_judgment.workflow.selection_query import (
     load_generated_selection_context,
 )
 from baibai_engine.investment_judgment.workflow.workspace import (
+    ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
+    compute_status,
     prepare_selected_workspace,
     promote,
     resume_selected_workspace,
@@ -253,6 +254,33 @@ def _discover_second(generation, *, runs, app, request, monkeypatch):
     return publication_id, chosen["ticker"]
 
 
+def _bind_historical_article_inputs(monkeypatch, snapshot, release):
+    """Build the old persisted shape without reopening article inputs in routine generation."""
+    from baibai_engine.machine_analysis.generation.assembly import generate_models
+    from baibai_engine.machine_analysis.generation.runners.trend_inputs import (
+        DEFAULT_INDUSTRIES,
+        read_trend_inputs,
+    )
+
+    # The synthetic business link is independent of the security's JPX33 sector.
+    industry = DEFAULT_INDUSTRIES[0].model_copy(update={"related_tickers": ("1234",)})
+    trends = read_trend_inputs(
+        snapshot,
+        release_id=release.release_id,
+        release_sha256=release.manifest_sha256,
+        cutoff=START,
+        as_of=START.date(),
+        industries=(industry,),
+    )
+
+    def historical_assembly(**inputs):
+        return generate_models(**{**inputs, "trends": trends})
+
+    monkeypatch.setattr(
+        "baibai_engine.machine_analysis.generation.inputs.generate_models", historical_assembly
+    )
+
+
 def _prepare_case(
     tmp_path,
     monkeypatch,
@@ -263,6 +291,7 @@ def _prepare_case(
     ledger_age=0,
     monex_original=False,
     discover=False,
+    archived_tradingview=False,
 ):
     # urllib3 probes local IPv6 support at import (socket + bind, no remote IO).
     # Initialize it before the strict workflow guard, independent of test order.
@@ -346,19 +375,7 @@ def _prepare_case(
         financial_store, financial_owner.fixed(), as_of=START.date(), evaluated_at=START
     )
     if shared_trends:
-        from baibai_engine.machine_analysis.generation.runners.trend_inputs import (
-            DEFAULT_INDUSTRIES,
-            read_trend_inputs,
-        )
-
         _retain_shared_articles(market)
-        # Only this fictional company's business-scope membership is supplied by
-        # the fixture. Do not infer production ticker membership from JPX33.
-        industry = DEFAULT_INDUSTRIES[0].model_copy(update={"related_tickers": ("1234",)})
-        monkeypatch.setattr(
-            "baibai_engine.machine_analysis.generation.inputs.read_trend_inputs",
-            partial(read_trend_inputs, industries=(industry,)),
-        )
     if monex_original:
         html = (
             (monex_html("1234") + monex_eps_section())
@@ -410,7 +427,12 @@ def _prepare_case(
         ),
         expected_head=None,
     )
-    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "sealed") as snapshot:
+    with (
+        sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "sealed") as snapshot,
+        monkeypatch.context() as assembly,
+    ):
+        if shared_trends:
+            _bind_historical_article_inputs(assembly, snapshot.path, model_release)
         generation = read_and_generate_models(
             generation_id="synthetic-five-models",
             financial_input=financial,
@@ -422,6 +444,10 @@ def _prepare_case(
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1001", "1234") if discover else ("1234",),
         )
+        if archived_tradingview:
+            generation = replace(
+                generation, models=map(_saved_model_with_individual_tradingview, generation.models)
+            )
         ModelGenerationStore(runs).publish_stream(generation)
     if monex_original:
         # In the authoring transfer, retained native bodies are not available.
@@ -480,6 +506,36 @@ def _prepare_case(
     ):
         (directory / name).write_text(yaml.safe_dump(payload, allow_unicode=True))
     return case
+
+
+def _saved_model_with_individual_tradingview(model):
+    if model.model_id != "external_assessment":
+        return model
+    from baibai_engine.machine_analysis.observations.external_assessments.history import (
+        TradingViewObservation,
+    )
+
+    revision = "same-series-v10-monex-asof-pair"
+    row = TradingViewObservation(
+        ticker=model.subject,
+        provider_symbol=f"TSE:{model.subject}",
+        snapshot_date=START.date(),
+        fetched_at_utc=START,
+        fetch_status="ok",
+        price_target_average=9876.5,
+    )
+    payload = {
+        **model.payload,
+        "method_version": revision,
+        "tradingview": {
+            "inputs": {"latest": row.model_dump(mode="json"), "previous": None},
+            "availability": "forecast_fields_present",
+            "forecast_fields": ["price_target_average"],
+            "comparison_basis": "metric_period_mapping_unconfirmed",
+        },
+    }
+    assert ExternalAssessment.model_validate(payload).model_dump(mode="json") == payload
+    return model.model_copy(update={"payload": payload, "calculation_revision": revision})
 
 
 def _include_shared_research(case):
@@ -1334,10 +1390,13 @@ def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_
     assert LedgerStoreService(case.app).load() == case.ledger
 
 
+@pytest.mark.parametrize("archived_tradingview", [False, True])
 def test_sealed_monex_eps_reaches_formal_web_without_bodies_in_authoring_copy(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, archived_tradingview
 ):
-    case = _prepare_case(tmp_path, monkeypatch, monex_original=True)
+    case = _prepare_case(
+        tmp_path, monkeypatch, monex_original=True, archived_tradingview=archived_tradingview
+    )
     with closing(sqlite3.connect(case.market)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone()[0] == 0
     fixed = case.selected.inputs.generation.result("external_assessment", "1234")
@@ -1355,8 +1414,70 @@ def test_sealed_monex_eps_reaches_formal_web_without_bodies_in_authoring_copy(
     assert original_price["consensus_target"] == 1234
     assert original_price["parser_version"] == "monex-theory-4"
     assert case.selected.inputs.generation.inputs["market_snapshot"].kind == "sqlite_snapshot"
-    domain = yaml.safe_load((case.prepared.workspace / "domain-inputs.yaml").read_text())
-    assert domain["securities"]["1234"]["models"]["external_assessment"]["monex_fiscal_eps"] == eps
+    workspace = case.prepared.workspace
+    output = workspace / "domain-inputs.yaml"
+    manifest = workspace / "manifest.yaml"
+    domain = yaml.safe_load(output.read_text())
+    domain_external = domain["securities"]["1234"]["models"]["external_assessment"]
+    visible = {key: value for key, value in fixed.payload.items() if key != "tradingview"}
+    assert domain_external == visible
+    assert ("tradingview" in fixed.payload) is archived_tradingview
+    saved_identity = selection_sha256(case.selected)
+    app_before, runs_before = case.app.read_bytes(), case.runs.read_bytes()
+    if archived_tradingview:
+        context_before_prepare = load_generated_selection_context(
+            request=case.selected.request,
+            generation_id=case.selected.inputs.generation.generation_id,
+            screening_selection_id=None,
+            research_as_of=case.selected.research_as_of,
+            known_at=case.selected.input_known_at,
+            runs_path=case.runs,
+            db_path=case.app,
+        )
+        assert (
+            context_before_prepare["model_inputs"]["securities"]["1234"]["models"][
+                "external_assessment"
+            ]
+            == visible
+        )
+        assert yaml.safe_load(manifest.read_text())["schema_version"] == 3
+
+        # Reproduce the file a pre-cutover v2 workspace left for this same exact
+        # selection, and check its actual status and missing-projection recovery.
+        old_manifest = {**yaml.safe_load(manifest.read_text()), "schema_version": 2}
+        old_domain = deepcopy(domain)
+        old_domain["securities"]["1234"]["models"]["external_assessment"] = fixed.payload
+        old = tmp_path / "old-workspace"
+        old.mkdir()
+        (old / "manifest.yaml").write_text(
+            yaml.safe_dump(old_manifest, sort_keys=False, allow_unicode=True)
+        )
+        old_output = old / "domain-inputs.yaml"
+        old_output.write_text(yaml.safe_dump(old_domain, sort_keys=False, allow_unicode=True))
+        assert compute_status(old, db_path=case.app, now=START)["selection_summary"] == (
+            case.selected.selection_summary
+        )
+        old_output.unlink()
+        rebuilt = resume_selected_workspace(
+            operation_id=case.prepared.operation_id,
+            db_path=case.app,
+            workspace=old,
+            now=START,
+            force=True,
+        )
+        assert rebuilt.selection_sha256 == saved_identity
+        assert yaml.safe_load(old_output.read_text()) == old_domain
+        assert yaml.safe_load((old / "manifest.yaml").read_text()) == old_manifest
+
+        # New cases do not accept a put-back of the retired section, even when
+        # the value exactly matches the old fixed Generation.
+        new_output = output.read_bytes()
+        output.write_bytes(old_output.read_bytes())
+        with pytest.raises(ResearchWorkspaceConflictError, match="differ from the Operation"):
+            compute_status(workspace, db_path=case.app, now=START)
+        output.write_bytes(new_output)
+    assert case.app.read_bytes() == app_before
+    assert case.runs.read_bytes() == runs_before
     context, draft = _promote_and_propose(case)
     target = _target_hypothesis(context.payload()["assessments"][assessment_id()]["document"])
     assert target["source_ids"] == ["external-monex"]
@@ -1366,9 +1487,14 @@ def test_sealed_monex_eps_reaches_formal_web_without_bodies_in_authoring_copy(
     assert (
         context.payload()["saved_analysis_context"]["securities"]["1234"]["models"][
             "external_assessment"
-        ]["monex_fiscal_eps"]
-        == eps
+        ]
+        == visible
     )
+    assert context.research_scope.selection_sha256 == saved_identity
+    assert (
+        selection_binding(case.operations.get(case.prepared.operation_id).payload) == case.selected
+    )
+    assert case.runs.read_bytes() == runs_before
     published = TradeProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
     ).publish(draft)

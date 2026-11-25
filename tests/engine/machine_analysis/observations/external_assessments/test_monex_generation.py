@@ -14,7 +14,11 @@ from baibai_engine.data_collection.receipts.public_pages.receipts import insert_
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
-from baibai_engine.machine_analysis.models.external_assessment.models import ExternalAssessment
+from baibai_engine.machine_analysis.models.external_assessment.models import (
+    MONEX_DAY_PAIR_METHOD_VERSION,
+    SINGLE_CUTOFF_METHOD_VERSION,
+    ExternalAssessment,
+)
 from baibai_engine.machine_analysis.observations.external_assessments import monex_generation
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     MonexGenerationWindow,
@@ -176,12 +180,12 @@ def test_eligible_price_survives_missing_eps_without_borrowing_either_neighbors_
     )
     assert eps == {}
     model = analyze(history, evaluated_at=NOW)
-    assert model.method_version == "same-series-v10-monex-asof-pair"
+    assert model.method_version == MONEX_DAY_PAIR_METHOD_VERSION
     assert "monex_fiscal_eps" not in model.model_dump()
     assert model.model_valuations[0].inputs.previous == decode_attempt((past,))
 
 
-def test_v8_v9_and_new_method_remain_distinct_immutable_ledger_payloads(tmp_path):
+def test_historical_and_current_methods_remain_distinct_immutable_ledger_payloads(tmp_path):
     db, ledger = tmp_path / "market.sqlite", tmp_path / "runs.sqlite"
     r = receipt("7203")
     price = decode_attempt((r,))
@@ -198,13 +202,33 @@ def test_v8_v9_and_new_method_remain_distinct_immutable_ledger_payloads(tmp_path
         cutoff=NOW,
         monex_window=MonexGenerationWindow(as_of=price.snapshot_date, received_through=NOW),
     )["7203"]
+    simple = analyze(legacy, evaluated_at=NOW)
+    current = analyze(daily, evaluated_at=NOW, monex_fiscal_eps=eps)
+    archived = {
+        "inputs": {"latest": None, "previous": None},
+        "availability": "not_observed",
+        "forecast_fields": [],
+        "comparison_basis": "metric_period_mapping_unconfirmed",
+    }
     models = [
-        ("same-series-v8-tradingview-receipts", analyze(legacy, evaluated_at=NOW)),
         (
-            "same-series-v9-monex-fiscal-eps",
-            analyze(legacy, evaluated_at=NOW, monex_fiscal_eps=eps),
-        ),
-        ("same-series-v10-monex-asof-pair", analyze(daily, evaluated_at=NOW, monex_fiscal_eps=eps)),
+            version,
+            ExternalAssessment.model_validate(
+                {
+                    "tradingview": archived,
+                    **result.model_dump(mode="json"),
+                    "method_version": version,
+                }
+            ),
+        )
+        for version, result in (
+            ("same-series-v8-tradingview-receipts", simple),
+            ("same-series-v9-monex-fiscal-eps", current),
+            ("same-series-v10-monex-asof-pair", current),
+        )
+    ] + [
+        (SINGLE_CUTOFF_METHOD_VERSION, simple),
+        (MONEX_DAY_PAIR_METHOD_VERSION, current),
     ]
     for version, result in models:
         assert result.method_version == version

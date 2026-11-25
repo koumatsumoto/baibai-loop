@@ -95,11 +95,10 @@ def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
     monkeypatch.setattr(sources, "verify_held", lambda *_: None)
     published = []
 
-    def publish(*_args, **kwargs):
-        published.append(kwargs["generations"])
-        return {"updated": ["tradingview"], "failed": []}
+    def publish(_store, _source, generations):
+        published.append(generations)
 
-    monkeypatch.setattr(sources, "publish_inputs", publish)
+    monkeypatch.setattr(sources, "publish_planning_input", publish)
     remote.store_object("indicators.sqlite", b"same logical economic rows, resealed bytes")
     _publish_receipt(remote)
     command = [
@@ -113,7 +112,7 @@ def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
         "--identity",
         "synthetic",
         "--group",
-        "tradingview",
+        "tsr_flash",
     ]
     assert sources.main(command) == 0
     assert "economic_etag" not in published[0]

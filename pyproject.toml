@@ -441,7 +441,6 @@ source_modules = [
   "baibai_engine.machine_analysis.generation.runners.market_reading", "baibai_engine.machine_analysis.models.market_context.snapshot",
   "baibai_engine.machine_analysis.models.market_context.security", "baibai_engine.machine_analysis.models.market_context.benchmark",
   "baibai_engine.machine_analysis.observations.prices.adjusted_prices",
-  "baibai_engine.machine_analysis.observations.financials.reader",
   "baibai_engine.machine_analysis.observations.prices.calendar_reader",
   "baibai_engine.machine_analysis.observations.prices.price_reader",
   "baibai_engine.machine_analysis.observations.stocks.reader",
@@ -633,7 +632,6 @@ source_modules = [
   "baibai_jobs.maintenance.tradingview_context",
   "baibai_jobs.observability.tradingview",
   "baibai_jobs.acquisition.tradingview.cli",
-  "baibai_jobs.acquisition.tradingview.collector",
   "baibai_jobs.integration.tradingview_handoff",
   "baibai_jobs.maintenance.tradingview_rebuild",
 ]

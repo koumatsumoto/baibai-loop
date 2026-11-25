@@ -39,6 +39,8 @@ from baibai_engine.investment_judgment.workflow.selection_policy import (
     validate_capacity,
 )
 from baibai_engine.investment_judgment.workflow.workspace.admission import (
+    LEGACY_WORKSPACE_SCHEMA_VERSION,
+    WORKSPACE_SCHEMA_VERSION,
     validate_workspace_selection,
     workspace_selection,
 )
@@ -253,6 +255,7 @@ def resume_selected_workspace(
 ) -> SelectedResearchPreparation:
     operation = OperationService(db_path).get(operation_id)
     selection: ResearchSelectionRecord | None
+    schema_version = WORKSPACE_SCHEMA_VERSION
     if now.utcoffset() is None or now < operation.started_at:
         raise ResearchWorkspaceConflictError("resume precedes the Operation start")
     manifest_path = workspace / "manifest.yaml"
@@ -262,6 +265,7 @@ def resume_selected_workspace(
             raise ResearchWorkspaceConflictError("workspace belongs to another Operation")
         # Force repairs generated projection, never changes binding or authored drafts.
         selection = validate_workspace_selection(manifest, operation=operation)
+        schema_version = cast(int, manifest["schema_version"])
         if manifest.get("holding_ticker") is not None:
             raise ResearchWorkspaceConflictError(
                 "prepare requires the Operation's root workspace, not a holdings/<ticker> child"
@@ -279,6 +283,7 @@ def resume_selected_workspace(
         status="already_completed" if operation.status == "completed" else "resumed",
         force=force,
         company_growth_periods=company_growth_periods,
+        schema_version=schema_version,
     )
 
 
@@ -290,16 +295,21 @@ def _materialize(
     status: Literal["prepared", "resumed", "already_completed"],
     force: bool,
     company_growth_periods: int | EllipsisType | None,
+    schema_version: int = WORKSPACE_SCHEMA_VERSION,
 ) -> SelectedResearchPreparation:
     # 省略時は上で既存workspaceの表示を引き継ぎ、新規投影だけ12期から始める。
     # Noneは保存済み全期間の明示指定として区別する。
     if isinstance(company_growth_periods, EllipsisType):
         company_growth_periods = 12
     digest = selection_sha256(selection)
-    projection = project_research_inputs(selection, company_growth_periods=company_growth_periods)
+    projection = project_research_inputs(
+        selection,
+        company_growth_periods=company_growth_periods,
+        include_saved_tradingview=schema_version == LEGACY_WORKSPACE_SCHEMA_VERSION,
+    )
     purpose = "holding" if selection.request.scope == "review_positions" else "fundamental_research"
     manifest = {
-        "schema_version": 2,
+        "schema_version": schema_version,
         "operation_id": operation.operation_id,
         "research_as_of": selection.research_as_of.isoformat(),
         "selection_sha256": digest,

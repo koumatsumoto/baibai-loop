@@ -64,6 +64,7 @@ def available_handoffs(
     include_integrated: bool = False,
     market: bool | None = None,
     namespace: str | None = None,
+    exclude_equity_tradingview: bool = False,
 ) -> list[dict[str, object]]:
     """Freeze available receipts and source ordering; isolate malformed handoffs."""
     if namespace is not None and (namespace != "article-sources" or market is not True):
@@ -96,6 +97,14 @@ def available_handoffs(
             manifest = json.loads(saved.payload)
             report = manifest["result"]
             source_name = report["source"] if market else "economic-" + report["group"]
+            # The generic stage ID is not proof of source. Only the manifest's
+            # declaration can retire a known handoff; malformed entries remain visible.
+            if (
+                exclude_equity_tradingview
+                and namespace == "market-sources"
+                and source_name == "tradingview"
+            ):
+                return None, None, None
             if not isinstance(source_name, str) or (source is not None and source_name != source):
                 raise ValueError("handoff source differs from its scope")
             if article and source_name not in ARTICLE_SOURCES:

@@ -63,7 +63,7 @@ def test_new_generation_drops_retired_values_without_altering_inputs_or_survivor
         evaluated_at=cutoff,
     )
     assert fresh == no_retired
-    assert fresh.method_version == "same-series-v8-tradingview-receipts"
+    assert "tradingview" not in fresh.model_dump(mode="json")
     assert fresh.analyst_ratings == ()
     assert fresh.minkabu.latest is fresh.minkabu.previous is None
     assert fresh.model_valuations[0].inputs == history.model_valuations[0]

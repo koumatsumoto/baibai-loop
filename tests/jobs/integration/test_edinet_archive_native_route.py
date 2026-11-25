@@ -297,7 +297,7 @@ def test_missing_fixed_object_rolls_back_partial_sql_and_never_resolves_current(
 def test_retired_source_input_route_stops_before_remote_or_sql(tmp_path, monkeypatch, command):
     factory = Mock(side_effect=AssertionError("must not contact canonical storage"))
     monkeypatch.setattr(source_handoff, "Boto3R2Store", factory)
-    assert (
+    with pytest.raises(SystemExit) as failure:
         source_handoff.main(
             [
                 command,
@@ -311,8 +311,7 @@ def test_retired_source_input_route_stops_before_remote_or_sql(tmp_path, monkeyp
                 str(tmp_path / "absent.sqlite"),
             ]
         )
-        == 1
-    )
+    assert failure.value.code == 2
     factory.assert_not_called()
     assert not (tmp_path / "absent.sqlite").exists()
 

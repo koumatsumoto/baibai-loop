@@ -1,7 +1,6 @@
 """処理の開始をflushし、成功境界だけに完了を出す。私有値は表示しない。"""
 
 import io
-import re
 import sqlite3
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -219,7 +218,6 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
             models.integrate_models(**arguments)
         assert_started(progress, "model_generation")
         assert "phase=screening" not in progress.flushed
-        assert "model storage:" not in progress.flushed
         assert "phase=lake_publish" not in progress.flushed
         assert "publish" not in events
         assert read_generation("models-new-release", path=arguments["runs"]) is None
@@ -249,18 +247,6 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
             if "phase=" in line
         ]
         assert lines == expected
-        storage = [
-            line for line in progress.flushed.splitlines() if line.startswith("model storage:")
-        ]
-        assert len(storage) == 2
-        assert all(
-            re.fullmatch(
-                r"model storage: model_id=(company_financials|market_context) "
-                r"count=1 payload_gzip_bytes=[1-9][0-9]*",
-                line,
-            )
-            for line in storage
-        )
         assert events == [
             "lease",
             "prepare",
@@ -307,7 +293,7 @@ def test_failed_phase_never_logs_done_or_prunes(
 
 @pytest.mark.parametrize("phase", ["model_generation", "screening"])
 @pytest.mark.parametrize("error_type", [sqlite3.DatabaseError, OSError])
-def test_diagnostic_fallback_does_not_hide_model_write_or_policy_failure(
+def test_model_write_or_screening_failure_propagates(
     integration, monkeypatch, progress, caplog, phase, error_type
 ):
     arguments, events = integration
@@ -326,7 +312,6 @@ def test_diagnostic_fallback_does_not_hide_model_write_or_policy_failure(
     assert_started(progress, phase)
     assert "phase=model_cache_prune" not in progress.flushed
     assert "publish" not in events
-    assert "state=unmeasured" not in caplog.text
     assert CANARY not in progress.getvalue() + caplog.text
 
 

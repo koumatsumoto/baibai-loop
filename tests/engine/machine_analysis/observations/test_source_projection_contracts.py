@@ -26,7 +26,14 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import 
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
     store_edinet_metrics,
 )
-from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    normalize_financial_summary,
+    project_financial_documents,
+    read_canonical_financial_summary,
+)
+from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
+    normalize_financial_summaries,
+)
 from baibai_engine.machine_analysis.observations.jquants_decode import (
     JQuantsProviderError,
     parse_jquants_code_parts,
@@ -42,6 +49,16 @@ from baibai_engine.machine_analysis.observations.normalization import (
     to_str_or_none,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+
+
+def _project_financial_records(records, asof):
+    documents = [
+        read_canonical_financial_summary(
+            payload, ticker=ticker, disclosed_at=day, disclosure_number=identity
+        )
+        for ticker, day, identity, payload in normalize_financial_summaries(records).rows
+    ]
+    return project_financial_documents(documents, asof)
 
 
 def _earnings_snapshot(on_date: date = date(2026, 5, 15)) -> JPXEarningsCalendarSnapshot:
@@ -114,10 +131,10 @@ class SourceProjectionTests(unittest.TestCase):
             raw = json.loads(row[0])
             self.assertNotIn("ShOutFY", raw)
             self.assertEqual((raw["AvgSh"], raw["TrShFY"]), ("7563857", "352373"))
-            summaries = read_fin_summaries(db, date(2024, 8, 14), date(2024, 8, 14))
-            assert summaries is not None
-            self.assertIsNone(summaries[0].shares_outstanding)
-            self.assertEqual(summaries[0].average_shares, 7_563_857.0)
+            summary = normalize_financial_summary(raw)
+            assert summary is not None
+            self.assertIsNone(summary.shares_outstanding)
+            self.assertEqual(summary.average_shares, 7_563_857.0)
 
     def test_fin_summaries_retain_both_forecast_slots_without_selecting(self) -> None:
         # Period selection belongs to L2; storage keeps both provider slots intact.
@@ -158,179 +175,159 @@ class SourceProjectionTests(unittest.TestCase):
             self.assertEqual((second["FEPS"], second["NxFEPS"]), ("306.89", ""))
 
     def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            seed_legacy_financial_sqlite(
-                db,
-                [
-                    {
-                        "DiscNo": "synthetic-97150-2026-05-13",
-                        "Code": "97150",
-                        "DiscDate": "2026-05-13",
-                        "CurFYSt": "2026-04-01",
-                        "CurFYEn": "2027-03-31",
-                        "NxtFYSt": "2027-04-01",
-                        "NxtFYEn": "2028-03-31",
-                        "FEPS": float("nan"),
-                        "NxFEPS": "120.0",
-                        "FNP": float("inf"),
-                        "NxFNp": "2000000000",
-                        "FOdP": float("nan"),
-                        "NxFOdP": "1800000000",
-                        "FDivAnn": float("-inf"),
-                        "NxFDivAnn": "12.0",
-                        "Sales": float("inf"),
-                        "CFO": float("-inf"),
-                        "TA": float("nan"),
-                        "ShOutFY": float("inf"),
-                        "TrShFY": float("-inf"),
-                        "EqAR": float("nan"),
-                    }
-                ],
-                requested_start=date(2026, 5, 13),
-                requested_end=date(2026, 5, 13),
-            )
-            summaries = read_fin_summaries(db, date(2026, 5, 13), date(2026, 5, 13))
+        summaries = _project_financial_records(
+            [
+                {
+                    "DiscNo": "synthetic-97150-2026-05-13",
+                    "Code": "97150",
+                    "DiscDate": "2026-05-13",
+                    "CurFYSt": "2026-04-01",
+                    "CurFYEn": "2027-03-31",
+                    "NxtFYSt": "2027-04-01",
+                    "NxtFYEn": "2028-03-31",
+                    "FEPS": float("nan"),
+                    "NxFEPS": "120.0",
+                    "FNP": float("inf"),
+                    "NxFNp": "2000000000",
+                    "FOdP": float("nan"),
+                    "NxFOdP": "1800000000",
+                    "FDivAnn": float("-inf"),
+                    "NxFDivAnn": "12.0",
+                    "Sales": float("inf"),
+                    "CFO": float("-inf"),
+                    "TA": float("nan"),
+                    "ShOutFY": float("inf"),
+                    "TrShFY": float("-inf"),
+                    "EqAR": float("nan"),
+                }
+            ],
+            date(2026, 5, 13),
+        )
 
-            self.assertEqual(len(summaries), 1)
-            summary = summaries[0]
-            self.assertIsNone(summary.forecast_eps)
-            self.assertIsNone(summary.forecast_profit)
-            self.assertIsNone(summary.forecast_ordinary_profit)
-            self.assertIsNone(summary.dps_forecast_annual)
-            self.assertIsNone(summary.sales)
-            self.assertIsNone(summary.cfo)
-            self.assertIsNone(summary.total_assets)
-            self.assertIsNone(summary.shares_outstanding)
-            self.assertIsNone(summary.treasury_shares)
-            self.assertIsNone(summary.equity_to_asset_ratio)
+        self.assertEqual(len(summaries), 1)
+        summary = summaries[0]
+        self.assertIsNone(summary.forecast_eps)
+        self.assertIsNone(summary.forecast_profit)
+        self.assertIsNone(summary.forecast_ordinary_profit)
+        self.assertIsNone(summary.dps_forecast_annual)
+        self.assertIsNone(summary.sales)
+        self.assertIsNone(summary.cfo)
+        self.assertIsNone(summary.total_assets)
+        self.assertIsNone(summary.shares_outstanding)
+        self.assertIsNone(summary.treasury_shares)
+        self.assertIsNone(summary.equity_to_asset_ratio)
 
     def test_pandas_missing_current_forecasts_do_not_cross_periods(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            seed_legacy_financial_sqlite(
-                db,
-                [
-                    {
-                        "DiscNo": "synthetic-97150-2026-05-13",
-                        "Code": "97150",
-                        "DiscDate": "2026-05-13",
-                        "CurFYSt": "2026-04-01",
-                        "CurFYEn": "2027-03-31",
-                        "NxtFYSt": "2027-04-01",
-                        "NxtFYEn": "2028-03-31",
-                        "FEPS": pd.NA,
-                        "NxFEPS": "120.0",
-                        "FNP": pd.NA,
-                        "NxFNp": "2000000000",
-                        "FOdP": pd.NA,
-                        "NxFOdP": "1800000000",
-                        "FDivAnn": pd.NA,
-                        "NxFDivAnn": "12.0",
-                    }
-                ],
-                requested_start=date(2026, 5, 13),
-                requested_end=date(2026, 5, 13),
-            )
-            summaries = read_fin_summaries(db, date(2026, 5, 13), date(2026, 5, 13))
+        summaries = _project_financial_records(
+            [
+                {
+                    "DiscNo": "synthetic-97150-2026-05-13",
+                    "Code": "97150",
+                    "DiscDate": "2026-05-13",
+                    "CurFYSt": "2026-04-01",
+                    "CurFYEn": "2027-03-31",
+                    "NxtFYSt": "2027-04-01",
+                    "NxtFYEn": "2028-03-31",
+                    "FEPS": pd.NA,
+                    "NxFEPS": "120.0",
+                    "FNP": pd.NA,
+                    "NxFNp": "2000000000",
+                    "FOdP": pd.NA,
+                    "NxFOdP": "1800000000",
+                    "FDivAnn": pd.NA,
+                    "NxFDivAnn": "12.0",
+                }
+            ],
+            date(2026, 5, 13),
+        )
 
-            self.assertEqual(len(summaries), 1)
-            summary = summaries[0]
-            self.assertIsNone(summary.forecast_eps)
-            self.assertIsNone(summary.forecast_profit)
-            self.assertIsNone(summary.forecast_ordinary_profit)
-            self.assertIsNone(summary.dps_forecast_annual)
+        self.assertEqual(len(summaries), 1)
+        summary = summaries[0]
+        self.assertIsNone(summary.forecast_eps)
+        self.assertIsNone(summary.forecast_profit)
+        self.assertIsNone(summary.forecast_ordinary_profit)
+        self.assertIsNone(summary.dps_forecast_annual)
 
     def test_fin_summaries_keep_zero_current_forecasts(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            seed_legacy_financial_sqlite(
-                db,
-                [
-                    {
-                        "DiscNo": "synthetic-97150-2026-05-13",
-                        "Code": "97150",
-                        "DiscDate": "2026-05-13",
-                        "CurFYSt": "2026-04-01",
-                        "CurFYEn": "2027-03-31",
-                        "NxtFYSt": "2027-04-01",
-                        "NxtFYEn": "2028-03-31",
-                        "FEPS": 0,
-                        "NxFEPS": "120.0",
-                        "FNP": "1000000000",
-                        "NxFNp": "2000000000",
-                        "FOdP": "900000000",
-                        "NxFOdP": "1800000000",
-                        "FDivAnn": 0,
-                        "NxFDivAnn": "12.0",
-                    }
-                ],
-                requested_start=date(2026, 5, 13),
-                requested_end=date(2026, 5, 13),
-            )
-            summaries = read_fin_summaries(db, date(2026, 5, 13), date(2026, 5, 13))
+        summaries = _project_financial_records(
+            [
+                {
+                    "DiscNo": "synthetic-97150-2026-05-13",
+                    "Code": "97150",
+                    "DiscDate": "2026-05-13",
+                    "CurFYSt": "2026-04-01",
+                    "CurFYEn": "2027-03-31",
+                    "NxtFYSt": "2027-04-01",
+                    "NxtFYEn": "2028-03-31",
+                    "FEPS": 0,
+                    "NxFEPS": "120.0",
+                    "FNP": "1000000000",
+                    "NxFNp": "2000000000",
+                    "FOdP": "900000000",
+                    "NxFOdP": "1800000000",
+                    "FDivAnn": 0,
+                    "NxFDivAnn": "12.0",
+                }
+            ],
+            date(2026, 5, 13),
+        )
 
-            self.assertEqual(len(summaries), 1)
-            summary = summaries[0]
-            self.assertEqual(summary.forecast_eps, 0.0)
-            self.assertEqual(summary.forecast_profit, 1_000_000_000.0)
-            self.assertEqual(summary.forecast_ordinary_profit, 900_000_000.0)
-            self.assertEqual(summary.dps_forecast_annual, 0.0)
+        self.assertEqual(len(summaries), 1)
+        summary = summaries[0]
+        self.assertEqual(summary.forecast_eps, 0.0)
+        self.assertEqual(summary.forecast_profit, 1_000_000_000.0)
+        self.assertEqual(summary.forecast_ordinary_profit, 900_000_000.0)
+        self.assertEqual(summary.dps_forecast_annual, 0.0)
 
-    def test_fin_summaries_forecast_profit_pair_round_trips_by_period(self) -> None:
-        # Storage retains both slots; the reader projects the applicable fiscal period.
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            seed_legacy_financial_sqlite(
-                db,
-                [
-                    {
-                        "DiscNo": "synthetic-48490-2026-05-13",
-                        "Code": "48490",
-                        "DiscDate": "2026-05-13",
-                        "CurFYSt": "2026-04-01",
-                        "NxtFYSt": "2027-04-01",
-                        "NxtFYEn": "2028-03-31",
-                        "FEPS": "138.72",
-                        "FNP": "5464000000",
-                        "FOdP": "3406000000",
-                        "NxFNp": "900000000",
-                        "NxFOdP": "1200000000",
-                        "CurPerType": "1Q",
-                        "CurFYEn": "2027-03-31T00:00:00",
-                        "CurPerSt": "2026-04-01T00:00:00",
-                        "CurPerEn": "2026-06-30T00:00:00",
-                    },
-                    {
-                        "DiscNo": "synthetic-97150-2026-04-30",
-                        "Code": "97150",
-                        "DiscDate": "2026-04-30",
-                        "CurFYSt": "2025-04-01",
-                        "CurFYEn": "2026-03-31",
-                        "NxtFYSt": "2026-04-01",
-                        "NxtFYEn": "2027-03-31",
-                        "FEPS": "",
-                        "NxFEPS": "360.26",
-                        "FNP": "5464000000",
-                        "FOdP": "3406000000",
-                        "NxFNp": "2000000000",
-                        "NxFOdP": "2500000000",
-                    },
-                ],
-                requested_start=date(2026, 4, 30),
-                requested_end=date(2026, 5, 13),
-            )
-            summaries = read_fin_summaries(db, date(2026, 4, 30), date(2026, 5, 13))
-            assert summaries is not None
-            by_ticker = {summary.ticker: summary for summary in summaries}
-            self.assertEqual(by_ticker["4849"].forecast_profit, 5464000000.0)
-            self.assertEqual(by_ticker["4849"].forecast_ordinary_profit, 3406000000.0)
-            self.assertEqual(by_ticker["4849"].fiscal_period, "1Q")
-            self.assertEqual(by_ticker["4849"].fiscal_year_end, date(2027, 3, 31))
-            self.assertEqual(by_ticker["4849"].period_start, date(2026, 4, 1))
-            self.assertEqual(by_ticker["4849"].period_end, date(2026, 6, 30))
-            self.assertEqual(by_ticker["9715"].forecast_profit, 2000000000.0)
-            self.assertEqual(by_ticker["9715"].forecast_ordinary_profit, 2500000000.0)
+    def test_fin_summaries_forecast_profit_pair_are_selected_by_period(self) -> None:
+        # Projection selects the applicable fiscal period from the retained slots.
+        summaries = _project_financial_records(
+            [
+                {
+                    "DiscNo": "synthetic-48490-2026-05-13",
+                    "Code": "48490",
+                    "DiscDate": "2026-05-13",
+                    "CurFYSt": "2026-04-01",
+                    "NxtFYSt": "2027-04-01",
+                    "NxtFYEn": "2028-03-31",
+                    "FEPS": "138.72",
+                    "FNP": "5464000000",
+                    "FOdP": "3406000000",
+                    "NxFNp": "900000000",
+                    "NxFOdP": "1200000000",
+                    "CurPerType": "1Q",
+                    "CurFYEn": "2027-03-31T00:00:00",
+                    "CurPerSt": "2026-04-01T00:00:00",
+                    "CurPerEn": "2026-06-30T00:00:00",
+                },
+                {
+                    "DiscNo": "synthetic-97150-2026-04-30",
+                    "Code": "97150",
+                    "DiscDate": "2026-04-30",
+                    "CurFYSt": "2025-04-01",
+                    "CurFYEn": "2026-03-31",
+                    "NxtFYSt": "2026-04-01",
+                    "NxtFYEn": "2027-03-31",
+                    "FEPS": "",
+                    "NxFEPS": "360.26",
+                    "FNP": "5464000000",
+                    "FOdP": "3406000000",
+                    "NxFNp": "2000000000",
+                    "NxFOdP": "2500000000",
+                },
+            ],
+            date(2026, 5, 13),
+        )
+
+        by_ticker = {summary.ticker: summary for summary in summaries}
+        self.assertEqual(by_ticker["4849"].forecast_profit, 5464000000.0)
+        self.assertEqual(by_ticker["4849"].forecast_ordinary_profit, 3406000000.0)
+        self.assertEqual(by_ticker["4849"].fiscal_period, "1Q")
+        self.assertEqual(by_ticker["4849"].fiscal_year_end, date(2027, 3, 31))
+        self.assertEqual(by_ticker["4849"].period_start, date(2026, 4, 1))
+        self.assertEqual(by_ticker["4849"].period_end, date(2026, 6, 30))
+        self.assertEqual(by_ticker["9715"].forecast_profit, 2000000000.0)
+        self.assertEqual(by_ticker["9715"].forecast_ordinary_profit, 2500000000.0)
 
     def test_range_coverage_merges_shifted_complete_chunks(self) -> None:
         """A later bootstrap anchors chunk boundaries at a new asof, so a re-fetch only

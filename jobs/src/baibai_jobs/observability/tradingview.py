@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from typing import Literal
 
 import httpx2
 from mcp.client.auth.exceptions import OAuthFlowError
@@ -22,36 +20,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
-from baibai_jobs.observability.tradingview_progress import safe_progress
-
-
-@dataclass(frozen=True)
-class CollectionProgress:
-    snapshot_date: str
-    phase: Literal["prepare", "fetch", "normalize", "between_chunks", "store", "complete"]
-    expected_universe: int
-    chunks_total: int
-    chunks_completed: int = 0
-    chunk_index: int | None = None
-    chunk_size: int | None = None
-    columns_count: int = len(observations_owner.COLUMNS)
-    interval_seconds: float = 15.0
-    response_bytes: int = 0
-    provider_elapsed_seconds: float = 0.0
-    max_chunk_elapsed_seconds: float = 0.0
-    elapsed_seconds: float = 0.0
-    first_fetched_at_utc: str | None = None
-    last_fetched_at_utc: str | None = None
-    requests_attempted: int = 0
-    symbols_requested: int = 0
-    master_asof: str | None = None
-
-
-class CollectionFailure(observations_owner.FetchError):
-    def __init__(self, cause: BaseException, progress: CollectionProgress) -> None:
-        self.cause = cause
-        self.progress = progress
-        super().__init__("TradingView collection failed")
 
 
 class TimeGuardError(observations_owner.FetchError):
@@ -64,8 +32,6 @@ class SourceDataError(observations_owner.FetchError):
 
 def failure_category(exc: BaseException) -> str:
     """Return fixed labels only, including errors wrapped by SDK task groups."""
-    if isinstance(exc, CollectionFailure):
-        return failure_category(exc.cause)
     if isinstance(exc, BaseExceptionGroup):
         categories = [failure_category(child) for child in exc.exceptions]
         # Prefer actionable root failures over accompanying transport cleanup errors.
@@ -136,11 +102,6 @@ def failure_line(exc: BaseException) -> str:
     category = failure_category(exc)
     line = f"TradingView acquisition failed; category={category}"
     detail = _diagnostic_error(exc, category)
-    if isinstance(detail, CollectionFailure):
-        line += "".join(
-            f"; {key}={value}" for key, value in safe_progress(asdict(detail.progress)).items()
-        )
-        detail = _diagnostic_error(detail.cause, category)
     if isinstance(detail, observations_owner.ProviderHTTPError):
         line += f"; provider_http_status={detail.status_code}"
     if isinstance(detail, httpx2.HTTPStatusError):
