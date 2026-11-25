@@ -281,7 +281,9 @@ def test_simultaneous_native_concepts_do_not_become_a_sales_measure(changed):
     assert "SEC実績売上" not in report
 
 
-@pytest.mark.parametrize("defect", ["request", "response", "redirect", "incomplete", "unknown"])
+@pytest.mark.parametrize(
+    "defect", ["request", "response", "redirect", "incomplete", "partial-range", "unknown"]
+)
 def test_unbound_alpaca_page_preserves_financials_but_cannot_supply_iex_prices(defect):
     bundle, files = _fixture()
     page = bundle["alpaca"]["pages"][0]
@@ -292,6 +294,8 @@ def test_unbound_alpaca_page_preserves_financials_but_cannot_supply_iex_prices(d
         page["redirected"] = True
     elif defect == "incomplete":
         page["complete"] = False
+    elif defect == "partial-range":
+        page["headers"] = {"content-Range": "bytes 0-39/800"}
     else:
         del page["response_url"]
 

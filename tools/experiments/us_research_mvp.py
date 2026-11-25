@@ -87,7 +87,7 @@ def _content_headers(record: _Record) -> Headers:
     if not isinstance(raw, dict) or any(
         not isinstance(key, str) or not isinstance(value, str) for key, value in raw.items()
     ):
-        raise ValueError("invalid captured SEC response headers")
+        raise ValueError("invalid captured response headers")
     return Headers({key: value for key, value in raw.items() if key.lower() in _CONTENT_HEADERS})
 
 
@@ -161,6 +161,8 @@ def _alpaca(
             if not _complete_single_hop(page, url):
                 raise ValueError("Alpaca page was not fully received from the fixed query")
             body, status, received = _native(page, load)
+            if status == 200 and "Content-Range" in _content_headers(page):
+                raise ValueError("ranged Alpaca response cannot attest to the whole page")
             return BarsResponse(status, received, body)
 
         capture = capture_daily_bars(
