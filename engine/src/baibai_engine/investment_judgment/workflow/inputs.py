@@ -34,7 +34,10 @@ from baibai_engine.primitives.time import JST
 
 
 def project_research_inputs(
-    selection: ResearchSelectionRecord, *, company_growth_periods: int | None = 12
+    selection: ResearchSelectionRecord,
+    *,
+    company_growth_periods: int | None = 12,
+    include_saved_tradingview: bool = False,
 ) -> dict[str, JsonValue]:
     selection_context: dict[str, JsonValue] = {
         "research_targets": [
@@ -50,7 +53,9 @@ def project_research_inputs(
     if isinstance(selection, GeneratedSelection):
         return {
             **project_generated_inputs(
-                selection.inputs.generation, company_growth_periods=company_growth_periods
+                selection.inputs.generation,
+                company_growth_periods=company_growth_periods,
+                include_saved_tradingview=include_saved_tradingview,
             ),
             **(
                 {

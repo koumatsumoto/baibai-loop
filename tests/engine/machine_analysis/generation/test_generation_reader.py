@@ -17,6 +17,9 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
     TTMRules,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.models.external_assessment.models import (
+    MONEX_DAY_PAIR_METHOD_VERSION,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     EDINETMetricBaselineError,
 )
@@ -50,6 +53,11 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
     mocker.patch(
         "baibai_engine.machine_analysis.generation.runners.market_snapshot.read_adjusted_bars",
         side_effect=AssertionError("must reuse shared prices"),
+    )
+    mocker.patch(
+        "baibai_engine.machine_analysis.observations.external_assessments.reader."
+        "tradingview_rows_at_cutoff",
+        side_effect=AssertionError("daily generation must not read individual TradingView rows"),
     )
     financial = fixed_empty_financial_input(tmp_path / "financial-native", date(2026, 1, 5))
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
@@ -119,14 +127,14 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
     }
     assert result.result("market_context", "market").payload["reading"] is None
     assert [spy.call_count for spy in spies] == [1, 1, 1]
-    assert spies[1].call_args.kwargs["include_tradingview"] is True
+    assert spies[1].call_args.kwargs["include_retired"] is False
     external = result.result("external_assessment", "1234")
     assert (
         external.calculation_revision
         == external.payload["method_version"]
-        == "same-series-v10-monex-asof-pair"
+        == MONEX_DAY_PAIR_METHOD_VERSION
     )
-    assert external.payload["tradingview"]["availability"] == "not_observed"
+    assert "tradingview" not in external.payload
 
 
 @pytest.mark.parametrize("benchmark_mixed", [False, True])

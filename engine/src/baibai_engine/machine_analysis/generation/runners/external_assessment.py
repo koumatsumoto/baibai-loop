@@ -1,4 +1,4 @@
-"""保存済み外部評価の読取入口。UIの合成には依存しない。"""
+"""保存観測から現行の外部評価を作る。固定済みの過去モデルは再計算しない。"""
 
 from datetime import datetime
 from pathlib import Path

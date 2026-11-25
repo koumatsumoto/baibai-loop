@@ -366,7 +366,6 @@ def read_and_generate_models(
         path,
         tickers=subjects,
         cutoff=evaluation_time,
-        include_tradingview=True,
         include_retired=False,
         monex_window=monex_window,
     )
