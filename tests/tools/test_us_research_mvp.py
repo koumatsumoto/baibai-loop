@@ -189,12 +189,20 @@ def _native_index_bundle():
     return bundle, files, index, body
 
 
-@pytest.mark.parametrize("explicit_xhtml", [False, True])
-def test_sec_index_accepts_native_html_optional_closers_or_explicit_xhtml(explicit_xhtml):
+@pytest.mark.parametrize(
+    ("media", "outer_end"),
+    [
+        ("text/html", b""),
+        ("text/html", b"</body>"),
+        ("text/html", b"</html>"),
+        ("text/html", b"</body></html>"),
+        ("application/xhtml+xml", b"</body></html>"),
+    ],
+)
+def test_sec_index_accepts_complete_native_content_with_valid_outer_end(media, outer_end):
     bundle, files, index, body = _native_index_bundle()
-    if explicit_xhtml:
-        body += b"</body></html>"
-        index["headers"]["Content-Type"] = "application/xhtml+xml"
+    body += outer_end
+    index["headers"]["Content-Type"] = media
     files[index["file"]] = body
     index["sha256"] = sha256(body).hexdigest()
     index["headers"]["Content-Length"] = str(len(body))
@@ -208,15 +216,21 @@ def test_sec_index_accepts_native_html_optional_closers_or_explicit_xhtml(explic
     "defect",
     [
         "prefix-after-link",
+        "prefix-with-explicit-outer-end",
+        "premature-body-end",
+        "markers-without-content-div",
         "no-final-div",
         "unclosed-document-table",
         "missing-document-end",
         "bogus-document-comment",
         "missing-filer-section",
+        "empty-filer",
+        "script-only-filer",
         "unclosed-filer-div",
         "unclosed-filer-comment",
         "unclosed-link",
         "self-closed-link",
+        "ambiguous-href",
         "no-content-length",
         "wrong-content-length",
         "partial",
@@ -227,6 +241,12 @@ def test_sec_index_optional_closers_never_admit_partial_or_malformed_native_html
     bundle, files, index, body = _native_index_bundle()
     if defect == "prefix-after-link":
         body = body.split(b"<!-- END DOCUMENT DIV -->", 1)[0]
+    elif defect == "prefix-with-explicit-outer-end":
+        body = body.split(b"<!-- START FILER DIV -->", 1)[0] + b"</body></html>"
+    elif defect == "premature-body-end":
+        body = body.replace(b"<!-- END DOCUMENT DIV -->", b"</body>\n<!-- END DOCUMENT DIV -->")
+    elif defect == "markers-without-content-div":
+        body = body.replace(b'id="contentDiv"', b'id="other"') + b"</body></html>"
     elif defect == "no-final-div":
         body = body.removesuffix(b"</div>\n")
     elif defect == "unclosed-document-table":
@@ -237,6 +257,10 @@ def test_sec_index_optional_closers_never_admit_partial_or_malformed_native_html
         body = body.replace(b"<!-- END DOCUMENT DIV -->", b"<! END DOCUMENT DIV >")
     elif defect == "missing-filer-section":
         body = body.replace(b'<div class="filerDiv">Filer</div>\n', b"")
+    elif defect == "empty-filer":
+        body = body.replace(b">Filer</div>", b"> </div>") + b"</body></html>"
+    elif defect == "script-only-filer":
+        body = body.replace(b">Filer</div>", b"><script>placeholder</script></div>")
     elif defect == "unclosed-filer-div":
         body = body.replace(b"Filer</div>", b"Filer")
     elif defect == "unclosed-filer-comment":
@@ -245,6 +269,8 @@ def test_sec_index_optional_closers_never_admit_partial_or_malformed_native_html
         body = body.replace(b"</a>", b"")
     elif defect == "self-closed-link":
         body = body.replace(b'.txt">', b'.txt"/>').replace(b"</a>", b"")
+    elif defect == "ambiguous-href":
+        body = body.replace(b'<a href="', b'<a href="other.txt" href="', 1)
     files[index["file"]] = body
     index["sha256"] = sha256(body).hexdigest()
     index["headers"]["Content-Length"] = str(len(body))

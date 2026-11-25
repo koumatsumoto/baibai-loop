@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
@@ -56,6 +57,7 @@ _CONTENT_HEADERS = {
 }
 _SEC_INDEX_SECTIONS = ("START DOCUMENT DIV", "END DOCUMENT DIV", "START FILER DIV", "END FILER DIV")
 _SEC_INDEX_CONTAINERS = {"a", "div", "table"}
+_SEC_INDEX_END = re.compile(r"</div>\s*(?:</body>\s*)?(?:</html>)?", re.IGNORECASE)
 type _Record = dict[str, Any]
 type _Loader = Callable[[str], bytes]
 
@@ -205,6 +207,7 @@ class _IndexDocument(HTMLParser):
         self._submission_url = index_url.removesuffix("-index.htm") + ".txt"
         self.titles: list[str] = []
         self.complete = False
+        self.is_native = False
         self._in_head = False
         self._in_body = False
         self._body_closed = False
@@ -215,6 +218,7 @@ class _IndexDocument(HTMLParser):
         self._containers: list[str] = []
         self._sections: list[tuple[str, tuple[int, int]]] = []
         self._native_link = False
+        self._in_filer = False
         self._native_filer = False
         self._native_closed = False
         self._native_invalid = False
@@ -229,26 +233,32 @@ class _IndexDocument(HTMLParser):
         elif tag == "title" and self._in_head:
             self._text = []
         elif tag == "body":
+            self._native_invalid |= self._in_body or self._body_closed
             self._in_body = True
         elif tag == "a" and self._in_body:
             self._nested_link |= self._link is not None
-            self._link = any(
-                key == "href"
-                and value is not None
-                and urljoin(self._index_url, value) == self._submission_url
-                for key, value in attrs
+            hrefs = [value for key, value in attrs if key == "href"]
+            self._link = (
+                len(hrefs) == 1
+                and (href := hrefs[0]) is not None
+                and urljoin(self._index_url, href) == self._submission_url
             )
-        if self._in_body and tag == "div" and ("id", "contentDiv") in attrs:
-            self._native_invalid |= bool(self._containers) or self._native_closed
+        if tag == "div" and ("id", "contentDiv") in attrs:
+            self.is_native = True
+            self._native_invalid |= (
+                not self._in_body or bool(self._containers) or self._native_closed
+            )
             self._containers.append(tag)
         elif self._containers and tag in _SEC_INDEX_CONTAINERS:
             if len(self._sections) == 3 and self._containers == ["div"] and tag == "div":
-                self._native_filer |= ("class", "filerDiv") in attrs
+                self._in_filer = ("class", "filerDiv") in attrs
             self._containers.append(tag)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag not in _SEC_INDEX_CONTAINERS:
             super().handle_startendtag(tag, attrs)
+        elif tag == "div" and ("id", "contentDiv") in attrs:
+            self.is_native = self._native_invalid = True
         elif self._containers:
             self._native_invalid = True
 
@@ -264,28 +274,38 @@ class _IndexDocument(HTMLParser):
                 self._closed_link = True
                 self._native_link |= len(self._sections) == 1 and "table" in self._containers
             self._link = None
-        elif tag == "body" and self._in_body:
-            self._in_body = False
-            self._body_closed = True
-        elif tag == "html" and self._body_closed:
-            self.complete = True
+        elif tag == "body":
+            self._native_invalid |= not self._in_body or bool(self._containers)
+            if self._in_body:
+                self._in_body = False
+                self._body_closed = True
+        elif tag == "html":
+            self._native_invalid |= not self._native_closed
+            if self._body_closed:
+                self.complete = True
         if self._containers and tag in _SEC_INDEX_CONTAINERS:
             if tag != self._containers[-1]:
                 self._native_invalid = True
             else:
                 self._containers.pop()
                 self._native_closed |= not self._containers
+                if self._containers == ["div"]:
+                    self._in_filer = False
 
     def handle_comment(self, data: str) -> None:
         name = data.strip()
-        if self._containers and name in _SEC_INDEX_SECTIONS:
-            if name != _SEC_INDEX_SECTIONS[0] and self._containers != ["div"]:
-                self._native_invalid = True
-            self._sections.append((name, self.getpos()))
+        if name not in _SEC_INDEX_SECTIONS:
+            return
+        self.is_native = True
+        if not self._containers or (name != _SEC_INDEX_SECTIONS[0] and self._containers != ["div"]):
+            self._native_invalid = True
+        self._sections.append((name, self.getpos()))
 
     def handle_data(self, data: str) -> None:
         if self._text is not None:
             self._text.append(data)
+        elif self._in_filer and self.cdata_elem is None and any(c.isalnum() for c in data):
+            self._native_filer = True
 
     def native_end(self, text: str) -> bool:
         if (
@@ -304,7 +324,7 @@ class _IndexDocument(HTMLParser):
                 return False
         name, (line, column) = self._sections[-1]
         tail = "\n".join(lines[line - 1 :])[column:]
-        return tail.removeprefix(f"<!-- {name} -->").strip() == "</div>"
+        return _SEC_INDEX_END.fullmatch(tail.removeprefix(f"<!-- {name} -->").strip()) is not None
 
 
 def _public_index(
@@ -335,11 +355,13 @@ def _public_index(
     parser = _IndexDocument(url)
     parser.feed(text)
     parser.close()
-    # An HTTP-length-verified native HTML index can omit optional outer tags;
-    # the completed EDGAR content and its terminal filer section are still required.
-    native_end = media == "text/html" and "Content-Type" in headers and length is not None
+    complete = parser.complete
+    if parser.is_native:
+        # Explicit outer tags cannot substitute for any part of recognized EDGAR content.
+        optional_end = media == "text/html" and "Content-Type" in headers and length is not None
+        complete = (complete or optional_end) and parser.native_end(text)
     if not (
-        (parser.complete or (native_end and parser.native_end(text)))
+        complete
         and parser.has_submission
         and parser.titles == [f"EDGAR Filing Documents for {filing.accession}"]
     ):
