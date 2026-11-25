@@ -486,6 +486,16 @@ def _correct_period_end_share_basis(
     )
 
 
+def _capital_action_supersedes(
+    action: CapitalAction, period_end: date | None, issued: float | None
+) -> bool:
+    return (
+        period_end is None
+        or action.effective_date > period_end
+        or (action.effective_date == period_end and issued != action.issued_shares)
+    )
+
+
 def _resolve_capital_basis(
     summaries: Sequence[JQuantsFinancialSummary],
     *,
@@ -521,9 +531,7 @@ def _resolve_capital_basis(
     later_actions = [
         action
         for action in capital_actions
-        if basis_end is None
-        or action.effective_date > basis_end
-        or (action.effective_date == basis_end and issued != action.issued_shares)
+        if _capital_action_supersedes(action, basis_end, issued)
     ]
     if later_actions:
         latest_day = max(action.effective_date for action in later_actions)
@@ -672,7 +680,34 @@ def _reported_equity_routes_overlap(
     return max(ratio_low, bps_ratio_low) <= min(ratio_high, bps_ratio_high)
 
 
-type _BookEquity = tuple[float, Literal["assets_times_equity_ratio", "bps_times_current_shares"]]
+def _book_period_shares(
+    summaries: Sequence[JQuantsFinancialSummary], row: JQuantsFinancialSummary | None
+) -> float | None:
+    """Use the BPS document's own ordinary-share pair unless its period contradicts it."""
+    if row is None or row.period_end is None or row.period_end > row.disclosed_at:
+        return None
+    if row.period_start is not None and row.period_start > row.period_end:
+        return None
+    own = _shares_excluding_treasury(row.shares_outstanding, row.treasury_shares)
+    if own is None:
+        return None
+    period = accounting_period_identity(row)
+    resolved = _resolve_capital_basis(
+        [other for other in summaries if accounting_period_identity(other) == period]
+    )
+    if (
+        resolved.shares_ex_treasury is None
+        or resolved.issued != row.shares_outstanding
+        or resolved.treasury != row.treasury_shares
+    ):
+        return None
+    # The period check may disqualify the filing; it never supplies replacement operands.
+    return own
+
+
+type _BookEquity = tuple[
+    float, Literal["assets_times_equity_ratio", "bps_times_reported_period_shares"]
+]
 
 
 def _common_equity(
@@ -681,7 +716,7 @@ def _common_equity(
     total_assets: float | None,
     equity_to_asset_ratio: float | None,
     bps: float | None,
-    shares_ex_treasury: float | None,
+    bps_period_shares: float | None,
 ) -> _BookEquity | None:
     """Choose the yen or BPS equity route under the comparable-row policy.
 
@@ -691,24 +726,25 @@ def _common_equity(
     establish the economic cause of a discrepancy or prove accounting identity.
     A later carried-value difference is not a second rejection test.
 
-    If only one route is available, use it. With both routes but no comparable row,
-    prefer BPS. The caller separately resolves capital basis and relative freshness.
+    With no reported BPS, a ratio is an estimate. A BPS whose ordinary-share count
+    is unresolved cannot create book or make a disagreeing ratio acceptable.
+    The caller separately resolves relative freshness.
     """
     yen_equity = (
         total_assets * equity_to_asset_ratio
         if total_assets is not None and equity_to_asset_ratio is not None
         else None
     )
-    bps_equity = bps * shares_ex_treasury if bps is not None and shares_ex_treasury else None
+    bps_equity = bps * bps_period_shares if bps is not None and bps_period_shares else None
     yen_result: _BookEquity | None = (
         (yen_equity, "assets_times_equity_ratio") if yen_equity is not None else None
     )
     bps_result: _BookEquity | None = (
-        (bps_equity, "bps_times_current_shares") if bps_equity is not None else None
+        (bps_equity, "bps_times_reported_period_shares") if bps_equity is not None else None
     )
     if yen_equity is None:
         return bps_result
-    if bps_equity is None:
+    if bps is None:
         return yen_result
     for summary in sorted(_actual_rows(summaries), key=_accounting_observation_key, reverse=True):
         if (
@@ -718,7 +754,7 @@ def _common_equity(
             or summary.shares_outstanding is None
         ):
             continue
-        row_shares = _shares_excluding_treasury(summary.shares_outstanding, summary.treasury_shares)
+        row_shares = _book_period_shares(summaries, summary)
         row_yen = summary.total_assets * summary.equity_to_asset_ratio
         if row_shares is None or row_yen <= 0:
             continue
