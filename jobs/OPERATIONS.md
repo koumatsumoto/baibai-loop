@@ -106,14 +106,22 @@ ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済
 1. 検証CLIのcommitと日次runのcommitを別々に記録し、日次の同一run/attempt、release ID・manifest SHA・machine receipt SHAを固定する。receiptに合うMarket/Runs、Marketのorigin、RunsのGenerationとSelectionの対応を確認する。Appは別正本なので、[取得元・取得版・時刻を固定した作業copy](#application-db-を反映する)を使う。保存先は隔離Appのみ。必要な入力を同じ出所で読めない場合は、別日や最新のデータで補わず、そこで止める。
 2. `selection-context` にそのGeneration・Selection・研究基準日・情報締切を明示し、`selection-context` と `prepare` には同じ `--runs-path` を渡して[選定と調査・評価の保存](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)へ進む。正式終値と一次資料は別に照合し、終値の価格日と資料の公表時刻を記録する。選定・prepare・評価保存・Operation操作にも同じ隔離Appを `--db` で明示する。価値と価格の差、市場・同業との比較、欠測、判断を変える条件を確認し、評価を独立査読する。買いを件数目標にしない。
 3. [提案の手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)に沿って `trade-proposal-context` → `trade-proposal-check` → 提案本文の独立査読 → `trade-proposal-check` で `valid=true` と `review_binding=match` を確認 → `trade-proposal-publish` → [`operation complete`](../.agents/skills/investment-judgment/SKILL.md#完了と再開)（同じ提案ID、結果、次の手を指定）。3つの提案コマンドには同じ `--db` と `--sqlite-path` を明示する。正式保存された同じ提案IDを読戻す。ここでのpublishは隔離Appへの保存であり、R2や実配信への公開・発注ではない。
-4. 固定Market（`stores/market/market.sqlite`）と隔離App（`stores/application/baibai.sqlite`、照合時もこのファイルを `APP_COPY` に指定）を置いた作業rootからローカル表示を生成し、同じAppと提案IDで照合する。複数ケースは各提案がそのAppのlatestのうちに照合する。完了条件は「新規正式提案が保存され、Operation完了と表示が同じIDで読めた」。受入で見つけた問題は、根拠と再現条件を残して修正後に同じ入力で再確認する。実配信まで確認する場合だけ [Webの照合](#web-serving) を別に行う。
+4. 隔離checkoutでローカル表示を生成し、同じAppと提案IDで照合する。複数ケースは各提案がそのAppのlatestのうちに照合する。完了条件は「新規正式提案が保存され、Operation完了と表示が同じIDで読めた」。受入で見つけた問題は、根拠と再現条件を残して修正後に同じ入力で再確認する。実配信まで確認する場合だけ [Webの照合](#web-serving) を別に行う。
+
+作業は検証するcommitの隔離checkoutで行い、そのルートを `WORK_ROOT` とする。DBだけのディレクトリは使えない（[ルートの判定](../engine/src/baibai_engine/storage/paths.py)は `pyproject.toml` と `engine/src/baibai_engine/` を必要とする）。固定した入力の作業コピーは、そのcheckoutの `stores/application/baibai.sqlite`、`stores/market/market.sqlite`、`stores/screening/runs.sqlite` に置く。執筆ファイルと表示出力は `.cache/` 配下に置く。これらはGit管理外で、本番正本への書戻しは行わない。
 
 ```bash
-uv run python -m baibai_web.materialize --root "$WORK_ROOT" --output-dir "$PRIVATE_OUTPUT"
-uv run python -m tools.diagnostics.check_served_proposal \
-  --db "$APP_COPY" --latest-json "$PRIVATE_OUTPUT/views/latest-proposal.json" \
-  --history-json "$PRIVATE_OUTPUT/views/proposal-history.json" \
-  --proposal-id "$PROPOSAL_ID" --require-completed
+(
+  set -eu
+  umask 077
+  cd "${WORK_ROOT:?検証用の隔離checkoutを指定}"
+  PRIVATE_OUTPUT=".cache/proposal-acceptance/${PROPOSAL_ID:?照合する提案IDを指定}"
+  uv run python -m baibai_web.materialize --root . --output-dir "$PRIVATE_OUTPUT"
+  uv run python -m tools.diagnostics.check_served_proposal \
+    --db stores/application/baibai.sqlite --latest-json "$PRIVATE_OUTPUT/views/latest-proposal.json" \
+    --history-json "$PRIVATE_OUTPUT/views/proposal-history.json" \
+    --proposal-id "$PROPOSAL_ID" --require-completed
+)
 ```
 
 <a id="machine-publication"></a>
