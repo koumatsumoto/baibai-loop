@@ -91,7 +91,14 @@ def test_mvp_accepts_aapl_quarter_but_not_the_same_filing_ytd(period_start):
         (89, "10-Q", None),  # February through April in a non-leap year.
         (98, "10-Q/A", None),  # A 14-week quarter of a 53-week fiscal year.
         (99, "10-Q", "sec_period_outside_supported_quarter"),
-        (98, "10-K", "sec_filing_form_not_covered"),
+        (98, "10-K", "sec_period_outside_supported_fiscal_year"),
+        (364, "10-K", None),
+        (365, "10-K", None),
+        (366, "10-K", None),
+        (371, "10-K", None),
+        (372, "10-K", "sec_period_outside_supported_fiscal_year"),
+        (364, "10-K/A", "sec_filing_form_not_covered"),
+        (364, "10-Q", "sec_period_outside_supported_quarter"),
     ],
 )
 def test_mvp_requires_supported_span_and_filing_form(days, form, reason):
@@ -112,11 +119,13 @@ def test_mvp_requires_supported_span_and_filing_form(days, form, reason):
     assert "観測20本のSMA" in report
     if reason is None:
         assert "AAPL | research_candidate" in report
-        assert f"SEC実績売上: USD 1,234,567,890 ({start}〜{end}" in report
+        label = "SEC通期実績売上" if form == "10-K" else "SEC実績売上"
+        assert f"{label}: USD 1,234,567,890 ({start}〜{end}" in report
+        assert ("より新しい提出の有無は確認していない" in report) == (form == "10-K")
     else:
         assert "AAPL | hold_for_evidence" in report
         assert f"未充足: `{reason}`" in report
-        assert "SEC実績売上" not in report
+        assert "実績売上" not in report
 
 
 def test_empty_terminal_page_must_be_known_before_whole_chain_is_used():
@@ -184,7 +193,7 @@ def test_publicly_observed_time_is_not_independent_exact_publication():
     assert "初回公表の証明ではない" in before
     assert "sec_publication_unverified" in before
     assert "SEC実績売上" not in before
-    filing["form"] = "10-K"
+    filing["form"] = "10-K/A"
     assert "sec_filing_form_not_covered" in render_research(
         bundle, files.__getitem__, synthetic=True
     )
@@ -733,6 +742,14 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path,
     assert "SMA" not in report
     assert "research_candidate" not in report
 
+    subject["filing"]["form"] = "10-K"
+    bundle["subjects"][1]["filing"] = subject["filing"]
+    manifest.write_text(json.dumps(bundle), encoding="utf-8")
+    assert main(cmd) == 0
+    excluded = capsys.readouterr().out
+    assert "sec_filing_form_not_covered" in excluded
+    assert "operating_income (quarter," not in excluded
+    subject["filing"]["form"] = "10-Q"
     bundle["subjects"][1]["period_start"] = "2026-07-02"
     manifest.write_text(json.dumps(bundle), encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
