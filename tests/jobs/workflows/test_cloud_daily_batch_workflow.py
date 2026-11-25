@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from baibai_jobs.observability.watchdog import RESULT_STEP_PREFIX
 from baibai_jobs.publication.lease import DAILY_LEASE_TTL
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -50,6 +51,7 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
         ("batch", "upload-stores"),
         ("upload-stores", "source-seal"),
         ("source-seal", "source-inputs"),
+        ("source-seal", "source-check"),
     ):
         assert ids.index(first) < ids.index(second)
     assert "uv run baibai-jobs model-integration" in by_id["batch"]["run"]
@@ -61,6 +63,10 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
     assert by_id["upload-stores"]["if"] == "steps.batch.outputs.models_ready == 'true'"
     assert "steps.batch.outcome == 'success'" in by_id["source-seal"]["if"]
     assert '--daily-readback-notice "$RUNNER_TEMP/batch-notice.json"' in by_id["source-seal"]["run"]
+    check = by_id["source-check"]
+    assert "steps.source-seal.outcome == 'success'" in check["if"]
+    assert "continue-on-error" not in check
+    assert 'integration.sources check --directory "$RUNNER_TEMP/integration"' in check["run"]
 
 
 def test_optional_edinet_acceptance_is_before_any_model_publication(workflow, steps, by_id):
@@ -167,7 +173,7 @@ def test_notifications_and_credentials_remain_scoped(steps, by_id):
         assert "cancelled()" not in step.get("run", "")
         if step.get("id") in ("setup", "sync", "smoke", "validate-input"):
             assert "R2_SECRET_ACCESS_KEY" not in str(step)
-    assert '"Notify Discord #batch-runs' in WORKFLOW_PATH.read_text()
+    assert notify["name"].startswith(RESULT_STEP_PREFIX)
 
 
 @pytest.mark.parametrize(
