@@ -4,6 +4,7 @@ import gc
 import json
 import sys
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from uuid import UUID
@@ -391,3 +392,184 @@ def test_omitted_and_compatible_metadata_do_not_block_a_stream(headers) -> None:
     )
     assert isinstance(outcome, SecEdgarReceipt)
     assert outcome.state == "received"
+
+
+def _ticker_submissions(cik: str, tickers: object) -> bytes:
+    # An original-shaped Submissions fixture, not an actual SEC capture or a class history.
+    data = json.loads(_SUBMISSIONS)
+    data.update(cik=cik, tickers=tickers)
+    return json.dumps(data).encode()
+
+
+@pytest.mark.parametrize("symbol", ["GOOG", "GOOGL"])
+def test_ticker_evidence_cannot_bind_apple_submissions_to_alphabet_bars(symbol) -> None:
+    receipt = _capture(
+        SecEdgarQuery("submissions", "320193"),
+        lambda _: _response(_ticker_submissions("320193", ["AAPL"])),
+    )
+    assert isinstance(receipt, SecEdgarReceipt)
+    args = {"expected_cik": "0000320193", "cutoff": _TIME}
+    assert (
+        sec_edgar.observe_reported_ticker(receipt, symbol=symbol, **args) == "ticker_not_reported"
+    )
+    apple = sec_edgar.observe_reported_ticker(receipt, symbol="AAPL", **args)
+    assert isinstance(apple, sec_edgar.SecReportedTicker)
+    assert (apple.symbol, apple.issuer_cik, apple.ticker_pointer) == (
+        "AAPL",
+        "0000320193",
+        "/tickers/0",
+    )
+
+
+def test_one_alphabet_issuer_may_prove_two_literal_security_labels() -> None:
+    payload = _ticker_submissions("0001652044", ["GOOGL", "GOOG"])
+    receipt = _capture(SecEdgarQuery("submissions", "1652044"), lambda _: _response(payload))
+    assert isinstance(receipt, SecEdgarReceipt)
+    args = {"expected_cik": "1652044", "cutoff": _TIME}
+    a = sec_edgar.observe_reported_ticker(receipt, symbol="GOOGL", **args)
+    c = sec_edgar.observe_reported_ticker(receipt, symbol="GOOG", **args)
+    assert isinstance(a, sec_edgar.SecReportedTicker)
+    assert isinstance(c, sec_edgar.SecReportedTicker)
+    assert (a.symbol, c.symbol, a.issuer_cik, c.issuer_cik) == (
+        "GOOGL",
+        "GOOG",
+        "0001652044",
+        "0001652044",
+    )
+    assert (a.ticker_pointer, c.ticker_pointer) == ("/tickers/0", "/tickers/1")
+    assert a.identity_ref != c.identity_ref
+    assert a.receipt_id == c.receipt_id == receipt.receipt_id
+    assert a.body_sha256 == c.body_sha256 == sha256(payload).hexdigest()
+    assert a.received_at == c.received_at == _TIME.astimezone(UTC)
+    assert a.received_at.tzinfo is UTC
+    assert (
+        sec_edgar.observe_reported_ticker(receipt, symbol="goog", **args) == "ticker_not_reported"
+    )
+    assert (
+        sec_edgar.observe_reported_ticker(
+            receipt, symbol="GOOG", **(args | {"expected_cik": "320193"})
+        )
+        == "issuer_mismatch"
+    )
+
+
+@pytest.mark.parametrize("tickers", [None, "AAPL", ["AAPL", False], [" AAPL"], ["AAPL", "AAPL"]])
+def test_unknown_ticker_list_is_not_positive_evidence(tickers) -> None:
+    receipt = _capture(
+        SecEdgarQuery("submissions", "320193"),
+        lambda _: _response(_ticker_submissions("320193", tickers)),
+    )
+    assert isinstance(receipt, SecEdgarReceipt)
+    assert receipt.state == "received"
+    assert (
+        sec_edgar.observe_reported_ticker(
+            receipt, symbol="AAPL", expected_cik="320193", cutoff=_TIME
+        )
+        == "ticker_list_unverified"
+    )
+
+
+def test_ticker_gate_does_not_substitute_companyfacts_or_failed_capture() -> None:
+    q_cf = SecEdgarQuery("companyfacts", "10789")
+    unrelated = _capture(q_cf, lambda _: _response(b'{"cik":10789,"facts":{},"tickers":["AAPL"]}'))
+    assert isinstance(unrelated, SecEdgarReceipt)
+    assert unrelated.state == "received"
+    q_sub = SecEdgarQuery("submissions", "10789")
+    normal = _ticker_submissions("10789", ["AAPL"])
+    refused = _capture(q_sub, lambda _: _response(normal, status=403))
+    malformed = _capture(
+        q_sub, lambda _: _response(normal.replace(b'"AAPL"]', b'"AAPL"], "tickers": ["AAPL"]'))
+    )
+    for receipt in (unrelated, refused, malformed):
+        assert isinstance(receipt, SecEdgarReceipt)
+        assert (
+            sec_edgar.observe_reported_ticker(
+                receipt, symbol="AAPL", expected_cik="10789", cutoff=_TIME
+            )
+            == "unusable_submissions_receipt"
+        )
+    wrong_issuer = _capture(q_sub, lambda _: _response(_ticker_submissions("320193", ["AAPL"])))
+    assert isinstance(wrong_issuer, SecEdgarReceipt)
+    assert wrong_issuer.state == "issuer_mismatch"
+    assert (
+        sec_edgar.observe_reported_ticker(
+            wrong_issuer, symbol="AAPL", expected_cik="10789", cutoff=_TIME
+        )
+        == "issuer_mismatch"
+    )
+
+
+def test_reported_identity_is_not_available_before_actual_receipt() -> None:
+    q = SecEdgarQuery("submissions", "320193")
+    good = _capture(q, lambda _: _response(_ticker_submissions("320193", ["AAPL"])))
+    bad = _capture(q, lambda _: _response(b"<unexpected>"))
+    earlier = _TIME - timedelta(microseconds=1)
+    for receipt in (good, bad):
+        assert isinstance(receipt, SecEdgarReceipt)
+        assert (
+            sec_edgar.observe_reported_ticker(
+                receipt, symbol="AAPL", expected_cik="320193", cutoff=earlier
+            )
+            == "not_yet_received"
+        )
+    assert isinstance(good, SecEdgarReceipt)
+    with pytest.raises(ValueError, match="offset"):
+        sec_edgar.observe_reported_ticker(
+            good, symbol="AAPL", expected_cik="320193", cutoff=_TIME.replace(tzinfo=None)
+        )
+
+
+@pytest.mark.parametrize(
+    ("headers", "state"),
+    [
+        ({"Content-Range": "bytes 0-99/105"}, "partial_content"),
+        ({"Content-Type": "text/html"}, "invalid_response"),
+        ({"Content-Encoding": "gzip"}, "unsupported_content_encoding"),
+    ],
+)
+def test_ticker_evidence_requires_canonical_complete_transfer(headers, state) -> None:
+    receipt = _capture(
+        SecEdgarQuery("submissions", "320193"),
+        lambda _: _response(_ticker_submissions("320193", ["AAPL"]), headers=headers),
+    )
+    assert isinstance(receipt, SecEdgarReceipt)
+    assert receipt.state == state
+    assert receipt.status_code == 200
+    contradictory = replace(receipt, state="received")
+    assert contradictory.receipt_id == receipt.receipt_id
+    assert (
+        sec_edgar.observe_reported_ticker(
+            contradictory, symbol="AAPL", expected_cik="320193", cutoff=_TIME
+        )
+        == "unusable_submissions_receipt"
+    )
+
+
+def test_ticker_evidence_requires_native_submissions_even_after_rebinding() -> None:
+    doc = b'{"cik":320193,"tickers":["AAPL"],"facts":{}}'
+    receipt = _capture(SecEdgarQuery("companyfacts", "320193"), lambda _: _response(doc))
+    assert isinstance(receipt, SecEdgarReceipt)
+    assert receipt.state == "received"
+    rebound = replace(receipt, request=SecEdgarQuery("submissions", "320193"))
+    assert rebound.state == "received"
+    assert (
+        sec_edgar.observe_reported_ticker(
+            rebound, symbol="AAPL", expected_cik="320193", cutoff=_TIME
+        )
+        == "unusable_submissions_receipt"
+    )
+
+
+def test_ticker_evidence_requires_canonical_http_status_type() -> None:
+    receipt = _capture(
+        SecEdgarQuery("submissions", "320193"),
+        lambda _: _response(_ticker_submissions("320193", ["AAPL"])),
+    )
+    assert isinstance(receipt, SecEdgarReceipt)
+    assert receipt.state == "received"
+    assert (
+        sec_edgar.observe_reported_ticker(
+            replace(receipt, status_code=200.0), symbol="AAPL", expected_cik="320193", cutoff=_TIME
+        )
+        == "unusable_submissions_receipt"
+    )
