@@ -27,7 +27,6 @@ from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
 from baibai_engine.machine_analysis.generation.runners.security_context import (
     build_security_market_contexts,
 )
-from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.models.market_context.activity import (
@@ -280,6 +279,7 @@ def read_and_generate_models(
 
     seal内に残る旧originでなく、今回exportしたreleaseを入力identityとする。
     ここでは原本取得・候補選択・公開をせず、業種参照は全masterを維持する。
+    記事に基づく業種・社会の調査はL3で行い、日次モデルには含めない。
     """
     if economic_input is not None and (
         economic_input.as_of != as_of or economic_input.evaluation_time != evaluation_time
@@ -385,13 +385,6 @@ def read_and_generate_models(
             cutoff=monex_window.received_through,
             as_of=monex_window.as_of,
         )
-    trends = read_trend_inputs(
-        path,
-        release_id=market_release.release_id,
-        release_sha256=market_release.manifest_sha256,
-        cutoff=evaluation_time,
-        as_of=as_of,
-    )
     companies = [
         CompanyModelInputs(
             ticker=ticker,
@@ -475,5 +468,4 @@ def read_and_generate_models(
         market_context_revision="shared-market-context-v20-classified-sector-peers",
         shared_market_context_revision="shared-market-context-v21-independent-sector-metrics",
         growth_start=growth_start,
-        trends=trends,
     )
