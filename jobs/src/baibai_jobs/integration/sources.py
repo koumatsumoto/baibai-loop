@@ -283,91 +283,6 @@ def _jpx_recovery_handoffs(
     return entries
 
 
-def _tv_quality_day(report: dict[str, Any]) -> str | None:
-    """Recognize the fixed-receipt failure, not a generic failed source check."""
-    match report:
-        case {
-            "asof": str(day),
-            "handoffs": list(handoffs),
-            "extractions": dict(extractions),
-            "external_failed": [],
-            "external": None | {"failed": []},
-        }:
-            pass
-        case _:
-            return None
-    try:
-        if date.fromisoformat(day).isoformat() != day:
-            return None
-    except ValueError:
-        return None
-    if set(extractions) != {
-        "edinet-facts",
-        "edinet-metrics",
-        "native_lists",
-        "native_archives",
-    } or any(
-        not isinstance(item, dict)
-        or type(item.get("exit_code")) is not int
-        or item["exit_code"] != 0
-        or item.get("status") != "completed"
-        or item.get("deferred_inputs")
-        for item in extractions.values()
-    ):
-        return None
-    rejected_stage = False
-    for outcome in handoffs:
-        match outcome:
-            case {
-                "entry": {
-                    "market": True,
-                    "late_before_integrated": False,
-                    "integration": None,
-                } as entry,
-                "applied": True,
-                "failed": bool(failed),
-                "recovery": bool(recovery),
-            } if "invalid" not in entry and failed == recovery:
-                pass
-            case _:
-                return None
-        if not failed:
-            continue
-        if rejected_stage or entry.get("source") != "tradingview" or entry.get("asof") != day:
-            return None
-        result = outcome.get("result")
-        if (
-            not isinstance(result, dict)
-            or "reason" in result
-            or result.get("snapshot_date") != day
-            or any(
-                type(result.get(key)) is not int or result[key] != 0
-                for key in ("rows", "rows_before", "rows_added", "unresolved")
-            )
-            or type(result.get("expected_universe")) is not int
-            or result["expected_universe"] <= 0
-            or result.get("remaining") != result["expected_universe"]
-        ):
-            return None
-        fixed, rejected = result.get("receipt_ids"), result.get("rejected_receipts")
-        if not isinstance(fixed, list) or not fixed or not isinstance(rejected, list):
-            return None
-        if not all(isinstance(ident, str) and ident for ident in fixed):
-            return None
-        # All of the fixed originals must be accounted for once, not just a nonempty reason list.
-        ids = []
-        for item in rejected:
-            match item:
-                case {"receipt_id": str(identity), "reason": "provider_response"}:
-                    ids.append(identity)
-                case _:
-                    return None
-        if len(set(fixed)) != len(fixed) or sorted(ids) != sorted(fixed):
-            return None
-        rejected_stage = True
-    return day if rejected_stage else None
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("plan", "apply", "seal", "inputs", "check"))
@@ -379,9 +294,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lease-handle", type=Path)
     parser.add_argument(
         "--daily-readback-notice", type=Path, help="reuse this attempt's verified Lake bytes"
-    )
-    parser.add_argument(
-        "--quality-output", type=Path, help="Actions step output for the daily check"
     )
     parser.add_argument(
         "--recover-jpx-stage",
@@ -428,8 +340,6 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("unknown market acquisition input group")
         if args.recover_jpx_stage and args.command != "plan":
             raise ValueError("--recover-jpx-stage is only valid with plan")
-        if args.quality_output and args.command != "check":
-            raise ValueError("--quality-output is only valid with check")
         if args.daily_readback_notice is not None and args.command != "seal":
             raise ValueError("--daily-readback-notice is only valid with seal")
         directory = args.directory
@@ -491,9 +401,6 @@ def main(argv: list[str] | None = None) -> int:
                     sort_keys=True,
                 )
             )
-            if integration_failed and args.quality_output and (day := _tv_quality_day(report)):
-                with args.quality_output.open("a", encoding="utf-8") as output:
-                    print(f"tv_quality_asof={day}", file=output)
             return int(integration_failed)
         bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
         with closing(Boto3R2Store(bucket=bucket)) as store:

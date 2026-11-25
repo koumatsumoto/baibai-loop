@@ -65,7 +65,6 @@ EDINET revisionを明示受入する場合だけ、隔離比較済みの[受入�
 | --- | --- |
 | `MISSING` | 成功/進行中を確認できない。検索は各workflowの最新100runまでで、過去日まで届かなければ履歴不足として通知しない。削除済みの状態は再現しない。 |
 | `DELAYED` | 対象日の成功がなく、初回dailyがqueueで210分超。再実行の待機・実行中の遅延・原因は推定しない。定期監視なので閾値到達時の即時通知ではない。 |
-| `SOURCE QUALITY` | 旧個社TradingViewの手順で付いた履歴だけ。表示されたattemptのcore・seal・input・Web・lease解放は成功し、固定受領の拒否だけで元runは赤。現行日次はこの通知を新規に出さず、旧runを再実行しない。 |
 
 ```bash
 gh workflow run cloud-batch-watchdog.yml --ref main -f "check_date=${ASOF:?対象日をYYYY-MM-DDで指定}"
