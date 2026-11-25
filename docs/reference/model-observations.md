@@ -203,7 +203,7 @@ latest/previousは隣接した保存受領で、連続した営業日の観測�
 TradingViewの受領JST日/master日を公表日、部分公開を市場代表としない。metric別の通貨・FY/next FY・人数を一括流用せず、実受領cutoff/次取引機会を守る。2回の受領値は当時の観測として読み、個々の対象期間が照合できないまま予想の上方/下方修正とはしない。参考closeは株価の第二正本でない。
 
 <a id="public-articles"></a>
-索引/本文受領/投影/主張抽出を分け、見出し/概要/全文/部分の範囲を保つ。抽出待ちの理由・抽出状態にも選択入力の本文範囲を残し、概要の再抽出だけで本文不足が解決するとはしない。BBC World/Business・Fed/ECBの通常取得はRSS見出し/概要までで、本文実読とせず、発言を政策決定としない。取得範囲と[exact回復](../../jobs/OPERATIONS.md#article-acquisition)は運用、判断接続の受入は[#1705](https://github.com/koumatsumoto/baibai-loop/issues/1705)へ。金利CSVを独立測定、XLSXセル投影を図表/書式/計算結果の復元にしない。
+記事の見出し・概要は発見用で、本文・添付を確認した証拠ではない。新規判断で使う記事は[必要時に発表元から読む](stock-assessment.md#recent-news-research)。すでに保存された観測・抽出は、その取得範囲・原典・時点で読む。概要だけの再抽出で本文不足を埋めず、必要な既存の原典引用は[同じ参照で読む](../../.agents/skills/investment-judgment/SKILL.md#記事の原文へ戻る)。記事の収集状態は[運用手順](../../jobs/OPERATIONS.md#article-acquisition)へ。記事の索引を経済時系列の代わりにせず、表のセルを読めても図表・書式の復元とはしない。
 
 社会動向の明示baselineとの主張差分は、数値が同じでも主張種別や発生日の変化を含む。発生日の未知から既知への変化も報告内容の差であり、新しい経済変化の発生を確定しない。受領・抽出・公表日時や引用だけの差を内容変更にせず、予定日通過を実施確認にしない。同一event・現在状態の上書き・因果・金融的重要性は、この差分flagから認定しない。
 
@@ -217,7 +217,7 @@ Research Selectionは決算予定/規制/現在台帳を網羅するとは限ら
 外部評価の利益/倍率/資本/期の重要差は原典確認し、銀行のEBITDA/FCF等を全社必須にしない。rating加点/coverage別laneを設けず、[固定8社での不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)も将来効果の否定にしない。Investing.comは変更の補助で、第二の日次consensusではない。
 
 <a id="public-research-reports"></a>
-[SRC](https://holistic-r.org/report/)・[フィスコ](https://www.fisco.co.jp/service/report/)・[トウシル](https://media.rakuten-sec.net/)などの事業・成長・競争・懸念に関する見解は、重要な仮説の前提・反証を調べる補助に使う。対象と問いに合う保存済み資料・[記事本文](../../.agents/skills/investment-judgment/SKILL.md#記事の原文へ戻る)から始め、不足時に公開原本へ進む。目標株価/ratingだけで済ませず、著者の因果説明を自分の事業理解・価値実現条件と比べ、判断に関係する差や残る問いを既存Research/Assessmentへ残す。
+[SRC](https://holistic-r.org/report/)・[フィスコ](https://www.fisco.co.jp/service/report/)・[トウシル](https://media.rakuten-sec.net/)などの事業・成長・競争・懸念に関する見解は、重要な仮説の前提・反証を調べる補助に使う。対象と問いに合う[発行元の資料](stock-assessment.md#recent-news-research)を読む。目標株価/ratingだけで済ませず、著者の因果説明を自分の事業理解・価値実現条件と比べ、判断に関係する差や残る問いを既存Research/Assessmentへ残す。
 
 [根拠の確認](stock-assessment.md#観測と根拠)に従い、実績などの事実・会社説明/計画・著者の独自見解を分け、sponsor調査を独立した裏付けに数えない。公表時点・実読ページ/本文範囲と採用HTTPS原本を残し、古い見解は現況を示す一次資料等と照合する。毎社/全媒体の必読・毎回取得/日次crawlerは要求しない。届かなければ一次資料へ戻る。
 
