@@ -6,7 +6,7 @@ repository rootのBashで、依頼された対象だけを操作する。[archit
 | --- | --- |
 | 初めて実行する | [権限・秘密・対象storeの確認](#actions-write-boundary)。環境準備は[開発手順](../docs/development.md)。 |
 | 日次の進行や失敗を見る | [日次の起動・到達点](#daily) → 最後に成功したphaseと同じrun/attemptで確認する。 |
-| 取得・再抽出をやり直す | [経済](#economic-acquisition)／[記事](#article-acquisition)／[JPX PDF](#jpx-pdf)／[外部評価](#external-assessment-acquisition)／[TradingView](#tradingview-expectations)／[J-Quants](#jquants-native-operations)／[EDINET](#edinet-list-native-l1) |
+| 取得・再抽出をやり直す | [経済](#economic-acquisition)／[記事](#article-acquisition)／[JPX PDF](#jpx-pdf)／[外部評価](#external-assessment-acquisition)／[個社TradingViewの履歴確認](#tradingview-expectations)／[J-Quants](#jquants-native-operations)／[EDINET](#edinet-list-native-l1) |
 | 公開済みの内容を読む | [固定release](#fixed-release-read)。release IDとmanifest SHAを固定する。 |
 | 反映が一部だけ成功した | [market/runsの部分公開](#部分-push-からの復旧)／[seal・次input](#machine公開後の失敗再開)／[経済単独の再開](#経済単独公開と失敗再開)。日次を丸ごと再送しない。 |
 | 日本株の新規提案を本番データで検証する | [本番データで新規の売買提案を受け入れる](#production-proposal-acceptance)。日次成功・保存済み提案の表示とは別。 |
@@ -212,7 +212,7 @@ uv run baibai-jobs restore-model-history \
 ### machine公開後の失敗再開
 
 - machine成功/seal失敗: 元の固定planと完全な `applied.json` を私有の作業copyに保持している場合に限り、元の公開release・market/runsの組と照合してsealから再開する。通常のActionsは両ファイルをrunnerの一時領域にだけ保存し、公開ログでは読戻し計画を省く。runner終了後に元の証拠がなければ、同一attemptのsealは復元できない。既存のstageとmarkerを確認し、通常探索できる未seal分だけを新しい固定planで前向きに適用する。対象を特定できなければ止める。ログや現行値から旧計画を作らず、providerへ再GETしない。
-- seal成功/input途中: 成功した日次や取得全体を再実行せず、失敗したgroupだけを `inputs --group` で再発行する。`--group` は `plan`・`apply`・`seal`・`check` の範囲を絞る指定ではない。元runの基準日と市場release/manifest・market/runsの対を現在の正本と照合し、TradingViewは対応する検証済み市場copyを使う。元の対を確認できない、または世代が進んだときは同一世代からの復旧と扱わない。
+- seal成功/input途中: 成功した日次や取得全体を再実行せず、失敗したgroupだけを `inputs --group` で再発行する。`--group` は `plan`・`apply`・`seal`・`check` の範囲を絞る指定ではない。元runの市場release/manifest・market/runsの対を現在の正本と照合する。元の対を確認できない、または世代が進んだときは同一世代からの復旧と扱わない。
 
 JPXのsealはapplyで固定したbundle原本と、決算予定の全体/規制の対象日を公開releaseから読戻す。未公開applyや異なる本文/投影では成功markerを発行しない。旧applied.jsonに読戻し計画がなければ、元stageを保ってfresh正本へ同じplanを再applyし、通常の生成・公開・読戻しへ進む。現在の値から旧計画を補わない。
 
@@ -277,7 +277,7 @@ schemaが合わない・台帳を読めない場合に初期化や変換はし�
 | [経済取得](../.github/workflows/cloud-economic-sources-current.yml) | group別に部分受領をstageし、共通日次の先頭で[経済正本を別途公開](#経済単独公開と失敗再開)する。 |
 | [記事の必要時調査と停止時の取扱い](#article-acquisition) | 新規の定期・手動一括取得は行わない。受領済みstageの統合と保存済み出典の読取は別。 |
 | [数値の外部評価](../.github/workflows/cloud-external-assessment.yml) | 固定planで確認済みの集合（ready）を通常統合で採用する。 |
-| [個社TradingView](../.github/workflows/cloud-tradingview-snapshot.yml)／[多市場TradingView](../.github/workflows/cloud-tradingview-market-daily.yml) | 個社の新規起動は手動のみ。元のmaster/calendarと受領packetを[日次統合](#tradingview-expectations)へ。多市場の定期取得は継続し、[市場判断用の補助原本](#判断直前の多市場補助観測)を個社の日次充足や正式終値の代わりにしない。 |
+| [多市場TradingView](../.github/workflows/cloud-tradingview-market-daily.yml) | [市場判断用の補助原本](#判断直前の多市場補助観測)。個社外部評価や正式終値の代わりにしない。 |
 
 取得時には全market/applicationをhydrateしない。同source/groupのqueueと共有quotaを守り、L2不足だけで再GETしない。[source input](src/baibai_jobs/acquisition/source_inputs.py)が必要な経路は統合から発行し、元bindingで再開する。計画材料が欠けたときは空seedや全DB取得で代用しない。形式変更時は対応readerを先行させ、非対応writerをdrainする。
 
@@ -414,7 +414,7 @@ EDINETの取得・facts・再抽出は[独立L1の手順](#edinet-list-native-l1
 <a id="external-assessment-acquisition"></a>
 ### 外部評価
 
-[数値の取得枠](../.github/workflows/cloud-external-assessment.yml)はMonexと株マップ。TradingViewは[独立した取得枠](#tradingview-expectations)を使う。楽天・みんかぶの数値は[廃止判断](https://github.com/koumatsumoto/baibai-loop/issues/1820#issuecomment-6856119813)により新規取得・新しい評価への旧値採用をしない。旧原本・保存済みGeneration/Selectionは読めるが、旧planから未試行pairを取得し直さない。ニュースやトウシル[記事](#article-acquisition)の扱いとは別。
+[数値の取得枠](../.github/workflows/cloud-external-assessment.yml)はMonexと株マップ。個社TradingViewは[必要時のL3調査](#tradingview-expectations)だけに使う。楽天・みんかぶの数値は[廃止判断](https://github.com/koumatsumoto/baibai-loop/issues/1820#issuecomment-6856119813)により新規取得・新しい評価への旧値採用をしない。旧原本・保存済みGeneration/Selectionは読めるが、旧planから未試行pairを取得し直さない。ニュースやトウシル[記事](#article-acquisition)の扱いとは別。
 
 通常TLS/proxyで有限銘柄を直列取得し、試行別private captureをcurrent-schemaの隔離marketへimportする。`legacy_stage_unsupported` は原応答を含まない正規化済みstageの拒否で、原本captureを指定し直す。parse失敗でも原本は保ち、L2を部分追記しない。再投入0件を確認する。
 
@@ -424,7 +424,7 @@ uv run baibai-jobs external-assessment import --input <PRIVATE_CAPTURE> --db <LO
 gh workflow run cloud-external-assessment.yml --ref main -f source=monex -f batch_id=<LABEL> -f master_asof=<YYYY-MM-DD>
 ```
 
-日次は固定master/calendar/parserの元bindingで再開する。依存不足を全market/TradingView起動で迂回しない。同sourceを重ねずqueue後cycleを確認し、plan再作成/hash手修正をせず期限内未試行pairだけを進める。保存失敗pairの再取得は別labelとする。HTTP 401/403はそのsourceの当該passを止め、次の通常slotでは未試行pairだけを進める。
+日次は固定master/calendar/parserの元bindingで再開する。依存不足を全market再取得で迂回しない。同sourceを重ねずqueue後cycleを確認し、plan再作成/hash手修正をせず期限内未試行pairだけを進める。保存失敗pairの再取得は別labelとする。HTTP 401/403はそのsourceの当該passを止め、次の通常slotでは未試行pairだけを進める。
 
 [外部評価summary](src/baibai_jobs/acquisition/external_assessments/cohorts.py)のstate_counts/reason_countsと取得ログのfailed_http_status_countsは保存状態の集計。failed_http_status_countsは非200で失敗したpairだけの内訳で、正常欠測やHTTP 200の解析失敗を含まない。provider_requestsは今回の呼出し、http_requests/response_content_bytesは再開前を含む[cohortの記録](src/baibai_jobs/acquisition/external_assessments/daily.py)であり、本文の新規保存数とは分けて読む。
 
@@ -439,37 +439,22 @@ lease外でacquire→inspect→ready --cumulative、共通統合で固定集合�
 保存原本の再解析が必要なときは、現行の隔離copyへ対象attemptだけを `external-assessment rebuild-raw` で再解析する。元の受領日、対象L2の差分、直前/直後cutoffの値を確かめて[共通公開](#machine-publication)へ進む。HTTPを再試行せず、未公開の旧copyは本番へ戻さない。
 
 <a id="tradingview-expectations"></a>
-### TradingView
+### 個社TradingView
 
-個社の定期起動だけを停止する。必要時の手動実行には本人確認済みの利用範囲と既存tradingview-runtime認証を使い、新credential/課金/再配布へ広げない。認証失敗を充足にしない。既に起動したrun・保持済み受領・日次統合はこの変更で止めない。
+取得は**L3で選定済みの個社に、判断を変え得る問いがある場合だけ**。利用を認められたTradingViewの個社予想を参照し、対象期間・通貨・観測時点の比較可能性が確認できない値は、方向や執行条件の根拠にしない。データが得られなくてもL3を止めず、一次資料の確認を続ける。全銘柄の定期・手動一括収集、日次の個社入力発行、受領の新規stage・通常統合・sealは行わない。[多市場の取得](#判断直前の多市場補助観測)は別。
 
-[手動実行](../.github/workflows/cloud-tradingview-snapshot.yml)は未取得原応答だけを再開する。originals_savedは再GETせずrebuildし、L2だけのcopyでは不足原本を受領して既存L2を保つ。後受領を旧L2の生成元にせず、過去cycleを現在応答で埋めない。cycleは09:00 JST切替、営業日15:30/休日09:00から翌09:00未満。休日の前営業日basisは[master/calendar](#master-native-l1)に従う。
+通常planはhandoffの宣言sourceで旧個社を除外する。stage名だけでJPXを除外しない。保存済みstage、元のreceiptと判定、過去のGeneration・提案は書き換えず、成功markerを付けない。
 
-手動でも同じlock・cooldown・実時計の観測窓に従い、完了分は再照会しない。銘柄が対応していて必要fieldだけ欠けるときは、次の実行で未充足銘柄の小batchと通常batchを交互に進める。null補完や一部採用はしない。必要fieldが揃った原応答は投影失敗でも保持する。同じ欠落の連続・HTTP/認証・予算・時刻・保存上限に達したら部分結果を残し、日次全体をやり直さない。
+切替前に旧版の個社取得と共通日次の稼働・待機を確認し、新規起動せず使われなくなってから切り替える。旧個社と他sourceが混ざった `plan.json` / `applied.json` を、新版で引き継いで部分sealしない。残る非TradingViewの受領を確認し、必要なら現行の固定計画からやり直す。
 
-取得ログの `batch_quote_fields_only` は、要求銘柄の全行に価格・通貨キーだけがあり、評価列は一つも返らなかったことを示す。原因や評価値なしを意味せず、評価取得には数えない。
-
-列欠落の広がりは、固定済みの同じ試行のhandoffから一組の `result.json` と、WALを反映済みの `receipts.sqlite` のローカルコピーを使って調べる（追加取得・再解析保存なし）。`result.json` の `snapshot_date`・`receipt_ids` を使い、別の試行のIDや稼働中DBを混ぜない。
-`uv run python -m baibai_jobs.integration.tradingview_receipts --sqlite <LOCAL_RECEIPTS_SQLITE> --asof <CYCLE_DATE> --diagnose-receipt <ID>` の末尾を受領ごとに繰り返す（最大100件）。field別の分母は銘柄の重複を含む辞書行で、明示missing・非辞書行・応答照合失敗は別。キーの存在は値の妥当性や評価の採用を意味しない。
-
-新しい観測は[手動workflow](../.github/workflows/cloud-tradingview-snapshot.yml)と同じ順で準備する。空の作業DBへ `source_handoff input --source tradingview` で入力を読み、`master-dependency hydrate` で観測日の暦とmasterを固定し、`source_handoff resume` で同じcycleの受領済み分を戻す。master不足時の追加取得は同workflowのpreflightとcooldownに従う。過去観測の回復では元の固定入力を使い、SQL内の依存表や現在のheadで代用しない。
-
-receiveはHTTPなしでSDK応答全体/失敗を保存する。同IDは全内容一致の再送だけ、別呼出しは別ID。exportには上で固定したsource-input directoryを渡し、共通統合へ渡すのは受領packetだけ。取得copy全体をpushしない。
-
-applyのmaster投影は同じ固定入力の読取で対象日の取得状態も確認し、未採用・failed・heldならmasterを書き換えない。packet自身が参照する元masterの銘柄集合は別に照合する。
-
-共通統合のsealは、applyで固定した対象日の原応答と最終L2を公開releaseから照合してからstageを消費する。追加前から保たれた最初の行とその原本も照合し、受領拒否/投影失敗は原本公開と明示復旧を分ける。旧bundleの整合だけではsealしない。apply未完で照合対象を固定できなかったstageは、raw保持前後の依存/受領context不一致やwatermark以前の遅着も含め、markerを書かずpendingに残して復旧する。readback計画のない旧applied.jsonはfresh hydrateから再applyし、原本stageや受領時計を作り直さない。
+履歴の確認には、元の `result.json` とWAL反映済みの同じ `receipts.sqlite` を使う。必要なら既知のstageを新しい私有作業領域に `source_handoff download --source tradingview --stage-id <STAGE_ID>` で取得できる。 `result.json` の `snapshot_date` と `receipt_ids` を指定した下記の診断は読取専用で、評価列の欠落と正常な欠測を分ける。
 
 ```bash
-uv run baibai-jobs tradingview-source receive --sqlite <LOCAL_MARKET_COPY> --capture <PRIVATE_NATIVE_CAPTURE_JSON>
-uv run python -m baibai_jobs.integration.source_handoff export --source tradingview \
-  --asof <JST_RECEPTION_DAY> --since <BEFORE_RECEPTION_UTC> --database <LOCAL_MARKET_COPY> \
-  --input-directory <FIXED_SOURCE_INPUT_DIR> --directory <NEW_PRIVATE_HANDOFF>
-uv run baibai-jobs tradingview-source rebuild --sqlite <LOCAL_MARKET_COPY> --asof <YYYY-MM-DD> --receipt-id <RECEIPT_ID>
-uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <UTC_TIMESTAMP> --db <LOCAL_MARKET_COPY>
+uv run python -m baibai_jobs.integration.tradingview_receipts \
+  --sqlite <LOCAL_RECEIPTS_SQLITE> --asof <CYCLE_DATE> --diagnose-receipt <ID>
 ```
 
-rebuildは選択receipt集合で一日L2を置換するため、部分追加だけで既存日を置換しない。元master/calendar・最初の正常行/receiptを保ち、過去判断/除外履歴へ遡及しない。
+既存receiptの投影再現が必要な場合に限り、固定参照を使う `source_handoff replay-copy --source tradingview --database <LOCAL_MARKET_COPY>` または `tradingview-source rebuild` を隔離コピーに対して使う。現在のmasterで過去観測を書き換えず、コピーは本番へ戻さない。
 
 ### 判断直前の多市場補助観測
 
@@ -521,13 +506,13 @@ gh run watch <SOURCE_RUN_ID> --exit-status --interval 60
 
 <a id="master-native-l1"></a>
 <a id="calendar-native-l1"></a>
-**master/calendar。** TradingView/外部評価はcalendarを先に固定し、休場なら直前営業日のbasis masterから銘柄集合を固定する。unknown/partialを休場へ変えず、空/failed/held masterを旧値で補わない。保存packetの元master/calendarはhead削除/訂正後も保持参照から再生し、新しいheadへ再固定しない。
+**master/calendar。** 日次の外部評価はcalendarを先に固定し、休場なら直前営業日のbasis masterから銘柄集合を固定する。unknown/partialを休場へ変えず、空/failed/held masterを旧値で補わない。保存packetの元master/calendarはhead削除/訂正後も保持参照から再生し、新しいheadへ再固定しない。
 
 masterは明示した日付を取得し、過去L2を使わない。`jquants-master-native acquire --asof`は指定日の間を埋めず、未来日を拒否する。calendarの明示取得は他source/L2/release不要で、必要範囲を指定する。空/partialを成功へ変えない。
 
 日付不正で利用できないcalendar原本も残す。新しい価格の休場証拠は対象日・日別内容SHA・区分を採用原本と照合し、旧固定selectionは当時の判定で再生する。日付契約の切替時は、既存headを固定して有効な採用日をすべて原本と照合する。価格の休場候補だけでなく、取引日を使う信用・銘柄マスター等の経路も同じ暦を参照するため。旧取得処理が残っていないこととhead同一性を確認し、不一致があれば該当期間だけ新しい受領として明示訂正する。通常dailyで全期間は再取得しない。
 
-新しく固定する暦の投影は、採用rangeの同じ読取で対象日・内容SHA・区分・受領時計を照合する。不一致は元の受領を保ち、休場ではなく不明とする。日次の価格証明・信用残の対象日判定は同じ検証結果を使い、信用残は週内の金曜まで必要な場合だけ参照する。TradingView等の新規計画も固定する範囲を同じ規則で検証し、現在headを訂正しない。版記録のない既存の固定暦は明示再生で当時の採用値を保つ。
+新しく固定する暦の投影は、採用rangeの同じ読取で対象日・内容SHA・区分・受領時計を照合する。不一致は元の受領を保ち、休場ではなく不明とする。日次の価格証明・信用残の対象日判定は同じ検証結果を使い、信用残は週内の金曜まで必要な場合だけ参照する。外部評価の新規計画も固定する範囲を同じ規則で検証し、現在headを訂正しない。版記録のない既存の固定暦は明示再生で当時の採用値を保つ。
 
 ```bash
 uv run baibai-jobs jquants-master-native acquire --asof <DATE> --asof <DATE>

@@ -351,4 +351,4 @@ def test_acquire_shell_uses_native_sources_without_scoped_inputs(tmp_path, sourc
     assert parsed.source == source
     assert parsed.asof == date(2026, 11, 6)
     assert parsed.directory == runner / "source-handoff"
-    assert parsed.input_directory is None
+    assert "--input-directory" not in arguments

@@ -29,7 +29,7 @@ def setup_plan(monkeypatch, *, fail=None):
             if name == fail:
                 raise ValueError("private failure detail")
             if name == "market_handoffs":
-                assert kwargs == {"market": True}
+                assert kwargs == {"market": True, "exclude_equity_tradingview": True}
             return values[name]
 
         return run

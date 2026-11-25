@@ -300,7 +300,7 @@ jobs:
       - name: Report integration failures and deferred source inputs
         id: source-check
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
-        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration" --quality-output "$GITHUB_OUTPUT"
+        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
 
       # Presentation follows core persistence; it never gates model generation or sealing.
       - name: Publish retained portfolio views
@@ -343,7 +343,7 @@ jobs:
 
       # `always()` includes timeouts, which GitHub reports as cancellations.
       # Notification failure must not overwrite the publication result.
-      - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || steps.source-plan.outputs.asof || 'unknown' }}${{ steps.source-check.outputs.tv_quality_asof != '' && steps.source-check.outputs.tv_quality_asof == steps.batch.outputs.asof && ' [fixed TradingView receipt quality]' || '' }}"
+      - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || steps.source-plan.outputs.asof || 'unknown' }}"
         id: notify
         if: ${{ always() }}
         continue-on-error: true

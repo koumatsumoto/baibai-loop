@@ -482,15 +482,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("input", "resume", "acquire", "export", "stage", "download", "replay-copy"),
+        choices=("acquire", "export", "stage", "download", "replay-copy"),
     )
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("--database", type=Path, default=MARKET_DB_PATH)
+    parser.add_argument("--database", type=Path)
     parser.add_argument("--since", type=datetime.fromisoformat)
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--stage-id")
-    parser.add_argument("--input-directory", type=Path)
     return parser
 
 
@@ -500,62 +499,25 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.source in NATIVE_JQUANTS_MARKET_SOURCES and args.command != "acquire":
             raise ValueError("J-Quants sources publish directly to native L1")
-        if args.command in {"input", "resume"} and args.source != "tradingview":
-            raise ValueError("only TradingView uses a scoped market source input")
+        if args.source == "tradingview" and not (
+            args.command == "download"
+            or (args.command == "replay-copy" and args.database is not None)
+        ):
+            raise ValueError(
+                "individual TradingView is archived; use a fixed local copy for replay"
+            )
+        database = args.database or MARKET_DB_PATH
         if args.command == "replay-copy":
             if args.source == "tradingview":
                 with closing(
                     Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
                 ) as store:
-                    replay = _replay(args.source, args.database, directory, store=store)
+                    replay = _replay(args.source, database, directory, store=store)
             else:
-                replay = _replay(args.source, args.database, directory)
+                replay = _replay(args.source, database, directory)
             print(json.dumps(replay.report, sort_keys=True))
             return int(not replay.complete)
-        if args.command == "input":
-            from baibai_jobs.acquisition.source_inputs import load_input
-
-            with closing(
-                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-            ) as store:
-                load_input(store, args.source, args.database, directory)
-        elif args.command == "resume":
-            from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed
-
-            if args.asof is None:
-                raise ValueError("--asof is required")
-            saved_input = json.loads((directory / "result.json").read_text())
-            if saved_input.get("master_native_input") is None:
-                return 0  # Acquire the fixed master, then resume these receipts.
-            master_input = InputSnapshot.model_validate(saved_input["master_native_input"])
-            calendar_input = InputSnapshot.model_validate(saved_input.get("calendar_native_input"))
-            with closing(
-                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-            ) as store:
-                for index, entry in enumerate(
-                    available_handoffs(store, source="tradingview", include_integrated=True)
-                ):
-                    if entry.get("invalid") or entry.get("late_before_integrated"):
-                        continue
-                    integrated = entry.get("integration")
-                    if isinstance(integrated, dict) and (
-                        integrated["status"] == "needs_explicit_recovery"
-                        or integrated["integrated_at"] <= saved_input["created_at"]
-                    ):
-                        continue
-                    if entry["asof"] != args.asof.isoformat():
-                        continue
-                    packet = directory / f"resume-tradingview-{index}"
-                    download_fixed(store, entry, packet)
-                    _replay(
-                        "tradingview",
-                        args.database,
-                        packet,
-                        store=store,
-                        master_input=master_input,
-                        calendar_input=calendar_input,
-                    )
-        elif args.command in {"stage", "download"}:
+        if args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
             with closing(
@@ -613,29 +575,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(
                     "Use the source's explicit original receipt import; no live client here"
                 )
-            master_input = None
-            calendar_input = None
-            if args.source == "tradingview":
-                if args.input_directory is None:
-                    raise ValueError("native TradingView export requires its fixed source input")
-                saved = json.loads((args.input_directory / "result.json").read_bytes())
-                master_input = InputSnapshot.model_validate(saved["master_native_input"])
-                calendar_input = InputSnapshot.model_validate(saved["calendar_native_input"])
-            _export(
-                args.source,
-                args.asof,
-                since,
-                args.database,
-                directory,
-                master_input,
-                calendar_input,
-            )
+            _export(args.source, args.asof, since, database, directory)
             report = json.loads((directory / "result.json").read_text())
             report["acquisition"] = {"status": "received"}
-            if args.input_directory is not None:
-                report["input_generation"] = json.loads(
-                    (args.input_directory / "result.json").read_text()
-                )["canonical_generations"]
             write_json_atomic(directory / "result.json", report)
             if output := os.environ.get("GITHUB_OUTPUT"):
                 with Path(output).open("a", encoding="utf-8") as stream:

@@ -634,7 +634,7 @@ def test_snapshot_cli_verifies_native_cache_in_the_lake_write_target(
     assert len(tuple(owner.freeze().iter_receipts())) == 1
 
 
-def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
+def test_native_daily_input_cli_skip_retired_list_and_publish_only_article_planning(
     tmp_path, monkeypatch, capsys
 ):
     from baibai_jobs.acquisition import source_inputs
@@ -673,11 +673,10 @@ def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
         str(tmp_path / "lease"),
     ]
     assert sources.main(argv) == 0
-    expected = [group for group in sources.SOURCE_INPUT_GROUPS if not group.startswith("edinet-")]
-    assert published == expected
+    assert published == []
     assert articles == list(sources.COLLECTION_SOURCES)
     report = json.loads(capsys.readouterr().out)
-    assert report["updated"] == expected + list(sources.COLLECTION_SOURCES)
+    assert report["updated"] == list(sources.COLLECTION_SOURCES)
     assert report["failed"] == []
     published.clear()
     assert sources.main([*argv, "--group", "edinet-list"]) == 1
