@@ -600,10 +600,16 @@ def test_partial_basis_correction_cannot_revive_old_balance_sheet(revision_type,
 
 
 @pytest.mark.parametrize(
-    "revision_type",
-    ["FYFinancialStatements_Consolidated_JP", "EarnForecastRevision", "DividendForecastRevision"],
+    ("revision_type", "expected_lag"),
+    [
+        ("FYFinancialStatements_Consolidated_JP", 1),
+        ("EarnForecastRevision", 0),
+        ("DividendForecastRevision", 0),
+    ],
 )
-def test_same_basis_partial_revision_and_notices_keep_balance_carry(revision_type):
+def test_only_a_financial_statement_can_advance_the_balance_carry_clock(
+    revision_type, expected_lag
+):
     annual = replace(document(date(2024, 4, 1), date(2025, 3, 31), 100.0), bps=5.0)
     correction = replace(
         annual,
@@ -621,8 +627,96 @@ def test_same_basis_partial_revision_and_notices_keep_balance_carry(revision_typ
         adjustment_events=(),
         asof_date=date(2025, 6, 1),
     )
-    assert result.bs_carry_forward_fields == "bps"
-    assert result.bs_carry_forward_lag_days == 1
+    assert result.latest_financial_disclosure_date == correction.disclosed_at
+    assert result.bs_carry_forward_fields == ("bps" if expected_lag else None)
+    assert result.bs_carry_forward_lag_days == expected_lag
+
+
+def test_late_older_period_correction_does_not_change_current_balance_carry():
+    annual = replace(document(date(2025, 4, 1), date(2026, 3, 31), 100.0), cash_eq=60.0)
+    old = replace(
+        document(
+            date(2026, 4, 1),
+            date(2026, 6, 30),
+            20.0,
+            fiscal_period="1Q",
+            fiscal_year_end=date(2027, 3, 31),
+        ),
+        shares_outstanding=100.0,
+        treasury_shares=0.0,
+    )
+    current = replace(
+        old,
+        disclosed_at=date(2026, 11, 11),
+        disclosure_number="current-half-year",
+        fiscal_period="2Q",
+        period_end=date(2026, 9, 30),
+        total_assets=1000.0,
+        equity_to_asset_ratio=0.5,
+    )
+    correction = replace(
+        old,
+        disclosed_at=date(2026, 11, 25),
+        disclosure_number="late-first-quarter-correction",
+        shares_outstanding=101.0,
+    )
+
+    def snapshot(rows, asof):
+        return build_financial_snapshot(
+            10.0, rows, None, DEFAULT_TTM_RULES, adjustment_events=(), asof_date=asof
+        )
+
+    before = snapshot([annual, old, current], correction.disclosed_at)
+    after = snapshot([annual, old, current, correction], correction.disclosed_at)
+    assert before.bs_carry_forward_fields == "cash_eq"
+    assert after.latest_financial_disclosure_date == correction.disclosed_at
+    assert replace(after, latest_financial_disclosure_date=current.disclosed_at) == before
+
+    next_report = document(
+        current.period_start,
+        date(2026, 12, 31),
+        30.0,
+        fiscal_period="3Q",
+        fiscal_year_end=current.fiscal_year_end,
+    )
+    current_missing = snapshot(
+        [annual, old, current, correction, next_report], next_report.disclosed_at
+    )
+    assert current_missing.total_assets == 1000.0
+    assert current_missing.equity_ratio == 0.5
+    assert current_missing.cash_eq == 60.0
+    assert current_missing.bs_carry_forward_fields == "cash_eq,equity_to_asset_ratio,total_assets"
+    assert (
+        current_missing.bs_carry_forward_lag_days
+        == (next_report.disclosed_at - annual.disclosed_at).days
+    )
+
+
+def test_unknown_latest_actual_balance_clock_does_not_discard_older_observed_values():
+    annual = replace(document(date(2024, 4, 1), date(2025, 3, 31), 100.0), cash_eq=60.0)
+    current = document(
+        date(2025, 4, 1),
+        date(2025, 6, 30),
+        20.0,
+        fiscal_period="1Q",
+        fiscal_year_end=date(2026, 3, 31),
+    )
+    other_basis = replace(
+        current,
+        disclosure_number="incomparable-current-basis",
+        document_type="1QFinancialStatements_Consolidated_IFRS",
+    )
+    snapshot = build_financial_snapshot(
+        10.0,
+        [annual, current, other_basis],
+        None,
+        DEFAULT_TTM_RULES,
+        adjustment_events=(),
+        asof_date=current.disclosed_at,
+    )
+    assert snapshot.cash_eq == 60.0
+    assert snapshot.bs_carry_forward_fields is None
+    assert snapshot.bs_carry_forward_lag_days is None
 
 
 def test_balance_carry_checks_source_period_not_newer_quarter_basis():
