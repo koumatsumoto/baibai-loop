@@ -84,7 +84,9 @@ uv run baibai-engine investment-judgment shared-context \
 
 ### 記事の原文へ戻る
 
-共有subjectのcoverage/抽出状態/省略を確認し、[通常生成の範囲](../../../docs/architecture.md#現在の解析モデル)を全ニュースへ一般化せず重要原文だけprivateに読む。
+新規調査は[発表元の見出しから原典を絞る](../../../docs/reference/stock-assessment.md#recent-news-research)。記事Lakeや原本一式の取得は不要。[既存Research](#途中成果の保存と再訪)の `sources[].ref` に原典URL、`retrieved_at` に実際に読んだ時刻（時差付き）を入れる。公表日で実読時刻を埋めない。`used_for` は読んだ箇所・公表時点・用途を記す説明欄で、CLIが原典を照合するわけではない。採った観測を `facts[].source_ids` で結び、対象期・母集団を残す。見出ししか読めない、締切以前の本文か不明などの不足は、`investigated_scope` と `unresolved_questions` に記し、事実に入れない。
+
+既存の調査・判断に記録された **保存原典の参照** を確かめる場合だけ、保持済みの指定版からその参照を読む。発行元の現行ページや別資料で当時の原本を補わない。
 
 ```bash
 uv run baibai-engine articles exact-evidence \
@@ -92,9 +94,7 @@ uv run baibai-engine articles exact-evidence \
   --reference-file <EXACT_DESCRIPTOR_JSON> --cache <PRIVATE_CACHE> --output-dir <NEW_PRIVATE_DIR>
 ```
 
-探索は同じrelease/manifest/cacheの`articles list`へsource・受領UTC月・公表期間を渡す。月ごとにprivate index.jsonから選び、続きは同条件のnext_after。公表日時不明は日時検索に入らない。
-
-lookupは元lineageや旧release全体の再読でない。Research source.refに原典URL、used_forにexact descriptorを残し、日付・本文範囲・限定を後続/再開へ引継ぐ。自動exact照合は保証されず、原文を公開logへ転載しない。受領だけで独立性・変化・実施を認定しない。
+指定参照を読み戻せない場合は「当時の原本は未確認」と残し、発行済みの判断・参照は書き換えない。全文・添付一式を新規に蓄積せず、公開ログにも転載しない。
 
 ## Company Research・Stock Assessment・Independent Review
 
@@ -115,7 +115,7 @@ scaffoldの`--from-research-id`は元日付/ID/hash付き素材コピー、`--fr
 
 ### 途中成果の保存と再訪
 
-`company-research scaffold`はlatestまたは明示ID/hashからdraftを作る。調査範囲と追加/訂正/削除を編集し`company-research save`する。部分的理解のsnapshotとして検索不発も範囲/残る問いを保存でき、価値・価格・Reviewを捏造しない。
+`company-research scaffold --ticker <TICKER> --asof <ASOF> --db <APP_DB> --out <DRAFT>` はlatestまたは明示ID/hashからdraftを作る。調査範囲と追加/訂正/削除を編集し、`company-research save <DRAFT> --db <APP_DB>` の参照を `company-research get --research-id <ID> --sha256 <SHA256> --db <APP_DB>` で読み戻す。検索不発も範囲/残る問いとして保存できる。Researchの保存は査読・正式提案・注文ではない。
 
 as_ofは情報境界で全内容の再検証日でない。元source/fact時刻を保ちコピーを再確認/削除の安全認定にしない。stale priorはlatestと統合して再保存し、同ID同内容は元保存時刻を返す。文字列参照の自動検証は保証しない。中断は理由とResearch ID/digestをrecord-unfinishedへ残し、部分保存をreviewed/完了としない。
 
