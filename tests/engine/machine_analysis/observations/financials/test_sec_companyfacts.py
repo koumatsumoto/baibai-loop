@@ -11,8 +11,8 @@ import pytest
 from baibai_engine.machine_analysis.observations.financials.sec_companyfacts import (
     SecCompanyFactsCapture,
     SecFilingWitness,
+    SecIssuerUsdObservation,
     SecPublicFilingObservation,
-    SecRevenueObservation,
     observe_sec_revenue,
 )
 
@@ -88,7 +88,7 @@ def test_same_end_ytd_never_replaces_exact_quarter(reverse: bool) -> None:
     rows = [ytd, quarter] if reverse else [quarter, ytd]
     source = _capture(_body(*rows))
     result = _read(source)
-    assert isinstance(result, SecRevenueObservation)
+    assert isinstance(result, SecIssuerUsdObservation)
     assert result.amount == Decimal(5000)
     assert (result.concept, result.unit, result.scope) == (
         "us-gaap:Revenues",
@@ -108,17 +108,17 @@ def test_keeps_raw_decimal_precision_and_zero_is_observed() -> None:
     spelling = "123456789012345678901.012345678901"
     raw = _body(_fact(val="DECIMAL_MARKER")).replace(b'"DECIMAL_MARKER"', spelling.encode())
     result = _read(_capture(raw))
-    assert isinstance(result, SecRevenueObservation)
+    assert isinstance(result, SecIssuerUsdObservation)
     assert str(result.amount) == spelling
 
     result = _read(_capture(_body(_fact(val=0))))
-    assert isinstance(result, SecRevenueObservation)
+    assert isinstance(result, SecIssuerUsdObservation)
     assert result.amount == Decimal(0)
 
 
 def test_same_value_in_two_exact_rows_keeps_both_origin_paths() -> None:
     result = _read(_capture(_body(_fact(val=5), _fact(val=5.0))))
-    assert isinstance(result, SecRevenueObservation)
+    assert isinstance(result, SecIssuerUsdObservation)
     assert result.amount == Decimal(5)
     assert result.fact_paths == (
         "/facts/us-gaap/Revenues/units/USD/0",
@@ -170,7 +170,7 @@ def test_exact_raw_hash_and_unambiguous_json_are_required() -> None:
 
 def test_expected_issuer_binds_companyfacts_and_filing_separately() -> None:
     good = _capture(_body(_fact(), cik=_CIK))
-    assert isinstance(_read(good, expected_cik="123456"), SecRevenueObservation)
+    assert isinstance(_read(good, expected_cik="123456"), SecIssuerUsdObservation)
     with pytest.raises(ValueError, match="filing witness CIK does not match the expected issuer"):
         _read(good, filing=replace(_FILING, issuer_cik="0000999999"))
     with pytest.raises(ValueError, match="CompanyFacts CIK does not match the expected issuer"):
@@ -184,7 +184,7 @@ def test_typed_output_cik_is_canonical_without_changing_its_receipt_evidence() -
     short_witness = replace(_FILING, issuer_cik="123456")
     original = _capture(_body(_fact(), cik=123456))
     result = _read(original, filing=short_witness)
-    assert isinstance(result, SecRevenueObservation)
+    assert isinstance(result, SecIssuerUsdObservation)
     assert result.filing == _FILING
     assert short_witness.issuer_cik == "123456"
 
@@ -199,7 +199,7 @@ def test_numeric_json_cik_does_not_authorize_numerical_typed_witness_cik() -> No
 def test_acceptance_publication_and_both_receipts_are_separate() -> None:
     source = _capture(_body(_fact()))
     assert _read(source, cutoff=_instant("2026-11-25T21:06:59Z")) == "not_yet_received"
-    assert isinstance(_read(source, cutoff=source.received_at), SecRevenueObservation)
+    assert isinstance(_read(source, cutoff=source.received_at), SecIssuerUsdObservation)
     assert (
         _read(source, filing=replace(_FILING, published_at=None, publication_ref=None))
         == "publication_unverified"
@@ -209,7 +209,7 @@ def test_acceptance_publication_and_both_receipts_are_separate() -> None:
 
     earlier = _capture(source.body, received="2026-11-25T21:03:00Z")
     assert _read(earlier, cutoff=_instant("2026-11-25T21:04:00Z")) == "not_yet_received"
-    assert isinstance(_read(earlier, cutoff=_FILING.received_at), SecRevenueObservation)
+    assert isinstance(_read(earlier, cutoff=_FILING.received_at), SecIssuerUsdObservation)
 
     with pytest.raises(
         ValueError, match="CompanyFacts fact was received before witnessed filing publication"
@@ -221,14 +221,14 @@ def test_exact_accession_only_amendment_never_implicitly_replaces_original() -> 
     raw = _body(_fact(accn=_AMENDMENT, form="10-Q/A", val=4200), _fact())
     source = _capture(raw)
     original = _read(source)
-    assert isinstance(original, SecRevenueObservation)
+    assert isinstance(original, SecIssuerUsdObservation)
     assert original.amount == Decimal(5000)
 
     corrected_witness = replace(
         _FILING, accession=_AMENDMENT, form="10-Q/A", receipt_id="filing-receipt-b"
     )
     corrected = _read(source, filing=corrected_witness)
-    assert isinstance(corrected, SecRevenueObservation)
+    assert isinstance(corrected, SecIssuerUsdObservation)
     assert corrected.amount == Decimal(4200)
     assert corrected.filing.accession == _AMENDMENT
 
@@ -255,7 +255,7 @@ def test_same_accession_form_mismatch_is_not_hidden_by_duration(include_quarter:
         _read(_capture(_body(*rows)))
 
     unrelated = {**wrong_form_ytd, "accn": _AMENDMENT}
-    assert isinstance(_read(_capture(_body(unrelated, _fact()))), SecRevenueObservation)
+    assert isinstance(_read(_capture(_body(unrelated, _fact()))), SecIssuerUsdObservation)
 
 
 def test_same_accession_pre_publication_receipt_is_not_hidden_by_duration() -> None:
@@ -334,7 +334,7 @@ def test_companyfacts_receipt_cannot_pass_as_independent_filing_publication_evid
         _read(source, filing=filing)
 
     filing = replace(_FILING, publication_ref=_FILING.receipt_id)
-    assert isinstance(_read(source, filing=filing), SecRevenueObservation)
+    assert isinstance(_read(source, filing=filing), SecIssuerUsdObservation)
 
 
 @pytest.mark.parametrize("breakage", ["publication", "issuer", "time_order"])
@@ -389,7 +389,7 @@ def test_public_index_observation_is_usable_only_from_its_independent_clock() ->
     earlier = _instant("2026-11-25T21:09:59.999999Z")
     assert _read_observed(source, proof=proof, cutoff=earlier) == "publication_unverified"
     result = _read_observed(source, proof=proof, cutoff=proof.observed_at)
-    assert isinstance(result, SecRevenueObservation)
+    assert isinstance(result, SecIssuerUsdObservation)
     assert result.amount == Decimal(5000)
     assert result.filing.published_at is None
     assert result.filing.publication_ref is None
@@ -415,7 +415,7 @@ def test_public_index_never_substitutes_either_pinned_source_receipt(source_late
         == "not_yet_received"
     )
     assert isinstance(
-        _read_observed(source, proof=proof, filing=filing, cutoff=late), SecRevenueObservation
+        _read_observed(source, proof=proof, filing=filing, cutoff=late), SecIssuerUsdObservation
     )
 
 
@@ -444,7 +444,7 @@ def test_future_index_metadata_cannot_change_old_proof_or_hide_invalid_body() ->
     source = _capture(_body(_fact()))
     assert _read_observed(source, proof=proof, cutoff=before) == "publication_unverified"
     observed_exact = _read_observed(source, proof=proof, cutoff=before, filing=_FILING)
-    assert isinstance(observed_exact, SecRevenueObservation)
+    assert isinstance(observed_exact, SecIssuerUsdObservation)
     assert observed_exact.filing.published_at == _FILING.published_at
     assert observed_exact.publicly_observed_by is None
     with pytest.raises(ValueError, match="receipt SHA-256"):
@@ -465,7 +465,7 @@ def test_optional_observation_cannot_weaken_exact_publication_chronology() -> No
 def test_original_index_can_be_observed_at_filing_acceptance() -> None:
     proof = _index_proof(observed_at=_FILING.accepted_at)
     result = _read_observed(_capture(_body(_fact())), proof=proof, cutoff=_CUTOFF)
-    assert isinstance(result, SecRevenueObservation)
+    assert isinstance(result, SecIssuerUsdObservation)
     assert result.publicly_observed_by.observed_at == _FILING.accepted_at
 
 
