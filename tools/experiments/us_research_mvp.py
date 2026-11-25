@@ -186,8 +186,8 @@ def _alpaca(
 
 def _filing(record: _Record) -> SecFilingWitness:
     form = record["form"]
-    if form not in ("10-Q", "10-Q/A"):
-        raise ValueError("requires independently pinned quarterly filing")
+    if form not in ("10-Q", "10-Q/A", "10-K"):
+        raise ValueError("requires an independently pinned supported periodic filing")
     published = record["published_at"]
     return SecFilingWitness(
         issuer_cik=record["issuer_cik"],
@@ -433,11 +433,15 @@ def _sec(
             )
         if filing_record["published_at"] is None:
             evidence.append("独立した初回公表時刻は未確認。")
-        if filing_record["form"] in ("10-K", "10-K/A"):
+        form = filing_record["form"]
+        if form == "10-K/A" or (compare is not None and form == "10-K"):
             return evidence, "sec_filing_form_not_covered"
         filing = _filing(filing_record)
-        quarter = SecReportedDuration(_day(subject["period_start"]), _day(subject["period_end"]))
-        if not quarter.fits_regular_quarter:
+        period = SecReportedDuration(_day(subject["period_start"]), _day(subject["period_end"]))
+        is_annual = filing.form == "10-K"
+        if is_annual and not period.fits_regular_fiscal_year:
+            return evidence, "sec_period_outside_supported_fiscal_year"
+        if not is_annual and not period.fits_regular_quarter:
             return evidence, "sec_period_outside_supported_quarter"
         capture = SecCompanyFactsCapture(
             wire.receipt_id, wire.received_at, wire.body_sha256, wire.body
@@ -452,7 +456,7 @@ def _sec(
                 reporting_quarter=reporting_quarter,
                 cutoff=cutoff,
                 publicly_observed_by=observed,
-                current_quarter=quarter,
+                current_quarter=period,
                 prior_quarter=prior,
                 current_fiscal_start=current_fiscal_start,
                 prior_fiscal_start=prior_fiscal_start,
@@ -484,8 +488,8 @@ def _sec(
             capture,
             filing,
             expected_cik=subject["cik"],
-            period_start=quarter.start,
-            period_end=quarter.end,
+            period_start=period.start,
+            period_end=period.end,
             cutoff=cutoff,
             publicly_observed_by=observed,
         )
@@ -499,9 +503,12 @@ def _sec(
                 )
             return evidence, f"sec_revenue_concepts_unresolved:{result.reason}"
         proof = _sec_proof(result.filing, result.publicly_observed_by)
+        if is_annual:
+            evidence.append("通期は指定した期間。より新しい提出の有無は確認していない。")
+        revenue_label = "SEC通期実績売上" if is_annual else "SEC実績売上"
         evidence += [
             (
-                f"SEC実績売上: USD {result.amount:,} "
+                f"{revenue_label}: USD {result.amount:,} "
                 f"({result.period_start}〜{result.period_end}, `{result.concept}`)"
             ),
             (

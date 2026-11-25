@@ -40,7 +40,7 @@ class SecFilingWitness:
 
     issuer_cik: str
     accession: str
-    form: Literal["10-Q", "10-Q/A"]
+    form: Literal["10-Q", "10-Q/A", "10-K"]
     receipt_id: str
     accepted_at: datetime
     published_at: datetime | None
@@ -121,6 +121,10 @@ class SecReportedDuration:
     def fits_regular_quarter(self) -> bool:
         return 89 <= (self.end - self.start).days + 1 <= 98
 
+    @property
+    def fits_regular_fiscal_year(self) -> bool:
+        return (self.end - self.start).days + 1 in {364, 365, 366, 371}
+
 
 type _Metric = Literal["revenue", "operating_income", "operating_cash_flow", "ppe_cash_paid"]
 type _Basis = Literal["quarter", "year_to_date"]
@@ -172,14 +176,15 @@ def observe_sec_revenue(
     Different issuer-wide concepts are not interchangeable even at equal amounts.
     """
     issuer = _cik(expected_cik)
-    if type(period_start) is not date or type(period_end) is not date or period_start > period_end:
-        raise ValueError("invalid requested SEC revenue period")
+    period = SecReportedDuration(period_start, period_end)
+    if filing.form == "10-K" and not period.fits_regular_fiscal_year:
+        raise ValueError("SEC annual revenue requires a regular full fiscal year")
     source = _pin_companyfacts(
         capture, filing, issuer=issuer, cutoff=cutoff, publicly_observed_by=publicly_observed_by
     )
     if isinstance(source, str):
         return source
-    return _observe(source, SecReportedDuration(period_start, period_end), _REVENUE_CONCEPTS)
+    return _observe(source, period, _REVENUE_CONCEPTS)
 
 
 def observe_sec_comparatives(
@@ -202,6 +207,8 @@ def observe_sec_comparatives(
     and the corresponding period of the preceding fiscal year are in scope.
     No cash-flow derivation, extrapolation or valuation.
     """
+    if filing.form not in ("10-Q", "10-Q/A"):
+        raise ValueError("SEC quarterly comparisons require a pinned 10-Q or 10-Q/A")
     current_ytd = SecReportedDuration(current_fiscal_start, current_quarter.end)
     prior_ytd = SecReportedDuration(prior_fiscal_start, prior_quarter.end)
     positions = (
@@ -296,8 +303,8 @@ def _pin_companyfacts(
     if _cik(filing.issuer_cik) != issuer:
         raise ValueError("filing witness CIK does not match the expected issuer")
     _accession(filing.accession)
-    if filing.form not in ("10-Q", "10-Q/A"):
-        raise ValueError("SEC revenue requires a pinned quarterly filing form")
+    if filing.form not in ("10-Q", "10-Q/A", "10-K"):
+        raise ValueError("unsupported pinned SEC filing form")
     if not _valid_receipt_ref(capture.receipt_id) or not _valid_receipt_ref(filing.receipt_id):
         raise ValueError("SEC revenue requires separate pinned receipt references")
     if capture.receipt_id == filing.receipt_id:
