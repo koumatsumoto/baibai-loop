@@ -352,28 +352,6 @@ def test_three_media_normal_and_rakuten_retry_fixture_bundle_sizing_and_restorat
         assert tuple(item.body for item in restored) == tuple(expected)
 
 
-@pytest.mark.parametrize("args", [[], ["--as-of", "2026-10-12"]])
-def test_raw_cli_requires_a_plan_before_opening_storage(args, monkeypatch):
-    def unexpected(**kwargs):
-        pytest.fail("no plan should reach object storage")
-
-    monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", unexpected)
-    with pytest.raises(SystemExit) as exit_info:
-        external_assessment_raw.main(args)
-    assert exit_info.value.code == 2
-
-
-def test_preservation_failure_does_not_log_sensitive_exception(monkeypatch, capsys):
-    def failed_store(**kwargs):
-        raise ValueError("private credential and signed URL")
-
-    monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", failed_store)
-    assert external_assessment_raw.main(["--preserve-run-id", "synthetic-run"]) == 1
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == "External Assessment raw preservation failed; type=ValueError\n"
-
-
 def test_authorized_response_is_never_archived_or_treated_as_typed_success(connect):
     class Authenticated(Session):
         def get(self, url, **kwargs):
@@ -630,30 +608,19 @@ def test_a_failed_get_after_positive_head_never_reselects(monkeypatch, fault, re
         external_assessment_raw.read_raw_bundle(store, legacy)
 
 
-def test_preserve_legacy_bundle_without_rewriting_identity_or_original():
+@pytest.mark.parametrize("legacy_reference", [False, True])
+def test_verification_uses_the_exact_retained_native_record_without_copying(legacy_reference):
     store, p = FakeObjectStore(), plan()
     legacy, retained, payload = legacy_bundle(store, p)
-    original = store.objects[legacy]
     expected = external_assessment_raw.read_raw_bundle(store, legacy)
-    assert external_assessment_raw.preserve_raw_bundle(store, legacy) == retained
-    assert store.objects[legacy] == original
-    assert store.objects[retained][0] == payload
-    assert len(store.puts) == 1
-    assert external_assessment_raw.preserve_raw_bundle(store, legacy) == retained
-    assert len(store.puts) == 1
-    del store.objects[legacy]  # Simulate only the old prefix's lifecycle.
-    assert external_assessment_raw.read_raw_bundle(store, legacy) == expected
-    assert external_assessment_raw.read_raw_bundle(store, retained) == expected
-
-
-@pytest.mark.parametrize("fault", ["after", "bad_receipt"])
-def test_preservation_put_uncertainty_is_verified_without_overwrite(fault):
-    store, p = FakeObjectStore(), plan()
-    legacy, retained, payload = legacy_bundle(store, p)
-    store.put_fault = (1, fault)
-    assert external_assessment_raw.preserve_raw_bundle(store, legacy) == retained
-    assert store.objects[legacy][0] == store.objects[retained][0] == payload
-    assert len(store.puts) == 1
+    store.seed(retained, payload, "application/gzip")
+    del store.objects[legacy]
+    before = dict(store.objects)
+    key = legacy if legacy_reference else retained
+    external_assessment_raw.verify_retained_raw_bundle(store, key)
+    assert external_assessment_raw.read_raw_bundle(store, key) == expected
+    assert store.objects == before
+    assert store.puts == []
 
 
 def test_conflicting_retained_copy_is_not_accepted_or_overwritten():
@@ -663,38 +630,25 @@ def test_conflicting_retained_copy_is_not_accepted_or_overwritten():
     store.seed(retained, other, "application/gzip")
     before = dict(store.objects)
     with pytest.raises(ValueError, match="conflicts with legacy"):
-        external_assessment_raw.preserve_raw_bundle(store, legacy)
+        external_assessment_raw.verify_retained_raw_bundle(store, legacy)
     assert store.objects == before
     assert store.puts == []
 
 
-def test_missing_legacy_original_is_not_recreated():
+@pytest.mark.parametrize("exists_in_old_prefix", [False, True])
+def test_cumulative_ready_prerequisite_never_copies_or_recreates_legacy_raw(exists_in_old_prefix):
     store, p = FakeObjectStore(), plan()
     legacy, retained, _ = legacy_bundle(store, p)
-    del store.objects[legacy]
-    with pytest.raises(ValueError, match="legacy external original is missing"):
-        external_assessment_raw.preserve_raw_bundle(store, legacy)
-    assert retained not in store.objects
-    assert store.puts == []
-
-
-def test_explicit_plan_preservation_cli_keeps_plan_stage_and_legacy_bytes(monkeypatch, capsys):
-    from baibai_jobs.acquisition.external_assessments.cohorts import new_result
-
-    store, p = FakeObjectStore(), plan()
-    legacy, retained, payload = legacy_bundle(store, p)
-    staging.save_new_plan(store, p)
-    checkpoint = staging.CohortStage(new_result(p, 0), raw_bundle_keys=(legacy,))
-    staging.commit_stage(store, p, checkpoint, previous=None)
+    if exists_in_old_prefix:
+        # Exact historical resolution remains read-only; it is not durable readiness.
+        assert external_assessment_raw.read_raw_bundle(store, legacy)[1][0].body == (
+            b"legacy original"
+        )
+    else:
+        del store.objects[legacy]
     before = dict(store.objects)
-    store.puts.clear()
-    monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", lambda **kwargs: store)
-    for _ in range(2):
-        assert external_assessment_raw.main(["--preserve-run-id", p.run_id]) == 0
-        report = json.loads(capsys.readouterr().out)
-        assert report["mode"] == "preserve_exact_plan"
-        assert report["plan_sha256"] == p.plan_sha256
-        assert report["preserved"][0]["retained_key"] == retained
-    assert len(store.puts) == 1
-    assert all(store.objects[key] == value for key, value in before.items())
-    assert store.objects[retained][0] == payload
+    with pytest.raises(ValueError, match="retained external original is missing"):
+        external_assessment_raw.verify_retained_raw_bundle(store, legacy)
+    assert retained not in store.objects
+    assert store.objects == before
+    assert store.puts == []
