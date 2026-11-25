@@ -227,7 +227,9 @@ def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
     assert not store.put_keys
 
 
-def test_wrong_date_in_native_price_keeps_original_and_prior_projection(tmp_path, fixed_prices):
+def test_wrong_date_in_native_price_keeps_prior_projection_but_marks_partial(
+    tmp_path, fixed_prices
+):
     store, fixed = fixed_prices
     market = market_store(tmp_path / "market.sqlite")
     last = DAY + timedelta(days=2)
@@ -239,15 +241,16 @@ def test_wrong_date_in_native_price_keeps_original_and_prior_projection(tmp_path
     body = json.dumps({"data": [{"Code": "13010", "Date": DAY.isoformat(), "C": 777}]}).encode()
     page = JQuantsPage("daily_bars", {"date": last.isoformat()}, at, body)
     owner = PriceL1(store, tmp_path / "native")
-    owner.commit([PriceAttempt("wrong-date", last, at, (page,))])
-    corrected = owner.fixed()
-    with pytest.raises(ValueError, match="daily price payload contains a date outside the request"):
-        price_native.model_input(store, corrected, as_of=last, evaluated_at=at, market=market)
-    assert rows_at(market) == before
-    request = next(corrected.requests(store, days=[last]))
-    assert request.request_id == "wrong-date"
-    assert request.request is not None
-    assert request.request.pages[0].body == body
+    assert owner.commit([PriceAttempt("wrong-date", last, at, (page,))])["failed"] == ["wrong-date"]
+    latest = owner.fixed()
+    saved = price_native.model_input(store, latest, as_of=last, evaluated_at=at, market=market)
+    assert saved.descriptor["summary"]["coverage_status"] == "partial"
+    assert rows_at(market)["jquants_daily_bars"] == before["jquants_daily_bars"]
+    with sqlite3.connect(market) as connection:
+        assert connection.execute(
+            "SELECT status FROM source_coverage WHERE source=? AND coverage_start=?",
+            ("jquants_daily_bars", last.isoformat()),
+        ).fetchone() == ("partial",)
 
 
 def test_cold_price_rebuilds_reuse_verified_inputs_and_publish_the_marker_last(

@@ -176,6 +176,92 @@ def test_explicit_sec_index_receipt_enables_observation_but_not_exact_publicatio
     assert report.count("売買: `no_action`") == 2
 
 
+def _native_index_bundle():
+    bundle, files, index = _public_index_bundle()
+    head, table = files[index["file"]].split(b"<table>", 1)
+    body = (
+        head + b'<div id="contentDiv">\n<div class="formDiv">\n'
+        b"<!-- START DOCUMENT DIV -->\n<table>"
+        + table.removesuffix(b"</body></html>")
+        + b"</div>\n<!-- END DOCUMENT DIV -->\n<!-- START FILER DIV -->\n"
+        b'<div class="filerDiv">Filer</div>\n<!-- END FILER DIV -->\n</div>\n'
+    )
+    return bundle, files, index, body
+
+
+@pytest.mark.parametrize("explicit_xhtml", [False, True])
+def test_sec_index_accepts_native_html_optional_closers_or_explicit_xhtml(explicit_xhtml):
+    bundle, files, index, body = _native_index_bundle()
+    if explicit_xhtml:
+        body += b"</body></html>"
+        index["headers"]["Content-Type"] = "application/xhtml+xml"
+    files[index["file"]] = body
+    index["sha256"] = sha256(body).hexdigest()
+    index["headers"]["Content-Length"] = str(len(body))
+    report = render_research(bundle, files.__getitem__, synthetic=True)
+    assert "AAPL | research_candidate" in report
+    assert "SEC実績売上: USD 1,234,567,890" in report
+    assert "初回公表の証明ではない" in report
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "prefix-after-link",
+        "no-final-div",
+        "unclosed-document-table",
+        "missing-document-end",
+        "bogus-document-comment",
+        "missing-filer-section",
+        "unclosed-filer-div",
+        "unclosed-filer-comment",
+        "unclosed-link",
+        "self-closed-link",
+        "no-content-length",
+        "wrong-content-length",
+        "partial",
+        "xhtml-missing-closers",
+    ],
+)
+def test_sec_index_optional_closers_never_admit_partial_or_malformed_native_html(defect):
+    bundle, files, index, body = _native_index_bundle()
+    if defect == "prefix-after-link":
+        body = body.split(b"<!-- END DOCUMENT DIV -->", 1)[0]
+    elif defect == "no-final-div":
+        body = body.removesuffix(b"</div>\n")
+    elif defect == "unclosed-document-table":
+        body = body.replace(b"</table>", b"")
+    elif defect == "missing-document-end":
+        body = body.replace(b"<!-- END DOCUMENT DIV -->", b"")
+    elif defect == "bogus-document-comment":
+        body = body.replace(b"<!-- END DOCUMENT DIV -->", b"<! END DOCUMENT DIV >")
+    elif defect == "missing-filer-section":
+        body = body.replace(b'<div class="filerDiv">Filer</div>\n', b"")
+    elif defect == "unclosed-filer-div":
+        body = body.replace(b"Filer</div>", b"Filer")
+    elif defect == "unclosed-filer-comment":
+        body = body.replace(b"<!-- END FILER DIV -->", b"<!-- END FILER DIV")
+    elif defect == "unclosed-link":
+        body = body.replace(b"</a>", b"")
+    elif defect == "self-closed-link":
+        body = body.replace(b'.txt">', b'.txt"/>').replace(b"</a>", b"")
+    files[index["file"]] = body
+    index["sha256"] = sha256(body).hexdigest()
+    index["headers"]["Content-Length"] = str(len(body))
+    if defect == "no-content-length":
+        del index["headers"]["Content-Length"]
+    elif defect == "wrong-content-length":
+        index["headers"]["Content-Length"] = str(len(body) + 1)
+    elif defect == "partial":
+        index["headers"]["Content-Range"] = f"bytes 0-{len(body) - 1}/{len(body) * 2}"
+    elif defect == "xhtml-missing-closers":
+        index["headers"]["Content-Type"] = "application/xhtml+xml"
+    report = render_research(bundle, files.__getitem__, synthetic=True)
+    assert "AAPL | hold_for_evidence" in report
+    assert "sec_invalid_fixed_evidence" in report
+    assert "SEC実績売上" not in report
+
+
 def test_future_sec_index_receipt_does_not_read_its_body_or_block_old_exact_proof():
     bundle, files, index = _public_index_bundle()
     filing = bundle["subjects"][0]["filing"]

@@ -11,7 +11,6 @@ from functools import partial
 import pyarrow.parquet as pq
 import pytest
 import requests
-from tests.helpers.financial_documents import seed_legacy_financial_sqlite
 from tests.helpers.jquants_receipts import (
     DAY,
     FIRST_AT,
@@ -31,7 +30,6 @@ from tests.helpers.r2_store import MemoryR2Store
 from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
 )
-from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
@@ -300,7 +298,6 @@ def test_offline_readers_report_missing_input_without_store_or_http(tmp_path, mo
         lambda: read_adjustment_factor_bars(database, day, day),
         lambda: read_market_calendar(database, day, day),
         lambda: read_master_snapshot(database, as_of=day),
-        lambda: read_fin_summaries(database, day, day),
     ):
         assert read() is None
     assert not database.exists()
@@ -321,18 +318,6 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
             },
         ],
     )
-    financial_id = receive(
-        db_path,
-        "financial_summaries",
-        {"date": DAY},
-        body(
-            [
-                {"Code": "13010", "DiscDate": DAY, "DiscNo": "fy", "CurPerType": "FY"},
-                {"Code": "130A0", "DiscDate": DAY, "DiscNo": "q1", "CurPerType": "1Q"},
-            ]
-        ),
-        FIRST_AT,
-    )
     receive(
         db_path,
         "market_calendar",
@@ -340,15 +325,6 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
         body([{"Date": DAY, "HolDiv": "3"}]),
         FIRST_AT,
     )
-    with sqlite3.connect(db_path) as conn:
-        request = read_complete_request(conn, financial_id)
-        seed_legacy_financial_sqlite(
-            db_path,
-            request.records(),
-            requested_start=day,
-            requested_end=day,
-            fetched_at_utc=request.received_at.isoformat(timespec="microseconds"),
-        )
     store = MemoryR2Store()
     calendar_source = seed_calendar(store, db_path, db_path.parent / "native", as_of=day)
     calendar_model_input(
@@ -368,9 +344,6 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
     assert [(event.ticker, event.adjustment_factor, event.ex_right_type) for event in events] == [
         ("130A", 0.5, "1")
     ]
-    summaries = read_fin_summaries(db_path, day, day)
-    assert summaries is not None
-    assert [row.fiscal_period for row in summaries] == ["FY", "1Q"]
     calendar = read_market_calendar(db_path, day, day)
     assert calendar is not None
     assert calendar[0].is_business_day is False
