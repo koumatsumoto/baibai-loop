@@ -27,6 +27,8 @@ SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-appli
 
 1〜3銘柄。`file` はmanifestと同じディレクトリのファイル名。下の値は形状の例で、実受領ではない。
 
+`cutoff` と受領・公表等の時刻は、時差を `Z` または `±HH:MM` で指定し、マイクロ秒単位に正確に表せること。小数7桁目以降がすべて0なら読めるが、端数は切り捨てず受け付けない。
+
 ```json
 {
   "schema": "us-research-receipts-v1",
