@@ -122,16 +122,12 @@ def test_native_financial_inputs_generate_all_models_without_old_financial_proje
             financial_input=financial,
         )
         result = materialize_generation(stream)
-    assert len({model.model_id for model in result.models}) == 7
+    assert len({model.model_id for model in result.models}) == 5
     assert result.inputs["financial"] == financial.identity
     growth = result.result("company_growth", "1301").payload["input_release"]
     assert growth["collection_boundary"] == "fixed_source_head"
     assert growth["release_id"] == financial.identity.reference
     assert growth["manifest_sha256"] == financial.identity.sha256
-    assert (
-        result.result("social_trends", "market:global").payload["input_manifest"]["release_id"]
-        == "market-only"
-    )
 
 
 def test_fixed_head_survives_new_acquisition_and_missing_days_are_explicit(tmp_path):

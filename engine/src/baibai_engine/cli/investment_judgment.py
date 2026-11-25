@@ -118,7 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--reported-pbr-max",
         type=float,
         metavar="MULTIPLE",
-        help="apply an explicit PBR ceiling to reported_assets using fixed company financials",
+        help="filter reported_assets by PBR calculated with an estimated book-equity denominator",
     )
     context_parser.add_argument(
         "--price-coordinate-min",

@@ -30,8 +30,11 @@ from baibai_engine.machine_analysis.generation.economic_inputs import (
     retain_economic_input,
 )
 from baibai_engine.machine_analysis.generation.query import read_generation
+from baibai_engine.machine_analysis.screening.discovery_contract import DiscoverySelection
+from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
+from baibai_jobs.cli import main as jobs_cli
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 DAY = date(2026, 1, 5)
@@ -86,17 +89,90 @@ def integration(tmp_path, monkeypatch):
     )
 
 
-def test_normal_generation_retains_the_same_context_for_cold_rebuild(integration):
+def test_daily_cli_generates_without_articles_and_retains_economic_input(
+    integration, tmp_path, monkeypatch
+):
     args = integration
     original = args["economic"].read_bytes()
-    result = job.integrate_models(**args)
+    # The CLI consumes an existing Machine pair; publish a real synthetic predecessor.
+    prior = job.integrate_models(**args)
+    assert prior["models_ready"] is True
+
+    class FixtureTransport:
+        def __new__(cls, *, bucket, env=None, verify_put_with_head=True):
+            return args["store"]
+
+    monkeypatch.setattr(job, "Boto3R2Store", FixtureTransport)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/baibai-loop")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv(
+        "GITHUB_WORKFLOW_REF",
+        "example/baibai-loop/.github/workflows/cloud-daily-batch-current.yml@refs/heads/main",
+    )
+    monkeypatch.setenv("GITHUB_RUN_ID", "1")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps({"asof": DAY.isoformat(), "edinet_input": args["edinet_input"].model_dump()})
+    )
+    notice = tmp_path / "notice.json"
+    assert (
+        jobs_cli(
+            [
+                "model-integration",
+                "--asof",
+                DAY.isoformat(),
+                "--market",
+                str(args["market"]),
+                "--economic",
+                str(args["economic"]),
+                "--runs",
+                str(args["runs"]),
+                "--mirror",
+                str(args["mirror"]),
+                "--lease-handle",
+                str(args["lease_handle"]),
+                "--integration-report",
+                str(report),
+                "--notice-output",
+                str(notice),
+                "--daily-origin",
+            ]
+        )
+        == 0
+    )
+    result = json.loads(notice.read_bytes())
+    assert result["models_ready"] is True
+    assert result["daily_run"] == "1-1"
     assert args["economic"].read_bytes() == original
     saved = read_generation(result["generation_id"], path=args["runs"])
+    assert saved is not None
+    assert saved.generation_id != prior["generation_id"]
+    assert read_publication(path=args["runs"], selection_id=prior["selection_id"]) is not None
+    machine = job.read_machine_current(args["store"]).pointer
+    assert machine is not None
+    assert (saved.inputs["market"].reference, saved.inputs["market"].sha256) == (
+        machine.release_id,
+        machine.manifest_sha256,
+    )
+    assert saved.subject_plan is not None
+    assert {k for k, plan in saved.subject_plan.items() if plan.scope != "stock"} == {"market"}
+    current = read_publication(path=args["runs"])
+    assert current.selection_id == result["selection_id"]
+    discovery = current.selection.result
+    assert isinstance(discovery, DiscoverySelection)
+    row = next(row for row in discovery.rows if row["ticker"] == "1301")
+    assert (row["price"], row["price_date"]) == (100, DAY.isoformat())
     identity = saved.inputs["economic"]
     assert identity.kind == "native_l1"
     assert identity.sha256 == result["economic_input_sha256"]
     actual = saved.result("market_context", "market").payload
     expected = {key: actual[key] for key in ("reading", "tradingview_market")}
+    payrolls = next(
+        row for row in actual["reading"]["series"] if row["series_id"] == "us.nonfarm_payrolls"
+    )
+    assert (payrolls["latest_value"], payrolls["observed_at"]) == (100000, "2026-01-01")
+    assert payrolls["vintage_at"] == CLOCK.isoformat()
     cold = rebuild_economic_input(args["store"], args["economic"], identity)
     assert (cold.as_of, cold.evaluation_time) == (saved.as_of, saved.evaluation_time)
     assert cold.context == expected
