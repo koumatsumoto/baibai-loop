@@ -8,7 +8,6 @@ from tests.helpers.workflow_schedule import declared_schedule
 
 ROOT = Path(__file__).resolve().parents[3]
 SCHEDULES = {
-    "cloud-article-sources-current": ["13 1,5,9,13,17,21 * * *"],
     "cloud-daily-batch-current": ["43 13 * * *"],
     "cloud-economic-sources-current": ["43 7 * * *"],
     "cloud-external-assessment": ["13 10,14,22 * * *"],
