@@ -53,7 +53,8 @@ CALENDAR_SOURCE = "jquants_market_calendar"
 def _summary(scopes: Mapping[str, Any]) -> dict[str, Any]:
     usable = sum(calendar_day_usable(scope) for scope in scopes.values())
     raw_complete = sum(
-        bool(scope.get("adopted") and scope.get("valid"))
+        bool(scope.get("adopted"))
+        and scope.get("valid") is True
         and not scope.get("failure")
         and not scope.get("held")
         for scope in scopes.values()
@@ -66,10 +67,11 @@ def _summary(scopes: Mapping[str, Any]) -> dict[str, Any]:
         "failed_days": sum(bool(scope.get("failure")) for scope in scopes.values()),
         "held_days": sum(bool(scope.get("held")) for scope in scopes.values()),
         "invalid_days": sum(
-            bool(scope.get("adopted") and not scope.get("valid")) for scope in scopes.values()
+            bool(scope.get("adopted")) and scope.get("valid") is not True
+            for scope in scopes.values()
         ),
         "unknown_division_days": sum(
-            bool(scope.get("valid") and cash_equity_open(scope.get("division")) is None)
+            scope.get("valid") is True and cash_equity_open(scope.get("division")) is None
             for scope in scopes.values()
         ),
         "coverage_status": "complete" if usable == len(scopes) else "partial",

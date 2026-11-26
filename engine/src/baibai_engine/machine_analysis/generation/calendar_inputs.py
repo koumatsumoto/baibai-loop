@@ -44,7 +44,7 @@ def calendar_day_session(scope: Mapping[str, Any]) -> bool | None:
     """Only resolved, recognized native day evidence proves a cash-equity session."""
     if (
         not scope.get("adopted")
-        or not scope.get("valid")
+        or scope.get("valid") is not True
         or scope.get("failure")
         or scope.get("held")
     ):
