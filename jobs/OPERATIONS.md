@@ -215,7 +215,7 @@ JPXのsealはapplyで固定したbundle原本と、決算予定の全体/規制�
 
 ### 経済単独公開と失敗再開
 
-fresh正本＋固定handoffの受入→条件付きPUT/全bytes読戻し→seal→経済の全group inputの順。byte不変時は同ETag/leaseを確認し、初回検証済みの正本copyを再利用する。seal/input直前にも同ETag/leaseを確認し、読戻し経済入力からモデルを作る。同一日・同じ正本世代で取得グループの計画本文/形式が変わらなければ、既発行のstageをそのまま読み戻す。途中で止まった組や異なる日・世代は通常どおり発行する。L2失敗でL1を再PUT/rollbackしない。
+fresh正本＋固定handoffの受入→条件付きPUT/全bytes読戻し→seal→経済の全group inputの順。byte不変時は同ETag/leaseを確認し、初回検証済みの正本copyを再利用する。seal/input直前にも同ETag/leaseを確認し、読戻し経済入力からモデルを作る。取得グループの計画body/形式が同じなら、正本ETagや統合日だけが変わっても既発行stageをそのまま読む。そのETag・日付は発行時の記録で、次回取得の日付は取得ジョブが指定する。対象groupの本文・形式が変わった場合や未発行・欠損の組は発行する。L2失敗でL1を再PUT/rollbackしない。
 
 取得用の経済scoped inputは、現pointerのmanifestとそこから実際に参照するSQLiteだけを使う。新pointerに直前manifestの正確なID/hashを1件だけ記録し、その新しい固定stageの全文を読戻してから、共通leaseのまま旧物件を退役する。新旧が同じ物理bodyなら消さない。異なるときは旧bodyの不在確認を先に行い、旧manifestは最後に消す。切り離した物件だけの一時的な通信失敗や不在未確認は `inputs_retirement_pending` に記録し、確認済みの正本利用と他groupの更新は続ける。該当groupだけ、次の世代へ進む前に同じ債務を解消する。切り離した物件へのGET/HEAD/DELETEは各一回だけ送る。そこでの403/429や分類できない応答、lease/現pointer/現役読戻しの異常はそのまま停止する。新旧に関係ないraw/別groupを探索・退役しない。pointer切替前に中断した未公開stageは別で、自動探索は行わない。
 

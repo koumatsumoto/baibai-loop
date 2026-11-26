@@ -230,22 +230,38 @@ def publish_input(
                                 "stage_id": old_stage,
                                 "canonical_generations": generations,
                             }
+                            comparable_report: dict[str, object] | None = report
                             if economic_readback is not None:
+                                old_generations = old_pointer.get("canonical_generations")
                                 predecessor = verified_predecessor(
-                                    group,
-                                    old_stage,
-                                    old_handoff,
-                                    generations=old_pointer.get("canonical_generations"),
+                                    group, old_stage, old_handoff, generations=old_generations
                                 )
+                                unchanged["canonical_generations"] = old_generations
                                 if "retired" in old_pointer:
                                     unchanged["retired"] = old_pointer["retired"]
+                                # Only the issued date and canonical ETag may differ;
+                                # save_handoff still compares this group's exact body and wire.
+                                issued_day = result.get("asof")
+                                comparable_report = (
+                                    {
+                                        **report,
+                                        "asof": issued_day,
+                                        "canonical_generations": old_generations,
+                                    }
+                                    if predecessor is not None
+                                    and isinstance(issued_day, str)
+                                    and date.fromisoformat(issued_day).isoformat() == issued_day
+                                    else None
+                                )
                             if (
-                                group.startswith("economic-")
+                                comparable_report is not None
+                                and group.startswith("economic-")
                                 and set(generations) == {"economic_etag"}
                                 and generations["economic_etag"]
                                 and old_pointer == unchanged
                                 and isinstance(result.get("created_at"), str)
-                                and result == {**report, "created_at": result["created_at"]}
+                                and result
+                                == {**comparable_report, "created_at": result["created_at"]}
                                 and datetime.fromisoformat(result["created_at"]) <= issued
                             ):
                                 current_stage = old_stage
@@ -296,13 +312,22 @@ def publish_input(
             current_input_stage=current_stage,
             input_group=group,
         )
+        if economic_readback is not None and stage_id == current_stage:
+            # save_handoff confirmed the same wire and body. Read back the
+            # existing selection as issued; never claim a newer canonical ETag.
+            _confirm_economic_input(
+                reader,
+                group,
+                economic_readback,
+                stage=stage_id,
+                generations=old_pointer["canonical_generations"],
+            )
+            return stage_id
         pointer_value: dict[str, object] = {
             "stage_id": stage_id,
             "canonical_generations": generations,
         }
-        if economic_readback is not None and stage_id == old_stage and "retired" in old_pointer:
-            pointer_value["retired"] = old_pointer["retired"]
-        elif predecessor is not None and stage_id != old_stage:
+        if predecessor is not None and stage_id != old_stage:
             pointer_value["retired"] = predecessor.record()
         pointer = json.dumps(pointer_value, sort_keys=True).encode()
         published = prior
