@@ -44,6 +44,7 @@ from baibai_engine.machine_analysis.observations.financials.sec_companyfacts imp
     observe_sec_revenue,
 )
 from baibai_engine.machine_analysis.observations.prices.alpaca_normalization import (
+    AlpacaBarSource,
     AlpacaDailyObservation,
     normalize_alpaca_daily_bars,
 )
@@ -524,20 +525,14 @@ def _sec(
         return evidence, "sec_invalid_fixed_evidence"
 
 
-def _price(
+def _observed_prices(
     symbol: str,
     observations: tuple[AlpacaDailyObservation, ...],
-    problem: str | None,
-) -> tuple[list[str], str | None]:
-    if problem is not None:
-        return [], problem
+) -> tuple[list[tuple[AlpacaDailyObservation, AlpacaBarSource]], list[date]]:
     rows = sorted(
         (bar for bar in observations if bar.requested_symbol == symbol),
         key=lambda bar: bar.trade_date,
     )
-    if not rows:
-        return [], "alpaca_no_observed_bar"
-    evidence: list[str] = []
     eligible = []
     provisional = []
     for row in rows:
@@ -553,6 +548,20 @@ def _price(
             provisional.append(row.trade_date)
         else:
             eligible.append((row, later))
+    return eligible, provisional
+
+
+def _price(
+    symbol: str,
+    observations: tuple[AlpacaDailyObservation, ...],
+    problem: str | None,
+) -> tuple[list[str], str | None]:
+    if problem is not None:
+        return [], problem
+    eligible, provisional = _observed_prices(symbol, observations)
+    if not eligible and not provisional:
+        return [], "alpaca_no_observed_bar"
+    evidence: list[str] = []
     if provisional:
         evidence.append(
             f"NY当日受領のみの観測 {len(provisional)}件（最終 {provisional[-1]}）は途中集計扱い。"
@@ -600,17 +609,47 @@ def _label(value: object) -> str:
     return " ".join(value.split()).replace("`", "'")
 
 
-def render_research(bundle: _Record, load: _Loader, *, synthetic: bool) -> str:
-    """Compose actual provider adapters without executing a provider request or writing state."""
+def _research_scope(bundle: _Record) -> tuple[list[_Record], tuple[str, ...], datetime]:
     if bundle["schema"] != _SCHEMA:
         raise ValueError("unknown fixed receipt schema")
     subjects = bundle["subjects"]
     if not isinstance(subjects, list) or not 1 <= len(subjects) <= 3:
         raise ValueError("choose one to three fixed research subjects")
     symbols = tuple(subject["symbol"] for subject in subjects)
-    if len(set(symbols)) != len(symbols):
-        raise ValueError("one fixed issuer identity per symbol")
     cutoff = _clock(bundle["cutoff"])
+    # Validate the native labels even if there is no usable page.
+    DailyBarsQuery(symbols, cutoff.date(), cutoff.date(), "-", "split")
+    return subjects, symbols, cutoff
+
+
+def _accept_iex_session(bundle: _Record, load: _Loader, *, expected: date) -> tuple[str, bool]:
+    _, symbols, cutoff = _research_scope(bundle)
+    observations, problem = _alpaca(bundle["alpaca"], symbols, load, cutoff)
+    lines = [
+        "# 米国株 IEX取引日確認（発注なし）",
+        f"期待NY取引日: {expected}",
+        f"評価cutoff: {cutoff.isoformat()}",
+        "IEX観測の日付だけを照合する。公式引け・売買判断は確認しない。",
+    ]
+    if problem is not None:
+        lines.append(f"- 受領不備: `{problem}`")
+        return "\n".join(lines) + "\n", False
+    all_matched = True
+    for symbol in symbols:
+        eligible, provisional = _observed_prices(symbol, observations)
+        latest = eligible[-1][0].trade_date if eligible else None
+        matched = latest == expected
+        all_matched = all_matched and matched
+        status = "一致" if matched else "不一致"
+        lines.append(f"- {symbol}: {status}（採用最終日: {latest or 'なし'}）")
+        if expected in provisional:
+            lines.append(f"  - {expected}はNY当日受領のみのため途中集計扱い。")
+    return "\n".join(lines) + "\n", all_matched
+
+
+def render_research(bundle: _Record, load: _Loader, *, synthetic: bool) -> str:
+    """Compose actual provider adapters without executing a provider request or writing state."""
+    subjects, symbols, cutoff = _research_scope(bundle)
     observations, problem = _alpaca(bundle["alpaca"], symbols, load, cutoff)
     origin = (
         "合成fixture。実データ・売買判断ではない。"
@@ -620,8 +659,6 @@ def render_research(bundle: _Record, load: _Loader, *, synthetic: bool) -> str:
     lines = ["# 米国株 リサーチ候補（発注なし）", "", origin, f"評価cutoff: {cutoff.isoformat()}"]
     for subject in subjects:
         symbol = subject["symbol"]
-        # Validate the native label even if there is no usable page.
-        DailyBarsQuery((symbol,), cutoff.date(), cutoff.date(), "-", "split")
         cik = SecEdgarQuery("companyfacts", subject["cik"]).cik
         price_notes, price_problem = _price(symbol, observations, problem)
         identity = _ticker_identity(subject, symbol, cik, load, cutoff)
@@ -807,7 +844,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--bundle", type=Path, help="fixed JSON manifest and adjacent original response byte files"
     )
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--compare-sec",
         nargs=6,
         metavar=(
@@ -820,10 +858,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
         help="report only fixed-issuer SEC comparative facts from --bundle",
     )
+    modes.add_argument(
+        "--accept-iex-session",
+        type=_day,
+        metavar="YYYY-MM-DD",
+        help="check each subject's latest eligible IEX date against the expected NY session",
+    )
     args = parser.parse_args(argv)
     manifest: Path | None = args.bundle
     if args.compare_sec is not None and manifest is None:
         parser.error("--compare-sec requires --bundle")
+    if args.accept_iex_session is not None and manifest is None:
+        parser.error("--accept-iex-session requires --bundle")
+    exit_code = 0
     try:
         if manifest is None:
             bundle, fixtures = _fixture()
@@ -840,15 +887,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return path.read_bytes()
 
             bundle = json.loads(manifest.read_text(encoding="utf-8"))
-            report = (
-                render_research(bundle, read_native, synthetic=False)
-                if args.compare_sec is None
-                else _compare_sec_report(bundle, read_native, args.compare_sec)
-            )
+            if args.accept_iex_session is not None:
+                report, matched = _accept_iex_session(
+                    bundle, read_native, expected=args.accept_iex_session
+                )
+                exit_code = 0 if matched else 1
+            elif args.compare_sec is not None:
+                report = _compare_sec_report(bundle, read_native, args.compare_sec)
+            else:
+                report = render_research(bundle, read_native, synthetic=False)
     except (KeyError, TypeError, ValueError, OSError, ArithmeticError):
         parser.error("invalid fixed US research receipt bundle")
     print(report, end="")
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

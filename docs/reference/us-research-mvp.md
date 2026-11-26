@@ -9,6 +9,16 @@ uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/m
 
 `research_candidate` は調査を進められる状態。幅や成長を証明するシグナルではない。`hold_for_evidence` は証拠保留で、保有継続を指さない。どちらも `no_action`。IEX分割調整済みの**観測20日分**だけで平均と乖離を計算する。NY日付で当日受領しかない足は途中集計として除き、後日同じ束を再読しても採用しない。市場の取引暦が揃ったとはみなさず、公式引けや約定可能値、売買代金を作らない。
 
+## 最新のIEX観測だけを確認する
+
+運用受入では対象市場の公式暦で期待するNY取引日（休場・短縮日を含む）を確認し、実受領のmanifestと一緒に明示する。
+
+```bash
+uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/manifest.json --accept-iex-session YYYY-MM-DD
+```
+
+各銘柄で、cutoffまでに受領し、かつその足のNY翌日以降に受領した最新観測が指定日と一致する場合だけ終了コード0。受領チェーン不備・観測欠落・日付不一致は1。cutoffを書き換えても、取引日当日に受領した足は採用しない。暦の推定、SEC・調査候補判定、公式引けや売買可否の確認はしない。通常の調査は `--accept-iex-session` を付けずに実行する。
+
 ## 許可済みの実受領を束ねる
 
 CLI自体はネットへ接続しない。許可済みの収集CLI/transportがある場合だけ、収集と再読を分ける。Alpacaは `DailyBarsQuery(("AAPL",), start, end, "-", "split").url(page_token=...)` が作る [v2日足](https://docs.alpaca.markets/us/reference/stockbars) を使用。`1Day`、`iex`、`USD`、`split`、`asof=-`、`limit=10000`、`sort=asc`。評価日前のNY日を使う。native `bars` と明示 `next_page_token` を含む本文を最終ページまで整形せずに保存する。各ページの取得時に実要求URL・最終応答URL・リダイレクト有無・全文受領を記録する。IEXは[要求の `feed`](https://docs.alpaca.markets/us/docs/market-data-faq#whats-the-difference-between-iex-and-sip-data)で指定するもので、日足本文からは判別しない。固定URLへの直接の完全な応答が確認できなければ、価格だけ保留する。記録した応答に `Content-Range` があれば、HTTP 200・全文読了の申告だけで採用しない。記録されていないヘッダーは要求しない。CLIの整形表、ページを合成したJSON、再保存時刻による代用は使わない。

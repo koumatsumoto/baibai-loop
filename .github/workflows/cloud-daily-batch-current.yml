@@ -174,7 +174,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ASOF: ${{ steps.source-plan.outputs.asof }}
-        run: uv run python -m baibai_jobs.integration.sources apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
+        run: uv run python -m baibai_jobs.integration.sources apply --summary --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
 
       # Core publication owns one fixed market release and native economic selection.
       - name: Verify explicitly requested EDINET metric acceptance before core publication
