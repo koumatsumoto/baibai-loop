@@ -881,9 +881,9 @@ def _compare_sec_report(bundle: _Record, load: _Loader, args: Sequence[str]) -> 
         if subject_issuer == issuer:
             entry = {"cik": issuer, **{field: subject.get(field) for field in fields}}
             filing = entry["filing"]
-            if isinstance(filing, dict):
+            if isinstance(filing, dict) and isinstance(issuer_cik := filing.get("issuer_cik"), str):
                 try:
-                    filing_cik = SecEdgarQuery("companyfacts", filing.get("issuer_cik")).cik
+                    filing_cik = SecEdgarQuery("companyfacts", issuer_cik).cik
                 except ValueError:
                     pass  # Leave invalid evidence to the normal SEC interpretation.
                 else:
