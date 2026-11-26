@@ -244,6 +244,11 @@ def test_materialize_excludes_unverified_market_copies_but_keeps_application(
         assert retained.read_bytes() == b"downloaded market"
 
 
+def test_standalone_materialize_job_runs_only_on_main() -> None:
+    workflow = _workflow("cloud-materialize.yml")
+    assert workflow["jobs"]["materialize"]["if"] == "${{ github.ref == 'refs/heads/main' }}"
+
+
 @pytest.mark.parametrize("transfer_exit", [0, 31])
 def test_manual_display_uses_only_current_and_preserves_transfer_outcome(tmp_path, transfer_exit):
     workflow = _workflow("cloud-materialize.yml")
