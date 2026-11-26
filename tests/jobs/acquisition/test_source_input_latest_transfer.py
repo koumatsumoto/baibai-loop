@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
@@ -443,17 +444,47 @@ def test_same_asof_etag_still_compares_real_projection_bytes(subject, tmp_path):
     )
 
 
-def test_economic_retirement_borrows_body_then_deletes_it_before_last_manifest(subject):
+@pytest.mark.parametrize("fault", ["missing-date", "invalid-date", "creation-clock", "extra"])
+def test_identical_body_does_not_reuse_malformed_issued_metadata(subject, fault):
+    remote, _, publish = subject
+    a = publish("a", retire=True)
+    original = stage_data(remote, a)
+    body_a = physical(original)
+    result = original["result"]
+    if fault == "missing-date":
+        del result["asof"]
+    elif fault == "invalid-date":
+        result["asof"] = "invalid"
+    elif fault == "creation-clock":
+        result["created_at"] = DAY.isoformat()  # No timezone.
+    else:
+        result["unexpected"] = True
+    remote.store_object(manifest_key(a), json.dumps(original).encode())
+
+    b = publish("b", retire=True, etag="v2")
+    assert b != a
+    assert physical(stage_data(remote, b)) == body_a
+    assert remote.delete_keys == [manifest_key(a)]
+
+
+def test_economic_retirement_preserves_a_body_shared_by_the_selected_stage(subject):
     remote, source, publish = subject
     a = publish("a", retire=True)
     body_a = physical(stage_data(remote, a))
     unrelated = publish("unrelated", group=FRED)
     fred = manifest_key(unrelated)
-    b = publish("b", retire=True, etag="v2")
+    # A previous writer could advance a pointer on ETag changes alone.
+    b = publish("b", etag="v2")
     assert physical(stage_data(remote, b)) == body_a
-    assert remote.delete_keys == [manifest_key(a)]
+    pointer = input_key(GROUP)
+    selection = json.loads(remote.values[pointer].body)
+    selection["retired"] = {
+        "stage_id": a,
+        "manifest_sha256": hashlib.sha256(remote.values[manifest_key(a)].body).hexdigest(),
+    }
+    remote.store_object(pointer, json.dumps(selection).encode())
     before = list(remote.put_keys)
-    assert publish("same", retire=True, etag="v2") == b
+    assert publish("same", retire=True, etag="v3") == b
     assert remote.put_keys == before
     assert remote.delete_keys == [manifest_key(a)]
     insert_day(source, DAY + timedelta(days=1))
@@ -473,8 +504,10 @@ def test_economic_retirement_borrows_body_then_deletes_it_before_last_manifest(s
 
 @pytest.mark.parametrize("outcome", ["known-conflict", "committed-timeout", "readback"])
 def test_retirement_waits_for_pointer_cas_and_full_body_readback(subject, monkeypatch, outcome):
-    remote, _, publish = subject
+    remote, source, publish = subject
     a = publish("a", retire=True)
+    old_body = physical(stage_data(remote, a))
+    insert_day(source, DAY + timedelta(days=1))
     before = set(remote.values)
     original_put = remote.put_file
     if outcome != "readback":
@@ -508,9 +541,9 @@ def test_retirement_waits_for_pointer_cas_and_full_body_readback(subject, monkey
     remote.interrupt = None
     monkeypatch.setattr(remote, "put_file", original_put)
     before_puts = list(remote.put_keys)
-    assert publish("recover-b", retire=True, etag="v2") == f"{GROUP}-b"
+    assert publish("recover-b", retire=True, etag="v3") == f"{GROUP}-b"
     assert remote.put_keys == before_puts
-    assert remote.delete_keys == [manifest_key(a)]
+    assert remote.delete_keys == [old_body, manifest_key(a)]
     assert physical(stage_data(remote, f"{GROUP}-b")) in remote.values
 
 
@@ -546,12 +579,11 @@ def test_old_body_payment_is_confirmed_before_losing_old_manifest(
             publish("blocked", retire=True, etag="v3")
         assert remote.put_keys == before
     monkeypatch.setattr(remote, "delete_object", original_delete)
-    c = publish("c", retire=True, etag="v3")
+    assert publish("recover-b", retire=True, etag="v3") == b
     assert body_a not in remote.values
     assert manifest_key(a) not in remote.values
-    assert manifest_key(b) not in remote.values
-    assert physical(stage_data(remote, c)) in remote.values
-    assert remote.delete_keys == [body_a, manifest_key(a), manifest_key(b)]
+    assert physical(stage_data(remote, b)) in remote.values
+    assert remote.delete_keys == [body_a, manifest_key(a)]
 
 
 @pytest.mark.parametrize("strict", [False, True])
@@ -580,13 +612,15 @@ def test_paused_reader_repin_is_limited_to_latest_consumer(subject, tmp_path, st
 
 
 def test_missing_selected_manifest_cannot_pay_an_outstanding_older_debt(subject, monkeypatch):
-    remote, _, publish = subject
+    remote, source, publish = subject
     a = publish("a", retire=True)
+    old_body = physical(stage_data(remote, a))
+    insert_day(source, DAY + timedelta(days=1))
     force_failure = Mock(side_effect=R2Error("delete outcome unconfirmed"))
     monkeypatch.setattr(remote, "delete_object", force_failure)
     with pytest.raises(R2Error):
         publish("b", retire=True, etag="v2")
-    force_failure.assert_called_once_with(manifest_key(a))
+    force_failure.assert_called_once_with(old_body)
     with pytest.raises(LakePublishError):
         # Even current code outside the economic owner may not erase the obligation.
         publish("no-owner", etag="v2")
@@ -600,8 +634,9 @@ def test_missing_selected_manifest_cannot_pay_an_outstanding_older_debt(subject,
 
 
 def test_lease_lost_during_confirmed_publication_does_not_retire_old_input(subject):
-    remote, _, publish = subject
+    remote, source, publish = subject
     a = publish("a", retire=True)
+    insert_day(source, DAY + timedelta(days=1))
     key = input_key(GROUP)
 
     def fence():

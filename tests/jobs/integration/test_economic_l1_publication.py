@@ -7,8 +7,10 @@ import pytest
 from botocore.exceptions import ReadTimeoutError
 from tests.helpers.native_handoff import save_test_handoff
 from tests.helpers.r2_store import VerifiedMemoryR2Store
+from tests.helpers.tradingview_market import capture
 
 from baibai_engine.data_collection.acquisition.policy import acquisition_groups
+from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
 from baibai_engine.data_collection.receipts.native_sources.confirmations import (
     confirm_source_response,
 )
@@ -21,6 +23,8 @@ from baibai_engine.storage.objects.r2 import (
     R2OperationStopped,
 )
 from baibai_jobs.acquisition.economic_staging import FRED_HANDOFF_NAMESPACE, save_handoff
+from baibai_jobs.acquisition.market_context import prepare as prepare_market_captures
+from baibai_jobs.acquisition.market_context import read_exact as read_market_capture
 from baibai_jobs.acquisition.receipts import available_handoffs
 from baibai_jobs.acquisition.source_inputs import input_key, load_input
 from baibai_jobs.integration.economic_sources import integrate
@@ -361,6 +365,76 @@ def test_current_is_the_only_database_published_and_no_stage_does_not_republish(
     assert result["inputs_reused"] == ["economic-" + group for group in acquisition_groups()]
     assert "indicators.sqlite.bak" not in store.values
     assert "indicators.sqlite.bak" not in store.head_keys + store.get_keys + store.put_keys
+
+
+@pytest.mark.parametrize("next_day", [False, True])
+def test_market_only_update_preserves_the_same_fifteen_planning_inputs(
+    tmp_path, setup, next_day, monkeypatch
+):
+    from baibai_jobs.integration import economic_handoff
+
+    store, _, _ = setup
+    stage(tmp_path, store, name="old-boj", source="boj-bank-lending-yoy", group="boj")
+    initial = run(tmp_path, setup, "base")
+    prefix = "coordination/source-inputs/"
+    original_inputs = {key: value for key, value in store.values.items() if key.startswith(prefix)}
+    first_put = len(store.put_keys)
+    first_delete = len(store.delete_keys)
+    inputs = []
+    captures = []
+    for index in range(3):
+        response = capture(
+            receipt_id=f"market-{index}", bars=True, received=AT + timedelta(minutes=index)
+        )
+        path = tmp_path / f"capture-{index}.json"
+        path.write_text(response.model_dump_json(by_alias=True))
+        inputs.append(path)
+        captures.append(response)
+    directory = tmp_path / "market-packet"
+    prepare_market_captures(inputs, directory, expected_captures=3)
+    save_handoff(store, MARKET_GROUP + "-new", directory)
+    asof = DAY + timedelta(days=1) if next_day else DAY
+    report = run(tmp_path, setup, "market-only", asof=asof)
+    assert report["l1_sealed"]
+    assert report["canonical_generations"] != initial["canonical_generations"]
+    assert report["inputs_updated"] == []
+    assert report["inputs_reused"] == initial["inputs_updated"]
+    assert "inputs_retirement_pending" not in report
+    assert not any(key.startswith(prefix) for key in store.put_keys[first_put:])
+    assert store.delete_keys[first_delete:] == []
+    assert {key: value for key, value in store.values.items() if key.startswith(prefix)} == (
+        original_inputs
+    )
+    for response in captures:
+        assert (
+            read_market_capture(
+                tmp_path / "market-only.sqlite", response.receipt_id, response.digest()
+            )["observation"]["capture_sha256"]
+            == response.digest()
+        )
+
+    # The same acquisition entrypoint used by Actions accepts the old advisory date.
+    monkeypatch.setattr(economic_handoff, "Boto3R2Store", lambda **_: store)
+    seed = tmp_path / "seed.sqlite"
+    load = [
+        "input",
+        "--group",
+        "boj",
+        "--db",
+        str(seed),
+        "--directory",
+        str(tmp_path / "download"),
+    ]
+    assert economic_handoff.main(load) == 0
+    metadata = json.loads((tmp_path / "download/result.json").read_text())
+    assert metadata["asof"] == DAY.isoformat()
+    assert metadata["canonical_generations"] == initial["canonical_generations"]
+    seed.unlink()
+    pointer = json.loads(store.values[input_key("economic-boj")].body)
+    manifest = json.loads(store.values[prefix + pointer["stage_id"] + "/handoff.json"].body)
+    del store.values[manifest["planning_key"]]
+    assert economic_handoff.main(load) == 1
+    assert not seed.exists()
 
 
 def test_changed_planning_pointer_after_checked_get_stops_before_any_new_put(
@@ -821,7 +895,7 @@ def test_unsealed_recheck_uses_complete_response_proof_and_next_acquisition_adva
     assert len(next_report["handoffs"]) == 1
     assert not next_report["handoffs"][0]["failed"]
     assert next_report["l1_sealed"]
-    assert len(next_report["inputs_updated"]) == 15
+    assert next_report["inputs_updated"] == (["economic-boj"] if recovery else [])
     with closing(sqlite3.connect(tmp_path / "next.sqlite")) as conn:
         assert next(read_snapshots(conn, DAY, DAY, source_id=source)).records == ({"value": "C"},)
         assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 3
@@ -887,7 +961,7 @@ def test_cli_logs_only_this_attempts_confirmed_publication(
 
 
 def _first_retirement(store):
-    group = "economic-" + acquisition_groups()[0]
+    group = "economic-boj"
     pointer = input_key(group)
     stage_id = json.loads(store.values[pointer].body)["stage_id"]
     return group, pointer, f"coordination/source-inputs/{stage_id}/handoff.json"
@@ -915,13 +989,14 @@ def test_detached_retirement_failure_allows_l2_and_other_groups_but_bounds_one_g
         return failure() if key == old else delete(key)
 
     monkeypatch.setattr(store, "delete_object", unavailable)
+    stage(tmp_path, store, name="new-boj", source="boj-bank-lending-yoy", group="boj")
     second = run(tmp_path, setup, "second", asof=DAY + timedelta(days=1))
     assert second["inputs_retirement_pending"] == {group: "verified_successor"}
-    assert second["inputs_updated"] == ["economic-" + g for g in acquisition_groups()]
+    assert second["inputs_updated"] == [group]
     b = store.values[pointer]
     assert old in store.values
+    fixed = store.get_verified_object
     if resume_boundary == "old-manifest":
-        fixed = store.get_verified_object
 
         def old_manifest(key, **contract):
             return failure() if key == old else fixed(key, **contract)
@@ -930,13 +1005,25 @@ def test_detached_retirement_failure_allows_l2_and_other_groups_but_bounds_one_g
         monkeypatch.setattr(store, "delete_object", delete)
     third = run(tmp_path, setup, "third", asof=DAY + timedelta(days=2))
     assert third["inputs_retirement_pending"] == {group: "advance_blocked"}
-    assert third["inputs_updated"] == [
+    assert third["inputs_updated"] == []
+    assert third["inputs_reused"] == [
         "economic-" + g for g in acquisition_groups() if "economic-" + g != group
     ]
-    assert group not in third["inputs_reused"]
     assert store.values[pointer] is b
     assert old in store.values
     assert (tmp_path / "third.sqlite").read_bytes() == (tmp_path / "second.sqlite").read_bytes()
+
+    # Same selected input may finish an older cleanup without creating another stage.
+    monkeypatch.setattr(store, "get_verified_object", fixed)
+    monkeypatch.setattr(store, "delete_object", delete)
+    before = list(store.put_keys)
+    resumed = run(tmp_path, setup, "cleanup", asof=DAY + timedelta(days=2))
+    assert "inputs_retirement_pending" not in resumed
+    assert resumed["inputs_updated"] == []
+    assert resumed["inputs_reused"] == ["economic-" + g for g in acquisition_groups()]
+    assert store.put_keys == before
+    assert store.values[pointer] is b
+    assert old not in store.values
 
 
 @pytest.mark.parametrize("status", [403, 429, None, "strict"])
@@ -946,10 +1033,13 @@ def test_unclassified_or_refused_cleanup_never_attempts_another_remote_operation
     store, _, _ = setup
     run(tmp_path, setup, "first")
     _, _, old = _first_retirement(store)
+    stage(tmp_path, store, name="new-boj", source="boj-bank-lending-yoy", group="boj")
+    delete = store.delete_object
     observed = []
 
     def refused(key):
-        assert key == old
+        if key != old:
+            return delete(key)
         observed.append((len(store.get_keys), len(store.head_keys), len(store.put_keys)))
         if status == "strict":
             raise R2OperationStopped("confirmed policy stop")
@@ -978,6 +1068,7 @@ def test_deferred_old_manifest_read_requires_active_successor_and_owner(
         return delete(key)
 
     monkeypatch.setattr(store, "delete_object", defer_once)
+    stage(tmp_path, store, name="new-boj", source="boj-bank-lending-yoy", group="boj")
     run(tmp_path, setup, "second", asof=DAY + timedelta(days=1))
     monkeypatch.setattr(store, "delete_object", delete)
     b = store.values[pointer]
