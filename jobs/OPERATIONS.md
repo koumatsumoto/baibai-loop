@@ -93,7 +93,7 @@ uv run baibai-jobs snapshots hydrate \
   --release "${RELEASE_ID:?固定するrelease IDを指定}" --manifest-sha256 "${MANIFEST_SHA256:?そのmanifestのSHA-256を指定}"
 ```
 
-完全mirrorならbucket不要。認可済みR2の固定releaseから読む場合は同じコマンドに `--bucket baibai-stores` を加える。作業DBに旧EDINET原受領cacheが残る場合も[照合](#edinet-list-native-l1)にbucketが必要。hydrateはlake所管tableを置換するため、対象契約に合う既存のmarket作業DBと一時snapshot容量が必要。空ファイルや唯一の未公開copyに実行しない。store-local取得coverageは作らない。対象契約が古ければ元commitのreaderを使い、未収録・欠損・破損を別release/providerで補わない。Parquetは[reader](../engine/src/baibai_engine/storage/snapshots/reader.py)の検証済みpathで読み、globで混ぜない。
+完全mirrorならbucket不要。必要なobjectをR2から読む場合は `--bucket baibai-stores` を加える。退役した旧releaseをR2だけから全量再現できるとは限らない。作業DBに旧EDINET原受領cacheが残る場合も[照合](#edinet-list-native-l1)にbucketが必要。hydrateはlake所管tableを置換するため、対象契約に合う既存のmarket作業DBと一時snapshot容量が必要。空ファイルや唯一の未公開copyに実行しない。store-local取得coverageは作らない。対象契約が古ければ元commitのreaderを使い、未収録・欠損・破損を別release/providerで補わない。Parquetは[reader](../engine/src/baibai_engine/storage/snapshots/reader.py)の検証済みpathで読み、globで混ぜない。
 
 ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済みParquetの `baibai.source_kind` に保存した `legacy_sqlite_import` は、既存objectのSHA・key・固定releaseの読取を変えないためそのまま使う。物理タグの変更は既存releaseの読取を含む別の契約移行とし、通常publishで既存objectを書き換えない。
 
@@ -447,7 +447,7 @@ uv run python -m baibai_jobs.integration.tradingview_receipts \
 日足の保存入力で投影版が未記録または実行コードと異なる場合、`--saved-input` は旧digestに異なる投影を結び付けず停止する。再構築する場合は公開時のproducer commitを使う。原本の選択や公開済みreleaseの読取は変わらない。
 
 <a id="financial-native-l1"></a>
-**財務。** [`rebuild-financial-native --saved-input`](src/baibai_jobs/integration/financial_native.py)は、同じ投影版の固定native入力から財務の派生表を再構築する。版が未記録・不一致なら停止し、当時の実行commitを確認できる場合に限ってその版で再構築する。保存結果はGeneration/SelectionのIDで読む。切替前に財務派生表を含んだreleaseは[そのreleaseを指定](#fixed-release-read)して読む。`--saved-input` なしの診断は起動時の固定原本を現行版で投影する。いずれも保存原本・Generation・Selectionは置き換えない。
+**財務。** [`rebuild-financial-native --saved-input`](src/baibai_jobs/integration/financial_native.py)は、同じ投影版の固定native入力から財務の派生表を再構築する。版が未記録・不一致なら停止し、当時の実行commitを確認できる場合に限ってその版で再構築する。日次が採用した財務は、そのGenerationの `inputs["financial"]` に固定したnative入力で確認する。旧Parquet `jquants.fin_summaries` は現行Lakeの必須データではない。過去のreleaseに何があるかは[固定manifest](#fixed-release-read)で確認する。`--saved-input` なしの診断は起動時の固定原本を現行版で投影する。いずれも保存原本・Generation・Selectionは置き換えない。
 
 定期財務取得は平日18:13 JSTの`financial-edinet-facts`枠へ置き、価格等の16:43枠と分ける。Standard等の[公式更新目安](https://jpx-jquants.com/ja/spec/data-update)は18:00速報・翌00:30確報で、18:13の完全到着や22:43統合への間に合いを保証しない。確報は次回overlapで取り込むため、17時頃の臨時統合では前回取得後の確報が未反映の場合がある。早期更新が必要なら既存受領と進行中runを確認し、不足する財務だけ次で明示取得する。
 
