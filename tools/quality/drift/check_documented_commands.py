@@ -27,11 +27,12 @@ from typing import cast
 from tools.quality.drift.check_cli_help import DELEGATED_GROUPS, build_parser
 
 _SCAN_DIRECTORIES = (".agents/skills",)
-# Include the reference owners of archived-case readback and holding comparison.
+# Also check readback, holding comparison and the standalone offline Research runbook.
 _SCAN_FILES = (
     "jobs/OPERATIONS.md",
     "docs/reference/screening-runtime.md",
     "docs/reference/trade-proposal.md",
+    "docs/reference/us-research-mvp.md",
 )
 _FENCE = re.compile(r"^\s*```")
 _INLINE_CODE = re.compile(r"`([^`]+)`")
@@ -188,6 +189,8 @@ def _tool_parser(
 
 def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, list[str]]:
     rest = list(tokens[2:])  # drop `uv run`
+    if rest[:1] == ["--offline"]:
+        rest = rest[1:]
     if rest[:1] == ["baibai-engine"]:
         from baibai_engine.cli.app import DOMAINS
 

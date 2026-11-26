@@ -243,6 +243,34 @@ def test_iex_session_acceptance_counts_receipt_dates_in_ny_not_utc(
     assert ("途中集計扱い" in capsys.readouterr().out) == (exit_code == 1)
 
 
+@pytest.mark.parametrize(
+    ("field", "unusable", "eligible"),
+    [
+        ("received_at", "2026-11-21T04:59:59Z", "2026-11-21T05:00:00Z"),
+        ("complete", False, True),
+    ],
+)
+def test_iex_session_acceptance_refuses_conflicting_manifest_fields(
+    tmp_path, capsys, field, unusable, eligible
+):
+    bundle, files = _fixture()
+    page = bundle["alpaca"]["pages"][0]
+    page[field] = unusable
+    manifest = Path(_write_iex_only_bundle(tmp_path, bundle, files))
+    original = manifest.read_text(encoding="utf-8")
+    page_json = json.dumps(page)
+    assert original.count(page_json) == 1
+    contradictory = f"{page_json[:-1]}, {json.dumps(field)}: {json.dumps(eligible)}}}"
+    manifest.write_text(original.replace(page_json, contradictory), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as error:
+        main(["--bundle", str(manifest), "--accept-iex-session", "2026-11-20"])
+    assert error.value.code == 2
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert "invalid fixed US research receipt bundle" in result.err
+
+
 def test_iex_session_acceptance_fails_when_receipt_is_after_cutoff(tmp_path, capsys):
     bundle, files = _fixture()
     bundle["cutoff"] = "2026-11-21T05:00:00Z"

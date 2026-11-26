@@ -1,13 +1,15 @@
 # 米国株の固定受領から調査候補を作る
 
-日次・本番・注文へは接続しない。CLIは固定したAlpaca IEXの日次集計とSECの指定期間の売上を読み、調査の次の一手や、判断を保留する理由を標準出力へ返す。初回は同じ経路を合成fixtureで試せる。
+日次・本番・注文へは接続しない。CLIは固定したAlpaca IEXの日次集計とSECの指定期間の売上を読み、調査の次の一手や、判断を保留する理由を標準出力へ返す。同じ経路を合成fixtureで試せる。
+
+リポジトリのルートで[開発環境を準備](../development.md#手元で始める)してから実行する。`--offline` は依存を初回取得しない。
 
 ```bash
 uv run --offline python -m tools.experiments.us_research_mvp
 uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/manifest.json
 ```
 
-`research_candidate` は調査を進められる状態。幅や成長を証明するシグナルではない。`hold_for_evidence` は証拠保留で、保有継続を指さない。どちらも `no_action`。IEX分割調整済みの**観測20日分**だけで平均と乖離を計算する。NY日付で当日受領しかない足は途中集計として除き、後日同じ束を再読しても採用しない。市場の取引暦が揃ったとはみなさず、公式引けや約定可能値、売買代金を作らない。
+`research_candidate` は調査を進められる状態。幅や成長を証明するシグナルではない。`hold_for_evidence` は証拠保留で、保有継続を指さない。どちらも `no_action`。終了コード0は報告を出せたことだけを示し、証拠の充足や実データ受入を意味しない。引数やmanifest自体が不正なら2。IEX分割調整済みの**観測20日分**だけで平均と乖離を計算する。NY日付で当日受領しかない足は途中集計として除き、後日同じ束を再読しても採用しない。市場の取引暦が揃ったとはみなさず、公式引けや約定可能値、売買代金を作らない。
 
 ## 最新のIEX観測だけを確認する
 
@@ -17,7 +19,7 @@ uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/m
 uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/manifest.json --accept-iex-session YYYY-MM-DD
 ```
 
-各銘柄で、cutoffまでに受領し、かつその足のNY翌日以降に受領した最新観測が指定日と一致する場合だけ終了コード0。受領チェーン不備・観測欠落・日付不一致は1。cutoffを書き換えても、取引日当日に受領した足は採用しない。暦の推定、SEC・調査候補判定、公式引けや売買可否の確認はしない。通常の調査は `--accept-iex-session` を付けずに実行する。
+各銘柄で、cutoffまでに受領し、かつその足のNY翌日以降に受領した最新観測が指定日と一致する場合だけ終了コード0。有効なmanifestでの受領チェーン不備・観測欠落・日付不一致は1。cutoffを書き換えても、取引日当日に受領した足は採用しない。暦の推定、SEC・調査候補判定、公式引けや売買可否の確認はしない。通常の調査は `--accept-iex-session` を付けずに実行する。
 
 ## 許可済みの実受領を束ねる
 
@@ -31,7 +33,14 @@ SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-appli
 
 採用できる提出索引があれば、索引の `Period of Report` と指定期末日 `period_end` が一致する場合だけ当期を採用する。同じ提出の前年列を当期には使わない。`--compare-sec` の前年列は従来どおり比較に使う。索引を使わず独立公表証拠を使う場合は索引での照合は行わないため、提出書の対象列との照合は入力作成側で行う。
 
-同じ10-Qまたは10-Q/Aの発行体財務だけを比較する場合は `--compare-sec CIK 会計四半期 前年四半期開始 前年四半期終了 当期期首 前年期首` を付ける。当期の日付はmanifestの期間を使う。会計四半期（Q1・Q2・Q3）と残りの日付は提出書の比較列で確認して指定する。指定四半期と一致し、四半期の開始・終了と期首それぞれの間隔が364〜371日の前年比較だけを対象にし、売上・営業利益は単独四半期、営業CF・有形固定資産の現金取得額は期首来累計のUSDで出す。原本の符号を変えず、欠測は補わない。株価・候補判定・一株価値には接続しない。
+同じ10-Qまたは10-Q/Aの発行体財務だけを比較する例（会計四半期はQ1・Q2・Q3）。
+
+```bash
+uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/manifest.json \
+  --compare-sec <CIK> Q3 <PRIOR_Q_START> <PRIOR_Q_END> <CURRENT_FY_START> <PRIOR_FY_START>
+```
+
+終了コード0でも、報告に不足・未採用を含み得る。当期の日付はmanifestの期間を使う。会計四半期と残りの日付は提出書の比較列で確認して指定する。指定四半期と一致し、四半期の開始・終了と期首それぞれの間隔が364〜371日の前年比較だけを対象にし、売上・営業利益は単独四半期、営業CF・有形固定資産の現金取得額は期首来累計のUSDで出す。原本の符号を変えず、欠測は補わない。株価・候補判定・一株価値には接続しない。
 
 取得toolでは許可済みの秘密情報をプロセスにだけ渡し、鍵、Authorizationヘッダー・コマンドログを保存しない。実際に本文まで受領した時刻とHTTP状態を記録し、SHA-256はその原本bytesから作る。送信時刻やこのCLIの実行時刻を受領にしない。必要な権限または接続がない場合、実データで合格したとは扱わない。
 

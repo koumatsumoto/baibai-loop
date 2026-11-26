@@ -66,6 +66,13 @@ type _Record = dict[str, Any]
 type _Loader = Callable[[str], bytes]
 
 
+def _unique_manifest_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ValueError("duplicate field in fixed US research receipt manifest")
+    return result
+
+
 def _clock(value: str) -> datetime:
     stamp = datetime.fromisoformat(value)
     if stamp.utcoffset() is None or not re.search(r"(?:Z|[+-][0-9]{2}:[0-5][0-9])\Z", value):
@@ -904,7 +911,7 @@ def _compare_sec_report(bundle: _Record, load: _Loader, args: Sequence[str]) -> 
     return "# SEC同一提出の発行体財務比較（株価・売買判定なし）\n\n" + "\n".join(notes) + "\n"
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--bundle", type=Path, help="fixed JSON manifest and adjacent original response byte files"
@@ -929,6 +936,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="YYYY-MM-DD",
         help="check each subject's latest eligible IEX date against the expected NY session",
     )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
     manifest: Path | None = args.bundle
     if args.compare_sec is not None and manifest is None:
@@ -951,7 +963,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise ValueError("provider body file escapes the designated directory")
                 return path.read_bytes()
 
-            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            bundle = json.loads(
+                manifest.read_text(encoding="utf-8"), object_pairs_hook=_unique_manifest_object
+            )
             if args.accept_iex_session is not None:
                 report, matched = _accept_iex_session(
                     bundle, read_native, expected=args.accept_iex_session
