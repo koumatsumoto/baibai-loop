@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
+    CheckedObjectMetadataReader,
     LakeCASConflict,
     LakePublishError,
     ObjectStore,
@@ -28,6 +29,7 @@ from baibai_engine.storage.objects.r2 import (
 
 PUBLICATION_LEASE_KEY = "coordination/publication-lease.json"
 DEFAULT_STORES_BUCKET = "baibai-stores"
+_MAX_LEASE_BYTES = 4096
 LEASE_TTL = timedelta(minutes=120)
 DAILY_LEASE_TTL = timedelta(minutes=220)
 _PURPOSES = ("daily", "tradingview", "materialize", "operator")
@@ -145,6 +147,16 @@ def _encode(lease: PublicationLease) -> bytes:
 
 
 def _generation(store: ObjectStore) -> tuple[PublicationLease, bytes, str] | None:
+    # On R2 the GET already binds its ETag to those bytes. Writes still use that
+    # exact generation as their precondition; a second HEAD cannot fence a later write.
+    if isinstance(store, CheckedObjectMetadataReader):
+        response = store.get_checked_object(
+            PUBLICATION_LEASE_KEY, max_bytes=_MAX_LEASE_BYTES, single_attempt=True
+        )
+        if response is None:
+            return None
+        payload, remote = response
+        return _decode(payload), payload, remote.etag
     before = store.head(PUBLICATION_LEASE_KEY)
     if before is None:
         return None

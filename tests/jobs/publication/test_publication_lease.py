@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from botocore.exceptions import ClientError, ReadTimeoutError
 
 import baibai_jobs.publication.lease as lease
 from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
     LakeCASConflict,
+    LakePublishError,
     R2Error,
+    R2OperationStopped,
     RemoteObject,
 )
 
@@ -494,6 +501,111 @@ def test_longer_budget_is_not_an_arbitrary_ttl(
     with pytest.raises(lease.LeaseError, match="invalid publication lease TTL"):
         lease.acquire(store, "daily", now=NOW)
     assert store.writes == []
+
+
+@pytest.fixture
+def lease_get(monkeypatch):
+    """Only one bounded GET is allowed; another HEAD, GET or PUT fails this witness."""
+    store = Boto3R2Store(
+        bucket="test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "fixture",
+            "R2_SECRET_ACCESS_KEY": "fixture",
+            "R2_STOP_ON_REJECTION": "1",
+        },
+    )
+    calls = []
+
+    def prepare(result):
+        def get_object(*, Bucket, Key):
+            assert (Bucket, Key) == ("test", lease.PUBLICATION_LEASE_KEY)
+            calls.append(Key)
+            assert len(calls) == 1
+            if isinstance(result, BaseException):
+                raise result
+            return result
+
+        def client(*, single_attempt):
+            assert single_attempt is True
+            return SimpleNamespace(get_object=get_object)
+
+        monkeypatch.setattr(store, "_client", client)
+        return store
+
+    return prepare, calls
+
+
+@pytest.mark.parametrize(
+    "case", ["held", "etag", "owner", "released", "expired", "digest", "oversize"]
+)
+def test_verify_uses_one_checked_lease_generation(lease_get, case):
+    prepare, calls = lease_get
+    record = lease.PublicationLease(
+        "held", "local:" + "a" * 32, "daily", NOW, NOW + lease.DAILY_LEASE_TTL
+    )
+    handle = lease.PublicationLeaseHandle(
+        record.owner, record.purpose, "held-etag", record.acquired_at_utc, record.expires_at_utc
+    )
+    if case == "owner":
+        record = replace(record, owner="local:" + "b" * 32)
+    if case == "released":
+        record = replace(record, state="released")
+    payload = lease._encode(record)
+    body = BytesIO(payload)
+    store = prepare(
+        {
+            "Body": body,
+            "ETag": '"other-etag"' if case == "etag" else '"held-etag"',
+            "ContentLength": 100_000 if case == "oversize" else len(payload),
+            "ContentType": "application/json",
+            "Metadata": {
+                "sha256": "0" * 64 if case == "digest" else hashlib.sha256(payload).hexdigest()
+            },
+        }
+    )
+    if case == "held":
+        lease.verify_held(store, handle, now=NOW)
+    elif case in {"digest", "oversize"}:
+        with pytest.raises(LakePublishError, match="missing or changed"):
+            lease.verify_held(store, handle, now=NOW)
+    else:
+        with pytest.raises(lease.LeaseError, match="expired or replaced"):
+            lease.verify_held(
+                store, handle, now=record.expires_at_utc if case == "expired" else NOW
+            )
+    assert calls == [lease.PUBLICATION_LEASE_KEY]
+    assert body.closed
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (404, None),
+        (None, R2Error),
+        (500, R2Error),
+        (403, R2OperationStopped),
+        (429, R2OperationStopped),
+        ("timeout", R2Error),
+    ],
+)
+def test_only_confirmed_absence_is_missing_without_a_second_lease_request(lease_get, status, error):
+    prepare, calls = lease_get
+    failure = (
+        ReadTimeoutError(endpoint_url="https://invalid.example")
+        if status == "timeout"
+        else ClientError(
+            {"Error": {"Code": "NoSuchKey"}, "ResponseMetadata": {"HTTPStatusCode": status}},
+            "GetObject",
+        )
+    )
+    store = prepare(failure)
+    if error is None:
+        assert lease._generation(store) is None
+    else:
+        with pytest.raises(error):
+            lease._generation(store)
+    assert calls == [lease.PUBLICATION_LEASE_KEY]
 
 
 def test_generation_change_during_get_refuses_acquire_without_put() -> None:
