@@ -404,6 +404,7 @@ def _margin_alert_rows_with_quality(
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
+    first, last = requested_start.isoformat(), requested_end.isoformat()
     required_payload_fields = (
         "AppDate",
         "PubReason",
@@ -439,11 +440,6 @@ def _margin_alert_rows_with_quality(
         if publication_date is None:
             rejected_count += 1
             continue
-        try:
-            publication_day = date.fromisoformat(publication_date)
-        except ValueError:
-            rejected_count += 1
-            continue
         applied_date = date_iso(record.get("AppDate"))
         publication_reason = to_str_or_none(record.get("PubReason"))
         core_balances = (
@@ -455,7 +451,7 @@ def _margin_alert_rows_with_quality(
             to_float(record.get("LongStdOut")),
         )
         if (
-            not requested_start <= publication_day <= requested_end
+            not first <= publication_date <= last
             or applied_date is None
             or publication_reason is None
             or any(value is None or not isfinite(value) or value < 0.0 for value in core_balances)

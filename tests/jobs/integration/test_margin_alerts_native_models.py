@@ -75,6 +75,84 @@ def rows(path):
         ).fetchall()
 
 
+def test_publication_date_cannot_escape_its_partition_or_claim_empty_coverage(tmp_path):
+    # The compact raw key sorts inside this cross-year selection, but does not
+    # belong to either canonical day. Even an older disposable copy may contain it.
+    first, last = date(2025, 12, 31), date(2026, 1, 1)
+    store = MemoryR2Store()
+    owner = MarginAlertsL1(store, tmp_path / "native")
+    owner.initialize()
+    raw = attempt("ambiguous", day=first, rows=[{**records(first)[0], "PubDate": "20251231"}])
+    owner.commit([raw, attempt("valid", day=last)])
+    market, mirror = tmp_path / "market.sqlite", tmp_path / "mirror"
+    with closing(open_connection(market)) as connection, connection:
+        connection.execute(
+            "INSERT INTO jquants_margin_alerts(publication_date,ticker,applied_date) "
+            "VALUES ('20251231','9999','2025-12-31')"
+        )
+
+    saved = model_input(
+        store, owner.fixed(), as_of=last, evaluated_at=AT, market=market, mirror_root=mirror
+    )
+    cold = tmp_path / "cold.sqlite"
+    assert materialize_saved_input(store, saved, output=cold)["coverage_status"] == "partial"
+    assert saved.descriptor["summary"]["coverage_status"] == "partial"
+    assert rows(market) == rows(cold)
+    assert [row[0] for row in rows(market)] == [last.isoformat()]
+    with closing(sqlite3.connect(market)) as connection:
+        assert uncovered_days(connection, "jquants_margin_alerts", (first, last)) == [first]
+    [retained] = owner.fixed().requests(store, days=(first,))
+    assert retained.request is not None
+    assert retained.request.pages == raw.pages
+
+    later = AT + timedelta(hours=1)
+    owner.commit([attempt("corrected", day=first, at=later)])
+    fixed = model_input(
+        store, owner.fixed(), as_of=last, evaluated_at=later, market=market, mirror_root=mirror
+    )
+    assert fixed.descriptor["summary"]["coverage_status"] == "complete"
+    assert [row[0] for row in rows(market)] == [first.isoformat(), last.isoformat()]
+
+
+@pytest.mark.parametrize("warm_proof", [False, True], ids=["no-proof", "current-proof"])
+def test_legacy_publication_key_does_not_outlive_the_projection(tmp_path, warm_proof):
+    first, last = date(2025, 12, 31), date(2026, 1, 1)
+    store = MemoryR2Store()
+    owner = MarginAlertsL1(store, tmp_path / "native")
+    owner.initialize()
+    owner.commit([attempt("first", day=first), attempt("last", day=last)])
+    market, mirror = tmp_path / "market.sqlite", tmp_path / "mirror"
+    open_connection(market).close()
+    fixed = owner.fixed()
+    clean, previous = build(store, owner, market, mirror, fixed=fixed, as_of=last)
+    assert previous.manifest.coverage_status == "complete"
+    with closing(sqlite3.connect(market)) as connection, connection:
+        # The raw legacy key is in range as text, but no year partition reads it.
+        connection.execute(
+            "INSERT INTO jquants_margin_alerts(publication_date,ticker,applied_date) "
+            "VALUES ('20251231','9999','2025-12-31')"
+        )
+
+    store.get_keys.clear()
+    saved, report = build(
+        store,
+        owner,
+        market,
+        mirror,
+        fixed=fixed,
+        as_of=last,
+        previous=previous.manifest if warm_proof else None,
+    )
+    pack_reads = [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
+    assert bool(pack_reads) is not warm_proof
+    assert report.new_objects == 0
+    assert saved == clean
+    cold = tmp_path / "cold.sqlite"
+    assert materialize_saved_input(store, saved, output=cold)["coverage_status"] == "complete"
+    assert [row[0] for row in rows(market)] == [first.isoformat(), last.isoformat()]
+    assert rows(market) == rows(cold)
+
+
 def test_equal_recheck_uses_existing_l2_but_not_old_confirmation(tmp_path):
     store, owner, market, mirror = fixture(tmp_path, earlier=date(2026, 10, 1))
     prior_saved, first = build(store, owner, market, mirror)

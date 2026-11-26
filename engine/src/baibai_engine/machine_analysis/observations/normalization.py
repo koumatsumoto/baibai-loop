@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
@@ -66,11 +67,16 @@ def to_str_or_none(value: Any) -> str | None:
     return str(value).strip()
 
 
-def date_iso(value: Any) -> str | None:
-    if is_missing_scalar(value):
+def date_iso(value: object) -> str | None:
+    """Canonicalize a native credit/report day, including a retained ISO midnight."""
+    if not isinstance(value, str):
         return None
-    text = str(value)
-    return text[:10]
+    text = value.removesuffix("T00:00:00")
+    try:
+        canonical = date.fromisoformat(text).isoformat()
+    except ValueError:
+        return None
+    return canonical if canonical == text else None
 
 
 def distinct_source_rows(
