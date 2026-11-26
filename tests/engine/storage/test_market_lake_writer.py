@@ -7,6 +7,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pyarrow.parquet as pq
 import pytest
@@ -15,6 +16,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import export_market_fixture, market_store
 
 from baibai_engine.storage.snapshots import identity as identity_module
+from baibai_engine.storage.snapshots import retention as retention_module
 from baibai_engine.storage.snapshots import writer as writer_module
 from baibai_engine.storage.snapshots.contracts import PROJECTION_REVISION_METADATA_KEY
 from baibai_engine.storage.snapshots.immutable import install_immutable_bytes
@@ -792,7 +794,10 @@ def test_gc_keeps_source_and_processed_objects_in_current_market_release(
         )
     )
 
-    plan = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=40))
+    with patch.object(
+        retention_module, "sha256_file", wraps=retention_module.sha256_file
+    ) as hash_file:
+        plan = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=40))
     objects = {
         name: {obj.key for part in item.manifest.partitions for obj in part.objects}
         for name, item in exports.items()
@@ -801,7 +806,14 @@ def test_gc_keeps_source_and_processed_objects_in_current_market_release(
     assert all(key.startswith("lake/l1/source/") for key in objects["jquants.source_pages"])
     assert all(key.startswith("lake/l2/processed/") for key in objects["jquants.fin_summaries"])
     assert all(key.startswith("lake/l2/processed/") for key in objects["jquants.daily_bars"])
-    assert set.union(*objects.values()) <= set(plan.reachable)
+    reachable_objects = set.union(*objects.values())
+    assert reachable_objects <= set(plan.reachable)
+    parquet_reads = [
+        call.args[0].relative_to(mirror).as_posix()
+        for call in hash_file.call_args_list
+        if call.args[0].suffix == ".parquet"
+    ]
+    assert sorted(parquet_reads) == sorted(reachable_objects)
     assert plan.unresolved_roots == ()
     assert plan.candidates == ()
 
