@@ -82,7 +82,7 @@ def setup_native(tmp_path, attempts):
     owner = MasterL1(store, tmp_path / "native")
     owner.initialize()
     owner.commit(attempts)
-    market = market_store(tmp_path / "market.sqlite")
+    market = market_store(tmp_path / "market.sqlite", short_sale_reports=())
     with sqlite3.connect(market) as connection:
         insert_master_rows(
             connection, [(DAY.isoformat(), "9999", "stale999", "プライム", "情報・通信業", "011")]
@@ -402,7 +402,7 @@ def test_normal_models_and_publication_share_native_master_and_price(
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.publication.policy import release_policy_for_profile
 
-    names = ("jquants.daily_bars", "jquants.master_snapshots")
+    names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)

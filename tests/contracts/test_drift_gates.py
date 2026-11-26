@@ -369,7 +369,8 @@ def test_documented_command_gate_reads_the_dispatch_the_repository_script_runs()
 
     names = check_documented_commands.transfer_subcommands(ROOT)
 
-    assert {"pull-machine", "push-machine", "publish-lake"} <= names
+    assert {"pull-machine", "hydrate-market-for-daily", "pull-portfolio-market"} <= names
+    assert {"push-machine", "publish-lake", "restore-machine-receipt", "seed-all"}.isdisjoint(names)
     assert "unknown-command" not in names
     assert "*" not in names
 

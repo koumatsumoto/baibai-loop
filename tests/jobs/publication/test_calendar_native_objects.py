@@ -174,7 +174,7 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
         ]
     )
     native_dependencies(store, tmp_path, day=friday, holiday=sunday, request_closed=False)
-    market = market_store(tmp_path / "market.sqlite")
+    market = market_store(tmp_path / "market.sqlite", short_sale_reports=())
     with sqlite3.connect(market) as connection:
         connection.execute(
             "INSERT INTO jquants_market_calendar VALUES (?,?)", (sunday.isoformat(), "1")

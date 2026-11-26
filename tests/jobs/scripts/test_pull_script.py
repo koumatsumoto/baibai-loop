@@ -28,10 +28,9 @@ def _isolated_pull_script(tmp_path: Path) -> tuple[Path, Path]:
 def test_pull_prepares_market_before_reporting_success(tmp_path: Path) -> None:
     pull, calls = _isolated_pull_script(tmp_path)
     for failure, expected in (
-        ("", ["pull-machine", "pull-indicators", "hydrate-market"]),
+        ("", ["pull-machine", "pull-indicators"]),
         ("pull-machine", ["pull-machine"]),
         ("pull-indicators", ["pull-machine", "pull-indicators"]),
-        ("hydrate-market", ["pull-machine", "pull-indicators", "hydrate-market"]),
     ):
         calls.write_text("", encoding="utf-8")
         result = subprocess.run(

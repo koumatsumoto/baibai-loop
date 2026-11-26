@@ -11,10 +11,11 @@ from tests.helpers.jpx_earnings import DAY, STAMP, earnings, regulations
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master_calendar_native import seed_calendar, seed_master
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
 
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
 from baibai_engine.storage.objects.r2 import LakePublishError
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -26,7 +27,7 @@ from baibai_jobs.publication import jpx_verification as verification
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _save_handle, acquire, release
 from baibai_jobs.publication.policy import release_policy_for_profile
-from baibai_jobs.publication.snapshot_release import publish_release
+from baibai_jobs.publication.snapshot_release import read_pointer_snapshot, stage_release
 
 DATASETS = ("jquants.daily_bars", *verification._DATASETS)
 
@@ -60,22 +61,13 @@ def publication(tmp_path, monkeypatch):
             catalog=LAKE_DATASETS,
             policy=release_policy_for_profile("production"),
         )
-        publish_release(mirror_root=mirror, release_manifest_path=manifest, store=store)
-        for key in ("market.sqlite", "runs.sqlite"):
-            store.store_object(
-                key, source.read_bytes() if key == "market.sqlite" else b"saved runs"
-            )
-        store.store_object(
-            "machine-manifest.json",
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "keys": {
-                        key: store.values[key].etag for key in ("market.sqlite", "runs.sqlite")
-                    },
-                }
-            ).encode(),
+        staged = stage_release(
+            mirror_root=mirror,
+            release_manifest_path=manifest,
+            store=store,
+            base=read_pointer_snapshot(store),
         )
+        seed_machine_current(store, staged.pointer, market=source.read_bytes())
         return sources.canonical_generations(store)
 
     return store, database, publish, old, regulation
@@ -133,7 +125,7 @@ def test_unpublished_jpx_cannot_be_sealed_against_a_coherent_old_bundle(
 ):
     store, database, publish, _, _ = publication
     publish(identity="old")
-    remote_before = store.values["market.sqlite"]
+    remote_before = store.values[current_release_pointer_key()]
     _, entry, replay = _new_stage(tmp_path, store, database)
     command, _ = _seal_command(
         tmp_path, monkeypatch, store, database, entry, replay, capture=capture
@@ -141,7 +133,7 @@ def test_unpublished_jpx_cannot_be_sealed_against_a_coherent_old_bundle(
     store.put_keys.clear()
     assert sources.main(command) == 1
     assert store.put_keys == []
-    assert store.values["market.sqlite"] == remote_before
+    assert store.values[current_release_pointer_key()] == remote_before
     assert available_handoffs(store, market=True) == [entry]
 
 

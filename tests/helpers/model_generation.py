@@ -6,16 +6,20 @@ from pathlib import Path
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
+    GenerationSubject,
     InputSnapshot,
     ModelGeneration,
     ModelGenerationStream,
 )
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.discovery_contract import discovery_publication_id
+from baibai_engine.machine_analysis.screening.policies.discovery import evaluate_discovery_rows
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathPolicy,
     EconomicPathSelection,
 )
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
 
 def materialize_generation(stream: ModelGenerationStream) -> ModelGeneration:
@@ -69,3 +73,38 @@ def generation(*, value=0.100049):
             ),
         ),
     )
+
+
+def publish_machine_generation(
+    path: Path,
+    *,
+    release_id: str,
+    release_sha256: str,
+    as_of: date = date(2026, 10, 23),
+    select: bool = True,
+) -> None:
+    result = generation().model_copy(
+        update={
+            "schema_version": 2,
+            "generation_id": f"models-{release_id}",
+            "as_of": as_of,
+            "inputs": {
+                "market": InputSnapshot(
+                    kind="lake_release", reference=release_id, sha256=release_sha256
+                )
+            },
+            "subject_plan": {
+                "1234": GenerationSubject(
+                    scope="stock", model_ids=("technical_analysis", "company_financials")
+                ),
+                "market": GenerationSubject(scope="market", model_ids=("market_context",)),
+            },
+        }
+    )
+    publish_generation(result, path=path)
+    if select:
+        metadata = GenerationMetadata.model_validate(result.model_dump(exclude={"models"}))
+        ScreeningSelectionStore(path).publish(
+            discovery_publication_id(metadata.generation_id),
+            evaluate_discovery_rows(metadata, tickers=("1234",), rows={}),
+        )

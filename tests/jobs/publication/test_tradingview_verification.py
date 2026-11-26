@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
 from tests.helpers.tradingview import (
     DAY,
     NOW,
@@ -30,7 +30,7 @@ from baibai_jobs.integration.tradingview_handoff import export_handoff, import_h
 from baibai_jobs.publication import tradingview_verification as verification
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
-from baibai_jobs.publication.snapshot_release import publish_release
+from baibai_jobs.publication.snapshot_release import read_pointer_snapshot, stage_release
 
 DATASETS = (
     "jquants.daily_bars",
@@ -73,22 +73,13 @@ def publication(tmp_path, monkeypatch):
             catalog=LAKE_DATASETS,
             policy=release_policy_for_profile("production"),
         )
-        publish_release(mirror_root=mirror, release_manifest_path=manifest, store=remote)
-        for key in ("market.sqlite", "runs.sqlite"):
-            remote.store_object(
-                key, source.read_bytes() if key == "market.sqlite" else b"saved runs"
-            )
-        remote.store_object(
-            "machine-manifest.json",
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "keys": {
-                        key: remote.values[key].etag for key in ("market.sqlite", "runs.sqlite")
-                    },
-                }
-            ).encode(),
+        staged = stage_release(
+            mirror_root=mirror,
+            release_manifest_path=manifest,
+            store=remote,
+            base=read_pointer_snapshot(remote),
         )
+        seed_machine_current(remote, staged.pointer, market=source.read_bytes())
         return sources.canonical_generations(remote)
 
     return remote, database, publish

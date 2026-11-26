@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
 
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key, release_manifest_key
 from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
@@ -23,31 +23,19 @@ DAY = "2026-11-26"
 GENERATIONS = {"lake_release_id": "fixed", "lake_manifest_sha256": "a" * 64}
 
 
+def _lake_pointer():
+    return LakeReleasePointer(
+        release_id=GENERATIONS["lake_release_id"],
+        manifest_key=release_manifest_key(release_id=GENERATIONS["lake_release_id"]),
+        manifest_sha256=GENERATIONS["lake_manifest_sha256"],
+    )
+
+
 def _store_and_lease(tmp_path, monkeypatch, *, lease_now=None):
     remote = MemoryR2Store()
     monkeypatch.setattr(remote, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
-    for key in ("market.sqlite", "runs.sqlite"):
-        remote.store_object(key, f"fixed {key}".encode())
-    remote.store_object(
-        "machine-manifest.json",
-        json.dumps(
-            {
-                "schema_version": 1,
-                "keys": {key: remote.values[key].etag for key in ("market.sqlite", "runs.sqlite")},
-            }
-        ).encode(),
-    )
-    remote.store_object(
-        current_release_pointer_key(),
-        canonical_lake_model_bytes(
-            LakeReleasePointer(
-                release_id=GENERATIONS["lake_release_id"],
-                manifest_key=release_manifest_key(release_id=GENERATIONS["lake_release_id"]),
-                manifest_sha256=GENERATIONS["lake_manifest_sha256"],
-            )
-        ),
-    )
+    seed_machine_current(remote, _lake_pointer())
     handle, _ = acquire(remote, "daily", now=lease_now)
     lease_path = tmp_path / "lease.json"
     _save_handle(lease_path, handle)
@@ -110,6 +98,40 @@ def test_market_seal_refuses_invalid_lease_before_any_write(tmp_path, monkeypatc
     remote.put_keys.clear()
     assert sources.main(command) == 1
     assert remote.put_keys == []
+
+
+@pytest.mark.parametrize("changed", ["lake_only", "missing_market", "changed_runs"])
+def test_market_seal_refuses_an_unpaired_current_release(tmp_path, monkeypatch, changed):
+    remote = _store_and_lease(tmp_path, monkeypatch)
+    command = _seal_cli(tmp_path, tmp_path / "lease.json")
+    key = current_release_pointer_key()
+    paired = LakeReleasePointer.model_validate_json(remote.values[key].body)
+    assert paired.machine is not None
+    if changed == "lake_only":
+        lake = LakeReleasePointer(
+            release_id="successor",
+            manifest_key=release_manifest_key(release_id="successor"),
+            manifest_sha256="b" * 64,
+        )
+        remote.store_object(key, canonical_lake_model_bytes(lake))
+    elif changed == "missing_market":
+        remote.values.pop(paired.machine.market.key)
+    else:
+        remote.store_object(paired.machine.runs.key, b"mismatched runs")
+    before = dict(remote.values)
+    remote.put_keys.clear()
+    assert sources.main(command) == 1
+    assert not remote.put_keys
+    assert remote.values == before
+
+    seed_machine_current(remote, _lake_pointer())
+    remote.put_keys.clear()
+    assert sources.main(command) == 0
+    assert len(remote.put_keys) == 2
+    for marker in remote.put_keys:
+        result = json.loads(remote.values[marker].body)
+        assert result["status"] == "integrated"
+        assert result["canonical_generations"] == GENERATIONS
 
 
 def test_ordered_market_seals_stop_after_release_and_resume_without_rewriting(

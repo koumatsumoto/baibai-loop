@@ -48,19 +48,18 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
         ("validate-input", "setup"),
         ("hydrate", "source-integration"),
         ("source-integration", "batch"),
-        ("batch", "upload-stores"),
-        ("upload-stores", "source-seal"),
+        ("batch", "source-seal"),
         ("source-seal", "source-check"),
     ):
         assert ids.index(first) < ids.index(second)
     assert "uv run baibai-jobs model-integration" in by_id["batch"]["run"]
     assert "--lease-handle" in by_id["batch"]["run"]
     assert '--integration-report "$RUNNER_TEMP/integration/applied.json"' in by_id["batch"]["run"]
-    assert "publish-lake" not in by_id  # no second export/release after model generation
-    assert "publish-serving" not in by_id
-    assert "upload-serving" not in str(by_id["upload-stores"])
-    assert by_id["upload-stores"]["if"] == "steps.batch.outputs.models_ready == 'true'"
-    assert "steps.batch.outcome == 'success'" in by_id["source-seal"]["if"]
+    assert not {"publish-lake", "upload-stores", "publish-serving"} & by_id.keys()
+    assert by_id["source-seal"]["if"] == (
+        "${{ always() && steps.batch.outputs.models_ready == 'true' "
+        "&& steps.batch.outcome == 'success' }}"
+    )
     assert '--daily-readback-notice "$RUNNER_TEMP/batch-notice.json"' in by_id["source-seal"]["run"]
     check = by_id["source-check"]
     assert "steps.source-seal.outcome == 'success'" in check["if"]
@@ -148,7 +147,10 @@ def test_notifications_and_credentials_remain_scoped(steps, by_id):
     assert notify["if"] == "${{ always() }}"
     assert notify["continue-on-error"] == "true"
     assert "--publish-serving-outcome" not in notify["run"]
-    assert '--publish-lake-outcome "${{ steps.batch.outcome }}"' in notify["run"]
+    assert '--machine-publication-outcome "${{ steps.batch.outcome }}"' in notify["run"]
+    assert '--hydrate-outcome "${{ steps.hydrate.outcome }}"' in notify["run"]
+    for obsolete in ("--publish-lake-outcome", "--upload-stores-outcome"):
+        assert obsolete not in notify["run"]
     assert "${{ inputs." not in notify["run"]
     for step in steps:
         if step.get("id") != "notify":
@@ -168,14 +170,14 @@ def test_explicit_edinet_acceptance_outcome_reaches_the_existing_notifier(by_id)
     assert f'--{step}-outcome "${{{{ steps.{step}.outcome }}}}"' in by_id["notify"]["run"]
 
 
-@pytest.mark.parametrize("exit_code", [0, 1, 2])
-def test_batch_outputs_are_finalized_before_failure_without_a_web_artifact(
+@pytest.mark.parametrize("exit_code", [0, 1, 2, 127])
+def test_failed_machine_publication_never_reports_ready_or_starts_another_process(
     tmp_path, by_id, exit_code
 ):
     binary = tmp_path / "bin"
     binary.mkdir()
     uv = binary / "uv"
-    uv.write_text(f"#!/bin/sh\nexit {exit_code}\n")
+    uv.write_text(f'#!/bin/sh\nprintf "%s\n" "$*" >> "$RUNNER_TEMP/calls"\nexit {exit_code}\n')
     uv.chmod(0o755)
     output = tmp_path / "outputs"
     result = subprocess.run(
@@ -187,12 +189,15 @@ def test_batch_outputs_are_finalized_before_failure_without_a_web_artifact(
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_OUTPUT": str(output),
             "INTEGRATION_ASOF": "2026-10-25",
-            "PRESERVE_EXISTING_GENERATIONS": "",
         },
         capture_output=True,
         check=False,
     )
     assert result.returncode == exit_code
+    calls = (tmp_path / "calls").read_text().splitlines()
+    assert len(calls) == 1
+    assert calls[0].startswith("run baibai-jobs model-integration ")
+    assert "--daily-origin" in calls[0]
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert values == {
         "exit_code": str(exit_code),
@@ -201,74 +206,26 @@ def test_batch_outputs_are_finalized_before_failure_without_a_web_artifact(
     }
 
 
-@pytest.mark.parametrize("event", ["schedule", "workflow_dispatch"])
-@pytest.mark.parametrize("value", ["", "false", "true"])
-def test_retention_reaches_model_cli_for_schedule_or_explicit_dispatch(
-    tmp_path, workflow, by_id, event, value
-):
-    declaration = workflow["on"]["workflow_dispatch"]["inputs"]["preserve_existing_generations"]
-    assert declaration["type"] == "boolean"
-    assert declaration["default"] == "false"
-    validate = by_id["validate-input"]
-    assert validate["env"]["PRESERVE_EXISTING_GENERATIONS"] == (
-        "${{ inputs.preserve_existing_generations }}"
-    )
-    assert by_id["batch"]["env"]["PRESERVE_EXISTING_GENERATIONS"] == (
-        "${{ steps.validate-input.outputs.preserve_existing_generations }}"
-    )
-    output = tmp_path / "outputs"
-    env = {
-        **os.environ,
-        "MANUAL_ASOF": "",
-        "PRESERVE_EXISTING_GENERATIONS": value,
-        "GITHUB_EVENT_NAME": event,
-        "PYTHONPATH": str(ROOT / "jobs/src"),
-        "GITHUB_OUTPUT": str(output),
+def test_dispatch_does_not_offer_runs_pruning(workflow, by_id):
+    assert set(workflow["on"]["workflow_dispatch"]["inputs"]) == {
+        "asof",
+        "jp_input_probe_ticker",
+        "edinet_metrics_acceptance",
     }
-    validated = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", validate["run"]],
-        env=env,
-        capture_output=True,
-        check=False,
-    )
-    assert validated.returncode == 0, validated.stderr
-    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-    expected = "true" if event == "schedule" else value
-    assert values == {"asof": "", "preserve_existing_generations": expected}
-    binary = tmp_path / "bin"
-    binary.mkdir()
-    uv = binary / "uv"
-    uv.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$RUNNER_TEMP/arguments"\n')
-    uv.chmod(0o755)
-    batch = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", by_id["batch"]["run"]],
-        env={
-            **env,
-            "PATH": str(binary) + os.pathsep + os.environ["PATH"],
-            "RUNNER_TEMP": str(tmp_path),
-            "INTEGRATION_ASOF": "2026-10-25",
-            "PRESERVE_EXISTING_GENERATIONS": values["preserve_existing_generations"],
-        },
-        capture_output=True,
-        check=False,
-    )
-    assert batch.returncode == 0, batch.stderr
-    args = (tmp_path / "arguments").read_text().splitlines()
-    assert args[:3] == ["run", "baibai-jobs", "model-integration"]
-    assert args.count("--preserve-existing-generations") == (1 if expected == "true" else 0)
+    for step in ("validate-input", "batch"):
+        assert "--preserve-existing-generations" not in by_id[step]["run"]
 
 
-def test_invalid_retention_never_emits_workflow_outputs(tmp_path, steps, by_id):
+def test_invalid_date_never_emits_workflow_outputs(tmp_path, steps, by_id):
     validate = by_id["validate-input"]
     assert all("secrets." not in str(step) for step in steps[: steps.index(validate) + 1])
     output = tmp_path / "outputs"
-    value = "true\nasof=2099-01-01"
+    value = "2026-11-24\nasof=2099-01-01"
     result = subprocess.run(
         ["bash", "-euo", "pipefail", "-c", validate["run"]],
         env={
             **os.environ,
-            "MANUAL_ASOF": "",
-            "PRESERVE_EXISTING_GENERATIONS": value,
+            "MANUAL_ASOF": value,
             "GITHUB_EVENT_NAME": "workflow_dispatch",
             "PYTHONPATH": str(ROOT / "jobs/src"),
             "GITHUB_OUTPUT": str(output),
@@ -279,29 +236,6 @@ def test_invalid_retention_never_emits_workflow_outputs(tmp_path, steps, by_id):
     assert result.returncode == 2
     assert value.encode() not in result.stderr
     assert not output.exists()
-
-
-@pytest.mark.parametrize("exit_code", [0, 2, 127])
-def test_machine_push_preserves_its_outcome_and_never_uploads_views(tmp_path, by_id, exit_code):
-    script = tmp_path / "jobs/scripts/r2_transfer.sh"
-    script.parent.mkdir(parents=True)
-    assert "--daily-origin" in by_id["batch"]["run"]
-    script.write_text(
-        '#!/bin/sh\n[ "$1" = "push-machine" ] && [ "$2" = "--daily-notice" ] && '
-        '[ "$3" = "$RUNNER_TEMP/batch-notice.json" ] || exit 99\n'
-        f"exit {exit_code}\n"
-    )
-    script.chmod(0o755)
-    output = tmp_path / "outputs"
-    result = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", by_id["upload-stores"]["run"]],
-        cwd=tmp_path,
-        env={**os.environ, "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(tmp_path)},
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == exit_code
-    assert output.read_text().strip() == f"machine={'success' if exit_code == 0 else 'failure'}"
 
 
 def test_integration_date_uses_original_run_and_manual_clock():
@@ -316,7 +250,7 @@ def test_integration_date_uses_original_run_and_manual_clock():
     assert integration_target_date(morning, scheduled=True) == date(2026, 10, 23)
 
 
-def test_economic_l1_follows_machine_admission_but_not_hydration(steps, by_id):
+def test_economic_l1_follows_machine_admission_but_is_independent_of_hydration(steps, by_id):
     ids = [step.get("id") for step in steps]
     assert ids.index("lease-acquire") < ids.index("pull") < ids.index("economic-l1")
     assert by_id["pull"]["run"] == "jobs/scripts/r2_transfer.sh pull-machine --daily-preflight"
@@ -326,6 +260,15 @@ def test_economic_l1_follows_machine_admission_but_not_hydration(steps, by_id):
     assert "if" not in by_id["economic-l1"]  # Normal success only, not an always() publisher.
     for later in ("market-plan", "hydrate", "source-integration", "batch"):
         assert ids.index("economic-l1") < ids.index(later)
+    hydrate = by_id["hydrate"]
+    assert ids.index("market-plan") < ids.index("hydrate") < ids.index("source-integration")
+    assert hydrate["run"] == "jobs/scripts/r2_transfer.sh hydrate-market-for-daily"
+    assert (
+        hydrate["env"]["PUBLICATION_LEASE_HANDLE"]
+        == (by_id["pull"]["env"]["PUBLICATION_LEASE_HANDLE"])
+    )
+    assert "if" not in hydrate
+    assert "continue-on-error" not in hydrate
     assert "economic_sources" in by_id["economic-l1"]["run"]
     assert "--lease-handle" in by_id["economic-l1"]["run"]
     assert "continue-on-error" not in by_id["economic-l1"]

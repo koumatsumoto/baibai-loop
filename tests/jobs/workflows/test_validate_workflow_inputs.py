@@ -43,16 +43,7 @@ def test_cli_reports_contract_without_echoing_malicious_value(
     assert malicious not in captured.err
 
 
-@pytest.mark.parametrize("value", ["", "true", "false"])
-def test_daily_accepts_only_explicit_retention_boolean_or_schedule(value):
-    assert main(["daily", "--preserve-existing-generations", value]) == 0
-
-
-@pytest.mark.parametrize(
-    "value", ["True", "1", "yes", "true ", "false\ntrue", "$(printf injected)"]
-)
-def test_daily_rejects_invalid_retention_without_echoing_it(value, capsys):
-    assert main(["daily", "--preserve-existing-generations", value]) == 2
-    error = capsys.readouterr().err
-    assert "preserve_existing_generations must be empty, true, or false" in error
-    assert value not in error
+def test_daily_rejects_removed_retention_argument():
+    with pytest.raises(SystemExit) as error:
+        main(["daily", "--preserve-existing-generations", "false"])
+    assert error.value.code == 2

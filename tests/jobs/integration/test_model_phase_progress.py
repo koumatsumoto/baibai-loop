@@ -218,7 +218,7 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
             models.integrate_models(**arguments)
         assert_started(progress, "model_generation")
         assert "phase=screening" not in progress.flushed
-        assert "phase=lake_publish" not in progress.flushed
+        assert "phase=lake_stage" not in progress.flushed
         assert "publish" not in events
         assert read_generation("models-new-release", path=arguments["runs"]) is None
     else:
@@ -228,8 +228,8 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
             "model_inputs",
             "model_generation",
             "screening",
-            "lake_publish",
-            "model_cache_prune",
+            "lake_stage",
+            "machine_publish",
         )
         expected = [
             "phase=native_financial state=start",
@@ -253,9 +253,10 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
             "retain",
             "rebuild",
             "generate",
+            "stage",
+            "release-snapshot",
             "lease",
             "publish",
-            "release-snapshot",
         ]
     assert CANARY not in progress.getvalue()
 
@@ -267,10 +268,11 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
         ("economic_input_rebuild", "rebuild"),
         ("model_inputs", "read_and_generate_models"),
         ("screening", "evaluate_discovery_rows"),
-        ("lake_publish", "publish_prepared_market_lake"),
+        ("lake_stage", "stage_prepared_market_lake"),
+        ("machine_publish", "_publish_machine"),
     ],
 )
-def test_failed_phase_never_logs_done_or_prunes(
+def test_failed_phase_never_logs_done_or_publishes(
     integration, monkeypatch, progress, phase, operation
 ):
     arguments, events = integration
@@ -286,7 +288,7 @@ def test_failed_phase_never_logs_done_or_prunes(
         models.integrate_models(**arguments)
     assert caught.value is error
     assert_started(progress, phase)
-    assert "phase=model_cache_prune" not in progress.flushed
+    assert "phase=machine_publish state=done" not in progress.flushed
     assert "publish" not in events
     assert CANARY not in progress.getvalue()
 
@@ -310,7 +312,7 @@ def test_model_write_or_screening_failure_propagates(
         models.integrate_models(**arguments)
     assert caught.value is error
     assert_started(progress, phase)
-    assert "phase=model_cache_prune" not in progress.flushed
+    assert "phase=machine_publish state=done" not in progress.flushed
     assert "publish" not in events
     assert CANARY not in progress.getvalue() + caplog.text
 

@@ -15,7 +15,11 @@ from baibai_engine.portfolio.holdings.market_observations import read_unadjusted
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
-from baibai_jobs.publication.machine_origin import origin_for_push
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    read_lake_store_origin,
+)
+from baibai_jobs.publication.machine_origin import current_daily_run
 
 
 def main(*, market: Path = MARKET_DB_PATH, runs: Path = RUNS_DB_PATH) -> int:
@@ -24,8 +28,13 @@ def main(*, market: Path = MARKET_DB_PATH, runs: Path = RUNS_DB_PATH) -> int:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes())
         ticker = normalize_ticker(event["inputs"]["jp_input_probe_ticker"])
         notice = Path(os.environ["RUNNER_TEMP"]) / "batch-notice.json"
-        origin = origin_for_push(notice, market)  # Local-only: same run/attempt and release.
         fixed = json.loads(notice.read_bytes())
+        if fixed["models_ready"] is not True or fixed["daily_run"] != current_daily_run():
+            raise ValueError
+        lake = fixed["lake"]
+        origin = LakeStoreOrigin(lake["release_id"], lake["release_manifest_sha256"])
+        if read_lake_store_origin(market) != origin:
+            raise ValueError
         day = date.fromisoformat(fixed["asof"])
         now = datetime.now(UTC)
         stage = "selection-context"
@@ -67,8 +76,8 @@ def main(*, market: Path = MARKET_DB_PATH, runs: Path = RUNS_DB_PATH) -> int:
         model_source = context["model_inputs"]["analysis_source"]["inputs"]["market"]
         if not (
             model_source["kind"] == "lake_release"
-            and model_source["reference"] == origin["release_id"]
-            and model_source["sha256"] == origin["release_manifest_sha256"]
+            and model_source["reference"] == origin.release_id
+            and model_source["sha256"] == origin.release_manifest_sha256
             and context["status"] == "ready"
             and context["generation_id"] == fixed["generation_id"]
             and context["screening_selection_id"] == fixed["selection_id"]

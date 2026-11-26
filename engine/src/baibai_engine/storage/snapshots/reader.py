@@ -103,9 +103,25 @@ def resolve_current_release(
     published_coverage_start: Mapping[str, date] | None = None,
 ) -> FixedRelease:
     """Freeze current and require policy, including a history floor if supplied."""
-    catalog = freeze_catalog(catalog)
+    return resolve_policy_release(
+        source,
+        _read_current_pointer(source),
+        policy=policy,
+        catalog=catalog,
+        published_coverage_start=published_coverage_start,
+    )
 
-    pointer = _read_current_pointer(source)
+
+def resolve_policy_release(
+    source: LakeObjectSource,
+    pointer: LakeReleasePointer,
+    *,
+    policy: ReleasePolicy,
+    catalog: Mapping[str, LakeDataset],
+    published_coverage_start: Mapping[str, date] | None = None,
+) -> FixedRelease:
+    """Apply the current production policy to an already selected release."""
+    catalog = freeze_catalog(catalog)
     release = _load_release(
         source,
         release_id=pointer.release_id,

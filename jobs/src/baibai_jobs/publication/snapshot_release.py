@@ -11,10 +11,11 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import (
+    CheckedObjectMetadataReader,
     LakeCASConflict,
     LakePublishError,
     ObjectStore,
@@ -58,21 +59,31 @@ class PointerPrecondition:
 class PointerSnapshot:
     pointer: LakeReleasePointer | None
     precondition: PointerPrecondition
+    payload: bytes | None = field(default=None, compare=False, repr=False)
 
 
 def read_pointer_snapshot(store: ObjectStore) -> PointerSnapshot:
     """Read and validate the exact mutable-pointer generation visible now."""
 
-    publication = _RemotePublication(store=store)
     key = lake_current_release_pointer_key()
-    remote = publication.head(key)
-    if remote is None:
-        return PointerSnapshot(pointer=None, precondition=PointerPrecondition(etag=None))
+    remote: RemoteObject | None
+    if isinstance(store, CheckedObjectMetadataReader):
+        response = store.get_checked_object(key, max_bytes=_MAX_POINTER_BYTES)
+        if response is None:
+            return PointerSnapshot(pointer=None, precondition=PointerPrecondition(etag=None))
+        payload, remote = response
+        _validate_pointer_bytes(key, remote, payload)
+    else:
+        publication = _RemotePublication(store=store)
+        remote = publication.head(key)
+        if remote is None:
+            return PointerSnapshot(pointer=None, precondition=PointerPrecondition(etag=None))
+        payload = publication.read_pointer(key, remote)
     try:
-        pointer = load_lake_model_json(publication.read_pointer(key, remote), LakeReleasePointer)
+        pointer = load_lake_model_json(payload, LakeReleasePointer)
     except ValueError:
         raise LakePublishError("serving pointer is invalid") from None
-    return PointerSnapshot(pointer=pointer, precondition=PointerPrecondition(etag=remote.etag))
+    return PointerSnapshot(pointer, PointerPrecondition(etag=remote.etag), payload)
 
 
 @dataclass(frozen=True)
@@ -223,14 +234,7 @@ class _RemotePublication:
         if remote.size > _MAX_POINTER_BYTES:
             raise LakePublishError(f"remote pointer exceeds its size limit: {key}")
         payload = self.get_bytes(key)
-        if (
-            len(payload) != remote.size
-            or remote.metadata.get("sha256") != hashlib.sha256(payload).hexdigest()
-            or remote.metadata.get("integrity") != "content-md5-v1"
-            or not remote.metadata.get("content-md5")
-            or remote.content_type != "application/json"
-        ):
-            raise LakePublishError(f"remote pointer bytes differ from their identity: {key}")
+        _validate_pointer_bytes(key, remote, payload)
         return payload
 
     def require_pointer_bytes(self, *, key: str, expected: bytes) -> None:
@@ -278,6 +282,19 @@ class _RemotePublication:
                 temporary_path.unlink(missing_ok=True)
 
 
+def _validate_pointer_bytes(key: str, remote: RemoteObject, payload: bytes) -> None:
+    if (
+        not remote.etag
+        or not 0 < remote.size <= _MAX_POINTER_BYTES
+        or len(payload) != remote.size
+        or remote.metadata.get("sha256") != hashlib.sha256(payload).hexdigest()
+        or remote.metadata.get("integrity") != "content-md5-v1"
+        or not remote.metadata.get("content-md5")
+        or remote.content_type != "application/json"
+    ):
+        raise LakePublishError(f"remote pointer bytes differ from their identity: {key}")
+
+
 def publish_release(
     *,
     mirror_root: Path,
@@ -300,12 +317,123 @@ def publish_release(
         initial = publication.head(pointer_key)
         if initial is not None:
             try:
-                load_lake_model_json(
+                initial_pointer = load_lake_model_json(
                     publication.read_pointer(pointer_key, initial), LakeReleasePointer
                 )
             except ValueError:
                 raise LakePublishError("serving pointer is invalid") from None
+            _require_lake_only(initial_pointer)
         pointer_precondition = PointerPrecondition(etag=None if initial is None else initial.etag)
+    staged = _stage_release(
+        publication, mirror_root, release_manifest_path, expected_release_sha256
+    )
+    pointer = staged.pointer
+    pointer_started = _phase_progress("pointer")
+    current = publication.head(pointer_key)
+    if current is not None:
+        serving = load_lake_model_json(
+            publication.read_pointer(pointer_key, current), LakeReleasePointer
+        )
+        _require_lake_only(serving)
+        # Republishing the same release is the retry of an interrupted publication, and
+        # it has to be exactly the same release rather than the same name.
+        if serving.release_id == pointer.release_id:
+            if (
+                serving.manifest_key != pointer.manifest_key
+                or serving.manifest_sha256 != pointer.manifest_sha256
+            ):
+                raise LakePublishError("current pointer reuses release ID with different identity")
+            _phase_progress("pointer", pointer_started)
+            return PublishReport(
+                release_id=pointer.release_id,
+                transfers=publication.report(),
+                pointer_etag=current.etag,
+                local_graph_seconds=staged.local_graph_seconds,
+                remote_closure_seconds=staged.remote_closure_seconds,
+                pointer_seconds=time.perf_counter() - pointer_started,
+            )
+    with tempfile.NamedTemporaryFile(prefix="baibai-lake-pointer-", suffix=".json") as temporary:
+        temporary.write(canonical_lake_model_bytes(pointer))
+        temporary.flush()
+        pointer_payload = Path(temporary.name).read_bytes()
+        # A long export/upload can outlive the caller's publication lease. The
+        # pointer ETag protects its generation, while this checks the caller's
+        # authority immediately before the conditional write. A failed guard is
+        # not an ambiguous attempted switch and must never enter reconciliation.
+        if before_pointer_switch is not None:
+            before_pointer_switch()
+        try:
+            result = publication.put(
+                pointer_key,
+                Path(temporary.name),
+                sha256=hashlib.sha256(pointer_payload).hexdigest(),
+                content_md5=_content_md5(Path(temporary.name)),
+                content_type="application/json",
+                if_match=pointer_precondition.etag,
+                if_none_match=pointer_precondition.etag is None,
+            )
+            publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
+        except LakePublishError as exc:
+            result = _reconcile_pointer_switch(
+                publication,
+                key=pointer_key,
+                expected=pointer_payload,
+                cause=exc,
+            )
+    _phase_progress("pointer", pointer_started)
+    return PublishReport(
+        release_id=pointer.release_id,
+        transfers=publication.report(),
+        pointer_etag=result.etag,
+        local_graph_seconds=staged.local_graph_seconds,
+        remote_closure_seconds=staged.remote_closure_seconds,
+        pointer_seconds=time.perf_counter() - pointer_started,
+    )
+
+
+def _require_lake_only(pointer: LakeReleasePointer) -> None:
+    if pointer.machine is not None:
+        raise LakePublishError("cannot replace machine current with a Lake-only pointer")
+
+
+@dataclass(frozen=True, slots=True)
+class StagedLake:
+    pointer: LakeReleasePointer
+    transfers: TransferReport
+    local_graph_seconds: float
+    remote_closure_seconds: float
+    base: PointerSnapshot | None
+
+
+def stage_release(
+    *,
+    mirror_root: Path,
+    release_manifest_path: Path,
+    store: ObjectStore,
+    base: PointerSnapshot,
+    expected_release_sha256: str | None = None,
+    verified_readback_root: Path | None = None,
+    retain_verified_readback: Callable[[str, Path], None] | None = None,
+) -> StagedLake:
+    """Stage the verified immutable graph without reading or changing current."""
+    publication = _RemotePublication(
+        store=store,
+        verified_readback_root=verified_readback_root,
+        retain_verified_readback=retain_verified_readback,
+    )
+    return _stage_release(
+        publication, mirror_root, release_manifest_path, expected_release_sha256, base=base
+    )
+
+
+def _stage_release(
+    publication: _RemotePublication,
+    mirror_root: Path,
+    release_manifest_path: Path,
+    expected_release_sha256: str | None,
+    *,
+    base: PointerSnapshot | None = None,
+) -> StagedLake:
     local_graph_started = _phase_progress("local_graph")
     root = mirror_root.resolve()
     resolved_release_path = release_manifest_path.resolve()
@@ -399,7 +527,7 @@ def publish_release(
     # serial so publication does not multiply its large-object scratch space.
     unique_uploads = tuple(dict.fromkeys(uploads))
     with ThreadPoolExecutor(max_workers=8) as workers:
-        heads = workers.map(store.head, inventory, buffersize=8)
+        heads = workers.map(publication.store.head, inventory, buffersize=8)
         for upload, existing in zip(unique_uploads, heads, strict=True):
             key, path, content_type, expected_sha256, expected_size = upload
             publication.head_requests += 1
@@ -414,70 +542,16 @@ def publish_release(
             )
 
     _phase_progress("remote_closure", remote_closure_started)
-    pointer_started = _phase_progress("pointer")
-    current = publication.head(pointer_key)
-    if current is not None:
-        serving = load_lake_model_json(
-            publication.read_pointer(pointer_key, current), LakeReleasePointer
-        )
-        # Republishing the same release is the retry of an interrupted publication, and
-        # it has to be exactly the same release rather than the same name.
-        if serving.release_id == release.release_id:
-            if (
-                serving.manifest_key != expected_release_key
-                or serving.manifest_sha256 != release_sha256
-            ):
-                raise LakePublishError("current pointer reuses release ID with different identity")
-            _phase_progress("pointer", pointer_started)
-            return PublishReport(
-                release_id=release.release_id,
-                transfers=publication.report(),
-                pointer_etag=current.etag,
-                local_graph_seconds=remote_closure_started - local_graph_started,
-                remote_closure_seconds=pointer_started - remote_closure_started,
-                pointer_seconds=time.perf_counter() - pointer_started,
-            )
-    pointer = LakeReleasePointer(
-        release_id=release.release_id,
-        manifest_key=expected_release_key,
-        manifest_sha256=release_sha256,
-    )
-    with tempfile.NamedTemporaryFile(prefix="baibai-lake-pointer-", suffix=".json") as temporary:
-        temporary.write(canonical_lake_model_bytes(pointer))
-        temporary.flush()
-        pointer_payload = Path(temporary.name).read_bytes()
-        # A long export/upload can outlive the caller's publication lease. The
-        # pointer ETag protects its generation, while this checks the caller's
-        # authority immediately before the conditional write. A failed guard is
-        # not an ambiguous attempted switch and must never enter reconciliation.
-        if before_pointer_switch is not None:
-            before_pointer_switch()
-        try:
-            result = publication.put(
-                pointer_key,
-                Path(temporary.name),
-                sha256=hashlib.sha256(pointer_payload).hexdigest(),
-                content_md5=_content_md5(Path(temporary.name)),
-                content_type="application/json",
-                if_match=pointer_precondition.etag,
-                if_none_match=pointer_precondition.etag is None,
-            )
-            publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
-        except LakePublishError as exc:
-            result = _reconcile_pointer_switch(
-                publication,
-                key=pointer_key,
-                expected=pointer_payload,
-                cause=exc,
-            )
-    _phase_progress("pointer", pointer_started)
-    return PublishReport(
-        release_id=release.release_id,
+    return StagedLake(
+        pointer=LakeReleasePointer(
+            release_id=release.release_id,
+            manifest_key=expected_release_key,
+            manifest_sha256=release_sha256,
+        ),
         transfers=publication.report(),
-        pointer_etag=result.etag,
         local_graph_seconds=remote_closure_started - local_graph_started,
-        remote_closure_seconds=pointer_started - remote_closure_started,
-        pointer_seconds=time.perf_counter() - pointer_started,
+        remote_closure_seconds=time.perf_counter() - remote_closure_started,
+        base=base,
     )
 
 

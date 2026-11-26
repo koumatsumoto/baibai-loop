@@ -13,6 +13,8 @@ import base64
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
@@ -20,6 +22,9 @@ from baibai_engine.storage.objects.r2 import (
     R2Error,
     RemoteObject,
 )
+
+if TYPE_CHECKING:
+    from baibai_engine.storage.snapshots.release import LakeReleasePointer
 
 
 def _content_md5(body: bytes) -> str:
@@ -50,6 +55,9 @@ class MemoryR2Store:
         self.head_keys: list[str] = []
         self.put_keys: list[str] = []
         self.delete_keys: list[str] = []
+
+    def close(self) -> None:
+        pass
 
     def delete_object(self, key: str) -> None:
         self.delete_keys.append(key)
@@ -167,3 +175,41 @@ class VerifiedMemoryR2Store(MemoryR2Store):
         ):
             raise LakePublishError("fixture fixed receipt read failed")
         return payload, info
+
+
+def seed_machine_current(
+    store: MemoryR2Store,
+    release: LakeReleasePointer,
+    *,
+    market: bytes = b"market metadata fixture",
+    runs: bytes = b"runs metadata fixture",
+) -> LakeReleasePointer:
+    """Seed the real current wire for tests consuming only the member metadata."""
+    from baibai_engine.storage.snapshots.keys import current_release_pointer_key
+    from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
+    from baibai_engine.storage.snapshots.release import (
+        LakeReleasePointer,
+        MachineMember,
+        MachineMembers,
+        MachineRole,
+        machine_member_key,
+    )
+
+    chosen = uuid4().hex
+
+    def member(role: MachineRole, body: bytes) -> MachineMember:
+        key = machine_member_key(chosen, role)
+        store.store_object(key, body)
+        meta = store.head(key)
+        assert meta is not None
+        return MachineMember(key=key, etag=meta.etag, size=meta.size)
+
+    pointer = LakeReleasePointer(
+        pointer_version=2,
+        release_id=release.release_id,
+        manifest_key=release.manifest_key,
+        manifest_sha256=release.manifest_sha256,
+        machine=MachineMembers(market=member("market", market), runs=member("runs", runs)),
+    )
+    store.store_object(current_release_pointer_key(), canonical_lake_model_bytes(pointer))
+    return pointer

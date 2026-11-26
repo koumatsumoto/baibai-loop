@@ -52,14 +52,16 @@ def seed(path, *, value="100000", at=CLOCK):
 
 @pytest.fixture
 def integration(tmp_path, monkeypatch):
-    names = ("jquants.daily_bars", "jquants.master_snapshots")
+    names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
     monkeypatch.setattr(job, "_load_handle", lambda _: None)
     monkeypatch.setattr(job, "verify_held", lambda *_: None)
     market = market_store(
-        tmp_path / "market.sqlite", daily_bars=(("1301", DAY.isoformat(), 100, 1),)
+        tmp_path / "market.sqlite",
+        daily_bars=(("1301", DAY.isoformat(), 100, 1),),
+        short_sale_reports=(),
     )
     with closing(sqlite3.connect(market)) as connection, connection:
         insert_master_rows(
@@ -92,9 +94,12 @@ def test_daily_cli_generates_without_articles_and_retains_economic_input(
 ):
     args = integration
     original = args["economic"].read_bytes()
+    # The CLI consumes an existing Machine pair; publish a real synthetic predecessor.
+    prior = job.integrate_models(**args)
+    assert prior["models_ready"] is True
 
     class FixtureTransport:
-        def __new__(cls, *, bucket):
+        def __new__(cls, *, bucket, env=None, verify_put_with_head=True):
             return args["store"]
 
     monkeypatch.setattr(job, "Boto3R2Store", FixtureTransport)
@@ -142,6 +147,14 @@ def test_daily_cli_generates_without_articles_and_retains_economic_input(
     assert args["economic"].read_bytes() == original
     saved = read_generation(result["generation_id"], path=args["runs"])
     assert saved is not None
+    assert saved.generation_id != prior["generation_id"]
+    assert read_publication(path=args["runs"], selection_id=prior["selection_id"]) is not None
+    machine = job.read_machine_current(args["store"]).pointer
+    assert machine is not None
+    assert (saved.inputs["market"].reference, saved.inputs["market"].sha256) == (
+        machine.release_id,
+        machine.manifest_sha256,
+    )
     assert saved.subject_plan is not None
     assert {k for k, plan in saved.subject_plan.items() if plan.scope != "stock"} == {"market"}
     current = read_publication(path=args["runs"])
