@@ -502,8 +502,12 @@ class Boto3R2Store:
             key, sha256=sha256, max_bytes=max_bytes, single_attempt=single_attempt
         )
 
-    def get_checked_object(self, key: str, *, max_bytes: int) -> tuple[bytes, RemoteObject] | None:
-        return self._get_checked_object(key, sha256=None, max_bytes=max_bytes)
+    def get_checked_object(
+        self, key: str, *, max_bytes: int, single_attempt: bool = False
+    ) -> tuple[bytes, RemoteObject] | None:
+        return self._get_checked_object(
+            key, sha256=None, max_bytes=max_bytes, single_attempt=single_attempt
+        )
 
     def _get_checked_object(
         self, key: str, *, sha256: str | None, max_bytes: int, single_attempt: bool = False
