@@ -107,7 +107,7 @@ uv run baibai-engine portfolio outcome --db stores/application/baibai.sqlite \
   --out <NEW_OUTCOME_YAML>
 ```
 
-resolvedだけapplication DBへimmutable保存する。`--out`は任意exportで既存pathを上書きしない。export失敗はDB保存の取消ではない。過去IDを現在値/新形式で書換えず、遅延報告等で再計測するなら`--outcome-id <NEW_OUTCOME_ID>`、同内容再送なら同じIDを使う。
+終了コード0でも、出力が `status: unresolved` なら実績は保存されない。`status: resolved` と `outcome_id` が保存の確認になる。`--out`は任意exportで既存pathを上書きしない。export失敗はDB保存の取消ではない。過去IDを現在値/新形式で書換えず、遅延報告等で再計測するなら`--outcome-id <NEW_OUTCOME_ID>`、同内容再送なら同じIDを使う。
 
 保存後のexportだけが失敗した場合は終了code 2のまま、stdoutの`saved_output_failed`に保存IDとpayload SHAを返す。台帳・市場・benchmarkで再計算せず、保存した結果を新規pathへ出す。SHAは保存JSON本文のbytesの照合用で、YAMLファイルのSHAではない。
 
