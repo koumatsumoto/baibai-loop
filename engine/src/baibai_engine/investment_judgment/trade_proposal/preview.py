@@ -463,8 +463,12 @@ def preview_current_terms(
                 changes.extend(blockers)
             row["blockers"] = [reason.model_dump(mode="json") for reason in blockers]
             rows.append(row)
+        # 訂正済みの行動は適用せず、実際の保有・現金の診断だけを残す。
         warnings = build_proposal_warnings(
-            inputs, proposal.items, proposal.liquidity_context, assessments=assessments
+            inputs,
+            () if corrected else proposal.items,
+            proposal.liquidity_context,
+            assessments=assessments,
         )
         for row in rows:
             row["current_terms_warnings"] = list(

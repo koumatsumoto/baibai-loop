@@ -100,6 +100,14 @@ def test_corrected_exact_proposal_is_history_not_currently_applicable(tmp_path, 
     assert row["saved_order_readiness"] == baseline.items[0]["saved_order_readiness"]
     assert row["saved_terms"] == baseline.items[0]["saved_terms"]
     assert row["current_quote_calculation"] is None
+    assert row["current_terms_warnings"] == []
+    assert preview.current_inputs == baseline.current_inputs
+    assert preview.portfolio_exposure["ticker"] is None
+    assert preview.portfolio_exposure["sector"] is None
+    assert preview.portfolio_exposure["common_factors"] == []
+    if action == "buy":
+        assert baseline.items[0]["current_terms_warnings"]
+        assert baseline.portfolio_exposure["ticker"] is not None
     if row["saved_limit_revalidation"] is not None:
         assert "proposal_corrected" in {
             reason["code"] for reason in row["saved_limit_revalidation"]["hard_blockers"]
@@ -109,7 +117,19 @@ def test_corrected_exact_proposal_is_history_not_currently_applicable(tmp_path, 
     assert replacement.status == original_baseline.status
     assert replacement.items == original_baseline.items
     assert replacement.change_reasons == original_baseline.change_reasons
+    assert replacement.warnings == original_baseline.warnings
+    assert replacement.portfolio_exposure == original_baseline.portfolio_exposure
     assert replacement.records["corrections"] == preview.records["corrections"]
+    if action == "hold":
+        missing_market = preview_current_terms(
+            proposal_id=wrong.proposal_id,
+            db_path=case.app,
+            sqlite_path=tmp_path / "missing-market.sqlite",
+            now=NOW,
+        )
+        assert missing_market.current_inputs.positions[0].ticker == row["ticker"]
+        assert f"portfolio_valuation_unknown:{row['ticker']}" in missing_market.warnings
+        assert "concentration_and_dry_powder_unassessed" in missing_market.warnings
     with closing(connect_read_only(case.app)) as con:
         assert load_investment_proposal(con, wrong.proposal_id) == wrong
         assert load_investment_proposal(con, original.proposal_id) == original
