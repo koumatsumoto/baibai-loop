@@ -7,7 +7,7 @@ import pytest
 
 from baibai_jobs.integration import sources
 
-PHASES = ("external_ready", "market_handoffs", "article_handoffs", "edinet_input")
+PHASES = ("external_ready", "market_handoffs", "edinet_input")
 
 
 def setup_plan(monkeypatch, *, fail=None):
@@ -19,7 +19,6 @@ def setup_plan(monkeypatch, *, fail=None):
             {"source": "jquants-financial"},
             {"source": "jpx-earnings"},
         ],
-        "article_handoffs": [{"source": "boj_news", "stage_id": "private-article"}],
         "edinet_input": SimpleNamespace(model_dump=lambda **_: {"sha256": "private-fixed"}),
     }
 
@@ -37,11 +36,11 @@ def setup_plan(monkeypatch, *, fail=None):
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: SimpleNamespace(close=lambda: None))
     for name, target in zip(
         PHASES,
-        ("available_ready", "available_handoffs", "pending_handoffs", "fix_edinet_input"),
+        ("available_ready", "available_handoffs", "fix_edinet_input"),
         strict=True,
     ):
         monkeypatch.setattr(sources, target, phase(name))
-    clock = iter([10.0, 11.25, 20.0, 22.5, 30.0, 33.75, 40.0, 45.0])
+    clock = iter([10.0, 11.25, 20.0, 22.5, 40.0, 45.0])
     monkeypatch.setattr(sources.time, "perf_counter", lambda: next(clock))
     return calls
 
@@ -51,10 +50,7 @@ def test_plan_timings_leave_fixed_values_and_call_order_unchanged(tmp_path, monk
     assert sources.main(["plan", "--directory", str(tmp_path)]) == 0
     assert calls == list(PHASES)
     assert json.loads((tmp_path / "plan.json").read_text()) == {
-        "handoffs": [
-            {"source": "jpx-earnings"},
-            {"source": "boj_news", "stage_id": "private-article"},
-        ],
+        "handoffs": [{"source": "jpx-earnings"}],
         "edinet_input": {"sha256": "private-fixed"},
         "external": [{"run_id": "private-ready"}],
         "external_failed": [{"reason": "ValueError"}],
@@ -63,7 +59,7 @@ def test_plan_timings_leave_fixed_values_and_call_order_unchanged(tmp_path, monk
     assert output.out == ""
     assert output.err.splitlines() == [
         line
-        for name, seconds in zip(PHASES, (1.25, 2.5, 3.75, 5.0), strict=True)
+        for name, seconds in zip(PHASES, (1.25, 2.5, 5.0), strict=True)
         for line in (
             f"source plan: phase={name} state=start",
             f"source plan: phase={name} state=done elapsed_seconds={seconds:.3f}",

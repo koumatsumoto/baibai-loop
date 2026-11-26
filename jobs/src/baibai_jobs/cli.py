@@ -39,7 +39,6 @@ _COMMANDS = {
     "financial-pdf-source": "baibai_jobs.acquisition.financial_pdfs",
     "market-evidence": "baibai_jobs.acquisition.market_context",
     "article-evidence": "baibai_jobs.acquisition.article_evidence",
-    "article-recovery": "baibai_jobs.maintenance.article_recovery",
     "restore-model-history": "baibai_jobs.maintenance.model_history",
     "acquire-economic": "baibai_jobs.acquisition.economic_cli",
     "maintain-market": "baibai_jobs.maintenance.market.cli",

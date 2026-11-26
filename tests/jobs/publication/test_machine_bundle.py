@@ -1,4 +1,4 @@
-"""Scoped inputs and a display-only recovery share one published machine proof."""
+"""A market seal and display-only recovery share one published machine proof."""
 
 import hashlib
 import json
@@ -14,7 +14,6 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.article_planning import load_planning, source_key
 from baibai_jobs.integration import sources
 from baibai_jobs.publication import machine_bundle
 from baibai_jobs.publication.lease import _save_handle, acquire
@@ -85,67 +84,37 @@ def test_published_generation_refuses_any_partial_machine_push(
     assert sidecar.read_text() == old_economic
 
 
-def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    remote = _remote_bundle()
-    monkeypatch.setattr(remote, "close", lambda: None, raising=False)
-    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
-    monkeypatch.setattr(sources, "_load_handle", lambda _: object())
-    monkeypatch.setattr(sources, "verify_held", lambda *_: None)
-    published = []
-
-    def publish(_store, _source, generations):
-        published.append(generations)
-
-    monkeypatch.setattr(sources, "publish_planning_input", publish)
-    remote.store_object("indicators.sqlite", b"same logical economic rows, resealed bytes")
-    _publish_receipt(remote)
-    command = [
-        "inputs",
-        "--directory",
-        str(tmp_path / "integration"),
-        "--lease-handle",
-        str(tmp_path / "lease.json"),
-        "--asof",
-        "2026-10-30",
-        "--identity",
-        "synthetic",
-        "--group",
-        "tsr_flash",
-    ]
-    assert sources.main(command) == 0
-    assert "economic_etag" not in published[0]
-
-    remote.store_object("runs.sqlite", b"partial machine upload")
-    assert sources.main(command) == 1
-    assert len(published) == 1
-
-
 @pytest.mark.parametrize(
     ("release_id", "digest"),
     [("successor", "b" * 64), ("successor", "a" * 64), ("published", "b" * 64)],
 )
-def test_scoped_inputs_refuse_an_unpaired_daily_release(tmp_path, monkeypatch, release_id, digest):
+def test_market_seal_refuses_an_unpaired_daily_release(tmp_path, monkeypatch, release_id, digest):
     remote = _remote_bundle()
     monkeypatch.setattr(remote, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
     handle, _ = acquire(remote, "operator")
     lease = tmp_path / "lease.json"
     _save_handle(lease, handle)
-    command = [
-        "inputs",
-        "--directory",
-        str(tmp_path / "integration"),
-        "--lease-handle",
-        str(lease),
-        "--asof",
-        "2026-10-30",
-        "--identity",
-        "synthetic",
-        "--group",
-        "boj_news",
-    ]
+    directory = tmp_path / "integration"
+    directory.mkdir()
+    report = {
+        "handoffs": [
+            {
+                "entry": {
+                    "market": True,
+                    "source": "jpx-earnings",
+                    "stage_id": "exact",
+                    "manifest_sha256": "f" * 64,
+                    "started_at": "2026-10-30T02:00:00+00:00",
+                },
+                "applied": True,
+                "result": {"retained_bundles": []},
+                "recovery": False,
+            }
+        ]
+    }
+    (directory / "applied.json").write_text(json.dumps(report))
+    command = ["seal", "--directory", str(directory), "--lease-handle", str(lease)]
 
     # model-integration can publish the lake before the machine transfer completes.
     # Both old store ETags still match their receipt, but neither proves this release.
@@ -163,8 +132,11 @@ def test_scoped_inputs_refuse_an_unpaired_daily_release(tmp_path, monkeypatch, r
         origin={"run": "12346-1", "release_id": release_id, "release_manifest_sha256": digest},
     )
     assert sources.main(command) == 0
-    assert remote.put_keys == [source_key("boj_news")]
-    assert load_planning(remote, "boj_news")[0].generations == {
+    terminal = "coordination/market-sources/exact/integrated.json"
+    assert remote.put_keys == [terminal]
+    result = json.loads(remote.values[terminal].body)
+    assert result["status"] == "integrated"
+    assert result["canonical_generations"] == {
         "lake_release_id": release_id,
         "lake_manifest_sha256": digest,
     }

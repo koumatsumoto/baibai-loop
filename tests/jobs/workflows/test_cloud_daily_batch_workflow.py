@@ -50,7 +50,6 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
         ("source-integration", "batch"),
         ("batch", "upload-stores"),
         ("upload-stores", "source-seal"),
-        ("source-seal", "source-inputs"),
         ("source-seal", "source-check"),
     ):
         assert ids.index(first) < ids.index(second)
@@ -104,43 +103,14 @@ def test_optional_edinet_acceptance_is_before_any_model_publication(workflow, st
     assert "if" not in by_id["batch"]  # GitHub's normal success condition, never always().
 
 
-def test_article_semantic_refresh_is_opt_in_inside_normal_publication_lease(workflow, steps, by_id):
-    declaration = workflow["on"]["workflow_dispatch"]["inputs"]["article_semantic_recovery"]
-    assert declaration["required"] == "false"
-    assert declaration["type"] == "string"
-    assert declaration.get("default", "") == ""
-    ids = [step.get("id") for step in steps]
-    assert (
-        ids.index("lease-acquire")
-        < ids.index("hydrate")
-        < ids.index("source-integration")
-        < ids.index("article-semantic-recovery")
-        < ids.index("batch")
-    )
-    assert (
-        ids.index("upload-stores")
-        < ids.index("article-semantic-readback")
-        < ids.index("lease-release")
-    )
-    refresh = by_id["article-semantic-recovery"]
-    assert refresh["if"] == "${{ inputs.article_semantic_recovery != '' }}"
-    assert "continue-on-error" not in refresh
-    assert "${{ inputs." not in refresh["run"]
-    assert "--article-semantic-recovery" in by_id["validate-input"]["run"]
-    for name in ("article-semantic-recovery", "article-semantic-readback"):
-        assert by_id[name]["env"]["R2_STOP_ON_REJECTION"] == "1"
-        assert '--lease-handle "$RUNNER_TEMP/publication-lease-handle.json"' in by_id[name]["run"]
-    assert (
-        "steps.upload-stores.outputs.machine == 'success'"
-        in by_id["article-semantic-readback"]["if"]
-    )
-    assert (
-        "steps.article-semantic-recovery.outcome == 'success'"
-        in by_id["article-semantic-readback"]["if"]
-    )
-    assert (
-        "extract_observations" not in by_id["batch"]["run"]
-    )  # No automatic all-history migration.
+def test_current_daily_has_no_article_replay_entrypoint(workflow, by_id):
+    assert "article_semantic_recovery" not in workflow["on"]["workflow_dispatch"]["inputs"]
+    assert "article-semantic-recovery" not in by_id
+    assert "article-semantic-readback" not in by_id
+    assert "article_semantic_recovery" not in str(workflow)
+    assert "--article-semantic-" not in str(workflow)
+    assert "source-inputs" not in by_id  # Only retired article planning used it.
+    assert "integration.sources inputs" not in str(workflow)
 
 
 @pytest.mark.parametrize(
@@ -189,12 +159,10 @@ def test_notifications_and_credentials_remain_scoped(steps, by_id):
     assert notify["name"].startswith(RESULT_STEP_PREFIX)
 
 
-@pytest.mark.parametrize(
-    "step", ["edinet-metrics-acceptance", "article-semantic-recovery", "article-semantic-readback"]
-)
-def test_explicit_acceptance_outcomes_reach_the_existing_notifier(by_id, step):
+def test_explicit_edinet_acceptance_outcome_reaches_the_existing_notifier(by_id):
     from baibai_jobs.observability.discord import STEP_ORDER
 
+    step = "edinet-metrics-acceptance"
     assert step in STEP_ORDER
     assert step in by_id
     assert f'--{step}-outcome "${{{{ steps.{step}.outcome }}}}"' in by_id["notify"]["run"]

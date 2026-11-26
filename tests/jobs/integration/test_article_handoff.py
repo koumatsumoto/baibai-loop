@@ -4,7 +4,6 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.helpers.edinet_native import empty_edinet_input
 
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
@@ -167,14 +166,13 @@ def test_received_200_without_body_region_remains_a_projection_failure(tmp_path)
     assert result.report["projection_failures"] == [receipt.receipt_id]
 
 
-def test_common_integration_accepts_article_shape_from_old_market_version(tmp_path, monkeypatch):
+def test_exact_original_remains_readable_from_old_market_version(tmp_path):
     import sqlite3
 
     from tests.helpers.r2_store import MemoryR2Store
 
-    from baibai_jobs.acquisition.article_evidence import exact_entry
+    from baibai_jobs.acquisition.article_evidence import export_evidence
     from baibai_jobs.acquisition.economic_staging import save_handoff
-    from baibai_jobs.integration import sources
 
     packet = tmp_path / "legacy"
     original = _packet(packet, "legacy-original", datetime(2026, 10, 29, tzinfo=UTC))
@@ -187,42 +185,20 @@ def test_common_integration_accepts_article_shape_from_old_market_version(tmp_pa
     remote = MemoryR2Store()
     save_handoff(remote, "legacy-article", packet, namespace="article-sources")
     manifest = remote.values["coordination/article-sources/legacy-article/handoff.json"].body
-    entry = exact_entry(
+    puts = list(remote.put_keys)
+    out = tmp_path / "private-evidence"
+    result = export_evidence(
         remote,
+        out,
         source="boj_news",
         stage_id="legacy-article",
         manifest_sha256=hashlib.sha256(manifest).hexdigest(),
+        receipt_digests={original.receipt_id: original.sha256},
     )
-    work = tmp_path / "integration"
-    work.mkdir()
-    (work / "plan.json").write_text(
-        json.dumps(
-            {
-                "handoffs": [
-                    entry,
-                    {"source": "jpx-regulations", "market": True, "invalid": "ValueError"},
-                    {"source": "jpx-earnings", "market": True, "late_before_integrated": True},
-                ],
-                "edinet_input": empty_edinet_input(remote, tmp_path).model_dump(mode="json"),
-            }
-        )
-    )
-    market = tmp_path / "market.sqlite"
-    with closing(open_connection(market)):
-        pass
-    monkeypatch.setattr(sources, "extract_saved_edinet", lambda *_, **__: {})
-    puts = list(remote.put_keys)
-    applied = sources.apply(remote, work, market=market, asof=original.received_at.date())
-    outcome = applied["handoffs"][0]
-    assert outcome["applied"] is True
-    assert outcome["failed"] is False
-    assert outcome["article_delta"]["articles.source_receipts"]
+    assert result["receipts"] == 1
     assert (packet / "receipts.sqlite").read_bytes() == before
+    assert (out / "original" / "receipts.sqlite").read_bytes() == before
     assert remote.put_keys == puts
-    assert [item["result"]["reason"] for item in applied["handoffs"][1:]] == [
-        "invalid_handoff",
-        "older_than_integrated_source_watermark",
-    ]
 
 
 def test_explicit_semantic_recovery_keeps_selected_native_version_and_publication_closure(
@@ -332,85 +308,6 @@ def test_explicit_semantic_recovery_keeps_selected_native_version_and_publicatio
         new_native.artifact_id,
         recovered.artifact_id,
     }
-
-
-@pytest.mark.parametrize("damage", ["missing", "empty", "null", "list", "non_string"])
-def test_invalid_projection_metadata_is_local_and_later_article_still_integrates(
-    tmp_path, monkeypatch, damage
-):
-    import sqlite3
-
-    from tests.helpers.master_calendar_native import seed_calendar, seed_master
-    from tests.helpers.r2_store import MemoryR2Store
-
-    from baibai_jobs.acquisition.article_evidence import exact_entry
-    from baibai_jobs.acquisition.economic_staging import save_handoff
-    from baibai_jobs.integration import sources
-
-    remote = MemoryR2Store()
-    stamp = datetime(2026, 10, 29, tzinfo=UTC)
-    entries, originals = [], []
-    for number, source in enumerate(("boj_news", "minkabu_news")):
-        packet = tmp_path / f"packet-{number}"
-        original = _packet(packet, f"original-{number}", stamp, source=source)
-        report = json.loads((packet / "result.json").read_text())
-        report.update(started_at=stamp.isoformat(), asof=stamp.date().isoformat())
-        if number == 0:
-            if damage == "missing":
-                del report["projection_kinds"]
-            else:
-                report["projection_kinds"] = {
-                    "empty": {},
-                    "null": None,
-                    "list": [],
-                    "non_string": {original.receipt_id: 1},
-                }[damage]
-        (packet / "result.json").write_text(json.dumps(report))
-        originals.append((packet / "receipts.sqlite", (packet / "receipts.sqlite").read_bytes()))
-        stage_id = f"article-{number}"
-        save_handoff(remote, stage_id, packet, namespace="article-sources")
-        manifest = remote.values[f"coordination/article-sources/{stage_id}/handoff.json"].body
-        entries.append(
-            exact_entry(
-                remote,
-                source=source,
-                stage_id=stage_id,
-                manifest_sha256=hashlib.sha256(manifest).hexdigest(),
-            )
-        )
-    work = tmp_path / "integration"
-    work.mkdir()
-    (work / "plan.json").write_text(
-        json.dumps(
-            {
-                "handoffs": entries,
-                "edinet_input": empty_edinet_input(remote, tmp_path).model_dump(mode="json"),
-            }
-        )
-    )
-    market = tmp_path / "market.sqlite"
-    with closing(open_connection(market)):
-        pass
-    seed_calendar(remote, market, tmp_path / "native-calendar", as_of=stamp.date())
-    seed_master(remote, market, tmp_path / "native-master", as_of=stamp.date())
-    monkeypatch.setattr(sources, "extract_saved_edinet", lambda *_, **__: {})
-    before = {key: value.body for key, value in remote.values.items()}
-    for _ in range(2):
-        applied = sources.apply(remote, work, market=market, asof=stamp.date())
-        bad, good = applied["handoffs"]
-        assert bad["result"] == {"reason": "ValueError"}
-        assert bad["applied"] is False
-        assert bad["failed"] is bad["recovery"] is True
-        assert good["applied"] is True
-        assert good["failed"] is good["recovery"] is False
-        assert good["article_delta"]["articles.source_receipts"]
-        assert (work / "applied.json").exists()
-        with closing(sqlite3.connect(market)) as connection:
-            assert connection.execute(
-                "SELECT COUNT(*) FROM article_source_receipts"
-            ).fetchone() == (1,)
-    assert all(path.read_bytes() == body for path, body in originals)
-    assert all(remote.values[key].body == body for key, body in before.items())
 
 
 @pytest.mark.parametrize(
