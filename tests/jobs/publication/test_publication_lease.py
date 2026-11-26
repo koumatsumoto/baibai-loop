@@ -849,8 +849,9 @@ def test_cli_uses_module_path_and_existing_bucket_env(
     def load(path: Path) -> None:
         seen["env_path"] = path
 
-    def make_store(*, bucket: str) -> MemoryStore:
+    def make_store(*, bucket: str, verify_put_with_head: bool) -> MemoryStore:
         seen["bucket"] = bucket
+        seen["verify_put_with_head"] = verify_put_with_head
         return store
 
     monkeypatch.setattr(lease, "_load_project_env", load)
@@ -858,7 +859,89 @@ def test_cli_uses_module_path_and_existing_bucket_env(
     monkeypatch.setenv("R2_STORES_BUCKET", "test-stores")
     path = tmp_path / "handle.json"
     assert lease.main(["acquire", "--purpose", "operator", "--handle", str(path)]) == 0
-    assert seen == {"env_path": Path(lease.__file__), "bucket": "test-stores"}
+    assert seen == {
+        "env_path": Path(lease.__file__),
+        "bucket": "test-stores",
+        "verify_put_with_head": False,
+    }
+
+
+@pytest.mark.parametrize("ack", ["normal", "missing-acquire", "unknown-release"])
+def test_cli_lease_uses_the_put_ack_or_checked_readback(monkeypatch, tmp_path, capsys, ack):
+    old = lease.PublicationLease(
+        "released", "local:" + "a" * 32, "operator", NOW, NOW + lease.LEASE_TTL
+    )
+    body = lease._encode(old)
+    etag = "previous"
+    calls = []
+
+    def response():
+        return {
+            "ETag": f'"{etag}"',
+            "ContentLength": len(body),
+            "ContentType": "application/json",
+            "Metadata": {"sha256": hashlib.sha256(body).hexdigest()},
+        }
+
+    def get_object(**_):
+        calls.append("GET")
+        if ack == "unknown-release" and etag == "released":
+            raise ReadTimeoutError(endpoint_url="https://invalid.example")
+        return {**response(), "Body": BytesIO(body)}
+
+    def put_object(*, IfMatch, Body, **_):
+        nonlocal body, etag
+        calls.append("PUT")
+        assert IfMatch == f'"{etag}"'
+        body = Body.read()
+        etag = lease._decode(body).state
+        if ack == "unknown-release" and etag == "released":
+            raise ReadTimeoutError(endpoint_url="https://invalid.example")
+        if ack == "missing-acquire" and etag == "held":
+            return {}
+        return {"ETag": f'"{etag}"'}
+
+    def head_object(**_):
+        calls.append("HEAD")
+        return {**response(), "ETag": '"different-generation"'}
+
+    def make_store(**kwargs):
+        store = Boto3R2Store(
+            env={
+                "R2_ACCOUNT_ID": "a" * 32,
+                "R2_ACCESS_KEY_ID": "fixture",
+                "R2_SECRET_ACCESS_KEY": "fixture",
+            },
+            **kwargs,
+        )
+        wire = SimpleNamespace(
+            get_object=get_object, put_object=put_object, head_object=head_object
+        )
+        monkeypatch.setattr(store, "_client", lambda *_, **__: wire)
+        return store
+
+    monkeypatch.setattr(lease, "Boto3R2Store", make_store)
+    monkeypatch.setattr(lease, "_load_project_env", lambda _: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    path = tmp_path / "handle.json"
+
+    assert (
+        lease.main(["acquire", "--purpose", "operator", "--require-v2", "--handle", str(path)]) == 0
+    )
+    assert lease._load_handle(path).etag == "held"
+    expected = ["GET", "PUT"]
+    if ack == "missing-acquire":
+        expected.append("GET")
+
+    assert lease.main(["release", "--handle", str(path)]) == int(ack == "unknown-release")
+    expected.append("PUT")
+    if ack == "unknown-release":
+        expected.append("GET")
+        assert lease._load_handle(path).etag == "held"
+        assert "publication lease: released" not in capsys.readouterr().out
+    else:
+        assert not path.exists()
+    assert calls == expected
 
 
 def test_local_env_loads_from_module_location_without_overriding_process_env(

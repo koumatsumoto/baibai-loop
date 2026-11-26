@@ -416,7 +416,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         handle = _load_handle(args.handle) if args.command in ("release", "verify") else None
         _load_project_env(Path(__file__))
-        store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or DEFAULT_STORES_BUCKET)
+        store = Boto3R2Store(
+            bucket=os.environ.get("R2_STORES_BUCKET") or DEFAULT_STORES_BUCKET,
+            verify_put_with_head=False,
+        )
         if args.command == "acquire":
             acquired, expired = acquire(store, args.purpose, require_v2=args.require_v2)
             try:
