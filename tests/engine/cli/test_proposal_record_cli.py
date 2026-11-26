@@ -1,5 +1,9 @@
 """記録draftの構文エラーを本文やtracebackのないCLIエラーへ戻す。"""
 
+import json
+import sqlite3
+from contextlib import closing
+
 import pytest
 import yaml
 from tests.helpers.proposal_records import not_purchased_report, ref
@@ -79,3 +83,60 @@ def test_ambiguous_proposal_record_draft_is_rejected_before_save(
     assert case.app.read_bytes() == before
     assert service.read(original.proposal_id)["human_reports"] == []
     assert service.read(other.proposal_id) == {"corrections": [], "human_reports": []}
+
+
+@pytest.mark.parametrize("command", ["correct", "report", "show"])
+def test_proposal_record_schema_error_does_not_repeat_private_fields(
+    records_case, tmp_path, capsys, command
+):
+    case, original, other, service, correction = records_case
+    private = {"note": "SYNTHETIC_PRIVATE_RECORD_TEXT"}
+    guard = []
+    if command == "show":
+        # Deliberately corrupt a synthetic saved receipt, rather than passing a draft.
+        report = service.report(not_purchased_report(original))
+        raw = report.model_dump(mode="json")
+        raw["reason_quote"] = private
+        with closing(sqlite3.connect(case.app)) as connection, connection:
+            connection.execute("DROP TRIGGER proposal_human_report_no_update")
+            connection.execute(
+                "UPDATE proposal_human_report SET payload=? WHERE report_id=?",
+                (json.dumps(raw), report.report_id),
+            )
+        target = original.proposal_id
+    else:
+        if command == "correct":
+            raw = correction.model_dump(mode="json")
+            raw["reason"] = private
+            guard = [
+                "--expected-latest-id",
+                other.proposal_id,
+                "--expected-latest-sha256",
+                ref(other).draft_sha256,
+            ]
+        else:
+            raw = not_purchased_report(original).model_dump(mode="json")
+            raw["reason_quote"] = private
+        draft = tmp_path / "wrong-field-type.yaml"
+        draft.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+        target = str(draft)
+    before = case.app.read_bytes()
+
+    assert (
+        main(
+            [
+                "investment-judgment",
+                "proposal-records",
+                "--db",
+                str(case.app),
+                command,
+                target,
+                *guard,
+            ]
+        )
+        == 3
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: invalid proposal record schema\n"
+    assert case.app.read_bytes() == before

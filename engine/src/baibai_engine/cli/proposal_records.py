@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
 
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
@@ -65,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
             payload = record.model_dump(mode="json")
         print(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
         return 0
+    except ValidationError:
+        # Draft and saved-record validation errors may quote the human's private text.
+        print("error: invalid proposal record schema", file=sys.stderr)
+        return 3
     except (ValueError, RuntimeError, OSError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 3
