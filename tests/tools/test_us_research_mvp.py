@@ -603,6 +603,35 @@ def test_unbound_alpaca_page_preserves_financials_but_cannot_supply_iex_prices(d
     assert "SEC実績売上: USD 1,234,567,890" in report
 
 
+@pytest.mark.parametrize(
+    ("headers", "valid"),
+    [
+        ({"content-Length": "actual", "Content-Encoding": "identity"}, True),
+        ({"Transfer-Encoding": "chunked"}, True),
+        ({"Content-Length": "1"}, False),
+        ({"Content-Encoding": "gzip"}, False),
+        ({"Transfer-Encoding": "gzip"}, False),
+        ({"Transfer-Encoding": "chunked", "Content-Length": "actual"}, False),
+    ],
+)
+def test_recorded_alpaca_response_framing_must_agree_with_body(tmp_path, capsys, headers, valid):
+    bundle, files = _fixture()
+    page = bundle["alpaca"]["pages"][0]
+    page["headers"] = {
+        key: str(len(files[page["file"]])) if value == "actual" else value
+        for key, value in headers.items()
+    }
+    manifest = _write_iex_only_bundle(tmp_path, bundle, files)
+    expected = 0 if valid else 1
+    assert main(["--bundle", manifest, "--accept-iex-session", "2026-11-20"]) == expected
+    assert ("alpaca_invalid_fixed_receipt" in capsys.readouterr().out) is not valid
+
+    report = render_research(bundle, files.__getitem__, synthetic=False)
+    assert ("AAPL | research_candidate" in report) is valid
+    assert ("観測20本のSMA" in report) is valid
+    assert "SEC実績売上: USD 1,234,567,890" in report
+
+
 @pytest.mark.parametrize("symbol", ["GOOG", "GOOGL"])
 def test_alphabet_price_cannot_join_valid_apple_financials(symbol):
     bundle, files = _fixture()

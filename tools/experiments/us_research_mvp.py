@@ -102,6 +102,21 @@ def _content_headers(record: _Record) -> Headers:
     return Headers({key: value for key, value in raw.items() if key.lower() in _CONTENT_HEADERS})
 
 
+def _whole_identity_headers(record: _Record, body: bytes) -> Headers:
+    """Check recorded wire claims about these fixed, unencoded original bytes."""
+    headers = _content_headers(record)
+    length = headers.get("Content-Length")
+    transfer = headers.get("Transfer-Encoding")
+    if (
+        "Content-Range" in headers
+        or headers.get("Content-Encoding", "identity").strip().lower() != "identity"
+        or (transfer is not None and (transfer.strip().lower() != "chunked" or length is not None))
+        or (length is not None and (length.strip().lstrip("0") or "0") != str(len(body)))
+    ):
+        raise ValueError("incomplete, encoded or inconsistent original response")
+    return headers
+
+
 def _recorded_sec(
     query: SecEdgarQuery, record: _Record, load: _Loader
 ) -> SecEdgarReceipt | Literal["transport_error"]:
@@ -172,8 +187,8 @@ def _alpaca(
             if not _complete_single_hop(page, url):
                 raise ValueError("Alpaca page was not fully received from the fixed query")
             body, status, received = _native(page, load)
-            if status == 200 and "Content-Range" in _content_headers(page):
-                raise ValueError("ranged Alpaca response cannot attest to the whole page")
+            if status == 200:
+                _whole_identity_headers(page, body)
             return BarsResponse(status, received, body)
 
         capture = capture_daily_bars(
@@ -346,18 +361,11 @@ def _public_index(
     body, status, observed_at = _native(record, load)
     if status != 200:
         raise ValueError("SEC filing index was not received with HTTP 200")
-    headers = _content_headers(record)
+    headers = _whole_identity_headers(record, body)
     length = headers.get("Content-Length")
-    transfer = headers.get("Transfer-Encoding")
     media = headers.get("Content-Type", "text/html").split(";", 1)[0].strip().lower()
-    if (
-        "Content-Range" in headers
-        or headers.get("Content-Encoding", "identity").strip().lower() != "identity"
-        or (transfer is not None and (transfer.strip().lower() != "chunked" or length is not None))
-        or (length is not None and (length.strip().lstrip("0") or "0") != str(len(body)))
-        or media not in {"text/html", "application/xhtml+xml"}
-    ):
-        raise ValueError("incomplete, encoded or inconsistent SEC filing index response")
+    if media not in {"text/html", "application/xhtml+xml"}:
+        raise ValueError("unsupported SEC filing index content type")
     text = body.decode("utf-8", errors="replace")
     parser = _IndexDocument(url)
     parser.feed(text)
