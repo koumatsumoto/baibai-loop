@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
 
@@ -52,6 +53,18 @@ class Source(BaseModel):
         elif self.provider is not None or self.dataset is not None:
             raise ValueError("external source forbids local provider and dataset")
         return self
+
+    def authoring_locator_error(self) -> str | None:
+        """Check the host for a new citation without rewriting a stored ref."""
+        if self.source_tier == "local_data":
+            return None
+        try:
+            host = urlsplit(self.ref or "").hostname
+        except ValueError:
+            host = None
+        if not host or any(character.isspace() for character in host):
+            return f"external source {self.source_id} requires an HTTP(S) host"
+        return None
 
 
 class ObservedFact(BaseModel):

@@ -16,6 +16,7 @@ from baibai_engine.investment_judgment.company_research.context import Available
 from baibai_engine.investment_judgment.company_research.document import (
     ResearchDocument,
     ResearchDraft,
+    research_sha256,
     scaffold_research,
 )
 from baibai_engine.investment_judgment.company_research.query import (
@@ -49,7 +50,9 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     prepare_selected_workspace,
     resume_selected_workspace,
 )
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 AS_OF = NOW.date()
@@ -183,6 +186,55 @@ def test_external_source_still_requires_a_web_ref(ref):
     value["document"]["sources"][0]["ref"] = ref
     with pytest.raises(ValueError, match=r"external source requires an HTTP\(S\) ref"):
         ResearchDraft.model_validate(value)
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "https://",
+        "https:///filing.pdf",
+        "https://?period=2026",
+        "https:// /filing.pdf",
+        "https://[example.test/filing.pdf",
+    ],
+)
+def test_new_research_requires_an_external_host(tmp_path, ref):
+    payload = draft(evidence=True).model_dump(mode="json")
+    payload["document"]["sources"][0]["ref"] = ref
+    service = ResearchStoreService(tmp_path / "app", clock=lambda: NOW)
+    with pytest.raises(ValueError, match=r"external source ir requires an HTTP\(S\) host"):
+        service.save(ResearchDraft.model_validate(payload))
+
+
+def test_precheck_research_can_be_read_retried_and_superseded(tmp_path):
+    path = tmp_path / "app"
+    payload = draft(evidence=True).model_dump(mode="json")
+    payload["document"]["sources"][0]["ref"] = "https://"
+    original = ResearchDraft.model_validate(payload)
+    digest = research_sha256(original.document)
+    initialize_database(path)
+    with closing(connect_rw(path)) as connection, connection:
+        connection.execute(
+            "INSERT INTO company_research(research_id,ticker,as_of,recorded_at,prior_research_id,"
+            "payload,payload_sha256) VALUES (?,?,?,?,?,?,?)",
+            (
+                original.research_id,
+                original.document.ticker,
+                original.document.as_of.isoformat(),
+                NOW.isoformat(),
+                None,
+                canonical_json(original.document.model_dump(mode="json")),
+                digest,
+            ),
+        )
+    stored = read(path).research.record
+    assert stored.reference.payload_sha256 == digest
+    assert stored.document.sources[0].ref == "https://"
+    service = ResearchStoreService(path, clock=lambda: NOW + timedelta(seconds=1))
+    assert service.save(original) == stored
+    successor = service.save(draft("r2", prior=stored.reference, evidence=True))
+    assert successor.prior_research_ref == stored.reference
+    assert successor.document.sources[0].ref == "https://example.test/ir"
 
 
 @pytest.mark.parametrize(
