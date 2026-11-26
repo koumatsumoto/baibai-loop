@@ -67,10 +67,12 @@ def classify_price_day(values: Sequence[float | None]) -> PriceDayState:
     if any(value is None for value in values):
         return "mixed"
     present = [value for value in values if value is not None]
+    open_price, high, low, close, volume, turnover = present
     if (
         any(not isfinite(value) for value in present)
-        or any(value <= 0 for value in present[:4])
-        or any(value < 0 for value in present[4:])
+        or not (0 < low <= open_price <= high and low <= close <= high)
+        or volume < 0
+        or turnover < 0
     ):
         return "invalid"
     return "priced"
