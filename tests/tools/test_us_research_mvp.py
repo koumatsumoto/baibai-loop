@@ -277,7 +277,8 @@ def test_publicly_observed_time_is_not_independent_exact_publication():
 
 def _public_index_bundle():
     bundle, files = _fixture()
-    filing = bundle["subjects"][0]["filing"]
+    subject = bundle["subjects"][0]
+    filing = subject["filing"]
     accession = filing["accession"]
     cik = int(filing["issuer_cik"])
     url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession.replace('-', '')}/{accession}-index.htm"
@@ -286,6 +287,8 @@ def _public_index_bundle():
         f"<html><head><title>EDGAR Filing Documents for {accession}</title></head>"
         "<body><h1>Filing Detail</h1>"
         f"<div><strong>SEC Accession No.</strong> {accession}</div>"
+        '<div class="formGrouping"><div class="infoHead">Period of Report</div>'
+        f'<div class="info">{subject["period_end"]}</div></div>'
         f'<table><tr><td>Complete submission text file</td><td><a href="{submission}">'
         f"{accession}.txt</a></td></tr></table></body></html>"
     ).encode()
@@ -322,6 +325,70 @@ def test_explicit_sec_index_receipt_enables_observation_but_not_exact_publicatio
     assert "`sec-index:" in report
     assert "独立公表証拠" not in report
     assert report.count("売買: `no_action`") == 2
+
+
+@pytest.mark.parametrize(
+    ("form", "current", "prior"),
+    [
+        ("10-K", ("2025-09-28", "2026-09-26"), ("2024-09-29", "2025-09-27")),
+        ("10-Q", ("2026-07-01", "2026-09-30"), ("2025-07-01", "2025-09-30")),
+    ],
+)
+def test_sec_filing_index_prevents_using_a_comparative_column_as_current(form, current, prior):
+    bundle, files, index = _public_index_bundle()
+    subject = bundle["subjects"][0]
+    filing = subject["filing"]
+    filing["form"] = form
+    body = files[index["file"]].replace(subject["period_end"].encode(), current[1].encode())
+    files[index["file"]] = body
+    index["sha256"] = sha256(body).hexdigest()
+    record = subject["companyfacts"]
+    facts = json.loads(files[record["file"]])
+    (concept,) = facts["facts"]["us-gaap"].values()
+    (row,) = concept["units"]["USD"]
+    concept["units"]["USD"] = [
+        dict(row, form=form, start=current[0], end=current[1], val=123),
+        dict(row, form=form, start=prior[0], end=prior[1], val=456),
+    ]
+    _replace_body(record, files, facts)
+
+    subject["period_start"], subject["period_end"] = current
+    valid = render_research(bundle, files.__getitem__, synthetic=False)
+    assert "AAPL | research_candidate" in valid
+    assert "USD 123" in valid
+
+    subject["period_start"], subject["period_end"] = prior
+    wrong = render_research(bundle, files.__getitem__, synthetic=False)
+    assert "AAPL | hold_for_evidence" in wrong
+    assert "sec_filing_period_mismatch" in wrong
+    assert "USD 456" not in wrong
+    assert "観測20本のSMA" in wrong
+
+
+@pytest.mark.parametrize("defect", ["missing", "not-a-date", "duplicate", "not-siblings"])
+def test_index_requires_one_natively_bound_period(defect):
+    bundle, files, index = _public_index_bundle()
+    original = files[index["file"]]
+    if defect == "missing":
+        body = original.replace(b"Period of Report", b"Filing Date")
+    elif defect == "not-a-date":
+        body = original.replace(b">2026-09-30</div>", b">not-a-date</div>")
+    elif defect == "duplicate":
+        group = (
+            b'<div class="formGrouping"><div class="infoHead">Period of Report</div>'
+            b'<div class="info">2025-09-30</div></div>'
+        )
+        body = original.replace(b"<table>", group + b"<table>")
+    else:
+        body = original.replace(
+            b'Report</div><div class="info"', b'Report</div></div><div class="info"'
+        )
+    files[index["file"]] = body
+    index["sha256"] = sha256(body).hexdigest()
+    index["headers"]["Content-Length"] = str(len(body))
+    report = render_research(bundle, files.__getitem__, synthetic=False)
+    assert "AAPL | hold_for_evidence" in report
+    assert "sec_invalid_fixed_evidence" in report
 
 
 def test_fixed_clock_does_not_round_a_future_index_into_the_cutoff(tmp_path, capsys):
@@ -364,9 +431,12 @@ def test_fixed_clock_does_not_round_a_future_index_into_the_cutoff(tmp_path, cap
 def _native_index_bundle():
     bundle, files, index = _public_index_bundle()
     head, table = files[index["file"]].split(b"<table>", 1)
+    head, period = head.split(b'<div class="formGrouping">', 1)
     body = (
-        head + b'<div id="contentDiv">\n<div class="formDiv">\n'
-        b"<!-- START DOCUMENT DIV -->\n<table>"
+        head
+        + b'<div id="contentDiv">\n<div class="formGrouping">'
+        + period
+        + b'\n<div class="formDiv">\n<!-- START DOCUMENT DIV -->\n<table>'
         + table.removesuffix(b"</body></html>")
         + b"</div>\n<!-- END DOCUMENT DIV -->\n<!-- START FILER DIV -->\n"
         b'<div class="filerDiv">Filer</div>\n<!-- END FILER DIV -->\n</div>\n'
@@ -401,6 +471,7 @@ def test_sec_index_accepts_complete_native_content_with_valid_outer_end(media, o
     "defect",
     [
         "prefix-after-link",
+        "period-after-documents",
         "prefix-with-explicit-outer-end",
         "premature-body-end",
         "markers-without-content-div",
@@ -426,6 +497,12 @@ def test_sec_index_optional_closers_never_admit_partial_or_malformed_native_html
     bundle, files, index, body = _native_index_bundle()
     if defect == "prefix-after-link":
         body = body.split(b"<!-- END DOCUMENT DIV -->", 1)[0]
+    elif defect == "period-after-documents":
+        start = body.index(b'<div class="formGrouping">')
+        end = body.index(b'\n<div class="formDiv">', start)
+        period = body[start:end]
+        start_filer = b"<!-- START FILER DIV -->"
+        body = body.replace(period, b"").replace(start_filer, period + b"\n" + start_filer)
     elif defect == "prefix-with-explicit-outer-end":
         body = body.split(b"<!-- START FILER DIV -->", 1)[0] + b"</body></html>"
     elif defect == "premature-body-end":
@@ -802,7 +879,7 @@ def test_companyfacts_capture_scope_holds_only_affected_finance_in_cli(
 
 
 def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path, capsys):
-    bundle, files = _fixture()
+    bundle, files, index = _public_index_bundle()
     subject = bundle["subjects"][0]
     bundle["subjects"] = [subject, {**subject, "symbol": "SECOND"}]
     del bundle["alpaca"]
@@ -821,7 +898,8 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path,
     _replace_body(record, files, facts)
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(bundle), encoding="utf-8")
-    (tmp_path / record["file"]).write_bytes(files[record["file"]])
+    for name in (record["file"], index["file"]):
+        (tmp_path / name).write_bytes(files[name])
     cmd = [
         "--bundle",
         str(manifest),
@@ -842,6 +920,14 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path,
     assert "unmapped_concept_or_unit" in report
     assert "SMA" not in report
     assert "research_candidate" not in report
+
+    for row in bundle["subjects"]:
+        row.update(period_start="2025-07-01", period_end="2025-09-30")
+    manifest.write_text(json.dumps(bundle), encoding="utf-8")
+    assert main([*cmd[:5], "2024-07-01", "2024-09-30", "2025-01-01", "2024-01-01"]) == 0
+    wrong = capsys.readouterr().out
+    assert "sec_filing_period_mismatch" in wrong
+    assert "operating_income (" not in wrong
 
     subject["filing"]["form"] = "10-K"
     bundle["subjects"][1]["filing"] = subject["filing"]
