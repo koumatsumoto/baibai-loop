@@ -185,6 +185,78 @@ def test_same_ny_day_aggregate_does_not_complete_20_observation_window():
     assert "alpaca_fewer_than_20_observed_closes" in replay
 
 
+def _write_iex_only_bundle(tmp_path, bundle, files):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(bundle), encoding="utf-8")
+    for page in bundle["alpaca"]["pages"]:
+        name = page["file"]
+        (tmp_path / name).write_bytes(files[name])
+    return str(manifest)
+
+
+@pytest.mark.parametrize(
+    ("expected", "status", "exit_code"),
+    [("2026-11-20", "一致", 0), ("2026-11-23", "不一致", 1), ("2026-11-19", "不一致", 1)],
+)
+def test_iex_session_acceptance_compares_exact_latest_date_without_sec(
+    tmp_path, capsys, expected, status, exit_code
+):
+    bundle, files = _fixture()
+    bundle["cutoff"] = "2026-11-24T06:00:00Z"
+    manifest = _write_iex_only_bundle(tmp_path, bundle, files)
+    assert main(["--bundle", manifest, "--accept-iex-session", expected]) == exit_code
+    report = capsys.readouterr().out
+    assert f"期待NY取引日: {expected}" in report
+    assert f"- AAPL: {status}（採用最終日: 2026-11-20）" in report
+    assert f"- NVDA: {status}（採用最終日: 2026-11-20）" in report
+    assert "リサーチ候補" not in report
+    assert "売買判断は確認しない" in report
+
+
+@pytest.mark.parametrize("old_or_missing", ["2026-11-19", "なし"])
+def test_iex_session_acceptance_cannot_use_another_symbols_date(tmp_path, capsys, old_or_missing):
+    bundle, files = _fixture()
+    page = bundle["alpaca"]["pages"][0]
+    data = json.loads(files[page["file"]])
+    data["bars"]["NVDA"] = data["bars"]["AAPL"][-2:-1] if old_or_missing != "なし" else []
+    _replace_body(page, files, data)
+    manifest = _write_iex_only_bundle(tmp_path, bundle, files)
+    assert main(["--bundle", manifest, "--accept-iex-session", "2026-11-20"]) == 1
+    report = capsys.readouterr().out
+    assert "- AAPL: 一致（採用最終日: 2026-11-20）" in report
+    assert f"- NVDA: 不一致（採用最終日: {old_or_missing}）" in report
+
+
+@pytest.mark.parametrize(
+    ("received_at", "exit_code"),
+    [("2026-11-21T04:59:59Z", 1), ("2026-11-21T05:00:00Z", 0)],
+)
+def test_iex_session_acceptance_counts_receipt_dates_in_ny_not_utc(
+    tmp_path, capsys, received_at, exit_code
+):
+    bundle, files = _fixture()
+    bundle["cutoff"] = "2026-11-23T16:01:00Z"
+    bundle["alpaca"]["pages"][0]["received_at"] = received_at
+    manifest = _write_iex_only_bundle(tmp_path, bundle, files)
+    assert main(["--bundle", manifest, "--accept-iex-session", "2026-11-20"]) == exit_code
+    assert ("途中集計扱い" in capsys.readouterr().out) == (exit_code == 1)
+
+
+def test_iex_session_acceptance_fails_when_receipt_is_after_cutoff(tmp_path, capsys):
+    bundle, files = _fixture()
+    bundle["cutoff"] = "2026-11-21T05:00:00Z"
+    manifest = _write_iex_only_bundle(tmp_path, bundle, files)
+    assert main(["--bundle", manifest, "--accept-iex-session", "2026-11-20"]) == 1
+    assert "alpaca_chain_not_yet_received" in capsys.readouterr().out
+
+
+def test_iex_session_acceptance_requires_a_bundle(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--accept-iex-session", "2026-11-20"])
+    assert exc_info.value.code == 2
+    assert "--accept-iex-session requires --bundle" in capsys.readouterr().err
+
+
 def test_publicly_observed_time_is_not_independent_exact_publication():
     bundle, files = _fixture()
     filing = bundle["subjects"][0]["filing"]
