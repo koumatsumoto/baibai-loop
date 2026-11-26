@@ -49,4 +49,4 @@ Baseは根拠から中心に置く条件付き経路で、常に保守caseへ寄
 
 ## 現在の非目標
 
-機械学習の総合scoreは作らず、候補探索を短期の事後成績に合わせて最適化しない。ETF・投信・海外株の運用（[米国株の隔離研究](reference/us-research-mvp.md)は別）、口座・税制・broker会計の完全複製、外部汎用配信・書込API、投資助言サービスは対象外。[旧方式の再生成](architecture.md#store-authority)はせず、Webへ候補抽出・判断を置かない。
+機械学習の総合scoreは作らず、閾値の網羅探索や短期の事後成績に合わせた候補探索の最適化は行わない。ETF・投信・海外株の運用（[米国株の隔離研究](reference/us-research-mvp.md)は別）、口座・税制・broker会計の完全複製、外部汎用配信・書込API、投資助言サービスは対象外。[旧方式の再生成](architecture.md#store-authority)はせず、Webへ候補抽出・判断を置かない。
