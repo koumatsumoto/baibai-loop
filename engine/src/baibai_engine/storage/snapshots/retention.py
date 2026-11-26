@@ -153,8 +153,8 @@ def plan_gc(
             {
                 "roots": sorted(roots),
                 "reachable": {
-                    key: _reachable_identity(mirror_root, key, digest)
-                    for key, digest in reachable.items()
+                    key: _reachable_identity(mirror_root, key, reachable[key])
+                    for key in sorted(reachable)
                 },
                 "candidates": [
                     (item.key, item.sha256, item.bytes)
