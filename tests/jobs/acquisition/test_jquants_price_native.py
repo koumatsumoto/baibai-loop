@@ -106,8 +106,12 @@ def test_price_partial_or_no_page_failure_is_durable_and_recoverable(tmp_path, n
     assert fresh.fixed().value()["scopes"][DAY.isoformat()]["failure"] is None
 
 
-@pytest.mark.parametrize("other_code", ["13010", "13011"])
-def test_price_wrong_date_on_later_page_is_retained_but_never_adopted(tmp_path, other_code):
+@pytest.mark.parametrize(
+    ("other_code", "time_suffix"), [("13010", ""), ("13011", ""), ("13010", "T00:00:00")]
+)
+def test_price_wrong_date_on_later_page_is_retained_but_never_adopted(
+    tmp_path, other_code, time_suffix
+):
     store = MemoryR2Store()
     owner = PriceL1(store, tmp_path / "first")
     owner.initialize()
@@ -123,7 +127,7 @@ def test_price_wrong_date_on_later_page_is_retained_but_never_adopted(tmp_path, 
     source_day = DAY.isoformat()
     no_trade = dict.fromkeys(("O", "H", "L", "C", "Vo", "Va"))
     first_body = body([{"Code": "13010", "Date": source_day, **no_trade}], cursor="next")
-    wrong_day = (DAY - timedelta(days=1)).isoformat()
+    wrong_day = (DAY - timedelta(days=1)).isoformat() + time_suffix
     second_body = body([{"Code": other_code, "Date": wrong_day, "C": 777}])
     session = Session(first_body, second_body)
     client = JQuantsHTTP("synthetic", session=session, clock=lambda: second_at)

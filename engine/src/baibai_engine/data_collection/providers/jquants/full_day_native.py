@@ -73,12 +73,15 @@ def _day(request: JQuantsRequest, contract: FullDayContract) -> str:
 
 
 def _declares_other_day(value: object, requested: str) -> bool:
-    # Only an explicit canonical date is evidence of another request's scope.
-    # Missing, malformed and legacy representations belong to the row adapter.
-    if not isinstance(value, str) or value == requested or len(value) != 10:
+    # A daily-bar session can also be the exact ISO midnight read by its row adapter.
+    # Missing or ambiguous dates are still row-level concerns.
+    if not isinstance(value, str) or value == requested:
+        return False
+    day = value.removesuffix("T00:00:00")
+    if len(day) != 10 or day == requested:
         return False
     try:
-        return date.fromisoformat(value).isoformat() == value
+        return date.fromisoformat(day).isoformat() == day
     except ValueError:
         return False
 
