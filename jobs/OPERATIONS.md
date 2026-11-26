@@ -53,11 +53,11 @@ gh run watch "${RUN_ID:?対象の日次run IDを指定}" --exit-status --interva
 | 一組の公開後、同じreleaseを読戻して市場の受領をseal | 市場の受領確定は正本の選択と別。[seal失敗](#machine公開後の失敗再開)は表示や経済inputの再発行で埋めない。 |
 | core成功後の[Web生成・転送](#web-serving)、lease解放、通知 | 受領・提案・取引の成否。表示はseal成功を条件にせず、表示・通知の失敗だけで正本を再公開しない。 |
 
-定期・手動とも既存のGeneration/Selectionは保持する。既存IDの読取不能を空とせず、過去に欠けた世代は[保持copyからの復元](#保持copyから欠落generationを戻す)として扱う。
+定期・手動とも、公開後のRunsには今回のGenerationとSelectionだけを残す。過去の提案・保存済みOperationはAppから読む。未保存の旧機械結果は、該当世代を含む隔離copyが手元にある場合だけ[保持copyからの復元](#保持copyから欠落generationを戻す)で照合できる。旧IDを現行値で補わない。
 
 EDINET revisionを明示受入する場合だけ、隔離比較済みの[受入条件](src/baibai_jobs/integration/edinet_metric_acceptance.py)を`edinet_metrics_acceptance`へ渡す。同じ明示asofを指定し、固定list/archive・revision・対象sampleの原本/保存結果のdigestを生成前に照合する。partial/延期・入力交代・差異は停止し、後付け期待値で通さない。先行する経済L1・planの保持は取り消されず、公開後の実読戻し・L3の受入は別。
 
-失敗時は正本のIDと最後に完了した段階・lease解放を確認する。通知や`done`行だけで公開を判定しない。公開受入の診断は`release_acceptance`のreason codeと登録dataset名、未分類は型までで、原本や識別子は出さない。候補0は投資機会なしではない。[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を参照し、過去の結果はIDを指定して読む。
+失敗時は正本のIDと最後に完了した段階・lease解放を確認する。通知や`done`行だけで公開を判定しない。公開受入の診断は`release_acceptance`のreason codeと登録dataset名、未分類は型までで、原本や識別子は出さない。候補0は投資機会なしではない。[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。過去の機械結果をIDで照合する場合は、その世代を含む隔離Runsを明示する。
 
 [watchdog](../.github/workflows/cloud-batch-watchdog.yml)は履歴を読み、実行・cancel・再dispatchはしない。対象日の判断は[判定実装](src/baibai_jobs/observability/watchdog.py)が持つ。
 
