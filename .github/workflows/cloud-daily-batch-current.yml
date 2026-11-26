@@ -13,6 +13,10 @@ on:
         description: "モデル基準日 YYYY-MM-DD。空欄は元run作成時のJST日（直近完了日ではない）。寄前・場中はJSTの前日を明示"
         required: false
         type: string
+      jp_input_probe_ticker:
+        description: "任意: 日本株L3入力を確認する公開テスト用銘柄コード1つ（非秘密）。提案の作成・保存はしない"
+        required: false
+        type: string
       edinet_metrics_acceptance:
         description: "事前比較したEDINET固定入力・revision・有限sample結果の受入JSON。空欄は通常統合"
         required: false
@@ -345,3 +349,13 @@ jobs:
             --portfolio-views-outcome "${{ steps.portfolio-views.outcome }}" \
             --lease-release-outcome "${{ steps.lease-release.outcome }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
+
+      - name: Check one Japan proposal input on this runner (not proposal publication)
+        id: jp-input-probe
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.jp_input_probe_ticker != '' && steps.batch.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          if ! timeout 120s uv run --offline --no-sync python -m tools.diagnostics.check_daily_jp_inputs >> "$GITHUB_STEP_SUMMARY"; then
+            echo "::error::Japan proposal input check failed; see step summary."
+            exit 1
+          fi

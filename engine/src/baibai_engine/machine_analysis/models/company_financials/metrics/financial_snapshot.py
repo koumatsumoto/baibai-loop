@@ -47,6 +47,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     accounting_standard,
     forecast_source_trace,
     latest_forecast_source,
+    reporting_basis_rows,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
@@ -104,7 +105,7 @@ def build_financial_snapshot(
     )
     summaries = normalization.summaries
     capital_basis_barrier = normalization.capital_basis_barrier
-    latest = _latest_summary(summaries)
+    latest_disclosure = _latest_summary(summaries)
     forecast = latest_forecast_source(summaries)
     forecast_eps = forecast.forecast_eps if forecast is not None else None
     forecast_profit = forecast.forecast_profit if forecast is not None else None
@@ -130,12 +131,14 @@ def build_financial_snapshot(
         profit_quality = (
             TTMQuality.APPROXIMATED if profit_ttm is not None else TTMQuality.UNAVAILABLE
         )
-    # 四半期に未開示のBS値は直近値を使い、経過日数を残す。
-
-    cash_eq, cash_eq_lag = _carry_forward(summaries, "cash_eq", latest)
-    total_assets, total_assets_lag = _carry_forward(summaries, "total_assets", latest)
-    equity_to_asset_ratio, eq_ratio_lag = _carry_forward(summaries, "equity_to_asset_ratio", latest)
-    bps, bps_lag = _carry_forward(summaries, "bps", latest)
+    # 予想通知や遅れて届いた旧期の訂正は、当期BSの繰越基準を進めない。
+    latest_actual = _latest_actual_row(reporting_basis_rows(summaries))
+    cash_eq, cash_eq_lag = _carry_forward(summaries, "cash_eq", latest_actual)
+    total_assets, total_assets_lag = _carry_forward(summaries, "total_assets", latest_actual)
+    equity_to_asset_ratio, eq_ratio_lag = _carry_forward(
+        summaries, "equity_to_asset_ratio", latest_actual
+    )
+    bps, bps_lag = _carry_forward(summaries, "bps", latest_actual)
     carried_lags = {
         "bps": bps_lag,
         "cash_eq": cash_eq_lag,
@@ -298,7 +301,9 @@ def build_financial_snapshot(
         ),
     )
     return FinancialSnapshot(
-        latest_financial_disclosure_date=latest.disclosed_at if latest else None,
+        latest_financial_disclosure_date=latest_disclosure.disclosed_at
+        if latest_disclosure is not None
+        else None,
         per_forward=per_forward,
         forecast_eps_yen=forecast_eps,
         forecast_profit_yen=forecast_profit,

@@ -91,7 +91,14 @@ def test_mvp_accepts_aapl_quarter_but_not_the_same_filing_ytd(period_start):
         (89, "10-Q", None),  # February through April in a non-leap year.
         (98, "10-Q/A", None),  # A 14-week quarter of a 53-week fiscal year.
         (99, "10-Q", "sec_period_outside_supported_quarter"),
-        (98, "10-K", "sec_filing_form_not_covered"),
+        (98, "10-K", "sec_period_outside_supported_fiscal_year"),
+        (364, "10-K", None),
+        (365, "10-K", None),
+        (366, "10-K", None),
+        (371, "10-K", None),
+        (372, "10-K", "sec_period_outside_supported_fiscal_year"),
+        (364, "10-K/A", "sec_filing_form_not_covered"),
+        (364, "10-Q", "sec_period_outside_supported_quarter"),
     ],
 )
 def test_mvp_requires_supported_span_and_filing_form(days, form, reason):
@@ -112,11 +119,13 @@ def test_mvp_requires_supported_span_and_filing_form(days, form, reason):
     assert "観測20本のSMA" in report
     if reason is None:
         assert "AAPL | research_candidate" in report
-        assert f"SEC実績売上: USD 1,234,567,890 ({start}〜{end}" in report
+        label = "SEC通期実績売上" if form == "10-K" else "SEC実績売上"
+        assert f"{label}: USD 1,234,567,890 ({start}〜{end}" in report
+        assert ("より新しい提出の有無は確認していない" in report) == (form == "10-K")
     else:
         assert "AAPL | hold_for_evidence" in report
         assert f"未充足: `{reason}`" in report
-        assert "SEC実績売上" not in report
+        assert "実績売上" not in report
 
 
 def test_empty_terminal_page_must_be_known_before_whole_chain_is_used():
@@ -184,7 +193,7 @@ def test_publicly_observed_time_is_not_independent_exact_publication():
     assert "初回公表の証明ではない" in before
     assert "sec_publication_unverified" in before
     assert "SEC実績売上" not in before
-    filing["form"] = "10-K"
+    filing["form"] = "10-K/A"
     assert "sec_filing_form_not_covered" in render_research(
         bundle, files.__getitem__, synthetic=True
     )
@@ -241,6 +250,43 @@ def test_explicit_sec_index_receipt_enables_observation_but_not_exact_publicatio
     assert "`sec-index:" in report
     assert "独立公表証拠" not in report
     assert report.count("売買: `no_action`") == 2
+
+
+def test_fixed_clock_does_not_round_a_future_index_into_the_cutoff(tmp_path, capsys):
+    bundle, files, index = _public_index_bundle()
+    manifest = tmp_path / "manifest.json"
+    for name, body in files.items():
+        (tmp_path / name).write_bytes(body)
+
+    def invoke(cutoff):
+        bundle["cutoff"] = cutoff
+        manifest.write_text(json.dumps(bundle), encoding="utf-8")
+        return main(["--bundle", str(manifest)])
+
+    # Actual SEC capture clock and the instant one nanosecond before it.
+    index["received_at"] = "2026-11-25T19:53:01.447438103Z"
+    with pytest.raises(SystemExit) as error:
+        invoke("2026-11-25T19:53:01.447438102Z")
+    assert error.value.code == 2
+    assert capsys.readouterr().out == ""
+
+    for unrepresentable in (
+        index["received_at"],
+        # Negative offset is 100 ms later than the rendered local clock.
+        "2026-11-25T19:53:01.447438-00:00:00.100000",
+    ):
+        index["received_at"] = unrepresentable
+        assert invoke("2026-11-25T19:53:01.447438000Z") == 0
+        before = capsys.readouterr().out
+        assert "AAPL | hold_for_evidence" in before
+        assert "sec_invalid_fixed_evidence" in before
+        assert "SEC実績売上" not in before
+
+    index["received_at"] = "2026-11-26T04:53:01.447439000+09:00"
+    assert invoke("2026-11-25T19:53:01.4474390Z") == 0
+    at = capsys.readouterr().out
+    assert "AAPL | research_candidate" in at
+    assert "SEC実績売上: USD 1,234,567,890" in at
 
 
 def _native_index_bundle():
@@ -652,3 +698,61 @@ def test_companyfacts_capture_scope_holds_only_affected_finance_in_cli(
     assert price_lines(affected) == price_lines(valid)
     assert other == unaffected
     assert tmp_path / record["file"] not in reads
+
+
+def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path, capsys):
+    bundle, files = _fixture()
+    subject = bundle["subjects"][0]
+    bundle["subjects"] = [subject, {**subject, "symbol": "SECOND"}]
+    del bundle["alpaca"]
+    record = subject["companyfacts"]
+    facts = json.loads(files[record["file"]])
+    gaap = facts["facts"]["us-gaap"]
+    (sample,) = next(iter(gaap.values()))["units"]["USD"]
+    gaap["OperatingIncomeLoss"] = {
+        "units": {
+            "USD": [
+                dict(sample, val=123),
+                dict(sample, val=100, start="2025-07-01", end="2025-09-30"),
+            ]
+        }
+    }
+    _replace_body(record, files, facts)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(bundle), encoding="utf-8")
+    (tmp_path / record["file"]).write_bytes(files[record["file"]])
+    cmd = [
+        "--bundle",
+        str(manifest),
+        "--compare-sec",
+        subject["cik"],
+        "Q3",
+        "2025-07-01",
+        "2025-09-30",
+        "2026-01-01",
+        "2025-01-01",
+    ]
+    assert main(cmd) == 0
+    report = capsys.readouterr().out
+    assert "operating_income (quarter, current) 2026-07-01〜2026-09-30: USD 123" in report
+    assert "operating_income (quarter, prior) 2025-07-01〜2025-09-30: USD 100" in report
+    assert report.count("operating_income (quarter,") == 2
+    assert "operating_cash_flow (year_to_date, current)" in report
+    assert "unmapped_concept_or_unit" in report
+    assert "SMA" not in report
+    assert "research_candidate" not in report
+
+    subject["filing"]["form"] = "10-K"
+    bundle["subjects"][1]["filing"] = subject["filing"]
+    manifest.write_text(json.dumps(bundle), encoding="utf-8")
+    assert main(cmd) == 0
+    excluded = capsys.readouterr().out
+    assert "sec_filing_form_not_covered" in excluded
+    assert "operating_income (quarter," not in excluded
+    subject["filing"]["form"] = "10-Q"
+    bundle["subjects"][1]["period_start"] = "2026-07-02"
+    manifest.write_text(json.dumps(bundle), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        main(cmd)
+    assert exc.value.code == 2
+    assert "invalid fixed US research receipt bundle" in capsys.readouterr().err

@@ -129,6 +129,61 @@ def test_l1_put_unknown_ack_is_resolved_by_bytes(tmp_path, setup, monkeypatch):
     assert run(tmp_path, setup)["l1_sealed"]
 
 
+def test_cli_releases_merge_copy_after_candidate_validation_before_upload(
+    tmp_path, setup, monkeypatch, capsys
+):
+    from baibai_engine.storage.sqlite import snapshot
+    from baibai_jobs.integration import economic_sources
+
+    store, lease, _ = setup
+    stage(tmp_path, store)
+    before = store.values.copy()
+    monkeypatch.setattr(economic_sources, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(store, "close", lambda: None, raising=False)
+    validate = snapshot.validate_snapshot
+
+    def reject_candidate(path):
+        validate(path)
+        raise sqlite3.DatabaseError("candidate validation failed")
+
+    def invoke(name):
+        return economic_sources.main(
+            [
+                "--directory",
+                str(tmp_path / name),
+                "--db",
+                str(tmp_path / f"{name}.sqlite"),
+                "--asof",
+                DAY.isoformat(),
+                "--lease-handle",
+                str(lease),
+            ]
+        )
+
+    with monkeypatch.context() as local:
+        local.setattr(snapshot, "validate_snapshot", reject_candidate)
+        assert invoke("failed") == 1
+    assert capsys.readouterr().out == ""
+    assert store.values == before
+    assert len(available_handoffs(store, market=False)) == 1
+    assert len(list((tmp_path / "failed").glob("*/canonical.sqlite"))) == 1
+    assert not (tmp_path / "failed.sqlite").exists()
+
+    put = store.put_file
+
+    def assert_released(key, path, **kwargs):
+        if key == "indicators.sqlite":
+            assert not path.with_name("canonical.sqlite").exists()
+            assert path.with_name("base.sqlite").read_bytes() == before[key].body
+        return put(key, path, **kwargs)
+
+    monkeypatch.setattr(store, "put_file", assert_released)
+    assert invoke("retry") == 0
+    assert not available_handoffs(store, market=False)
+    with closing(sqlite3.connect(tmp_path / "retry.sqlite")) as conn:
+        assert next(read_snapshots(conn, DAY, DAY, source_id=SOURCE)).records == ({"value": "A"},)
+
+
 @pytest.mark.parametrize("point", ["readback", "seal", "inputs"])
 def test_fresh_runner_recovers_after_publication_without_refetch_or_new_originals(
     tmp_path, setup, monkeypatch, point

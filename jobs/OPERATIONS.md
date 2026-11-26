@@ -102,11 +102,15 @@ ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済
 
 [日次](#daily)は材料を作り、[表示生成](#web-serving)は既存提案を表示する。どちらの成功も新規提案の受入ではない。正規の入口は [Investment Judgment](../.agents/skills/investment-judgment/SKILL.md)。既存コマンドを本番入力が揃う認可済み作業環境で実行する。入力が揃っていればDBの再取得や別環境への転送は不要。
 
+手動日次に `-f jp_input_probe_ticker=7203`（例）を加えると、同じrunnerでその日次が生成したGeneration・Selectionの1銘柄と、その期待価格日の未調整終値を確認する。追加入力DB・再転送は不要。dispatch入力は秘密ではないため公開テスト銘柄だけを指定する。通常の日次と独立した結果はActionsのJob summaryで確認する。これだけでは調査・正式提案・本番公開を証明しない。
+
 1. 検証CLIのcommitと日次runのcommitを別々に記録し、日次の同一run/attempt、[現行ポインタ](#machine-publication)のETag・Lake release ID・manifest SHA・Machine UUIDとMarket/Runsの各SHAを固定する。同じポインタに合うMarketのorigin、RunsのGenerationとSelectionを確認する。現行が進んで元の組を取得できない場合は、元runの再現とはみなさない。Appは別正本なので、[取得元・取得版・時刻を固定した作業copy](#application-db-を反映する)を使う。保存先は隔離Appのみ。必要な入力を同じ出所で読めない場合は、別日や最新のデータで補わず、そこで止める。
 2. 隔離Appを指定して `operation --db <APP_DB> --format json show --status active` を先に確認する。同じ案件は[保存したOperation IDで再開](../.agents/skills/investment-judgment/SKILL.md#完了と再開)し、別案件なら新規の `prepare` は止める。受入のためだけに別案件を閉じず、本番Appも変更しない。
    新規案件は `selection-context` にそのGeneration・Selection・研究基準日・情報締切を明示し、`selection-context` と `prepare` には同じ `--runs-path` を渡して[選定と調査・評価の保存](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)へ進む。正式終値と一次資料は別に照合し、終値の価格日と資料の公表時刻を記録する。選定・prepare・評価保存・Operation操作にも同じ隔離Appを `--db` で明示する。価値と価格の差、市場・同業との比較、欠測、判断を変える条件を確認し、評価を独立査読する。買いを件数目標にしない。
 3. [提案の手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)に沿って `trade-proposal-context` → `trade-proposal-check` → 提案本文の独立査読 → `trade-proposal-check` で `valid=true` と `review_binding=match` を確認 → `trade-proposal-publish` → [`operation complete`](../.agents/skills/investment-judgment/SKILL.md#完了と再開)（同じ提案ID、結果、次の手を指定）。3つの提案コマンドには同じ `--db` と `--sqlite-path` を明示する。正式保存された同じ提案IDを読戻す。ここでのpublishは隔離Appへの保存であり、R2や実配信への公開・発注ではない。
-4. 隔離checkoutでローカル表示を生成し、同じAppと提案IDで照合する。複数ケースは各提案がそのAppのlatestのうちに照合する。完了条件は「新規正式提案が保存され、Operation完了と表示が同じIDで読めた」。受入で見つけた問題は、根拠と再現条件を残して修正後に同じ入力で再確認する。実配信まで確認する場合だけ [Webの照合](#web-serving) を別に行う。
+4. 隔離checkoutでローカル表示を生成し、同じAppと提案IDで照合する。複数ケースは各提案がそのAppのlatestのうちに照合する。同じIDで保存・Operation完了・表示を確認できても、売買や資金配分の判断の有無までは分からない。
+   発行した提案の `research_scope.outcomes[].status` と `items[].action` を銘柄コードで照合する。買い・売り・保有継続・根拠のある見送り（`no_action`）と、査読後も判断を保留した対象（`reviewed` / `defer`）、調査未完の対象（`unfinished` / `defer`）を分けて報告する。表示側の未完理由と参照は `items[].unfinished` を確認する。調査未完は評価済みに数えず、発行した提案の全項目が保留なら「経路は確認済み、売買判断は未確認」とする。対象0件で提案なしのOperation完了は、正式提案の受入には数えない。
+   受入で見つけた問題は、根拠と再現条件を残して修正後に同じ入力で再確認する。実配信まで確認する場合だけ [Webの照合](#web-serving) を別に行う。
 
 作業は検証するcommitの隔離checkoutで行い、そのルートを `WORK_ROOT` とする。DBだけのディレクトリは使えない（[ルートの判定](../engine/src/baibai_engine/storage/paths.py)は `pyproject.toml` と `engine/src/baibai_engine/` を必要とする）。固定した入力の作業コピーは、そのcheckoutの `stores/application/baibai.sqlite`、`stores/market/market.sqlite`、`stores/screening/runs.sqlite` に置く。執筆ファイルと表示出力は `.cache/` 配下に置く。これらはGit管理外で、本番正本への書戻しは行わない。
 

@@ -170,19 +170,13 @@ def _carry_forward(
     field_name: str,
     latest: JQuantsFinancialSummary | None,
 ) -> tuple[float | None, int | None]:
-    """直近の非 null 行から値を取り、latest 行からの遅延日数を添える。
-
-    lag 0 = latest 行自身が値を持つ。lag > 0 = carry-forward された staleness。
-    値が窓内のどの行にも無ければ (None, None)。
-    """
-    if latest is None:
-        return None, None
+    """直近の非null行から値を取り、実績の基準行が確定した場合だけ開示日の差を添える。"""
     source = _latest_actual_row(summaries, field_names=(field_name,))
     if source is None:
         return None, None
     value = getattr(source, field_name)
     assert value is not None
-    lag = max(0, (latest.disclosed_at - source.disclosed_at).days)
+    lag = max(0, (latest.disclosed_at - source.disclosed_at).days) if latest is not None else None
     return float(value), lag
 
 
