@@ -153,10 +153,10 @@ def test_v2_fence_refuses_unproven_prior_generation(
     monkeypatch.setattr(
         lease,
         "Boto3R2Store",
-        lambda *, bucket: (
+        lambda *, bucket, verify_put_with_head: (
             store
-            if bucket == lease.DEFAULT_STORES_BUCKET
-            else pytest.fail("the v2 guard must use the normal bucket")
+            if bucket == lease.DEFAULT_STORES_BUCKET and verify_put_with_head is False
+            else pytest.fail("the v2 guard must use the normal lease store")
         ),
     )
     args = [command]
