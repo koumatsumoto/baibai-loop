@@ -10,7 +10,6 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Protocol
 
-from baibai_engine.data_collection.providers.articles.contracts import SOURCES as ARTICLE_SOURCES
 from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
 from baibai_engine.storage.objects.json import put_private, read_write_once_private
 from baibai_engine.storage.objects.r2 import (
@@ -63,12 +62,9 @@ def available_handoffs(
     source: str | None = None,
     include_integrated: bool = False,
     market: bool | None = None,
-    namespace: str | None = None,
     exclude_equity_tradingview: bool = False,
 ) -> list[dict[str, object]]:
     """Freeze available receipts and source ordering; isolate malformed handoffs."""
-    if namespace is not None and (namespace != "article-sources" or market is not True):
-        raise ValueError("explicit handoff namespace requires article market receipts")
     ready: list[dict[str, object]] = []
     watermarks: dict[str, datetime] = {}
     blocked_sources: set[str] = set()
@@ -77,9 +73,8 @@ def available_handoffs(
         item: tuple[bool, str, str],
     ) -> tuple[dict[str, object] | None, tuple[str, datetime] | None, str | None]:
         market, namespace, key = item
-        article = namespace == "article-sources"
         fred = namespace == FRED_HANDOFF_NAMESPACE
-        scope = {"namespace": namespace} if article or fred else {}
+        scope = {"namespace": namespace} if fred else {}
         stage_id = key.split("/")[-2]
         source_name = source or f"{namespace}-unreadable"
         digest = ""
@@ -107,8 +102,6 @@ def available_handoffs(
                 return None, None, None
             if not isinstance(source_name, str) or (source is not None and source_name != source):
                 raise ValueError("handoff source differs from its scope")
-            if article and source_name not in ARTICLE_SOURCES:
-                raise ValueError("unsupported article handoff source")
             if fred:
                 if source_name != _FRED_SOURCE or not is_current_fred_manifest(manifest):
                     raise ValueError("unsupported live FRED receipt format")
@@ -132,7 +125,7 @@ def available_handoffs(
                         digest=digest,
                         source=source_name,
                         started_at=started,
-                        strict_source=article or fred,
+                        strict_source=fred,
                     )
                     status = integrated["status"]
                 except (ValueError, KeyError, TypeError):
@@ -162,13 +155,6 @@ def available_handoffs(
                     "started_at": started.astimezone(UTC).isoformat(),
                     "asof": report["asof"],
                     "integration": integrated,
-                    **(
-                        {"previous_stage": report["planning"]["previous_stage"]}
-                        if article
-                        and isinstance(report.get("planning"), dict)
-                        and "previous_stage" in report["planning"]
-                        else {}
-                    ),
                 },
                 watermark,
                 None,
@@ -192,7 +178,7 @@ def available_handoffs(
     keys: list[tuple[bool, str, str]] = []
     selections = (False, True) if market is None else (market,)
     for market in selections:
-        selected_namespace = namespace or ("market-sources" if market else "economic-sources")
+        selected_namespace = "market-sources" if market else "economic-sources"
         if source is not None and source.startswith("economic-") == market:
             continue
         if not market and source in (None, _FRED_SOURCE):
@@ -225,11 +211,7 @@ def available_handoffs(
         if entry.get("invalid"):
             continue
         name = str(entry["source"])
-        if (
-            entry.get("namespace") != "article-sources"
-            and entry["integration"] is None
-            and name in blocked_sources
-        ):
+        if entry["integration"] is None and name in blocked_sources:
             # Ordering is unknown, not proven late. Keep siblings unsealed for
             # another attempt after the bad marker has been investigated.
             entry["invalid"] = "unverified_source_marker"
@@ -237,12 +219,9 @@ def available_handoffs(
         watermark = watermarks.get(name)
         # An integrated intermediate receipt can still be missing from a stale input.
         # Only a never-integrated receipt is a newly out-of-order arrival.
-        # Article receipts append independently; a later sealed stage must not hide
-        # an older raw commit whose planning CAS failed or whose integration failed.
+        # 個別受領IDで引用するMCP原本は、後着でも他の観測を置換しない。
         entry["late_before_integrated"] = bool(
-            entry.get("namespace") != "article-sources"
-            # 個別受領IDで引用するMCP原本は、後着でも他の観測を置換しない。
-            and name != "economic-" + MARKET_GROUP
+            name != "economic-" + MARKET_GROUP
             and entry["integration"] is None
             and watermark
             and datetime.fromisoformat(str(entry["started_at"])) < watermark
@@ -289,8 +268,7 @@ def seal_integrated(
         raise ValueError("retired J-Quants market handoffs cannot be sealed")
     terminal = (
         f"recovered-{entry['manifest_sha256']}.json"
-        if (entry.get("explicit_article_recovery") or entry.get("explicit_jpx_recovery"))
-        and not recovery
+        if entry.get("explicit_jpx_recovery") and not recovery
         else "integrated.json"
     )
     key = prefix + "/" + terminal
@@ -315,7 +293,7 @@ def seal_integrated(
                 digest=str(entry["manifest_sha256"]),
                 source=str(entry["source"]),
                 started_at=datetime.fromisoformat(str(entry["started_at"])),
-                strict_source=namespace in ("article-sources", FRED_HANDOFF_NAMESPACE),
+                strict_source=namespace == FRED_HANDOFF_NAMESPACE,
             )
         except ValueError as error:
             raise LakePublishError(

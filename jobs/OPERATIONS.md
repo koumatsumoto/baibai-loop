@@ -339,44 +339,24 @@ validateはL2算式/L3履歴の証明でない。原本更新時だけ経済push
 <a id="article-acquisition"></a>
 ### 記事
 
-TSRデータインサイト（`tsr_data`）・日銀新着（`boj_news`）の定期収集と、その他の媒体を含む手動一括取得は終了する。[必要時の企業調査](../docs/reference/stock-assessment.md#recent-news-research)で公開一覧から必要な原文を読み、判断に使った出典を残す。未取得期間の全件発見や当時の本文は保証しない。[経済原本](#economic-acquisition)（日銀の経済数値を含む）と[数値の外部評価](#external-assessment-acquisition)は同じ入口で継続する。
+TSRデータインサイト・日銀新着の定期収集と、その他の媒体を含む手動一括取得は終了した。[必要時の企業調査](../docs/reference/stock-assessment.md#recent-news-research)で発表元の一覧から原文を読み、判断に使った出典を残す。[経済原本](#economic-acquisition)（日銀の経済数値を含む）と[数値の外部評価](#external-assessment-acquisition)は同じ入口で継続する。
 
-最終stageの適用・確認後、日次は記事用planning・受領待ちを列挙せず、新規統合・再発見・再抽出もしない。旧planの適用・sealは拒否する。固定出典の読取は別で、日次を経由しない。この変更は既存stage・本文・Lake・App/Runsを削除しない。304の出典に必要なのは同じ内容の別受領でなく、その304が指定する元200。
+日次に記事の取込や代替取得はない。[旧記事workflow](../.github/workflows/cloud-article-sources-current.yml)は無効のままにし、旧runを再実行しない。実装の削除で既存stage・本文・Lake・App/Runsは削除しない。
 
-統合前のexact読取は、stage・receiptを指定し私有copyで照合する。旧market schemaでもArticleのshapeとbody digestを検証し、元SQLiteの版やbytes・planningを変えず、再GETしない。
+公表済み提案は保存した根拠で読み、Lakeに記録した出典は指定の固定releaseで同じID・hashを照合する。stageだけが分かる場合は、元のstage ID・manifest SHA・receipt ID・receipt SHAを指定し、原本を私有ディレクトリにコピーする。304の原本は同じ内容の別受領ではなく、その304が指定する元200。
 
 ```bash
 uv run baibai-jobs article-evidence --source <SOURCE> --stage-id <STAGE_ID> --manifest-sha256 <HASH> \
   --receipt <RECEIPT_ID> <RECEIPT_SHA256> --directory <PRIVATE_OUTPUT>
 ```
 
-stage原本の読取はrelease所属/抽出成功/長期保持の証明でなく、統合後は同ID/hashを固定releaseで照合する。
+固定stageの読取は、Lakeへの所属や抽出成功の証明ではない。原本が照合できない場合は出典を未確認とし、現在のWeb本文で置き換えない。
 
-#### 記事の新規取込を停止する
-
-1. 対象は[記事workflow](../.github/workflows/cloud-article-sources-current.yml)の **427554263**。下の確認でIDとpathを照合してから無効化する。旧記事401275764や現行の共通日次427554270は対象外。旧runの再実行は[当初のSHA/REFを使う](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)ため、YAMLから起動枠を消すだけでは停止確認にならない。
-
-   ```bash
-   gh api repos/koumatsumoto/baibai-loop/actions/workflows/427554263 --jq '{id,path,state}'
-   gh workflow disable 427554263 --repo koumatsumoto/baibai-loop
-   gh api --paginate 'repos/koumatsumoto/baibai-loop/actions/workflows/427554263/runs?per_page=100' \
-     --jq '.workflow_runs[] | {id,status,conclusion,run_attempt,head_sha}'
-   ```
-
-2. 前後で `disabled_manually` を確認する。[無効化は再実行を止めるが、既存runは終了しない](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)。状態で絞らず全ページと各未終端attemptを確認する。終端未確認・一覧未完を停止完了と数えない。停止を確認して、同じpathを権限・定期枠・手動入口のない履歴用にする。古い記事runを再有効化・再実行しない。日次は止めず、記事を取得する別jobやローカル実行を立ち上げない。
-3. 最後に受領したstageを、その後の単一の通常日次の適用・公開・sealと結ぶ。進行中の日次が既に同じstageを固定していれば、そのrunを使う。固定後に到着したstageだけ次の通常の日次で処理する。受領済みと未取得URL、統合済みと明示回復を分け、全件の追い取りはしない。停止後に新規記事handoff・receiptが作られないことを確かめ、処理中のseal追加は別に数える。経済L1とMarket/Runsの結果も通常どおり読戻す。不一致なら削除に進まず、現行正本と読取入口を維持する。
-
-#### 先行切替の旧writerフェンス (#2913 / #2829)
+### 先行切替の旧writerフェンス (#2913 / #2829)
 
 旧記事 `401275764`、旧経済 `394769782`、旧経済reusable `394769781`、旧日次 `317890420` は明示無効のまま維持する。[既存の確認](../tools/diagnostics/check_article_cutoff.py)はこの4旧IDを対象とし、今回の記事停止を判定しない。
 
 旧日次run `43097164269`・固定SHA `b720659b300e0c8dfbbefa003794bd83265d6261`・`main`の定期attempt 1は、同じqueued状態でjobが0件と確定した場合だけ例外。この旧コードはv2 leaseを受理せず、v2で稼働中の本番へは書き込めない。現行日次は同じ読取世代に対する取得CAS、現行経済は書込前の読取で正常なv2を確認する。別run・別attempt・状態変化・一覧不明は例外にしない。未終端中にv2の記録を削除・旧版化しない。
-
-### 記事の日次取込終了と保存出典
-
-最後の受領stageのID・manifest SHA・元時計を固定し、旧日次の適用・公開・読戻し・sealを確認してから日次の取込口を外す。照合できない現役出典は未確認として保全し、未取得URLや現役でない失敗を取りに行かない。旧執行計画からの再適用・seal、旧取得workflowの再有効化は行わない。
-
-公表済み提案はその保存済みの根拠で読み、新規調査は[発表元の原文](../docs/reference/stock-assessment.md#recent-news-research)を使う。昔の厳密な原本参照を読む場合だけ、保持済みの固定Lake版を指定して同ID・hashの出典を照合する。stage参照だけを持つ現役出典は上の固定stage読取を使う。日次に代替取込を設けない。どの旧ファイルを保持するかと物理整理の実行は、この取込停止とは別の作業とする。
 
 ### JPX PDF
 

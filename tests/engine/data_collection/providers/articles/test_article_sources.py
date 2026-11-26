@@ -1,12 +1,8 @@
-"""Finite synthetic provider/transport cases; no public originals or network calls."""
+"""Offline checks for provider formats and saved article receipt identity."""
 
-import hashlib
 import json
-from datetime import UTC, datetime
-from unittest.mock import Mock
 
 import pytest
-import requests
 
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 from baibai_engine.data_collection.providers.articles.native import (
@@ -17,12 +13,7 @@ from baibai_engine.data_collection.providers.articles.native import (
     parse_index,
     parser_revision_for,
 )
-from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
-from baibai_engine.data_collection.transport.articles import (
-    ArticleBudget,
-    ArticleBudgetExceeded,
-    fetch_article,
-)
+from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt
 from baibai_engine.machine_analysis.observations.articles.projection import native_time
 
 
@@ -36,106 +27,7 @@ def test_native_index_locator_shapes_include_tsr_json_items_only_for_tsr():
         assert is_index_locator(source, "/url/0")
 
 
-def response(status, body=b"", **headers):
-    result = Mock(spec=requests.Response)
-    result.status_code = status
-    result.headers = headers
-    result.encoding = "utf-8"
-    result.iter_content.return_value = iter([body])
-    result.__enter__ = Mock(return_value=result)
-    result.__exit__ = Mock(return_value=None)
-    return result
-
-
-def fetch(session, *, baseline=None, budget=None):
-    return fetch_article(
-        session,
-        source="tsr_data",
-        url=SOURCES["tsr_data"].entry_url,
-        allowed_hosts=SOURCES["tsr_data"].allowed_hosts,
-        budget=budget or ArticleBudget.start(max_requests=3, max_bytes=1000, seconds=30),
-        max_response_bytes=500,
-        baseline=baseline,
-    )
-
-
-def test_empty_200_is_not_withheld_and_304_without_baseline_recovers_once():
-    session = Mock(spec=requests.Session)
-    session.get.side_effect = [response(304), response(200, b"", ETag='"new"')]
-    attempts = fetch(session)
-    assert [a.receipt.status for a in attempts] == ["http_error", "ok"]
-    assert attempts[0].receipt.error_code == "missing_304_baseline"
-    assert attempts[1].body == b""
-    assert attempts[1].receipt.body_ref.sha256 == hashlib.sha256(b"").hexdigest()
-    assert all(not call.kwargs["allow_redirects"] for call in session.get.call_args_list)
-    assert all("If-None-Match" not in call.kwargs["headers"] for call in session.get.call_args_list)
-
-
-def test_conditional_receipt_keeps_concrete_200_identity_and_validator():
-    baseline = ArticleReceipt(
-        receipt_id="old",
-        source="tsr_data",
-        requested_url=SOURCES["tsr_data"].entry_url,
-        received_at=datetime(2026, 1, 1, tzinfo=UTC),
-        status="ok",
-        http_status=200,
-        etag='"old"',
-        body_ref=BodyRef(receipt_id="old", sha256="a" * 64),
-    )
-    session = Mock(spec=requests.Session)
-    session.get.return_value = response(304)
-    (attempt,) = fetch(session, baseline=baseline)
-    assert attempt.receipt.status == "not_modified"
-    assert attempt.receipt.body_ref == baseline.body_ref
-    assert attempt.body is None
-    assert session.get.call_args.kwargs["headers"]["If-None-Match"] == '"old"'
-    with pytest.raises(ValueError, match="representation"):
-        fetch(
-            session,
-            baseline=baseline.model_copy(update={"requested_url": "https://other.invalid/"}),
-        )
-
-
-@pytest.mark.parametrize("status", [301, 302, 401, 403, 429, 503])
-def test_http_failures_do_not_retry_or_follow_and_return_cooldown(status):
-    session = Mock(spec=requests.Session)
-    session.get.return_value = response(
-        status, **{"Retry-After": "7200", "Location": "https://other.invalid"}
-    )
-    (attempt,) = fetch(session)
-    assert attempt.receipt.status == "http_error"
-    assert session.get.call_count == 1
-    if status in (429, 503):
-        assert (
-            attempt.receipt.cooldown_until - attempt.receipt.received_at
-        ).total_seconds() == 7200
-
-
-def test_decompressed_bytes_and_shared_request_budget_are_enforced():
-    session = Mock(spec=requests.Session)
-    session.get.return_value = response(200, b"x" * 501)
-    budget = ArticleBudget.start(max_requests=1, max_bytes=1000, seconds=30)
-    (attempt,) = fetch(session, budget=budget)
-    assert attempt.receipt.status == "budget_exceeded"
-    assert attempt.body is None
-    assert budget.bytes_used == 501
-    with pytest.raises(ArticleBudgetExceeded, match="requests"):
-        fetch(session, budget=budget)
-    assert session.get.call_count == 1
-
-
-def test_source_allowlist_does_not_follow_cross_domain_canonical():
-    session = Mock(spec=requests.Session)
-    with pytest.raises(ValueError, match="allowlist"):
-        fetch_article(
-            session,
-            source="minkabu_news",
-            url="https://unverified.invalid/news/1",
-            allowed_hosts=SOURCES["minkabu_news"].allowed_hosts,
-            budget=ArticleBudget.start(max_requests=1, max_bytes=1000, seconds=30),
-            max_response_bytes=500,
-        )
-    session.get.assert_not_called()
+def test_cross_domain_canonical_does_not_change_document_url():
     document = parse_document(
         "minkabu_news",
         b'<link rel="canonical" href="https://unverified.invalid/news/1"><h1>Synthetic</h1><div class="news-body">body</div>',
@@ -321,45 +213,6 @@ def test_pdf_projection_records_exact_page_coordinates():
     assert item.missing_parts == ("non_text_figures_and_layout",)
 
 
-def test_orphan_304_is_returned_even_when_recovery_budget_is_exhausted():
-    session = Mock(spec=requests.Session)
-    session.get.return_value = response(304)
-    (attempt,) = fetch(
-        session, budget=ArticleBudget.start(max_requests=1, max_bytes=1000, seconds=30)
-    )
-    assert attempt.receipt.error_code == "missing_304_baseline"
-    assert session.get.call_count == 1
-
-
-@pytest.mark.parametrize("source", ["boj_news", "mof_news"])
-@pytest.mark.parametrize("size", [4_000_005, 12_000_001])
-def test_public_document_cap_accepts_reports_but_stays_bounded(source, size):
-    policy = SOURCES[source]
-    assert policy.response_limit("index") == 4_000_000
-    assert policy.response_limit("document") == 12_000_000
-    assert policy.max_bytes == 24_000_000
-    body = b"%PDF-" + b"x" * (size - 5)
-    session = Mock(spec=requests.Session)
-    session.get.return_value = response(200, body)
-    budget = ArticleBudget.start(max_requests=1, max_bytes=policy.max_bytes, seconds=30)
-    (attempt,) = fetch_article(
-        session,
-        source=policy.source_id,
-        url=policy.entry_url.rsplit("/", 1)[0] + "/synthetic.pdf",
-        allowed_hosts=policy.allowed_hosts,
-        budget=budget,
-        max_response_bytes=policy.response_limit("document"),
-    )
-    if size <= policy.response_limit("document"):
-        assert attempt.receipt.status == "ok"
-        assert attempt.body == body
-    else:
-        assert attempt.receipt.status == "budget_exceeded"
-        assert attempt.body is None
-        assert attempt.receipt.body_ref is None
-    assert budget.bytes_used == len(body)
-
-
 def test_nhk_guid_is_shared_across_categories_and_description_remains_summary():
     def feed(marker):
         return f'<rss xmlns:nhk="http://news.web.nhk/rss/rss2.0/modules/nhknews/"><channel><item><title>Synthetic</title><link>https://news.web.nhk/newsweb/na/na-k10000000000000</link><guid isPermaLink="false">synthetic-guid</guid><description>Only synthetic summary</description><pubDate>Thu, 29 Oct 2026 12:00:00 +0900</pubDate><nhk:new>{marker}</nhk:new></item></channel></rss>'.encode()
@@ -468,70 +321,6 @@ def test_nhk_budget_is_one_provider_with_four_feeds_and_public_summary_contract(
             b'{"@type":"NewsArticle","description":"related"}]</script>',
             url=url,
         )
-
-
-def test_provider_interval_applies_to_every_request_without_real_sleep(monkeypatch):
-    from baibai_engine.data_collection.transport import articles
-
-    clock = [100.0]
-    waits = []
-    monkeypatch.setattr(articles.time, "monotonic", lambda: clock[0])
-
-    def advance(seconds):
-        waits.append(seconds)
-        clock[0] += seconds
-
-    monkeypatch.setattr(articles, "wait_for_read_retry", advance)
-    budget = ArticleBudget.start(max_requests=3, max_bytes=1000, seconds=5, min_interval_seconds=1)
-    budget.request()
-    budget.request()
-    budget.request()
-    assert waits == [1.0, 1.0]
-    assert budget.requests_used == 3
-
-
-def test_article_get_uses_shared_honest_identity_on_each_attempt():
-    from unittest.mock import patch
-
-    from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
-
-    with requests.Session() as session:
-        default_agent = session.headers["User-Agent"]
-        with patch.object(session, "get", side_effect=[response(304), response(200, b"[]")]) as get:
-            attempts = fetch(session)
-        assert len(attempts) == 2
-        for call in get.call_args_list:
-            # Check Requests' actual header merge without sending any request.
-            prepared = session.prepare_request(
-                requests.Request("GET", call.args[0], headers=call.kwargs["headers"])
-            )
-            assert prepared.headers["User-Agent"] == PUBLIC_RESEARCH_USER_AGENT
-            assert prepared.headers["User-Agent"] == "baibai-loop-public-research/1.0"
-            assert "application/json" in prepared.headers["Accept"]
-        assert session.headers["User-Agent"] == default_agent
-
-
-def test_conditional_article_get_keeps_identity_with_validators():
-    from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
-
-    baseline = ArticleReceipt(
-        receipt_id="old",
-        source="tsr_data",
-        requested_url=SOURCES["tsr_data"].entry_url,
-        received_at=datetime(2026, 1, 1, tzinfo=UTC),
-        status="ok",
-        http_status=200,
-        etag='"old"',
-        last_modified="Wed, 01 Jan 2025 00:00:00 GMT",
-        body_ref=BodyRef(receipt_id="old", sha256="a" * 64),
-    )
-    session = Mock(spec=requests.Session)
-    session.get.return_value = response(304)
-    fetch(session, baseline=baseline)
-    headers = session.get.call_args.kwargs["headers"]
-    assert headers["User-Agent"] == PUBLIC_RESEARCH_USER_AGENT
-    assert headers["If-None-Match"] == baseline.etag
-    assert headers["If-Modified-Since"] == baseline.last_modified
 
 
 @pytest.mark.parametrize(

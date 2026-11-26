@@ -46,7 +46,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError a
 from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema as validate_market_schema,
 )
-from baibai_jobs.acquisition.economic_staging import stage_prefix
+from baibai_jobs.acquisition.economic_staging import ARTICLE_HANDOFF_NAMESPACE, stage_prefix
 from baibai_jobs.acquisition.receipts import (
     available_handoffs,
     download_fixed,
@@ -95,7 +95,7 @@ def _archived_equity_tradingview(entry: dict[str, Any]) -> bool:
 
 def _retired_article(entry: dict[str, object]) -> bool:
     return (
-        entry.get("namespace") == "article-sources"
+        entry.get("namespace") == ARTICLE_HANDOFF_NAMESPACE
         or entry.get("source") in _RETIRED_ARTICLE_SOURCES
     )
 

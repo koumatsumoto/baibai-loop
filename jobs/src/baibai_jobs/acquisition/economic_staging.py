@@ -51,6 +51,7 @@ _RETIRED_JQUANTS_HANDOFF = re.compile(
     r"([0-9]{4}-[0-9]{2}-[0-9]{2})-[0-9]+-[0-9]+/handoff\.json"
 )
 FRED_HANDOFF_NAMESPACE = "economic-fred-sources"
+ARTICLE_HANDOFF_NAMESPACE = "article-sources"
 _MAX_FRED_RECEIPT_BYTES = 128 * 1024**2
 _FRED_DECODE_CHUNK = 1024**2
 _FRED_MAX_WINDOW_LOG = 23  # 8 MiB
@@ -77,7 +78,7 @@ def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None =
         "market-sources",
         "economic-sources",
         "source-inputs",
-        "article-sources",
+        ARTICLE_HANDOFF_NAMESPACE,
     }:
         raise ValueError("invalid source handoff namespace")
     return f"coordination/{namespace}/{stage_id}"
