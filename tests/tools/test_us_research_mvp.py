@@ -878,9 +878,13 @@ def test_companyfacts_capture_scope_holds_only_affected_finance_in_cli(
     assert tmp_path / record["file"] not in reads
 
 
-def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path, capsys):
+@pytest.mark.parametrize("manifest_cik", ["0000320193", "320193"])
+def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(
+    tmp_path, capsys, manifest_cik
+):
     bundle, files, index = _public_index_bundle()
     subject = bundle["subjects"][0]
+    subject["cik"] = manifest_cik
     bundle["subjects"] = [subject, {**subject, "symbol": "SECOND"}]
     del bundle["alpaca"]
     record = subject["companyfacts"]
@@ -937,7 +941,7 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path,
     assert "sec_filing_form_not_covered" in excluded
     assert "operating_income (quarter," not in excluded
     subject["filing"]["form"] = "10-Q"
-    bundle["subjects"][1]["period_start"] = "2026-07-02"
+    bundle["subjects"][1].update(cik="0000320193", period_start="2026-07-02")
     manifest.write_text(json.dumps(bundle), encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         main(cmd)

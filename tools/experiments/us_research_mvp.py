@@ -878,12 +878,15 @@ def _compare_sec_report(bundle: _Record, load: _Loader, args: Sequence[str]) -> 
         raise ValueError("unknown fixed receipt schema")
     cik, quarter, prior_start, prior_end, current_fiscal_start, prior_fiscal_start = args
     issuer = SecEdgarQuery("companyfacts", cik).cik
-    fields = ("cik", "period_start", "period_end", "companyfacts", "filing")
-    fixed = [
-        {field: subject.get(field) for field in fields}
-        for subject in bundle["subjects"]
-        if subject["cik"] == issuer
-    ]
+    fields = ("period_start", "period_end", "companyfacts", "filing")
+    fixed = []
+    for subject in bundle["subjects"]:
+        try:
+            subject_issuer = SecEdgarQuery("companyfacts", subject["cik"]).cik
+        except ValueError:
+            continue
+        if subject_issuer == issuer:
+            fixed.append({"cik": issuer, **{field: subject.get(field) for field in fields}})
     if not fixed or any(entry != fixed[0] for entry in fixed[1:]):
         raise ValueError("one fixed filing per SEC comparison")
     prior = SecReportedDuration(_day(prior_start), _day(prior_end))
