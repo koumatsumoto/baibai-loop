@@ -3,8 +3,10 @@
 import hashlib
 import json
 from collections import Counter
+from contextlib import closing
 from dataclasses import replace
 from datetime import timedelta
+from gzip import BadGzipFile
 
 import pytest
 from tests.helpers.external_assessment_publication import (
@@ -22,6 +24,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     decode_attempt,
 )
 from baibai_engine.storage.objects.r2 import LakePublishError
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.external_assessment_ready import (
     acknowledged_bundles,
     acknowledgement_key,
@@ -33,12 +36,12 @@ from baibai_jobs.integration.external_assessment_ready import (
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 
 
-def make_partial(publication):
+def make_partial(publication, source="monex"):
     store, previous, *_ = publication
     plan = _plan(
         previous,
-        run_id="cumulative-monex",
-        sources=("monex",),
+        run_id=f"cumulative-{source}",
+        sources=(source,),
         tickers=("6758", "7203"),
         cohort_size=1,
     )
@@ -348,3 +351,25 @@ def test_legacy_spelled_reference_with_the_same_retained_body_still_seals(public
     assert set(ack["bundle_receipts"]) == {legacy}
     assert legacy not in store.values
     assert retained in store.values
+
+
+@pytest.mark.parametrize("source", ["monex", "kabumap", "rakuten"])
+def test_corrupt_canonical_receipt_stays_fatal_during_cumulative_import(publication, source):
+    store, plan = make_partial(publication, source=source)
+    _, _, handle, database, mirror, directory = publication
+    first = save_ready(store, prepare_plan(store, plan, cumulative=True))
+    state = merge_ready(store, [first], database=database)
+    assert state["failed"] == []
+    publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    verify_and_seal(store, state, handle=handle, directory=directory / "first")
+    (receipt_id, *_) = next(iter(state["plans"][0]["bundle_receipts"].values()))
+    add_cohort(store, plan, 1)
+    extended = save_ready(store, prepare_plan(store, plan, cumulative=True))
+    with closing(open_connection(database)) as conn, conn:
+        conn.execute(
+            "UPDATE equity_web_source_responses SET body_gzip=x'7878' WHERE receipt_id=?",
+            (receipt_id,),
+        )
+    with pytest.raises(BadGzipFile):
+        merge_ready(store, [extended], database=database)
+    assert staging.read_terminal(store, plan) is None

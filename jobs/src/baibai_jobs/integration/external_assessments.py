@@ -147,7 +147,7 @@ def _unchanged_external_objects(
 
 
 def _import_confirmed_originals(
-    store: ObjectStore,
+    store: ReceiptStore,
     plan: RunPlan,
     stages: dict[int, tuple[CohortStage, str]],
     sqlite_path: Path,
@@ -155,26 +155,44 @@ def _import_confirmed_originals(
     retained: tuple[set[tuple[int, int]], dict[str, str]],
     bundle_receipts: dict[str, dict[str, str]],
     acknowledged: dict[str, dict[str, str]] | None = None,
+    reuse_ack_for_missing: bool = False,
 ) -> tuple[int, dict[str, str], tuple[ExternalAssessmentObservation, ...]]:
     """Import one bounded bundle at a time; defer L2 until every bundle is valid."""
     source_inserted = 0
     selected_digests: dict[str, str] = {}
     typed: list[ExternalAssessmentObservation] = []
     attempts: dict[str, tuple[str, str, list[str]]] = {}
+    missing_bundle_acks: dict[str, dict[str, str]] | None = None
     for index, (stage, _) in sorted(stages.items()):
         pairs = set(plan.cohorts[index].pairs)
         for key in stage.raw_bundle_keys:
-            if acknowledged and key in acknowledged:
-                # 旧bundleを再GETせず、公開・読戻し済みのexact L1を現在のhydrateから読む。
-                uri = sqlite_path.resolve().as_uri() + "?mode=ro"
-                with closing(sqlite3.connect(uri, uri=True)) as conn:
-                    responses = equity_web_read_responses(conn, tuple(acknowledged[key]))
-            else:
-                manifest, responses = read_raw_bundle(store, key)
+            expected = acknowledged.get(key) if acknowledged else None
+            if (
+                expected is None
+                and (raw := read_raw_bundle(store, key, allow_missing=reuse_ack_for_missing))
+                is not None
+            ):
+                manifest, responses = raw
                 if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
                     raise ValueError("external assessment raw bundle stage binding mismatch")
+                del raw
+            else:
+                if expected is None and reuse_ack_for_missing:
+                    # Explicit partial close still prefers healthy raw. Only R2 absence
+                    # permits the same already-verified, exact receipt reuse as cumulative.
+                    if missing_bundle_acks is None:
+                        missing_bundle_acks = acknowledged_bundles(
+                            store, plan, require_cumulative_ready=True
+                        )
+                    expected = missing_bundle_acks.get(key)
+                if expected is None:
+                    raise ValueError("external original is missing; keep this source incomplete")
+                uri = sqlite_path.resolve().as_uri() + "?mode=ro"
+                # Corrupt hydrated originals are canonical storage failures, not missing raw.
+                with closing(sqlite3.connect(uri, uri=True)) as conn:
+                    responses = equity_web_read_responses(conn, tuple(expected))
             digests = {item.receipt_id: equity_web_response_digest(item) for item in responses}
-            if acknowledged and key in acknowledged and digests != acknowledged[key]:
+            if expected is not None and digests != expected:
                 raise ValueError("acknowledged external original changed")
             bundle_receipts[key] = digests
             for response in responses:
@@ -266,6 +284,7 @@ def merge_ready(
                 database,
                 retained=(retained_months, retained_digests),
                 acknowledged=acknowledged_bundles(store, item.plan) if item.cumulative else None,
+                reuse_ack_for_missing=item.confirmed_partial and item.plan.sources == ("monex",),
                 bundle_receipts=bundle_receipts,
             )
             if selected_digests.keys() & digests.keys():
