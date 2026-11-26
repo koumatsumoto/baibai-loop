@@ -487,13 +487,6 @@ def _sec(
         if _clock(filing_record["received_at"]) > cutoff:
             return evidence, "sec_filing_not_yet_received"
         public_index = filing_record.get("public_index")
-        public_seen = filing_record.get("public_seen_at") if public_index is None else None
-        if public_seen is not None and (seen := _clock(public_seen)) <= cutoff:
-            if seen < _clock(filing_record["accepted_at"]):
-                return evidence, "sec_invalid_fixed_evidence"
-            evidence.append(
-                f"公開を見た申告時刻: {seen.isoformat()}（原本未照合・初回公表の証明ではない）"
-            )
         if filing_record["published_at"] is None:
             evidence.append("独立した初回公表時刻は未確認。")
         form = filing_record["form"]
@@ -886,8 +879,18 @@ def _compare_sec_report(bundle: _Record, load: _Loader, args: Sequence[str]) -> 
         except ValueError:
             continue
         if subject_issuer == issuer:
-            fixed.append({"cik": issuer, **{field: subject.get(field) for field in fields}})
-    if not fixed or any(entry != fixed[0] for entry in fixed[1:]):
+            entry = {"cik": issuer, **{field: subject.get(field) for field in fields}}
+            filing = entry["filing"]
+            if isinstance(filing, dict):
+                try:
+                    filing_cik = SecEdgarQuery("companyfacts", filing.get("issuer_cik")).cik
+                except ValueError:
+                    pass  # Leave invalid evidence to the normal SEC interpretation.
+                else:
+                    entry["filing"] = {**filing, "issuer_cik": filing_cik}
+            fixed.append(entry)
+    # Mapping equality conflates JSON booleans and numbers used by receipt validation.
+    if len({json.dumps(entry, sort_keys=True, allow_nan=False) for entry in fixed}) != 1:
         raise ValueError("one fixed filing per SEC comparison")
     prior = SecReportedDuration(_day(prior_start), _day(prior_end))
     notes, problem = _sec(

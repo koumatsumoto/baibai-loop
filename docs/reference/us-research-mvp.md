@@ -25,7 +25,7 @@ CLI自体はネットへ接続しない。許可済みの収集CLI/transportが�
 
 指定CIKのSEC [Submissions](https://www.sec.gov/search-filings/edgar-application-programming-interfaces#data-sec-gov-submissions) の原本から、Alpacaの銘柄ラベルが同じ発行体に明示されているかを照合する。未受領・受領遅れ・不一致なら日足の観測だけ残し、その発行体の財務とは結合しない。申告ラベルだけでは採用しない。この照合は現在の銘柄表記とCIKまでで、取引所・株式クラス・過去の名称変更まで証明しない。最初の実データ受入では、採用した提出書表紙のSection 12(b)で銘柄と市場・株式クラスが対応する行を別担当が照合する。同一企業のGOOG/GOOGL等は別の株式クラスとして扱い、財務は発行体単位のまま読む。証拠が揃わなければ実データ受入は保留する。
 
-SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) の原本と、別途固定した提出証拠を用意する。`published_at` はそのaccessionの独立した初回公表時刻が確認できた場合だけ。SECの受付時計や取得時刻では埋めない。初回公表時刻が不明でも、SECの該当提出索引を実際に受領していれば、`published_at` と `publication_ref` をnullのまま置き、任意の `filing.public_index` に正規 `<accession>-index.htm` の原本を指定できる。報告に示す公開確認時刻は、その索引の受領時刻であり初回公表ではない。`public_seen_at` の申告だけは採用に使わない。時点証明が足りない場合は保留し、代替conceptを勝手に合算しない。
+SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) の原本と、別途固定した提出証拠を用意する。`published_at` はそのaccessionの独立した初回公表時刻が確認できた場合だけ。SECの受付時計や取得時刻では埋めない。初回公表時刻が不明でも、SECの該当提出索引を実際に受領していれば、`published_at` と `publication_ref` をnullのまま置き、任意の `filing.public_index` に正規 `<accession>-index.htm` の原本を指定できる。報告に示す公開確認時刻は、その索引の受領時刻であり初回公表ではない。公開を見た時刻の申告は、採用・保留のどちらの根拠にも使わない。時点証明が足りない場合は保留し、代替conceptを勝手に合算しない。
 
 採用する売上は、提出書の対象列と照合した開始日・終了日を固定する。通常四半期は10-Qまたは10-Q/Aの単独四半期で、期間は両端を含む89〜98日（連続3暦月、13〜14週を含む）。明示した10-Kは52週・53週または暦年相当の通期売上として区別し、10-K/Aや変則決算は対象外。期間長だけでは会計上の区分を証明しない。同じ10-Q、同じ期末日でも半年・9か月累計や範囲外の変則期は保留し、差分で単独四半期を作らない。最新の提出は自動で選ばず、報告には採用期間を表示する。
 
