@@ -57,6 +57,7 @@ class SecPublicFilingObservation:
     observed_at: datetime
     receipt_id: str
     index_url: str
+    report_end: date
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +91,9 @@ class SecRevenueAmbiguity:
         return "semantic_equivalence_unverified"
 
 
-type _UnavailableReceipt = Literal["not_yet_received", "publication_unverified"]
+type _UnavailableReceipt = Literal[
+    "not_yet_received", "publication_unverified", "filing_period_mismatch"
+]
 type _MissingAmount = Literal["unmapped_concept_or_unit", "no_fact_for_scope"]
 type SecUsdResult = (
     SecIssuerUsdObservation | SecRevenueAmbiguity | _UnavailableReceipt | _MissingAmount
@@ -180,7 +183,12 @@ def observe_sec_revenue(
     if filing.form == "10-K" and not period.fits_regular_fiscal_year:
         raise ValueError("SEC annual revenue requires a regular full fiscal year")
     source = _pin_companyfacts(
-        capture, filing, issuer=issuer, cutoff=cutoff, publicly_observed_by=publicly_observed_by
+        capture,
+        filing,
+        issuer=issuer,
+        cutoff=cutoff,
+        publicly_observed_by=publicly_observed_by,
+        current_period_end=period.end,
     )
     if isinstance(source, str):
         return source
@@ -231,6 +239,7 @@ def observe_sec_comparatives(
         issuer=_cik(expected_cik),
         cutoff=cutoff,
         publicly_observed_by=publicly_observed_by,
+        current_period_end=current_quarter.end,
     )
     if isinstance(source, str):
         return source
@@ -292,7 +301,8 @@ def _pin_companyfacts(
     issuer: str,
     cutoff: datetime,
     publicly_observed_by: SecPublicFilingObservation | None,
-) -> _PinnedCompanyFacts | Literal["not_yet_received"]:
+    current_period_end: date,
+) -> _PinnedCompanyFacts | Literal["not_yet_received", "filing_period_mismatch"]:
     asof = _clock(cutoff)
     fact_received = _clock(capture.received_at)
     filing_received = _clock(filing.received_at)
@@ -332,6 +342,9 @@ def _pin_companyfacts(
         published=published,
         companyfacts_receipt_id=capture.receipt_id,
     )
+    # CompanyFacts can carry prior-year columns under the current accession.
+    if observed is not None and observed.report_end != current_period_end:
+        return "filing_period_mismatch"
     document = _read_companyfacts(capture)
     if _cik(document.get("cik"), allow_integer=True) != issuer:
         raise ValueError("CompanyFacts CIK does not match the expected issuer")
@@ -470,6 +483,8 @@ def _public_index_asof(
         raise ValueError("SEC public observation is before filing acceptance")
     if published is not None and observed_at < published:
         raise ValueError("SEC public observation is before witnessed filing publication")
+    if type(observation.report_end) is not date:
+        raise ValueError("invalid SEC index report date")
     return replace(observation, issuer_cik=filing.issuer_cik, observed_at=observed_at)
 
 

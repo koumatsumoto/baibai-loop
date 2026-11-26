@@ -244,6 +244,48 @@ class _IndexDocument(HTMLParser):
         self._native_filer = False
         self._native_closed = False
         self._native_invalid = False
+        self._form_group_depth = 0
+        self._form_field: tuple[Literal["heading", "value"], list[str]] | None = None
+        self._expect_report_end = False
+        self._report_ends: list[str | None] = []
+
+    def report_end(self) -> date:
+        if len(self._report_ends) != 1 or (value := self._report_ends[0]) is None:
+            raise ValueError("SEC filing index needs one Period of Report")
+        return _day(value)
+
+    def _open_form_field(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        expect_end = self._expect_report_end
+        self._expect_report_end = False
+        self._form_field = None
+        # The filing details precede document and filer sections.
+        if tag != "div" or not self._in_body or self._sections:
+            return
+        if not self._form_group_depth:
+            self._form_group_depth = int(("class", "formGrouping") in attrs)
+            return
+        if self._form_group_depth == 1:
+            if expect_end and ("class", "info") in attrs:
+                self._form_field = ("value", [])
+            elif ("class", "infoHead") in attrs:
+                self._form_field = ("heading", [])
+        self._form_group_depth += 1
+
+    def _close_form_field(self, tag: str) -> None:
+        field = self._form_field
+        self._form_field = None
+        self._expect_report_end = False
+        if tag != "div" or not self._form_group_depth:
+            return
+        self._form_group_depth -= 1
+        if self._form_group_depth == 1 and field is not None:
+            role, fragments = field
+            value = "".join(fragments).strip()
+            if role == "value":
+                self._report_ends[-1] = value
+            elif value == "Period of Report":
+                self._report_ends.append(None)
+                self._expect_report_end = True
 
     @property
     def has_submission(self) -> bool:
@@ -275,6 +317,7 @@ class _IndexDocument(HTMLParser):
             if len(self._sections) == 3 and self._containers == ["div"] and tag == "div":
                 self._in_filer = ("class", "filerDiv") in attrs
             self._containers.append(tag)
+        self._open_form_field(tag, attrs)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag not in _SEC_INDEX_CONTAINERS:
@@ -283,8 +326,11 @@ class _IndexDocument(HTMLParser):
             self.is_native = self._native_invalid = True
         elif self._containers:
             self._native_invalid = True
+        self._form_field = None
+        self._expect_report_end = False
 
     def handle_endtag(self, tag: str) -> None:
+        self._close_form_field(tag)
         if tag == "head":
             self._in_head = False
             self._text = None
@@ -324,6 +370,10 @@ class _IndexDocument(HTMLParser):
         self._sections.append((name, self.getpos()))
 
     def handle_data(self, data: str) -> None:
+        if self._form_field is not None:
+            self._form_field[1].append(data)
+        if data.strip():
+            self._expect_report_end = False
         if self._text is not None:
             self._text.append(data)
         elif self._in_filer and self.cdata_elem is None and any(c.isalnum() for c in data):
@@ -388,6 +438,7 @@ def _public_index(
         observed_at=observed_at,
         receipt_id=f"sec-index:{sha256(identity).hexdigest()}",
         index_url=url,
+        report_end=parser.report_end(),
     )
 
 

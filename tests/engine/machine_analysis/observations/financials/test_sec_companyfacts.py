@@ -363,6 +363,7 @@ def _index_proof(**changes):
         "accession": _ACCESSION,
         "observed_at": _instant("2026-11-25T22:10:00+01:00"),
         "receipt_id": "sec-index:fixed-synthetic-receipt",
+        "report_end": _Q_END,
         "index_url": (
             "https://www.sec.gov/Archives/edgar/data/123456/"
             "000099999926000001/0000999999-26-000001-index.htm"
@@ -400,6 +401,22 @@ def test_public_index_observation_is_usable_only_from_its_independent_clock() ->
     assert result.publicly_observed_by.observed_at.isoformat() == "2026-11-25T21:10:00+00:00"
 
 
+def test_focal_end_check_follows_index_scope_but_precedes_companyfacts_decoding() -> None:
+    proof = _index_proof(report_end=date(2025, 9, 30))
+    source = _capture(b"not JSON")
+    assert _read_observed(source, proof=proof, cutoff=_CUTOFF) == "filing_period_mismatch"
+    with pytest.raises(ValueError, match="index URL"):
+        _read_observed(
+            source, proof=replace(proof, index_url=proof.index_url + "?wrong"), cutoff=_CUTOFF
+        )
+    with pytest.raises(ValueError, match="before filing acceptance"):
+        _read_observed(
+            source,
+            proof=replace(proof, observed_at=_instant("2026-11-25T20:54:59Z")),
+            cutoff=_CUTOFF,
+        )
+
+
 @pytest.mark.parametrize("source_late", ["companyfacts", "filing"])
 def test_public_index_never_substitutes_either_pinned_source_receipt(source_late: str) -> None:
     proof = _index_proof()
@@ -431,6 +448,7 @@ def test_public_index_never_substitutes_either_pinned_source_receipt(source_late
         ({"receipt_id": " companyfacts-capture-a "}, "receipt"),
         ({"receipt_id": "companyfacts- capture-a"}, "receipt"),
         ({"observed_at": _instant("2026-11-25T20:54:59Z")}, "before filing acceptance"),
+        ({"report_end": _instant("2026-09-30T00:00:00Z")}, "invalid SEC index report date"),
     ],
 )
 def test_wrong_public_observation_provenance_is_not_a_public_witness(changes, error) -> None:
