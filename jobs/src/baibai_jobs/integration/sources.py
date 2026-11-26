@@ -235,6 +235,29 @@ def canonical_generations(store: ObjectStore) -> dict[str, str]:
     }
 
 
+def _apply_summary(report: dict[str, Any]) -> dict[str, object]:
+    handoffs = report["handoffs"]
+    extractions = report["extractions"]
+    external = report["external"]
+    return {
+        "asof": report["asof"],
+        "handoff_count": len(handoffs),
+        "applied_handoff_count": sum(item["applied"] for item in handoffs),
+        "failed_handoff_count": sum(item["failed"] for item in handoffs),
+        "extraction_count": len(extractions),
+        "failed_extraction_count": sum(bool(item["exit_code"]) for item in extractions.values()),
+        "external_ready_failure_count": len(report["external_failed"]),
+        "external": None
+        if external is None
+        else {
+            "applied_plan_count": len(external["plans"]),
+            "failed_plan_count": len(external["failed"]),
+            "changed_partition_count": len(external["changed"]),
+            "selected_receipt_count": len(external["selected_digests"]),
+        },
+    }
+
+
 def _jpx_recovery_handoffs(
     store: ObjectStore, selections: list[list[str]]
 ) -> list[dict[str, object]]:
@@ -290,6 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--identity")
     parser.add_argument("--group", help="Reissue only this scoped input group")
+    parser.add_argument("--summary", action="store_true", help="Log only apply counts")
     parser.add_argument("--lease-handle", type=Path)
     parser.add_argument(
         "--daily-readback-notice", type=Path, help="reuse this attempt's verified Lake bytes"
@@ -332,6 +356,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.group is not None and args.command != "inputs":
         print("--group is only valid with inputs", file=sys.stderr)
+        return 1
+    if args.summary and args.command != "apply":
+        print("--summary is only valid with apply", file=sys.stderr)
         return 1
     seal_phase = "setup"
     try:
@@ -451,6 +478,9 @@ def main(argv: list[str] | None = None) -> int:
                 if args.asof is None:
                     raise ValueError("--asof is required")
                 report = apply(store, directory, market=args.market, asof=args.asof)
+                if args.summary:
+                    print(json.dumps(_apply_summary(report), sort_keys=True), flush=True)
+                    return 0
                 public_report = dict(report)
                 if "jpx_publication" in public_report:
                     public_report["jpx_publication"] = "private readback plan"
