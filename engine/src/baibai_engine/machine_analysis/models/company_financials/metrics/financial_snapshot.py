@@ -8,6 +8,8 @@ from typing import Literal
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     ENTITY_SCALE_MISMATCH,
+    _book_period_shares,
+    _capital_action_supersedes,
     _common_equity,
     _edinet_passes_entity_scale_check,
     _normalize_summaries_with_status,
@@ -45,6 +47,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     accounting_standard,
     forecast_source_trace,
     latest_forecast_source,
+    reporting_basis_rows,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
@@ -102,7 +105,7 @@ def build_financial_snapshot(
     )
     summaries = normalization.summaries
     capital_basis_barrier = normalization.capital_basis_barrier
-    latest = _latest_summary(summaries)
+    latest_disclosure = _latest_summary(summaries)
     forecast = latest_forecast_source(summaries)
     forecast_eps = forecast.forecast_eps if forecast is not None else None
     forecast_profit = forecast.forecast_profit if forecast is not None else None
@@ -128,12 +131,14 @@ def build_financial_snapshot(
         profit_quality = (
             TTMQuality.APPROXIMATED if profit_ttm is not None else TTMQuality.UNAVAILABLE
         )
-    # 四半期に未開示のBS値は直近値を使い、経過日数を残す。
-
-    cash_eq, cash_eq_lag = _carry_forward(summaries, "cash_eq", latest)
-    total_assets, total_assets_lag = _carry_forward(summaries, "total_assets", latest)
-    equity_to_asset_ratio, eq_ratio_lag = _carry_forward(summaries, "equity_to_asset_ratio", latest)
-    bps, bps_lag = _carry_forward(summaries, "bps", latest)
+    # 予想通知や遅れて届いた旧期の訂正は、当期BSの繰越基準を進めない。
+    latest_actual = _latest_actual_row(reporting_basis_rows(summaries))
+    cash_eq, cash_eq_lag = _carry_forward(summaries, "cash_eq", latest_actual)
+    total_assets, total_assets_lag = _carry_forward(summaries, "total_assets", latest_actual)
+    equity_to_asset_ratio, eq_ratio_lag = _carry_forward(
+        summaries, "equity_to_asset_ratio", latest_actual
+    )
+    bps, bps_lag = _carry_forward(summaries, "bps", latest_actual)
     carried_lags = {
         "bps": bps_lag,
         "cash_eq": cash_eq_lag,
@@ -217,6 +222,7 @@ def build_financial_snapshot(
             common_equity_row.total_assets * common_equity_row.equity_to_asset_ratio
         )
     bps_row = _latest_non_null_row(summaries, "bps")
+    bps_period_shares = _book_period_shares(summaries, bps_row)
     # 同一状態の円経路へ直しても、その組がより新しい BPS より古ければstaleな資本を
     # 復活させる。2経路のうち新しい観測を先に選び、同日または円経路が新しい場合だけ
     # 下の普通株basis一致判定へ進める。
@@ -237,17 +243,19 @@ def build_financial_snapshot(
             else None
         ),
         bps=bps,
-        shares_ex_treasury=shares_ex_treasury,
+        bps_period_shares=bps_period_shares,
     )
     if (
         equity is not None
-        and equity[1] == "bps_times_current_shares"
+        and equity[1] == "bps_times_reported_period_shares"
         and bps_row is not None
-        and bps_row.period_end is not None
-        and any(action.effective_date > bps_row.period_end for action in capital_actions)
+        and any(
+            _capital_action_supersedes(action, bps_row.period_end, bps_row.shares_outstanding)
+            for action in capital_actions
+        )
     ):
-        # A new share count cannot remeasure old BPS after an issuance/conversion.
-        # Reject only the selected route, not a separately established yen book.
+        # A completed capital event makes the superseded BPS route unavailable for a
+        # current PBR; it does not invalidate a separately established yen book.
         equity = None
     book_equity: dict[str, object] | None = None
     if equity is not None:
@@ -272,8 +280,9 @@ def build_financial_snapshot(
                 if method == "assets_times_equity_ratio"
                 else {
                     "bps_yen": bps,
-                    "shares_ex_treasury": shares_ex_treasury,
-                    "share_basis_as_of": asof_date,
+                    "shares_ex_treasury": bps_period_shares,
+                    "share_measurement_date": source.period_end,
+                    "share_unit_basis_as_of": asof_date,
                 }
             ),
         }
@@ -292,7 +301,9 @@ def build_financial_snapshot(
         ),
     )
     return FinancialSnapshot(
-        latest_financial_disclosure_date=latest.disclosed_at if latest else None,
+        latest_financial_disclosure_date=latest_disclosure.disclosed_at
+        if latest_disclosure is not None
+        else None,
         per_forward=per_forward,
         forecast_eps_yen=forecast_eps,
         forecast_profit_yen=forecast_profit,

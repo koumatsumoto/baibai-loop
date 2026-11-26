@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from baibai_jobs.observability.watchdog import RESULT_STEP_PREFIX
 from baibai_jobs.publication.lease import DAILY_LEASE_TTL
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -49,7 +50,7 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
         ("source-integration", "batch"),
         ("batch", "upload-stores"),
         ("upload-stores", "source-seal"),
-        ("source-seal", "source-inputs"),
+        ("source-seal", "source-check"),
     ):
         assert ids.index(first) < ids.index(second)
     assert "uv run baibai-jobs model-integration" in by_id["batch"]["run"]
@@ -61,6 +62,23 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
     assert by_id["upload-stores"]["if"] == "steps.batch.outputs.models_ready == 'true'"
     assert "steps.batch.outcome == 'success'" in by_id["source-seal"]["if"]
     assert '--daily-readback-notice "$RUNNER_TEMP/batch-notice.json"' in by_id["source-seal"]["run"]
+    check = by_id["source-check"]
+    assert "steps.source-seal.outcome == 'success'" in check["if"]
+    assert "continue-on-error" not in check
+    assert 'integration.sources check --directory "$RUNNER_TEMP/integration"' in check["run"]
+
+
+def test_optional_local_probe_is_independent_of_daily_publication(workflow, steps, by_id):
+    option = workflow["on"]["workflow_dispatch"]["inputs"]["jp_input_probe_ticker"]
+    assert option["required"] == "false"
+    probe = by_id["jp-input-probe"]
+    assert steps.index(probe) > steps.index(by_id["notify"])
+    assert probe["if"] == (
+        "${{ !cancelled() && github.event_name == 'workflow_dispatch' "
+        "&& inputs.jp_input_probe_ticker != '' && steps.batch.outcome == 'success' }}"
+    )
+    assert probe["continue-on-error"] == "true"
+    assert "env" not in probe  # Neither private dispatch values in logs nor writer credentials.
 
 
 def test_optional_edinet_acceptance_is_before_any_model_publication(workflow, steps, by_id):
@@ -91,6 +109,8 @@ def test_current_daily_has_no_article_replay_entrypoint(workflow, by_id):
     assert "article-semantic-readback" not in by_id
     assert "article_semantic_recovery" not in str(workflow)
     assert "--article-semantic-" not in str(workflow)
+    assert "source-inputs" not in by_id  # Only retired article planning used it.
+    assert "integration.sources inputs" not in str(workflow)
 
 
 @pytest.mark.parametrize(
@@ -136,7 +156,7 @@ def test_notifications_and_credentials_remain_scoped(steps, by_id):
         assert "cancelled()" not in step.get("run", "")
         if step.get("id") in ("setup", "sync", "smoke", "validate-input"):
             assert "R2_SECRET_ACCESS_KEY" not in str(step)
-    assert '"Notify Discord #batch-runs' in WORKFLOW_PATH.read_text()
+    assert notify["name"].startswith(RESULT_STEP_PREFIX)
 
 
 def test_explicit_edinet_acceptance_outcome_reaches_the_existing_notifier(by_id):

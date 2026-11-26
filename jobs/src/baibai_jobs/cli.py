@@ -24,7 +24,6 @@ _COMMANDS = {
     "rebuild-calendar-native": "baibai_jobs.integration.calendar_native",
     "jquants-calendar-native": "baibai_jobs.acquisition.jquants_calendar_native",
     "jquants-master-native": "baibai_jobs.acquisition.jquants_master_native",
-    "master-dependency": "baibai_jobs.acquisition.master_dependencies",
     "rebuild-master-native": "baibai_jobs.integration.master_native",
     "jquants-price-native": "baibai_jobs.acquisition.jquants_price_native",
     "jquants-margin-alerts-native": "baibai_jobs.acquisition.jquants_margin_alerts_native",

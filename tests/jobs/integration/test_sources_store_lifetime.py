@@ -9,7 +9,7 @@ from baibai_engine.storage.objects.r2 import R2Error, R2OperationStopped
 from baibai_jobs.integration import sources
 
 
-def _case(tmp_path, monkeypatch, command, failure=None, *, failed_input=False):
+def _case(tmp_path, monkeypatch, command, failure=None):
     events, stores = [], []
     directory = tmp_path / "integration"
     report = {"handoffs": [], "extractions": {}, "external": None, "external_failed": []}
@@ -55,10 +55,6 @@ def _case(tmp_path, monkeypatch, command, failure=None, *, failed_input=False):
         use(store, "apply")
         return report
 
-    def publish(store, **kwargs):
-        use(store, "inputs")
-        return {"updated": [], "failed": [{"reason": "ValueError"}] if failed_input else []}
-
     def seal(store, *args, **kwargs):
         use(store, "seal")
 
@@ -69,23 +65,20 @@ def _case(tmp_path, monkeypatch, command, failure=None, *, failed_input=False):
     monkeypatch.setattr(
         sources, "fix_edinet_input", lambda *_: SimpleNamespace(model_dump=lambda **_: {"fixed": 1})
     )
-    monkeypatch.setattr(sources, "apply", apply)
+    monkeypatch.setattr(sources, "_apply_plan", apply)
     monkeypatch.setattr(sources, "_load_handle", lambda _: object())
     monkeypatch.setattr(sources, "verify_held", lambda store, _: use(store, "lease"))
     monkeypatch.setattr(sources, "canonical_generations", lambda _: {"lake_release_id": "fixed"})
-    monkeypatch.setattr(sources, "publish_inputs", publish)
     monkeypatch.setattr(sources, "seal_integrated", seal)
     args = [command, "--directory", str(directory)]
-    if command in {"apply", "inputs"}:
+    if command == "apply":
         args += ["--asof", "2026-11-17"]
-    if command in {"inputs", "seal"}:
+    if command == "seal":
         args += ["--lease-handle", str(tmp_path / "lease.json")]
-    if command == "inputs":
-        args += ["--identity", "fixed", "--group", "tradingview"]
     return args, events, stores
 
 
-@pytest.mark.parametrize("command", ["plan", "apply", "inputs", "seal"])
+@pytest.mark.parametrize("command", ["plan", "apply", "seal"])
 @pytest.mark.parametrize("failure", [None, OSError, KeyboardInterrupt, R2OperationStopped])
 def test_owned_store_closes_after_success_or_interruption(
     tmp_path, monkeypatch, capsys, command, failure
@@ -98,7 +91,7 @@ def test_owned_store_closes_after_success_or_interruption(
             sources.main(args)
     else:
         assert sources.main(args) == int(failure is not None)
-    assert events == ["construct"] + (["lease"] if command in {"inputs", "seal"} else []) + [
+    assert events == ["construct"] + (["lease"] if command == "seal" else []) + [
         command,
         "close",
     ]
@@ -111,18 +104,7 @@ def test_owned_store_closes_after_success_or_interruption(
         assert output.err.endswith(f"common source integration failed: {failure.__name__}\n")
 
 
-def test_failed_input_report_also_closes_before_return(tmp_path, monkeypatch, capsys):
-    args, events, stores = _case(tmp_path, monkeypatch, "inputs", failed_input=True)
-    assert sources.main(args) == 1
-    assert json.loads(capsys.readouterr().out) == {
-        "updated": [],
-        "failed": [{"reason": "ValueError"}],
-    }
-    assert events == ["construct", "lease", "inputs", "close"]
-    assert stores[0].closed
-
-
-@pytest.mark.parametrize("command", ["plan", "apply", "inputs", "seal"])
+@pytest.mark.parametrize("command", ["plan", "apply", "seal"])
 def test_existing_plan_or_missing_required_argument_never_leaks_a_client(
     tmp_path, monkeypatch, command
 ):
@@ -145,9 +127,8 @@ def test_existing_plan_or_missing_required_argument_never_leaks_a_client(
         assert (directory / "plan.json").read_bytes() == b"fixed plan"
 
 
-@pytest.mark.parametrize("command", ["apply", "inputs"])
-def test_output_failure_closes_without_repeating_work(tmp_path, monkeypatch, capsys, command):
-    args, events, stores = _case(tmp_path, monkeypatch, command)
+def test_output_failure_closes_without_repeating_work(tmp_path, monkeypatch, capsys):
+    args, events, stores = _case(tmp_path, monkeypatch, "apply")
 
     def fail_output(*args, **kwargs):
         if "file" not in kwargs:
@@ -155,7 +136,7 @@ def test_output_failure_closes_without_repeating_work(tmp_path, monkeypatch, cap
 
     monkeypatch.setattr(sources, "print", fail_output, raising=False)
     assert sources.main(args) == 1
-    assert events.count(command) == 1
+    assert events.count("apply") == 1
     assert events[-1] == "close"
     assert stores[0].closed
     assert "PRIVATE_CANARY" not in capsys.readouterr().err

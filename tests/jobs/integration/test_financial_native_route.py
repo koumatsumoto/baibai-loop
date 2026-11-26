@@ -144,7 +144,7 @@ def test_new_plan_omits_financial_mode_and_old_financial_stages(tmp_path, monkey
     assert plan["edinet_input"]["kind"] == "native_l1"
 
 
-@pytest.mark.parametrize("command", ["input", "resume", "export", "stage", "replay-copy"])
+@pytest.mark.parametrize("command", ["export", "stage", "replay-copy"])
 def test_financial_stage_commands_are_rejected_before_store_or_sqlite_access(
     tmp_path, monkeypatch, command
 ):

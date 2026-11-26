@@ -38,7 +38,6 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     R2Error,
 )
-from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
 
 
 def bundles(store):
@@ -79,10 +78,7 @@ def test_exact_bytes_encoding_reparse_and_typed_idempotency(tmp_path, connect):
     manifest_bytes = json.dumps(metadata).encode()
     assert b"private-cookie-header" not in manifest_bytes
     assert b"private-authorization-header" not in manifest_bytes
-    assert len(store.puts) == 3
-    assert store.puts[0][0] == saved.raw_bundle_keys[0]
-    assert "/attempts/" in store.puts[1][0]
-    assert store.puts[2][0].endswith("cohort-0000.json")
+    assert [key for key, *_ in store.puts] == [saved.raw_bundle_keys[0], staging.stage_key(p, 0)]
 
 
 def test_retained_rakuten_outer_and_iframe_bytes_are_in_one_archive():
@@ -169,13 +165,6 @@ def test_projection_failure_keeps_batch_bodies_outcomes_and_same_plan_resume(
     assert tuple(item.attempt_id for item in restored) == tuple(
         entry.attempt_id for entry in saved.result.entries
     )
-    journal = read_attempts(store, p)
-    assert [attempt["outcomes"][0]["status"] for attempt in journal[0]["attempts"]] == [
-        "observed",
-        "parse_failure",
-        "observed",
-    ]
-    assert journal[0]["attempts"][1]["outcomes"][0]["reason"] == reason
     assert len(session.calls) == 3
     before = list(store.puts)
     assert daily.acquire_cohort(store, p, 0)["provider_requests"] == 0
@@ -226,20 +215,21 @@ def test_local_raw_failure_prevents_stage_commit(
     assert "private secret" not in error
 
 
-def test_projection_failure_raw_and_attempt_survive_unsaved_stage_cas(connect, monkeypatch):
+def test_projection_failure_raw_survives_unsaved_stage_cas(connect, monkeypatch):
     body = monex_html().encode()
     session = Session([(200, body, "utf-8")])
     connect(session)
     monkeypatch.setattr(collection, "parse_source_html", _unexpected_projection)
     p, store = plan(), FakeObjectStore()
-    store.put_fault = (3, "cas")
+    store.put_fault = (2, "cas")
     with pytest.raises(LakePublishError):
         daily.acquire_cohort(store, p, 0)
     assert stage_or_none(store, p) is None
     assert len(session.calls) == 1
-    assert len(store.puts) == 3
-    journal = read_attempts(store, p)
-    candidate = staging.load_stage(p, json.dumps(journal[0]["candidate_stage"]).encode())
+    (key,) = bundles(store)
+    assert [path for path, *_ in store.puts] == [key, staging.stage_key(p, 0)]
+    candidate = staging.load_stage(p, store.puts[-1][3])
+    assert candidate.raw_bundle_keys == (key,)
     entry = candidate.result.entries[0]
     assert (entry.state, entry.reason) == ("failure", "unclassified_parse_failure")
     assert candidate.result.observations == ()
@@ -272,8 +262,10 @@ def test_projection_failure_keeps_candidate_raw_when_competing_success_wins(conn
     monkeypatch.setattr(store, "put_file", conflict)
     assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
     assert stage(store, p) == winner
-    journal = read_attempts(store, p)
-    candidate = staging.load_stage(p, json.dumps(journal[0]["candidate_stage"]).encode())
+    (key,) = (key for key in bundles(store) if key != winner_key)
+    assert [path for path, *_ in store.puts] == [key, staging.stage_key(p, 0)]
+    candidate = staging.load_stage(p, store.puts[-1][3])
+    assert candidate.raw_bundle_keys == (key,)
     assert candidate.result.entries[0].state == "failure"
     assert candidate.result.observations == ()
     assert candidate.raw_bundle_keys != winner.raw_bundle_keys
@@ -350,28 +342,6 @@ def test_three_media_normal_and_rakuten_retry_fixture_bundle_sizing_and_restorat
         manifest, restored = external_assessment_raw.read_raw_bundle(store, key)
         assert len(manifest["receipts"]) == 450
         assert tuple(item.body for item in restored) == tuple(expected)
-
-
-@pytest.mark.parametrize("args", [[], ["--as-of", "2026-10-12"]])
-def test_raw_cli_requires_a_plan_before_opening_storage(args, monkeypatch):
-    def unexpected(**kwargs):
-        pytest.fail("no plan should reach object storage")
-
-    monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", unexpected)
-    with pytest.raises(SystemExit) as exit_info:
-        external_assessment_raw.main(args)
-    assert exit_info.value.code == 2
-
-
-def test_preservation_failure_does_not_log_sensitive_exception(monkeypatch, capsys):
-    def failed_store(**kwargs):
-        raise ValueError("private credential and signed URL")
-
-    monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", failed_store)
-    assert external_assessment_raw.main(["--preserve-run-id", "synthetic-run"]) == 1
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == "External Assessment raw preservation failed; type=ValueError\n"
 
 
 def test_authorized_response_is_never_archived_or_treated_as_typed_success(connect):
@@ -630,30 +600,19 @@ def test_a_failed_get_after_positive_head_never_reselects(monkeypatch, fault, re
         external_assessment_raw.read_raw_bundle(store, legacy)
 
 
-def test_preserve_legacy_bundle_without_rewriting_identity_or_original():
+@pytest.mark.parametrize("legacy_reference", [False, True])
+def test_verification_uses_the_exact_retained_native_record_without_copying(legacy_reference):
     store, p = FakeObjectStore(), plan()
     legacy, retained, payload = legacy_bundle(store, p)
-    original = store.objects[legacy]
     expected = external_assessment_raw.read_raw_bundle(store, legacy)
-    assert external_assessment_raw.preserve_raw_bundle(store, legacy) == retained
-    assert store.objects[legacy] == original
-    assert store.objects[retained][0] == payload
-    assert len(store.puts) == 1
-    assert external_assessment_raw.preserve_raw_bundle(store, legacy) == retained
-    assert len(store.puts) == 1
-    del store.objects[legacy]  # Simulate only the old prefix's lifecycle.
-    assert external_assessment_raw.read_raw_bundle(store, legacy) == expected
-    assert external_assessment_raw.read_raw_bundle(store, retained) == expected
-
-
-@pytest.mark.parametrize("fault", ["after", "bad_receipt"])
-def test_preservation_put_uncertainty_is_verified_without_overwrite(fault):
-    store, p = FakeObjectStore(), plan()
-    legacy, retained, payload = legacy_bundle(store, p)
-    store.put_fault = (1, fault)
-    assert external_assessment_raw.preserve_raw_bundle(store, legacy) == retained
-    assert store.objects[legacy][0] == store.objects[retained][0] == payload
-    assert len(store.puts) == 1
+    store.seed(retained, payload, "application/gzip")
+    del store.objects[legacy]
+    before = dict(store.objects)
+    key = legacy if legacy_reference else retained
+    external_assessment_raw.verify_retained_raw_bundle(store, key)
+    assert external_assessment_raw.read_raw_bundle(store, key) == expected
+    assert store.objects == before
+    assert store.puts == []
 
 
 def test_conflicting_retained_copy_is_not_accepted_or_overwritten():
@@ -663,38 +622,25 @@ def test_conflicting_retained_copy_is_not_accepted_or_overwritten():
     store.seed(retained, other, "application/gzip")
     before = dict(store.objects)
     with pytest.raises(ValueError, match="conflicts with legacy"):
-        external_assessment_raw.preserve_raw_bundle(store, legacy)
+        external_assessment_raw.verify_retained_raw_bundle(store, legacy)
     assert store.objects == before
     assert store.puts == []
 
 
-def test_missing_legacy_original_is_not_recreated():
+@pytest.mark.parametrize("exists_in_old_prefix", [False, True])
+def test_cumulative_ready_prerequisite_never_copies_or_recreates_legacy_raw(exists_in_old_prefix):
     store, p = FakeObjectStore(), plan()
     legacy, retained, _ = legacy_bundle(store, p)
-    del store.objects[legacy]
-    with pytest.raises(ValueError, match="legacy external original is missing"):
-        external_assessment_raw.preserve_raw_bundle(store, legacy)
-    assert retained not in store.objects
-    assert store.puts == []
-
-
-def test_explicit_plan_preservation_cli_keeps_plan_stage_and_legacy_bytes(monkeypatch, capsys):
-    from baibai_jobs.acquisition.external_assessments.cohorts import new_result
-
-    store, p = FakeObjectStore(), plan()
-    legacy, retained, payload = legacy_bundle(store, p)
-    staging.save_new_plan(store, p)
-    checkpoint = staging.CohortStage(new_result(p, 0), raw_bundle_keys=(legacy,))
-    staging.commit_stage(store, p, checkpoint, previous=None)
+    if exists_in_old_prefix:
+        # Exact historical resolution remains read-only; it is not durable readiness.
+        assert external_assessment_raw.read_raw_bundle(store, legacy)[1][0].body == (
+            b"legacy original"
+        )
+    else:
+        del store.objects[legacy]
     before = dict(store.objects)
-    store.puts.clear()
-    monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", lambda **kwargs: store)
-    for _ in range(2):
-        assert external_assessment_raw.main(["--preserve-run-id", p.run_id]) == 0
-        report = json.loads(capsys.readouterr().out)
-        assert report["mode"] == "preserve_exact_plan"
-        assert report["plan_sha256"] == p.plan_sha256
-        assert report["preserved"][0]["retained_key"] == retained
-    assert len(store.puts) == 1
-    assert all(store.objects[key] == value for key, value in before.items())
-    assert store.objects[retained][0] == payload
+    with pytest.raises(ValueError, match="retained external original is missing"):
+        external_assessment_raw.verify_retained_raw_bundle(store, legacy)
+    assert retained not in store.objects
+    assert store.objects == before
+    assert store.puts == []

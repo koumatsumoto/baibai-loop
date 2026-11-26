@@ -1,4 +1,4 @@
-"""Read issuer-wide USD revenue concepts from one pinned filing and CompanyFacts receipt."""
+"""Read issuer-wide USD observations from one pinned filing and CompanyFacts receipt."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ type SecRevenueConcept = Literal[
     "us-gaap:Revenues", "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"
 ]
 # Enumeration is for evidence, not preference or a net-sales definition.
-_CONCEPTS: tuple[SecRevenueConcept, ...] = (
+_REVENUE_CONCEPTS: tuple[SecRevenueConcept, ...] = (
     "us-gaap:Revenues",
     "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
 )
@@ -40,7 +40,7 @@ class SecFilingWitness:
 
     issuer_cik: str
     accession: str
-    form: Literal["10-Q", "10-Q/A"]
+    form: Literal["10-Q", "10-Q/A", "10-K"]
     receipt_id: str
     accepted_at: datetime
     published_at: datetime | None
@@ -60,8 +60,8 @@ class SecPublicFilingObservation:
 
 
 @dataclass(frozen=True, slots=True)
-class SecRevenueObservation:
-    """An entire-filing-entity observation, not a cross-concept net-sales mapping."""
+class SecIssuerUsdObservation:
+    """A native entity-wide USD amount for one exact reported duration."""
 
     amount: Decimal
     period_start: date
@@ -71,7 +71,7 @@ class SecRevenueObservation:
     companyfacts_received_at: datetime
     companyfacts_body_sha256: str
     fact_paths: tuple[str, ...]
-    concept: SecRevenueConcept
+    concept: SecReportedConcept
     unit: Literal["USD"] = "USD"
     scope: Literal["filing_entity"] = "filing_entity"
     publicly_observed_by: SecPublicFilingObservation | None = None
@@ -81,7 +81,7 @@ class SecRevenueObservation:
 class SecRevenueAmbiguity:
     """Both native concepts match. Preserve evidence without choosing a sales measure."""
 
-    candidates: tuple[SecRevenueObservation, ...]
+    candidates: tuple[SecIssuerUsdObservation, ...]
 
     @property
     def reason(self) -> Literal["conflicting_amounts", "semantic_equivalence_unverified"]:
@@ -90,16 +90,69 @@ class SecRevenueAmbiguity:
         return "semantic_equivalence_unverified"
 
 
-type SecRevenueResult = (
-    SecRevenueObservation
-    | SecRevenueAmbiguity
+type _UnavailableReceipt = Literal["not_yet_received", "publication_unverified"]
+type _MissingAmount = Literal["unmapped_concept_or_unit", "no_fact_for_scope"]
+type SecUsdResult = (
+    SecIssuerUsdObservation | SecRevenueAmbiguity | _UnavailableReceipt | _MissingAmount
+)
+
+type SecReportedConcept = (
+    SecRevenueConcept
     | Literal[
-        "not_yet_received",
-        "publication_unverified",
-        "unmapped_concept_or_unit",
-        "no_fact_for_scope",
+        "us-gaap:OperatingIncomeLoss",
+        "us-gaap:NetCashProvidedByUsedInOperatingActivities",
+        "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment",
     ]
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SecReportedDuration:
+    """Exact dates taken from a column of the pinned financial statements."""
+
+    start: date
+    end: date
+
+    def __post_init__(self) -> None:
+        if type(self.start) is not date or type(self.end) is not date or self.start > self.end:
+            raise ValueError("invalid requested SEC reporting duration")
+
+    @property
+    def fits_regular_quarter(self) -> bool:
+        return 89 <= (self.end - self.start).days + 1 <= 98
+
+    @property
+    def fits_regular_fiscal_year(self) -> bool:
+        return (self.end - self.start).days + 1 in {364, 365, 366, 371}
+
+
+type _Metric = Literal["revenue", "operating_income", "operating_cash_flow", "ppe_cash_paid"]
+type _Basis = Literal["quarter", "year_to_date"]
+
+
+@dataclass(frozen=True, slots=True)
+class SecStatementComparison:
+    metric: _Metric
+    basis: _Basis
+    current_period: SecReportedDuration
+    prior_period: SecReportedDuration
+    current: SecUsdResult | Literal["invalid_fact"]
+    prior: SecUsdResult | Literal["invalid_fact"]
+
+
+@dataclass(frozen=True, slots=True)
+class _PinnedCompanyFacts:
+    capture: SecCompanyFactsCapture
+    filing: SecFilingWitness
+    received_at: datetime
+    accepted_at: datetime
+    published_at: datetime | None
+    publicly_observed_by: SecPublicFilingObservation | None
+    gaap: dict[str, object]
+
+    @property
+    def known_public(self) -> bool:
+        return self.published_at is not None or self.publicly_observed_by is not None
 
 
 def observe_sec_revenue(
@@ -111,7 +164,7 @@ def observe_sec_revenue(
     period_end: date,
     cutoff: datetime,
     publicly_observed_by: SecPublicFilingObservation | None = None,
-) -> SecRevenueResult:
+) -> SecUsdResult:
     """Interpret one fixed request; neither choose an amendment nor infer standalone periods.
 
     `published_at` means evidenced publication of the pinned accession, not just
@@ -123,8 +176,123 @@ def observe_sec_revenue(
     Different issuer-wide concepts are not interchangeable even at equal amounts.
     """
     issuer = _cik(expected_cik)
-    if type(period_start) is not date or type(period_end) is not date or period_start > period_end:
-        raise ValueError("invalid requested SEC revenue period")
+    period = SecReportedDuration(period_start, period_end)
+    if filing.form == "10-K" and not period.fits_regular_fiscal_year:
+        raise ValueError("SEC annual revenue requires a regular full fiscal year")
+    source = _pin_companyfacts(
+        capture, filing, issuer=issuer, cutoff=cutoff, publicly_observed_by=publicly_observed_by
+    )
+    if isinstance(source, str):
+        return source
+    return _observe(source, period, _REVENUE_CONCEPTS)
+
+
+def observe_sec_comparatives(
+    capture: SecCompanyFactsCapture,
+    filing: SecFilingWitness,
+    *,
+    expected_cik: str,
+    reporting_quarter: str,
+    current_quarter: SecReportedDuration,
+    prior_quarter: SecReportedDuration,
+    current_fiscal_start: date,
+    prior_fiscal_start: date,
+    cutoff: datetime,
+    publicly_observed_by: SecPublicFilingObservation | None = None,
+) -> tuple[SecStatementComparison, ...] | _UnavailableReceipt:
+    """Read the operator-selected current and prior-year columns of one 10-Q.
+
+    Specify the reporting quarter as confirmed in the filing, not the
+    CompanyFacts fy/fp/frame or an inferred period. Only normal Q1-Q3
+    and the corresponding period of the preceding fiscal year are in scope.
+    No cash-flow derivation, extrapolation or valuation.
+    """
+    if filing.form not in ("10-Q", "10-Q/A"):
+        raise ValueError("SEC quarterly comparisons require a pinned 10-Q or 10-Q/A")
+    current_ytd = SecReportedDuration(current_fiscal_start, current_quarter.end)
+    prior_ytd = SecReportedDuration(prior_fiscal_start, prior_quarter.end)
+    positions = (
+        _quarter_position(current_quarter, current_ytd),
+        _quarter_position(prior_quarter, prior_ytd),
+    )
+    if positions != (reporting_quarter, reporting_quarter):
+        raise ValueError("SEC periods do not match the selected reporting quarter")
+    corresponding_dates = (
+        (current_quarter.end, prior_quarter.end),
+        (current_quarter.start, prior_quarter.start),
+        (current_ytd.start, prior_ytd.start),
+    )
+    if not all(364 <= (current - prior).days <= 371 for current, prior in corresponding_dates):
+        raise ValueError("SEC comparison requires the preceding fiscal year")
+
+    source = _pin_companyfacts(
+        capture,
+        filing,
+        issuer=_cik(expected_cik),
+        cutoff=cutoff,
+        publicly_observed_by=publicly_observed_by,
+    )
+    if isinstance(source, str):
+        return source
+    if not source.known_public:
+        return "publication_unverified"
+
+    slots: tuple[tuple[_Metric, _Basis, tuple[SecReportedConcept, ...]], ...] = (
+        ("revenue", "quarter", _REVENUE_CONCEPTS),
+        ("operating_income", "quarter", ("us-gaap:OperatingIncomeLoss",)),
+        (
+            "operating_cash_flow",
+            "year_to_date",
+            ("us-gaap:NetCashProvidedByUsedInOperatingActivities",),
+        ),
+        ("ppe_cash_paid", "year_to_date", ("us-gaap:PaymentsToAcquirePropertyPlantAndEquipment",)),
+    )
+
+    def amount(
+        period: SecReportedDuration, concepts: tuple[SecReportedConcept, ...]
+    ) -> SecUsdResult | Literal["invalid_fact"]:
+        try:
+            return _observe(source, period, concepts)
+        except (ValueError, ArithmeticError):
+            return "invalid_fact"
+
+    rows = []
+    for metric, basis, concepts in slots:
+        current, prior = (
+            (current_quarter, prior_quarter) if basis == "quarter" else (current_ytd, prior_ytd)
+        )
+        rows.append(
+            SecStatementComparison(
+                metric, basis, current, prior, amount(current, concepts), amount(prior, concepts)
+            )
+        )
+    return tuple(rows)
+
+
+def _quarter_position(quarter: SecReportedDuration, ytd: SecReportedDuration) -> str:
+    if not quarter.fits_regular_quarter:
+        raise ValueError("SEC comparatives require regular standalone quarters")
+    # The fiscal-year start must precede the quarter by zero, one or two
+    # regular quarters. These coarse bounds reject arbitrary cumulative spans,
+    # not establish an issuer's actual fiscal calendar.
+    elapsed = (quarter.start - ytd.start).days
+    if elapsed == 0:
+        return "Q1"
+    if 89 <= elapsed <= 98:
+        return "Q2"
+    if 178 <= elapsed <= 196:
+        return "Q3"
+    raise ValueError("SEC year-to-date dates do not describe a regular Q1-Q3")
+
+
+def _pin_companyfacts(
+    capture: SecCompanyFactsCapture,
+    filing: SecFilingWitness,
+    *,
+    issuer: str,
+    cutoff: datetime,
+    publicly_observed_by: SecPublicFilingObservation | None,
+) -> _PinnedCompanyFacts | Literal["not_yet_received"]:
     asof = _clock(cutoff)
     fact_received = _clock(capture.received_at)
     filing_received = _clock(filing.received_at)
@@ -134,10 +302,10 @@ def observe_sec_revenue(
 
     if _cik(filing.issuer_cik) != issuer:
         raise ValueError("filing witness CIK does not match the expected issuer")
-    accession = _accession(filing.accession)
-    if filing.form not in ("10-Q", "10-Q/A"):
-        raise ValueError("SEC revenue requires a pinned quarterly filing form")
-    if not _present_ref(capture.receipt_id) or not _present_ref(filing.receipt_id):
+    _accession(filing.accession)
+    if filing.form not in ("10-Q", "10-Q/A", "10-K"):
+        raise ValueError("unsupported pinned SEC filing form")
+    if not _valid_receipt_ref(capture.receipt_id) or not _valid_receipt_ref(filing.receipt_id):
         raise ValueError("SEC revenue requires separate pinned receipt references")
     if capture.receipt_id == filing.receipt_id:
         raise ValueError("CompanyFacts and filing require distinct receipt references")
@@ -145,7 +313,7 @@ def observe_sec_revenue(
     accepted = _clock(filing.accepted_at)
     if (filing.published_at is None) != (filing.publication_ref is None):
         raise ValueError("SEC publication time and witness must be supplied together")
-    if filing.publication_ref is not None and not _present_ref(filing.publication_ref):
+    if filing.publication_ref is not None and not _valid_receipt_ref(filing.publication_ref):
         raise ValueError("invalid SEC filing publication witness reference")
     if filing.publication_ref == capture.receipt_id:
         raise ValueError("CompanyFacts receipt cannot witness filing publication")
@@ -164,75 +332,104 @@ def observe_sec_revenue(
         published=published,
         companyfacts_receipt_id=capture.receipt_id,
     )
-    known_public = published is not None or observed is not None
-
     document = _read_companyfacts(capture)
     if _cik(document.get("cik"), allow_integer=True) != issuer:
         raise ValueError("CompanyFacts CIK does not match the expected issuer")
-    rows_by_concept = _revenue_rows(document)
-    # Periods are date-only, not exchange sessions. UTC+14 bounds the latest
-    # possible local date without assuming the issuer's reporting timezone or close.
-    latest_civil_date = (accepted + timedelta(hours=14)).date()
-    matches: list[SecRevenueObservation] = []
-    for concept, rows in rows_by_concept.items():
-        tag = concept.removeprefix("us-gaap:")
-        amount: Decimal | None = None
-        paths: list[str] = []
-        for index, raw in enumerate(rows):
-            row = _object(raw, "revenue row")
-            if _accession(row.get("accn")) != accession:
-                continue
-            if row.get("form") != filing.form:
-                raise ValueError("SEC revenue fact form does not match the filing")
-            if fact_received < accepted:
-                raise ValueError("CompanyFacts fact was received before filing acceptance")
-            if published is not None and fact_received < published:
-                raise ValueError(
-                    "CompanyFacts fact was received before witnessed filing publication"
-                )
-            start, end = _reported_date(row.get("start")), _reported_date(row.get("end"))
-            if start > end:
-                raise ValueError("invalid SEC revenue period")
-            if end > latest_civil_date:
-                raise ValueError("SEC revenue period end is after the filing acceptance date bound")
-            if (start, end) != (period_start, period_end):
-                continue
-            raw_amount = row.get("val")
-            if type(raw_amount) not in (int, Decimal):
-                raise ValueError("SEC revenue value must be a JSON number")
-            value = finite_decimal(raw_amount)
-            if amount is not None and amount != value:
-                raise ValueError("conflicting SEC revenue amounts for one accession and period")
-            # Keep every source location. Total order only breaks a representation tie
-            # between equal amounts; it does not attest reported accounting precision.
-            if amount is None or value.compare_total(amount) < 0:
-                amount = value
-            paths.append(f"/facts/us-gaap/{tag}/units/USD/{index}")
-        if amount is not None and known_public:
+    facts = _object(document.get("facts"), "facts")
+    gaap = _object(facts.get("us-gaap", {}), "us-gaap taxonomy")
+    return _PinnedCompanyFacts(
+        capture, verified_filing, fact_received, accepted, published, observed, gaap
+    )
+
+
+def _observe(
+    source: _PinnedCompanyFacts,
+    period: SecReportedDuration,
+    concepts: tuple[SecReportedConcept, ...],
+) -> SecUsdResult:
+    mapped = False
+    matches: list[SecIssuerUsdObservation] = []
+    for concept in concepts:
+        result = _read_amount(source, period, concept)
+        mapped |= result != "unmapped_concept_or_unit"
+        if not isinstance(result, str) and source.known_public:
+            amount, paths = result
             matches.append(
-                SecRevenueObservation(
+                SecIssuerUsdObservation(
                     amount=amount,
-                    period_start=period_start,
-                    period_end=period_end,
-                    filing=verified_filing,
-                    companyfacts_receipt_id=capture.receipt_id,
-                    companyfacts_received_at=fact_received,
-                    companyfacts_body_sha256=capture.body_sha256,
-                    fact_paths=tuple(paths),
+                    period_start=period.start,
+                    period_end=period.end,
+                    filing=source.filing,
+                    companyfacts_receipt_id=source.capture.receipt_id,
+                    companyfacts_received_at=source.received_at,
+                    companyfacts_body_sha256=source.capture.body_sha256,
+                    fact_paths=paths,
                     concept=concept,
-                    publicly_observed_by=observed,
+                    publicly_observed_by=source.publicly_observed_by,
                 )
             )
-
-    if not known_public:
+    if not source.known_public:
         return "publication_unverified"
-    if not rows_by_concept:
+    if not mapped:
         return "unmapped_concept_or_unit"
     if not matches:
         return "no_fact_for_scope"
     if len(matches) == 1:
         return matches[0]
     return SecRevenueAmbiguity(tuple(matches))
+
+
+def _read_amount(
+    source: _PinnedCompanyFacts,
+    period: SecReportedDuration,
+    concept: SecReportedConcept,
+) -> tuple[Decimal, tuple[str, ...]] | _MissingAmount:
+    tag = concept.removeprefix("us-gaap:")
+    if tag not in source.gaap:
+        return "unmapped_concept_or_unit"
+    entry = _object(source.gaap[tag], f"{tag} concept")
+    units = _object(entry.get("units"), f"{tag} units")
+    if "USD" not in units:
+        return "unmapped_concept_or_unit"
+    rows = units["USD"]
+    if not isinstance(rows, list):
+        raise ValueError("invalid SEC CompanyFacts USD facts")
+
+    label = "revenue" if concept in _REVENUE_CONCEPTS else tag
+    # Periods are date-only; UTC+14 bounds the latest possible local civil date.
+    latest_civil_date = (source.accepted_at + timedelta(hours=14)).date()
+    amount: Decimal | None = None
+    paths: list[str] = []
+    for index, raw in enumerate(rows):
+        row = _object(raw, f"{label} row")
+        if _accession(row.get("accn")) != source.filing.accession:
+            continue
+        if row.get("form") != source.filing.form:
+            raise ValueError(f"SEC {label} fact form does not match the filing")
+        if source.received_at < source.accepted_at:
+            raise ValueError("CompanyFacts fact was received before filing acceptance")
+        if source.published_at is not None and source.received_at < source.published_at:
+            raise ValueError("CompanyFacts fact was received before witnessed filing publication")
+        start, end = _reported_date(row.get("start")), _reported_date(row.get("end"))
+        if start > end:
+            raise ValueError(f"invalid SEC {label} period")
+        if end > latest_civil_date:
+            raise ValueError(f"SEC {label} period end is after the filing acceptance date bound")
+        if (start, end) != (period.start, period.end):
+            continue
+        raw_amount = row.get("val")
+        if type(raw_amount) not in (int, Decimal):
+            raise ValueError(f"SEC {label} value must be a JSON number")
+        value = finite_decimal(raw_amount)
+        if amount is not None and amount != value:
+            raise ValueError(f"conflicting SEC {label} amounts for one accession and period")
+        # Keep all locations; total order only breaks equal-value representation ties.
+        if amount is None or value.compare_total(amount) < 0:
+            amount = value
+        paths.append(f"/facts/us-gaap/{tag}/units/USD/{index}")
+    if amount is None:
+        return "no_fact_for_scope"
+    return amount, tuple(paths)
 
 
 def _public_index_asof(
@@ -253,16 +450,12 @@ def _public_index_asof(
         raise ValueError("SEC public observation CIK does not match the filing")
     if _accession(observation.accession) != filing.accession:
         raise ValueError("SEC public observation accession does not match the filing")
-    if (
-        not _present_ref(observation.receipt_id)
-        or observation.receipt_id != observation.receipt_id.strip()
-    ):
+    if not _valid_receipt_ref(observation.receipt_id):
         raise ValueError("invalid SEC public observation receipt reference")
-    # Padding a legacy reference cannot make the same receipt independent evidence.
-    receipt_id = observation.receipt_id.strip()
-    if any(
-        ref is not None and ref.strip() == receipt_id
-        for ref in (companyfacts_receipt_id, filing.receipt_id, filing.publication_ref)
+    if observation.receipt_id in (
+        companyfacts_receipt_id,
+        filing.receipt_id,
+        filing.publication_ref,
     ):
         raise ValueError("SEC public observation requires a distinct original index receipt")
     accession_folder = filing.accession.replace("-", "")
@@ -280,8 +473,9 @@ def _public_index_asof(
     return replace(observation, issuer_cik=filing.issuer_cik, observed_at=observed_at)
 
 
-def _present_ref(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
+def _valid_receipt_ref(value: object) -> bool:
+    """Receipt references are opaque IDs, not display labels."""
+    return isinstance(value, str) and bool(value) and not any(ch.isspace() for ch in value)
 
 
 def _clock(value: object) -> datetime:
@@ -346,24 +540,3 @@ def _read_companyfacts(capture: SecCompanyFactsCapture) -> dict[str, object]:
     except (ValueError, ArithmeticError) as exc:
         raise ValueError("invalid SEC CompanyFacts JSON") from exc
     return _object(document, "document")
-
-
-def _revenue_rows(document: dict[str, object]) -> dict[SecRevenueConcept, list[object]]:
-    facts = _object(document.get("facts"), "facts")
-    if "us-gaap" not in facts:
-        return {}
-    gaap = _object(facts["us-gaap"], "us-gaap taxonomy")
-    result: dict[SecRevenueConcept, list[object]] = {}
-    for concept in _CONCEPTS:
-        tag = concept.removeprefix("us-gaap:")
-        if tag not in gaap:
-            continue
-        revenue = _object(gaap[tag], f"{tag} concept")
-        units = _object(revenue.get("units"), f"{tag} units")
-        if "USD" not in units:
-            continue
-        rows = units["USD"]
-        if not isinstance(rows, list):
-            raise ValueError("invalid SEC CompanyFacts USD facts")
-        result[concept] = rows
-    return result

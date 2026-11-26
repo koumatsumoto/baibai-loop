@@ -30,11 +30,13 @@ def test_old_article_write_fails_before_source_io_or_mutation(
         **article,
     }
     incoming = work / ("plan.json" if command == "apply" else "applied.json")
+    eligible = {"market": True, "source": "jpx-earnings", "stage_id": "normally-live"}
+    handoffs = [eligible, entry]
     incoming.write_text(
         json.dumps(
-            {"handoffs": [entry], "edinet_input": {}}
+            {"handoffs": handoffs, "edinet_input": {}}
             if command == "apply"
-            else {"handoffs": [{"entry": entry, "applied": True}]}
+            else {"handoffs": [{"entry": item, "applied": True} for item in handoffs]}
         )
     )
     before = incoming.read_bytes()

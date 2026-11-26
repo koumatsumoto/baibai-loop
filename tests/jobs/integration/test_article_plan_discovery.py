@@ -11,7 +11,8 @@ from tests.helpers.r2_store import MemoryR2Store
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.article_evidence import export_evidence
+from baibai_jobs import cli
+from baibai_jobs.acquisition import article_evidence
 from baibai_jobs.acquisition.article_planning import (
     commit_stage,
     load_planning,
@@ -21,7 +22,7 @@ from baibai_jobs.acquisition.article_planning import (
 from baibai_jobs.integration import sources
 
 
-def test_daily_plan_does_not_list_or_read_retained_article_stages(tmp_path, monkeypatch):
+def test_daily_plan_does_not_list_or_read_retained_article_stages(tmp_path, monkeypatch, capsys):
     store = MemoryR2Store()
     publish_planning_input(store, "boj_news", {})
     state, etag = load_planning(store, "boj_news")
@@ -87,14 +88,27 @@ def test_daily_plan_does_not_list_or_read_retained_article_stages(tmp_path, monk
     assert not store.delete_keys
 
     evidence_dir = tmp_path / "private-evidence"
-    result = export_evidence(
-        store,
-        evidence_dir,
-        source="boj_news",
-        stage_id=entry["stage_id"],
-        manifest_sha256=entry["manifest_sha256"],
-        receipt_digests={original.receipt_id: original.sha256},
+    monkeypatch.setattr(article_evidence, "Boto3R2Store", lambda **_: store)
+    assert (
+        cli.main(
+            [
+                "article-evidence",
+                "--source",
+                "boj_news",
+                "--stage-id",
+                entry["stage_id"],
+                "--manifest-sha256",
+                entry["manifest_sha256"],
+                "--directory",
+                str(evidence_dir),
+                "--receipt",
+                original.receipt_id,
+                original.sha256,
+            ]
+        )
+        == 0
     )
+    result = json.loads(capsys.readouterr().out)
     assert result["receipts"] == 1
     assert (evidence_dir / "body-0.bin").read_bytes() == body
     record = json.loads((evidence_dir / "evidence.json").read_text())

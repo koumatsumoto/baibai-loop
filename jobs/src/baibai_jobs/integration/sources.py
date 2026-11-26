@@ -11,7 +11,7 @@ import sqlite3
 import sys
 import time
 from collections.abc import Iterable
-from contextlib import closing, suppress
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -26,9 +26,6 @@ from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.edinet_inputs import (
     read_edinet_input,
     retain_edinet_input,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
-    observations as observations_owner,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_integration import (
     extract_saved_edinet,
@@ -50,9 +47,12 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema as validate_market_schema,
 )
 from baibai_jobs.acquisition.economic_staging import stage_prefix
-from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
-from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
-from baibai_jobs.acquisition.source_inputs import GuardedInputStore, publish_inputs
+from baibai_jobs.acquisition.receipts import (
+    available_handoffs,
+    download_fixed,
+    seal_integrated,
+)
+from baibai_jobs.acquisition.source_inputs import GuardedInputStore
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.source_handoff import _JPX_COLLECTION, _replay
@@ -66,12 +66,6 @@ from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.machine_bundle import read_published_machine
 from baibai_jobs.publication.machine_origin import current_daily_run
 from baibai_jobs.publication.snapshot_publication import daily_external_readback_dir
-from baibai_jobs.publication.tradingview_verification import (
-    capture_publication as capture_tradingview_publication,
-)
-from baibai_jobs.publication.tradingview_verification import (
-    verify_publication as verify_tradingview_publication,
-)
 
 
 def _plan_progress(phase: str, started: float | None = None) -> float:
@@ -91,6 +85,14 @@ def fix_edinet_input(store: ObjectStore, directory: Path) -> InputSnapshot:
     return retain_edinet_input(store, lists, archives, selected_at=datetime.now(UTC))
 
 
+def _archived_equity_tradingview(entry: dict[str, Any]) -> bool:
+    return (
+        entry.get("market") is True
+        and entry.get("namespace") in (None, "market-sources")
+        and entry.get("source") == "tradingview"
+    )
+
+
 def _retired_article(entry: dict[str, object]) -> bool:
     return (
         entry.get("namespace") == "article-sources"
@@ -103,12 +105,20 @@ class RetiredArticleHandoffError(ValueError):
 
 
 def _require_current_handoffs(entries: Iterable[dict[str, object]]) -> None:
-    if any(_retired_article(entry) for entry in entries):
-        raise RetiredArticleHandoffError("article handoffs retired; read exact evidence instead")
+    for entry in entries:
+        if _retired_article(entry):
+            raise RetiredArticleHandoffError(
+                "article handoffs retired; read exact evidence instead"
+            )
+        if _archived_equity_tradingview(entry):
+            raise ValueError("individual TradingView handoffs are archived; create a new plan")
 
 
 def _read_plan(directory: Path) -> dict[str, Any]:
     plan: dict[str, Any] = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
+    if plan.keys() - {"handoffs", "edinet_input", "external", "external_failed"}:
+        raise ValueError("unsupported integration plan fields; create a new plan")
+    _require_current_handoffs(plan["handoffs"])
     return plan
 
 
@@ -118,13 +128,18 @@ def apply(
     *,
     market: Path,
     asof: date,
-    plan: dict[str, Any] | None = None,
 ) -> dict[str, object]:
-    if plan is None:
-        plan = _read_plan(directory)
-    if plan.keys() - {"handoffs", "edinet_input", "external", "external_failed"}:
-        raise ValueError("unsupported integration plan fields; create a new plan")
-    _require_current_handoffs(plan["handoffs"])
+    return _apply_plan(store, directory, market=market, asof=asof, plan=_read_plan(directory))
+
+
+def _apply_plan(
+    store: Boto3R2Store,
+    directory: Path,
+    *,
+    market: Path,
+    asof: date,
+    plan: dict[str, Any],
+) -> dict[str, object]:
     if any(
         entry.get("source") in {"jquants-market", "jquants-financial"} for entry in plan["handoffs"]
     ):
@@ -134,29 +149,6 @@ def apply(
     if plan.get("edinet_input") is None:
         raise ValueError("fixed EDINET input is absent; create a new integration plan")
     edinet_input = read_edinet_input(store, InputSnapshot.model_validate(plan["edinet_input"]))
-    # JPX replay consumes neither a J-Quants head nor a full-history
-    # selection. The later model/publication step fixes its own source inputs.
-    master_input = calendar_head = None
-    if any(
-        entry["source"] == "tradingview"
-        and not (entry.get("invalid") or entry.get("late_before_integrated"))
-        for entry in plan["handoffs"]
-    ):
-        from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
-        from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
-        from baibai_engine.machine_analysis.generation.full_day_inputs import EmptyFullDayInput
-        from baibai_jobs.integration.calendar_native import current_calendar_head
-        from baibai_jobs.integration.master_native import fixed_input as fixed_master_input
-
-        evaluated_at = datetime.now(UTC)
-        calendar = CalendarL1(store, directory / "calendar-native").fixed()
-        master = MasterL1(store, directory / "master-native").fixed()
-        # An initialized empty head blocks only TV. Validate both authorities
-        # independently so an empty head cannot hide corruption in the other one.
-        with suppress(EmptyFullDayInput):
-            calendar_head = current_calendar_head(calendar, evaluated_at=evaluated_at)
-        with suppress(EmptyFullDayInput):
-            master_input = fixed_master_input(store, master, as_of=asof, evaluated_at=evaluated_at)
     # Only this owner's canonical corruption is global and fatal.
     with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_market_schema(conn)
@@ -177,9 +169,6 @@ def apply(
                 else "older_than_integrated_source_watermark"
             }
             failed = recovery = True
-        elif entry["source"] == "tradingview" and (master_input is None or calendar_head is None):
-            result = {"reason": "tradingview_native_context_unavailable"}
-            failed = recovery = True
         else:
             try:
                 download_fixed(store, entry, packet)
@@ -197,14 +186,7 @@ def apply(
                             validate_market_schema(raw)
                 except sqlite3.DatabaseError as error:
                     raise ValueError("invalid source SQLite receipt") from error
-                replay = _replay(
-                    entry["source"],
-                    market,
-                    packet,
-                    store=store,
-                    master_input=master_input,
-                    calendar_head=calendar_head,
-                )
+                replay = _replay(entry["source"], market, packet)
                 result = replay.report
                 failed = recovery = not replay.complete
                 applied = True
@@ -216,7 +198,6 @@ def apply(
                 MergeError,
                 MarketSchemaError,
                 JQuantsProviderError,
-                observations_owner.FetchError,
                 sqlite3.IntegrityError,
             ) as error:
                 # Each owner keeps failed projections unchanged/atomic. Originals
@@ -263,17 +244,6 @@ def apply(
     ]
     if jpx_bundles:
         report["jpx_publication"] = capture_jpx_publication(market, jpx_bundles)
-    tradingview = [
-        outcome["result"]
-        for outcome in outcomes
-        if outcome["entry"]["source"] == "tradingview" and outcome["applied"]
-    ]
-    if tradingview:
-        report["tradingview_publication"] = capture_tradingview_publication(
-            market,
-            [date.fromisoformat(result["snapshot_date"]) for result in tradingview],
-            receipt_ids=[identity for result in tradingview for identity in result["receipt_ids"]],
-        )
     write_json_atomic(directory / "applied.json", report)
     return report
 
@@ -283,6 +253,29 @@ def canonical_generations(store: ObjectStore) -> dict[str, str]:
     return {
         "lake_release_id": pointer.release_id,
         "lake_manifest_sha256": pointer.manifest_sha256,
+    }
+
+
+def _apply_summary(report: dict[str, Any]) -> dict[str, object]:
+    handoffs = report["handoffs"]
+    extractions = report["extractions"]
+    external = report["external"]
+    return {
+        "asof": report["asof"],
+        "handoff_count": len(handoffs),
+        "applied_handoff_count": sum(item["applied"] for item in handoffs),
+        "failed_handoff_count": sum(item["failed"] for item in handoffs),
+        "extraction_count": len(extractions),
+        "failed_extraction_count": sum(bool(item["exit_code"]) for item in extractions.values()),
+        "external_ready_failure_count": len(report["external_failed"]),
+        "external": None
+        if external is None
+        else {
+            "applied_plan_count": len(external["plans"]),
+            "failed_plan_count": len(external["failed"]),
+            "changed_partition_count": len(external["changed"]),
+            "selected_receipt_count": len(external["selected_digests"]),
+        },
     }
 
 
@@ -333,105 +326,16 @@ def _jpx_recovery_handoffs(
     return entries
 
 
-def _tv_quality_day(report: dict[str, Any]) -> str | None:
-    """Recognize the fixed-receipt failure, not a generic failed source check."""
-    match report:
-        case {
-            "asof": str(day),
-            "handoffs": list(handoffs),
-            "extractions": dict(extractions),
-            "external_failed": [],
-            "external": None | {"failed": []},
-        }:
-            pass
-        case _:
-            return None
-    try:
-        if date.fromisoformat(day).isoformat() != day:
-            return None
-    except ValueError:
-        return None
-    if set(extractions) != {
-        "edinet-facts",
-        "edinet-metrics",
-        "native_lists",
-        "native_archives",
-    } or any(
-        not isinstance(item, dict)
-        or type(item.get("exit_code")) is not int
-        or item["exit_code"] != 0
-        or item.get("status") != "completed"
-        or item.get("deferred_inputs")
-        for item in extractions.values()
-    ):
-        return None
-    rejected_stage = False
-    for outcome in handoffs:
-        match outcome:
-            case {
-                "entry": {
-                    "market": True,
-                    "late_before_integrated": False,
-                    "integration": None,
-                } as entry,
-                "applied": True,
-                "failed": bool(failed),
-                "recovery": bool(recovery),
-            } if "invalid" not in entry and failed == recovery:
-                pass
-            case _:
-                return None
-        if not failed:
-            continue
-        if rejected_stage or entry.get("source") != "tradingview" or entry.get("asof") != day:
-            return None
-        result = outcome.get("result")
-        if (
-            not isinstance(result, dict)
-            or "reason" in result
-            or result.get("snapshot_date") != day
-            or any(
-                type(result.get(key)) is not int or result[key] != 0
-                for key in ("rows", "rows_before", "rows_added", "unresolved")
-            )
-            or type(result.get("expected_universe")) is not int
-            or result["expected_universe"] <= 0
-            or result.get("remaining") != result["expected_universe"]
-        ):
-            return None
-        fixed, rejected = result.get("receipt_ids"), result.get("rejected_receipts")
-        if not isinstance(fixed, list) or not fixed or not isinstance(rejected, list):
-            return None
-        if not all(isinstance(ident, str) and ident for ident in fixed):
-            return None
-        # All of the fixed originals must be accounted for once, not just a nonempty reason list.
-        ids = []
-        for item in rejected:
-            match item:
-                case {"receipt_id": str(identity), "reason": "provider_response"}:
-                    ids.append(identity)
-                case _:
-                    return None
-        if len(set(fixed)) != len(fixed) or sorted(ids) != sorted(fixed):
-            return None
-        rejected_stage = True
-    return day if rejected_stage else None
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("plan", "apply", "seal", "inputs", "check"))
+    parser.add_argument("command", choices=("plan", "apply", "seal", "check"))
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--market", type=Path, default=MARKET_DB_PATH)
     parser.add_argument("--asof", type=date.fromisoformat)
-    parser.add_argument("--identity")
-    parser.add_argument("--group", help="Reissue only this scoped input group")
+    parser.add_argument("--summary", action="store_true", help="Log only apply counts")
     parser.add_argument("--lease-handle", type=Path)
     parser.add_argument(
         "--daily-readback-notice", type=Path, help="reuse this attempt's verified Lake bytes"
-    )
-    parser.add_argument(
-        "--quality-output", type=Path, help="Actions step output for the daily check"
     )
     parser.add_argument(
         "--recover-jpx-stage",
@@ -469,17 +373,13 @@ def _daily_external_readback(
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.group is not None and args.command != "inputs":
-        print("--group is only valid with inputs", file=sys.stderr)
+    if args.summary and args.command != "apply":
+        print("--summary is only valid with apply", file=sys.stderr)
         return 1
     seal_phase = "setup"
     try:
-        if args.group is not None and args.group not in SOURCE_INPUT_GROUPS:
-            raise ValueError("unknown market acquisition input group")
         if args.recover_jpx_stage and args.command != "plan":
             raise ValueError("--recover-jpx-stage is only valid with plan")
-        if args.quality_output and args.command != "check":
-            raise ValueError("--quality-output is only valid with check")
         if args.daily_readback_notice is not None and args.command != "seal":
             raise ValueError("--daily-readback-notice is only valid with seal")
         directory = args.directory
@@ -488,8 +388,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.asof is None:
                 raise ValueError("--asof is required")
             plan = _read_plan(directory)
-            _require_current_handoffs(plan["handoffs"])
-        sealed_report = None
+        sealed_report: dict[str, Any] | None = None
         if args.command == "seal":
             if args.lease_handle is None:
                 raise ValueError("common integration writes require the publication lease")
@@ -553,9 +452,6 @@ def main(argv: list[str] | None = None) -> int:
                     sort_keys=True,
                 )
             )
-            if integration_failed and args.quality_output and (day := _tv_quality_day(report)):
-                with args.quality_output.open("a", encoding="utf-8") as output:
-                    print(f"tv_quality_asof={day}", file=output)
             return int(integration_failed)
         bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
         with closing(Boto3R2Store(bucket=bucket)) as store:
@@ -572,7 +468,9 @@ def main(argv: list[str] | None = None) -> int:
                     external, failed = available_ready(store)
                     _plan_progress("external_ready", started)
                     started = _plan_progress("market_handoffs")
-                    market_handoffs = available_handoffs(store, market=True)
+                    market_handoffs = available_handoffs(
+                        store, market=True, exclude_equity_tradingview=True
+                    )
                     _plan_progress("market_handoffs", started)
                     handoffs = [
                         entry
@@ -602,43 +500,27 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "apply":
                 assert plan is not None
                 assert args.asof is not None
-                report = apply(store, directory, market=args.market, asof=args.asof, plan=plan)
+                report = _apply_plan(
+                    store, directory, market=args.market, asof=args.asof, plan=plan
+                )
+                if args.summary:
+                    print(json.dumps(_apply_summary(report), sort_keys=True), flush=True)
+                    return 0
                 public_report = dict(report)
                 if "jpx_publication" in public_report:
                     public_report["jpx_publication"] = "private readback plan"
-                if "tradingview_publication" in public_report:
-                    public_report["tradingview_publication"] = "private readback plan"
                 print(json.dumps(public_report, sort_keys=True))
             else:
-                if args.lease_handle is None:
-                    raise ValueError("common integration writes require the publication lease")
+                assert args.command == "seal"
+                assert args.lease_handle is not None
+                assert sealed_report is not None
+                report = sealed_report
                 seal_phase = "publication_lease"
                 handle = _load_handle(args.lease_handle)
                 verify_held(store, handle)
                 seal_phase = "canonical_machine"
                 generations = canonical_generations(store)
                 guarded = GuardedInputStore(store, lambda: verify_held(store, handle))
-                if args.command == "inputs":
-                    if args.identity is None or args.asof is None:
-                        raise ValueError("--identity and --asof are required")
-                    input_report: dict[str, Any] = {"updated": [], "failed": []}
-                    groups = SOURCE_INPUT_GROUPS if args.group is None else (args.group,)
-                    for group in groups:
-                        result = publish_inputs(
-                            guarded,
-                            market=args.market,
-                            economic=directory / "unused-market-input",
-                            identity=args.identity,
-                            asof=args.asof,
-                            generations=generations,
-                            only_group=group,
-                        )
-                        input_report["updated"].extend(result["updated"])
-                        input_report["failed"].extend(result["failed"])
-                    print(json.dumps(input_report, sort_keys=True))
-                    return int(bool(input_report["failed"]))
-                assert sealed_report is not None
-                report = sealed_report
                 if any(
                     item["entry"]["source"] in _JPX_COLLECTION
                     and item["applied"]
@@ -667,26 +549,12 @@ def main(argv: list[str] | None = None) -> int:
                         directory=directory / "external-readback",
                         same_run_readback=readback_directory,
                     )
-                if any(
-                    item["entry"]["source"] == "tradingview" and item["applied"]
-                    for item in report["handoffs"]
-                ):
-                    seal_phase = "tradingview_readback"
-                    report["tradingview_readback"] = verify_tradingview_publication(
-                        store,
-                        expected=report.get("tradingview_publication", {}),
-                        directory=directory / "tradingview-readback",
-                        generations=generations,
-                    )
                 for outcome in report["handoffs"]:
                     if not outcome["entry"]["market"]:
                         raise ValueError(
                             "economic handoffs must be sealed by economic L1 integration"
                         )
                     if outcome["entry"].get("invalid"):
-                        continue
-                    if outcome["entry"]["source"] == "tradingview" and not outcome["applied"]:
-                        # Keep an uncaptured handoff discoverable for repair, not sealed.
                         continue
                     seal_phase = "handoff_terminal"
                     seal_integrated(

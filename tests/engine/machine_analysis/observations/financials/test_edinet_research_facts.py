@@ -596,7 +596,6 @@ def test_native_xbrl_acquisition_retries_rate_limit_and_reuses_raw_zip(tmp_path,
                 group="edinet-facts",
                 asof=DAY,
                 initialize_facts=True,
-                include_holder_archives=False,
             )
             assert report["status"] == "received"
         assert owner.freeze().read_xbrl_zip("S100YR5P") == content
@@ -628,7 +627,6 @@ def test_native_xbrl_rejects_non_zip_without_publishing(tmp_path, body, reason):
             group="edinet-facts",
             asof=DAY,
             initialize_facts=True,
-            include_holder_archives=False,
         )
     assert report["status"] == "failed"
     assert report["failed"] == [{"doc_id": "S100YR5P", "reason": reason}]

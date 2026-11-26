@@ -100,15 +100,12 @@ def test_retry_is_process_local_and_one_stage_commit_preserves_actual_receipt(mo
     saved = staging.read_stage(store, p, 0)[0]
     assert saved.result.entries[0].state == "success"
     assert saved.result.observations[0].fetched_at_utc == clock.now()
-    from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
+    from baibai_jobs.acquisition.external_assessments.raw import read_raw_bundle
 
-    journal = read_attempts(store, p)
-    assert len(journal) == 1
-    attempts = journal[0]["attempts"]
-    assert [item["outcomes"][0]["status"] for item in attempts] == ["rate_limited", "observed"]
-    assert attempts[0]["outcomes"][0]["attempt_id"] != attempts[1]["outcomes"][0]["attempt_id"]
-    assert attempts[1]["outcomes"][0]["attempt_id"] == saved.result.entries[0].attempt_id
-    assert len(store.puts) == 3  # bundle, immutable attempts, mutable stage
+    (raw_key,) = saved.raw_bundle_keys
+    _, (receipt,) = read_raw_bundle(store, raw_key)
+    assert receipt.attempt_id == saved.result.entries[0].attempt_id
+    assert [key for key, *_ in store.puts] == [raw_key, staging.stage_key(p, 0)]
 
 
 def test_expired_cycle_keeps_unattempted_pairs_without_http_or_writes(monkeypatch, clock):

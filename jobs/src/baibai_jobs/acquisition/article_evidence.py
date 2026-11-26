@@ -1,7 +1,7 @@
-"""Private exact original reads before integration; no provider GET or production write.
+"""Read fixed article originals privately without provider GET or production write.
 
-The immutable stage is provenance, not a lake release. The exported receipt ID,
-receipt hash and concrete body reference survive subsequent daily integration.
+The immutable stage proves provenance, not lake release membership. The read uses
+the original receipt ID, hash and body reference regardless of integration status.
 Keep the private packet when citing it; a stage locator alone is not a retention guarantee.
 """
 

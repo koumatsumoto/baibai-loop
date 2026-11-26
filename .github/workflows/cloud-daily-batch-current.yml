@@ -18,6 +18,10 @@ on:
         required: false
         type: boolean
         default: false
+      jp_input_probe_ticker:
+        description: "任意: 日本株L3入力を確認する公開テスト用銘柄コード1つ（非秘密）。提案の作成・保存はしない"
+        required: false
+        type: string
       edinet_metrics_acceptance:
         description: "事前比較したEDINET固定入力・revision・有限sample結果の受入JSON。空欄は通常統合"
         required: false
@@ -175,7 +179,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ASOF: ${{ steps.source-plan.outputs.asof }}
-        run: uv run python -m baibai_jobs.integration.sources apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
+        run: uv run python -m baibai_jobs.integration.sources apply --summary --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
 
       # Core publication owns one fixed market release and native economic selection.
       - name: Verify explicitly requested EDINET metric acceptance before core publication
@@ -251,16 +255,6 @@ jobs:
             --directory "$RUNNER_TEMP/integration" \
             --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" \
             --daily-readback-notice "$RUNNER_TEMP/batch-notice.json"
-      - name: Refresh source-scoped inputs from this canonical generation
-        id: source-inputs
-        if: ${{ always() && steps.source-seal.outcome == 'success' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          ASOF: ${{ steps.source-plan.outputs.asof }}
-          IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: uv run python -m baibai_jobs.integration.sources inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Report retained economic source failures
         id: economic-check
         if: ${{ always() && steps.economic-l1.outcome == 'success' }}
@@ -269,7 +263,7 @@ jobs:
       - name: Report integration failures and deferred source inputs
         id: source-check
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
-        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration" --quality-output "$GITHUB_OUTPUT"
+        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
 
       # Presentation follows core persistence; it never gates model generation or sealing.
       - name: Publish retained portfolio views
@@ -312,13 +306,12 @@ jobs:
 
       # `always()` includes timeouts, which GitHub reports as cancellations.
       # Notification failure must not overwrite the publication result.
-      - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || steps.source-plan.outputs.asof || 'unknown' }}${{ steps.source-check.outputs.tv_quality_asof != '' && steps.source-check.outputs.tv_quality_asof == steps.batch.outputs.asof && ' [fixed TradingView receipt quality]' || '' }}"
+      - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || steps.source-plan.outputs.asof || 'unknown' }}"
         id: notify
         if: ${{ always() }}
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          SOURCE_INPUTS_OUTCOME: ${{ steps.source-inputs.outcome }}
           PYTHONPATH: jobs/src
         run: |
           python3 -m baibai_jobs.observability.discord \
@@ -339,8 +332,17 @@ jobs:
             --upload-stores-outcome "${{ steps.upload-stores.outcome }}" \
             --source-integration-outcome "${{ steps.source-integration.outcome }}" \
             --source-seal-outcome "${{ steps.source-seal.outcome }}" \
-            --source-inputs-outcome "$SOURCE_INPUTS_OUTCOME" \
             --source-check-outcome "${{ steps.source-check.outcome }}" \
             --portfolio-views-outcome "${{ steps.portfolio-views.outcome }}" \
             --lease-release-outcome "${{ steps.lease-release.outcome }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"
+
+      - name: Check one Japan proposal input on this runner (not proposal publication)
+        id: jp-input-probe
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.jp_input_probe_ticker != '' && steps.batch.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          if ! timeout 120s uv run --offline --no-sync python -m tools.diagnostics.check_daily_jp_inputs >> "$GITHUB_STEP_SUMMARY"; then
+            echo "::error::Japan proposal input check failed; see step summary."
+            exit 1
+          fi

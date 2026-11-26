@@ -147,8 +147,6 @@ def refresh_edinet_facts_command(
                 asof=asof,
                 initialize_facts=initialize,
                 tickers=tickers,
-                # The explicit annual refresh never requested the daily holder batch.
-                include_holder_archives=False,
             )
             print(json.dumps({"native_archive_acquisition": report}, sort_keys=True), file=out)
             archives = owner.freeze()

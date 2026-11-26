@@ -47,7 +47,6 @@ STEP_ORDER = (
     "publish-lake",
     "upload-stores",
     "source-seal",
-    "source-inputs",
     "economic-check",
     "source-check",
     "portfolio-views",

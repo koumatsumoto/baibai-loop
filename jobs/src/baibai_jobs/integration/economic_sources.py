@@ -219,6 +219,9 @@ def integrate(
     if any(outcome["applied"] for outcome in outcomes):
         candidate = work / "candidate.sqlite"
         create_snapshot(canonical, candidate)
+        # Retry is from the fixed handoffs, not this working copy of the sealed candidate.
+        with suppress(OSError):
+            canonical.unlink()
 
     def before_canonical_put() -> None:
         verify_held(store, handle)
