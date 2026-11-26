@@ -21,22 +21,23 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
 )
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_jobs.acquisition.jquants_financial_native import acquire_financial_native
-from baibai_jobs.integration.financial_native import rebuild
+from baibai_jobs.integration.financial_native import model_input, rebuild
 
 DAY = date(2026, 11, 1)
 AT = datetime(2026, 11, 2, tzinfo=UTC)
 
 
 class Client:
-    def __init__(self, at, value=1, partial=False):
+    def __init__(self, at, value=1, partial=False, *, disclosed_on=None):
         self.at, self.value, self.partial = at, value, partial
         self.calls = []
+        self.disclosed_on = disclosed_on
 
     def pages(self, source, params):
         self.calls.append((source, params))
         row = {
             "Code": "13010",
-            "DiscDate": date.fromisoformat(params["date"]).isoformat(),
+            "DiscDate": self.disclosed_on or date.fromisoformat(params["date"]).isoformat(),
             "DiscNo": "1",
             "Sales": self.value,
         }
@@ -99,6 +100,61 @@ def test_multiple_cycles_without_l2_then_delete_and_rebuild(tmp_path):
     rebuild(store, snapshots[2], start=DAY, end=DAY, output=latest)
     assert pq.read_table(latest / "financial_summaries.parquet").to_pylist() == rows
     assert json.loads((latest / "input.json").read_text())["head_sha256"] == snapshots[2].content_id
+
+
+@pytest.mark.parametrize("suffix", ["", "T00:00:00"])
+def test_original_day_refresh_keeps_financial_scope_and_accepts_same_discno_correction(
+    tmp_path, suffix
+):
+    store = MemoryR2Store()
+    FinancialL1(store, tmp_path / "initial").initialize()
+    source_day = date(2026, 11, 18)
+    asof = date(2026, 11, 26)  # Original date has left the routine seven-day overlap.
+    received = datetime(2026, 11, 26, tzinfo=UTC)
+
+    def refresh(directory, client):
+        owner = FinancialL1(store, tmp_path / directory)
+        report = acquire_financial_native(
+            owner,
+            start=source_day,
+            end=source_day,
+            revision_overlap_days=0,
+            client=client,
+            clock=lambda: client.at,
+        )
+        assert client.calls == [("financial_summaries", {"date": "20261118"})]
+        return report, owner.fixed()
+
+    _, healthy = refresh("healthy", Client(received - timedelta(days=8)))
+    assert source_day not in healthy.plan(start=source_day, end=asof, revision_overlap_days=7)
+
+    # A valid-looking row for another disclosure date is not a provider correction.
+    report, failed = refresh(
+        "wrong-date", Client(received, value=99, disclosed_on=asof.isoformat() + suffix)
+    )
+    assert report["failed"] == 1
+    original = healthy.value()["scopes"][source_day.isoformat()]
+    unresolved = failed.value()["scopes"][source_day.isoformat()]
+    assert unresolved["adopted"] == original["adopted"]
+    assert unresolved["confirmed_at"] == original["confirmed_at"]
+    assert source_day in failed.plan(start=source_day, end=asof, revision_overlap_days=7)
+    assert [
+        doc.sales for doc in model_input(store, failed, as_of=asof, evaluated_at=received).documents
+    ] == [1]
+
+    # The provider overwrites a TDnet correction under the original date and DiscNo.
+    later = received + timedelta(minutes=1)
+    report, corrected = refresh(
+        "corrected", Client(later, value=2, disclosed_on=source_day.isoformat() + suffix)
+    )
+    assert report["changed"] == 1
+    assert corrected.value()["scopes"][source_day.isoformat()]["failure"] is None
+    [document] = model_input(store, corrected, as_of=asof, evaluated_at=later).documents
+    assert (document.disclosed_at, document.disclosure_number, document.sales) == (
+        source_day,
+        "1",
+        2,
+    )
 
 
 def test_projection_failure_does_not_undo_l1_or_block_next_cycle(tmp_path, monkeypatch):
