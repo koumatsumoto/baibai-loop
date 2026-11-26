@@ -644,3 +644,64 @@ def test_cumulative_ready_prerequisite_never_copies_or_recreates_legacy_raw(exis
     assert retained not in store.objects
     assert store.objects == before
     assert store.puts == []
+
+
+@pytest.mark.parametrize(
+    ("legacy", "get_status", "head_status", "result"),
+    [
+        (False, 404, 404, None),
+        (False, 403, 404, R2Error),  # An absence-looking service code does not override status.
+        (False, 429, 404, R2Error),
+        (False, 503, 404, R2Error),
+        (False, None, 404, R2Error),
+        (False, 404, 401, R2Error),
+        (False, 404, None, R2Error),
+        (False, 404, 200, R2Error),  # GET/HEAD disagreement is not absence.
+        (False, 200, 404, ValueError),  # A present, corrupt body never authorizes ACK reuse.
+        (True, 404, 404, None),  # Both locations for this exact reference must be absent.
+        (True, 404, 429, R2Error),
+        (True, 404, 200, R2Error),  # A selected present alias never falls back after GET failure.
+    ],
+)
+def test_missing_bundle_can_be_recovered_only_after_explicit_absence(
+    monkeypatch, legacy, get_status, head_status, result
+):
+    store = Boto3R2Store(
+        bucket="fixture",
+        env={"R2_ACCOUNT_ID": "a" * 32, "R2_ACCESS_KEY_ID": "fake", "R2_SECRET_ACCESS_KEY": "fake"},
+    )
+    suffix = "utc-date/2026-10-11/bundles/synthetic-20261011/cohort-0000-" + "0" * 32 + ".tar.gz"
+    retained = external_assessment_raw.RETAINED_RAW_PREFIX + suffix
+    key = external_assessment_raw.RAW_PREFIX + suffix if legacy else retained
+    calls = []
+
+    def respond(method, status, params):
+        calls.append((method, params["Key"]))
+        if status == 200:
+            return {"ETag": '"stamp"', "ContentLength": 4, "Body": io.BytesIO(b"oops")}
+        raise ClientError(
+            {"Error": {"Code": "NotFound"}, "ResponseMetadata": {"HTTPStatusCode": status}},
+            method,
+        )
+
+    client = SimpleNamespace(
+        get_object=lambda **params: respond("GET", get_status, params),
+        head_object=lambda **params: respond("HEAD", head_status, params),
+    )
+    monkeypatch.setattr(store, "_client", lambda: client)
+    if result is None:
+        assert external_assessment_raw.read_raw_bundle(store, key, allow_missing=True) is None
+    else:
+        with pytest.raises(result):
+            external_assessment_raw.read_raw_bundle(store, key, allow_missing=True)
+    if legacy:
+        expected = [("HEAD", retained)]
+        if head_status == 200:
+            expected.append(("GET", retained))
+        elif head_status == 404:
+            expected.append(("HEAD", key))
+    else:
+        expected = [("GET", key)]
+        if get_status == 404:
+            expected.append(("HEAD", key))
+    assert calls == expected
