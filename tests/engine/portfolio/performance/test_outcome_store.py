@@ -45,12 +45,34 @@ def test_outcome_publication_is_create_only_and_queryable(tmp_path: Path) -> Non
 
 def test_outcome_conflict_rolls_back(tmp_path: Path) -> None:
     store = PortfolioOutcomeStore(tmp_path / "app.sqlite")
-    store.publish(_publication())
+    publication = _publication()
+    store.publish(publication)
 
     with pytest.raises(PortfolioOutcomeConflictError):
-        store.publish(_publication(status="unresolved"))
+        store.publish(replace(publication, payload={**publication.payload, "ending_cash_yen": 101}))
 
     assert store.list()[0]["status"] == "resolved"
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_unresolved_outcome_cannot_be_published(tmp_path, existing):
+    path = tmp_path / "app.sqlite"
+    store = PortfolioOutcomeStore(path)
+    if existing:
+        store.publish(_publication())
+    before = path.read_bytes() if existing else None
+    publication = replace(_publication(status="unresolved"), outcome_id="new-result")
+    if existing:
+        # Even a supplied return does not turn missing observations into a result.
+        publication = replace(
+            publication, payload={**publication.payload, "portfolio_twr_pct": 71.0}
+        )
+
+    with pytest.raises(ValueError, match="only resolved portfolio outcomes can be published"):
+        store.publish(publication)
+
+    assert store.get("new-result") is None
+    assert (path.read_bytes() if path.exists() else None) == before
 
 
 def test_outcome_requires_embedded_benchmark(tmp_path: Path) -> None:
@@ -392,9 +414,8 @@ def test_saved_list_and_exact_read_reject_incoherent_rows_without_mutation(
 
 
 @pytest.mark.parametrize("retrieved_at", ["2025-12-30T18:00:00+09:00", "2026-01-01T12:00:00+09:00"])
-@pytest.mark.parametrize("status", ["resolved", "unresolved"])
-def test_new_outcome_rejects_benchmark_published_before_period_end(tmp_path, retrieved_at, status):
-    publication = _publication(status=status)
+def test_new_outcome_rejects_benchmark_published_before_period_end(tmp_path, retrieved_at):
+    publication = _publication()
     benchmark = publication.payload["benchmark_observation"]
     assert isinstance(benchmark, dict)
     benchmark.update(published_at="2025-12-30", retrieved_at=retrieved_at)

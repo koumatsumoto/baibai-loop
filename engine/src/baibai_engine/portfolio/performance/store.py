@@ -63,6 +63,8 @@ class PortfolioOutcomeStore:
         encoded = canonical_json(publication.payload)
         # Validate the saved representation, not the types before JSON encoding.
         payload = _validate(publication, json.loads(encoded))
+        if payload.status != "resolved":
+            raise ValueError("only resolved portfolio outcomes can be published")
         digest = _payload_sha256(encoded)
         initialize_database(self._db_path)
         with closing(connect_existing(self._db_path)) as connection:
