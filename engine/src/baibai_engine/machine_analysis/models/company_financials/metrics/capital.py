@@ -56,6 +56,13 @@ class _NormalizedSummaryResult:
     summaries: Sequence[JQuantsFinancialSummary]
     capital_basis_barrier: _AccountingObservationKey | None
     basis_adjustments: tuple[dict[str, JsonValue], ...] = ()
+    # Only capital consumers need to distinguish a reported count of unknown unit from omission.
+    capital_unit_gaps: tuple[JQuantsFinancialSummary, ...] = ()
+
+    def historical_capital_rows(self) -> Sequence[JQuantsFinancialSummary]:
+        return (
+            (*self.summaries, *self.capital_unit_gaps) if self.capital_unit_gaps else self.summaries
+        )
 
 
 class _ShareBasis(Enum):
@@ -222,6 +229,7 @@ def _normalize_summaries_with_status(
     if not has_adjustment:
         return _NormalizedSummaryResult(summaries=summaries, capital_basis_barrier=None)
     normalized: list[JQuantsFinancialSummary] = []
+    capital_unit_gaps: list[JQuantsFinancialSummary] = []
     basis_adjustments: list[dict[str, JsonValue]] = []
     capital_basis_barrier: _AccountingObservationKey | None = None
     for index, summary in enumerate(summaries):
@@ -257,12 +265,18 @@ def _normalize_summaries_with_status(
             assert summary.period_end is not None
             factors = share_unit_basis_factors_after(ticker_bars, summary.period_end, asof_date)
         if factors is None or basis is _ShareBasis.INDETERMINATE:
-            normalized.append(_without_share_basis(summary))
-            observation_key = _accounting_observation_key(summary)
-            if (summary.shares_outstanding is not None or summary.treasury_shares is not None) and (
-                capital_basis_barrier is None or observation_key > capital_basis_barrier
-            ):
-                capital_basis_barrier = observation_key
+            masked = _without_share_basis(summary)
+            normalized.append(masked)
+            missing_units = tuple(
+                key
+                for key in ("shares_outstanding", "treasury_shares")
+                if getattr(summary, key) is not None
+            )
+            if missing_units:
+                capital_unit_gaps.append(replace(masked, unresolved_actual_fields=missing_units))
+                observation_key = _accounting_observation_key(summary)
+                if capital_basis_barrier is None or observation_key > capital_basis_barrier:
+                    capital_basis_barrier = observation_key
             continue
         factor = factors[-1]
         if len(factors) == 1:
@@ -359,6 +373,7 @@ def _normalize_summaries_with_status(
         summaries=normalized,
         capital_basis_barrier=capital_basis_barrier,
         basis_adjustments=tuple(basis_adjustments),
+        capital_unit_gaps=tuple(capital_unit_gaps),
     )
 
 
@@ -680,6 +695,15 @@ def _reported_equity_routes_overlap(
     return max(ratio_low, bps_ratio_low) <= min(ratio_high, bps_ratio_high)
 
 
+def _period_capital_basis(
+    summaries: Sequence[JQuantsFinancialSummary], source: JQuantsFinancialSummary
+) -> _CapitalBasisResolution:
+    period = accounting_period_identity(source)
+    return _resolve_capital_basis(
+        [row for row in summaries if accounting_period_identity(row) == period]
+    )
+
+
 def _book_period_shares(
     summaries: Sequence[JQuantsFinancialSummary], row: JQuantsFinancialSummary | None
 ) -> float | None:
@@ -691,10 +715,7 @@ def _book_period_shares(
     own = _shares_excluding_treasury(row.shares_outstanding, row.treasury_shares)
     if own is None:
         return None
-    period = accounting_period_identity(row)
-    resolved = _resolve_capital_basis(
-        [other for other in summaries if accounting_period_identity(other) == period]
-    )
+    resolved = _period_capital_basis(summaries, row)
     if (
         resolved.shares_ex_treasury is None
         or resolved.issued != row.shares_outstanding
