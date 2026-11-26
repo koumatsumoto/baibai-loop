@@ -1,6 +1,6 @@
 # 米国株の固定受領から調査候補を作る
 
-日次・本番・注文へは接続しない。CLIは固定したAlpaca IEXの日次集計とSECの指定期間の売上を読み、調査の次の一手と見送り理由を標準出力へ返す。初回は同じ経路を合成fixtureで試せる。
+日次・本番・注文へは接続しない。CLIは固定したAlpaca IEXの日次集計とSECの指定期間の売上を読み、調査の次の一手や、判断を保留する理由を標準出力へ返す。初回は同じ経路を合成fixtureで試せる。
 
 ```bash
 uv run --offline python -m tools.experiments.us_research_mvp

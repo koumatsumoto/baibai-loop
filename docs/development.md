@@ -38,7 +38,7 @@ uv run lint-imports
 
 | 変更した契約 | 最初のテスト |
 | --- | --- |
-| 受領の読戻しとseal | [公開前は消費せず、同じ原本と投影でsealする](../tests/jobs/publication/test_tradingview_verification.py) |
+| 受領の読戻しとseal | [JPXの原本・投影を読戻してからsealする](../tests/jobs/publication/test_jpx_verification.py) |
 | 探索索引の問いとページ送り | [入力不足・分類・固定した個社比較を区別する](../tests/engine/investment_judgment/workflow/test_discovery_questions.py) |
 | 提案の指値・価格・数量 | [観測価格と指値を分け、未確定の根拠で数量を作らない](../tests/engine/investment_judgment/trade_proposal/test_conditional_buy_terms.py) |
 

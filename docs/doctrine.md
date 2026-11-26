@@ -43,10 +43,10 @@ Baseは根拠から中心に置く条件付き経路で、常に保守caseへ寄
 <a id="development-investment-policy"></a>
 ## 開発・設計・レビュー
 
-取得方針とL2採用は分ける。source・頻度・保持の変更は本人の意図と、判断への寄与・代替手段・失う発見/時点原本・運用費用に基づく。未接続や障害を情報価値ゼロとせず、一括停止・履歴削除へ広げない。source別の通常取得・必要時L3調査の範囲は[記事運用](../jobs/OPERATIONS.md#article-acquisition)へ。
+取得方針とL2採用は分ける。source・頻度・保持の変更は本人の意図と、判断への寄与・代替手段・失う発見/時点原本・運用費用に基づく。未接続や障害を情報価値ゼロとせず、一括停止・履歴削除へ広げない。取得と再開の手順は[運用](../jobs/OPERATIONS.md#sources)へ。
 
 共通化/自動化より先に処理をなくせないか考える。防御・監査・二重検証は実害・頻度・代替・維持費で選び、稀な推測で実用化を止めず、明らかな改善へ専用実証基盤を要求しない。復元不能な本番削除は直前に対象を確認する。編集・検証は[AGENTS](../AGENTS.md)へ。
 
 ## 現在の非目標
 
-機械学習score・閾値網羅探索・3か月未満のforward-backtestによるscreen最適化、ETF/投信/海外株運用、口座/税制/broker会計の完全複製、外部汎用配信・書込APIは持たない。[旧方式の再生成](architecture.md#store-authority)はせず、Webへ候補抽出・判断を置かない。longfolioは別目的で連携/重複確認を持たず、投資助言サービスにはしない。
+機械学習score・閾値網羅探索・3か月未満のforward-backtestによるscreen最適化、ETF・投信・海外株の運用（[米国株の隔離研究](reference/us-research-mvp.md)は別）、口座/税制/broker会計の完全複製、外部汎用配信・書込APIは持たない。[旧方式の再生成](architecture.md#store-authority)はせず、Webへ候補抽出・判断を置かない。longfolioは別目的で連携/重複確認を持たず、投資助言サービスにはしない。

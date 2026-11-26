@@ -1,13 +1,15 @@
 # アーキテクチャ
 
-[お買い得銘柄を見つける方針](doctrine.md)を、**日次の自動観測**と**依頼ごとの投資判断**に分けて実装する。L2は問いごとに探せるようにし、L3はその依頼で実際に調べる対象を選ぶ。
+[お買い得銘柄を見つける方針](doctrine.md)を、日本の普通株向けに**日次の自動観測**と**依頼ごとの投資判断**に分けて実装する。L2は問いごとに探せるようにし、L3はその依頼で実際に調べる対象を選ぶ。
 
 ## 情報と判断の流れ
 
-1. **取得（L1）**：providerから原本または契約したnative表現を受領する。原本の公開をL2の成功待ちにしない。
+1. **取得（L1）**：providerから原本または契約したnative表現を受領する。取得Jobsは受領を保持し、日次は到着済みの入力を使う。経済L1の正本への反映はL2より先で、後段が失敗しても戻さない。市場の引渡しを統合済みにするsealはMachine公開の後で、受領・利用可能性・sealは別。
 2. **機械分析（L2）**：固定入力から観測・モデルを作る。ModelGenerationは入力、対象、予定モデルと結果を固定する。一つの世代でも、価格・開示・共有材料の観測日は同じとは限らない。現行の日次が発行するScreeningSelectionは、対象の普通株を問い別に探せる別IDの索引で、機械の総合順位・買い判定ではない。
 3. **企業判断（L3）**：依頼に応じて調査対象・問い・比較相手をResearch Selectionに固定し、Operationで進捗と成果を管理する。ある問いに該当しない会社も、同じ世代に記録があれば比較できる。AIが企業調査と一株の価値・価格の評価を行い、別作業者が原典・算式・反証を独立検証する。その後、現金・保有・立会を踏まえた提案を作り、評価とは別に提案本文をレビューする。機械検証は構造・参照・計算を確認し、割安や採否は決めない。市場判断は独立した入口で、L2の市場モデルではない。
-4. **人間の結果と表示**：提案の発行は注文・約定ではない。報告された取引等だけが台帳を変える。Webは保存された提案・台帳・成績を表示し、価格や採否を再判定しない。
+4. **人間の結果と表示**：提案の発行は注文・約定ではない。報告された取引等だけが台帳を変える。WebはAppに記録した保有・取引・成績・提案を表示し、取得できたMarket観測で時価等を補う。現在の価格で発行済み提案の採否を判定し直さない。
+
+日本株の調査は、現行RunsのGeneration・Selectionと依頼から問い・対象を絞り、L2だけで確かめられない重要な事実をL1や発表元の一次資料で確認する。全L1・全記事を読む手順ではない。選定・評価・提案はAppに記録する。必要な日足・立会暦・銘柄情報は対応するMarketから、現金・保有はAppから読む。通常の手順は[企業判断の入口](../.agents/skills/investment-judgment/SKILL.md)、本番データを使い隔離Appで新規提案を保存・読戻す手順は[受入](../jobs/OPERATIONS.md#production-proposal-acceptance)へ。
 
 ## 変更する場所
 
@@ -15,10 +17,10 @@
 | --- | --- | --- |
 | 取得範囲、受領、失敗後の再開 | [provider・受領](../engine/src/baibai_engine/data_collection/)／[取得Jobs](../jobs/src/baibai_jobs/acquisition/) | L1は受領内容と時計を持つ。規格化した値で原本を置き換えない。 |
 | 原本の抽出・比較値 | [観測](../engine/src/baibai_engine/machine_analysis/observations/)／[解析モデル](../engine/src/baibai_engine/machine_analysis/models/) | 観測は出典・期間・範囲・精度を持ち、モデルが計算する。[値の読み方](reference/model-observations.md)には経済的な意味と限界を置く。 |
-| 日次で何を固定し、何を発行するか | [日次workflow](../.github/workflows/cloud-daily-batch-current.yml) → [受領の固定・適用](../jobs/src/baibai_jobs/integration/sources.py) → [モデル・索引の発行](../jobs/src/baibai_jobs/integration/models.py)。[固定入力](../engine/src/baibai_engine/machine_analysis/generation/inputs.py)と[索引の構築](../engine/src/baibai_engine/machine_analysis/screening/policies/discovery.py)は別。 | 生成中に外部取得しない。表示・個社照会から再選抜しない。[探索の使い方](reference/screening-runtime.md) |
+| 日次で何を固定し、何を発行するか | [日次workflow](../.github/workflows/cloud-daily-batch-current.yml) → [経済L1の統合](../jobs/src/baibai_jobs/integration/economic_sources.py)・[市場受領の固定と適用](../jobs/src/baibai_jobs/integration/sources.py) → [モデル・索引の発行](../jobs/src/baibai_jobs/integration/models.py)。[固定入力](../engine/src/baibai_engine/machine_analysis/generation/inputs.py)と[索引の構築](../engine/src/baibai_engine/machine_analysis/screening/policies/discovery.py)は別。 | 生成中に提供元へ取りに行かない。表示・個社照会から再選抜しない。[探索の使い方](reference/screening-runtime.md) |
 | 調査対象・判断・提案 | [企業判断CLI](../engine/src/baibai_engine/cli/investment_judgment.py) → [調査の固定と進捗](../engine/src/baibai_engine/investment_judgment/workflow/)・[評価](../engine/src/baibai_engine/investment_judgment/stock_assessment/)・[提案](../engine/src/baibai_engine/investment_judgment/trade_proposal/) | [評価の根拠とReview](reference/stock-assessment.md)、[提案時の経済比較](reference/trade-proposal.md)。価値を支持するかと、今この資金を使うかは別の判断。 |
 | 約定・cash・保有・成績 | [台帳](../engine/src/baibai_engine/portfolio/ledger/) → [保有](../engine/src/baibai_engine/portfolio/holdings/)・[成績](../engine/src/baibai_engine/portfolio/performance/) | 報告された事実を保ち、提案の採否や調査完了と混ぜない。 |
-| 保存・公開・表示 | [保存機構](../engine/src/baibai_engine/storage/)／[公開Jobs](../jobs/src/baibai_jobs/publication/)／[Web](../web/README.md) | storageはSQLite・snapshot・条件付き転送を担当し、採否や業務規則を決めない。 |
+| 保存・公開・表示 | [保存機構](../engine/src/baibai_engine/storage/)／[Machineの切替](../jobs/src/baibai_jobs/publication/machine_current.py)／[Webの表示生成と配信](../web/README.md#実装と配信) | storageはSQLite・snapshot・条件付き転送を担当し、採否や業務規則を決めない。公開と表示はデータの正本を決める処理と保存済みデータを読む処理に分ける。 |
 
 [baibai-engine](../engine/src/baibai_engine/cli/app.py)は人間・AI向けCLI、[baibai-jobs](../jobs/src/baibai_jobs/cli.py)は取得・統合・公開用。引数は各CLIのhelp、実行・検証は[開発手順](development.md)、公開や障害対応は[運用手順](../jobs/OPERATIONS.md)に従う。importの向きはデータの流れとは別で、許可境界は[pyproject.toml](../pyproject.toml)が持つ。
 
@@ -39,29 +41,28 @@
 - **銘柄・価格**：発行体と取引銘柄（市場・株式クラス）を分け、ティッカーは有効期間付きの別名とする。価格には通貨・単位と提供元／feed、現地の取引日と立会範囲、原本の版を結び付ける。休場・短縮・夏時間は市場の暦で判断し、受領側のJST日付では代用しない。価格の定義（提供元の集計値／公式引け）と調整（未調整／分割調整／配当込み）は別軸とし、異なるfeedや定義を欠損補完で混ぜない。
 - **開示・会計**：会計基準・連結範囲と実績／予想、期間（単独／累計）と期末残高、通貨・桁・総額／一株当たりを、元の文書・版・該当箇所に結び付ける。対象日と、提出・受付・公開・実受領・訂正の各時刻は別に扱う。cutoff時点の利用可能性と、その世代が参照する実受領版を確かめて採用する。後日取得した最新版や提出・受付時刻だけを「当時利用可能」の証拠にせず、訂正前の固定結果も書き換えない。換算が必要な場合は、為替も通貨ペア・基準・時点・由来を固定する。
 
-**現行と追加案の区別**：[現行のJ-Quants日足](../engine/src/baibai_engine/machine_analysis/observations/prices/jquants_normalization.py)はJ-Quantsの銘柄・行契約に従う。六つの明示nullによる売買なし判定を、実売買代金のない別市場のOHLCVに適用しない。[米国株の隔離検証 #2825](https://github.com/koumatsumoto/baibai-loop/issues/2825)では、提供元の書式・銘柄・暦・開示の対応を分け、意味が一致する計算だけ共有する。IEXの足を市場全体の足や公式引けにせず、米国GAAP項目を日本固有の利益・予想へ読み替えない。これは隔離検証の設計条件であり、米国株の本番運用や日本株の日次・円台帳との接続を意味しない。
+**日本株と米国株の隔離検証**：[現行のJ-Quants日足](../engine/src/baibai_engine/machine_analysis/observations/prices/jquants_normalization.py)の六つの明示nullによる「売買なし」は他市場のOHLCVに適用しない。[米国株の実験CLI](reference/us-research-mvp.md)（[#2825](https://github.com/koumatsumoto/baibai-loop/issues/2825)）の通常実行は、Alpaca IEXとSECの受領済み資料から調査候補・保留理由を返す。取得・正式提案の発行・注文は行わない。IEX集計を市場全体の足や公式引けとして扱わず、米国GAAPを日本固有の利益・予想に読み替えない。日本株の日次・App・円台帳や米国株の本番配信には接続しない。
 
 変更時は、規則を持つ場所・同じ意味で通る入口・次に使う出力を特定する。[検証手順](development.md#変更を検証する)で、誤銘柄・異なる単位や立会・締め後の開示／後日の訂正など必要な反例、正常経路、保存済み結果の読取を区別する。処理を減らすなら、同じ条件で何を作り直さなくなったかを確認する。全体ルールのために全層の再検証・汎用バリデータ・共通計算基盤を増やさない。
 
 ## 現在の解析モデル
 
-[Generationの実装](../engine/src/baibai_engine/machine_analysis/generation/assembly.py)が、次の[モデル](../engine/src/baibai_engine/machine_analysis/models/)の担当単位とモデルIDを決める。個々の値の意味・不足理由は[観測リファレンス](reference/model-observations.md)へ。
+現行の日次は、[Generationの入口](../engine/src/baibai_engine/machine_analysis/generation/inputs.py)から[組立](../engine/src/baibai_engine/machine_analysis/generation/assembly.py)へ固定入力を渡し、次の五つのモデルを生成対象にする。個々の値の意味・不足理由は[観測リファレンス](reference/model-observations.md)へ。
 
-- **個社**：企業財務 `company_financials`、企業成長 `company_growth`、テクニカル分析 `technical_analysis`、外部評価 `external_assessment`。
-- **個社と市場**：市場環境 `market_context`。個社の相対・価格観測と市場全体の観測は別の対象に保存する。
-- **L3で調べるもの**：記事に基づく産業・社会の動向は、判断に必要な場合だけ原典を調べる。日次は記事から `industry_trends` や `social_trends` を新規生成しない。保存済みのモデルは元のGeneration/Selectionから読める。
+- **個社**：企業財務 `company_financials`、企業成長 `company_growth`、テクニカル分析 `technical_analysis`、外部評価 `external_assessment`。[数値の定期取得](../jobs/OPERATIONS.md#external-assessment-acquisition)はMonexと株マップ。個社TradingViewは必要時のL3補助で、多市場のTradingView観測とは別。
+- **個社と市場**：市場環境 `market_context`。個社の相対・価格観測と市場全体の観測は別の対象に保存する。経済時系列の取得は続け、記事とは分ける。
 
-将来の株主利益・因果・重要性はここでは決めず、L3で判断する。
+産業・社会の動向は、判断に効くときだけL3で調べる。記事の定期・手動一括取得と日次統合は終了し、`industry_trends`・`social_trends` の新規日次生成はしない。[見出し](reference/stock-assessment.md#recent-news-research)は原典を探す入口であって、本文を読んだ証拠ではない。[評価の七観点](reference/stock-assessment.md#analysis-domain-integration)は五つの機械モデルとこの二つの調査観点で判断を説明するためのもので、七つの必須モデルでも採否の多数決でもない。
 
 <a id="store-authority"></a>
 ## 何を正本として再開するか
 
-| 欲しいもの | 読む対象 |
+| 欲しいもの | 正本と読取の境界 |
 | --- | --- |
-| 企業判断、Review、提案、進捗、台帳 | [application DB](../engine/src/baibai_engine/storage/sqlite/application/)。再生成cacheではない。Operationは保存した対象・資料・当時の進捗から再開する。 |
-| 受領時の外部情報 | native L1の不変body・request pack・受領記録、またはsource SQLite。本文の共有は同じ受領を意味しない。 |
-| 機械分析のモデルと候補 | 通常のRunsには現行公開の[Generation](../engine/src/baibai_engine/machine_analysis/generation/query.py)と[Selection](../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)だけを置く。準備済みOperationの当時の根拠はAppに固定済みで、現在の値では補わない。 |
-| 元結果の再計算 | 元の固定入力・releaseのmanifestと不変object・当時の実行条件が必要。共有入力には[経済原本や確認・失敗の参照](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)を含む。不足時に別世代や前回L2を使わない。 |
-| 日次実行用のmarket | source cache SQLiteには未移行原本・運用状態も含み、丸ごと捨てられるcacheではない。[公開と復旧](../jobs/OPERATIONS.md#machine-publication)に従う。 |
+| 市場入力・機械分析・候補 | `baibai-stores` の [`lake/pointers/market/current.json`](../jobs/OPERATIONS.md#machine-publication) が指すLake releaseと一組のMarket・Runs。通常は日次の `model-integration` が一組を切り替える。固定 `.bak` や単体の古いファイルではなく同じポインタから読む。MarketはLakeを作業用に展開するだけでなく、未移行原本・運用状態も含む。[Runs](reference/screening-runtime.md)は現行のGeneration・Selectionだけを置く。 |
+| 経済原本 | [`indicators.sqlite`](../jobs/OPERATIONS.md#economic-acquisition) は経済L1の独立した正本。L2は同じ日次が読戻した経済DBから固定した[経済入力](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)を読む。 |
+| 個別の原典・受領 | providerごとのnative L1の原本・受領記録、または所管するSQLite等。同じ本文でも別受領は別。保存済みの資料を確認する場合は指定された出典・受領を読み、現在の値で埋めない。 |
+| 企業判断、Review、提案、進捗、台帳 | 独立した[`baibai.sqlite`](../jobs/OPERATIONS.md#application-db-を反映する)（App）。Operationは保存した対象・根拠・進捗から再開する。未保存の旧世代を現在の値で補わない。 |
+| Webの表示 | [配信用の表示データ](../web/README.md#実装と配信)はAppと取得できたMarket観測から作る。単独の表示生成ではMarketが読めなくてもAppの内容を出せるが、未確認の時価は埋めない。`baibai-serving` のviewは派生物であり、正本ではない。 |
 
-固定したcutoffは、未受領資料まで含む完全な当時の市場の再現ではない。受領・モデル生成・公開・読戻しは別の到達点であり、前段の成功を後段の成功に読み替えない。
+新規提案は今使う入力と必要な出典を確認し、過去の任意時点の再現を前提にしない。保存済み判断は保存当時の根拠を読む。Machineの公開・読戻し、市場受領の確定、Webの反映、新規提案の受入は各々別であり、一つの成功を別の成功とみなさない。
