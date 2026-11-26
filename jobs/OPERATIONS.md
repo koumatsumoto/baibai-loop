@@ -84,7 +84,7 @@ uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores --fo
 <a id="local-release-hydrate"></a>
 ### 完全local mirrorからのhydrate
 
-固定したreleaseの値を調べるには、[`snapshots hydrate`](src/baibai_jobs/publication/snapshot_write_cli.py)へそのIDと同じmanifestのSHA-256を**両方**渡す。current専用の `r2_transfer.sh hydrate-market` は引数を受け付けない。
+固定したreleaseの値を調べるには、[`snapshots hydrate`](src/baibai_jobs/publication/snapshot_write_cli.py)へそのIDと同じmanifestのSHA-256を**両方**渡す。
 固定指定なしの全体hydrate（日次を含む）と転送用dehydrateは、照合済みのrelease manifestでEDINET metricsの現行契約を要求する。固定releaseの調査、EDINET metricsを展開しないportfolio用hydrate、個別の移行手順は別経路。
 
 ```bash
