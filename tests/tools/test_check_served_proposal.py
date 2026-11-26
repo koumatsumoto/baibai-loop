@@ -188,6 +188,47 @@ def test_generation_cannot_predate_later_corrected_publication_in_history(tmp_pa
     ]
 
 
+@pytest.mark.parametrize("damage", ["reverse_order", "change_nonlatest_time"])
+def test_history_keeps_the_app_publication_index(tmp_path, capsys, damage):
+    case = backend_case(tmp_path)
+    first = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(reviewed_proposal(case))
+    second = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(microseconds=1)
+    ).publish(
+        reviewed_proposal(
+            case,
+            action="no_action",
+            proposal_id="investment-proposal-00000000-0000-4000-8000-000000000004",
+        )
+    )
+    paths = _capture(case.app, tmp_path)
+    history = json.loads(paths[1].read_bytes())
+    assert [row["proposal_id"] for row in history["proposals"]] == [
+        second.proposal_id,
+        first.proposal_id,
+    ]
+    assert main(_args(case.app, *paths)) == 0
+    capsys.readouterr()
+
+    if damage == "reverse_order":
+        # Same IDs and bodies, but the browser displays its history in wire order.
+        history["proposals"].reverse()
+    else:
+        # Still sorted, but not the publication instant saved for the pinned report.
+        history["proposals"][1]["published_at"] = (
+            first.published_at - timedelta(microseconds=1)
+        ).isoformat()
+    paths[1].write_text(json.dumps(history), encoding="utf-8")
+    assert main(_args(case.app, *paths)) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "PASS app_publication",
+        "PASS captured_latest",
+        "FAIL captured_history",
+    ]
+
+
 def test_same_two_reports_cannot_hide_a_different_loaded_case(tmp_path, capsys):
     case = backend_case(tmp_path)
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
