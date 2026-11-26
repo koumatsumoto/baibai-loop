@@ -363,22 +363,29 @@ def test_acquire_uses_compact_dates_and_frozen_calendar_without_l2(tmp_path):
     )
 
 
-def test_partial_stops_and_keeps_pending_dates_and_raw_pages(tmp_path):
-    _, owner, cal = setup(tmp_path, end=date(2026, 9, 28))
+@pytest.mark.parametrize("force", [False, True])
+def test_partial_stops_and_keeps_pending_dates_and_raw_pages(tmp_path, force):
+    second = date(2026, 9, 28)
+    _, owner, cal = setup(tmp_path, end=second)
+    if force:
+        owner.commit([attempt("old", day=second)])
     client = Client(partial=True)
     report = acquire_margin_interest_native(
         owner,
         cal,
         asof=date(2026, 9, 28),
         start=DAY,
-        end=date(2026, 9, 28),
+        end=second,
+        force=force,
         client=client,
         clock=lambda: AT,
     )
     assert report["failed"] == report["halted"] == 1
     assert report["incomplete"] == 2
     assert len(client.calls) == 1
-    assert list(owner.fixed().value()["scopes"]) == [DAY.isoformat()]
+    assert report["remaining"]["days"] == [DAY.isoformat(), second.isoformat()]
+    scopes = owner.fixed().value()["scopes"]
+    assert set(scopes) == ({DAY.isoformat(), second.isoformat()} if force else {DAY.isoformat()})
     assert next(owner.fixed().requests(owner.store, days=[DAY])).error is not None
 
 
@@ -478,6 +485,97 @@ def test_commit_work_never_calls_empty_balance_success_and_uses_saved_calendar(
     assert json.loads(capsys.readouterr().out)["remaining"]["days"] == [day.isoformat()]
     owner.commit([attempt("recovered", day=day, at=AT + timedelta(hours=1))])
     assert module.main(["commit-work", "--directory", str(owner.directory)]) == 0
+
+
+@pytest.mark.parametrize("attempted", [0, 1, 2])
+def test_commit_work_requires_every_forced_day_to_be_rechecked(
+    tmp_path, monkeypatch, capsys, attempted
+):
+    from baibai_jobs.acquisition import jquants_margin_interest_native as module
+
+    days = [DAY, date(2026, 9, 28)]
+    store, owner, cal = setup(tmp_path, end=days[-1])
+    owner.commit([attempt("old-" + day.isoformat(), day=day) for day in days])
+    at = AT + timedelta(hours=1)
+    client = Client(at=at)
+
+    def clock():
+        if len(client.calls) == attempted:
+            raise KeyboardInterrupt
+        return at
+
+    def acquire():
+        return acquire_margin_interest_native(
+            owner,
+            cal,
+            asof=AT.date(),
+            start=DAY,
+            end=days[-1],
+            force=True,
+            client=client,
+            clock=clock,
+        )
+
+    if attempted < len(days):
+        with pytest.raises(KeyboardInterrupt):
+            acquire()
+    else:
+        assert acquire()["equal"] == 2
+    monkeypatch.setattr(module, "Boto3R2Store", lambda **_: store)
+    result = module.main(["commit-work", "--directory", str(owner.directory)])
+    assert result == int(attempted < len(days))
+    assert json.loads(capsys.readouterr().out)["remaining"]["days"] == [
+        day.isoformat() for day in days[attempted:]
+    ]
+
+
+@pytest.mark.parametrize("stale_partial", [False, True])
+def test_forced_acquire_and_replay_use_the_runs_own_attempts(
+    tmp_path, monkeypatch, capsys, stale_partial
+):
+    from baibai_jobs.acquisition import jquants_margin_interest_native as module
+
+    second = date(2026, 9, 28)
+    store, owner, cal = setup(tmp_path, end=second)
+    owner.commit([attempt("old-first"), attempt("old-second", day=second)])
+    at = AT + timedelta(hours=-1 if stale_partial else 1)
+    other = MarginInterestL1(store, tmp_path / "other")
+
+    def update_unattempted_day():
+        # Another CLI invocation can confirm this day, but this run never gets to it.
+        other.commit([attempt("concurrent", day=second, at=at)])
+
+    client = Client(
+        at=at,
+        partial=True,
+        callback=None if stale_partial else update_unattempted_day,
+    )
+    report = acquire_margin_interest_native(
+        owner,
+        cal,
+        asof=AT.date(),
+        start=DAY,
+        end=second,
+        force=True,
+        client=client,
+        clock=lambda: at,
+    )
+    assert len(client.calls) == report["halted"] == 1
+    if stale_partial:
+        # A newer durable receipt resolves the older attempt, but the next day was skipped.
+        assert report["held"] == 1
+        expected = [second.isoformat()]
+    else:
+        assert report["failed"] == 1
+        assert (
+            owner.fixed().value()["scopes"][second.isoformat()]["confirmation_id"] == "concurrent"
+        )
+        expected = [DAY.isoformat(), second.isoformat()]
+    assert report["remaining"]["days"] == expected
+
+    monkeypatch.setattr(module, "Boto3R2Store", lambda **_: store)
+    assert module.main(["commit-work", "--directory", str(owner.directory)]) == 1
+    assert json.loads(capsys.readouterr().out)["remaining"]["days"] == expected
 
 
 def test_cli_fixed_calendar_and_saved_input_work_without_current_heads(tmp_path, monkeypatch):

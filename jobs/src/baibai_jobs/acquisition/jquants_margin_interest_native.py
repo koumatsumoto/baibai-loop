@@ -9,6 +9,7 @@ import sys
 import time
 from collections.abc import Callable
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,10 @@ def _plan_report(plan: MarginAcquisitionPlan) -> dict[str, Any]:
         "unknown_calendar_days": [day.isoformat() for day in plan.unknown_calendar_days],
         "unknown_incomplete_requests": list(plan.unknown_incomplete_requests),
     }
+
+
+def _include_unattempted(plan: MarginAcquisitionPlan, days: set[date]) -> MarginAcquisitionPlan:
+    return replace(plan, days=tuple(sorted(set(plan.days) | days)))
 
 
 def acquire_margin_interest_native(
@@ -66,26 +71,30 @@ def acquire_margin_interest_native(
         },
     )
     (owner.directory / "calendar-fixed.json").write_bytes(calendar.payload)
-    report: dict[str, Any] = dict(
-        acquire_full_day_native(
-            owner,
-            start=start or asof,
-            end=end or asof,
-            revision_overlap_days=0,
-            planned_days=plan.days,
-            client=client,
-            clock=clock,
-            sleep=sleep,
-        )
+    outcomes = acquire_full_day_native(
+        owner,
+        start=start or asof,
+        end=end or asof,
+        revision_overlap_days=0,
+        planned_days=plan.days,
+        client=client,
+        clock=clock,
+        sleep=sleep,
     )
     remaining = plan_margin_interest_days(owner.fixed(), calendar, asof=asof, start=start, end=end)
-    report.update(
-        {
-            "calendar_sha256": calendar.content_id,
-            "incomplete": len(remaining.days),
-            "remaining": _plan_report(remaining),
-        }
-    )
+    if force:
+        # Acquisition walks the plan in order and tallies each attempted day once.
+        # A different run's head update does not count as this run's observation.
+        attempted_count = sum(
+            outcomes[key] for key in ("changed", "equal", "failed", "held", "retried")
+        )
+        remaining = _include_unattempted(remaining, set(plan.days[attempted_count:]))
+    report = {
+        **outcomes,
+        "calendar_sha256": calendar.content_id,
+        "incomplete": len(remaining.days),
+        "remaining": _plan_report(remaining),
+    }
     write_json_atomic(owner.directory / "result.json", report)
     return report
 
@@ -139,7 +148,9 @@ def main(argv: list[str] | None = None) -> int:
                     for path in args.directory.glob("attempt-*.json")
                 ]
                 attempts.sort(key=lambda item: (item.order_time, item.request_id))
-                if any(item.day.isoformat() not in saved_plan["days"] for item in attempts):
+                planned_days = {day: date.fromisoformat(day) for day in saved_plan["days"]}
+                attempted_days = {item.day.isoformat() for item in attempts}
+                if not attempted_days <= planned_days.keys():
                     raise ValueError("saved attempt is outside its acquisition plan")
                 replayed = owner.commit(attempts)
                 remaining = plan_margin_interest_days(
@@ -149,6 +160,12 @@ def main(argv: list[str] | None = None) -> int:
                     start=date.fromisoformat(saved_plan["start"]) if saved_plan["start"] else None,
                     end=date.fromisoformat(saved_plan["end"]) if saved_plan["end"] else None,
                 )
+                if saved_plan["force"]:
+                    # Previously adopted rows cannot satisfy a requested new observation.
+                    remaining = _include_unattempted(
+                        remaining,
+                        {planned_days[day] for day in planned_days.keys() - attempted_days},
+                    )
                 print(
                     json.dumps({**replayed, "remaining": _plan_report(remaining)}, sort_keys=True)
                 )
