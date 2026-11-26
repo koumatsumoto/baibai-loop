@@ -95,7 +95,7 @@ def test_exact_jpx_plan_replays_and_seals_without_rewriting_original_failure(
     def no_discovery(*args, **kwargs):
         pytest.fail("exact recovery must not discover other pending sources or ready inputs")
 
-    for name in ("available_handoffs", "pending_handoffs", "available_ready"):
+    for name in ("available_handoffs", "available_ready"):
         monkeypatch.setattr(sources, name, no_discovery)
     work = tmp_path / "recovery"
     args = ["plan", "--directory", str(work)]

@@ -58,13 +58,11 @@ def test_daily_plan_skips_old_equity_tv_inbox_without_consuming_it(tmp_path, mon
             model_dump=lambda **_: {"fixed": 1},
         ),
     )
-    article = {"market": True, "source": "boj_news", "stage_id": "boJ-current"}
-    monkeypatch.setattr(sources, "pending_handoffs", lambda _: [article])
     work = tmp_path / "integration"
 
     assert sources.main(["plan", "--directory", str(work)]) == 0
     handoffs = json.loads((work / "plan.json").read_text())["handoffs"]
-    assert {row["source"] for row in handoffs} == {"boj_news", "jpx-regulations"}
+    assert {row["source"] for row in handoffs} == {"jpx-regulations"}
     checked = set(remote.head_keys + remote.get_keys)
     assert jpx in checked
     assert set(staged) <= checked

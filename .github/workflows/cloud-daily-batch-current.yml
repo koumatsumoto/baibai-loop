@@ -21,10 +21,6 @@ on:
         description: "事前比較したEDINET固定入力・revision・有限sample結果の受入JSON。空欄は通常統合"
         required: false
         type: string
-      article_semantic_recovery:
-        description: "比較済みの有限 article observation ID/hash/revision/result を再抽出する JSON。空欄は通常統合"
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -77,10 +73,9 @@ jobs:
         env:
           MANUAL_ASOF: ${{ inputs.asof }}
           EDINET_METRICS_ACCEPTANCE: ${{ inputs.edinet_metrics_acceptance }}
-          ARTICLE_SEMANTIC_RECOVERY: ${{ inputs.article_semantic_recovery }}
           PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF" --edinet-metrics-acceptance "${EDINET_METRICS_ACCEPTANCE:-}" --article-semantic-recovery "${ARTICLE_SEMANTIC_RECOVERY:-}"
+          python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF" --edinet-metrics-acceptance "${EDINET_METRICS_ACCEPTANCE:-}"
           echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -192,22 +187,7 @@ jobs:
           uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
           uv run python -m baibai_jobs.integration.edinet_metric_acceptance --conditions "$RUNNER_TEMP/edinet-metrics-acceptance.json" --integration-report "$RUNNER_TEMP/integration/applied.json" --market stores/market/market.sqlite
 
-      - name: Refresh explicitly fixed article semantic artifacts
-        id: article-semantic-recovery
-        if: ${{ inputs.article_semantic_recovery != '' }}
-        env:
-          ARTICLE_SEMANTIC_RECOVERY: ${{ inputs.article_semantic_recovery }}
-          INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_STOP_ON_REJECTION: '1'
-        run: |
-          umask 077
-          printf '%s' "$ARTICLE_SEMANTIC_RECOVERY" > "$RUNNER_TEMP/article-semantic-conditions.json"
-          uv run python -m baibai_jobs.integration.article_semantic_recovery apply --conditions "$RUNNER_TEMP/article-semantic-conditions.json" --report "$RUNNER_TEMP/article-semantic-report.json" --asof "$INTEGRATION_ASOF" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
-
-      # The opt-in checks are before model-integration, which also publishes its release.
+      # EDINET acceptance precedes the combined Machine and Lake publication.
       # Web is not part of the engine's success or publication path.
       - name: Generate models and candidates, then publish one current Machine and Lake release
         id: batch
@@ -232,17 +212,6 @@ jobs:
           fi
           exit "$code"
 
-      - name: Verify the explicitly refreshed article closure
-        id: article-semantic-readback
-        if: ${{ always() && inputs.article_semantic_recovery != '' && steps.article-semantic-recovery.outcome == 'success' && steps.batch.outputs.models_ready == 'true' && steps.batch.outcome == 'success' }}
-        env:
-          INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_STOP_ON_REJECTION: '1'
-        run: uv run python -m baibai_jobs.integration.article_semantic_recovery verify --conditions "$RUNNER_TEMP/article-semantic-conditions.json" --report "$RUNNER_TEMP/article-semantic-report.json" --asof "$INTEGRATION_ASOF" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
-
       - name: Seal canonical market handoffs
         id: source-seal
         if: ${{ always() && steps.batch.outputs.models_ready == 'true' && steps.batch.outcome == 'success' }}
@@ -255,22 +224,12 @@ jobs:
             --directory "$RUNNER_TEMP/integration" \
             --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" \
             --daily-readback-notice "$RUNNER_TEMP/batch-notice.json"
-      - name: Refresh source-scoped inputs from this canonical generation
-        id: source-inputs
-        if: ${{ always() && steps.source-seal.outcome == 'success' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          ASOF: ${{ steps.source-plan.outputs.asof }}
-          IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: uv run python -m baibai_jobs.integration.sources inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Report retained economic source failures
         id: economic-check
         if: ${{ always() && steps.economic-l1.outcome == 'success' }}
         run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/economic-integration"
 
-      - name: Report integration failures and deferred source inputs
+      - name: Report retained integration failures
         id: source-check
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
         run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
@@ -322,7 +281,6 @@ jobs:
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          SOURCE_INPUTS_OUTCOME: ${{ steps.source-inputs.outcome }}
           PYTHONPATH: jobs/src
         run: |
           python3 -m baibai_jobs.observability.discord \
@@ -339,12 +297,9 @@ jobs:
             --pull-outcome "${{ steps.pull.outcome }}" \
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --edinet-metrics-acceptance-outcome "${{ steps.edinet-metrics-acceptance.outcome }}" \
-            --article-semantic-recovery-outcome "${{ steps.article-semantic-recovery.outcome }}" \
             --machine-publication-outcome "${{ steps.batch.outcome }}" \
-            --article-semantic-readback-outcome "${{ steps.article-semantic-readback.outcome }}" \
             --source-integration-outcome "${{ steps.source-integration.outcome }}" \
             --source-seal-outcome "${{ steps.source-seal.outcome }}" \
-            --source-inputs-outcome "$SOURCE_INPUTS_OUTCOME" \
             --source-check-outcome "${{ steps.source-check.outcome }}" \
             --portfolio-views-outcome "${{ steps.portfolio-views.outcome }}" \
             --lease-release-outcome "${{ steps.lease-release.outcome }}" \

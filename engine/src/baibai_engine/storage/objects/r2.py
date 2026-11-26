@@ -405,13 +405,15 @@ class Boto3R2Store:
             _log_r2_failure("delete-object", exc, key=key)
             raise R2Error("R2 delete-object failed") from exc
 
-    def head(self, key: str, *, single_attempt: bool = False) -> RemoteObject | None:
+    def head(
+        self, key: str, *, single_attempt: bool = False, require_http_404: bool = False
+    ) -> RemoteObject | None:
         try:
             with self._request("head-object"):
                 client = self._client(single_attempt=True) if single_attempt else self._client()
                 value = client.head_object(Bucket=self.bucket, Key=key)
         except ClientError as exc:
-            if _object_not_found(exc, require_http_404=single_attempt):
+            if _object_not_found(exc, require_http_404=single_attempt or require_http_404):
                 return None
             _raise_r2_error("head-object", exc, key=key)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
@@ -464,7 +466,9 @@ class Boto3R2Store:
             _log_r2_failure("get-object", exc, key=key)
             raise R2Error("R2 get-object failed") from exc
 
-    def get_bytes_with_metadata(self, key: str) -> tuple[bytes, RemoteObject] | None:
+    def get_bytes_with_metadata(
+        self, key: str, *, require_http_404: bool = False
+    ) -> tuple[bytes, RemoteObject] | None:
         """Return the body and metadata from the same GET, without an extra HEAD."""
         try:
             with self._request("get-object"):
@@ -478,7 +482,7 @@ class Boto3R2Store:
             _log_r2_failure("get-object", exc, key=key)
             raise R2Error("R2 get-object timed out") from exc
         except ClientError as exc:
-            if _error_code(exc) in {"404", "NoSuchKey", "NotFound"}:
+            if _object_not_found(exc, require_http_404=require_http_404):
                 return None
             _raise_r2_error("get-object", exc, key=key)
         except BotoCoreError as exc:

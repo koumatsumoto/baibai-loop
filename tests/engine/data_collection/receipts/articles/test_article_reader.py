@@ -5,7 +5,7 @@ import sqlite3
 from contextlib import closing
 
 import pytest
-from tests.helpers.article_acquisition import receipt
+from tests.helpers.article_evidence import receipt
 
 from baibai_engine.data_collection.receipts.articles import store
 from baibai_engine.data_collection.receipts.articles.storage_contracts import ARTICLE_RECEIPTS_DDL

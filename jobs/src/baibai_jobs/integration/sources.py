@@ -10,15 +10,18 @@ import re
 import sqlite3
 import sys
 import time
+from collections.abc import Iterable
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
+from baibai_engine.data_collection.providers.articles.contracts import (
+    SOURCES as _RETIRED_ARTICLE_SOURCES,
+)
 from baibai_engine.data_collection.providers.jpx.receipt_store import (
     validate_receipts as validate_jpx_receipts,
 )
-from baibai_engine.data_collection.receipts.articles.store import validate_receipt_schema
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.edinet_inputs import (
     read_edinet_input,
@@ -43,14 +46,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError a
 from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema as validate_market_schema,
 )
-from baibai_jobs.acquisition.article_planning import (
-    ARTICLE_NAMESPACE,
-    ARTICLE_SOURCES,
-    COLLECTION_SOURCES,
-    pending_handoffs,
-    publish_planning_input,
-)
-from baibai_jobs.acquisition.economic_staging import stage_prefix
+from baibai_jobs.acquisition.economic_staging import ARTICLE_HANDOFF_NAMESPACE, stage_prefix
 from baibai_jobs.acquisition.receipts import (
     available_handoffs,
     download_fixed,
@@ -60,7 +56,6 @@ from baibai_jobs.acquisition.source_inputs import GuardedInputStore
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.source_handoff import _JPX_COLLECTION, _replay
-from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.jpx_verification import (
     capture_publication as capture_jpx_publication,
 )
@@ -98,6 +93,35 @@ def _archived_equity_tradingview(entry: dict[str, Any]) -> bool:
     )
 
 
+def _retired_article(entry: dict[str, object]) -> bool:
+    return (
+        entry.get("namespace") == ARTICLE_HANDOFF_NAMESPACE
+        or entry.get("source") in _RETIRED_ARTICLE_SOURCES
+    )
+
+
+class RetiredArticleHandoffError(ValueError):
+    """Old stages can only be inspected with the fixed evidence reader."""
+
+
+def _require_current_handoffs(entries: Iterable[dict[str, object]]) -> None:
+    for entry in entries:
+        if _retired_article(entry):
+            raise RetiredArticleHandoffError(
+                "article handoffs retired; read exact evidence instead"
+            )
+        if _archived_equity_tradingview(entry):
+            raise ValueError("individual TradingView handoffs are archived; create a new plan")
+
+
+def _read_plan(directory: Path) -> dict[str, Any]:
+    plan: dict[str, Any] = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
+    if plan.keys() - {"handoffs", "edinet_input", "external", "external_failed"}:
+        raise ValueError("unsupported integration plan fields; create a new plan")
+    _require_current_handoffs(plan["handoffs"])
+    return plan
+
+
 def apply(
     store: Boto3R2Store,
     directory: Path,
@@ -105,15 +129,21 @@ def apply(
     market: Path,
     asof: date,
 ) -> dict[str, object]:
-    plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
-    if plan.keys() - {"handoffs", "edinet_input", "external", "external_failed"}:
-        raise ValueError("unsupported integration plan fields; create a new plan")
+    return _apply_plan(store, directory, market=market, asof=asof, plan=_read_plan(directory))
+
+
+def _apply_plan(
+    store: Boto3R2Store,
+    directory: Path,
+    *,
+    market: Path,
+    asof: date,
+    plan: dict[str, Any],
+) -> dict[str, object]:
     if any(
         entry.get("source") in {"jquants-market", "jquants-financial"} for entry in plan["handoffs"]
     ):
         raise ValueError("J-Quants does not publish market handoffs; create a new plan")
-    if any(map(_archived_equity_tradingview, plan["handoffs"])):
-        raise ValueError("individual TradingView handoffs are archived; create a new plan")
     if any(not entry["market"] for entry in plan["handoffs"]):
         raise ValueError("economic handoffs require the independent L1 integration")
     if plan.get("edinet_input") is None:
@@ -150,9 +180,7 @@ def apply(
                             (packet / "receipts.sqlite").resolve().as_uri() + "?mode=ro", uri=True
                         )
                     ) as raw:
-                        if entry["source"] in ARTICLE_SOURCES:
-                            validate_receipt_schema(raw)
-                        elif entry["source"] in _JPX_COLLECTION:
+                        if entry["source"] in _JPX_COLLECTION:
                             validate_jpx_receipts(raw)
                         else:
                             validate_market_schema(raw)
@@ -197,13 +225,6 @@ def apply(
     )
     extractions["native_lists"] = native_lists
     extractions["native_archives"] = native_archives
-    for outcome in outcomes:
-        if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
-            outcome["article_delta"] = capture_delta(
-                market,
-                outcome["result"]["receipt_ids"],
-                artifact_ids=outcome["result"].get("artifact_ids", ()),
-            )
     report: dict[str, object] = {
         "asof": asof.isoformat(),
         "handoffs": outcomes,
@@ -308,12 +329,10 @@ def _jpx_recovery_handoffs(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("plan", "apply", "seal", "inputs", "check"))
+    parser.add_argument("command", choices=("plan", "apply", "seal", "check"))
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--market", type=Path, default=MARKET_DB_PATH)
     parser.add_argument("--asof", type=date.fromisoformat)
-    parser.add_argument("--identity")
-    parser.add_argument("--group", help="Reissue only this scoped input group")
     parser.add_argument("--summary", action="store_true", help="Log only apply counts")
     parser.add_argument("--lease-handle", type=Path)
     parser.add_argument(
@@ -355,21 +374,27 @@ def _daily_external_readback(
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.group is not None and args.command != "inputs":
-        print("--group is only valid with inputs", file=sys.stderr)
-        return 1
     if args.summary and args.command != "apply":
         print("--summary is only valid with apply", file=sys.stderr)
         return 1
     seal_phase = "setup"
     try:
-        if args.group is not None and args.group not in COLLECTION_SOURCES:
-            raise ValueError("unknown market acquisition input group")
         if args.recover_jpx_stage and args.command != "plan":
             raise ValueError("--recover-jpx-stage is only valid with plan")
         if args.daily_readback_notice is not None and args.command != "seal":
             raise ValueError("--daily-readback-notice is only valid with seal")
         directory = args.directory
+        plan: dict[str, Any] | None = None
+        if args.command == "apply":
+            if args.asof is None:
+                raise ValueError("--asof is required")
+            plan = _read_plan(directory)
+        sealed_report: dict[str, Any] | None = None
+        if args.command == "seal":
+            if args.lease_handle is None:
+                raise ValueError("common integration writes require the publication lease")
+            sealed_report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
+            _require_current_handoffs(item["entry"] for item in sealed_report["handoffs"])
         if args.command == "check":
             report = json.loads((directory / "applied.json").read_text())
             integration_failed = (
@@ -448,13 +473,11 @@ def main(argv: list[str] | None = None) -> int:
                         store, market=True, exclude_equity_tradingview=True
                     )
                     _plan_progress("market_handoffs", started)
-                    started = _plan_progress("article_handoffs")
-                    article_handoffs = pending_handoffs(store)
-                    _plan_progress("article_handoffs", started)
                     handoffs = [
                         entry
-                        for entry in [*market_handoffs, *article_handoffs]
-                        if entry.get("source")
+                        for entry in market_handoffs
+                        if not _retired_article(entry)
+                        and entry.get("source")
                         not in {
                             "jquants-market",
                             "jquants-financial",
@@ -476,69 +499,29 @@ def main(argv: list[str] | None = None) -> int:
                     },
                 )
             elif args.command == "apply":
-                if args.asof is None:
-                    raise ValueError("--asof is required")
-                report = apply(store, directory, market=args.market, asof=args.asof)
+                assert plan is not None
+                assert args.asof is not None
+                report = _apply_plan(
+                    store, directory, market=args.market, asof=args.asof, plan=plan
+                )
                 if args.summary:
                     print(json.dumps(_apply_summary(report), sort_keys=True), flush=True)
                     return 0
                 public_report = dict(report)
                 if "jpx_publication" in public_report:
                     public_report["jpx_publication"] = "private readback plan"
-                public_report["handoffs"] = [
-                    {
-                        **item,
-                        "article_delta": "private readback plan",
-                        "result": {
-                            "receipt_count": len(item["result"].get("receipt_ids", [])),
-                            "observation_count": len(item["result"].get("observation_ids", [])),
-                            "artifact_count": len(item["result"].get("artifact_ids", [])),
-                            "failed": item["failed"],
-                        },
-                    }
-                    if item["entry"].get("namespace") == ARTICLE_NAMESPACE
-                    else item
-                    for item in cast(list[dict[str, Any]], report["handoffs"])
-                ]
                 print(json.dumps(public_report, sort_keys=True))
             else:
-                if args.lease_handle is None:
-                    raise ValueError("common integration writes require the publication lease")
-                seal_report = None
-                if args.command == "seal":
-                    seal_report = json.loads(
-                        (directory / "applied.json").read_text(encoding="utf-8")
-                    )
-                    if any(
-                        _archived_equity_tradingview(item["entry"])
-                        for item in seal_report["handoffs"]
-                    ):
-                        raise ValueError(
-                            "individual TradingView handoffs are archived; create a new plan"
-                        )
+                assert args.command == "seal"
+                assert args.lease_handle is not None
+                assert sealed_report is not None
+                report = sealed_report
                 seal_phase = "publication_lease"
                 handle = _load_handle(args.lease_handle)
                 verify_held(store, handle)
                 seal_phase = "canonical_machine"
                 generations = canonical_generations(store)
                 guarded = GuardedInputStore(store, lambda: verify_held(store, handle))
-                if args.command == "inputs":
-                    if args.identity is None or args.asof is None:
-                        raise ValueError("--identity and --asof are required")
-                    input_report: dict[str, Any] = {"updated": [], "failed": []}
-                    for source in COLLECTION_SOURCES if args.group is None else (args.group,):
-                        try:
-                            publish_planning_input(guarded, source, generations)
-                        except (ValueError, LakeCASConflict) as error:
-                            input_report["failed"].append(
-                                {"group": source, "reason": type(error).__name__}
-                            )
-                        else:
-                            input_report["updated"].append(source)
-                    print(json.dumps(input_report, sort_keys=True))
-                    return int(bool(input_report["failed"]))
-                assert seal_report is not None
-                report = seal_report
                 if any(
                     item["entry"]["source"] in _JPX_COLLECTION
                     and item["applied"]
@@ -574,23 +557,6 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     if outcome["entry"].get("invalid"):
                         continue
-                    if (
-                        outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
-                        and not outcome["applied"]
-                    ):
-                        # Keep an uncaptured handoff discoverable for repair, not sealed.
-                        continue
-                    if (
-                        outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
-                        and outcome["applied"]
-                    ):
-                        seal_phase = "article_readback"
-                        outcome["article_readback"] = verify_delta(
-                            store,
-                            delta=outcome["article_delta"],
-                            directory=directory / "article-readback",
-                            generations=generations,
-                        )
                     seal_phase = "handoff_terminal"
                     seal_integrated(
                         guarded,

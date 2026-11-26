@@ -26,19 +26,9 @@ def validate_daily_input(
     *,
     asof: str,
     edinet_metrics_acceptance: str = "",
-    article_semantic_recovery: str = "",
 ) -> None:
-    """Validate the manual daily-batch date and exact dates for explicit checks."""
+    """Validate the manual daily-batch date and the bound EDINET acceptance date."""
     _validate_optional_date(asof, label="asof")
-    if article_semantic_recovery:
-        from baibai_jobs.integration.article_semantic_recovery import decode_recovery
-
-        try:
-            recovery = decode_recovery(article_semantic_recovery)
-        except (ValueError, TypeError) as exc:
-            raise WorkflowInputError("article semantic recovery input is invalid") from exc
-        if recovery["as_of"] != asof:
-            raise WorkflowInputError("article recovery requires the matching explicit date")
     if edinet_metrics_acceptance:
         from baibai_jobs.integration.edinet_metric_acceptance import decode_acceptance
 
@@ -62,7 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
     daily = subparsers.add_parser("daily")
     daily.add_argument("--asof", default="")
     daily.add_argument("--edinet-metrics-acceptance", default="")
-    daily.add_argument("--article-semantic-recovery", default="")
 
     watchdog = subparsers.add_parser("watchdog")
     watchdog.add_argument("--check-date", default="")
@@ -76,7 +65,6 @@ def main(argv: list[str] | None = None) -> int:
             validate_daily_input(
                 asof=args.asof,
                 edinet_metrics_acceptance=args.edinet_metrics_acceptance,
-                article_semantic_recovery=args.article_semantic_recovery,
             )
         else:
             validate_watchdog_input(check_date=args.check_date)

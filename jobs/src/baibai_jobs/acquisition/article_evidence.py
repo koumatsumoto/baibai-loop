@@ -1,7 +1,7 @@
-"""Private exact original reads before integration; no provider GET or production write.
+"""Read fixed article originals privately without provider GET or production write.
 
-The immutable stage is provenance, not a lake release. The exported receipt ID,
-receipt hash and concrete body reference survive subsequent daily integration.
+The immutable stage proves provenance, not lake release membership. The read uses
+the original receipt ID, hash and body reference regardless of integration status.
 Keep the private packet when citing it; a stage locator alone is not a retention guarantee.
 """
 
@@ -18,6 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.data_collection.providers.articles.contracts import SOURCES as ARTICLE_SOURCES
 from baibai_engine.data_collection.receipts.articles.store import (
     connect_read_only,
     read_body,
@@ -26,8 +27,7 @@ from baibai_engine.data_collection.receipts.articles.store import (
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.json import read_private
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
-from baibai_jobs.acquisition.article_planning import ARTICLE_NAMESPACE, ARTICLE_SOURCES
-from baibai_jobs.acquisition.economic_staging import stage_prefix
+from baibai_jobs.acquisition.economic_staging import ARTICLE_HANDOFF_NAMESPACE, stage_prefix
 from baibai_jobs.acquisition.receipts import download_fixed
 
 
@@ -36,7 +36,7 @@ def exact_entry(
 ) -> dict[str, Any]:
     if source not in ARTICLE_SOURCES or re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is None:
         raise ValueError("article evidence requires an article source and exact manifest digest")
-    key = stage_prefix(stage_id, namespace=ARTICLE_NAMESPACE) + "/handoff.json"
+    key = stage_prefix(stage_id, namespace=ARTICLE_HANDOFF_NAMESPACE) + "/handoff.json"
     saved = read_private(store, key)
     if saved is None or hashlib.sha256(saved.payload).hexdigest() != manifest_sha256:
         raise LakePublishError("exact article evidence manifest differs or is missing")
@@ -50,7 +50,7 @@ def exact_entry(
     return {
         "source": source,
         "market": True,
-        "namespace": ARTICLE_NAMESPACE,
+        "namespace": ARTICLE_HANDOFF_NAMESPACE,
         "stage_id": stage_id,
         "manifest_sha256": manifest_sha256,
         "started_at": value["started_at"],

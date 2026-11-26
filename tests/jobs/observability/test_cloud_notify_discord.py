@@ -455,8 +455,8 @@ def test_main_reports_all_post_publication_failures_without_losing_core_success(
     assert "モデル生成: 3686社 / 18431件 / 候補35社" in message
 
 
-@pytest.mark.parametrize("step", ["edinet-metrics-acceptance", "article-semantic-recovery"])
-def test_main_names_the_failed_explicit_gate_before_model_generation(tmp_path, monkeypatch, step):
+def test_main_names_the_failed_explicit_gate_before_model_generation(tmp_path, monkeypatch):
+    step = "edinet-metrics-acceptance"
     _, transport = _run_main(tmp_path, monkeypatch, f"--{step}-outcome", "failure")
     message = _sent(transport)
     assert message.startswith("**[FAILED]")
@@ -468,15 +468,15 @@ def test_main_names_the_failed_explicit_gate_before_model_generation(tmp_path, m
 @pytest.mark.parametrize(
     ("readback", "lease", "cancelled", "label", "failed"),
     [
-        ("failure", "success", "false", "FAILED", "article-semantic-readback"),
+        ("failure", "success", "false", "FAILED", "source-seal"),
         (
             "failure",
             "failure",
             "false",
             "FAILED",
-            "article-semantic-readback / lease-release",
+            "source-seal / lease-release",
         ),
-        ("cancelled", "success", "true", "CANCELLED", "article-semantic-readback"),
+        ("cancelled", "success", "true", "CANCELLED", "source-seal"),
         ("skipped", "success", "false", "OK", None),
         ("success", "success", "false", "OK", None),
     ],
@@ -491,7 +491,7 @@ def test_explicit_readback_outcome_does_not_erase_completed_core_publication(
         "0",
         "--machine-publication-outcome",
         "success",
-        "--article-semantic-readback-outcome",
+        "--source-seal-outcome",
         readback,
         "--lease-release-outcome",
         lease,

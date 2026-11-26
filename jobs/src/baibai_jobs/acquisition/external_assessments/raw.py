@@ -22,6 +22,7 @@ from baibai_engine.data_collection.receipts.public_pages.receipts import (
     validate_response as equity_web_validate_response,
 )
 from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
     LakePublishError,
     ObjectMetadataReader,
     ObjectStore,
@@ -212,32 +213,45 @@ class RawBundle:
             raise LakePublishError("external assessment raw bundle write receipt mismatch")
 
 
-def _read_bundle_bytes(store: ObjectStore, key: str) -> bytes | None:
+def _read_bundle_bytes(store: ObjectStore, key: str, *, require_http_404: bool) -> bytes | None:
     retained = retained_key(key)
+    strict_r2 = store if require_http_404 and isinstance(store, Boto3R2Store) else None
+
+    def present(target: str) -> bool:
+        if strict_r2 is not None:
+            return strict_r2.head(target, require_http_404=True) is not None
+        return store.head(target) is not None
+
     if retained == key and isinstance(store, ObjectMetadataReader):
-        saved = store.get_bytes_with_metadata(key)
+        saved = (
+            strict_r2.get_bytes_with_metadata(key, require_http_404=True)
+            if strict_r2 is not None
+            else store.get_bytes_with_metadata(key)
+        )
         if saved is not None:
             return saved[0]
         # A missing reference is source-local; contradictory/unavailable storage
         # must abort common integration. Do not retry GET or choose another key.
-        if store.head(key) is not None:
+        if present(key):
             raise R2Error("retained external original GET missing despite present HEAD")
         return None
     # A legacy reference has two locations. Once HEAD chooses one, a failed
     # body read must not silently switch locations.
-    if store.head(retained) is not None:
+    if present(retained):
         return store.get_bytes(retained)
-    if retained != key and store.head(key) is not None:
+    if retained != key and present(key):
         return store.get_bytes(key)
     return None
 
 
 def read_raw_bundle(
-    store: ObjectStore, key: str
-) -> tuple[dict[str, Any], tuple[EquityWebSourceResponse, ...]]:
-    """Validate canonical v2 receipts and bytes without extracting paths to disk."""
-    payload = _read_bundle_bytes(store, key)
+    store: ObjectStore, key: str, *, allow_missing: bool = False
+) -> tuple[dict[str, Any], tuple[EquityWebSourceResponse, ...]] | None:
+    """Validate exact v2 originals. Only confirmed absence may be returned as None."""
+    payload = _read_bundle_bytes(store, key, require_http_404=allow_missing)
     if payload is None:
+        if allow_missing:
+            return None
         raise ValueError("external original is missing; keep this source incomplete")
     try:
         return _decode_raw_bundle(payload, key)

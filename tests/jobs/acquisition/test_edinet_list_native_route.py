@@ -7,7 +7,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
+from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.list_native import (
     HEAD_KEY,
@@ -19,12 +19,6 @@ from baibai_engine.data_collection.providers.edinet.models import (
     EdinetResponse,
 )
 from baibai_engine.storage.objects.r2 import LakePublishError
-from baibai_engine.storage.snapshots.keys import release_manifest_key
-from baibai_engine.storage.snapshots.release import LakeReleasePointer
-from baibai_engine.storage.sqlite.source_cache.lake_origin import (
-    LakeStoreOrigin,
-    write_lake_store_origin,
-)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.edinet_list_native import acquire_lists
 from baibai_jobs.integration.edinet_list_native import (
@@ -638,62 +632,3 @@ def test_snapshot_cli_verifies_native_cache_in_the_lake_write_target(
     )
     assert seen == [command]
     assert len(tuple(owner.freeze().iter_receipts())) == 1
-
-
-def test_native_daily_input_cli_skip_retired_list_and_publish_only_article_planning(
-    tmp_path, monkeypatch, capsys
-):
-    from baibai_jobs.acquisition import source_inputs
-    from baibai_jobs.integration import sources
-
-    store = MemoryR2Store()
-    monkeypatch.setattr(store, "close", lambda: None, raising=False)
-    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
-    monkeypatch.setattr(sources, "_load_handle", lambda _: object())
-    monkeypatch.setattr(sources, "verify_held", lambda *_: None)
-    origin = LakeStoreOrigin("fixed", "a" * 64)
-    seed_machine_current(
-        store,
-        LakeReleasePointer(
-            release_id=origin.release_id,
-            manifest_key=release_manifest_key(release_id=origin.release_id),
-            manifest_sha256=origin.release_manifest_sha256,
-        ),
-    )
-    market = tmp_path / "market.sqlite"
-    with closing(open_connection(market)) as connection, connection:
-        write_lake_store_origin(connection, origin)
-    published = []
-    articles = []
-
-    def publish(_store, *, group, identity, **_kwargs):
-        published.append(group)
-        return f"{group}-{identity}"
-
-    monkeypatch.setattr(source_inputs, "publish_input", publish)
-    monkeypatch.setattr(
-        sources, "publish_planning_input", lambda _, group, generations: articles.append(group)
-    )
-    argv = [
-        "inputs",
-        "--directory",
-        str(tmp_path / "integration"),
-        "--market",
-        str(market),
-        "--identity",
-        "cycle",
-        "--asof",
-        DAY.isoformat(),
-        "--lease-handle",
-        str(tmp_path / "lease"),
-    ]
-    assert sources.main(argv) == 0
-    assert published == []
-    assert articles == list(sources.COLLECTION_SOURCES)
-    report = json.loads(capsys.readouterr().out)
-    assert report["updated"] == list(sources.COLLECTION_SOURCES)
-    assert report["failed"] == []
-    published.clear()
-    assert sources.main([*argv, "--group", "edinet-list"]) == 1
-    assert published == []
-    assert "common source integration failed: ValueError" in capsys.readouterr().err

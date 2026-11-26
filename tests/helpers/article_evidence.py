@@ -1,0 +1,36 @@
+"""Build exact saved article packets without the retired acquisition code."""
+
+import hashlib
+import json
+from datetime import UTC, datetime
+
+from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
+
+SLOT = datetime(2026, 10, 29, 13, 13, tzinfo=UTC)
+
+
+def make_packet(tmp_path, source="boj_news"):
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+
+    directory = tmp_path / source
+    directory.mkdir()
+    open_connection(directory / "receipts.sqlite").close()
+    (directory / "result.json").write_text(
+        json.dumps(
+            {"source": source, "started_at": SLOT.isoformat(), "asof": SLOT.date().isoformat()}
+        )
+    )
+    return directory
+
+
+def receipt(identity="original", body=b"synthetic"):
+    return ArticleReceipt(
+        receipt_id=identity,
+        source="mof_news",
+        requested_url="https://www.mof.go.jp/insideLink/example.html",
+        received_at=datetime(2026, 11, 1, tzinfo=UTC),
+        status="ok",
+        http_status=200,
+        encoding="utf-8",
+        body_ref=BodyRef(receipt_id=identity, sha256=hashlib.sha256(body).hexdigest()),
+    )

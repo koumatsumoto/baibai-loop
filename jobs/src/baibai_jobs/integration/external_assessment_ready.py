@@ -315,7 +315,9 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
     return ready, failed
 
 
-def acknowledged_bundles(store: ReceiptStore, plan: RunPlan) -> dict[str, dict[str, str]]:
+def acknowledged_bundles(
+    store: ReceiptStore, plan: RunPlan, *, require_cumulative_ready: bool = False
+) -> dict[str, dict[str, str]]:
     """既にcanonical L1へ読戻した原本を、短期bundleの期限と切り離して参照する。"""
     bundles: dict[str, dict[str, str]] = {}
     confirmed_stages: dict[str, tuple[CohortStage, str]] = {}
@@ -336,6 +338,8 @@ def acknowledged_bundles(store: ReceiptStore, plan: RunPlan) -> dict[str, dict[s
             raise ValueError("external acknowledged plan changed")
         bound_plan = _bound_plan(saved_plan, ready_value)
         item = _prepare_ready(store, ready_value, bound_plan, confirmed_stages)
+        if require_cumulative_ready and not item.cumulative:
+            raise ValueError("external acknowledgement requires a cumulative ready selection")
         ack = _validate_acknowledgement(plan, reference, value, item)
         allowed = {bundle for stage, _ in item.stages.values() for bundle in stage.raw_bundle_keys}
         receipts = ack.get("bundle_receipts", {})
