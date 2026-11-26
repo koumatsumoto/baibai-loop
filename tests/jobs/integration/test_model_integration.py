@@ -28,7 +28,7 @@ from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_jobs.observability.discord import render_generation, render_message
+from baibai_jobs.observability.discord import render_generation
 
 
 @pytest.fixture
@@ -155,14 +155,20 @@ def integration(tmp_path, monkeypatch):
             ),
         )
 
-    def publish(received, *, store, before_pointer_switch):
+    def stage(received, *, store, **_options):
         assert received is prepared
         assert read_publication(path=tmp_path / "runs").selection_id == (
             "selection-models-new-release-opportunity-discovery-v3"
         )
-        before_pointer_switch()
+        events.append("stage")
+        return "candidate", SimpleNamespace(as_dict=lambda: {"release_id": "new-release"})
+
+    def publish(*, staged, while_held, **_kwargs):
+        assert staged == "candidate"
+        assert events[-1] == "release-snapshot"
+        while_held()
         events.append("publish")
-        return SimpleNamespace(as_dict=lambda: {"release_id": "new-release"})
+        return {"superseded_members_removed": True}
 
     monkeypatch.setattr(job, "_load_handle", lambda path: object())
     monkeypatch.setattr(job, "verify_held", lambda store, handle: events.append("lease"))
@@ -170,7 +176,8 @@ def integration(tmp_path, monkeypatch):
     monkeypatch.setattr(job.EconomicInputSession, "retain", retain_input)
     monkeypatch.setattr(job.EconomicInputSession, "rebuild", rebuild_input)
     monkeypatch.setattr(job, "read_and_generate_models", generate)
-    monkeypatch.setattr(job, "publish_prepared_market_lake", publish)
+    monkeypatch.setattr(job, "stage_prepared_market_lake", stage)
+    monkeypatch.setattr(job, "_publish_machine", publish)
     store = MemoryR2Store()
     seed_empty_financial(store, tmp_path / "financial-native", date(2026, 10, 23))
     arguments = dict(
@@ -217,9 +224,10 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
         "retain",
         "rebuild",
         "generate",
+        "stage",
+        "release-snapshot",
         "lease",
         "publish",
-        "release-snapshot",
     ]
     stored = read_generation(result["generation_id"], path=arguments["runs"])
     assert stored.inputs["market"].reference == result["lake"]["release_id"]
@@ -240,39 +248,13 @@ def test_generation_failure_does_not_publish_or_save_a_partial_run(integration, 
     assert not arguments["runs"].exists()
 
 
-def test_cache_prune_failure_does_not_block_published_models(integration, monkeypatch, caplog):
-    arguments, events = integration
-
-    def fail(*args, **kwargs):
-        raise sqlite3.OperationalError("synthetic prune failure")
-
-    monkeypatch.setattr(job, "prune_model_cache", fail)
-    result = job.integrate_models(**arguments)
-    assert result["models_ready"] is True
-    assert result["pruned_generation_count"] is None
-    assert "publish" in events
-    assert "model cache prune: state=failed" in caplog.text
-    assert "モデルcache整理: 未完了" in render_generation(result)
-    assert render_generation({"models_ready": True, "pruned_generation_count": None}) == [
-        "モデル生成: 完了 / 件数未確認",
-        "モデルcache整理: 未完了",
-    ]
-    notice = render_message(outcome="ok", asof="2026-11-09", failed_steps=[], notice=result, url="")
-    assert "[DEGRADED]" in notice
-    assert "モデルcache整理: 未完了" in notice
-
-
-def test_failed_lake_publication_does_not_prune_existing_generations(integration, monkeypatch):
+def test_failed_lake_stage_cannot_switch_the_machine_head(integration, monkeypatch):
     arguments, events = integration
 
     def fail(*args, **kwargs):
         raise ValueError("publication failed")
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("must not prune before publication succeeds")
-
-    monkeypatch.setattr(job, "publish_prepared_market_lake", fail)
-    monkeypatch.setattr(job, "prune_model_cache", forbidden)
+    monkeypatch.setattr(job, "stage_prepared_market_lake", fail)
     with pytest.raises(ValueError, match="publication failed"):
         job.integrate_models(**arguments)
     assert "publish" not in events
@@ -281,7 +263,8 @@ def test_failed_lake_publication_does_not_prune_existing_generations(integration
 @pytest.mark.parametrize("start", [None, "2020-01-01"])
 def test_cli_does_not_implicitly_truncate_growth_history(tmp_path, monkeypatch, start):
     received = []
-    monkeypatch.setattr(job, "Boto3R2Store", lambda **kwargs: object())
+    monkeypatch.setattr(job, "Boto3R2Store", lambda **kwargs: MemoryR2Store())
+    monkeypatch.setattr(job, "read_machine_current", lambda store: object())
 
     def integrate(**kwargs):
         received.append(kwargs["growth_start"])
@@ -312,7 +295,8 @@ def test_daily_attempt_is_stamped_only_on_a_successful_model_notice(tmp_path, mo
     )
     monkeypatch.setenv("GITHUB_RUN_ID", "12345")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
-    monkeypatch.setattr(job, "Boto3R2Store", lambda **_: object())
+    monkeypatch.setattr(job, "Boto3R2Store", lambda **_: MemoryR2Store())
+    monkeypatch.setattr(job, "read_machine_current", lambda store: object())
 
     def integrated(**kwargs):
         if not ok:
@@ -341,7 +325,7 @@ def test_daily_attempt_is_stamped_only_on_a_successful_model_notice(tmp_path, mo
     assert saved.get("daily_run") == ("12345-2" if ok else None)
 
 
-def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, monkeypatch):
+def test_lazy_generation_failure_stops_selection_and_publication(integration, monkeypatch):
     arguments, events = integration
     generate = job.read_and_generate_models
 
@@ -359,7 +343,7 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
 
     monkeypatch.setattr(job, "read_and_generate_models", late_failure)
     monkeypatch.setattr(job, "evaluate_discovery_rows", forbidden)
-    monkeypatch.setattr(job, "prune_model_cache", forbidden)
+    monkeypatch.setattr(job, "stage_prepared_market_lake", forbidden)
     with pytest.raises(ValueError, match="late calculation failure"):
         job.integrate_models(**arguments)
     assert "publish" not in events
@@ -423,6 +407,7 @@ def test_cli_passes_the_applied_edinet_input_only_for_its_date(tmp_path, monkeyp
     )
     seen = []
     monkeypatch.setattr(job, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(job, "read_machine_current", lambda store: object())
     monkeypatch.setattr(
         job,
         "integrate_models",
@@ -473,10 +458,7 @@ def test_comparison_evidence_uses_only_previous_serving_pointer(
         assert source is None
 
 
-@pytest.mark.parametrize("mode", ["default", "recovery", "cli"])
-def test_explicit_retention_keeps_all_prior_generations_and_selection_rows(
-    integration, monkeypatch, mode
-):
+def test_ordinary_publication_keeps_every_prior_generation_and_selection(integration):
     arguments, _ = integration
     path = arguments["runs"]
     policies = ScreeningSelectionStore(path)
@@ -503,104 +485,34 @@ def test_explicit_retention_keeps_all_prior_generations_and_selection_rows(
             }
 
     before = prior_rows()
-    prune = Mock(wraps=job.prune_model_cache)
-    monkeypatch.setattr(job, "prune_model_cache", prune)
-    preserve_prior = mode != "default"
-    if mode == "recovery":
-        arguments["preserve_existing_generations"] = True
-    if mode == "cli":
-
-        class LocalStore:
-            def __new__(cls, **kwargs):
-                return arguments["store"]
-
-        monkeypatch.setattr(job, "Boto3R2Store", LocalStore)
-        report = path.parent / "applied.json"
-        report.write_text(
-            json.dumps(
-                {
-                    "asof": arguments["as_of"].isoformat(),
-                    "edinet_input": arguments["edinet_input"].model_dump(mode="json"),
-                }
-            )
-        )
-        notice = path.parent / "notice.json"
-        assert (
-            job.main(
-                [
-                    "--asof",
-                    arguments["as_of"].isoformat(),
-                    "--growth-start",
-                    arguments["growth_start"].isoformat(),
-                    "--integration-report",
-                    str(report),
-                    "--notice-output",
-                    str(notice),
-                    "--preserve-existing-generations",
-                    *(
-                        part
-                        for key in ("market", "economic", "runs", "mirror", "lease_handle")
-                        for part in ("--" + key.replace("_", "-"), str(arguments[key]))
-                    ),
-                ]
-            )
-            == 0
-        )
-        result = json.loads(notice.read_bytes())
-    else:
-        result = job.integrate_models(**arguments)
+    result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
-    assert result["pruned_generation_count"] == (0 if preserve_prior else 3)
-    assert prune.call_count == (0 if preserve_prior else 1)
     assert read_generation(result["generation_id"], path=path) is not None
     assert policies.read(result["selection_id"]) is not None
-    if preserve_prior:
-        assert prior_rows() == before
-        assert all(read_generation(identity, path=path) is not None for identity in prior_ids)
-        assert policies.read("prior-extra-policy") is not None
-    else:
-        assert read_generation(prior_ids[0], path=path) is None
-        assert policies.read("prior-extra-policy") is None
-        with closing(sqlite3.connect(path)) as connection:
-            assert connection.execute("SELECT COUNT(*) FROM model_generation").fetchone() == (3,)
+    assert prior_rows() == before
+    assert all(read_generation(identity, path=path) is not None for identity in prior_ids)
+    assert policies.read("prior-extra-policy") is not None
 
 
-@pytest.mark.parametrize("preserve", [False, True])
-@pytest.mark.parametrize("state", ["empty", "missing", "unreadable"])
-def test_cli_retention_read_precedes_integration_and_failure_never_falls_back(
-    tmp_path, monkeypatch, preserve, state
-):
-    from baibai_engine.storage.sqlite.machine_analysis import initialize_run_store
-
-    runs = tmp_path / "runs.sqlite"
-    if state == "empty":
-        initialize_run_store(runs)
-    elif state == "unreadable":
-        runs.write_bytes(b"not a database")
-    before = runs.read_bytes() if runs.exists() else None
-    constructor = Mock(return_value=object())
-    integrate = Mock(return_value={"models_ready": True})
-    monkeypatch.setattr(job, "Boto3R2Store", constructor)
+def test_cli_cannot_bootstrap_from_a_missing_or_Lake_only_head(tmp_path, monkeypatch):
+    store = MemoryR2Store()
+    monkeypatch.setattr(job, "Boto3R2Store", lambda **_: store)
+    integrate = Mock(side_effect=AssertionError("normal CLI must never bootstrap"))
     monkeypatch.setattr(job, "integrate_models", integrate)
     notice = tmp_path / "notice.json"
-    args = [
-        "--asof",
-        "2026-10-23",
-        "--runs",
-        str(runs),
-        "--lease-handle",
-        str(tmp_path / "lease"),
-        "--notice-output",
-        str(notice),
-    ]
-    if preserve:
-        args.append("--preserve-existing-generations")
-    failed = preserve and state != "empty"
-    assert job.main(args) == (1 if failed else 0)
-    if failed:
-        constructor.assert_not_called()
-        integrate.assert_not_called()
-        assert json.loads(notice.read_bytes())["models_ready"] is False
-    else:
-        assert integrate.call_args.kwargs["preserve_existing_generations"] is preserve
-    assert (runs.read_bytes() if runs.exists() else None) == before
+    assert (
+        job.main(
+            [
+                "--asof",
+                "2026-10-23",
+                "--lease-handle",
+                str(tmp_path / "lease"),
+                "--notice-output",
+                str(notice),
+            ]
+        )
+        == 1
+    )
+    assert json.loads(notice.read_bytes())["models_ready"] is False
+    integrate.assert_not_called()
+    assert not store.put_keys

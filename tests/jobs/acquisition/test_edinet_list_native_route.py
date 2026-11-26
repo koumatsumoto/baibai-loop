@@ -588,7 +588,7 @@ def test_snapshot_cli_verifies_native_cache_in_the_lake_write_target(
     materialize_lists(owner.freeze(), database)
     monkeypatch.setattr(r2, "Boto3R2Store", lambda **_: store)
     release = SimpleNamespace(dataset_names=lambda: ("edinet.document_lists",))
-    cache = SimpleNamespace(source=None)
+    cache = SimpleNamespace(source=None, root=tmp_path / "mirror")
 
     @contextmanager
     def opened(**kwargs):

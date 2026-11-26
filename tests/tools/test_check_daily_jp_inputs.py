@@ -31,6 +31,9 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
         ("outside universe", 1, "selection-context"),
         ("previous close", 1, "unadjusted close"),
         ("other run", 1, "daily inputs"),
+        ("other workflow", 1, "daily inputs"),
+        ("models failed", 1, "daily inputs"),
+        ("wrong local origin", 1, "daily inputs"),
         ("other market digest", 1, "selection-context"),
     ],
 )
@@ -62,7 +65,13 @@ def test_local_daily_input_probe(tmp_path: Path, monkeypatch, capsys, test_case,
         market,
         [("1234", "2026-11-12" if test_case == "previous close" else "2026-11-13", 10.0, 1.0)],
     )
-    advance_lake_store_origin(market, expected=None, target=origin)
+    advance_lake_store_origin(
+        market,
+        expected=None,
+        target=LakeStoreOrigin("other-release", origin.release_manifest_sha256)
+        if test_case == "wrong local origin"
+        else origin,
+    )
     event = tmp_path / "event"
     event.write_text(
         json.dumps(
@@ -77,7 +86,7 @@ def test_local_daily_input_probe(tmp_path: Path, monkeypatch, capsys, test_case,
         json.dumps(
             {
                 "asof": meta.as_of.isoformat(),
-                "models_ready": True,
+                "models_ready": test_case != "models failed",
                 "daily_run": "2-2" if test_case == "other run" else "2-1",
                 "generation_id": "other" if test_case == "other generation" else meta.generation_id,
                 "selection_id": identity,
@@ -95,7 +104,11 @@ def test_local_daily_input_probe(tmp_path: Path, monkeypatch, capsys, test_case,
         "GITHUB_REF": "refs/heads/main",
         "GITHUB_RUN_ID": "2",
         "GITHUB_RUN_ATTEMPT": "1",
-        "GITHUB_WORKFLOW_REF": "x/repo/.github/workflows/cloud-daily-batch-current.yml@refs/heads/main",
+        "GITHUB_WORKFLOW_REF": (
+            "x/repo/.github/workflows/cloud-daily-batch.yml@refs/heads/main"
+            if test_case == "other workflow"
+            else "x/repo/.github/workflows/cloud-daily-batch-current.yml@refs/heads/main"
+        ),
     }.items():
         monkeypatch.setenv(name, value)
     before = [sha256(p.read_bytes()).hexdigest() for p in (market, runs)]

@@ -255,17 +255,13 @@ def test_invalid_or_unbounded_conditions_are_rejected(raw):
         decode_acceptance(raw)
 
 
-def test_dispatch_validation_requires_explicit_date_and_history_retention(compared):
+def test_dispatch_validation_requires_matching_explicit_date(compared):
     raw = json.dumps(compared[2])
-    validate_daily_input(
-        asof=DAY.isoformat(), preserve_existing_generations="true", edinet_metrics_acceptance=raw
-    )
-    for asof, preserve in (("", "true"), (DAY.isoformat(), "false")):
+    validate_daily_input(asof=DAY.isoformat(), edinet_metrics_acceptance=raw)
+    for asof in ("", (DAY - timedelta(days=1)).isoformat()):
         with pytest.raises(WorkflowInputError):
-            validate_daily_input(
-                asof=asof, preserve_existing_generations=preserve, edinet_metrics_acceptance=raw
-            )
-    validate_daily_input(asof="", preserve_existing_generations="")
+            validate_daily_input(asof=asof, edinet_metrics_acceptance=raw)
+    validate_daily_input(asof="")
 
 
 def test_new_selection_clock_is_not_a_different_original_pair(compared):
@@ -295,8 +291,6 @@ def test_acceptance_validates_with_only_the_system_standard_library(compared):
             "daily",
             "--asof",
             DAY.isoformat(),
-            "--preserve-existing-generations",
-            "true",
             "--edinet-metrics-acceptance",
             json.dumps(compared[2]),
         ],

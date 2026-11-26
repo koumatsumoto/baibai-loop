@@ -44,8 +44,7 @@ STEP_ORDER = (
     "hydrate",
     "source-integration",
     "edinet-metrics-acceptance",
-    "publish-lake",
-    "upload-stores",
+    "machine-publication",
     "source-seal",
     "economic-check",
     "source-check",
@@ -185,20 +184,15 @@ def decide_outcome(
 
 
 def render_generation(notice: Mapping[str, object]) -> list[str]:
-    """Report generation counts without claiming that cloud-store upload succeeded."""
+    """Report only results from a confirmed joint Machine/Lake publication."""
 
     if notice.get("models_ready") is False:
         return ["モデル統合: 未完了"]
     if notice.get("models_ready") is not True:
         return []
-    cache_warning = (
-        ["モデルcache整理: 未完了"]
-        if "pruned_generation_count" in notice and notice["pruned_generation_count"] is None
-        else []
-    )
     counts = [notice.get(key) for key in ("company_count", "model_count", "candidate_count")]
     if any(type(value) is not int or value < 0 for value in counts):
-        return ["モデル生成: 完了 / 件数未確認", *cache_warning]
+        return ["モデル生成: 完了 / 件数未確認"]
     companies, models, candidates = counts
     integrated = notice.get("selection_method") in {
         "technical-financial-discovery-v1",
@@ -235,7 +229,7 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
     pool_label = (
         "探索母集団" if discovery_index else "探索閲覧（予備・代替含む）" if integrated else "候補"
     )
-    lines = [f"モデル生成: {companies}社 / {models}件 / {pool_label}{candidates}社", *cache_warning]
+    lines = [f"モデル生成: {companies}社 / {models}件 / {pool_label}{candidates}社"]
     summary = notice.get("screening_summary")
     gate = summary.get("financial_gate") if isinstance(summary, dict) else None
     if integrated and isinstance(gate, dict):
@@ -396,27 +390,29 @@ def render_message(
             + " / ".join(
                 f"{name} {step_label(step_outcomes.get(step, 'unknown'))}"
                 for step, name in (
-                    ("publish-lake", "Lake公開"),
-                    ("upload-stores", "Store反映"),
+                    ("machine-publication", "Machine・Lake公開"),
                     ("portfolio-views", "保有・運用画面更新"),
                 )
             )
         )
     if outcome != OUTCOME_CANCELLED:
         generation_notice = notice
-        if step_outcomes and step_outcomes.get("publish-lake") in {"failure", "cancelled"}:
+        if step_outcomes and step_outcomes.get("machine-publication") in {"failure", "cancelled"}:
             generation_notice = {"models_ready": False}
         details.extend(render_generation(generation_notice))
     if (integration_report or {}).get("economic_l1_published") is True:
         details.append("経済L1: 公開・読戻し済み（後段L2の成否とは独立）")
     source_failures = render_source_failures(integration_report or {})
-    cache_failed = (
+    machine = notice.get("machine")
+    retirement_failed = (
         notice.get("models_ready") is True
-        and "pruned_generation_count" in notice
-        and notice["pruned_generation_count"] is None
+        and isinstance(machine, dict)
+        and machine.get("superseded_members_removed") is False
     )
-    if outcome == OUTCOME_OK and (source_failures or cache_failed):
+    if outcome == OUTCOME_OK and (source_failures or retirement_failed):
         outcome = OUTCOME_DEGRADED
+    if retirement_failed:
+        details.append("旧Machine転送ファイル: 削除未完了（現行は公開済み）")
     details.extend(source_failures)
     details.extend(render_deferred_inputs(integration_report or {}))
     return render_run_notice(

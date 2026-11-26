@@ -13,11 +13,6 @@ on:
         description: "モデル基準日 YYYY-MM-DD。空欄は元run作成時のJST日（直近完了日ではない）。寄前・場中はJSTの前日を明示"
         required: false
         type: string
-      preserve_existing_generations:
-        description: "この手動実行で既存の全モデル世代とSelectionを保持する（scheduleは常に保持）"
-        required: false
-        type: boolean
-        default: false
       jp_input_probe_ticker:
         description: "任意: 日本株L3入力を確認する公開テスト用銘柄コード1つ（非秘密）。提案の作成・保存はしない"
         required: false
@@ -73,21 +68,15 @@ jobs:
         run: python3 -c "import baibai_jobs.observability.discord"
 
       # Validate untrusted dispatch values before any credential-bearing step.
-      # Scheduled runs retain the comparison/restart history without manual input.
       - name: Validate dispatch input
         id: validate-input
         env:
           MANUAL_ASOF: ${{ inputs.asof }}
-          PRESERVE_EXISTING_GENERATIONS: ${{ inputs.preserve_existing_generations }}
           EDINET_METRICS_ACCEPTANCE: ${{ inputs.edinet_metrics_acceptance }}
           PYTHONPATH: jobs/src
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == 'schedule' ]]; then
-            PRESERVE_EXISTING_GENERATIONS=true
-          fi
-          python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF" --preserve-existing-generations "$PRESERVE_EXISTING_GENERATIONS" --edinet-metrics-acceptance "${EDINET_METRICS_ACCEPTANCE:-}"
+          python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF" --edinet-metrics-acceptance "${EDINET_METRICS_ACCEPTANCE:-}"
           echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
-          echo "preserve_existing_generations=$PRESERVE_EXISTING_GENERATIONS" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         id: setup
@@ -137,7 +126,7 @@ jobs:
           esac
           uv run python -m baibai_jobs.publication.lease acquire "${args[@]}"
 
-      - name: Pull stores and verify the Market generation before publication
+      - name: Pull and verify the current Machine pair
         id: pull
         env:
           PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
@@ -163,10 +152,11 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.integration.sources plan --directory "$RUNNER_TEMP/integration"
 
-      # Incomplete hydration must not reach screening as an empty universe.
-      - name: Hydrate market store from the lake release
+      # Economic L1 does not depend on Market table hydration; screening does.
+      - name: Hydrate Market from its pinned Lake release
         id: hydrate
         env:
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -197,20 +187,18 @@ jobs:
           uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
           uv run python -m baibai_jobs.integration.edinet_metric_acceptance --conditions "$RUNNER_TEMP/edinet-metrics-acceptance.json" --integration-report "$RUNNER_TEMP/integration/applied.json" --market stores/market/market.sqlite
 
-      # EDINET acceptance is before model-integration, which also publishes its release.
+      # EDINET acceptance precedes the combined Machine and Lake publication.
       # Web is not part of the engine's success or publication path.
-      - name: Generate models and candidates, then publish the same fixed release
+      - name: Generate models and candidates, then publish one current Machine and Lake release
         id: batch
         shell: bash
         env:
           INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
-          PRESERVE_EXISTING_GENERATIONS: ${{ steps.validate-input.outputs.preserve_existing_generations }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           args=(--asof "$INTEGRATION_ASOF" --integration-report "$RUNNER_TEMP/integration/applied.json" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" --notice-output "$RUNNER_TEMP/batch-notice.json" --daily-origin)
-          if [[ "$PRESERVE_EXISTING_GENERATIONS" == 'true' ]]; then args+=(--preserve-existing-generations); fi
           set +e
           uv run baibai-jobs model-integration "${args[@]}"
           code=$?
@@ -224,28 +212,9 @@ jobs:
           fi
           exit "$code"
 
-      - name: Upload the core machine stores
-        id: upload-stores
-        if: steps.batch.outputs.models_ready == 'true'
-        shell: bash
-        env:
-          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          code=0
-          jobs/scripts/r2_transfer.sh push-machine --daily-notice "$RUNNER_TEMP/batch-notice.json" || code=$?
-          if [[ $code -eq 0 ]]; then
-            echo "machine=success" >> "$GITHUB_OUTPUT"
-          else
-            echo "machine=failure" >> "$GITHUB_OUTPUT"
-          fi
-          exit "$code"
-
       - name: Seal canonical market handoffs
         id: source-seal
-        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
+        if: ${{ always() && steps.batch.outputs.models_ready == 'true' && steps.batch.outcome == 'success' }}
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -260,7 +229,7 @@ jobs:
         if: ${{ always() && steps.economic-l1.outcome == 'success' }}
         run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/economic-integration"
 
-      - name: Report integration failures and deferred source inputs
+      - name: Report retained integration failures
         id: source-check
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
         run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
@@ -268,7 +237,7 @@ jobs:
       # Presentation follows core persistence; it never gates model generation or sealing.
       - name: Publish retained portfolio views
         id: portfolio-views
-        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
+        if: ${{ always() && steps.batch.outputs.models_ready == 'true' && steps.batch.outcome == 'success' }}
         env:
           PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -328,8 +297,7 @@ jobs:
             --pull-outcome "${{ steps.pull.outcome }}" \
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --edinet-metrics-acceptance-outcome "${{ steps.edinet-metrics-acceptance.outcome }}" \
-            --publish-lake-outcome "${{ steps.batch.outcome }}" \
-            --upload-stores-outcome "${{ steps.upload-stores.outcome }}" \
+            --machine-publication-outcome "${{ steps.batch.outcome }}" \
             --source-integration-outcome "${{ steps.source-integration.outcome }}" \
             --source-seal-outcome "${{ steps.source-seal.outcome }}" \
             --source-check-outcome "${{ steps.source-check.outcome }}" \

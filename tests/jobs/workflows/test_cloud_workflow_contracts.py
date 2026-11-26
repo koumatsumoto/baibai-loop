@@ -131,9 +131,10 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
 def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
     commands = "\n".join(str(step.get("run", "")) for step in steps)
-    assert "pull-market" in commands
+    assert "pull-portfolio-market" in commands
     assert "pull-app" in commands
-    assert "hydrate-portfolio" in commands
+    assert "r2_transfer.sh pull-market" not in commands
+    assert "hydrate-portfolio" not in commands
     assert "hydrate-market" not in commands
     assert "pull-machine" not in commands
     assert "pull-runs" not in commands
@@ -141,7 +142,10 @@ def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     assert "publish-serving-tail" not in commands
     daily = _steps(_workflow("cloud-daily-batch-current.yml"), "daily")
     by_id = {step.get("id"): step for step in daily}
-    assert "upload-stores.outputs.machine == 'success'" in by_id["portfolio-views"]["if"]
+    assert by_id["portfolio-views"]["if"] == (
+        "${{ always() && steps.batch.outputs.models_ready == 'true' "
+        "&& steps.batch.outcome == 'success' }}"
+    )
     assert daily.index(by_id["portfolio-views"]) > daily.index(by_id["source-seal"])
     assert [step.get("id") for step in daily if "pull-app" in step.get("run", "")] == [
         "portfolio-views"
@@ -162,10 +166,11 @@ def test_shared_transfer_callers_pass_the_acquired_publication_handle():
     callers = [
         step
         for step in [*daily, *materialize]
-        if "r2_transfer.sh push-machine" in step.get("run", "")
+        if "r2_transfer.sh pull-machine --daily-preflight" in step.get("run", "")
+        or "r2_transfer.sh hydrate-market-for-daily" in step.get("run", "")
         or "r2_transfer.sh upload-portfolio-views" in step.get("run", "")
     ]
-    assert len(callers) == 3
+    assert len(callers) == 4
     for step in callers:
         assert step["env"]["PUBLICATION_LEASE_HANDLE"] == (
             "${{ runner.temp }}/publication-lease-handle.json"
@@ -179,14 +184,11 @@ def test_materialize_keeps_verified_application_independent_of_market_failure():
     upload = next(step for step in steps if step.get("name") == "Upload serving objects")
     assert steps.index(app) < steps.index(market) < steps.index(materialize) < steps.index(upload)
     assert "jobs/scripts/r2_transfer.sh pull-app" in app["run"]
-    assert market["run"].splitlines() == [
-        "jobs/scripts/r2_transfer.sh pull-market",
-        "jobs/scripts/r2_transfer.sh hydrate-portfolio",
-    ]
+    assert market["run"].splitlines() == ["jobs/scripts/r2_transfer.sh pull-portfolio-market"]
     assert "continue-on-error" not in market
     assert materialize["if"] == (
-        "${{ !cancelled() && steps.pull-app.outcome == 'success' && "
-        "(steps.market.outcome == 'success' || steps.target.outcome == 'skipped') }}"
+        "${{ !cancelled() && steps.lease-acquire.outputs.acquired == 'true' "
+        "&& steps.pull-app.outcome == 'success' }}"
     )
     assert materialize["env"]["MARKET_OUTCOME"] == "${{ steps.market.outcome }}"
     assert upload["if"] == "${{ !cancelled() && steps.materialize.outcome == 'success' }}"
@@ -242,72 +244,32 @@ def test_materialize_excludes_unverified_market_copies_but_keeps_application(
         assert retained.read_bytes() == b"downloaded market"
 
 
-@pytest.mark.parametrize(
-    ("target", "guard_exit", "upload_expected"),
-    [("", 31, True), ("published", 31, False), ("published", 0, True)],
-)
-def test_manual_display_guard_precedes_any_serving_write(
-    tmp_path, target, guard_exit, upload_expected
-):
+@pytest.mark.parametrize("transfer_exit", [0, 31])
+def test_manual_display_uses_only_current_and_preserves_transfer_outcome(tmp_path, transfer_exit):
     workflow = _workflow("cloud-materialize.yml")
     assert set(workflow["on"]) == {"workflow_dispatch", "workflow_call"}
     assert not workflow["on"]["workflow_call"]
-    assert set(workflow["on"]["workflow_dispatch"]["inputs"]) == {
-        "market_release_id",
-        "market_manifest_sha256",
-        "machine_receipt_sha256",
-        "original_daily_run",
-    }
+    assert not workflow["on"]["workflow_dispatch"]
     steps = _steps(workflow, "materialize")
+    assert "machine_bundle" not in str(steps)
     by_id = {step.get("id", step.get("name")): step for step in steps}
-    validate = by_id["target"]
-    capture = next(step for step in steps if "--capture" in step.get("run", ""))
-    assert (
-        steps.index(validate)
-        < steps.index(by_id["lease-acquire"])
-        < steps.index(capture)
-        < steps.index(by_id["pull-app"])
-    )
-    assert "env" not in validate
-    assert (
-        validate["if"]
-        == "${{ inputs.market_release_id != '' || inputs.market_manifest_sha256 != '' || inputs.original_daily_run != '' || inputs.machine_receipt_sha256 != '' }}"
-    )
-    assert capture["if"] == "${{ steps.target.outcome == 'success' }}"
-    upload = by_id["Upload serving objects"]
-    for step in (validate, capture, upload):
-        assert (
-            '"$MARKET_RELEASE_ID" "$MARKET_MANIFEST_SHA256" "$ORIGINAL_DAILY_RUN" "$MACHINE_RECEIPT_SHA256"'
-            in step["run"]
-        )
+    assert steps.index(by_id["lease-acquire"]) < steps.index(by_id["market"])
     scripts = tmp_path / "jobs/scripts"
     scripts.mkdir(parents=True)
-    uv = tmp_path / "uv"
-    uv.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" > guard-ran\nexit {guard_exit}\n')
-    uv.chmod(0o755)
-    uploader = scripts / "r2_transfer.sh"
-    uploader.write_text('#!/bin/sh\nprintf "%s\\n" "$1" > upload-ran\n')
-    uploader.chmod(0o755)
-    result = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", upload["run"]],
-        cwd=tmp_path,
-        check=False,
-        env={
-            **os.environ,
-            "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
-            "RUNNER_TEMP": str(tmp_path),
-            "MARKET_RELEASE_ID": target,
-            "MARKET_MANIFEST_SHA256": "a" * 64 if target else "",
-            "ORIGINAL_DAILY_RUN": "12345-1" if target else "",
-            "MACHINE_RECEIPT_SHA256": "b" * 64 if target else "",
-        },
-    )
-    assert (result.returncode == 0) is upload_expected
-    guard = tmp_path / "guard-ran"
-    if target:
-        assert "--verify" in guard.read_text()
-        assert "b" * 64 in guard.read_text()
-        assert "12345-1" in guard.read_text()
-    else:
-        assert not guard.exists()
-    assert (tmp_path / "upload-ran").exists() is upload_expected
+    transfer = scripts / "r2_transfer.sh"
+    transfer.write_text(f'#!/bin/sh\nprintf "%s\n" "$@" >> calls\nexit {transfer_exit}\n')
+    transfer.chmod(0o755)
+    for id_, expected in (
+        ("market", ["pull-portfolio-market"]),
+        ("Upload serving objects", ["upload-portfolio-views", str(tmp_path / "serving")]),
+    ):
+        result = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", by_id[id_]["run"]],
+            cwd=tmp_path,
+            env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+            check=False,
+        )
+        assert result.returncode == transfer_exit
+        calls = tmp_path / "calls"
+        assert calls.read_text().splitlines() == expected
+        calls.unlink()

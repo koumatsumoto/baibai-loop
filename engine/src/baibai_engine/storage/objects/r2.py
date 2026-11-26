@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import math
@@ -9,8 +10,8 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager, nullcontext
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager, nullcontext, suppress
 from dataclasses import dataclass
 from datetime import UTC
 from email.utils import parsedate_to_datetime
@@ -36,7 +37,11 @@ if TYPE_CHECKING:
     from botocore.exceptions import _ClientErrorResponseTypeDef
     from botocore.model import OperationModel
     from mypy_boto3_s3 import S3Client
-    from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
+    from mypy_boto3_s3.type_defs import (
+        CompletedPartTypeDef,
+        GetObjectRequestTypeDef,
+        PutObjectRequestTypeDef,
+    )
 
 # Preserve the established per-attempt transfer budget and conditional-write errors.
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -44,6 +49,9 @@ _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _BASE_OPERATION_TIMEOUT_SECONDS = 120
 
 _MIN_TRANSFER_BYTES_PER_SECOND = 4 * 1024 * 1024
+_MULTIPART_PART_BYTES = 64 * 1024 * 1024
+_MULTIPART_MAX_PARTS = 10_000
+_MULTIPART_COMPLETE_RETRY_EVENT = "needs-retry.s3.CompleteMultipartUpload"
 
 
 class LakePublishError(RuntimeError):
@@ -70,8 +78,40 @@ class LakeCASConflict(LakePublishError):
     pass
 
 
+class R2PinnedObjectMismatch(R2Error):
+    """The same response that supplied the body did not name the requested version."""
+
+
 class R2OperationStopped(BaseException):
     """A requested fail-closed pass must not continue through source error handlers."""
+
+
+def _reject_multipart_complete_retry(
+    *,
+    response: tuple[AWSResponse, dict[str, Any]] | None,
+    caught_exception: Exception | None,
+    **_: object,
+) -> None:
+    # S3's region redirector is independent of Config.total_max_attempts.
+    # Fail before it can change signing region, issue HeadBucket or resend Complete.
+    if caught_exception is not None:
+        raise caught_exception
+    if response is not None and (response[0].status_code >= 300 or "Error" in response[1]):
+        parsed = response[1]
+        error = ClientError(
+            {
+                "Error": parsed.get("Error", {}),
+                "ResponseMetadata": parsed.get("ResponseMetadata", {}),
+            },
+            "CompleteMultipartUpload",
+        )
+        if _error_code(error) == "AuthorizationHeaderMalformed" and _http_status(error) not in {
+            401,
+            403,
+            429,
+        }:
+            raise R2OperationStopped("R2 multipart completion authorization was rejected")
+        raise error
 
 
 def _retry_after(error: ClientError) -> str | int | None:
@@ -205,6 +245,21 @@ class CheckedObjectMetadataReader(Protocol):
     ) -> tuple[bytes, RemoteObject] | None: ...
 
 
+@runtime_checkable
+class ImmutableMultipartWriter(Protocol):
+    def put_immutable_multipart_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        size: int,
+        sha256: str,
+        content_md5: str,
+        content_type: str,
+        while_held: Callable[[], None],
+    ) -> RemoteObject: ...
+
+
 class Boto3R2Store:
     """S3-compatible R2 adapter with reusable in-process connections."""
 
@@ -326,7 +381,7 @@ class Boto3R2Store:
             ),
         )
         if single_attempt:
-            for operation in ("DeleteObject", "GetObject", "HeadObject"):
+            for operation in ("DeleteObject", "GetObject", "HeadObject", "PutObject"):
                 client.meta.events.register_first(
                     f"needs-retry.s3.{operation}", _refuse_exact_reissue
                 )
@@ -503,7 +558,11 @@ class Boto3R2Store:
         *,
         expect_bytes: int | None = None,
         max_bytes: int | None = None,
+        expect_etag: str | None = None,
     ) -> None:
+        request: GetObjectRequestTypeDef = {"Bucket": self.bucket, "Key": key}
+        if expect_etag is not None:
+            request["IfMatch"] = f'"{expect_etag}"'
         path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
             dir=path.parent,
@@ -514,9 +573,19 @@ class Boto3R2Store:
         temporary_path = Path(temporary_name)
         try:
             with self._request("get-object"):
-                response = self._client(expect_bytes).get_object(Bucket=self.bucket, Key=key)
+                response = self._client(expect_bytes).get_object(**request)
                 body = response["Body"]
                 try:
+                    if expect_etag is not None and (
+                        response.get("ETag", "").strip('"') != expect_etag
+                        or (
+                            expect_bytes is not None
+                            and response.get("ContentLength") != expect_bytes
+                        )
+                    ):
+                        raise R2PinnedObjectMismatch(
+                            "R2 get-object response differs from the pinned identity"
+                        )
                     written = 0
                     with temporary_path.open("wb") as target:
                         while chunk := body.read(8 * 1024 * 1024):
@@ -555,6 +624,7 @@ class Boto3R2Store:
         content_type: str,
         if_match: str | None = None,
         if_none_match: bool = False,
+        single_attempt: bool = False,
     ) -> RemoteObject:
         request: PutObjectRequestTypeDef = {
             "Bucket": self.bucket,
@@ -575,7 +645,13 @@ class Boto3R2Store:
         try:
             with self._request("put-object"), path.open("rb") as body:
                 request["Body"] = body
-                response = self._client(path.stat().st_size).put_object(**request)
+                size = path.stat().st_size
+                client = (
+                    self._client(size, single_attempt=True)
+                    if single_attempt
+                    else self._client(size)
+                )
+                response = client.put_object(**request)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             _log_r2_failure("put-object", exc, key=key)
             raise R2Error("R2 put-object timed out") from exc
@@ -601,6 +677,134 @@ class Boto3R2Store:
         if result is None:
             raise R2Error("R2 object missing after successful put")
         return result
+
+    def put_immutable_multipart_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        size: int,
+        sha256: str,
+        content_md5: str,
+        content_type: str,
+        while_held: Callable[[], None],
+    ) -> RemoteObject:
+        """Create a fresh large object, never retry an uncertain completion."""
+        if not self._stop_on_rejection:
+            raise R2Error("R2 immutable multipart requires rejection-stop mode")
+        part_count = -(-size // _MULTIPART_PART_BYTES)
+        if not 2 <= part_count <= _MULTIPART_MAX_PARTS or path.stat().st_size != size:
+            raise R2Error("R2 immutable multipart size is not supported")
+        metadata = {"sha256": sha256, "content-md5": content_md5, "integrity": "part-md5-v1"}
+        whole_sha = hashlib.sha256()
+        whole_md5 = hashlib.md5(usedforsecurity=False)
+        combined_md5 = hashlib.md5(usedforsecurity=False)
+        parts: list[CompletedPartTypeDef] = []
+        upload_id = ""
+        operation = "create-multipart-upload"
+        while_held()
+        try:
+            with self._request(operation):
+                started = self._client().create_multipart_upload(
+                    Bucket=self.bucket, Key=key, ContentType=content_type, Metadata=metadata
+                )
+            upload_id = started.get("UploadId", "")
+            if not upload_id:
+                raise R2Error("R2 multipart acknowledgement lacks an upload ID")
+            operation = "upload-part"
+            remaining = size
+            with path.open("rb") as source:
+                for number in range(1, part_count + 1):
+                    length = min(remaining, _MULTIPART_PART_BYTES)
+                    payload = source.read(length)
+                    if len(payload) != length:
+                        raise R2Error("R2 multipart source size changed")
+                    part_md5 = hashlib.md5(payload, usedforsecurity=False)
+                    whole_sha.update(payload)
+                    whole_md5.update(payload)
+                    combined_md5.update(part_md5.digest())
+                    with self._request(operation):
+                        part = self._client(length).upload_part(
+                            Bucket=self.bucket,
+                            Key=key,
+                            UploadId=upload_id,
+                            PartNumber=number,
+                            Body=payload,
+                            ContentLength=length,
+                            ContentMD5=base64.b64encode(part_md5.digest()).decode("ascii"),
+                        )
+                    part_etag = part.get("ETag", "")
+                    if part_etag.strip('"') != part_md5.hexdigest():
+                        raise R2Error("R2 multipart part acknowledgement differs from its bytes")
+                    parts.append({"PartNumber": number, "ETag": part_etag})
+                    remaining -= length
+                if (
+                    source.read(1)
+                    or whole_sha.hexdigest() != sha256
+                    or base64.b64encode(whole_md5.digest()).decode("ascii") != content_md5
+                ):
+                    raise R2Error("R2 multipart source bytes changed")
+
+            # Once the second lease check or Complete starts, do not issue an
+            # abort on failure: we no longer know the lease or upload outcome.
+            operation = "complete-multipart-upload"
+            while_held()
+            with self._request(operation):
+                client = self._client()
+                events = client.meta.events
+                events.register_first(
+                    _MULTIPART_COMPLETE_RETRY_EVENT, _reject_multipart_complete_retry
+                )
+                try:
+                    completed = client.complete_multipart_upload(
+                        Bucket=self.bucket,
+                        Key=key,
+                        UploadId=upload_id,
+                        IfNoneMatch="*",
+                        MultipartUpload={"Parts": parts},
+                    )
+                finally:
+                    events.unregister(
+                        _MULTIPART_COMPLETE_RETRY_EVENT, _reject_multipart_complete_retry
+                    )
+        except Exception as error:
+            # R2OperationStopped and process cancellation are BaseException.
+            # They must not trigger more requests. Nor can a timed-out Complete
+            # be retried/aborted or declared absent on the strength of a 404.
+            denied = isinstance(error, ClientError) and _http_status(error) in {401, 403, 429}
+            if upload_id and operation == "upload-part" and not denied:
+                # A fresh lease check or explicit abort refusal may veto another
+                # request. Only ordinary abort failures leave the primary error.
+                while_held()
+                with suppress(BotoCoreError):
+                    try:
+                        with self._request("abort-multipart-upload"):
+                            self._client().abort_multipart_upload(
+                                Bucket=self.bucket, Key=key, UploadId=upload_id
+                            )
+                    except ClientError as abort_error:
+                        if _http_status(abort_error) in {401, 403, 429}:
+                            _raise_r2_error("abort-multipart-upload", abort_error, key=key)
+            if isinstance(error, ClientError):
+                _raise_r2_error(operation, error, key=key)
+            if isinstance(error, BotoCoreError):
+                _log_r2_failure(operation, error, key=key)
+                raise R2Error(f"R2 {operation} outcome is not confirmed") from error
+            raise
+
+        expected_etag = f"{combined_md5.hexdigest()}-{part_count}"
+        if completed.get("ETag", "").strip('"') != expected_etag:
+            raise R2Error("R2 multipart completion acknowledgement differs from its parts")
+        actual = self.head(key)
+        if (
+            actual is None
+            or actual.etag != expected_etag
+            or actual.size != size
+            or actual.content_type != content_type
+            or any(actual.metadata.get(name) != value for name, value in metadata.items())
+        ):
+            raise R2Error("R2 multipart readback differs from the completed object")
+        return actual
 
 
 def _remote_object(value: Mapping[str, Any]) -> RemoteObject:
