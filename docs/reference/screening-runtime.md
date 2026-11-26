@@ -8,7 +8,9 @@
 
 [企業判断の開始手順](../../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)で依頼の範囲・公表ID・情報締切を固定する。新規発見では、同じ問いに該当する会社を銘柄コード順に読める。複数の問いに該当する会社もある。ページ順や該当数は買い順位ではなく、比較のために開いた会社が調査・提案対象に自動で加わることもない。
 
-IDを省略した開始では、新規発見・銘柄指定・保有点検のいずれも、締切内の最新公表物に索引がなければ `unindexed_legacy_publication`、現行方式より古ければ `current_discovery_index_required` を返す。候補0社ではなく、別世代・当時の本文・台帳へ自動では進まない。過去の根拠は公表IDと対象を明示して[当時の保存行](../../engine/src/baibai_engine/investment_judgment/workflow/selection_query.py)を照合する。新規発見で索引がない公表物を読むときは比較銘柄が必要。銘柄指定・保有点検でモデルだけを読むならGeneration IDを明示する。
+日次から取得するRunsには現行の公表物だけがある。旧IDを指定しても現行の値では補わない。過去の提案はAppの[保存された判断](#case-evidence)で照合する。未保存の過去の機械結果を調べるなら、手元に保持済みの隔離Runsを `--runs-path` に指定して、その公表ID・対象の[保存行](../../engine/src/baibai_engine/investment_judgment/workflow/selection_query.py)を読む。
+
+IDを省略した開始では、新規発見・銘柄指定・保有点検のいずれも、締切内の最新公表物に索引がなければ `unindexed_legacy_publication`、現行方式より古ければ `current_discovery_index_required` を返す。候補0社ではなく、別世代・当時の本文・台帳へ自動では進まない。新規発見で索引がない公表物を読むときは比較銘柄が必要。銘柄指定・保有点検でモデルだけを読むならGeneration IDを明示する。
 
 保有点検では別に台帳が必要で、台帳未確認は保有ゼロではない。現在の台帳を事実時刻で再生するため、過去の約定を後から記録すると同じ締切の対象が変わり得る。
 

@@ -55,9 +55,12 @@ from baibai_engine.machine_analysis.screening.selection_store import ScreeningSe
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, R2OperationStopped
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
+from baibai_engine.storage.snapshots.keys import release_manifest_key
 from baibai_engine.storage.snapshots.models import ReleasePolicyError
 from baibai_engine.storage.snapshots.objects import LakeObjectError, LocalMirrorSource, mirror_path
 from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import LakeReleasePointer
+from baibai_engine.storage.snapshots.retention import exclusive_lock
 from baibai_engine.storage.sqlite.snapshot import create_snapshot
 from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -218,6 +221,15 @@ def _publish_machine(
     }
 
 
+def _require_closed_runs_target(runs: Path) -> None:
+    if runs.is_symlink() or (runs.exists() and not runs.is_file()):
+        raise ValueError("Runs working destination is not a regular file")
+    for suffix in ("-wal", "-journal", "-shm"):
+        sidecar = runs.with_name(runs.name + suffix)
+        if sidecar.exists() or sidecar.is_symlink():
+            raise ValueError("close local SQLite users before replacing the Runs working file")
+
+
 def integrate_models(
     *,
     store: ModelIntegrationStore,
@@ -235,7 +247,7 @@ def integrate_models(
     external_readback_dir: Path | None = None,
     external_partitions: frozenset[tuple[str, int, int]] = frozenset(),
 ) -> dict[str, object]:
-    """leaseで順序を守り、モデル生成後に別releaseを作らない。"""
+    """Publish under the lease; take a closed, dedicated local working copy."""
     handle = _load_handle(lease_handle)
     machine_writer = store if machine_store is None else machine_store
 
@@ -243,6 +255,7 @@ def integrate_models(
         verify_held(machine_writer, handle)
 
     while_held()
+    _require_closed_runs_target(runs)
     snapshot = read_pointer_snapshot(machine_writer) if base is None else base
     if base is not None:
         if base.pointer is None or base.pointer.machine is None:
@@ -267,7 +280,12 @@ def integrate_models(
         connection.execute("DELETE FROM jquants_fin_summaries")
         connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
     _phase_progress("native_financial", phase_started)
-    with ExitStack() as run:
+    runs.parent.mkdir(parents=True, exist_ok=True)
+    with (
+        tempfile.TemporaryDirectory(prefix=".runs-next-", dir=runs.parent) as directory,
+        ExitStack() as run,
+    ):
+        next_runs = Path(directory) / "runs.sqlite"
         # Only the native preparation stages share immutable reads; drop those bytes
         # before models, publication and any subsequent independent read.
         with share_full_day_input_reads(store):
@@ -333,7 +351,7 @@ def integrate_models(
         )
         _phase_progress("model_inputs", phase_started)
         phase_started = _phase_progress("model_generation")
-        generations = ModelGenerationStore(runs)
+        generations = ModelGenerationStore(next_runs)
         rows: dict[str, DiscoveryRow] = {}
         saved = generations.publish_stream(
             replace(generation, models=_project_company_models(generation, rows))
@@ -344,28 +362,55 @@ def integrate_models(
         selection = evaluate_discovery_rows(generation.metadata, tickers=subjects, rows=rows)
         assert isinstance(selection.result, DiscoverySelection)
         selection_id = discovery_publication_id(generation.metadata.generation_id)
-        ScreeningSelectionStore(runs).publish(selection_id, selection)
-        _phase_progress("screening", phase_started)
-        phase_started = _phase_progress("lake_stage")
-        readback_options = _external_readback_options(
-            prepared, external_readback_dir, external_partitions
+        ScreeningSelectionStore(next_runs).publish(selection_id, selection)
+        require_runs_publication(
+            LakeReleasePointer(
+                release_id=prepared.release.release_id,
+                manifest_key=release_manifest_key(release_id=prepared.release.release_id),
+                manifest_sha256=prepared.release_sha256,
+            ),
+            next_runs,
         )
-        staged, publication = stage_prepared_market_lake(prepared, store=store, **readback_options)
-        _phase_progress("lake_stage", phase_started)
-    # Do not discard already saved Runs generations during ordinary publication.
-    # App can admit a new case independently of the machine lease.
-    phase_started = _phase_progress("machine_publish")
-    committed = _publish_machine(
-        store=machine_writer,
-        staged=staged,
-        base=ready,
-        market=market,
-        runs=runs,
-        mirror=mirror,
-        bucket=bucket,
-        while_held=while_held,
-    )
-    _phase_progress("machine_publish", phase_started)
+        _phase_progress("screening", phase_started)
+        with exclusive_lock(market.parent / ".machine-pull.lock", subject="machine pull"):
+            _require_closed_runs_target(runs)
+            phase_started = _phase_progress("lake_stage")
+            readback_options = _external_readback_options(
+                prepared, external_readback_dir, external_partitions
+            )
+            staged, publication = stage_prepared_market_lake(
+                prepared, store=store, **readback_options
+            )
+            _phase_progress("lake_stage", phase_started)
+            # Free the large input seal before making the transfer copies. The
+            # working Runs stays the previous seed until the next pair is current.
+            run.close()
+            phase_started = _phase_progress("machine_publish")
+            committed = _publish_machine(
+                store=machine_writer,
+                staged=staged,
+                base=ready,
+                market=market,
+                runs=next_runs,
+                mirror=mirror,
+                bucket=bucket,
+                while_held=while_held,
+            )
+            # The same-run JP input probe uses this path rather than another R2 pull.
+            try:
+                _require_closed_runs_target(runs)
+                next_runs.replace(runs)
+            except (OSError, ValueError):
+                # The pointer is already confirmed. A failed local rename leaves the
+                # predecessor intact and is not a failed remote publication.
+                committed["local_runs_refreshed"] = False
+                print(
+                    "machine published; local Runs refresh failed; pull-machine to refresh it",
+                    file=sys.stderr,
+                )
+            else:
+                committed["local_runs_refreshed"] = True
+            _phase_progress("machine_publish", phase_started)
     return {
         "machine": committed,
         "asof": as_of.isoformat(),

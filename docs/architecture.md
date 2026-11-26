@@ -60,7 +60,7 @@
 | --- | --- |
 | 企業判断、Review、提案、進捗、台帳 | [application DB](../engine/src/baibai_engine/storage/sqlite/application/)。再生成cacheではない。Operationは保存した対象・資料・当時の進捗から再開する。 |
 | 受領時の外部情報 | native L1の不変body・request pack・受領記録、またはsource SQLite。本文の共有は同じ受領を意味しない。 |
-| モデルと候補の当時の結果 | [保存Generation](../engine/src/baibai_engine/machine_analysis/generation/query.py)と[保存Selection](../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)をIDで読む。入力の時点や未生成を現在の値で補わない。 |
+| 機械分析のモデルと候補 | 通常のRunsには現行公開の[Generation](../engine/src/baibai_engine/machine_analysis/generation/query.py)と[Selection](../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)だけを置く。準備済みOperationの当時の根拠はAppに固定済みで、現在の値では補わない。 |
 | 元結果の再計算 | 元の固定入力・releaseのmanifestと不変object・当時の実行条件が必要。共有入力には[経済原本や確認・失敗の参照](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)を含む。不足時に別世代や前回L2を使わない。 |
 | 日次実行用のmarket | source cache SQLiteには未移行原本・運用状態も含み、丸ごと捨てられるcacheではない。[公開と復旧](../jobs/OPERATIONS.md#machine-publication)に従う。 |
 

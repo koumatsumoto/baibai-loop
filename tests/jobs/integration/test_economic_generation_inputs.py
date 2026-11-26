@@ -36,6 +36,7 @@ from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_jobs.cli import main as jobs_cli
 from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.machine_current import require_market_origin, require_runs_publication
 
 DAY = date(2026, 1, 5)
 
@@ -97,6 +98,7 @@ def test_daily_cli_generates_without_articles_and_retains_economic_input(
     # The CLI consumes an existing Machine pair; publish a real synthetic predecessor.
     prior = job.integrate_models(**args)
     assert prior["models_ready"] is True
+    prior_pair = job.read_machine_current(args["store"]).pointer.machine
 
     class FixtureTransport:
         def __new__(cls, *, bucket, env=None, verify_put_with_head=True):
@@ -148,9 +150,18 @@ def test_daily_cli_generates_without_articles_and_retains_economic_input(
     saved = read_generation(result["generation_id"], path=args["runs"])
     assert saved is not None
     assert saved.generation_id != prior["generation_id"]
-    assert read_publication(path=args["runs"], selection_id=prior["selection_id"]) is not None
     machine = job.read_machine_current(args["store"]).pointer
     assert machine is not None
+    assert machine.machine is not None
+    for role, validate in (("market", require_market_origin), ("runs", require_runs_publication)):
+        member = getattr(machine.machine, role)
+        loaded = tmp_path / f"readback-{role}.sqlite"
+        args["store"].download_file(member.key, loaded, expect_bytes=member.size)
+        validate(machine, loaded)
+        assert getattr(prior_pair, role).key not in args["store"].values
+    for path in (args["runs"], tmp_path / "readback-runs.sqlite"):
+        assert read_generation(prior["generation_id"], path=path) is None
+        assert read_publication(path=path, selection_id=prior["selection_id"]) is None
     assert (saved.inputs["market"].reference, saved.inputs["market"].sha256) == (
         machine.release_id,
         machine.manifest_sha256,

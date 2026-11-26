@@ -1,8 +1,8 @@
 import hashlib
 import json
-import sqlite3
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from datetime import UTC, date, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -28,6 +28,14 @@ from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key, release_manifest_key
+from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
+from baibai_engine.storage.snapshots.release import (
+    LakeReleasePointer,
+    MachineMember,
+    MachineMembers,
+    machine_member_key,
+)
 from baibai_jobs.observability.discord import render_generation
 
 
@@ -157,15 +165,15 @@ def integration(tmp_path, monkeypatch):
 
     def stage(received, *, store, **_options):
         assert received is prepared
-        assert read_publication(path=tmp_path / "runs").selection_id == (
-            "selection-models-new-release-opportunity-discovery-v3"
-        )
         events.append("stage")
         return "candidate", SimpleNamespace(as_dict=lambda: {"release_id": "new-release"})
 
-    def publish(*, staged, while_held, **_kwargs):
+    def publish(*, staged, runs, while_held, **_kwargs):
         assert staged == "candidate"
         assert events[-1] == "release-snapshot"
+        assert read_publication(path=runs).selection_id == (
+            "selection-models-new-release-opportunity-discovery-v3"
+        )
         while_held()
         events.append("publish")
         return {"superseded_members_removed": True}
@@ -200,6 +208,7 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     arguments["growth_start"] = growth_start
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
+    assert result["machine"]["local_runs_refreshed"] is True
     publication = read_publication(path=arguments["runs"])
     assert read_publication(path=arguments["runs"]).selection_id == result["selection_id"]
     assert publication.selection.result.policy.method == "opportunity-discovery-v3"
@@ -347,7 +356,7 @@ def test_lazy_generation_failure_stops_selection_and_publication(integration, mo
     with pytest.raises(ValueError, match="late calculation failure"):
         job.integrate_models(**arguments)
     assert "publish" not in events
-    assert read_generation("models-new-release", path=arguments["runs"]) is None
+    assert not arguments["runs"].exists()
 
 
 def test_models_retain_applied_edinet_input_without_current_heads(
@@ -458,40 +467,110 @@ def test_comparison_evidence_uses_only_previous_serving_pointer(
         assert source is None
 
 
-def test_ordinary_publication_keeps_every_prior_generation_and_selection(integration):
+@pytest.mark.parametrize("advance", ["same-date", "older-asof", "stage-failure", "switch-failure"])
+def test_next_runs_keeps_only_new_publication_after_success(integration, monkeypatch, advance):
     arguments, _ = integration
+    store = arguments["store"]
     path = arguments["runs"]
     policies = ScreeningSelectionStore(path)
-    prior_ids = tuple(f"prior-{index}" for index in range(5))
-    for index, identity in enumerate(prior_ids):
-        item = generation().model_copy(
-            update={"generation_id": identity, "as_of": date(2026, 10, 10 + index)}
-        )
+    for identity in ("prior", "same-date-retry"):
+        item = generation().model_copy(update={"generation_id": identity})
         publish_generation(item, path=path)
-        if index != 4:
-            policies.publish(f"selection-{identity}", empty_selection(identity))
-    policies.publish("prior-extra-policy", empty_selection(prior_ids[0], candidate_limit=5))
+        policies.publish(f"selection-{identity}", empty_selection(identity))
+    # Same-as-of retries are distinct today. An exact newly published release is
+    # current even when its as-of is older than both of those retained generations.
+    if advance == "older-asof":
+        arguments["as_of"] = date(2026, 10, 22)
+    members = MachineMembers(
+        market=MachineMember(key=machine_member_key("a" * 32, "market"), etag="m", size=1),
+        runs=MachineMember(key=machine_member_key("a" * 32, "runs"), etag="r", size=1),
+    )
+    old_pointer = LakeReleasePointer(
+        pointer_version=2,
+        release_id="prior",
+        manifest_key=release_manifest_key(release_id="prior"),
+        manifest_sha256="b" * 64,
+        machine=members,
+    )
+    pointer_key = current_release_pointer_key()
+    store.store_object(pointer_key, canonical_lake_model_bytes(old_pointer))
+    previous = job.read_pointer_snapshot(store)
+    before = path.read_bytes()
+    stage, publish = job.stage_prepared_market_lake, job._publish_machine
 
-    def prior_rows():
-        with closing(sqlite3.connect(path)) as connection:
-            return {
-                table: sorted(
-                    connection.execute(
-                        f"SELECT * FROM {table} WHERE generation_id IN (?, ?, ?, ?, ?)",
-                        prior_ids,
-                    ).fetchall()
-                )
-                for table in ("model_generation", "generated_model", "screening_selection")
-            }
+    def stage_next(*args, **kwargs):
+        assert path.read_bytes() == before
+        if advance == "stage-failure":
+            raise ValueError("synthetic failure before switch")
+        return stage(*args, **kwargs)
 
-    before = prior_rows()
+    def publish_next(**kwargs):
+        assert path.read_bytes() == before
+        candidate = kwargs["runs"]
+        assert candidate != path
+        assert read_generation("prior", path=candidate) is None
+        assert read_generation("same-date-retry", path=candidate) is None
+        assert read_publication(path=candidate).generation.as_of == arguments["as_of"]
+        if advance == "switch-failure":
+            raise ValueError("synthetic failure before switch")
+        return publish(**kwargs)
+
+    monkeypatch.setattr(job, "stage_prepared_market_lake", stage_next)
+    monkeypatch.setattr(job, "_publish_machine", publish_next)
+    if advance.endswith("failure"):
+        with pytest.raises(ValueError, match="failure before switch"):
+            job.integrate_models(**arguments)
+        current = job.read_pointer_snapshot(store)
+        assert current == previous
+        assert current.payload == previous.payload
+        assert path.read_bytes() == before
+        return
+
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
-    assert read_generation(result["generation_id"], path=path) is not None
+    assert read_generation(result["generation_id"], path=path).as_of == arguments["as_of"]
     assert policies.read(result["selection_id"]) is not None
-    assert prior_rows() == before
-    assert all(read_generation(identity, path=path) is not None for identity in prior_ids)
-    assert policies.read("prior-extra-policy") is not None
+    assert policies.read("selection-prior") is None
+    assert policies.read("selection-same-date-retry") is None
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-journal", "-shm"])
+def test_runs_target_with_sidecar_leaves_previous_working_files_untouched(integration, suffix):
+    arguments, events = integration
+    runs = arguments["runs"]
+    publish_generation(generation(), path=runs)
+    previous = runs.read_bytes()
+    sidecar = runs.with_name(runs.name + suffix)
+    sidecar.write_bytes(b"another SQLite user's sidecar")
+    with pytest.raises(ValueError, match="close local SQLite users"):
+        job.integrate_models(**arguments)
+    assert events == ["lease"]
+    assert runs.read_bytes() == previous
+    assert sidecar.read_bytes() == b"another SQLite user's sidecar"
+
+
+def test_local_refresh_failure_after_publish_keeps_the_previous_file_and_report(
+    integration, monkeypatch, capsys
+):
+    arguments, events = integration
+    runs = arguments["runs"]
+    publish_generation(generation(), path=runs)
+    previous = runs.read_bytes()
+    replace_file = Path.replace
+
+    def fail_local_replace(source, target):
+        if target == runs:
+            assert events[-1] == "publish"
+            raise PermissionError("synthetic rename failure")
+        return replace_file(source, target)
+
+    monkeypatch.setattr(Path, "replace", fail_local_replace)
+    result = job.integrate_models(**arguments)
+    assert result["models_ready"] is True
+    assert result["machine"]["local_runs_refreshed"] is False
+    assert result["machine"]["superseded_members_removed"] is True
+    assert "machine published; local Runs refresh failed" in capsys.readouterr().err
+    assert runs.read_bytes() == previous
 
 
 def test_cli_cannot_bootstrap_from_a_missing_or_Lake_only_head(tmp_path, monkeypatch):
