@@ -6,9 +6,7 @@ import sqlite3
 import weakref
 from collections import Counter
 from dataclasses import replace
-from datetime import UTC, datetime
 from itertools import groupby
-from types import SimpleNamespace
 
 import pytest
 from tests.engine.machine_analysis.generation.test_generation_assembly import generate
@@ -23,14 +21,12 @@ import baibai_jobs.integration.models as job
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationSubject,
+    InputSnapshot,
     ModelGeneration,
     ModelGenerationStream,
 )
 from baibai_engine.machine_analysis.generation.query import read_generation
-from baibai_engine.machine_analysis.generation.store import (
-    GenerationConflictError,
-    ModelGenerationStore,
-)
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 
 
@@ -88,6 +84,7 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
     arguments, _ = integration
     generate_models = job.read_and_generate_models
     expected = []
+    candidate_paths = []
     visited = []
     project = job.project_discovery_row
     evaluate = job.evaluate_discovery_rows
@@ -109,14 +106,16 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
     def observe(ticker, **kwargs):
         visited.append(ticker)
         if ticker != "9999":
-            with sqlite3.connect(arguments["runs"]) as connection:
+            assert candidate_paths[0] != arguments["runs"]
+            with sqlite3.connect(candidate_paths[0]) as connection:
                 assert (
                     connection.execute("SELECT count(*) FROM model_generation").fetchone()[0] == 0
                 )
         return project(ticker, **kwargs)
 
     def after_commit(metadata, **kwargs):
-        with sqlite3.connect(arguments["runs"]) as connection:
+        assert not arguments["runs"].exists()
+        with sqlite3.connect(candidate_paths[0]) as connection:
             assert connection.execute("SELECT count(*) FROM model_generation").fetchone()[0] == 1
             assert connection.execute("SELECT count(*) FROM generated_model").fetchone()[0] == len(
                 expected[0].models
@@ -126,7 +125,12 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
     def forbidden(*_args, **_kwargs):
         pytest.fail("normal integration reread its saved model payloads")
 
+    def candidate_store(path):
+        candidate_paths.append(path)
+        return ModelGenerationStore(path)
+
     monkeypatch.setattr(job, "read_and_generate_models", generate_stream)
+    monkeypatch.setattr(job, "ModelGenerationStore", candidate_store)
     monkeypatch.setattr(job, "project_discovery_row", observe)
     monkeypatch.setattr(screening, "project_discovery_row", observe)
     monkeypatch.setattr(job, "evaluate_discovery_rows", after_commit)
@@ -214,45 +218,28 @@ def test_stream_failure_rolls_back_models_and_never_publishes_policy(
     }[failure]
     with pytest.raises(ValueError, match=message):
         job.integrate_models(**arguments)
-    assert read_generation("models-new-release", path=arguments["runs"]) is None
+    assert not arguments["runs"].exists()
     assert read_publication(path=arguments["runs"]) is None
     assert "publish" not in events
 
 
-def test_retry_keeps_saved_bytes_and_conflict_stops_before_policy(integration, monkeypatch):
-    arguments, _ = integration
-    monkeypatch.setattr(
-        job, "datetime", SimpleNamespace(now=lambda _: datetime(2026, 10, 26, tzinfo=UTC))
-    )
-    first = job.integrate_models(**arguments)
-    before = rows(arguments["runs"])
+def test_failed_candidate_selection_keeps_previous_runs(integration, monkeypatch):
+    arguments, events = integration
+    job.integrate_models(**arguments)
+    before = arguments["runs"].read_bytes()
     publication = read_publication(path=arguments["runs"])
-    second = job.integrate_models(**arguments)
-    assert rows(arguments["runs"]) == before
-    assert read_publication(path=arguments["runs"]) == publication
-    assert first["generation_id"] == second["generation_id"]
-    generate_models = job.read_and_generate_models
+    events.clear()
 
-    def changed(**kwargs):
-        stream = generate_models(**kwargs)
-        models = iter(stream.models)
+    def fail(*_args, **_kwargs):
+        raise ValueError("candidate selection failed")
 
-        def changed_models():
-            model = next(models)
-            yield model.model_copy(update={"payload": {**model.payload, "changed": True}})
-            yield from models
-
-        return replace(stream, models=changed_models())
-
-    def forbidden(*_args, **_kwargs):
-        pytest.fail("conflicting saved identity reached policy publication")
-
-    monkeypatch.setattr(job, "read_and_generate_models", changed)
-    monkeypatch.setattr(job, "evaluate_discovery_rows", forbidden)
-    with pytest.raises(GenerationConflictError, match="different model content"):
+    monkeypatch.setattr(job.ScreeningSelectionStore, "publish", fail)
+    with pytest.raises(ValueError, match="candidate selection failed"):
         job.integrate_models(**arguments)
-    assert rows(arguments["runs"]) == before
+    assert arguments["runs"].read_bytes() == before
     assert read_publication(path=arguments["runs"]) == publication
+    assert "stage" not in events
+    assert "publish" not in events
 
 
 def test_actual_assembly_emits_each_company_contiguously_before_shared_models():
@@ -304,7 +291,15 @@ def test_normal_job_publishes_all_t_g_states_without_old_economic_ranking(
     fixed = _seed(tmp_path / "synthetic-source")
     arguments["as_of"] = fixed.as_of
     metadata = GenerationMetadata.model_validate(fixed.model_dump(exclude={"models"})).model_copy(
-        update={"generation_id": "models-new-release"}
+        update={
+            "generation_id": "models-new-release",
+            "inputs": {
+                **fixed.inputs,
+                "market": InputSnapshot(
+                    kind="lake_release", reference="new-release", sha256="a" * 64
+                ),
+            },
+        }
     )
     tickers = tuple(t for t, plan in metadata.subject_plan.items() if plan.scope == "stock")
     # The fixture uses the same full source models as the pure T/G connection test.

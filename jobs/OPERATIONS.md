@@ -53,11 +53,11 @@ gh run watch "${RUN_ID:?対象の日次run IDを指定}" --exit-status --interva
 | 一組の公開後、同じreleaseを読戻して市場の受領をseal | 市場の受領確定は正本の選択と別。[seal失敗](#machine公開後の失敗再開)は表示や経済inputの再発行で埋めない。 |
 | core成功後の[Web生成・転送](#web-serving)、lease解放、通知 | 受領・提案・取引の成否。表示はseal成功を条件にせず、表示・通知の失敗だけで正本を再公開しない。 |
 
-定期・手動とも既存のGeneration/Selectionは保持する。既存IDの読取不能を空とせず、過去に欠けた世代は[保持copyからの復元](#保持copyから欠落generationを戻す)として扱う。
+定期・手動とも、公開後のRunsには今回のGenerationとSelectionだけを残す。過去の提案・保存済みOperationはAppから読む。未保存の旧機械結果は、該当世代を含む隔離copyが手元にある場合だけ[保持copyからの復元](#保持copyから欠落generationを戻す)で照合できる。旧IDを現行値で補わない。
 
 EDINET revisionを明示受入する場合だけ、隔離比較済みの[受入条件](src/baibai_jobs/integration/edinet_metric_acceptance.py)を`edinet_metrics_acceptance`へ渡す。同じ明示asofを指定し、固定list/archive・revision・対象sampleの原本/保存結果のdigestを生成前に照合する。partial/延期・入力交代・差異は停止し、後付け期待値で通さない。先行する経済L1・planの保持は取り消されず、公開後の実読戻し・L3の受入は別。
 
-失敗時は正本のIDと最後に完了した段階・lease解放を確認する。通知や`done`行だけで公開を判定しない。公開受入の診断は`release_acceptance`のreason codeと登録dataset名、未分類は型までで、原本や識別子は出さない。候補0は投資機会なしではない。[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を参照し、過去の結果はIDを指定して読む。
+失敗時は正本のIDと最後に完了した段階・lease解放を確認する。通知や`done`行だけで公開を判定しない。公開受入の診断は`release_acceptance`のreason codeと登録dataset名、未分類は型までで、原本や識別子は出さない。候補0は投資機会なしではない。[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。過去の機械結果をIDで照合する場合は、その世代を含む隔離Runsを明示する。
 
 [watchdog](../.github/workflows/cloud-batch-watchdog.yml)は履歴を読み、実行・cancel・再dispatchはしない。対象日の判断は[判定実装](src/baibai_jobs/observability/watchdog.py)が持つ。
 
@@ -144,7 +144,9 @@ uv run baibai-jobs snapshots hydrate-portfolio \
 
 Machineの正本は `lake/pointers/market/current.json` が指す一件のLake releaseと一組のMarket/Runs。日次の `model-integration` だけがその組を更新する。固定Lakeのimmutable graphと、SQLiteの整合・origin・Generation/Selectionを照合した両DBを、再利用しない `machine/payloads/<UUID>/` に準備する。転送前の両DBのSHA-256とMD5、転送応答、HEADのETag・長さを照合する。lease内で取得時のポインタETagを条件に一回だけ切り替え、**ポインタ本文**を読み戻してから、そこに記録した前組UUIDの転送ファイル二件だけを除く。通常の日次writerは両DBを再GETしない。一回切替の受入は別に両DBの実バイトを確認する。固定 `.bak` は作らず、旧Lake・原本は触らない。
 
-`jobs/scripts/r2_transfer.sh pull-machine` は同じポインタから両DBを検証し、Marketをhydrateしてから作業copyに反映する。既存のDBを置き換えるため他のローカル作業を閉じてから使う。`--daily-preflight` はleaseと現行契約を確認して取得までを行う。経済L1の後、`hydrate-market-for-daily` はMarket内の同じoriginから展開し、currentを読み直さない。`pull-portfolio-market` は表示に必要なMarketだけを取得する。正本の切替と衝突して取得できなければ、別世代の片方を混ぜず現行から取得し直す。 現行の探索には取得結果の `generation_id` と `selection_id` を既存CLIの `--generation-id`・`--screening-selection-id` へ渡す。ID省略は保存済み基準日順の検索であり、過去日指定で発行した現行を選ぶとは限らない。
+Runsの新しい公開には、そのreleaseのGenerationとSelectionだけを入れる。直前のRunsは財務比較のseedとして読み、旧DBをcloneして新しい組へ持ち越さない。準備済みOperation、提案・報告・実績はAppに残る。古い世代を指したままAppに未保存の `selection.json` は、現行へ切り替わったら現行の入力で選び直す。`model-integration` の `--runs` には他のSQLite利用者を閉じた専用の作業copyを指定する。公開成功後に手元の置換だけ失敗した場合は `local_runs_refreshed=false` となるため、そのcopyを使う前に `pull-machine` で更新する。
+
+`jobs/scripts/r2_transfer.sh pull-machine` は同じポインタから両DBを検証し、Marketをhydrateしてから作業copyに反映する。既存のDBを置き換えるため他のローカル作業を閉じてから使う。`--daily-preflight` はleaseと現行契約を確認して取得までを行う。経済L1の後、`hydrate-market-for-daily` はMarket内の同じoriginから展開し、currentを読み直さない。`pull-portfolio-market` は表示に必要なMarketだけを取得する。正本の切替と衝突して取得できなければ、別世代の片方を混ぜず現行から取得し直す。現行の探索には取得結果の `generation_id` と `selection_id` を既存CLIの `--generation-id`・`--screening-selection-id` へ渡す。ID省略時も、指定した基準日・情報締切の範囲外の結果は選ばない。
 
 `push-indicators` と `upload-portfolio-views` には `PUBLICATION_LEASE_HANDLE` が必要。App更新とsource固有CASのnative L1はこのleaseの対象外。途中でownerが失効・交代したら次writeを止める。leaseのverifyは延長ではない。
 
@@ -205,7 +207,7 @@ uv run baibai-jobs restore-model-history \
   --generation-id <EXACT_GENERATION_ID>
 ```
 
-複数IDは`--generation-id`を繰り返す。既存outputやWAL/journal付き入力は使わない。この成功はlocal copyの準備だけで、L1/共有入力/L3の復元や本番反映を意味しない。元copyは保持し、通常readerで対象と現行の保存値/IDを照合する。本番へ反映する場合は別途writer不在・単一lease・freshなmarket/runsの組とCASを確認し、currentが進んでいればそのfresh copyへ作り直す。別承認の共通公開でのみ扱い、古いmachine全体への上書きやCAS失敗後の盲再送をしない。
+複数IDは`--generation-id`を繰り返す。既存outputやWAL/journal付き入力は使わない。この成功は隔離copyの準備だけで、L1/共有入力/L3の復元や本番反映を意味しない。元copyは保持し、通常readerで対象と現行の保存値/IDを照合する。履歴の照合はその隔離copyを使う。通常の本番日次は過去のGeneration/Selectionを持ち越さない。
 
 ### machine公開後の失敗再開
 
@@ -373,7 +375,7 @@ EDINETの取得・facts・再抽出は[独立L1の手順](#edinet-list-native-l1
 <a id="external-assessment-acquisition"></a>
 ### 外部評価
 
-[数値の取得枠](../.github/workflows/cloud-external-assessment.yml)はMonexと株マップ。個社TradingViewは[必要時のL3調査](#tradingview-expectations)だけに使う。楽天・みんかぶの数値は[廃止判断](https://github.com/koumatsumoto/baibai-loop/issues/1820#issuecomment-6856119813)により新規取得・新しい評価への旧値採用をしない。旧原本・保存済みGeneration/Selectionは読めるが、旧planから未試行pairを取得し直さない。ニュースやトウシル[記事](#article-acquisition)の扱いとは別。
+[数値の取得枠](../.github/workflows/cloud-external-assessment.yml)はMonexと株マップ。個社TradingViewは[必要時のL3調査](#tradingview-expectations)だけに使う。楽天・みんかぶの数値は[廃止判断](https://github.com/koumatsumoto/baibai-loop/issues/1820#issuecomment-6856119813)により新規取得・新しい評価への旧値採用をしない。旧原本や保持済みの隔離copyは読めるが、旧planから未試行pairを取得し直さない。ニュースやトウシル[記事](#article-acquisition)の扱いとは別。
 
 通常TLS/proxyで有限銘柄を直列取得し、試行別private captureをcurrent-schemaの隔離marketへimportする。`legacy_stage_unsupported` は原応答を含まない正規化済みstageの拒否で、原本captureを指定し直す。parse失敗でも原本は保ち、L2を部分追記しない。再投入0件を確認する。
 
