@@ -430,15 +430,22 @@ uv run python -m baibai_jobs.integration.tradingview_receipts \
 <a id="financial-native-l1"></a>
 **財務。** [`rebuild-financial-native --saved-input`](src/baibai_jobs/integration/financial_native.py)は、同じ投影版の固定native入力から財務の派生表を再構築する。版が未記録・不一致なら停止し、当時の実行commitを確認できる場合に限ってその版で再構築する。日次が採用した財務は、そのGenerationの `inputs["financial"]` に固定したnative入力で確認する。旧Parquet `jquants.fin_summaries` は現行Lakeの必須データではない。過去のreleaseに何があるかは[固定manifest](#fixed-release-read)で確認する。`--saved-input` なしの診断は起動時の固定原本を現行版で投影する。いずれも保存原本・Generation・Selectionは置き換えない。
 
-定期財務取得は平日18:13 JSTの`financial-edinet-facts`枠へ置き、価格等の16:43枠と分ける。Standard等の[公式更新目安](https://jpx-jquants.com/ja/spec/data-update)は18:00速報・翌00:30確報で、18:13の完全到着や22:43統合への間に合いを保証しない。確報は次回overlapで取り込むため、17時頃の臨時統合では前回取得後の確報が未反映の場合がある。早期更新が必要なら既存受領と進行中runを確認し、不足する財務だけ次で明示取得する。
+定期財務取得は平日18:13 JSTの `financial-edinet-facts` 枠。Standard等の[公式更新目安](https://jpx-jquants.com/ja/spec/data-update)は18:00速報・翌00:30確報で、取得・統合への到着は保証されない。下の手動取得も同じ[通常計画](src/baibai_jobs/integration/source_handoff.py)を使い、`asof` の7日前から当日までの8暦日と、取得範囲内の欠落・失敗・保留日を再照会する。特定の一日だけを指定するコマンドではない。早期更新が必要な場合だけ実行する。
 
 ```bash
-gh workflow run cloud-market-sources.yml --ref main -f source=jquants-financial -f asof=<YYYY-MM-DD>
+gh workflow run cloud-market-sources.yml --ref main -f source=jquants-financial -f "asof=${ASOF:?基準日をYYYY-MM-DDで指定}"
 gh run list --workflow cloud-market-sources.yml --branch main --event workflow_dispatch --limit 5
-gh run watch <SOURCE_RUN_ID> --exit-status --interval 60
+gh run watch "${SOURCE_RUN_ID:?対象の財務run IDを指定}" --exit-status --interval 60
 ```
 
-作成された対象run IDを固定し、成功後も財務head/受領の対象日・不足を確認してから必要な[日次統合](#daily)へ進む。取得完了とL2利用可能時刻を分け、統合・公開/readbackの時間も見込む。dailyだけの再実行ではproviderの最新値を取得せず、後着入力へ途中で差し替えない。scheduleのrun作成自体も遅れ得るため、枠の追加を定刻到着の保証にしない。明示実行も既存queueを守り、即時完了は保証しない。
+[J-Quantsの財務訂正](https://jpx-jquants.com/ja/spec/fin-summary)には通常、新しい開示番号（`DiscNo`）が付くが、2026-11-16以降は同じ番号の値がフラグなしで上書きされる場合がある。過去日の訂正は差分cursorに現れず、通常計画も窓外の取得済み正常日までは再確認しない。調査対象の数値に影響する訂正を把握したときだけ、元の開示日（`DiscDate`）を開始・終了の両方に指定して取り直す。認可された環境で他のJ-Quants取得と重ねない。
+
+```bash
+uv run baibai-jobs jquants-financial-native acquire --directory "${NEW_WORK:?新しい作業先を指定}" \
+  --start "${DISC_DATE:?元の開示日をYYYY-MM-DDで指定}" --end "$DISC_DATE"
+```
+
+新しい受領の日付・取得結果を確認し、必要な[日次統合](#daily)へ進む。再取得は今返る値の確認で、訂正前の値や訂正が反映された時刻は復元できない。日次の再実行だけでは財務を再取得しない。
 
 財務summaryの[API枠](https://jpx-jquants.com/ja/spec/rate-limits)はプラン共通60要求/分で通常plan枠とは別。現行のJ-Quants共通queueはこれより保守的な実装上の直列化であり、時刻変更では外さない。`financial-edinet-facts`は枠名で、土日は従来どおりEDINET factsだけを取得する。
 
