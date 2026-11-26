@@ -208,7 +208,6 @@ pull_indicators() {
   local key=indicators.sqlite target version
   target="$(store_path "${key}")"
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  clear_pulled_versions "${key}"
   version="$(remote_version "${key}")"
   download_indicator_snapshot "${transfer_staging}/${key}" "${version}"
   check_sqlite "${transfer_staging}/${key}"
@@ -219,7 +218,6 @@ pull_indicators() {
   fi
   mkdir -p "$(dirname "${target}")"
   mv -f "${transfer_staging}/${key}" "${target}"
-  record_pulled_version "${key}" "${version}"
   cleanup_staging
   transfer_staging=""
 }

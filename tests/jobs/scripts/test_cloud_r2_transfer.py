@@ -274,8 +274,6 @@ def test_indicator_download_refuses_unproven_body(tmp_path, operation, failure):
     assert _remote_writes(log) == []
     assert "synthetic-private-value" not in completed.stderr
     assert local_path.read_bytes() == local
-    if operation == "pull-indicators":
-        assert not (Path(env["R2_GENERATION_DIR"]) / "indicators.sqlite.etag").exists()
     assert not list(root.glob(".r2-transfer.*"))
 
 
@@ -283,6 +281,10 @@ def test_indicator_pull_installs_the_single_pinned_get(tmp_path):
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
+    # Indicator pushes merge a fresh remote copy; only the App needs a local origin.
+    unavailable_origin_dir = tmp_path / "not-a-directory"
+    unavailable_origin_dir.write_text("untouched")
+    env["R2_GENERATION_DIR"] = str(unavailable_origin_dir)
     canonical = _indicator_fixture(Path(env["AWS_FAKE_STATE"]) / "put-indicators.sqlite", "a")
 
     completed = subprocess.run(
@@ -302,9 +304,7 @@ def test_indicator_pull_installs_the_single_pinned_get(tmp_path):
     assert sum(command.startswith("s3api head-object ") for command in commands) == 2
     assert _remote_writes(log) == []
     assert (root / "stores/market_context/indicators.sqlite").read_bytes() == canonical
-    assert (
-        Path(env["R2_GENERATION_DIR"]) / "indicators.sqlite.etag"
-    ).read_text() == '"etag-stable"\n'
+    assert unavailable_origin_dir.read_text() == "untouched"
 
 
 def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> None:
