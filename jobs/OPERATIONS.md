@@ -336,7 +336,7 @@ validateはL2算式/L3履歴の証明でない。原本更新時だけ経済push
 
 TSRデータインサイト・日銀新着の定期収集と、その他の媒体を含む手動一括取得は終了した。[必要時の企業調査](../docs/reference/stock-assessment.md#recent-news-research)で発表元の一覧から原文を読み、判断に使った出典を残す。[経済原本](#economic-acquisition)（日銀の経済数値を含む）と[数値の外部評価](#external-assessment-acquisition)は同じ入口で継続する。
 
-日次に記事の取込や代替取得はない。[旧記事workflow](../.github/workflows/cloud-article-sources-current.yml)は無効のままにし、旧runを再実行しない。実装の削除で既存stage・本文・Lake・App/Runsは削除しない。
+日次は圧縮済みの現行Marketから始め、旧releaseの記事本文・観測・抽出・投影を復元も再発行もしない。[旧記事workflow](../.github/workflows/cloud-article-sources-current.yml)は無効のままにし、旧runを再実行しない。既存stage・固定release・App/Runsはこの切替で削除しない。
 
 公表済み提案は保存した根拠で読み、Lakeに記録した出典は指定の固定releaseで同じID・hashを照合する。stageだけが分かる場合は、元のstage ID・manifest SHA・receipt ID・receipt SHAを指定し、原本を私有ディレクトリにコピーする。304の原本は同じ内容の別受領ではなく、その304が指定する元200。
 

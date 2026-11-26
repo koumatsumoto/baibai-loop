@@ -93,7 +93,7 @@ from baibai_jobs.integration.price_native import model_input as native_price_mod
 from baibai_jobs.integration.short_sale_reports_native import (
     model_input as native_shorts_model_input,
 )
-from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.datasets import ARCHIVED_ARTICLE_DATASETS, LAKE_DATASETS
 from baibai_jobs.publication.l1_calendar_export import export_calendar_from_native_input
 from baibai_jobs.publication.l1_margin_alerts_export import export_margin_alerts_from_native_input
 from baibai_jobs.publication.l1_margin_interest_export import (
@@ -241,7 +241,8 @@ def prepare_market_lake(
         published_coverage_start = {
             name: manifest.coverage_start
             for name, manifest in serving_release.dataset_manifests.items()
-            if name
+            if name not in ARCHIVED_ARTICLE_DATASETS
+            and name
             not in {
                 "jquants.fin_summaries",
                 "jquants.daily_bars",
@@ -378,6 +379,7 @@ def prepare_market_lake(
             name: item
             for name, item in LAKE_DATASETS.items()
             if name not in derived_names
+            and name not in ARCHIVED_ARTICLE_DATASETS
             and name != "jquants.fin_summaries"
             and name != "jquants.daily_bars"
             and name != "jquants.master_snapshots"

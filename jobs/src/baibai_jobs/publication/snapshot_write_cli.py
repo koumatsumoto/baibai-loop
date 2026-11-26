@@ -49,7 +49,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     read_lake_store_origin_from_connection,
 )
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
-from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.datasets import ARCHIVED_ARTICLE_DATASETS, LAKE_DATASETS
 from baibai_jobs.publication.policy import (
     edinet_metrics_contract_is_current,
     release_policy_for_profile,
@@ -260,9 +260,14 @@ def hydrate_release(
         )
     else:
         dataset_names = release.dataset_names()
-        if mode == "daily" and _daily_rebuilds_prices(release, store):
-            deferred = "jquants.daily_bars"
-            dataset_names = tuple(name for name in dataset_names if name != deferred)
+        if mode == "daily":
+            if _daily_rebuilds_prices(release, store):
+                deferred = "jquants.daily_bars"
+            dataset_names = tuple(
+                name
+                for name in dataset_names
+                if name not in ARCHIVED_ARTICLE_DATASETS and name != deferred
+            )
     with prefetching_hydration_cache(
         cache, release=release, dataset_names=dataset_names, bucket=bucket
     ) as hydration_cache:
