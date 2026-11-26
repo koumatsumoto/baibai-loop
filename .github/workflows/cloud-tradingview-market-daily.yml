@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: tradingview-runtime
-    # Share the lock with the existing snapshot to serialize OAuth rotation.
+    # Scheduled and manual captures rotate the same TradingView OAuth state.
     concurrency:
-      group: source-acquire-jquants
+      group: source-acquire-tradingview
       queue: max
       cancel-in-progress: false
     steps:

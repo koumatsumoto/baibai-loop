@@ -19,7 +19,7 @@ def test_only_market_tradingview_uses_its_existing_runtime() -> None:
     market_job = yaml.load(market.read_text(), Loader=yaml.BaseLoader)["jobs"]["capture"]
     assert market_job["environment"] == "tradingview-runtime"
     assert market_job["concurrency"] == {
-        "group": "source-acquire-jquants",
+        "group": "source-acquire-tradingview",
         "queue": "max",
         "cancel-in-progress": "false",
     }
