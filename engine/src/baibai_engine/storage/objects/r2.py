@@ -241,7 +241,7 @@ class CheckedObjectMetadataReader(Protocol):
     """Bounded bytes with same-response metadata and body-integrity validation."""
 
     def get_checked_object(
-        self, key: str, *, max_bytes: int, single_attempt: bool = False
+        self, key: str, *, max_bytes: int
     ) -> tuple[bytes, RemoteObject] | None: ...
 
 

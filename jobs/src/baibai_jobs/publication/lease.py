@@ -19,9 +19,9 @@ from typing import Literal
 
 from dotenv import load_dotenv
 
+from baibai_engine.storage.objects import r2
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
-    CheckedObjectMetadataReader,
     LakeCASConflict,
     LakePublishError,
     ObjectStore,
@@ -149,7 +149,7 @@ def _encode(lease: PublicationLease) -> bytes:
 def _generation(store: ObjectStore) -> tuple[PublicationLease, bytes, str] | None:
     # On R2 the GET already binds its ETag to those bytes. Writes still use that
     # exact generation as their precondition; a second HEAD cannot fence a later write.
-    if isinstance(store, CheckedObjectMetadataReader):
+    if isinstance(store, r2.Boto3R2Store):
         response = store.get_checked_object(
             PUBLICATION_LEASE_KEY, max_bytes=_MAX_LEASE_BYTES, single_attempt=True
         )
