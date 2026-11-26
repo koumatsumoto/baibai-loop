@@ -33,40 +33,34 @@ def store_edinet_metrics(
 ) -> int:
     conn = open_connection(db_path)
     try:
-        records_list = list(records)
         if status == "failed":
-            if records_list:
+            if list(records):
                 raise ValueError("failed EDINET metric attempts cannot write metric rows")
             _record_failed_attempt(conn, asof_date, error)
             return 0
-        rows = _edinet_metric_rows(asof_date.isoformat(), records_list)
-        skipped_count = len(records_list) - len(rows)
-        stored_status = status
-        stored_error = error
-        if status == "ok" and skipped_count:
-            stored_status = "partial"
-            stored_error = f"{skipped_count} EDINET metric rows were skipped"
+        rows = _edinet_metric_rows(asof_date.isoformat(), records)
+        if not rows:
+            raise ValueError("EDINET metric baseline must contain at least one row")
         conn.execute("DELETE FROM edinet_metrics WHERE asof_date = ?", (asof_date.isoformat(),))
         delete_overlapping_source_coverage(conn, "edinet_metrics", asof_date, asof_date)
-        if rows:
-            conn.executemany(
-                "INSERT OR REPLACE INTO edinet_metrics("
-                "asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
-                "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, "
-                "ttm_quality_pcfr, operating_profit_ttm, depreciation_and_amortization_ttm, "
-                "capex_ttm, fcf_ttm, net_cash, equity, total_assets, ttm_quality_fcf, "
-                "ttm_quality_net_cash, source_doc_id, document_type, source_submit_datetime, "
-                "source_period_start, source_period_end, capex_source, failure_reasons, "
-                "extractor_revision, source_document_revision, investment_securities, "
-                "ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
-                "ocf_payables_cash_effect, ocf_contract_liabilities_cash_effect, "
-                "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
-                "capex_ppe_reported, capex_intangible_reported, "
-                "financing_lease_repayments_cash_effect, "
-                "financing_noncontrolling_dividends_cash_effect"
-                ") VALUES (" + ", ".join("?" for _ in range(40)) + ")",
-                rows,
-            )
+        conn.executemany(
+            "INSERT OR REPLACE INTO edinet_metrics("
+            "asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
+            "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, "
+            "ttm_quality_pcfr, operating_profit_ttm, depreciation_and_amortization_ttm, "
+            "capex_ttm, fcf_ttm, net_cash, equity, total_assets, ttm_quality_fcf, "
+            "ttm_quality_net_cash, source_doc_id, document_type, source_submit_datetime, "
+            "source_period_start, source_period_end, capex_source, failure_reasons, "
+            "extractor_revision, source_document_revision, investment_securities, "
+            "ocf_receivables_cash_effect, ocf_inventories_cash_effect, "
+            "ocf_payables_cash_effect, ocf_contract_liabilities_cash_effect, "
+            "ocf_advances_received_cash_effect, ocf_other_payables_cash_effect, "
+            "capex_ppe_reported, capex_intangible_reported, "
+            "financing_lease_repayments_cash_effect, "
+            "financing_noncontrolling_dividends_cash_effect"
+            ") VALUES (" + ", ".join("?" for _ in range(40)) + ")",
+            rows,
+        )
         persisted_count = date_range_row_count(
             conn, "edinet_metrics", "asof_date", asof_date, asof_date
         )
@@ -77,8 +71,8 @@ def store_edinet_metrics(
             coverage_start=asof_date.isoformat(),
             coverage_end=asof_date.isoformat(),
             record_count=persisted_count,
-            status=stored_status,
-            error=stored_error,
+            status=status,
+            error=error,
         )
         conn.commit()
         return persisted_count
@@ -121,7 +115,7 @@ def _edinet_metric_rows(
     for record in records:
         ticker = normalize_ticker_or_none(record.get("ticker"))
         if ticker is None:
-            continue
+            raise ValueError("EDINET metric row is missing or has an invalid ticker")
         extractor_revision = to_str_or_none(record.get("extractor_revision"))
         if extractor_revision is None:
             raise ValueError(f"EDINET metric row {ticker} is missing extractor_revision")

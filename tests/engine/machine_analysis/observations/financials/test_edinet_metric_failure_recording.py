@@ -190,3 +190,21 @@ def test_failed_attempt_cannot_write_metric_payload(tmp_path):
             path, DAY, [{"ticker": "9682", "extractor_revision": "fixture"}], status="failed"
         )
     assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("include_invalid", [False, True])
+def test_unpublishable_rows_cannot_replace_valid_baseline(tmp_path, include_invalid):
+    path = tmp_path / "market.sqlite"
+    valid = {"ticker": "9682", "cash": 11.0, "extractor_revision": "fixture"}
+    assert store_edinet_metrics(path, DAY, [valid]) == 1
+    baseline = read_edinet_metric_baseline(path, DAY)
+    assert baseline is not None
+    assert baseline.rows["9682"].record.cash == 11.0
+
+    replacement = []
+    if include_invalid:
+        replacement = [{**valid, "ticker": "not-a-ticker"}, {**valid, "cash": 99.0}]
+    message = "invalid ticker" if include_invalid else "at least one row"
+    with pytest.raises(ValueError, match=message):
+        store_edinet_metrics(path, DAY, replacement)
+    assert read_edinet_metric_baseline(path, DAY) == baseline
