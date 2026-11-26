@@ -4,7 +4,7 @@ import hashlib
 import json
 from contextlib import closing
 
-from tests.helpers.article_acquisition import SLOT, _packet
+from tests.helpers.article_evidence import SLOT, make_packet
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -13,20 +13,13 @@ from baibai_engine.data_collection.receipts.articles.store import retain_receipt
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs import cli
 from baibai_jobs.acquisition import article_evidence
-from baibai_jobs.acquisition.article_planning import (
-    commit_stage,
-    load_planning,
-    publish_planning_input,
-    source_key,
-)
+from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.integration import sources
 
 
 def test_daily_plan_does_not_list_or_read_retained_article_stages(tmp_path, monkeypatch, capsys):
     store = MemoryR2Store()
-    publish_planning_input(store, "boj_news", {})
-    state, etag = load_planning(store, "boj_news")
-    packet = _packet(tmp_path)
+    packet = make_packet(tmp_path)
     body = b"synthetic retired article"
     original = ArticleReceipt(
         receipt_id="exact-original",
@@ -45,20 +38,14 @@ def test_daily_plan_does_not_list_or_read_retained_article_stages(tmp_path, monk
         receipt_ids=[original.receipt_id], projection_kinds={original.receipt_id: "document"}
     )
     report_path.write_text(json.dumps(old_report))
-    entry = commit_stage(
-        store,
-        state=state,
-        expected_etag=etag,
-        slot=SLOT,
-        stage_id="boj_news-retained",
-        directory=packet,
-        requests={},
-        cursor={},
-        not_before=None,
-    )
+    stage = "boj_news-retained"
+    key = f"coordination/article-sources/{stage}/handoff.json"
+    save_handoff(store, stage, packet, namespace="article-sources")
+    digest = hashlib.sha256(store.values[key].body).hexdigest()
     # A missing/invalid older ancestry used to be an error in each day. Data
     # from the exact fixed original remains readable without opening that chain.
-    store.store_object(source_key("boj_news"), b"unusable retired planning root")
+    planning_key = "coordination/article-planning/boj_news.json"
+    store.store_object(planning_key, b"unusable retired planning root")
     empty_edinet_input(store, tmp_path)
     before = dict(store.values)
     calls = []
@@ -96,9 +83,9 @@ def test_daily_plan_does_not_list_or_read_retained_article_stages(tmp_path, monk
                 "--source",
                 "boj_news",
                 "--stage-id",
-                entry["stage_id"],
+                stage,
                 "--manifest-sha256",
-                entry["manifest_sha256"],
+                digest,
                 "--directory",
                 str(evidence_dir),
                 "--receipt",
@@ -113,6 +100,6 @@ def test_daily_plan_does_not_list_or_read_retained_article_stages(tmp_path, monk
     assert (evidence_dir / "body-0.bin").read_bytes() == body
     record = json.loads((evidence_dir / "evidence.json").read_text())
     assert record["receipts"][0]["receipt_sha256"] == original.sha256
-    assert record["stage"]["manifest_sha256"] == entry["manifest_sha256"]
-    assert source_key("boj_news") not in store.get_keys
+    assert record["stage"]["manifest_sha256"] == digest
+    assert planning_key not in store.get_keys
     assert all(store.values[key] == val for key, val in before.items())
