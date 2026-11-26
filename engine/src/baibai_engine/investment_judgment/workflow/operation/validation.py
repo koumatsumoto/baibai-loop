@@ -93,6 +93,7 @@ def validate_progress(
     complete: bool,
     previous: ResearchProgress | None = None,
 ) -> ResearchProgress:
+    """Verify exact pairs, and apply the case date only when binding a new outcome."""
     if now.utcoffset() is None:
         raise ValueError("research progress instant must include a UTC offset")
     require_coverage(selection_targets(selection), progress.outcomes, complete=complete)
@@ -111,4 +112,8 @@ def validate_progress(
             raise ValueError("research outcome differs from its Reviewed Assessment ticker")
         if pair.published_at > now:
             raise ValueError("research outcome precedes Assessment publication")
+        if pair.document.input_snapshot.as_of < selection.research_as_of and (
+            previous is None or outcome not in previous.outcomes
+        ):
+            raise ValueError("assessment predates the fixed Research selection")
     return progress

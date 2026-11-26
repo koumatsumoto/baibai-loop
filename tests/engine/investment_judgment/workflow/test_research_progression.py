@@ -1,5 +1,6 @@
 """正式選定から評価pair、保存提案、完成/未完成への進行を合成正本で確認する。"""
 
+import json
 import socket
 import sqlite3
 from contextlib import closing
@@ -18,7 +19,11 @@ from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.cli.operation import main as operation_main
-from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
+from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
+from baibai_engine.investment_judgment.stock_assessment.store import (
+    load_reviewed_assessment,
+    publish_reviewed_assessment,
+)
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation import service as operation_owner
@@ -26,6 +31,7 @@ from baibai_engine.investment_judgment.workflow.operation.models import Operatio
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     ProposalRef,
     ResearchProgress,
+    ReviewedTarget,
     progress_binding,
     proposal_scope,
     selection_binding,
@@ -55,8 +61,9 @@ def ledger_rows(db):
         return connection.execute("SELECT payload FROM ledger_event ORDER BY append_seq").fetchall()
 
 
-def seed_assessment(db, ticker="1234", *, number=1, now=NOW):
-    document, review = pair_payload(ticker=ticker, review_number=number + 100)
+def seed_assessment(db, ticker="1234", *, number=1, now=NOW, as_of=None):
+    as_of = NOW.date().isoformat() if as_of is None else as_of
+    document, review = pair_payload(ticker=ticker, as_of=as_of, review_number=number + 100)
     with closing(connect_rw(db)) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         publish_reviewed_assessment(
@@ -65,21 +72,42 @@ def seed_assessment(db, ticker="1234", *, number=1, now=NOW):
     return assessment_id(number)
 
 
-def start(case, tickers=(), *, scope="discover_new"):
+def start(case, tickers=(), *, scope="discover_new", now=NOW, initial_progress=None):
     db, _market = case
     runs = db.with_name("runs.sqlite")
-    value = seed_generated_selection(runs=runs, db=db, now=NOW, tickers=tickers, scope=scope)
+    value = seed_generated_selection(runs=runs, db=db, now=now, tickers=tickers, scope=scope)
+    payload = OperationPayload(
+        checkpoint="合成依頼を明示開始", artifacts=(value.model_dump(mode="json"),)
+    )
+    if initial_progress is not None:
+        payload = with_progress(payload, initial_progress)
     service = OperationService(db, runs_path=runs)
     operation = service.start(
         session_kind="position-review" if scope == "review_positions" else "capital-allocation",
-        as_of=NOW.date(),
-        started_at=NOW,
+        as_of=now.date(),
+        started_at=now,
         ticker=tickers[0] if scope == "review_positions" and len(tickers) == 1 else None,
-        payload=OperationPayload(
-            checkpoint="合成依頼を明示開始", artifacts=(value.model_dump(mode="json"),)
-        ),
+        payload=payload,
     )
     return service, operation
+
+
+def reviewed_progress(db, identity):
+    with closing(connect_read_only(db)) as connection:
+        pair = load_reviewed_assessment(connection, identity)
+    return ResearchProgress(
+        outcomes=(
+            ReviewedTarget(
+                ticker=pair.document.input_snapshot.ticker,
+                purpose="new",
+                assessment_ref=AssessmentRef(
+                    assessment_id=identity,
+                    core_sha256=pair.core_sha256,
+                    review_id=pair.review.review_id,
+                ),
+            ),
+        )
+    )
 
 
 def finish(service, operation, proposal):
@@ -291,6 +319,106 @@ def test_future_assessment_publication_cannot_be_recorded(case, later):
     with pytest.raises(ValueError, match="precedes Assessment publication"):
         service.record_assessment(operation.operation_id, reference, now=NOW)
     assert service.get(operation.operation_id) == operation
+
+
+@pytest.mark.parametrize(("days", "existing"), [(-1, False), (0, False), (1, False), (1, True)])
+def test_record_assessment_cli_uses_fixed_research_date(case, capsys, days, existing):
+    db, _ = case
+    started_at = NOW + timedelta(days=days, minutes=1)
+    record_at = max(NOW, started_at)
+    if days < 0:
+        service, operation = start(case, ("1234",), now=started_at)
+        identity = seed_assessment(db)
+    else:
+        identity = seed_assessment(db)
+        service, operation = start(case, ("1234",), now=started_at)
+    if existing:
+        operation = service.record_unfinished(
+            operation.operation_id,
+            ticker="1234",
+            reason="今回の評価待ち",
+            references=("synthetic-source",),
+            now=record_at,
+        )
+    before = db.read_bytes()
+    ledger = ledger_rows(db)
+    exit_code = operation_main(
+        [
+            "--db",
+            str(db),
+            "--format",
+            "json",
+            "record-assessment",
+            operation.operation_id,
+            "--assessment-id",
+            identity,
+        ],
+        now=record_at,
+    )
+    captured = capsys.readouterr()
+    saved = service.get(operation.operation_id)
+    if days > 0:
+        assert exit_code == 1
+        assert "assessment predates the fixed Research selection" in captured.err
+        assert captured.out == ""
+        assert saved == operation
+        assert db.read_bytes() == before
+    else:
+        assert exit_code == 0
+        assert captured.err == ""
+        assert json.loads(captured.out)["operation_id"] == operation.operation_id
+        assert progress_binding(saved.payload) == reviewed_progress(db, identity)
+        assert saved.payload.artifacts[0] == operation.payload.artifacts[0]
+    assert ledger_rows(db) == ledger
+
+
+def test_start_rejects_initial_review_before_fixed_research_date(case):
+    db, _ = case
+    identity = seed_assessment(db)
+    initial = reviewed_progress(db, identity)
+    before = db.read_bytes()
+    with pytest.raises(ValueError, match="assessment predates the fixed Research selection"):
+        start(case, ("1234",), now=NOW + timedelta(days=1), initial_progress=initial)
+    assert db.read_bytes() == before
+    assert OperationService(db).active() is None
+    assert reviewed_progress(db, identity) == initial
+
+
+def test_retained_assessment_before_fixed_research_date_is_not_rebound(case):
+    db, _ = case
+    prior = NOW - timedelta(days=1)
+    identity = seed_assessment(db, now=prior, as_of=prior.date().isoformat())
+    service, operation = start(case, ("1234",))
+    progress = reviewed_progress(db, identity)
+    # Fixture represents an exact outcome already admitted before the date check existed.
+    retained = with_progress(operation.payload, progress)
+    with closing(connect_rw(db)) as connection, connection:
+        connection.execute(
+            "UPDATE operation_session SET payload=? WHERE operation_id=?",
+            (retained.model_dump_json(), operation.operation_id),
+        )
+    before = db.read_bytes()
+    operation = service.get(operation.operation_id)
+    assert operation.payload == retained
+    assert service.record_assessment(operation.operation_id, identity, now=NOW) == operation
+    with pytest.raises(OperationCompletionError, match="published Trade Proposal"):
+        service.complete(operation.operation_id, result="結果", next="次", completed_at=PUBLISHED)
+    assert db.read_bytes() == before
+    operation = service.checkpoint(operation.operation_id, note="続きの確認", now=NOW)
+    assert operation.payload.artifacts == retained.artifacts
+    proposal = proposal_for(operation)
+    seed_proposal(db, proposal)
+    ledger = ledger_rows(db)
+    completed = finish(service, operation, proposal)
+    assert completed.status == "completed"
+    assert completed.payload.artifacts[0] == retained.artifacts[0]
+    assert progress_binding(completed.payload).outcomes == progress.outcomes
+    assert service.get(completed.operation_id) == completed
+    assert reviewed_progress(db, identity) == progress
+    assert ledger_rows(db) == ledger
+    completed_bytes = db.read_bytes()
+    assert finish(service, completed, proposal) == completed
+    assert db.read_bytes() == completed_bytes
 
 
 def test_retry_is_stable_and_checkpoint_cannot_remove_recorded_outcomes_or_reference(

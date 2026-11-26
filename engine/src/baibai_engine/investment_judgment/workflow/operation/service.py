@@ -289,8 +289,14 @@ class OperationService:
                 payload.validate_metadata()
                 _validate_complete(before.session_kind, payload)
                 if proposal_id is None:
+                    # 完了は保存済みoutcomeを確認し、新規の評価束縛は行わない。
                     validate_progress(
-                        connection, selection, progress, now=completed_at, complete=True
+                        connection,
+                        selection,
+                        progress,
+                        now=completed_at,
+                        complete=True,
+                        previous=progress,
                     )
                     if (
                         reference is not None
