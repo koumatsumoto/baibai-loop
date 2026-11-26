@@ -62,12 +62,22 @@ from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contr
     JQUANTS_WEEKLY_MARGIN,
 )
 
+# Fixed releases still describe these objects; normal daily does not carry them.
+ARCHIVED_ARTICLE_DATASETS = MappingProxyType(
+    {
+        item.name: item
+        for item in (
+            ARTICLE_RECEIPTS,
+            ARTICLE_PROJECTION_RUNS,
+            ARTICLE_OBSERVATIONS,
+            ARTICLE_EXTRACTION_ARTIFACTS,
+        )
+    }
+)
+
 LAKE_DATASETS = MappingProxyType(
     {
-        ARTICLE_RECEIPTS.name: ARTICLE_RECEIPTS,
-        ARTICLE_PROJECTION_RUNS.name: ARTICLE_PROJECTION_RUNS,
-        ARTICLE_OBSERVATIONS.name: ARTICLE_OBSERVATIONS,
-        ARTICLE_EXTRACTION_ARTIFACTS.name: ARTICLE_EXTRACTION_ARTIFACTS,
+        **ARCHIVED_ARTICLE_DATASETS,
         EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS.name: (
             EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS
         ),
