@@ -61,14 +61,13 @@ def test_native_archive_acquisition_never_loads_l2_or_opens_sqlite(tmp_path):
             def fetch_archive(self, doc_id, source_type):
                 requested.append((doc_id, source_type))
                 return EdinetResponse(at, zip_body)
-        acquisition.time.sleep = lambda _: None
         for group in ("edinet-metrics", "edinet-facts"):
             report = acquisition.acquire_archives(
                 archives, Client(), fixed_lists, group=group, asof=day,
                 lookback_days=0, initialize_facts=group == "edinet-facts"
             )
             assert report["status"] == "received"
-        assert requested == [("S100ANNUAL", 5), ("S100ANNUAL", 1), ("S100HOLDER", 1)]
+        assert requested == [("S100ANNUAL", 5), ("S100ANNUAL", 1)]
         fixed = archives.freeze()
         for doc_id, source_type in requested:
             assert fixed.read_archive(doc_id, source_type) == zip_body

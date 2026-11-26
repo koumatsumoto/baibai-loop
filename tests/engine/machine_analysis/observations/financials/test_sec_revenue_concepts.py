@@ -14,7 +14,7 @@ from baibai_engine.machine_analysis.observations.financials import sec_companyfa
 from baibai_engine.machine_analysis.observations.financials.sec_companyfacts import (
     SecCompanyFactsCapture,
     SecFilingWitness,
-    SecRevenueObservation,
+    SecIssuerUsdObservation,
     observe_sec_revenue,
 )
 
@@ -107,7 +107,7 @@ def test_original_apple_consolidated_quarter_under_contract_tag_is_not_ytd(rever
     )
     capture = _capture({_LEGACY: _units(old_legacy), _CONTRACT: _units(*rows)})
     result = _observe(capture)
-    assert isinstance(result, SecRevenueObservation)
+    assert isinstance(result, SecIssuerUsdObservation)
     assert result.amount == Decimal("94036000000")
     assert (result.period_start, result.period_end) == (_Q_START, _Q_END)
     assert (result.unit, result.scope, result.concept) == (
@@ -129,7 +129,7 @@ def test_original_apple_consolidated_quarter_under_contract_tag_is_not_ytd(rever
     just_ytd = _capture({_CONTRACT: _units(nine_months)})
     assert _observe(just_ytd) == "no_fact_for_scope"
     ytd_result = _observe(just_ytd, start=_YTD_START)
-    assert isinstance(ytd_result, SecRevenueObservation)
+    assert isinstance(ytd_result, SecIssuerUsdObservation)
     assert ytd_result.amount == Decimal("313695000000")
 
 
@@ -142,7 +142,7 @@ def test_later_identical_comparative_can_neither_backfill_nor_replace_original()
     collected_late = _capture({_CONTRACT: _units(later, _fact())}, received=_LATE_RECEIVED)
     assert _observe(collected_late) == "not_yet_received"
     original = _observe(collected_late, cutoff=_LATE_RECEIVED)
-    assert isinstance(original, SecRevenueObservation)
+    assert isinstance(original, SecIssuerUsdObservation)
     assert original.filing.accession == _ORIGINAL
     assert original.fact_paths == (f"/facts/us-gaap/{_CONTRACT}/units/USD/1",)
 
@@ -155,7 +155,7 @@ def test_competing_concepts_are_not_synonyms_even_when_their_values_match(
     pairs = [(_CONTRACT, _units(_fact())), (_LEGACY, _units(_fact(value=value)))]
     capture = _capture(dict(reversed(pairs)) if reverse else dict(pairs))
     result = _observe(capture)
-    assert not isinstance(result, SecRevenueObservation)
+    assert not isinstance(result, SecIssuerUsdObservation)
     assert isinstance(result, sec_companyfacts.SecRevenueAmbiguity)
     expected_reason = (
         "conflicting_amounts" if value != 94_036_000_000 else "semantic_equivalence_unverified"

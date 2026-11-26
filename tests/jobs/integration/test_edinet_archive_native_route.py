@@ -89,6 +89,45 @@ def native_cli(tmp_path, monkeypatch, *, group="edinet-facts", documents=None):
     return owner, client, directory, output, argv, lists
 
 
+def test_workflow_stops_bulk_holder_zips_but_preserves_annual_and_retained_original(
+    tmp_path, monkeypatch
+):
+    owner, client, _, output, argv, _ = native_cli(
+        tmp_path,
+        monkeypatch,
+        documents=[
+            filing("S100ANNUAL"),
+            filing("S100CORRECT", docTypeCode="130", parentDocID="S100ANNUAL"),
+            filing("S100HOLDER", docTypeCode="350", secCode=None),
+            filing("S100HOLDREV", docTypeCode="360", parentDocID="S100HOLDER", secCode=None),
+        ],
+    )
+    retained_holder = b"already retained holder original"
+    owner.publish(
+        [NativeArchive.from_response("S100OLDHOLD", 1, EdinetResponse(AT, retained_holder))]
+    )
+    before = owner.freeze().metadata("S100OLDHOLD", 1)
+    response = client.fetch_archive.return_value
+
+    def receive(doc_id, source_type):
+        assert (doc_id, source_type) in {("S100ANNUAL", 1), ("S100CORRECT", 1)}
+        return response
+
+    client.fetch_archive.side_effect = receive
+    assert source_handoff.main(argv) == 0
+    assert [call.args for call in client.fetch_archive.call_args_list] == [
+        ("S100ANNUAL", 1),
+        ("S100CORRECT", 1),
+    ]
+    assert output.read_text().splitlines() == ["stage_ready=false", "native_l1=true"]
+    fixed = owner.freeze()
+    assert fixed.scope.doc_ids == frozenset({"S100ANNUAL", "S100CORRECT"})
+    assert fixed.archive_keys == {("S100ANNUAL", 1), ("S100CORRECT", 1), ("S100OLDHOLD", 1)}
+    assert fixed.metadata("S100OLDHOLD", 1) == before
+    assert fixed.read_xbrl_zip("S100OLDHOLD") == retained_holder
+    assert owner.store.delete_keys == []
+
+
 @pytest.mark.parametrize("group", ["edinet-metrics", "edinet-facts"])
 def test_workflow_acquires_without_input_market_l2_or_retained_body_get(
     tmp_path, monkeypatch, group

@@ -55,7 +55,7 @@ gh run watch "${RUN_ID:?対象の日次run IDを指定}" --exit-status --interva
 
 定期実行は既存の全Generation/Selectionを保持する。手動で履歴を保持するには上の`preserve_existing_generations=true`（localでは`--preserve-existing-generations`）が必要。省略/falseではcache整理が走る。既存IDの読取不能を空とせず、過去に欠けた世代は[保持copyからの復元](#保持copyから欠落generationを戻す)として扱う。
 
-EDINET revisionを明示受入する場合だけ、隔離比較済みの[受入条件](src/baibai_jobs/integration/edinet_metric_acceptance.py)を`edinet_metrics_acceptance`へ渡す。明示asof・全世代保持のもと、固定list/archive・revision・対象sampleの原本/保存結果のdigestを生成前に照合する。partial/延期・入力交代・差異は停止し、後付け期待値で通さない。先行する経済L1・planの保持は取り消されず、公開後の実読戻し・L3の受入は別。記事だけの再抽出は[記事の復旧](#記事のexact遅着回復)へ。
+EDINET revisionを明示受入する場合だけ、隔離比較済みの[受入条件](src/baibai_jobs/integration/edinet_metric_acceptance.py)を`edinet_metrics_acceptance`へ渡す。明示asof・全世代保持のもと、固定list/archive・revision・対象sampleの原本/保存結果のdigestを生成前に照合する。partial/延期・入力交代・差異は停止し、後付け期待値で通さない。先行する経済L1・planの保持は取り消されず、公開後の実読戻し・L3の受入は別。
 
 失敗時は正本のIDと最後に完了した段階・lease解放を確認する。通知や`done`行だけで公開を判定しない。公開受入の診断は`release_acceptance`のreason codeと登録dataset名、未分類は型までで、原本や識別子は出さない。候補0は投資機会なしではない。[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を参照し、過去の結果はIDを指定して読む。
 
@@ -65,7 +65,6 @@ EDINET revisionを明示受入する場合だけ、隔離比較済みの[受入�
 | --- | --- |
 | `MISSING` | 成功/進行中を確認できない。検索は各workflowの最新100runまでで、過去日まで届かなければ履歴不足として通知しない。削除済みの状態は再現しない。 |
 | `DELAYED` | 対象日の成功がなく、初回dailyがqueueで210分超。再実行の待機・実行中の遅延・原因は推定しない。定期監視なので閾値到達時の即時通知ではない。 |
-| `SOURCE QUALITY` | 表示されたattemptでcore・seal・input・Web・lease解放が成功し、個社TradingViewの固定受領の拒否だけが失敗。元runは赤のまま。日次再実行で受領gapは直らない。他sourceの完全性や後の世代まで保証しない。 |
 
 ```bash
 gh workflow run cloud-batch-watchdog.yml --ref main -f "check_date=${ASOF:?対象日をYYYY-MM-DDで指定}"
@@ -103,11 +102,15 @@ ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済
 
 [日次](#daily)は材料を作り、[表示生成](#web-serving)は既存提案を表示する。どちらの成功も新規提案の受入ではない。正規の入口は [Investment Judgment](../.agents/skills/investment-judgment/SKILL.md)。既存コマンドを本番入力が揃う認可済み作業環境で実行する。入力が揃っていればDBの再取得や別環境への転送は不要。
 
+手動日次に `-f jp_input_probe_ticker=7203`（例）を加えると、同じrunnerでその日次が生成したGeneration・Selectionの1銘柄と、その期待価格日の未調整終値を確認する。追加入力DB・再転送は不要。dispatch入力は秘密ではないため公開テスト銘柄だけを指定する。通常の日次と独立した結果はActionsのJob summaryで確認する。これだけでは調査・正式提案・本番公開を証明しない。
+
 1. 検証CLIのcommitと日次runのcommitを別々に記録し、日次の同一run/attempt、release ID・manifest SHA・machine receipt SHAを固定する。receiptに合うMarket/Runs、Marketのorigin、RunsのGenerationとSelectionの対応を確認する。Appは別正本なので、[取得元・取得版・時刻を固定した作業copy](#application-db-を反映する)を使う。保存先は隔離Appのみ。必要な入力を同じ出所で読めない場合は、別日や最新のデータで補わず、そこで止める。
 2. 隔離Appを指定して `operation --db <APP_DB> --format json show --status active` を先に確認する。同じ案件は[保存したOperation IDで再開](../.agents/skills/investment-judgment/SKILL.md#完了と再開)し、別案件なら新規の `prepare` は止める。受入のためだけに別案件を閉じず、本番Appも変更しない。
    新規案件は `selection-context` にそのGeneration・Selection・研究基準日・情報締切を明示し、`selection-context` と `prepare` には同じ `--runs-path` を渡して[選定と調査・評価の保存](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)へ進む。正式終値と一次資料は別に照合し、終値の価格日と資料の公表時刻を記録する。選定・prepare・評価保存・Operation操作にも同じ隔離Appを `--db` で明示する。価値と価格の差、市場・同業との比較、欠測、判断を変える条件を確認し、評価を独立査読する。買いを件数目標にしない。
 3. [提案の手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)に沿って `trade-proposal-context` → `trade-proposal-check` → 提案本文の独立査読 → `trade-proposal-check` で `valid=true` と `review_binding=match` を確認 → `trade-proposal-publish` → [`operation complete`](../.agents/skills/investment-judgment/SKILL.md#完了と再開)（同じ提案ID、結果、次の手を指定）。3つの提案コマンドには同じ `--db` と `--sqlite-path` を明示する。正式保存された同じ提案IDを読戻す。ここでのpublishは隔離Appへの保存であり、R2や実配信への公開・発注ではない。
-4. 隔離checkoutでローカル表示を生成し、同じAppと提案IDで照合する。複数ケースは各提案がそのAppのlatestのうちに照合する。完了条件は「新規正式提案が保存され、Operation完了と表示が同じIDで読めた」。受入で見つけた問題は、根拠と再現条件を残して修正後に同じ入力で再確認する。実配信まで確認する場合だけ [Webの照合](#web-serving) を別に行う。
+4. 隔離checkoutでローカル表示を生成し、同じAppと提案IDで照合する。複数ケースは各提案がそのAppのlatestのうちに照合する。同じIDで保存・Operation完了・表示を確認できても、売買や資金配分の判断の有無までは分からない。
+   発行した提案の `research_scope.outcomes[].status` と `items[].action` を銘柄コードで照合する。買い・売り・保有継続・根拠のある見送り（`no_action`）と、査読後も判断を保留した対象（`reviewed` / `defer`）、調査未完の対象（`unfinished` / `defer`）を分けて報告する。表示側の未完理由と参照は `items[].unfinished` を確認する。調査未完は評価済みに数えず、発行した提案の全項目が保留なら「経路は確認済み、売買判断は未確認」とする。対象0件で提案なしのOperation完了は、正式提案の受入には数えない。
+   受入で見つけた問題は、根拠と再現条件を残して修正後に同じ入力で再確認する。実配信まで確認する場合だけ [Webの照合](#web-serving) を別に行う。
 
 作業は検証するcommitの隔離checkoutで行い、そのルートを `WORK_ROOT` とする。DBだけのディレクトリは使えない（[ルートの判定](../engine/src/baibai_engine/storage/paths.py)は `pyproject.toml` と `engine/src/baibai_engine/` を必要とする）。固定した入力の作業コピーは、そのcheckoutの `stores/application/baibai.sqlite`、`stores/market/market.sqlite`、`stores/screening/runs.sqlite` に置く。執筆ファイルと表示出力は `.cache/` 配下に置く。これらはGit管理外で、本番正本への書戻しは行わない。
 
@@ -212,17 +215,8 @@ uv run baibai-jobs restore-model-history \
 ### machine公開後の失敗再開
 
 - machine成功/seal失敗: 元の固定planと完全な `applied.json` を私有の作業copyに保持している場合に限り、元の公開release・market/runsの組と照合してsealから再開する。通常のActionsは両ファイルをrunnerの一時領域にだけ保存し、公開ログでは読戻し計画を省く。runner終了後に元の証拠がなければ、同一attemptのsealは復元できない。既存のstageとmarkerを確認し、通常探索できる未seal分だけを新しい固定planで前向きに適用する。対象を特定できなければ止める。ログや現行値から旧計画を作らず、providerへ再GETしない。
-- seal成功/input途中: 成功した日次や取得全体を再実行せず、失敗したgroupだけを `inputs --group` で再発行する。`--group` は `plan`・`apply`・`seal`・`check` の範囲を絞る指定ではない。元runの市場release/manifest・market/runsの対を現在の正本と照合する。元の対を確認できない、または世代が進んだときは同一世代からの復旧と扱わない。
 
 JPXのsealはapplyで固定したbundle原本と、決算予定の全体/規制の対象日を公開releaseから読戻す。未公開applyや異なる本文/投影では成功markerを発行しない。旧applied.jsonに読戻し計画がなければ、元stageを保ってfresh正本へ同じplanを再applyし、通常の生成・公開・読戻しへ進む。現在の値から旧計画を補わない。
-
-```bash
-uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_WORK> \
-  --group <GROUP> --identity <NEW_EXECUTION_ID> --asof <YYYY-MM-DD> \
-  --lease-handle "$PUBLICATION_LEASE_HANDLE"
-```
-
-経済groupは独立L1 ownerへ戻す。新datasetを非対応readerへ渡さず、現schema/catalogを保つ前向き修正とする。
 
 ### 経済単独公開と失敗再開
 
@@ -275,11 +269,11 @@ schemaが合わない・台帳を読めない場合に初期化や変換はし�
 | --- | --- |
 | [市場取得](../.github/workflows/cloud-market-sources.yml) | [J-Quants](#jquants-native-operations)と[EDINET](#edinet-list-native-l1)はsource固有のnative L1を先に確定。JPXは[原本packet](#jpx-pdf)をstageし、統合で投影する。 |
 | [経済取得](../.github/workflows/cloud-economic-sources-current.yml) | group別に部分受領をstageし、共通日次の先頭で[経済正本を別途公開](#経済単独公開と失敗再開)する。 |
-| [記事の必要時調査と停止時の取扱い](#article-acquisition) | 新規の定期・手動一括取得は行わない。受領済みstageの統合と保存済み出典の読取は別。 |
+| [記事の必要時調査と停止時の取扱い](#article-acquisition) | 新規の定期・手動一括取得は行わない。日次の新規統合も行わず、固定済みの出典は別経路で読む。 |
 | [数値の外部評価](../.github/workflows/cloud-external-assessment.yml) | 固定planで確認済みの集合（ready）を通常統合で採用する。 |
 | [多市場TradingView](../.github/workflows/cloud-tradingview-market-daily.yml) | [市場判断用の補助原本](#判断直前の多市場補助観測)。個社外部評価や正式終値の代わりにしない。 |
 
-取得時には全market/applicationをhydrateしない。同source/groupのqueueと共有quotaを守り、L2不足だけで再GETしない。[source input](src/baibai_jobs/acquisition/source_inputs.py)が必要な経路は統合から発行し、元bindingで再開する。計画材料が欠けたときは空seedや全DB取得で代用しない。形式変更時は対応readerを先行させ、非対応writerをdrainする。
+取得時には全market/applicationをhydrateしない。同source/groupのqueueと共有quotaを守り、L2不足だけで再GETしない。[経済のsource input](#経済単独公開と失敗再開)は経済統合から発行し、元bindingで再開する。計画材料が欠けたときは空seedや全DB取得で代用しない。形式変更時は対応readerを先行させ、非対応writerをdrainする。
 
 破損handoffは当該sourceの失敗として他を進める。経済等の正本やR2全体の障害では止まる。`needs_explicit_recovery`は元ID/hash/時計/markerを保った限定回復とし、正常nullや遅着を一律全期間取得で埋めない。
 
@@ -345,54 +339,24 @@ validateはL2算式/L3履歴の証明でない。原本更新時だけ経済push
 <a id="article-acquisition"></a>
 ### 記事
 
-TSRデータインサイト（`tsr_data`）・日銀新着（`boj_news`）の定期収集と、その他の媒体を含む手動一括取得は終了する。[必要時の企業調査](../docs/reference/stock-assessment.md#recent-news-research)で公開一覧から必要な原文を読み、判断に使った出典を残す。未取得期間の全件発見や当時の本文は保証しない。[経済原本](#economic-acquisition)（日銀の経済数値を含む）と[数値の外部評価](#external-assessment-acquisition)は同じ入口で継続する。
+TSRデータインサイト・日銀新着の定期収集と、その他の媒体を含む手動一括取得は終了した。[必要時の企業調査](../docs/reference/stock-assessment.md#recent-news-research)で発表元の一覧から原文を読み、判断に使った出典を残す。[経済原本](#economic-acquisition)（日銀の経済数値を含む）と[数値の外部評価](#external-assessment-acquisition)は同じ入口で継続する。
 
-この停止は新しい受領を作るworkflowだけが対象。凍結時点に受領済みのstageは、通常日次での統合・seal、必要な[exact回復](#記事のexact遅着回復)、保存済み出典の読取を続ける。既存planning・原本・Lakeや生成済み結果はこの切替で削除しない。取得ログの`bodies`は失敗を含む試行数。`continuation_only`は取得完了を意味しない。統合の成否はstageのID・manifest SHA、固定releaseの原本・観測・抽出artifactの読戻し、`integrated`または`needs_explicit_recovery`を分けて判断する。304の出典に必要なのは同じ内容の別受領でなく、その304が指定する元200。
+日次に記事の取込や代替取得はない。[旧記事workflow](../.github/workflows/cloud-article-sources-current.yml)は無効のままにし、旧runを再実行しない。実装の削除で既存stage・本文・Lake・App/Runsは削除しない。
 
-統合前のexact読取は、stage・receiptを指定し私有copyで照合する。旧market schemaでもArticleのshapeとbody digestを検証し、元SQLiteの版やbytes・planningを変えず、再GETしない。
+公表済み提案は保存した根拠で読み、Lakeに記録した出典は指定の固定releaseで同じID・hashを照合する。stageだけが分かる場合は、元のstage ID・manifest SHA・receipt ID・receipt SHAを指定し、原本を私有ディレクトリにコピーする。304の原本は同じ内容の別受領ではなく、その304が指定する元200。
 
 ```bash
 uv run baibai-jobs article-evidence --source <SOURCE> --stage-id <STAGE_ID> --manifest-sha256 <HASH> \
   --receipt <RECEIPT_ID> <RECEIPT_SHA256> --directory <PRIVATE_OUTPUT>
 ```
 
-stage原本の読取はrelease所属/抽出成功/長期保持の証明でなく、統合後は同ID/hashを固定releaseで照合する。
+固定stageの読取は、Lakeへの所属や抽出成功の証明ではない。原本が照合できない場合は出典を未確認とし、現在のWeb本文で置き換えない。
 
-#### 記事の新規取込を停止する
-
-1. 対象は[記事workflow](../.github/workflows/cloud-article-sources-current.yml)の **427554263**。下の確認でIDとpathを照合してから無効化する。旧記事401275764や現行の共通日次427554270は対象外。旧runの再実行は[当初のSHA/REFを使う](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)ため、YAMLから起動枠を消すだけでは停止確認にならない。
-
-   ```bash
-   gh api repos/koumatsumoto/baibai-loop/actions/workflows/427554263 --jq '{id,path,state}'
-   gh workflow disable 427554263 --repo koumatsumoto/baibai-loop
-   gh api --paginate 'repos/koumatsumoto/baibai-loop/actions/workflows/427554263/runs?per_page=100' \
-     --jq '.workflow_runs[] | {id,status,conclusion,run_attempt,head_sha}'
-   ```
-
-2. 前後で `disabled_manually` を確認する。[無効化は再実行を止めるが、既存runは終了しない](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)。状態で絞らず全ページと各未終端attemptを確認する。終端未確認・一覧未完を停止完了と数えない。停止を確認して、同じpathを権限・定期枠・手動入口のない履歴用にする。古い記事runを再有効化・再実行しない。日次は止めず、記事を取得する別jobやローカル実行を立ち上げない。
-3. 最後に受領したstageを、その後の単一の通常日次の適用・公開・sealと結ぶ。進行中の日次が既に同じstageを固定していれば、そのrunを使う。固定後に到着したstageだけ次の通常の日次で処理する。受領済みと未取得URL、統合済みと明示回復を分け、全件の追い取りはしない。停止後に新規記事handoff・receiptが作られないことを確かめ、処理中のseal追加は別に数える。経済L1とMarket/Runsの結果も通常どおり読戻す。不一致なら削除に進まず、現行正本と読取入口を維持する。
-
-#### 先行切替の旧writerフェンス (#2913 / #2829)
+### 先行切替の旧writerフェンス (#2913 / #2829)
 
 旧記事 `401275764`、旧経済 `394769782`、旧経済reusable `394769781`、旧日次 `317890420` は明示無効のまま維持する。[既存の確認](../tools/diagnostics/check_article_cutoff.py)はこの4旧IDを対象とし、今回の記事停止を判定しない。
 
 旧日次run `43097164269`・固定SHA `b720659b300e0c8dfbbefa003794bd83265d6261`・`main`の定期attempt 1は、同じqueued状態でjobが0件と確定した場合だけ例外。この旧コードはv2 leaseを受理せず、v2で稼働中の本番へは書き込めない。現行日次は同じ読取世代に対する取得CAS、現行経済は書込前の読取で正常なv2を確認する。別run・別attempt・状態変化・一覧不明は例外にしない。未終端中にv2の記録を削除・旧版化しない。
-
-### 記事のexact遅着回復
-
-```bash
-uv run baibai-jobs article-recovery prepare --source <ARTICLE_SOURCE_ID> \
-  --stage-id <EXACT_STAGE_ID> --manifest-sha256 <EXACT_MANIFEST_SHA256> --directory <PRIVATE_RECOVERY_DIRECTORY>
-uv run python -m baibai_jobs.integration.sources apply --asof <YYYY-MM-DD> --directory <PRIVATE_RECOVERY_DIRECTORY>
-```
-
-prepareはprovider取得やcanonical公開をせず、指定一件とその時点のEDINET pairだけをplanへ保存する。pair固定のhead読取・immutable input保存は行う。他のpending stageやexternal readyを混ぜず、通常planで上書きしない。同じfresh canonical/leaseでapply→model-integration→push-machine→seal/inputsへ進む。元receipt/時計/markerを変えず、成功はrecovered-<hash>.jsonに残す。CAS失敗原本のexact統合とcursor回復は別で、進んだcursorを戻さない。
-
-意味抽出revisionだけの回復は、選択本文のobservation ID・article version・要求revision・cutoffを先に照合する。本文が保持されても旧revisionのartifactは現行入力に使われず、新しい見出し/概要の抽出だけでは埋まらない。native revisionも変わった場合、stage replayは別article versionを作るため回復を保証しない。
-
-この場合は隔離copyで[既存抽出owner](../engine/src/baibai_engine/machine_analysis/observations/trends/extraction.py)の`extract_observations`へ明示した有限observation IDだけを渡す。native再投影・再GET・日次全件移行はせず、現在UTCの生成時計で新artifactを追記する。同内容/同revisionは再利用し、原受領/本文・旧artifactを保持する。対象IDと手順は私有の一回作業に固定し、source全体を暗黙選択しない。抽出後のartifact IDを[公開読戻しowner](src/baibai_jobs/publication/article_verification.py)へ渡して原本closureも照合する。原本/投影不変と新旧cutoffの選択を隔離copyで確認後、明示承認されたfresh canonical/同一leaseの[共通公開](#machine-publication)へ進む。保存済みGenerationは書き換えず、新規Generationにも記事を採用しない。並行publisherへ割り込まず、CLI/fixture成功を本番反映としない。
-
-次の単一dailyへ同梱するときだけ、既定空の`article_semantic_recovery`へ[有限契約](src/baibai_jobs/integration/article_semantic_recovery.py)を渡す。`as_of`と1〜16件の`observation_id`/`observation_sha256`/`article_version_id`/現行`extractor_revision`/比較済み`result_sha256`を固定し、明示asofと`preserve_existing_generations=true`を必要とする。result hashは既存抽出結果のstatus/method/revision/payloadを固定し、新artifactの生成時計を含めない。未対応結果も固定したまま許し、0件の意味を無出来事へ変えない。取得済みrawを現在のnative parserへ再投影せず、通常hydrate/apply後に対象だけ再抽出し、同じ日次の公開後に原本closureを読戻す。失敗時は新しい全件移行・再GET・盲目的再dispatchをしない。
 
 ### JPX PDF
 
@@ -554,7 +518,9 @@ uv run baibai-jobs edinet-archives-native acquire --bucket <ISOLATED_BUCKET> --d
 uv run baibai-jobs edinet-archives-native freeze --bucket <ISOLATED_BUCKET> --directory <READ_DIR>
 ```
 
-手動source=allは一覧/stage成功後にarchiveへ進む。一覧失敗時はall内archiveを止め、有効一覧を確認できる場合だけ同asofのarchiveを再実行する。metricsは取得窓の一覧に未受領日があっても、固定一覧で判明した許可CSVを先に保持する。未受領日はlist_unavailable_days、失敗受領日はlist_failed_daysへ残し、取得全体は失敗のままにする。明示refresh-edinet-metricsも既知CSVを先に保存する。要求窓内に未受領日または最新一覧の失敗日が残る場合は、先着の有効一覧があっても既存metrics/coverageを変えず失敗終了する。窓外の失敗は停止理由にしない。L2の完全window条件を緩めず、一覧回復後は保存済みZIPを再利用する。保持docID/typeを再GETせず、L2成否/revisionを取得条件にしない。holder/訂正の未保存分は既存batchを使う。CSV/XBRLともHTTP 401/403と、HTTP 200本文のStatusCode 401で当該passを止め、保存済みの部分原本を保ち、次の通常取得は未保存docID/typeだけを進める。
+手動source=allは一覧/stage成功後にarchiveへ進む。一覧失敗時はall内archiveを止め、有効一覧を確認できる場合だけ同asofのarchiveを再実行する。metricsは取得窓の一覧に未受領日があっても、固定一覧で判明した許可CSVを先に保持する。未受領日はlist_unavailable_days、失敗受領日はlist_failed_daysへ残し、取得全体は失敗のままにする。明示refresh-edinet-metricsも既知CSVを先に保存する。要求窓内に未受領日または最新一覧の失敗日が残る場合は、先着の有効一覧があっても既存metrics/coverageを変えず失敗終了する。窓外の失敗は停止理由にしない。L2の完全window条件を緩めず、一覧回復後は保存済みZIPを再利用する。保持docID/typeを再GETせず、L2成否/revisionを取得条件にしない。年次訂正の未保存分は同じ年次取得で扱う。CSV/XBRLともHTTP 401/403と、HTTP 200本文のStatusCode 401で当該passを止め、保存済みの部分原本を保ち、次の通常取得は未保存docID/typeだけを進める。
+
+大量保有報告（書類種別350/360）のZIPは通常のモデル・提案の入力ではないため、一括取得しない。保存済み原本は変更せず、必要な案件だけ原典を個別に確認する。
 
 一覧/archive未到着はdeferred_inputsで適格保存値を使い、到着後に再抽出する。解析失敗/原本破損を延期で隠さず、不正dayは正常投影を保ちながらsource-check失敗を残す。延期だけの継続とpartial/日別成功を分ける。誤orphanは現年度CSVを確保して次統合で回復し、全期間GETを代行しない。
 
@@ -563,7 +529,7 @@ uv run baibai-jobs edinet-archives-native freeze --bucket <ISOLATED_BUCKET> --di
 
 固定releaseから[facts reader](../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_facts/)を使い、文書/ticker/対象JST日とusable_documentを確認する。日末cutoffはintraday PITでなく、未選択は書類不存在を意味しない。segment/debtはdocID・期・連結・通貨を揃え、抽出行だけで全債務/資金余命を確定しない。
 
-facts scopeはL1取得範囲。L2品質でglobal開始日/docID集合を狭めず、failed/未提供/交代のfamilyも出所と共に保つ。初回annual取得は明示initialize成功後だけ有効化し、holderは独立。途中失敗は同じrefreshで再開し、ticker限定で他社/globalを置換しない。offline extractのinitializeは将来GETを有効にしない。
+facts scopeはL1取得範囲。L2品質でglobal開始日/docID集合を狭めず、failed/未提供/交代のfamilyも出所と共に保つ。初回annual取得は明示initialize成功後だけ有効化する。途中失敗は同じrefreshで再開し、ticker限定で他社/globalを置換しない。offline extractのinitializeは将来GETを有効にしない。
 
 ```bash
 uv run baibai-jobs maintain-market refresh-edinet-facts --asof <YYYY-MM-DD> --initialize --sqlite-path <STAGED_MARKET_SQLITE>

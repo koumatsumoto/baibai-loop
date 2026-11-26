@@ -36,11 +36,15 @@ from baibai_engine.machine_analysis.models.technical_analysis.calculations impor
 from baibai_engine.machine_analysis.observations.financials.sec_companyfacts import (
     SecCompanyFactsCapture,
     SecFilingWitness,
+    SecIssuerUsdObservation,
     SecPublicFilingObservation,
+    SecReportedDuration,
     SecRevenueAmbiguity,
+    observe_sec_comparatives,
     observe_sec_revenue,
 )
 from baibai_engine.machine_analysis.observations.prices.alpaca_normalization import (
+    AlpacaBarSource,
     AlpacaDailyObservation,
     normalize_alpaca_daily_bars,
 )
@@ -64,8 +68,11 @@ type _Loader = Callable[[str], bytes]
 
 def _clock(value: str) -> datetime:
     stamp = datetime.fromisoformat(value)
-    if stamp.utcoffset() is None:
-        raise ValueError("fixed receipt clocks require an offset")
+    if stamp.utcoffset() is None or not re.search(r"(?:Z|[+-][0-9]{2}:[0-5][0-9])\Z", value):
+        raise ValueError("fixed receipt clocks require a Z or ±HH:MM offset")
+    # fromisoformat silently truncates; do not collapse a later receipt into the cutoff.
+    if any(fraction[6:].strip("0") for fraction in re.findall(r"[.,]([0-9]+)", value)):
+        raise ValueError("fixed receipt clocks require exact microsecond precision")
     return stamp.astimezone(UTC)
 
 
@@ -183,8 +190,8 @@ def _alpaca(
 
 def _filing(record: _Record) -> SecFilingWitness:
     form = record["form"]
-    if form not in ("10-Q", "10-Q/A"):
-        raise ValueError("requires independently pinned quarterly filing")
+    if form not in ("10-Q", "10-Q/A", "10-K"):
+        raise ValueError("requires an independently pinned supported periodic filing")
     published = record["published_at"]
     return SecFilingWitness(
         issuer_cik=record["issuer_cik"],
@@ -376,7 +383,25 @@ def _public_index(
     )
 
 
-def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], str | None]:
+def _sec_proof(filing: SecFilingWitness, observed: SecPublicFilingObservation | None) -> str:
+    if filing.publication_ref is not None:
+        return f"独立公表証拠 `{_label(filing.publication_ref)}`"
+    if observed is not None:
+        return (
+            f"SEC提出索引の公開確認: {observed.observed_at.isoformat()}"
+            "（初回公表の証明ではない）; "
+            f"`{observed.receipt_id}`; {observed.index_url}"
+        )
+    raise ValueError("SEC observation has no publication evidence")
+
+
+def _sec(
+    subject: _Record,
+    load: _Loader,
+    cutoff: datetime,
+    *,
+    compare: tuple[str, SecReportedDuration, date, date] | None = None,
+) -> tuple[list[str], str | None]:
     source = subject.get("companyfacts")
     if source is None:
         return [], "sec_companyfacts_receipt_missing"
@@ -412,23 +437,65 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
             )
         if filing_record["published_at"] is None:
             evidence.append("独立した初回公表時刻は未確認。")
-        if filing_record["form"] in ("10-K", "10-K/A"):
+        form = filing_record["form"]
+        if form == "10-K/A" or (compare is not None and form == "10-K"):
             return evidence, "sec_filing_form_not_covered"
         filing = _filing(filing_record)
-        period_start, period_end = _day(subject["period_start"]), _day(subject["period_end"])
-        if period_start > period_end:
-            raise ValueError("invalid fixed SEC revenue period")
-        # A 10-Q also contains cumulative amounts. This MVP only reads regular-quarter spans.
-        if not 89 <= (period_end - period_start).days + 1 <= 98:
+        period = SecReportedDuration(_day(subject["period_start"]), _day(subject["period_end"]))
+        is_annual = filing.form == "10-K"
+        if is_annual and not period.fits_regular_fiscal_year:
+            return evidence, "sec_period_outside_supported_fiscal_year"
+        if not is_annual and not period.fits_regular_quarter:
             return evidence, "sec_period_outside_supported_quarter"
+        capture = SecCompanyFactsCapture(
+            wire.receipt_id, wire.received_at, wire.body_sha256, wire.body
+        )
+        observed = _public_index(public_index, load, filing, cutoff)
+        if compare is not None:
+            reporting_quarter, prior, current_fiscal_start, prior_fiscal_start = compare
+            comparison = observe_sec_comparatives(
+                capture,
+                filing,
+                expected_cik=query.cik,
+                reporting_quarter=reporting_quarter,
+                cutoff=cutoff,
+                publicly_observed_by=observed,
+                current_quarter=period,
+                prior_quarter=prior,
+                current_fiscal_start=current_fiscal_start,
+                prior_fiscal_start=prior_fiscal_start,
+            )
+            if isinstance(comparison, str):
+                return evidence, f"sec_{comparison}"
+            evidence.append(
+                f"CIK `{query.cik}`; 提出 `{filing.accession}` ({filing.form}); "
+                f"指定会計四半期 `{reporting_quarter}`; {_sec_proof(filing, observed)}"
+            )
+            for row in comparison:
+                for column, period, fact in (
+                    ("current", row.current_period, row.current),
+                    ("prior", row.prior_period, row.prior),
+                ):
+                    if isinstance(fact, SecIssuerUsdObservation):
+                        value = (
+                            f"USD {fact.amount:,}; `{fact.concept}`; `{', '.join(fact.fact_paths)}`"
+                        )
+                    else:
+                        reason = fact.reason if isinstance(fact, SecRevenueAmbiguity) else fact
+                        value = f"未採用: `{reason}`"
+                    evidence.append(
+                        f"- {row.metric} ({row.basis}, {column}) "
+                        f"{period.start}〜{period.end}: {value}"
+                    )
+            return evidence, None
         result = observe_sec_revenue(
-            SecCompanyFactsCapture(wire.receipt_id, wire.received_at, wire.body_sha256, wire.body),
+            capture,
             filing,
             expected_cik=subject["cik"],
-            period_start=period_start,
-            period_end=period_end,
+            period_start=period.start,
+            period_end=period.end,
             cutoff=cutoff,
-            publicly_observed_by=_public_index(public_index, load, filing, cutoff),
+            publicly_observed_by=observed,
         )
         if isinstance(result, str):
             return evidence, f"sec_{result}"
@@ -439,19 +506,13 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
                     f"原本位置 `{', '.join(candidate.fact_paths)}`"
                 )
             return evidence, f"sec_revenue_concepts_unresolved:{result.reason}"
-        if result.filing.publication_ref is not None:
-            proof = f"独立公表証拠 `{_label(result.filing.publication_ref)}`"
-        elif (observed := result.publicly_observed_by) is not None:
-            proof = (
-                f"SEC提出索引の公開確認: {observed.observed_at.isoformat()}"
-                "（初回公表の証明ではない）; "
-                f"`{observed.receipt_id}`; {observed.index_url}"
-            )
-        else:
-            raise ValueError("SEC revenue observation has no publication evidence")
+        proof = _sec_proof(result.filing, result.publicly_observed_by)
+        if is_annual:
+            evidence.append("通期は指定した期間。より新しい提出の有無は確認していない。")
+        revenue_label = "SEC通期実績売上" if is_annual else "SEC実績売上"
         evidence += [
             (
-                f"SEC実績売上: USD {result.amount:,} "
+                f"{revenue_label}: USD {result.amount:,} "
                 f"({result.period_start}〜{result.period_end}, `{result.concept}`)"
             ),
             (
@@ -464,20 +525,14 @@ def _sec(subject: _Record, load: _Loader, cutoff: datetime) -> tuple[list[str], 
         return evidence, "sec_invalid_fixed_evidence"
 
 
-def _price(
+def _observed_prices(
     symbol: str,
     observations: tuple[AlpacaDailyObservation, ...],
-    problem: str | None,
-) -> tuple[list[str], str | None]:
-    if problem is not None:
-        return [], problem
+) -> tuple[list[tuple[AlpacaDailyObservation, AlpacaBarSource]], list[date]]:
     rows = sorted(
         (bar for bar in observations if bar.requested_symbol == symbol),
         key=lambda bar: bar.trade_date,
     )
-    if not rows:
-        return [], "alpaca_no_observed_bar"
-    evidence: list[str] = []
     eligible = []
     provisional = []
     for row in rows:
@@ -493,6 +548,20 @@ def _price(
             provisional.append(row.trade_date)
         else:
             eligible.append((row, later))
+    return eligible, provisional
+
+
+def _price(
+    symbol: str,
+    observations: tuple[AlpacaDailyObservation, ...],
+    problem: str | None,
+) -> tuple[list[str], str | None]:
+    if problem is not None:
+        return [], problem
+    eligible, provisional = _observed_prices(symbol, observations)
+    if not eligible and not provisional:
+        return [], "alpaca_no_observed_bar"
+    evidence: list[str] = []
     if provisional:
         evidence.append(
             f"NY当日受領のみの観測 {len(provisional)}件（最終 {provisional[-1]}）は途中集計扱い。"
@@ -540,17 +609,47 @@ def _label(value: object) -> str:
     return " ".join(value.split()).replace("`", "'")
 
 
-def render_research(bundle: _Record, load: _Loader, *, synthetic: bool) -> str:
-    """Compose actual provider adapters without executing a provider request or writing state."""
+def _research_scope(bundle: _Record) -> tuple[list[_Record], tuple[str, ...], datetime]:
     if bundle["schema"] != _SCHEMA:
         raise ValueError("unknown fixed receipt schema")
     subjects = bundle["subjects"]
     if not isinstance(subjects, list) or not 1 <= len(subjects) <= 3:
         raise ValueError("choose one to three fixed research subjects")
     symbols = tuple(subject["symbol"] for subject in subjects)
-    if len(set(symbols)) != len(symbols):
-        raise ValueError("one fixed issuer identity per symbol")
     cutoff = _clock(bundle["cutoff"])
+    # Validate the native labels even if there is no usable page.
+    DailyBarsQuery(symbols, cutoff.date(), cutoff.date(), "-", "split")
+    return subjects, symbols, cutoff
+
+
+def _accept_iex_session(bundle: _Record, load: _Loader, *, expected: date) -> tuple[str, bool]:
+    _, symbols, cutoff = _research_scope(bundle)
+    observations, problem = _alpaca(bundle["alpaca"], symbols, load, cutoff)
+    lines = [
+        "# 米国株 IEX取引日確認（発注なし）",
+        f"期待NY取引日: {expected}",
+        f"評価cutoff: {cutoff.isoformat()}",
+        "IEX観測の日付だけを照合する。公式引け・売買判断は確認しない。",
+    ]
+    if problem is not None:
+        lines.append(f"- 受領不備: `{problem}`")
+        return "\n".join(lines) + "\n", False
+    all_matched = True
+    for symbol in symbols:
+        eligible, provisional = _observed_prices(symbol, observations)
+        latest = eligible[-1][0].trade_date if eligible else None
+        matched = latest == expected
+        all_matched = all_matched and matched
+        status = "一致" if matched else "不一致"
+        lines.append(f"- {symbol}: {status}（採用最終日: {latest or 'なし'}）")
+        if expected in provisional:
+            lines.append(f"  - {expected}はNY当日受領のみのため途中集計扱い。")
+    return "\n".join(lines) + "\n", all_matched
+
+
+def render_research(bundle: _Record, load: _Loader, *, synthetic: bool) -> str:
+    """Compose actual provider adapters without executing a provider request or writing state."""
+    subjects, symbols, cutoff = _research_scope(bundle)
     observations, problem = _alpaca(bundle["alpaca"], symbols, load, cutoff)
     origin = (
         "合成fixture。実データ・売買判断ではない。"
@@ -560,8 +659,6 @@ def render_research(bundle: _Record, load: _Loader, *, synthetic: bool) -> str:
     lines = ["# 米国株 リサーチ候補（発注なし）", "", origin, f"評価cutoff: {cutoff.isoformat()}"]
     for subject in subjects:
         symbol = subject["symbol"]
-        # Validate the native label even if there is no usable page.
-        DailyBarsQuery((symbol,), cutoff.date(), cutoff.date(), "-", "split")
         cik = SecEdgarQuery("companyfacts", subject["cik"]).cik
         price_notes, price_problem = _price(symbol, observations, problem)
         identity = _ticker_identity(subject, symbol, cik, load, cutoff)
@@ -717,13 +814,63 @@ def _fixture() -> tuple[_Record, dict[str, bytes]]:
     }, files
 
 
+def _compare_sec_report(bundle: _Record, load: _Loader, args: Sequence[str]) -> str:
+    if bundle["schema"] != _SCHEMA:
+        raise ValueError("unknown fixed receipt schema")
+    cik, quarter, prior_start, prior_end, current_fiscal_start, prior_fiscal_start = args
+    issuer = SecEdgarQuery("companyfacts", cik).cik
+    fields = ("cik", "period_start", "period_end", "companyfacts", "filing")
+    fixed = [
+        {field: subject.get(field) for field in fields}
+        for subject in bundle["subjects"]
+        if subject["cik"] == issuer
+    ]
+    if not fixed or any(entry != fixed[0] for entry in fixed[1:]):
+        raise ValueError("one fixed filing per SEC comparison")
+    prior = SecReportedDuration(_day(prior_start), _day(prior_end))
+    notes, problem = _sec(
+        fixed[0],
+        load,
+        _clock(bundle["cutoff"]),
+        compare=(quarter, prior, _day(current_fiscal_start), _day(prior_fiscal_start)),
+    )
+    if problem is not None:
+        notes.append(f"- 未採用: `{problem}`")
+    return "# SEC同一提出の発行体財務比較（株価・売買判定なし）\n\n" + "\n".join(notes) + "\n"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--bundle", type=Path, help="fixed JSON manifest and adjacent original response byte files"
     )
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
+        "--compare-sec",
+        nargs=6,
+        metavar=(
+            "CIK",
+            "Q1_OR_Q2_OR_Q3",
+            "PRIOR_Q_START",
+            "PRIOR_Q_END",
+            "CURRENT_FY_START",
+            "PRIOR_FY_START",
+        ),
+        help="report only fixed-issuer SEC comparative facts from --bundle",
+    )
+    modes.add_argument(
+        "--accept-iex-session",
+        type=_day,
+        metavar="YYYY-MM-DD",
+        help="check each subject's latest eligible IEX date against the expected NY session",
+    )
     args = parser.parse_args(argv)
     manifest: Path | None = args.bundle
+    if args.compare_sec is not None and manifest is None:
+        parser.error("--compare-sec requires --bundle")
+    if args.accept_iex_session is not None and manifest is None:
+        parser.error("--accept-iex-session requires --bundle")
+    exit_code = 0
     try:
         if manifest is None:
             bundle, fixtures = _fixture()
@@ -740,11 +887,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return path.read_bytes()
 
             bundle = json.loads(manifest.read_text(encoding="utf-8"))
-            report = render_research(bundle, read_native, synthetic=False)
+            if args.accept_iex_session is not None:
+                report, matched = _accept_iex_session(
+                    bundle, read_native, expected=args.accept_iex_session
+                )
+                exit_code = 0 if matched else 1
+            elif args.compare_sec is not None:
+                report = _compare_sec_report(bundle, read_native, args.compare_sec)
+            else:
+                report = render_research(bundle, read_native, synthetic=False)
     except (KeyError, TypeError, ValueError, OSError, ArithmeticError):
         parser.error("invalid fixed US research receipt bundle")
     print(report, end="")
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

@@ -231,69 +231,6 @@ def test_invalid_zip_keeps_requested_scope_without_global_enable(tmp_path):
     assert not owner.freeze().archive_keys
 
 
-def test_uninitialized_annual_still_gets_holder_batch_without_all_zip_hydration(
-    tmp_path, monkeypatch
-):
-    documents = [filing(f"S100H{n:03d}", docTypeCode="350", secCode=None) for n in range(102)]
-    owner, client, _, lists = setup(tmp_path, [filing("S100ANNUAL"), *documents])
-    content = source_zip()
-    client.fetch_archive.side_effect = lambda doc_id, _: EdinetResponse(
-        AT, content + doc_id.encode()
-    )
-    sleeps = []
-    monkeypatch.setattr("baibai_jobs.acquisition.edinet_archive_native.time.sleep", sleeps.append)
-    report = acquire_archives(owner, client, lists, group="edinet-facts", asof=DAY)
-    assert report["annual_archive_plan"] == "skipped_not_initialized"
-    assert report["downloaded"] == 100
-    assert report["holder_not_selected_this_batch"] == 2
-    assert client.fetch_archive.call_args_list[0].args == ("S100H101", 1)
-    assert client.fetch_archive.call_args_list[-1].args == ("S100H002", 1)
-    assert sleeps == [10] * 100
-    assert owner.freeze().scope == FactsScope()
-    old_bodies = {key for key in owner.store.values if key.endswith(".zip")}
-    owner.store.get_keys.clear()
-    client.reset_mock()
-    repeated = acquire_archives(owner, client, lists, group="edinet-facts", asof=DAY)
-    assert repeated["downloaded"] == 2
-    assert [call.args for call in client.fetch_archive.call_args_list] == [
-        ("S100H001", 1),
-        ("S100H000", 1),
-    ]
-    assert not old_bodies.intersection(owner.store.get_keys)
-
-
-def test_holder_planning_failure_does_not_discard_annual_originals(tmp_path, monkeypatch):
-    owner, client, _, lists = setup(tmp_path, [filing("S100ONE")])
-    monkeypatch.setattr(
-        "baibai_jobs.acquisition.edinet_archive_native.select_holder_archives",
-        Mock(side_effect=ValueError("bad holder")),
-    )
-    report = acquire_archives(
-        owner, client, lists, group="edinet-facts", asof=DAY, initialize_facts=True
-    )
-    assert report["status"] == "failed"
-    assert report["holder_planning_failed"] is True
-    assert owner.freeze().archive_keys == frozenset({("S100ONE", 1)})
-    assert owner.freeze().scope.since == DAY
-
-
-@pytest.mark.parametrize("status", [401, 403])
-def test_holder_auth_failure_stops_without_global_annual_scope(tmp_path, monkeypatch, status):
-    owner, client, _, lists = setup(
-        tmp_path,
-        [
-            filing("S100ONE", docTypeCode="350", secCode=None),
-            filing("S100TWO", docTypeCode="350", secCode=None),
-        ],
-    )
-    monkeypatch.setattr("baibai_jobs.acquisition.edinet_archive_native.time.sleep", Mock())
-    client.fetch_archive.side_effect = EdinetAccessDeniedError(status)
-    report = acquire_archives(owner, client, lists, group="edinet-facts", asof=DAY)
-    assert report["status"] == "failed"
-    assert client.fetch_archive.call_count == 1
-    assert owner.freeze().scope == FactsScope()
-
-
 def test_saved_list_binding_does_not_advance_during_get(tmp_path):
     owner, client, list_owner, fixed = setup(tmp_path, [filing("S100ONE")])
 
@@ -506,21 +443,6 @@ def test_xbrl_identity_does_not_satisfy_csv_original(tmp_path):
     assert fixed.read_archive("S100ONE", 1) == xbrl.body
     assert fixed.metadata("S100ONE", 1).received_at_utc == xbrl.received_at
     assert fixed.read_archive("S100ONE", 5) == csv
-
-
-def test_unrelated_native_row_mismatch_cannot_block_uninitialized_holder_get(tmp_path, monkeypatch):
-    owner, client, _, lists = setup(
-        tmp_path,
-        [
-            filing(" S100UNRELATED ", docTypeCode="160"),
-            filing("S100HOLDER", docTypeCode="350", secCode=None),
-        ],
-    )
-    monkeypatch.setattr("baibai_jobs.acquisition.edinet_archive_native.time.sleep", Mock())
-    report = acquire_archives(owner, client, lists, group="edinet-facts", asof=DAY)
-    assert report["status"] == "received"
-    assert report["annual_archive_plan"] == "skipped_not_initialized"
-    client.fetch_archive.assert_called_once_with("S100HOLDER", 1)
 
 
 @pytest.mark.parametrize("status", [401, 403])
