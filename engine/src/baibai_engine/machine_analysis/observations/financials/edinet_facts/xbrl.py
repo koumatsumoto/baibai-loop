@@ -139,13 +139,23 @@ def read_instance(content: bytes, *, include_labels: bool = True) -> Instance:
         if context_id in contexts and contexts[context_id] != context:
             raise SourceFormatError("context_conflict")
         contexts[context_id] = context
-    units: dict[str, str] = {}
+    # Only an unambiguous monetary unit can support a fact.
+    unit_currencies: dict[str, str | None] = {}
     for unit in root.findall(f"{{{XBRLI}}}unit"):
+        unit_id = unit.get("id", "")
+        if not unit_id.strip():
+            continue
+        currency = None
         measures = unit.findall(f"{{{XBRLI}}}measure")
         if len(measures) == 1 and len(unit) == 1:
             measure = expand_qname(measures[0].text or "", namespaces)
             if measure.startswith("{http://www.xbrl.org/2003/iso4217}"):
-                units[unit.get("id", "")] = local_name(measure)
+                currency = local_name(measure)
+        if unit_currencies.setdefault(unit_id, currency) != currency:
+            unit_currencies[unit_id] = None
+    units = {
+        unit_id: currency for unit_id, currency in unit_currencies.items() if currency is not None
+    }
     return Instance(filename, root, contexts, units, _labels(documents), namespaces)
 
 

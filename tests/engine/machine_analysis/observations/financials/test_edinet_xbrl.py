@@ -1,6 +1,8 @@
 """namespace検査と同じparseのtreeを使い、XMLの拒否条件と順序を保つ。"""
 
+from io import BytesIO
 from xml.etree import ElementTree as ET
+from zipfile import ZipFile
 
 import pytest
 
@@ -102,3 +104,32 @@ def test_single_parse_keeps_xml_byte_limit_before_decoding(monkeypatch):
     assert xbrl.xml_root(content)[0].tag == "r"
     with pytest.raises(xbrl.SourceFormatError, match=r"^xml_size_limit$"):
         xbrl.xml_root(content + b"\xff")
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_read_instance_only_retains_unambiguous_monetary_units(reverse):
+    definitions = [
+        '<unit id="JPY"><measure>iso:JPY</measure></unit>',
+        '<unit id="JPY"><measure>alias:JPY</measure></unit>',
+        '<unit id="conflict"><measure>iso:JPY</measure></unit>',
+        '<unit id="conflict"><measure>iso:USD</measure></unit>',
+        '<unit id="mixed"><measure>iso:JPY</measure></unit>',
+        '<unit id="mixed"><measure>xbrli:pure</measure></unit>',
+        '<unit id="mixed"><measure>iso:JPY</measure></unit>',
+        '<unit id="untouched"><measure>iso:EUR</measure></unit>',
+        '<unit id=""><measure>iso:JPY</measure></unit>',
+        '<unit id=" "><measure>iso:JPY</measure></unit>',
+        "<unit><measure>iso:JPY</measure></unit>",
+    ]
+    if reverse:
+        definitions.reverse()
+    currency_namespace = "http://www.xbrl.org/2003/iso4217"
+    xml = (
+        f'<xbrl xmlns="{xbrl.XBRLI}" xmlns:xbrli="{xbrl.XBRLI}" '
+        f'xmlns:iso="{currency_namespace}" xmlns:alias="{currency_namespace}">'
+        f"{''.join(definitions)}</xbrl>"
+    )
+    stream = BytesIO()
+    with ZipFile(stream, "w") as archive:
+        archive.writestr("XBRL/PublicDoc/test.xbrl", xml)
+    assert xbrl.read_instance(stream.getvalue()).units == {"JPY": "JPY", "untouched": "EUR"}

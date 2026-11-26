@@ -24,6 +24,7 @@ from baibai_engine.machine_analysis.models.company_financials.reported_compariso
     reported_filing_comparisons,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, InputRelease
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import REVISION
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
     read_comparison_population,
 )
@@ -179,6 +180,31 @@ def test_same_basis_partial_conflict_does_not_discard_independent_sales():
     result = extract(replace=changed)
     pairs = {p.metric: p for p in result.pairs}
     assert pairs["operating_profit"].reason == "comparison_fact_conflict"
+    assert pairs["sales"].current.amount == "3525761000"
+    assert pairs["sales"].comparative.amount == "3126231000"
+
+
+@pytest.mark.parametrize("conflicting_measure", [b"iso4217:USD", b"xbrli:pure"])
+def test_ambiguous_unit_does_not_hide_unrelated_comparison(conflicting_measure):
+    original_unit = b'<xbrli:unit id="JPY">'
+
+    def unit(measure):
+        return (
+            b'<xbrli:unit id="competing"><xbrli:measure>'
+            + measure
+            + b"</xbrli:measure></xbrli:unit>\n  "
+        )
+
+    result = extract(
+        replace={
+            original_unit: unit(conflicting_measure) + unit(b"iso4217:JPY") + original_unit,
+            b'unitRef="JPY">1232568000': b'unitRef="competing">1232568000',
+        }
+    )
+    pairs = {pair.metric: pair for pair in result.pairs}
+    assert pairs["operating_profit"].reason == "comparison_currency_unsupported"
+    assert pairs["operating_profit"].comparative is None
+    assert pairs["sales"].reason is None
     assert pairs["sales"].current.amount == "3525761000"
     assert pairs["sales"].comparative.amount == "3126231000"
 
@@ -425,7 +451,7 @@ def test_consolidated_annual_native_pairs_keep_period_scope_and_partial_gap(
     result = extract(doc)
     assert result.reason is None
     assert result.statement_basis == "consolidated"
-    assert result.extractor_revision == "edinet-ifrs-statement-comparisons-v3-known-non-ifrs"
+    assert result.extractor_revision == REVISION
     assert result.current_period_start.isoformat() == metadata(doc)["periodStart"]
     assert result.current_period_end.isoformat() == metadata(doc)["periodEnd"]
     assert [pair.metric for pair in result.pairs] == ["sales", "operating_profit", "parent_profit"]
