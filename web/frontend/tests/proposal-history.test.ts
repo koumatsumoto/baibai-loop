@@ -11,7 +11,7 @@ import { buyFixture, holdFixture, holdingProposalFixture, newProposalFixture, pa
 function view(proposals: SavedProposalView[], missing: string[] = []): ProposalHistoryView {
   return { generated_at: '2026-11-20T00:00:00Z', status: missing.length ? 'partial' : (proposals.length ? 'ready' : 'empty'), error: missing.length ? '一部を読めません' : null, proposals, unavailable_proposal_ids: missing }
 }
-function render(data: ProposalHistoryView | null, proposalId: string | null = null, ticker: string | null = null) {
+function render(data: unknown, proposalId: string | null = null, ticker: string | null = null) {
   return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ProposalHistory, { data, proposalId, ticker })))
 }
 const newer: SavedProposalView = { ...newProposalFixture, proposal_id: 'proposal-new', as_of: '2026-11-12', published_at: '2026-11-14T03:00:00Z', items: [{ ...reviewedDeferFixture, ticker: '1111', rationale: '新しい保留判断。借換条件の確認が必要。' }] }
@@ -321,7 +321,7 @@ describe('stock report list and selection', () => {
   })
 
   it('keeps loading, empty and entirely unreadable histories distinct', () => {
-    const loading = render(null)
+    const loading = render(undefined)
     const empty = render(view([]))
     const unavailable = render({ ...view([], ['broken']), status: 'unavailable' })
     expect(loading).toContain('履歴を読み込んでいます')
@@ -331,6 +331,41 @@ describe('stock report list and selection', () => {
     expect(unavailable).toContain('読取不能の提案：1件')
     expect(unavailable).not.toContain('保存済みレポートはありません')
     for (const html of [loading, empty, unavailable]) expect(html).not.toContain('0 円')
+  })
+
+  it.each([
+    ['JSON null', null],
+    ['ready without rows', { ...view([]), status: 'ready' }],
+    ['partial without rows', view([], ['unreadable'])],
+    ['empty with rows', { ...view([newer]), status: 'empty' }],
+    ['missing unavailable IDs', { ...view([newer]), unavailable_proposal_ids: undefined }],
+  ] as const)('shows a read failure for a contradictory history envelope: %s', (_, wire) => {
+    const data = JSON.parse(JSON.stringify(wire)) as ProposalHistoryView
+    for (const html of [render(data), render(data, newer.proposal_id, '1111')]) {
+      expect(html).toContain('売買提案の読取不能')
+      expect(html).not.toContain('保存済みレポートはありません')
+      expect(html).not.toContain(newer.items[0].rationale)
+    }
+  })
+
+  it.each([
+    ['null proposal', null],
+    ['missing items', { ...older, items: undefined }],
+    ['null item', { ...older, items: [null] }],
+    ['invalid publication instant', { ...older, published_at: 'not-a-date' }],
+  ] as const)('withholds a malformed row without hiding a readable sibling: %s', (_, row) => {
+    const data = JSON.parse(JSON.stringify({ ...view([newer]), proposals: [row, newer] }))
+    const list = render(data)
+    expect(list).toContain('配信データの形式が不正な提案が1件あります')
+    expect(list).toContain(proposalReportHref(newer.proposal_id, '1111').replace('&', '&amp;'))
+    expect(list).not.toContain('proposal=proposal-old')
+    expect(render(data, newer.proposal_id, '1111')).toContain(newer.items[0].rationale)
+
+    const pinned = render(data, older.proposal_id, '1111')
+    expect(pinned).toContain('指定された保存レポートを確認できません')
+    expect(pinned).not.toContain(newer.items[0].rationale)
+    const noneReadable = render({ ...data, proposals: [row] })
+    expect(noneReadable).not.toContain('保存済みレポートはありません')
   })
 
   it('URL-encodes both immutable proposal identity and ticker', () => {
