@@ -203,7 +203,7 @@ def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path, monkeypatch):
     reader = publish(path, tmp_path / "mirror", "cross-month", second_at)
     listing = reader.list(month="2026-10")
     reference = ArticleEvidenceRef.model_validate(listing["items"][0]["reference"])
-    assert reference.receipt_month == "2026-10"
+    assert reference.receipt_month == reference.observation_month == "2026-10"
     assert reference.body_month is None
     from baibai_engine.machine_analysis.observations.articles import reader as article_reader
 
@@ -216,6 +216,14 @@ def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path, monkeypatch):
 
     monkeypatch.setattr(article_reader, "materialize_partitions", record)
     assert reader.get(reference).body == raw
+    without_receipt_month = ArticleEvidenceRef.model_validate(
+        reference.model_dump(exclude={"receipt_month"})
+    )
+    evidence = reader.get(without_receipt_month)
+    assert evidence.receipt == unchanged
+    assert evidence.body == raw
+    assert evidence.observation is not None
+    assert evidence.observation.receipt_id == unchanged.receipt_id
     receipt_reads = [months for name, months in selections if name == ARTICLE_RECEIPTS.name]
     assert receipt_reads[-1] == (9,)
 

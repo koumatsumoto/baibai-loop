@@ -307,7 +307,7 @@ class FixedArticleReader:
                 or observation.original_url != reference.original_url
                 or (
                     reference.observation_month is not None
-                    and reference.observation_month != reference.receipt_month
+                    and reference.observation_month != _month(receipt.received_at)
                 )
             ):
                 raise ArticleStoreError("exact observation differs from descriptor")
