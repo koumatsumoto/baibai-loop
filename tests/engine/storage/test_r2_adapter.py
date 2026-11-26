@@ -543,6 +543,52 @@ def test_r2_download_rejects_size_mismatch_without_replacing_cache(
     assert target.read_bytes() == b"known-good"
 
 
+@pytest.mark.parametrize(
+    ("header_size", "expected", "maximum", "message", "attempted_reads"),
+    [
+        (6, 7, None, "size mismatch", 0),
+        (8, 7, None, "size mismatch", 0),
+        (8, None, 7, "exceeds size limit", 0),
+        (None, 7, None, "size mismatch", 2),
+        (7, 7, None, "size mismatch", 2),
+    ],
+)
+def test_r2_download_enforces_size_before_transferring_extra_bytes(
+    tmp_path, monkeypatch, header_size, expected, maximum, message, attempted_reads
+):
+    store = metadata_store()
+    target = tmp_path / "cache.sqlite"
+    target.write_bytes(b"known-good")
+
+    class Body:
+        reads = 0
+        part_bytes: int | None = None
+
+        def read(self, _: int) -> bytes:
+            self.reads += 1
+            return b"data" if self.reads <= 3 else b""
+
+        def close(self) -> None:
+            part = next(tmp_path.glob(".cache.sqlite.*.part"))
+            self.part_bytes = part.stat().st_size
+
+    body = Body()
+
+    class Client:
+        def get_object(self, **_: object) -> dict[str, object]:
+            response = {"Body": body}
+            return response if header_size is None else {**response, "ContentLength": header_size}
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    with pytest.raises(R2Error, match=message):
+        store.download_file("cache", target, expect_bytes=expected, max_bytes=maximum)
+
+    assert body.reads == attempted_reads
+    assert body.part_bytes == (4 if attempted_reads else 0)
+    assert target.read_bytes() == b"known-good"
+    assert not list(tmp_path.glob(".cache.sqlite.*.part"))
+
+
 def test_r2_download_atomically_installs_complete_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
