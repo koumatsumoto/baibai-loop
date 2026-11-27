@@ -6,12 +6,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from baibai_engine.investment_judgment.contracts import PerspectiveAssessment, PerspectiveModel
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
     ProposalCorrection,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.models import ConsensusEPS
+from baibai_web.readmodel.perspective_vocabulary import PerspectiveAssessment, PerspectiveModel
 
 type EconomicBuyDecision = Literal["price_conditional_allocation"]
 
