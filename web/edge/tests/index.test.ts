@@ -91,6 +91,24 @@ describe('view routing', () => {
     expect(await response.json()).toMatchObject(payload)
   })
 
+  it('requires auth before reading the exact US view and never accepts a caller-supplied key', async () => {
+    const proposal = { proposal_id: 'us-proposal-fixture', draft_sha256: 'a'.repeat(64), action: 'defer', currency: 'USD' }
+    const body = JSON.stringify({ status: 'ready', proposal })
+    const path = '/api/us-proposal/latest?key=views/latest-proposal.json'
+    const get = vi.fn().mockResolvedValue(objectBody(body))
+    const env = environment(get)
+
+    expect((await handleRequest(request(path, null), env)).status).toBe(401)
+    expect((await handleRequest(request(path, 'wrong-password'), env)).status).toBe(401)
+    expect(get).not.toHaveBeenCalled()
+    const response = await handleRequest(request(path), env)
+    expect(response.status).toBe(200)
+    expect(get).toHaveBeenCalledExactlyOnceWith('views/latest-us-proposal.json')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
+    expect(await response.text()).toBe(body)
+  })
+
   it.each(['/api/tasks', '/api/screening/latest', '/api/market-context', '/api/operations', '/api/daily-delta', '/api/lake/current', '/api/lake/object?key=x', '/api/stock-assessments', '/api/investment-proposals', '/api/securities/7203'])('retires %s without reading R2', async path => {
     const get = vi.fn()
     const response = await handleRequest(request(path), environment(get))

@@ -15,6 +15,14 @@ from tests.helpers.r2_transfer import (
     _fake_repo,
 )
 
+_SERVING_VIEW_ORDER = (
+    "portfolio-dashboard",
+    "outcomes",
+    "latest-proposal",
+    "proposal-history",
+    "latest-us-proposal",
+)
+
 
 def test_transfer_rejects_a_split_layout_before_loading_credentials(tmp_path: Path) -> None:
     root = _fake_repo(tmp_path)
@@ -500,15 +508,16 @@ def test_shared_transfer_refuses_unavailable_lease_before_any_remote_write(
     assert _remote_writes(log) == []
 
 
-def test_serving_transfer_stops_the_next_write_after_lease_release(tmp_path):
+@pytest.mark.parametrize("released_after", ["portfolio-dashboard", "proposal-history"])
+def test_serving_transfer_stops_the_next_write_after_lease_release(tmp_path, released_after):
     root = _fake_repo(tmp_path)
     binary, log = _fake_aws(tmp_path)
     env = _environment(binary, log)
     env["GITHUB_ACTIONS"] = "true"
-    env["LEASE_FAKE_RELEASE_ON"] = "s3://baibai-serving/views/portfolio-dashboard.json"
+    env["LEASE_FAKE_RELEASE_ON"] = f"s3://baibai-serving/views/{released_after}.json"
     views = tmp_path / "serving/views"
     views.mkdir(parents=True)
-    for name in ("portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history"):
+    for name in _SERVING_VIEW_ORDER:
         (views / f"{name}.json").write_text('{"synthetic": true}')
     result = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "upload-portfolio-views", views.parent],
@@ -521,8 +530,11 @@ def test_serving_transfer_stops_the_next_write_after_lease_release(tmp_path):
     assert result.returncode != 0
     assert "publication lease" in result.stderr
     writes = _remote_writes(log)
-    assert len(writes) == 1
-    assert "views/portfolio-dashboard.json" in writes[0]
+    assert [command.split()[3] for command in writes] == [
+        f"s3://baibai-serving/views/{name}.json"
+        for name in _SERVING_VIEW_ORDER[: _SERVING_VIEW_ORDER.index(released_after) + 1]
+    ]
+    assert "portfolio views verified" not in result.stdout
     assert not list(root.glob(".r2-transfer.*"))
 
 
@@ -569,11 +581,17 @@ def test_transfer_lease_verifies_the_selected_stores_bucket_not_a_late_env_overr
 
 
 @pytest.mark.parametrize(
-    "missing", [None, "portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history"]
+    ("invalid", "shape"),
+    [
+        (None, None),
+        *((name, "missing") for name in _SERVING_VIEW_ORDER),
+        ("latest-us-proposal", "empty"),
+        ("latest-us-proposal", "directory"),
+    ],
 )
 @pytest.mark.parametrize("in_actions", [False, True])
 def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
-    tmp_path, missing, in_actions
+    tmp_path, invalid, shape, in_actions
 ):
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
@@ -584,16 +602,14 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     views = export / "views"
     views.mkdir(parents=True)
     # Even a stale artifact in a reused export directory must not reach the old key.
-    for name in (
-        "dashboard",
-        "tasks",
-        "portfolio-dashboard",
-        "outcomes",
-        "latest-proposal",
-        "proposal-history",
-    ):
-        if name != missing:
-            (views / f"{name}.json").write_text('{"synthetic": true}\n')
+    for name in ("dashboard", "tasks", *_SERVING_VIEW_ORDER):
+        file = views / f"{name}.json"
+        if name != invalid:
+            file.write_text(f'{{"synthetic-private-value": "{name}"}}\n')
+        elif shape == "empty":
+            file.touch()
+        elif shape == "directory":
+            file.mkdir()
     completed = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "upload-portfolio-views", str(export)],
         cwd=tmp_path,
@@ -613,46 +629,44 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
         assert uploads == []
         assert "refusing serving upload outside GitHub Actions" in completed.stderr
         return
-    if missing is not None:
+    if invalid is not None:
         assert completed.returncode == 2
-        assert uploads == []
-        assert f"missing portfolio view: {missing}" in completed.stderr
+        assert commands == []
+        assert f"missing portfolio view: {invalid}" in completed.stderr
         return
     assert completed.returncode == 0, completed.stderr
-    assert [command.split()[3] for command in uploads] == [
-        f"s3://baibai-serving/views/{name}.json"
-        for name in ("portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history")
-    ]
+    expected_urls = [f"s3://baibai-serving/views/{name}.json" for name in _SERVING_VIEW_ORDER]
+    assert [command.split()[3] for command in uploads] == expected_urls
+    assert all(
+        "--content-type application/json --cache-control no-store " in cmd for cmd in uploads
+    )
     assert not any("views/dashboard.json" in command for command in commands)
     assert not any("views/tasks.json" in command for command in commands)
     assert not any("delete-object" in command or "s3 rm" in command for command in commands)
     downloads = [command for command in commands if command.startswith("s3 cp s3://")]
-    assert [command.split()[2] for command in downloads] == [
-        f"s3://baibai-serving/views/{name}.json"
-        for name in ("portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history")
-    ]
-    assert "portfolio views verified from remote readback: 4" in completed.stdout
-    assert '"synthetic": true' not in completed.stdout + completed.stderr
+    assert [command.split()[2] for command in downloads] == expected_urls
+    assert completed.stdout == "portfolio views verified from remote readback: 5\n"
+    assert "synthetic-private-value" not in completed.stdout + completed.stderr
     assert not list(root.glob(".r2-transfer.*"))
 
 
-@pytest.mark.parametrize("failure", ["FAIL", "CORRUPT", "RELEASE"])
-@pytest.mark.parametrize(
-    "name", ["portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history"]
-)
-def test_portfolio_publication_refuses_failed_or_different_readback(tmp_path, failure, name):
+@pytest.mark.parametrize("failure", ["UPLOAD", "FAIL", "CORRUPT", "RELEASE"])
+@pytest.mark.parametrize("name", _SERVING_VIEW_ORDER)
+def test_portfolio_publication_refuses_failed_transfer_or_readback(tmp_path, failure, name):
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
     environment["GITHUB_ACTIONS"] = "true"
     if failure == "RELEASE":
         environment["LEASE_FAKE_RELEASE_ON"] = f"s3 cp s3://baibai-serving/views/{name}.json "
+    elif failure == "UPLOAD":
+        environment["AWS_FAKE_FAIL_UPLOAD_KEY"] = f"views/{name}.json"
     else:
         environment[f"AWS_FAKE_{failure}_DOWNLOAD_KEY"] = f"views/{name}.json"
     export = tmp_path / "export"
     views = export / "views"
     views.mkdir(parents=True)
-    for view in ("portfolio-dashboard", "outcomes", "latest-proposal", "proposal-history"):
+    for view in _SERVING_VIEW_ORDER:
         (views / f"{view}.json").write_text('{"private": "synthetic-private-value"}\n')
     completed = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "upload-portfolio-views", str(export)],
@@ -667,7 +681,11 @@ def test_portfolio_publication_refuses_failed_or_different_readback(tmp_path, fa
     assert "synthetic-private-value" not in completed.stdout + completed.stderr
     assert "corrupted-private-payload" not in completed.stdout + completed.stderr
     assert not list(root.glob(".r2-transfer.*"))
-    assert not any("delete-object" in command for command in _transfer_commands(log))
+    commands = _transfer_commands(log)
+    assert not any("delete-object" in command for command in commands)
+    if failure == "UPLOAD":
+        assert f"portfolio view upload failed: {name}" in completed.stderr
+        assert not any(command.startswith("s3 cp s3://") for command in commands)
 
 
 @pytest.mark.parametrize("kind", ["file", "symlink", "directory"])

@@ -8,6 +8,7 @@ import './styles.css'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
 const ProposalPage = lazy(() => import('./pages/ProposalHistoryPage').then((module) => ({ default: module.ProposalPage })))
+const USProposalPage = lazy(() => import('./pages/USProposalPage').then((module) => ({ default: module.USProposalPage })))
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
             <Route element={<AppLayout />}>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/proposal" element={<ProposalPage />} />
+              <Route path="/us-proposal" element={<USProposalPage />} />
               <Route path="*" element={<main className="p-6">ページが見つかりません。</main>} />
             </Route>
           </Routes>

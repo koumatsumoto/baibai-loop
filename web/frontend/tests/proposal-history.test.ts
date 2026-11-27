@@ -66,6 +66,8 @@ describe('stock report list and selection', () => {
 
   it('lists company/code/sector/judgment and the saved summary with stable exact links', () => {
     const html = render(view([newer, older]))
+    expect(html).toContain('日本株の売買提案')
+    expect(html).toContain('円建ての保存提案')
     expect(html).toContain('3件のレポート')
     expect(html).toContain('合成会社')
     expect(html).toContain('情報・通信業')
@@ -162,6 +164,8 @@ describe('stock report list and selection', () => {
   it('does not replace missing/failed selections with a different report', () => {
     const data = view([newer], ['unreadable'])
     const missing = render(data, older.proposal_id, '1111')
+    expect(missing).toContain('日本株のレポートを表示できません')
+    expect(missing).toContain('日本株のレポート一覧')
     expect(missing).toContain('組合せは、この表示データにありません')
     expect(missing).not.toContain(newer.items[0].rationale)
     expect(render(data, 'unreadable', '1111')).toContain('この提案は読取不能')
@@ -324,10 +328,10 @@ describe('stock report list and selection', () => {
     const loading = render(undefined)
     const empty = render(view([]))
     const unavailable = render({ ...view([], ['broken']), status: 'unavailable' })
-    expect(loading).toContain('履歴を読み込んでいます')
-    expect(empty).toContain('保存済みレポートはありません')
+    expect(loading).toContain('日本株の提案履歴を読み込んでいます')
+    expect(empty).toContain('日本株の保存済みレポートはありません')
     expect(empty).toContain('表示データ生成')
-    expect(unavailable).toContain('売買提案の読取不能')
+    expect(unavailable).toContain('日本株の売買提案を読み取れません')
     expect(unavailable).toContain('読取不能の提案：1件')
     expect(unavailable).not.toContain('保存済みレポートはありません')
     for (const html of [loading, empty, unavailable]) expect(html).not.toContain('0 円')
@@ -342,7 +346,7 @@ describe('stock report list and selection', () => {
   ] as const)('shows a read failure for a contradictory history envelope: %s', (_, wire) => {
     const data = JSON.parse(JSON.stringify(wire)) as ProposalHistoryView
     for (const html of [render(data), render(data, newer.proposal_id, '1111')]) {
-      expect(html).toContain('売買提案の読取不能')
+      expect(html).toContain('日本株の売買提案を読み取れません')
       expect(html).not.toContain('保存済みレポートはありません')
       expect(html).not.toContain(newer.items[0].rationale)
     }

@@ -177,6 +177,10 @@ fi
 if [[ "$1 $2" == "s3 cp" && "$4" == s3://* ]]; then
   key="${4#s3://}"
   key="${key#*/}"
+  if [[ "$key" == "${AWS_FAKE_FAIL_UPLOAD_KEY:-}" ]]; then
+    printf 'synthetic-private-value' >&2
+    exit 254
+  fi
   slug="$(printf '%s' "$key" | tr / _)"
   cp "$3" "${AWS_FAKE_STATE}/put-${slug}"
   printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"

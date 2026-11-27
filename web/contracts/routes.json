@@ -3,7 +3,8 @@
     "/api/dashboard": "views/portfolio-dashboard.json",
     "/api/outcomes": "views/outcomes.json",
     "/api/proposal/latest": "views/latest-proposal.json",
-    "/api/proposal/history": "views/proposal-history.json"
+    "/api/proposal/history": "views/proposal-history.json",
+    "/api/us-proposal/latest": "views/latest-us-proposal.json"
   },
   "computed": [
     "/api/health"

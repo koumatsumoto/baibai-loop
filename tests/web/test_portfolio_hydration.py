@@ -158,7 +158,7 @@ def test_scoped_and_full_hydration_produce_identical_four_views(
         market_before = market.read_bytes()
         paths = export_read_models(root, root / "serving")
         views.append({path.name: path.read_bytes() for path in paths})
-        assert len(paths) == 4
+        assert len(paths) == 5
         assert app.read_bytes() == app_before
         assert market.read_bytes() == market_before
     assert views[0] == views[1]

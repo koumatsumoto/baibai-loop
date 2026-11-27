@@ -30,6 +30,7 @@ from pydantic.json_schema import models_json_schema
 
 from baibai_web.readmodel.models import DashboardView, OutcomesView
 from baibai_web.readmodel.proposal_models import LatestProposalView, ProposalHistoryView
+from baibai_web.readmodel.us_proposal_models import LatestUSProposalView
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
 TYPES_PATH = Path("web/frontend/src/api/types.ts")
@@ -43,6 +44,7 @@ ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "views/outcomes.json": OutcomesView,
     "views/latest-proposal.json": LatestProposalView,
     "views/proposal-history.json": ProposalHistoryView,
+    "views/latest-us-proposal.json": LatestUSProposalView,
 }
 
 _GENERATED_HEADER = """\

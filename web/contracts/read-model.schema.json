@@ -4,6 +4,7 @@
   "schemaVersion": 16,
   "roots": {
     "views/latest-proposal.json": "#/$defs/LatestProposalView",
+    "views/latest-us-proposal.json": "#/$defs/LatestUSProposalView",
     "views/outcomes.json": "#/$defs/OutcomesView",
     "views/portfolio-dashboard.json": "#/$defs/DashboardView",
     "views/proposal-history.json": "#/$defs/ProposalHistoryView"
@@ -631,6 +632,53 @@
         "proposal"
       ],
       "title": "LatestProposalView",
+      "type": "object"
+    },
+    "LatestUSProposalView": {
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "empty",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "proposal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/USProposalView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "generated_at",
+        "status",
+        "error",
+        "proposal"
+      ],
+      "title": "LatestUSProposalView",
       "type": "object"
     },
     "MonexFiscalEPSView": {
@@ -3837,6 +3885,204 @@
         "delay_risk"
       ],
       "title": "SavedValueRealizationView",
+      "type": "object"
+    },
+    "USProposalIexBandView": {
+      "properties": {
+        "first_session_et": {
+          "format": "date",
+          "title": "First Session Et",
+          "type": "string"
+        },
+        "last_session_et": {
+          "format": "date",
+          "title": "Last Session Et",
+          "type": "string"
+        },
+        "observations": {
+          "title": "Observations",
+          "type": "integer"
+        },
+        "low_usd": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Low Usd",
+          "type": "string"
+        },
+        "high_usd": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "High Usd",
+          "type": "string"
+        },
+        "last_usd": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Last Usd",
+          "type": "string"
+        }
+      },
+      "required": [
+        "first_session_et",
+        "last_session_et",
+        "observations",
+        "low_usd",
+        "high_usd",
+        "last_usd"
+      ],
+      "title": "USProposalIexBandView",
+      "type": "object"
+    },
+    "USProposalOfficialCloseView": {
+      "properties": {
+        "price_usd": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Price Usd",
+          "type": "string"
+        },
+        "origin": {
+          "const": "listing_exchange",
+          "title": "Origin",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "price_usd",
+        "origin",
+        "observed_at"
+      ],
+      "title": "USProposalOfficialCloseView",
+      "type": "object"
+    },
+    "USProposalView": {
+      "properties": {
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "draft_sha256": {
+          "title": "Draft Sha256",
+          "type": "string"
+        },
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "venue": {
+          "enum": [
+            "XNAS",
+            "XNYS"
+          ],
+          "title": "Venue",
+          "type": "string"
+        },
+        "share_class": {
+          "title": "Share Class",
+          "type": "string"
+        },
+        "currency": {
+          "const": "USD",
+          "title": "Currency",
+          "type": "string"
+        },
+        "session_et": {
+          "format": "date",
+          "title": "Session Et",
+          "type": "string"
+        },
+        "cutoff_at": {
+          "format": "date-time",
+          "title": "Cutoff At",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "reviewed_at": {
+          "format": "date-time",
+          "title": "Reviewed At",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "defer",
+            "no_action"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "revisit_when": {
+          "title": "Revisit When",
+          "type": "string"
+        },
+        "official_close": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/USProposalOfficialCloseView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "iex_band": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/USProposalIexBandView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "comparison_horizon_et": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Comparison Horizon Et"
+        },
+        "unresolved": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unresolved",
+          "type": "array"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "draft_sha256",
+        "ticker",
+        "venue",
+        "share_class",
+        "currency",
+        "session_et",
+        "cutoff_at",
+        "published_at",
+        "reviewed_at",
+        "action",
+        "reason",
+        "revisit_when",
+        "official_close",
+        "iex_band",
+        "comparison_horizon_et",
+        "unresolved"
+      ],
+      "title": "USProposalView",
       "type": "object"
     },
     "UnfinishedResearchView": {

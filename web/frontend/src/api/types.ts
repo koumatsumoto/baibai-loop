@@ -95,6 +95,13 @@ export interface LatestProposalView {
   proposal: SavedProposalView | null
 }
 
+export interface LatestUSProposalView {
+  generated_at: string
+  status: 'ready' | 'empty' | 'unavailable'
+  error: string | null
+  proposal: USProposalView | null
+}
+
 export interface MonexFiscalEPSView {
   source_url: string
   received_at_utc: string
@@ -593,6 +600,41 @@ export interface SavedValueRealizationView {
   timing: 'known' | 'uncertain'
   timing_reason: string
   delay_risk: string
+}
+
+export interface USProposalIexBandView {
+  first_session_et: string
+  last_session_et: string
+  observations: number
+  low_usd: string
+  high_usd: string
+  last_usd: string
+}
+
+export interface USProposalOfficialCloseView {
+  price_usd: string
+  origin: 'listing_exchange'
+  observed_at: string
+}
+
+export interface USProposalView {
+  proposal_id: string
+  draft_sha256: string
+  ticker: string
+  venue: 'XNAS' | 'XNYS'
+  share_class: string
+  currency: 'USD'
+  session_et: string
+  cutoff_at: string
+  published_at: string
+  reviewed_at: string
+  action: 'defer' | 'no_action'
+  reason: string
+  revisit_when: string
+  official_close: USProposalOfficialCloseView | null
+  iex_band: USProposalIexBandView | null
+  comparison_horizon_et: string | null
+  unresolved: string[]
 }
 
 export interface UnfinishedResearchView {

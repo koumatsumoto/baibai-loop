@@ -22,7 +22,7 @@ function renderInLayout(page: ReactNode): string {
 
 it.each<[string, ReactNode, string]>([
   ['dashboard loading', createElement(DashboardPage), '資産状況を読み込んでいます'],
-  ['proposal loading', createElement(ProposalPage), '売買提案の履歴を読み込んでいます'],
+  ['proposal loading', createElement(ProposalPage), '日本株の提案履歴を読み込んでいます'],
   ['read error', createElement(PageState, { message: '読取失敗' }), '読取失敗'],
   ['ready content', createElement(PageShell, { title: '表示内容', children: '用件' }), '用件'],
 ])('keeps one navigation and one main through %s', (_name, page, content) => {

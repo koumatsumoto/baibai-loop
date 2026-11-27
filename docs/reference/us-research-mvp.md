@@ -38,6 +38,59 @@ uv run --offline python -m tools.experiments.us_research_report check-render \
 
 出力先は作業者の私有ディレクトリ内の新規ファイル。描画に失敗した出力は使わず、`check-render` が成功したファイルだけを使う。原稿を変更したらレビューも取り直す。照合はIDと原稿SHAだけでなく描画本文も比較する。照合成功は私有ファイルの読戻しであり、日本株用Appに正式提案が保存・配信された証拠ではない。
 
+## 隔離Appに米国株の見送り・判断保留を保存する
+
+私有レポートの保存とは別に、USD建ての一社の判断を[米国株の保存owner](../../engine/src/baibai_engine/investment_judgment/us_proposal.py)で記録する。判断保留（`defer`）は根拠未確定でも理由と見直し条件を明示する。見送り（`no_action`）は取引所の無調整終値と同じUSD現金との比較、その上で資金を投じない理由がある場合だけ。比較の終期は判断の作成日・保存日（いずれも米東部時間）より後とし、過ぎた比較を新規発行に使わない。保存済み判断の読戻しには現在時刻を使わない。IEXで埋めない。数量、売買条件、口座や円換算は扱わず、日本株の提案・進捗・台帳への書込も行わない。
+
+査読済みの分析を用い、[判断原稿と査読の例](../../tests/tools/test_us_research_report.py)に沿って独立した提案本文の査読を取る。`proposal-digest` が出す提案IDとSHAに、見送りか保留か、理由、見直し条件、元の分析・その査読を結び付ける。分析の査読を提案の査読として使い回さない。査読済み分析の内容はApp内に保存され、読戻しでは分析と提案それぞれが査読に結び付いていることも確認する。元ファイルや再描画は不要で、同IDの差替えや欠損・破損した最新判断から別判断へのfallbackは行わない。
+
+```bash
+uv run --offline python -m tools.experiments.us_research_report proposal-digest \
+  /private/reviewed.json /private/decision.json
+# 別担当が正確な提案IDとSHAを含む decision-review.json を作成した後。
+uv run --offline python -m tools.experiments.us_research_report proposal-save \
+  /private/reviewed.json /private/decision.json /private/decision-review.json --db "$APP_COPY" &&
+uv run --offline python -m tools.experiments.us_research_report proposal-show \
+  --db "$APP_COPY" --proposal-id "$PROPOSAL_ID"
+```
+
+保存時と同じ提案ID・提案原稿SHA・判断を読戻して照合する。 `--proposal-id` を省略すると公開時刻の新しい米国株判断を1件だけ読む。現行Appに該当行がないときは `null`（終了1）。DB不在、異なるschema・読めない行はエラー（終了2）。両者を混同しない。この入口は隔離Appでの保存検証であり、R2転送・公開Web・broker発注・台帳記帳の完了ではない。
+
+### 隔離コピーの一回限りの v30 → v31
+
+v31では `us_equity_proposal` 一表と、その行の上書きを防ぐtriggerだけを一つのtransactionで追加する。v30の通常の読書き・`db init`を移行と兼用しない。新規の隔離DBは `baibai-engine db init --db "$APP_COPY"`、既存v30 Appは**停止した隔離コピーだけ**に次の手順を使う。旧releaseはv31を開けない。本番ではDBとすべての読書き側の切替・読戻しを別に検証するまで適用しない。
+
+```bash
+uv run --offline python - "${APP_COPY:?隔離コピーのパスを指定}" <<'PY'
+import sqlite3
+import sys
+from contextlib import closing
+from pathlib import Path
+
+from baibai_engine.storage.sqlite.application.schema import (
+    APPLICATION_SCHEMA_VERSION,
+    US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS,
+)
+
+source = Path(sys.argv[1]).resolve()
+with closing(sqlite3.connect(source.as_uri() + "?mode=rw", uri=True, autocommit=True)) as db:
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        if db.execute("PRAGMA user_version").fetchone()[0] != 30 or APPLICATION_SCHEMA_VERSION != 31:
+            raise ValueError("expected isolated App v30 and v31 code")
+        for statement in US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS:
+            db.execute(statement)
+        db.execute(f"PRAGMA user_version={APPLICATION_SCHEMA_VERSION}")
+        db.execute("COMMIT")
+    except BaseException:
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+        raise
+PY
+```
+
+追加前の日本株提案・進捗・JPY台帳の行と既存schemaが変わらないこと、追加表が空であること、`integrity_check` と `foreign_key_check` を隔離コピーで確かめてから判断を書き込む。日次が切替を代行する仕組みや旧schemaとの併用は設けない。
+
 ## 最新のIEX観測だけを確認する
 
 運用受入では対象市場の公式暦で期待するNY取引日（休場・短縮日を含む）を確認し、実受領のmanifestと一緒に明示する。
