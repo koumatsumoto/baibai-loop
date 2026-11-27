@@ -6,6 +6,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, WithJsonSchema
 
+from baibai_engine.investment_judgment.contracts import PerspectiveAssessment, PerspectiveModel
+
 
 class USProposalOfficialCloseView(BaseModel):
     price_usd: Decimal
@@ -45,6 +47,18 @@ class USProposalComparisonView(BaseModel):
     downside: USProposalComparisonScenarioView
 
 
+class USProposalPerspectiveSourceView(BaseModel):
+    label: str
+    observed_at: datetime
+
+
+class USProposalPerspectiveView(BaseModel):
+    model: PerspectiveModel
+    assessment: PerspectiveAssessment
+    summary: str
+    sources: list[USProposalPerspectiveSourceView]
+
+
 class USProposalView(BaseModel):
     proposal_id: str
     draft_sha256: str
@@ -59,6 +73,7 @@ class USProposalView(BaseModel):
     action: Literal["defer", "no_action"]
     reason: str
     revisit_when: str
+    model_perspectives: list[USProposalPerspectiveView]
     official_close: USProposalOfficialCloseView | None
     iex_band: USProposalIexBandView | None
     comparison_horizon_et: date | None

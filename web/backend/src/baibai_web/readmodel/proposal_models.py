@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from baibai_engine.investment_judgment.contracts import PerspectiveAssessment, PerspectiveModel
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
     ProposalCorrection,
@@ -14,22 +15,10 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
 
 type EconomicBuyDecision = Literal["price_conditional_allocation"]
 
-PerspectiveModel = Literal[
-    "company_financials",
-    "company_growth",
-    "market_context",
-    "external_assessment",
-    "technical_analysis",
-    "industry_trends",
-    "social_trends",
-]
-
 
 class SavedModelPerspectiveView(BaseModel):
     model: PerspectiveModel
-    assessment: Literal[
-        "supportive", "mixed", "adverse", "neutral", "insufficient", "not_applicable"
-    ]
+    assessment: PerspectiveAssessment
     summary: str
     source_ids: list[str]
 

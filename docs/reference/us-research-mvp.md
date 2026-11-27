@@ -52,6 +52,8 @@ uv run --offline python -m tools.experiments.us_research_report proposal-show \
   --db "$APP_COPY" --proposal-id "$PROPOSAL_ID"
 ```
 
+判断原稿の任意の `model_perspectives` に、日本株と同じ[七観点](stock-assessment.md)ごとの**提案作者の判断**を記録できる。各行の `model`、`assessment`、`summary` と `sources` は提案査読の対象であり、認証Webへ配信する。Webの履歴に載せる要旨は480文字、代表出典は各観点4件までとし、私有の調査原稿とは分ける。出典は公開してよい資料名・該当箇所（`label`、180文字まで）と、情報締切までにその資料を実際に読んだ時差付き時刻（`observed_at`）を指定する。URL・認証情報・私有調査メモを書かない。支持・相反・逆風・中立には根拠が必要。確認したが不足した場合と対象外の場合は、理由を残し、確認できた出典だけを書く。未記録の観点は未記録のままにし、IEX・財務資料の存在や日本株の観測から賛否を作らない。例は[査読から配信までのテスト](../../tests/tools/test_us_research_report.py)。
+
 保存時と同じ提案ID・提案原稿SHA・判断を読戻して照合する。 `--proposal-id` を省略すると公開時刻の新しい米国株判断を1件だけ読む。現行Appに該当行がないときは `null`（終了1）。DB不在、異なるschema・読めない行はエラー（終了2）。両者を混同しない。この入口は隔離Appでの保存検証であり、R2転送・公開Web・broker発注・台帳記帳の完了ではない。
 
 ### 隔離Appを用意する

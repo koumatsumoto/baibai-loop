@@ -3,7 +3,7 @@
 import json
 import sqlite3
 from contextlib import closing
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 
@@ -20,7 +20,9 @@ from baibai_engine.investment_judgment.us_proposal import (
     save_us_proposal,
 )
 from baibai_engine.primitives.json import canonical_json
+from baibai_engine.storage.paths import APPLICATION_DB_PATH
 from baibai_engine.storage.sqlite.application.write import initialize_database
+from baibai_web.materialize import export_read_models
 
 
 def _draft(*, ticker="GOOGL"):
@@ -573,3 +575,164 @@ def test_saved_no_action_is_unreadable_if_its_recorded_publication_never_had_a_f
         assert captured.out == ""
         assert captured.err == "FAIL US App read\n"
     assert db.read_bytes() == before
+
+
+def _finance_perspective():
+    return {
+        "model": "company_financials",
+        "assessment": "mixed",
+        "summary": "合成例：営業利益は増えたが営業現金収支は鈍い。",
+        "sources": [
+            {
+                "label": "合成10-Q（2025年9月期）Item 2 営業現金収支",
+                "observed_at": "2025-11-28T09:00:00-05:00",  # exactly the report cutoff
+            }
+        ],
+    }
+
+
+def test_formal_us_perspectives_are_independently_bound_before_web_materialization(
+    tmp_path, capsys
+):
+    analysis, decision = _decision_inputs(tmp_path, capsys, comparable=False)
+    decision["model_perspectives"] = [
+        _finance_perspective(),
+        {
+            "model": "external_assessment",
+            "assessment": "insufficient",
+            "summary": "合成例：対象期に対応する独立した予想は確認できなかった。",
+            "sources": [],
+        },
+    ]
+    decision_path = _write(tmp_path / "decision.json", decision)
+    binding = _review_decision(analysis, decision_path, capsys)
+    review_path = _write(tmp_path / "decision-review.json", binding)
+    db = tmp_path / APPLICATION_DB_PATH
+    initialize_database(db)
+    # The peer signed the published decision, not just the private analysis or old wording.
+    for replacement in (
+        {**_finance_perspective(), "summary": "根拠の強さを訂正。"},
+        {**_finance_perspective(), "assessment": "adverse"},
+        {
+            **_finance_perspective(),
+            "sources": [{"label": "別資料", "observed_at": "2025-11-27T18:00:00Z"}],
+        },
+    ):
+        changed = {
+            **decision,
+            "model_perspectives": [replacement, decision["model_perspectives"][1]],
+        }
+        _write(Path(decision_path), changed)
+        assert main(["proposal-save", analysis, decision_path, review_path, "--db", str(db)]) == 2
+        assert capsys.readouterr().err == "FAIL US proposal save\n"
+    assert main(["proposal-show", "--db", str(db)]) == 1
+    assert capsys.readouterr().out == "null\n"
+
+    _write(Path(decision_path), decision)
+    assert main(["proposal-save", analysis, decision_path, review_path, "--db", str(db)]) == 0
+    assert json.loads(capsys.readouterr().out)["draft_sha256"] == binding["draft_sha256"]
+    assert main(["proposal-show", "--db", str(db), "--proposal-id", decision["proposal_id"]]) == 0
+    stored = json.loads(capsys.readouterr().out)
+    expected = json.loads(json.dumps(decision["model_perspectives"]))
+    expected[0]["sources"][0]["observed_at"] = "2025-11-28T14:00:00Z"
+    assert stored["decision"]["model_perspectives"] == expected
+    assert stored["analysis"] == json.loads(Path(analysis).read_bytes())
+    out = tmp_path / "served"
+    export_read_models(tmp_path, out)
+    payload = (out / "views/latest-us-proposal.json").read_text(encoding="utf-8")
+    served = json.loads(payload)["proposal"]
+    assert served["draft_sha256"] == binding["draft_sha256"]
+    assert served["action"] == "defer"
+    assert served["official_close"] is None
+    # No unsupplied row or direction is inferred, even though the IEX band exists.
+    assert served["model_perspectives"] == expected
+    for private in ("https://", "合成の収益継続仮説", "synthetic decision peer"):
+        assert private not in payload
+
+
+@pytest.mark.parametrize(
+    ("row", "duplicate"),
+    [
+        ({"model": "other"}, False),
+        ({}, True),
+        ({"assessment": "neutral", "sources": []}, False),
+        ({"summary": "字" * 481}, False),
+        ({"sources": [{"label": "字" * 181, "observed_at": "2025-11-27T12:00:00Z"}]}, False),
+        ({"sources": [{"label": "合成資料", "observed_at": "2025-11-27T12:00:00Z"}] * 5}, False),
+        ({"assessment": "not_applicable", "sources": [], "summary": " "}, False),
+        ({"sources": [{"label": "late", "observed_at": "2025-11-28T14:00:00.000001Z"}]}, False),
+        (
+            {"sources": [{"label": "cutoff+1ns", "observed_at": "2025-11-28T14:00:00.000000001Z"}]},
+            False,
+        ),
+        ({"sources": [{"label": "date only", "observed_at": "2025-11-27"}]}, False),
+        (
+            {"sources": [{"label": "unknown offset", "observed_at": "2025-11-27T12:00:00-00:00"}]},
+            False,
+        ),
+        ({"sources": [{"label": "epoch not a read clock", "observed_at": 0}]}, False),
+        (
+            {
+                "sources": [
+                    {"label": "https://example.com/private", "observed_at": "2025-11-27T12:00:00Z"}
+                ]
+            },
+            False,
+        ),
+        (
+            {
+                "sources": [
+                    {
+                        "label": "合成資料",
+                        "observed_at": "2025-11-27T12:00:00Z",
+                        "url": "https://example.com/private",
+                    }
+                ]
+            },
+            False,
+        ),
+    ],
+)
+def test_invalid_perspective_never_creates_a_reviewable_decision(tmp_path, capsys, row, duplicate):
+    analysis, decision = _decision_inputs(tmp_path, capsys, comparable=False)
+    rows = [{**_finance_perspective(), **row}]
+    decision["model_perspectives"] = rows * (2 if duplicate else 1)
+    decision_path = _write(tmp_path / "invalid.json", decision)
+    assert main(["proposal-digest", analysis, decision_path]) == 2
+    capture = capsys.readouterr()
+    assert (capture.out, capture.err) == ("", "FAIL US proposal draft\n")
+
+
+def test_programmatic_source_offset_seconds_round_trips_at_exact_cutoff(tmp_path, capsys):
+    report, decision = _decision_inputs(tmp_path, capsys, comparable=False)
+    analysis = ReviewedReport.model_validate_json(Path(report).read_bytes())
+    row = _finance_perspective()
+    offset = timezone(-timedelta(seconds=30))
+    instant = analysis.draft.cutoff_at
+    source = row["sources"][0]
+    source["observed_at"] = instant.astimezone(offset)
+    draft = USProposalDraft.model_validate({**decision, "model_perspectives": [row]})
+    assert draft.model_perspectives[0].sources[0].observed_at == instant
+    serialized = USProposalDraft.model_validate_json(draft.model_dump_json())
+    assert prepare_us_proposal(serialized, analysis) == prepare_us_proposal(draft, analysis)
+    source["observed_at"] = (instant + timedelta(microseconds=1)).astimezone(offset)
+    late = USProposalDraft.model_validate({**decision, "model_perspectives": [row]})
+    with pytest.raises(ValueError, match="report cutoff"):
+        prepare_us_proposal(late, analysis)
+
+
+def test_unrepresentable_perspective_time_is_a_validation_error():
+    row = _finance_perspective()
+    row["sources"][0]["observed_at"] = "0001-01-01T00:00:00+09:00"
+    with pytest.raises(ValidationError, match="observation time outside representable UTC range"):
+        USProposalDraft.model_validate(
+            {
+                "proposal_id": "us-proposal-invalid-source",
+                "author_identity": "synthetic author",
+                "prepared_at": "2025-11-28T17:00:00Z",
+                "action": "defer",
+                "reason": "合成理由",
+                "revisit_when": "合成条件",
+                "model_perspectives": [row],
+            }
+        )

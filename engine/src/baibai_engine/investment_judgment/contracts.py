@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BeforeValidator, ConfigDict, Field, StringConstraints
 
@@ -13,6 +13,20 @@ _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=Fal
 
 
 _TICKER = r"^[0-9A-Z]{4}$"
+
+
+PerspectiveModel = Literal[
+    "company_financials",
+    "company_growth",
+    "market_context",
+    "external_assessment",
+    "technical_analysis",
+    "industry_trends",
+    "social_trends",
+]
+PerspectiveAssessment = Literal[
+    "supportive", "mixed", "adverse", "neutral", "insufficient", "not_applicable"
+]
 
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]

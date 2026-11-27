@@ -20,7 +20,7 @@ describe('読みやすい提案レポート', () => {
     const item = { ...buyFixture, rationale }
     const html = renderToStaticMarkup(createElement(ProposalItemCard, { item }))
     const summary = html.indexOf('data-report-summary')
-    const chart = html.indexOf('7モデルの評価チャート')
+    const chart = html.indexOf('観点別の評価表')
     const detail = html.indexOf('data-proposal-details')
     expect(summary).toBeLessThan(chart)
     expect(chart).toBeLessThan(detail)
