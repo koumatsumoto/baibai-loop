@@ -238,6 +238,13 @@ describe('brand palette', () => {
     for (const color of mark) expect(components).not.toContain(color)
   })
 
+  it('orders the allocation tones from amber shares to honey reserves to light cream cash', () => {
+    const [shares, reserves, cash] = ['--chart-1', '--chart-3', '--chart-2']
+      .map((name) => relativeLuminance(parseColor(tokenValue(name))))
+    expect(shares).toBeLessThan(reserves)
+    expect(reserves).toBeLessThan(cash)
+  })
+
   // Check palette classes, not Tailwind's built-in scale.
   it('paints with no color the theme layer does not export', () => {
     // Read roots from tokens so deleting a theme mapping cannot hide a missing class.
