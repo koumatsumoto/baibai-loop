@@ -268,7 +268,6 @@ schemaが合わない・台帳を読めない場合に初期化や変換はし�
 | [経済取得](../.github/workflows/cloud-economic-sources-current.yml) | group別に部分受領をstageし、共通日次の先頭で[経済正本を別途公開](#経済単独公開と失敗再開)する。 |
 | [記事の必要時調査と停止時の取扱い](#article-acquisition) | 新規の定期・手動一括取得は行わない。日次の新規統合も行わず、固定済みの出典は別経路で読む。 |
 | [数値の外部評価](../.github/workflows/cloud-external-assessment.yml) | 固定planで確認済みの集合（ready）を通常統合で採用する。 |
-| [多市場TradingView](../.github/workflows/cloud-tradingview-market-daily.yml) | [市場判断用の補助原本](#判断直前の多市場補助観測)。個社外部評価や正式終値の代わりにしない。 |
 
 取得時には全market/applicationをhydrateしない。同source/groupのqueueと共有quotaを守り、L2不足だけで再GETしない。[経済のsource input](#経済単独公開と失敗再開)は経済統合から発行し、元bindingで再開する。計画材料が欠けたときは空seedや全DB取得で代用しない。形式変更時は対応readerを先行させ、非対応writerをdrainする。
 
@@ -398,7 +397,7 @@ lease外でacquire→inspect→ready --cumulative、共通統合で固定集合�
 <a id="tradingview-expectations"></a>
 ### 個社TradingView
 
-取得は**L3で選定済みの個社に、判断を変え得る問いがある場合だけ**。利用を認められたTradingViewの個社予想を参照し、対象期間・通貨・観測時点の比較可能性が確認できない値は、方向や執行条件の根拠にしない。データが得られなくてもL3を止めず、一次資料の確認を続ける。全銘柄の定期・手動一括収集や旧巡回の途中からの再開、日次の個社入力発行、受領の新規stage・通常統合・sealは行わない。[多市場の取得](#判断直前の多市場補助観測)は別。
+取得は**L3で選定済みの個社に、判断を変え得る問いがある場合だけ**。利用を認められたTradingViewの個社予想を参照し、対象期間・通貨・観測時点の比較可能性が確認できない値は、方向や執行条件の根拠にしない。データが得られなくてもL3を止めず、一次資料の確認を続ける。全銘柄の定期・手動一括収集や旧巡回の途中からの再開、日次の個社入力発行、受領の新規stage・通常統合・sealは行わない。[多市場の補助観測](#判断直前の多市場補助観測)も新規の定期収集は行わない。
 
 通常planはhandoffの宣言sourceで旧個社を除外する。stage名だけでJPXを除外しない。保存済みstage、元のreceiptと判定、過去のGeneration・提案は書き換えず、成功markerを付けない。
 
@@ -415,11 +414,9 @@ uv run python -m baibai_jobs.integration.tradingview_receipts \
 
 ### 判断直前の多市場補助観測
 
-[market-evidence](src/baibai_jobs/acquisition/market_context.py)はquote/5分足のprivate原受領で、日次充足・価格master・正式提案終値とは別。prepare→stageで保存する。別sessionではdownloadに`--stage-id`・`--manifest-sha256`、取得した作業copyのreadに`--receipt-id`・`--sha256`を渡し、同じAssessment入力を使う。同じ引数名に異なるIDやSHAを重ねる指定は受け付けない。未保存captureに耐久参照を付けない。
+[TradingView MCPの利用条件（第27条）](https://www.tradingview.com/policies/#mcp-server)に従い、個人が明示して依頼した調査への、人が読む非公開の補足に限って利用する。保管用の取得・定期収集は行わない。旧 [market-daily](../.github/workflows/cloud-tradingview-market-daily.yml) の収集は退役し、旧runも再実行しない。日本株日次と価格・経済の正規取得は別。受領・stage済みの手持ちは通常の経済統合が扱うが、元データの再取得はしない。
 
-日次market-dailyはjob上限15分、capture上限5分（TERM後30秒でKILL）。capture timeoutは失敗のまま、完了分を既存partial handoffへ渡してcooldownを保存する。setupを含むjob期限や外部cancelでは後段も停止し得る。
-
-固定economic入力の参照/時計/欠測と、評価時刻/基準JST日末の両cutoffを守る。最新失敗を旧成功で埋めず、前日基準へ当朝夜間受領を加えるなら別入力にする。休場/遅延/限月/basisを揃え、受領時計を取引時計、bar tを最終約定、update_mode不明をリアルタイム、末尾足を確定値にしない。価格で判断を変えるなら新入力/再Reviewへ進める。
+すでに保存された資料を利用条件内で照合する場合は、[market-evidence](src/baibai_jobs/acquisition/market_context.py) の `download` に `--stage-id`・`--manifest-sha256`、`read` に `--receipt-id`・`--sha256` を指定する。保存済みの原本・提案・配信物を書き換えず、欠測や遅延を前回値で補わない。受領時刻は取引時計や公式終値の証拠ではない。
 
 <a id="jquants-native-operations"></a>
 ## J-Quants native L1
