@@ -17,6 +17,7 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.price_native import (
+    HEAD_KEY,
     MAX_PACK_BYTES,
     PREFIX,
     PriceAttempt,
@@ -306,6 +307,38 @@ def test_cold_price_rebuilds_reuse_verified_inputs_and_publish_the_marker_last(
     assert sorted(tuple(row.values()) for row in bars.to_pylist()) == sorted(expected_rows)
     status = pq.read_table(cold_output / "price_receipt_status.parquet")
     assert status.equals(pq.read_table(direct_output / "price_receipt_status.parquet"))
+
+
+def test_price_rebuild_cli_only_reads_native_head_and_packs(tmp_path, monkeypatch, fixed_prices):
+    store, fixed = fixed_prices
+    store.get_keys.clear()
+    store.put_keys.clear()
+    monkeypatch.setattr(price_native, "Boto3R2Store", lambda **options: store)
+    output = tmp_path / "probe"
+    target = (DAY + timedelta(days=2)).isoformat()
+
+    assert (
+        price_native.main(
+            [
+                "--work-directory",
+                str(tmp_path / "work"),
+                "--start",
+                target,
+                "--end",
+                target,
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    assert store.get_keys[0] == HEAD_KEY
+    assert all(key.startswith(PREFIX + "packs/") for key in store.get_keys[1:])
+    assert len(store.get_keys) == 2
+    assert store.put_keys == store.delete_keys == []
+    assert (output / "head.json").read_bytes() == fixed.payload
+    assert pq.ParquetFile(output / "daily_bars.parquet").metadata.num_rows == 2
 
 
 @pytest.mark.parametrize("saved_mode", [True, False])
