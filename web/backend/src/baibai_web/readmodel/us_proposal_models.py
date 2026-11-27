@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 class USProposalOfficialCloseView(BaseModel):
     price_usd: Decimal
-    origin: Literal["listing_exchange"]
+    origin: Literal["listing_exchange", "alpaca_sip_nasdaq_official_close"]
     observed_at: datetime
 
 

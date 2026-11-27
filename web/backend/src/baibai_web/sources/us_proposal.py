@@ -32,7 +32,7 @@ def _project(record: USProposal) -> USProposalView:
         official_close=None
         if close is None
         else USProposalOfficialCloseView(
-            price_usd=close.price_usd, origin="listing_exchange", observed_at=close.observed_at
+            price_usd=close.price_usd, origin=close.origin, observed_at=close.observed_at
         ),
         iex_band=None
         if band is None

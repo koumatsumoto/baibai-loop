@@ -22,7 +22,9 @@ function renderableProposal(view: LatestUSProposalView | null) {
   if (![proposal.proposal_id, proposal.draft_sha256, proposal.ticker, proposal.venue,
     proposal.share_class, proposal.reason, proposal.revisit_when, proposal.session_et, publishedAt].every(hasText)
     || !/(?:Z|[+-]\d{2}:\d{2})$/.test(publishedAt) || Number.isNaN(Date.parse(publishedAt))
-    || (close !== null && !hasText(close?.price_usd))
+    || (close !== null && (!hasText(close?.price_usd)
+      || (close.origin !== 'listing_exchange'
+        && (close.origin !== 'alpaca_sip_nasdaq_official_close' || proposal.venue !== 'XNAS'))))
     || (proposal.action === 'no_action' && (close === null || proposal.comparison_horizon_et === null))
     || (band !== null && (!band || !Number.isInteger(band.observations) || band.observations <= 0
       || ![band.first_session_et, band.last_session_et, band.low_usd, band.high_usd].every(hasText)))
@@ -35,6 +37,9 @@ export function USProposal({ state }: { state: ViewState }) {
   if (state.kind === 'loading') return <LoadingPage label="米国株の判断を読み込んでいます" />
   const view = state.kind === 'loaded' ? state.data : null
   const proposal = renderableProposal(view)
+  const officialCloseLabel = proposal?.official_close?.origin === 'alpaca_sip_nasdaq_official_close'
+    ? 'Nasdaqの無調整公式終値（Alpaca SIP経由）'
+    : '取引所の無調整終値'
   return (
     <PageShell title="米国株の判断" lead="保存済みの米ドル（USD）建て判断です。注文・口座操作はできません。" width="reading">
       {state.kind === 'pending' ? (
@@ -57,7 +62,7 @@ export function USProposal({ state }: { state: ViewState }) {
             <dl className="grid min-w-0 gap-3 border-t pt-4 sm:grid-cols-2">
               <div><dt>見直し条件</dt><dd className="whitespace-pre-wrap break-words text-muted-foreground">{proposal.revisit_when}</dd></div>
               <div><dt>対象立会日（米東部時間）</dt><dd className="text-muted-foreground">{proposal.session_et}</dd></div>
-              <div><dt>取引所の無調整終値</dt><dd className="text-muted-foreground">{proposal.official_close === null ? '未確認' : `USD ${proposal.official_close.price_usd}`}</dd></div>
+              <div><dt>{officialCloseLabel}</dt><dd className="text-muted-foreground">{proposal.official_close === null ? '未確認' : `USD ${proposal.official_close.price_usd}`}</dd></div>
               <div><dt>Alpaca IEXの分割調整済み観測</dt><dd className="text-muted-foreground">{proposal.iex_band === null ? '未確認' : `${proposal.iex_band.first_session_et}〜${proposal.iex_band.last_session_et}に${proposal.iex_band.observations}件の観測、USD ${proposal.iex_band.low_usd}〜${proposal.iex_band.high_usd}`}</dd></div>
               <div><dt>比較の終期（米東部時間）</dt><dd className="text-muted-foreground">{proposal.comparison_horizon_et ?? '比較未確定'}</dd></div>
               <div><dt>発行日時（JST）</dt><dd className="text-muted-foreground"><time dateTime={proposal.published_at}>{formatJstDateTime(proposal.published_at)}</time></dd></div>

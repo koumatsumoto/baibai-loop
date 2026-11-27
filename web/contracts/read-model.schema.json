@@ -3938,7 +3938,10 @@
           "type": "string"
         },
         "origin": {
-          "const": "listing_exchange",
+          "enum": [
+            "listing_exchange",
+            "alpaca_sip_nasdaq_official_close"
+          ],
           "title": "Origin",
           "type": "string"
         },

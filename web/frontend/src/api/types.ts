@@ -613,7 +613,7 @@ export interface USProposalIexBandView {
 
 export interface USProposalOfficialCloseView {
   price_usd: string
-  origin: 'listing_exchange'
+  origin: 'listing_exchange' | 'alpaca_sip_nasdaq_official_close'
   observed_at: string
 }
 

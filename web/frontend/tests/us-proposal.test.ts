@@ -57,6 +57,7 @@ it('renders the same saved ID and SHA, keeps USD price evidence distinct, and ha
   expect(html).toContain('現金に比べ下振れの根拠が薄い。')
   expect(html).toContain('次回決算の確認後に見直す。')
   expect(html).toContain('取引所の無調整終値')
+  expect(html).not.toContain('Alpaca SIP経由')
   expect(html).toContain('USD 120.01')
   expect(html).toContain('Alpaca IEXの分割調整済み観測')
   expect(html).toContain('19件の観測、USD 110.900〜125.03')
@@ -65,6 +66,22 @@ it('renders the same saved ID and SHA, keeps USD price evidence distinct, and ha
   expect(html).toContain('us-proposal-fixture')
   expect(html).toContain('a'.repeat(64))
   expect(html).not.toMatch(/<button|<form|href|JPY/)
+})
+
+it('labels a relayed Nasdaq official close as Alpaca SIP, distinct from direct and IEX evidence', () => {
+  if (fixture.proposal === null) throw new Error('test fixture requires a proposal')
+  const data: LatestUSProposalView = {
+    ...fixture,
+    proposal: {
+      ...fixture.proposal,
+      official_close: { origin: 'alpaca_sip_nasdaq_official_close', price_usd: '120.0100', observed_at: '2026-11-27T18:05:00Z' },
+    },
+  }
+  const html = renderToStaticMarkup(createElement(USProposal, { state: { kind: 'loaded', data } }))
+  expect(html).toMatch(/Nasdaqの無調整公式終値（Alpaca SIP経由）<\/dt><dd[^>]*>USD 120\.0100<\/dd>/)
+  expect(html).toContain('Alpaca IEXの分割調整済み観測')
+  expect(html).toContain('見送り')
+  expect(html).not.toContain('取引所の無調整終値')
 })
 
 it('does not copy the IEX price into the official-close slot for a deferred decision', () => {
@@ -106,6 +123,9 @@ it.each([
   ['other market currency', { ...fixture.proposal, currency: 'JPY' }],
   ['unknown action', { ...fixture.proposal, action: 'buy' }],
   ['missing nested close', { ...fixture.proposal, official_close: undefined }],
+  ['unknown official origin', { ...fixture.proposal, official_close: { ...fixture.proposal?.official_close, origin: 'other_feed' } }],
+  ['missing official origin', { ...fixture.proposal, official_close: { ...fixture.proposal?.official_close, origin: undefined } }],
+  ['SIP Nasdaq origin with a non-Nasdaq listing', { ...fixture.proposal, venue: 'XNYS', official_close: { ...fixture.proposal?.official_close, origin: 'alpaca_sip_nasdaq_official_close' } }],
   ['incomplete no-action basis', { ...fixture.proposal, official_close: null, comparison_horizon_et: null }],
   ['unusable saved clock', { ...fixture.proposal, published_at: 'unknown' }],
 ])('treats a ready response with %s as unreadable without inventing a decision', (_label, proposal) => {

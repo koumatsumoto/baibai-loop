@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
-from typing import Annotated, Literal, Self
+from typing import Annotated, ClassVar, Literal, Self
 from zoneinfo import ZoneInfo
 
 from pydantic import (
@@ -22,6 +23,12 @@ from pydantic import (
     model_validator,
 )
 
+from baibai_engine.data_collection.providers.alpaca_auctions import (
+    NasdaqOfficialClose,
+    NasdaqOfficialCloseQuery,
+    SipAuctionReceipt,
+    read_nasdaq_official_close,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.storage.sqlite.application.write import connect_existing
@@ -63,12 +70,30 @@ class _IEXBand(_Record):
         return self
 
 
-class _OfficialClose(_Record):
+class _UnadjustedClose(_Record):
     basis: Literal["regular_session_unadjusted"]
     session_et: date
     price_usd: Price
     source_url: HttpUrl
     observed_at: AwareDatetime
+
+
+class _OfficialClose(_UnadjustedClose):
+    """The original direct listing-exchange evidence shape."""
+
+    origin: ClassVar[Literal["listing_exchange"]] = "listing_exchange"
+
+
+class _NasdaqSipClose(_UnadjustedClose):
+    origin: Literal["alpaca_sip_nasdaq_official_close"]
+    venue: Literal["XNAS"]
+    symbol: Text
+    price_unit: Literal["USD_per_share"]
+    native_response_sha256: Digest
+    source_json_pointer: Text
+    event_at_rfc3339: Text
+    exchange_code: Literal["Q"]
+    sale_condition: Literal["M"]
 
 
 class _FinancialEvidence(_Record):
@@ -119,7 +144,7 @@ class ReportDraft(_Record):
     session_close_at: AwareDatetime
     calendar_source_url: HttpUrl
     iex_band: _IEXBand | None
-    official_close: _OfficialClose | None
+    official_close: _OfficialClose | _NasdaqSipClose | None
     financial_evidence: Annotated[tuple[_FinancialEvidence, ...], Field(min_length=1)]
     thesis: Text
     strongest_countercase: Text
@@ -149,13 +174,27 @@ class ReportDraft(_Record):
         ):
             raise ValueError("IEX window does not establish the expected session at cutoff")
         close = self.official_close
-        if close is not None and (
-            not _listing_https(close.source_url, self.venue)
-            or close.session_et != self.expected_session_et
-            or close.observed_at > self.cutoff_at
-            or close.observed_at < self.session_close_at
-        ):
-            raise ValueError("official observation requires a matching listing-exchange citation")
+        if close is not None:
+            if (
+                close.session_et != self.expected_session_et
+                or not self.session_close_at <= close.observed_at <= self.cutoff_at
+            ):
+                raise ValueError(
+                    "official observation requires a matching closed session at cutoff"
+                )
+            if isinstance(close, _NasdaqSipClose):
+                if (
+                    close.venue != self.venue
+                    or close.symbol != self.ticker
+                    or not _public_https(close.source_url)
+                ):
+                    raise ValueError(
+                        "relayed official observation requires the matching XNAS listing"
+                    )
+            elif not _listing_https(close.source_url, self.venue):
+                raise ValueError(
+                    "official observation requires a matching listing-exchange citation"
+                )
         comparison = self.comparison
         if comparison is not None and (
             close is None
@@ -166,6 +205,42 @@ class ReportDraft(_Record):
         if (band is None or comparison is None) and not self.unresolved:
             raise ValueError("missing price or comparison requires an explicit limitation")
         return self
+
+
+@dataclass(frozen=True, slots=True)
+class SipCloseProof:
+    """Separate capture inputs, never proof manufactured by the report author."""
+
+    query: NasdaqOfficialCloseQuery
+    receipt: SipAuctionReceipt
+
+
+def sip_official_close_fields(observation: NasdaqOfficialClose) -> dict[str, object]:
+    """Project the validated provider observation without altering its precision or source."""
+    return _NasdaqSipClose.model_validate(observation, from_attributes=True).model_dump(mode="json")
+
+
+def require_close_receipt(draft: ReportDraft, sip_proof: SipCloseProof | None = None) -> None:
+    """Admit a new SIP judgment by replaying its receipt, not by trusting a typed claim."""
+    close = draft.official_close
+    if not isinstance(close, _NasdaqSipClose):
+        if sip_proof is not None:
+            raise ValueError("SIP receipt requires the explicit relayed close variant")
+        return
+    if sip_proof is None:
+        raise ValueError("relayed close requires its original SIP receipt")
+    if sip_proof.query.symbol != draft.ticker:
+        raise ValueError("SIP receipt requires the report's literal ticker")
+    observed = read_nasdaq_official_close(
+        sip_proof.query,
+        sip_proof.receipt,
+        listing_venue=draft.venue,
+        session_et=draft.expected_session_et,
+        session_close_at=draft.session_close_at,
+        cutoff_at=draft.cutoff_at,
+    )
+    if sip_official_close_fields(observed) != close.model_dump(mode="json"):
+        raise ValueError("relayed close differs from the accepted original SIP observation")
 
 
 class ReportReview(_Record):
@@ -246,6 +321,21 @@ def render(draft: ReportDraft, review: ReportReview) -> bytes:
     close = draft.official_close
     if close is None:
         lines.append("- 上場取引所の無調整終値: 未確認。IEXで代用していません。")
+    elif isinstance(close, _NasdaqSipClose):
+        lines.extend(
+            [
+                (
+                    f"- Nasdaqの無調整公式終値（Alpaca SIP経由）: USD {close.price_usd} / 株 "
+                    f"（{close.session_et} ET、受領 {close.observed_at.isoformat()}）: "
+                    f"{close.source_url}"
+                ),
+                (
+                    f"- Q/M: {close.event_at_rfc3339}、"
+                    f"原本SHA-256: {close.native_response_sha256}、"
+                    f"該当箇所: {close.source_json_pointer}"
+                ),
+            ]
+        )
     else:
         lines.append(
             f"- 上場取引所の無調整終値: USD {close.price_usd} / 株 "
@@ -293,7 +383,10 @@ def render(draft: ReportDraft, review: ReportReview) -> bytes:
     return ("\n".join(lines) + "\n").encode()
 
 
-def reviewed_report(draft: ReportDraft, review: ReportReview) -> ReviewedReport:
+def reviewed_report(
+    draft: ReportDraft, review: ReportReview, *, sip_proof: SipCloseProof | None = None
+) -> ReviewedReport:
+    require_close_receipt(draft, sip_proof)
     return ReviewedReport(
         draft=draft, review=review, rendered_sha256=_digest(render(draft, review))
     )
@@ -357,7 +450,10 @@ def _decision_digest(draft: USProposalDraft, analysis: ReviewedReport) -> str:
     )
 
 
-def prepare_us_proposal(draft: USProposalDraft, analysis: ReviewedReport) -> str:
+def prepare_us_proposal(
+    draft: USProposalDraft, analysis: ReviewedReport, *, sip_proof: SipCloseProof | None = None
+) -> str:
+    require_close_receipt(analysis.draft, sip_proof)
     _validate_decision(draft, analysis)
     _require_future_horizon(draft, analysis, at=draft.prepared_at)
     render_reviewed_report(analysis)
@@ -397,8 +493,10 @@ def save_us_proposal(
     review: USProposalReview,
     *,
     published_at: datetime,
+    sip_proof: SipCloseProof | None = None,
 ) -> USProposal:
     # The reviewed analysis is an admission input, not a renderer dependency on App reads.
+    require_close_receipt(analysis.draft, sip_proof)
     render_reviewed_report(analysis)
     proposal = USProposal(
         decision=draft, analysis=analysis, review=review, published_at=published_at
