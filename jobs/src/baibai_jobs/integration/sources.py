@@ -522,13 +522,15 @@ def main(argv: list[str] | None = None) -> int:
                 seal_phase = "canonical_machine"
                 generations = canonical_generations(store)
                 guarded = GuardedInputStore(store, lambda: verify_held(store, handle))
-                if any(
-                    item["entry"]["source"] in _JPX_COLLECTION
-                    and item["applied"]
-                    and item["result"]["retained_bundles"]
+                jpx = [
+                    item
                     for item in report["handoffs"]
-                ):
+                    if item["entry"]["source"] in _JPX_COLLECTION and item["applied"]
+                ]
+                if jpx:
                     seal_phase = "jpx_readback"
+                    if any(not item["result"].get("retained_bundles") for item in jpx):
+                        raise ValueError("applied JPX handoff has no original bundle; reapply")
                     report["jpx_readback"] = verify_jpx_publication(
                         store,
                         expected=report.get("jpx_publication", {}),

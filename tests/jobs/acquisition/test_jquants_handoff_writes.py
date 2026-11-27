@@ -37,7 +37,7 @@ def test_stage_uses_packet_source_and_only_reserves_old_scheduled_ids(
                 "source": packet_source,
                 "asof": "2026-10-26",
                 "started_at": "2026-10-26T10:00:00Z",
-                "bundle_ids": [],
+                "bundle_ids": ["fixture-original"],
             }
         )
     )

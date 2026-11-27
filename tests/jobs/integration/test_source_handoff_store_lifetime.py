@@ -12,7 +12,7 @@ def test_owned_store_closes_on_success_failure_and_interrupt(
 ):
     source = "tradingview" if command == "download" else "jpx-earnings"
     result = tmp_path / "result.json"
-    result.write_text("{}")
+    result.write_text('{"bundle_ids": ["fixture-original"]}' if command == "stage" else "{}")
     original = result.read_bytes()
     output = tmp_path / "github-output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
@@ -71,6 +71,7 @@ def test_stage_output_failure_still_closes_store(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(source_handoff, "Boto3R2Store", Store)
     monkeypatch.setattr(source_handoff, "save_handoff", lambda *a, **k: events.append("saved"))
+    (tmp_path / "result.json").write_text('{"bundle_ids": ["fixture-original"]}')
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path))
     assert (
         source_handoff.main(

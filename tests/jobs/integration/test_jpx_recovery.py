@@ -2,13 +2,13 @@
 
 import json
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
-from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook
+from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook, earnings
 from tests.helpers.master_calendar_native import seed_calendar, seed_master
-from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
 
 from baibai_engine.data_collection.providers.jpx.models import JPXResponse
 from baibai_engine.data_collection.providers.jpx.receipt_store import open_receipts
@@ -21,10 +21,13 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import 
     JPX_EARNINGS_CALENDAR_INDEX_URL,
     JPX_REGULATION_URLS,
 )
+from baibai_engine.storage.snapshots.keys import release_manifest_key
+from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
 from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
-from baibai_jobs.integration import sources
+from baibai_jobs.integration import source_handoff, sources
+from baibai_jobs.publication.lease import _save_handle, acquire
 
 DAY = date(2026, 10, 15)
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
@@ -167,8 +170,6 @@ def test_exact_jpx_recovery_rejects_mismatched_selection_without_writes(failed_s
 
 @pytest.mark.parametrize("warm", [False, True])
 def test_jpx_recovery_keeps_full_fixed_edinet_withdrawal_projection(tmp_path, failed_stages, warm):
-    from datetime import timedelta
-
     from tests.jobs.acquisition.test_edinet_list_native_route import payload, receipt
 
     from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
@@ -239,3 +240,118 @@ def test_jpx_recovery_keeps_full_fixed_edinet_withdrawal_projection(tmp_path, fa
         )
         assert conn.execute("SELECT COUNT(*) FROM jpx_source_bundles").fetchone()[0] == 2
     assert tuple(corrected.iter_receipts()) == (original, withdrawal)
+
+
+def _empty_export(tmp_path, monkeypatch):
+    database = tmp_path / "source-market.sqlite"
+    packet = tmp_path / "empty-export"
+    github_output = tmp_path / "github-output"
+    earnings(database, STAMP, "2026-10-20", "130A")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    assert (
+        source_handoff.main(
+            [
+                "export",
+                "--source",
+                "jpx-earnings",
+                "--asof",
+                str(DAY),
+                "--since",
+                (STAMP + timedelta(hours=1)).isoformat(),
+                "--database",
+                str(database),
+                "--directory",
+                str(packet),
+            ]
+        )
+        == 0
+    )
+    return packet, github_output
+
+
+def test_empty_jpx_export_is_not_ready_to_stage(tmp_path, monkeypatch):
+    packet, github_output = _empty_export(tmp_path, monkeypatch)
+    store = MemoryR2Store()
+    monkeypatch.setattr(source_handoff, "Boto3R2Store", lambda **_: store)
+    result = source_handoff.main(
+        [
+            "stage",
+            "--source",
+            "jpx-earnings",
+            "--stage-id",
+            "empty-selection",
+            "--directory",
+            str(packet),
+        ]
+    )
+    assert (github_output.read_text(), result, store.put_keys) == ("stage_ready=false\n", 1, [])
+
+
+@pytest.mark.parametrize("stale_seal_report", [False, True])
+def test_preexisting_empty_jpx_stage_cannot_advance_source_watermark(
+    tmp_path, monkeypatch, stale_seal_report
+):
+    packet, _ = _empty_export(tmp_path, monkeypatch)
+    store = MemoryR2Store()
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
+    edinet_input = empty_edinet_input(store, tmp_path)
+    seed_machine_current(
+        store,
+        LakeReleasePointer(
+            release_id="unchanged",
+            manifest_key=release_manifest_key(release_id="unchanged"),
+            manifest_sha256="a" * 64,
+        ),
+    )
+    stage = "jpx-earnings-empty-selection"
+    # A stage persisted before the current no-original check still needs a terminal result.
+    save_handoff(store, stage, packet, market=True)
+    (entry,) = available_handoffs(store, market=True)
+    work, market = tmp_path / "merge", tmp_path / "current-market.sqlite"
+    work.mkdir()
+    with closing(open_connection(market)):
+        pass
+    (work / "plan.json").write_text(
+        json.dumps({"handoffs": [entry], "edinet_input": edinet_input.model_dump(mode="json")})
+    )
+    applied = sources.apply(store, work, market=market, asof=DAY)
+    marker = tmp_path / "lease.json"
+    handle, _ = acquire(store, "operator")
+    _save_handle(marker, handle)
+    seal = ["seal", "--directory", str(work), "--lease-handle", str(marker)]
+    key = f"{stage_prefix(stage, market=True)}/integrated.json"
+    if stale_seal_report:
+        # Pre-fix apply used this exact successful result for an empty selection.
+        applied["handoffs"][0].update(
+            applied=True, failed=False, recovery=False, result={"retained_bundles": []}
+        )
+        (work / "applied.json").write_text(json.dumps(applied))
+        assert sources.main(seal) == 1
+        assert key not in store.values
+        return
+    assert sources.main(seal) == 0
+    terminal = json.loads(store.values[key].body)
+    with closing(open_connection(market)) as conn:
+        assert conn.execute("SELECT count(*) FROM jpx_source_bundles").fetchone() == (0,)
+
+    # A real older receipt that finished staging afterwards must remain selectable.
+    real = tmp_path / "arrived-late"
+    bundle = earnings(real / "receipts.sqlite", STAMP, "2026-10-20", "130A")
+    (real / "result.json").write_text(
+        json.dumps(
+            {
+                "source": "jpx-earnings",
+                "asof": str(DAY),
+                "started_at": STAMP.isoformat(),
+                "bundle_ids": [bundle],
+            }
+        )
+    )
+    save_handoff(store, "jpx-earnings-original", real, market=True)
+    (pending,) = available_handoffs(store, market=True)
+    assert pending["stage_id"] == "jpx-earnings-original"
+    assert (
+        applied["handoffs"][0]["failed"],
+        terminal["status"],
+        pending["late_before_integrated"],
+    ) == (True, "needs_explicit_recovery", False)
