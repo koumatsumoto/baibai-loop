@@ -51,7 +51,7 @@
 
 現行の日次は、[Generationの入口](../engine/src/baibai_engine/machine_analysis/generation/inputs.py)から[組立](../engine/src/baibai_engine/machine_analysis/generation/assembly.py)へ固定入力を渡し、次の五つのモデルを生成対象にする。個々の値の意味・不足理由は[観測リファレンス](reference/model-observations.md)へ。
 
-- **個社**：企業財務 `company_financials`、企業成長 `company_growth`、テクニカル分析 `technical_analysis`、外部評価 `external_assessment`。[数値の定期取得](../jobs/OPERATIONS.md#external-assessment-acquisition)はMonexと株マップ。個社TradingViewは必要時のL3補助で、多市場のTradingView観測とは別。
+- **個社**：企業財務 `company_financials`、企業成長 `company_growth`、テクニカル `technical_analysis`、外部評価 `external_assessment`。[数値の定期取得](../jobs/OPERATIONS.md#external-assessment-acquisition)はMonexと株マップ。個社TradingViewは必要時のL3補助で、多市場のTradingView観測とは別。
 - **個社と市場**：市場環境 `market_context`。個社の相対・価格観測と市場全体の観測は別の対象に保存する。経済時系列の取得は続け、記事とは分ける。
 
 産業・社会の動向は、判断に効くときだけL3で調べる。記事の定期・手動一括取得と日次統合は終了し、`industry_trends`・`social_trends` の新規日次生成はしない。[見出し](reference/stock-assessment.md#recent-news-research)は原典を探す入口であって、本文を読んだ証拠ではない。[評価の七観点](reference/stock-assessment.md#analysis-domain-integration)は五つの機械モデルとこの二つの調査観点で判断を説明するためのもので、七つの必須モデルでも採否の多数決でもない。

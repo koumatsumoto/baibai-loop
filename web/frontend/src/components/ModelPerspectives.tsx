@@ -7,7 +7,7 @@ const MODELS: { model: SavedModelPerspectiveView['model']; label: string }[] = [
   { model: 'company_growth', label: '企業成長' },
   { model: 'market_context', label: '市場環境' },
   { model: 'external_assessment', label: '外部評価' },
-  { model: 'technical_analysis', label: 'テクニカル分析' },
+  { model: 'technical_analysis', label: 'テクニカル' },
   { model: 'industry_trends', label: '産業動向' },
   { model: 'social_trends', label: '社会動向' },
 ]
