@@ -27,7 +27,7 @@ import { PageShell } from '../components/PageShell'
 import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
-import { formatJstDateTime, formatPct } from '../lib/format'
+import { formatJstDateTime } from '../lib/format'
 import { proposalActionLabel, isCorrectedProposal } from '../lib/proposal-history'
 
 type ProposalItem = SavedProposalView['items'][number]
@@ -263,7 +263,7 @@ function AssessmentValue({ assessment }: { assessment: SavedAssessmentView }) {
         <div className="grid gap-3 sm:grid-cols-2">
           {scenarios.map(({ label, value }) => <div className="min-w-0 rounded-md bg-muted p-4" key={label}>
             <p className="text-sm font-medium">{label}</p>
-            <p className="mt-2 text-2xl font-semibold tabular-nums">{formatPct(Number(value.annualized_return_pct), { digits: 2 })}</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">{value.annualized_return_pct}%</p>
             <p className="mt-1 text-xs text-muted-foreground">総受取額の年率換算</p>
           </div>)}
         </div>
