@@ -56,9 +56,9 @@ STREAM_TITLES = {
     "us_services": "S&P Global US Services PMI",
 }
 
-_LIST_ITEM_RE = re.compile(
-    r'<div class="listItem">\s*'
-    r'<span class="releaseDate">(?P<published>.*?)</span>\s*'
+_LIST_ITEM_START = '<div class="listItem">'
+_LIST_FIELDS_RE = re.compile(
+    r'\s*<span class="releaseDate">(?P<published>.*?)</span>\s*'
     r'<span class="releaseTitle">(?P<title>.*?)</span>\s*'
     r'<span class="greenListItem"><a href="(?P<url>[^"]+)"',
     re.S,
@@ -158,7 +158,11 @@ def parse_release_index(html: str) -> tuple[IndexEntry, ...]:
     """The releases the index lists, in the order the page states them."""
 
     entries: list[IndexEntry] = []
-    for match in _LIST_ITEM_RE.finditer(html):
+    # A missing field must not borrow the next card's date, title or URL.
+    for item in html.split(_LIST_ITEM_START)[1:]:
+        match = _LIST_FIELDS_RE.match(item.partition("</div>")[0])
+        if match is None:
+            continue
         url = unescape(match["url"])
         # The link comes from a page this tool does not control and ends up both in a
         # fetch and in the manifest, so anything that is not a release URL is dropped

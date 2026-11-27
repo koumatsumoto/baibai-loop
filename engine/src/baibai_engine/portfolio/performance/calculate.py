@@ -130,14 +130,11 @@ class _HoldingMarketWindow:
     ticker: str
     acquired_on: date
     through: date
-    mark_acquisition_close: bool
+    first_close: date
+    sold_close: date | None
 
-    def requires_session(self, day: date) -> bool:
-        # The purchase fixes its own unit basis. Subsequent sessions through
-        # the actual sale still need action evidence, even with zero closing lots.
-        return self.acquired_on < day <= self.through or (
-            self.mark_acquisition_close and day == self.acquired_on
-        )
+    def held_at_close(self, day: date) -> bool:
+        return self.first_close <= day and (self.sold_close is None or day < self.sold_close)
 
 
 @dataclass(frozen=True)
@@ -178,16 +175,19 @@ class OutcomePeriod:
             }
         )
 
-    def market_tickers(self) -> tuple[str, ...]:
-        """Include opening holdings and sales after that close; exclude later activity."""
-        return tuple(sorted({window.ticker for window in self._holding_windows}))
-
-    def market_sessions(self) -> tuple[date, ...]:
-        """Require daily-bar receipts only for position marks or holding-unit continuity."""
-        windows = self._holding_windows
-        return tuple(
-            day for day in self.business_days if any(w.requires_session(day) for w in windows)
-        )
+    def close_marks_by_session(self) -> dict[date, set[str]]:
+        """Each key needs an acquisition receipt; only its closing positions need quotes."""
+        marks: dict[date, set[str]] = {}
+        for window in self._holding_windows:
+            for day in self.business_days:
+                if not self.start <= day <= self.end:
+                    continue
+                if window.held_at_close(day):
+                    marks.setdefault(day, set()).add(window.ticker)
+                elif window.acquired_on < day <= window.through:
+                    # The actual sale can need unit evidence but not a closing quote.
+                    marks.setdefault(day, set())
+        return marks
 
     def compute(
         self,
@@ -414,10 +414,9 @@ def _holding_market_windows(
             if episode.closed
             else end
         )
-        # On the acquisition day itself, only a position still held at that
-        # close needs a mark. A later first fill or an intraday round trip does not.
-        mark_first = dates[bought.event_id] == first and (sold_close is None or first < sold_close)
-        windows.append(_HoldingMarketWindow(bought.ticker, first, through, mark_first))
+        windows.append(
+            _HoldingMarketWindow(bought.ticker, first, through, dates[bought.event_id], sold_close)
+        )
     return tuple(windows)
 
 

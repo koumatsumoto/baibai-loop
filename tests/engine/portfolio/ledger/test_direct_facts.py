@@ -1,5 +1,6 @@
 from datetime import UTC, timedelta
 from decimal import Decimal
+from functools import partial
 
 import pytest
 import yaml
@@ -118,6 +119,29 @@ def test_same_order_partial_fills_keep_reference_and_both_executions(tmp_path):
             execution_id="synthetic-direct-fill-2",
             price_yen=Decimal("999"),
         )
+
+
+@pytest.mark.parametrize("execution_id", [None, "broker-fill"])
+def test_unreserved_buy_retry_compares_reported_classification(tmp_path, execution_id):
+    service, path = _service(tmp_path)
+    report = partial(
+        fill_direct,
+        service,
+        decision_reference="manual-fact-00000000-0000-4000-8000-000000000009",
+        order_id=None,
+        execution_id=execution_id,
+    )
+    original, _ = report(sector="情報・通信業", common_factors=("a", "b"))
+    apply_draft(service, original, human_confirmed=True)
+    before = path.read_bytes()
+
+    assert report() == (None, ())
+    assert report(common_factors=()) == (None, ())  # No factor was reported.
+    assert report(sector="情報・通信業", common_factors=("b", "a", "a")) == (None, ())
+    for correction in ({"sector": "食料品"}, {"common_factors": ("a",)}, {"common_factors": ("",)}):
+        with pytest.raises(BrokerFactRecordingError, match="conflicting human report"):
+            report(**correction)
+    assert path.read_bytes() == before
 
 
 def test_existing_order_open_retry_keeps_reference_before_generating_uuid(tmp_path):

@@ -501,7 +501,7 @@ series:
     plausible_max: 100
     reading_key: us_manufacturing
     source_id: spglobal-us-pmi-mfg
-    notes: S&P Global 米製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する。ISM製造業と対で米製造業サイクルを読む
+    notes: S&P Global 米製造業PMI(50=拡大縮小の境界)。同じ観測月は公式PDFの確報を優先し、公式PDFがない月は保存済み二次記事の確報、次に速報を使う。ISM製造業と対で米製造業サイクルを読む
     aliases: [米製造業PMI, US manufacturing PMI, S&P US manufacturing PMI]
   - series_id: us.pmi_services
     name: 米サービス業PMI
@@ -513,7 +513,7 @@ series:
     plausible_max: 100
     reading_key: us_services
     source_id: spglobal-us-pmi-svc
-    notes: S&P Global 米サービス業PMI(Business Activity Index、50=拡大縮小の境界)。公式リリースPDFから機械抽出する。米経済の約7割を占めるサービス需要の先行観測
+    notes: S&P Global 米サービス業PMI(Business Activity Index、50=拡大縮小の境界)。同じ観測月は公式PDFの確報を優先し、公式PDFがない月は保存済み二次記事の確報、次に速報を使う。米経済の約7割を占めるサービス需要の先行観測
     aliases: [米サービスPMI, US services PMI, S&P US services PMI]
   - series_id: us.sloos_ci_tightening
     name: 米銀行貸出態度(SLOOS・C&I大企業)

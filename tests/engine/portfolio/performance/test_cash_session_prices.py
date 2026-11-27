@@ -16,14 +16,14 @@ from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 def _observed_outcome(tmp_path, capsys, trades, daily_inputs):
     raw = _ledger().model_dump(mode="json")
     raw["events"] = [raw["events"][0]]
-    for i, (at, side, price) in enumerate(trades):
+    for i, (ticker, at, side, price) in enumerate(trades):
         raw["events"].append(
             dict(
                 type="execution",
                 event_id=f"fill-{i}",
                 execution_id=f"fill-{i}",
                 occurred_at=f"2026-01-{at}:00+09:00",
-                ticker="1234",
+                ticker=ticker,
                 side=side,
                 quantity=100,
                 price_yen=price,
@@ -33,12 +33,12 @@ def _observed_outcome(tmp_path, capsys, trades, daily_inputs):
     args, application = _prepare_outcome_cli(tmp_path, PortfolioLedgerDocument.model_validate(raw))
     market = tmp_path / "market.sqlite"
     with closing(sqlite3.connect(market)) as connection, connection:
-        for day, close, factor, receipt in daily_inputs:
+        for ticker, day, close, factor, receipt in daily_inputs:
             day = f"2026-01-{day:02}"
             connection.execute(
                 "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) "
-                "VALUES ('1234',?,?,?)",
-                (day, close, factor),
+                "VALUES (?,?,?,?)",
+                (ticker, day, close, factor),
             )
             if receipt is not None:
                 add_source_coverage(
@@ -63,7 +63,9 @@ def _observed_outcome(tmp_path, capsys, trades, daily_inputs):
 
 @pytest.mark.parametrize("buy_at", ["06T09:00", "05T16:00"])
 def test_only_final_close_is_needed_after_cash_only_sessions(tmp_path, capsys, buy_at):
-    payload = _observed_outcome(tmp_path, capsys, [(buy_at, "buy", 5)], [(6, 7, 1, "ok")])
+    payload = _observed_outcome(
+        tmp_path, capsys, [("1234", buy_at, "buy", 5)], [("1234", 6, 7, 1, "ok")]
+    )
     assert payload["status"] == "resolved"
     assert payload["ending_holdings_market_value_yen"] == 700
     assert payload["portfolio_twr_pct"] == pytest.approx(20)
@@ -86,8 +88,16 @@ def test_cash_gap_skips_price_but_earlier_sale_still_checks_basis(
     payload = _observed_outcome(
         tmp_path,
         capsys,
-        [("01T09:00", "buy", 5), ("02T09:00", "sell", 6), ("06T09:00", "buy", 5)],
-        [(1, 5, 1, "ok"), (2, None, sale_factor, sale_receipt), (6, 7, 1, "ok")],
+        [
+            ("1234", "01T09:00", "buy", 5),
+            ("1234", "02T09:00", "sell", 6),
+            ("1234", "06T09:00", "buy", 5),
+        ],
+        [
+            ("1234", 1, 5, 1, "ok"),
+            ("1234", 2, None, sale_factor, sale_receipt),
+            ("1234", 6, 7, 1, "ok"),
+        ],
     )
     if reason is None:
         assert payload["status"] == "resolved"
@@ -102,11 +112,43 @@ def test_close_is_required_on_an_after_close_sale_but_not_on_an_intraday_roundtr
     intraday, after_close = tmp_path / "intraday", tmp_path / "after-close"
     intraday.mkdir()
     after_close.mkdir()
-    buy = ("02T09:00", "buy", 5)
-    settled = _observed_outcome(intraday, capsys, [buy, ("02T15:00", "sell", 6)], [])
+    buy = ("1234", "02T09:00", "buy", 5)
+    settled = _observed_outcome(intraday, capsys, [buy, ("1234", "02T15:00", "sell", 6)], [])
     assert settled["status"] == "resolved"
     assert settled["portfolio_twr_pct"] == pytest.approx(10)
     unresolved = _observed_outcome(
-        after_close, capsys, [buy, ("02T16:00", "sell", 6)], [(2, None, 1, "ok")]
+        after_close, capsys, [buy, ("1234", "02T16:00", "sell", 6)], [("1234", 2, None, 1, "ok")]
     )
     assert (unresolved["status"], unresolved["reason"]) == ("unresolved", "missing_market_price")
+
+
+@pytest.mark.parametrize(
+    ("sale_factor", "reason"), [(1, None), (0.5, "corporate_action_unresolved")]
+)
+def test_only_held_ticker_closes_are_decoded_and_sale_basis_is_still_required(
+    tmp_path, capsys, sale_factor, reason
+):
+    payload = _observed_outcome(
+        tmp_path,
+        capsys,
+        [
+            ("1234", "01T09:00", "buy", 5),
+            ("1234", "02T09:00", "sell", 6),
+            ("5678", "06T09:00", "buy", 6),
+        ],
+        [
+            ("1234", 1, 5, 1, "ok"),
+            # Before purchase, after a sale and on a sale-only session, no close is used.
+            ("5678", 1, "unused", 0.5, None),
+            ("1234", 2, "unused", sale_factor, "ok"),
+            ("1234", 6, "unused", 0.5, None),
+            ("5678", 6, 7, 1, "ok"),
+        ],
+    )
+    if reason is None:
+        assert payload["status"] == "resolved"
+        assert payload["open_tickers"] == ["5678"]
+        assert payload["ending_holdings_market_value_yen"] == 700
+        assert payload["portfolio_twr_pct"] == pytest.approx(20)
+    else:
+        assert (payload["status"], payload["reason"]) == ("unresolved", reason)

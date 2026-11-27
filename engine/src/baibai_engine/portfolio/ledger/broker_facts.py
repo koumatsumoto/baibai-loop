@@ -102,6 +102,18 @@ def record_broker_fact(
                     "conflicting human report for existing fill event; "
                     "another fill needs an execution_id to distinguish it"
                 )
+            # An unreserved buy owns its classification; a reserved fill inherits the order's.
+            if (
+                existing.side == "buy"
+                and existing.reservation_id is None
+                and (
+                    (sector is not None and sector != existing.sector)
+                    or (common_factors and set(common_factors) != set(existing.common_factors))
+                )
+            ):
+                raise BrokerFactRecordingError(
+                    "conflicting human report for existing fill classification"
+                )
             return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
     if status in {"cancelled", "expired"} and reservation_id is not None:
         release_reason: Literal["cancelled", "expired"] = (

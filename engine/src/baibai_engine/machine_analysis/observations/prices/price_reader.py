@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Set
 from datetime import date
+from itertools import batched, chain
 from pathlib import Path
 from typing import Any
 
@@ -94,24 +95,29 @@ def _adjustment_events_from_rows(
 
 
 def read_ticker_bars(
-    conn: sqlite3.Connection, tickers: tuple[str, ...], sessions: tuple[date, ...]
+    conn: sqlite3.Connection, marks_by_session: Mapping[date, Set[str]]
 ) -> list[JQuantsDailyBar] | None:
-    """Read held tickers for the verified cash sessions, not for intervening holidays."""
-    if not tickers or not sessions:
+    """Read exact closing marks; an empty set still requires that session's receipt."""
+    if not marks_by_session:
         return []
-    if uncovered_days(conn, "jquants_daily_bars", sessions):
+    if uncovered_days(conn, "jquants_daily_bars", marks_by_session):
         return None
-    placeholders = ", ".join("?" for _ in tickers)
-    rows = conn.execute(
-        "SELECT ticker, traded_at, close, turnover_value, volume, "
-        "adjustment_factor, ex_right_type FROM jquants_daily_bars "
-        # Local placeholder count; ticker values remain bound.  # nosec B608
-        f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
-        "ORDER BY ticker, traded_at",
-        (*tickers, sessions[0].isoformat(), sessions[-1].isoformat()),
-    ).fetchall()
-    on_sessions = {day.isoformat() for day in sessions}
-    return _daily_bars_from_rows(row for row in rows if row[1] in on_sessions)
+    pairs = sorted(
+        (ticker, day.isoformat()) for day, tickers in marks_by_session.items() for ticker in tickers
+    )
+    bars: list[JQuantsDailyBar] = []
+    # Bound the two parameters per key below SQLite's traditional 999-variable limit.
+    for batch in batched(pairs, 400, strict=False):
+        placeholders = ", ".join("(?, ?)" for _ in batch)
+        rows = conn.execute(
+            f"WITH marks(ticker, traded_at) AS (VALUES {placeholders}) "  # nosec B608
+            "SELECT b.ticker, b.traded_at, b.close, b.turnover_value, b.volume, "
+            "b.adjustment_factor, b.ex_right_type FROM marks "
+            "JOIN jquants_daily_bars b USING (ticker, traded_at) ORDER BY b.ticker, b.traded_at",
+            tuple(chain.from_iterable(batch)),
+        )
+        bars.extend(_daily_bars_from_rows(rows))
+    return bars
 
 
 def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:

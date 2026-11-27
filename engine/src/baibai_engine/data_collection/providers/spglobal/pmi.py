@@ -140,6 +140,9 @@ def fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | N
         context=context,
     )
     if not content.startswith(b"%PDF"):
+        # A later month may legitimately request this same restatement URL.
+        if context is not None:
+            context.discard_cached_bytes(url, None)
         raise IndicatorsProviderError(f"spglobal_pmi response from {url} is not a PDF")
     return content
 

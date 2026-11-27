@@ -604,7 +604,7 @@ def test_outcome_prepares_confirmed_conversions_once_for_all_holding_days(count,
     )
     collect = mocker.spy(calculate, "share_conversions")
     period = OutcomePeriod(PortfolioLedgerDocument.model_validate(raw), days, start, end)
-    assert period.market_tickers() == tickers
+    assert period.close_marks_by_session() == {day: set(tickers) for day in days}
     result = period.compute(benchmark, bars=bars)
     assert result.status == "resolved"
     assert result.portfolio_twr_pct == 0.0
@@ -619,12 +619,9 @@ def _preperiod_holding() -> PortfolioLedgerDocument:
 
 
 def test_opening_holding_requires_evidence_of_its_preperiod_units() -> None:
-    assert OutcomePeriod(
-        _preperiod_holding(),
-        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
-        start=date(2025, 1, 6),
-        end=date(2026, 1, 6),
-    ).market_tickers() == ("1234",)
+    days = (date(2025, 1, 6), date(2026, 1, 6))
+    period = OutcomePeriod(_preperiod_holding(), days, *days)
+    assert period.close_marks_by_session() == {day: {"1234"} for day in days}
     result = compute_portfolio_outcome(
         _preperiod_holding(),
         _benchmark(),
@@ -707,12 +704,9 @@ def test_full_sale_does_not_hide_a_corporate_action_on_its_execution_day() -> No
         },
     ]
     ledger = PortfolioLedgerDocument.model_validate(raw)
-    assert OutcomePeriod(
-        ledger,
-        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
-        start=date(2025, 1, 6),
-        end=date(2026, 1, 6),
-    ).market_tickers() == ("1234",)
+    days = (date(2025, 1, 6), date(2026, 1, 6))
+    period = OutcomePeriod(ledger, days, *days)
+    assert period.close_marks_by_session() == {days[0]: {"1234"}, days[1]: set()}
     result = compute_portfolio_outcome(
         ledger,
         _benchmark(),
@@ -764,12 +758,9 @@ def test_outcome_market_scope_respects_reported_day_at_the_ending_close(date_onl
     if date_only:
         for event in raw["events"][1:]:
             event["occurred_on"] = "2026-01-06"
-    assert OutcomePeriod(
-        PortfolioLedgerDocument.model_validate(raw),
-        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
-        start=date(2025, 1, 6),
-        end=date(2026, 1, 6),
-    ).market_tickers() == (("1234",) if date_only else ())
+    days = (date(2025, 1, 6), date(2026, 1, 6))
+    period = OutcomePeriod(PortfolioLedgerDocument.model_validate(raw), days, *days)
+    assert period.close_marks_by_session() == ({days[1]: {"1234"}} if date_only else {})
 
 
 def _prepare_outcome_cli(tmp_path: Path, ledger: PortfolioLedgerDocument) -> tuple[list[str], Path]:
