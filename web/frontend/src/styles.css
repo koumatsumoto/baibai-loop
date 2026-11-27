@@ -21,6 +21,7 @@
     --color-primary-action: var(--primary-action);
     --color-primary-hover: var(--primary-hover);
     --color-primary-soft: var(--primary-soft);
+    --color-primary-ink: var(--primary-ink);
     --color-selection: var(--selection);
     --color-surface: var(--surface);
     --color-surface-subtle: var(--surface-subtle);
@@ -37,6 +38,7 @@
     --color-destructive: var(--destructive);
     --color-positive: var(--positive);
     --color-profit: var(--profit);
+    --color-profit-surface: var(--profit-surface);
     --color-loss: var(--loss);
     --color-warning: var(--warning);
     --color-warning-ink: var(--warning-ink);
@@ -63,21 +65,21 @@
 }
 
 :root {
-    /* Orange is darkened for white labels; the logo's honey uses dark ink. */
-    --primary-action: #a9480a;
-    --primary-hover: #873506;
-    --primary-soft: #fff9ef;
-    --selection: #f3b845;
-
-    /* Warm paper and ink keep dense reports neutral, not amber-tinted. */
-    --canvas: #fbf9f5;
+    /* Pale yellow paper, quiet selected yellow, orange only for primary action. */
+    --canvas: #fffbeb;
     --surface: #ffffff;
-    --surface-subtle: #f3efe7;
-    --border: #e7e1d8;
-    --border-strong: #92816e;
-    --text-primary: #251f18;
-    --text-secondary: #60594f;
-    --text-tertiary: #736958;
+    --surface-subtle: #fbf5dc;
+    --primary-soft: #fff9ea;
+    --selection: #faf0c5;
+    --primary-action: #f0872e;
+    --primary-hover: #e87925;
+    --primary-ink: #9c3f07;
+
+    --border: #e9e1c5;
+    --border-strong: #8e8164;
+    --text-primary: #2c2414;
+    --text-secondary: #5e5540;
+    --text-tertiary: #695f49;
 
     --background: var(--canvas);
     --foreground: var(--text-primary);
@@ -86,7 +88,7 @@
     --popover: var(--surface);
     --popover-foreground: var(--text-primary);
     --primary: var(--primary-action);
-    --primary-foreground: var(--surface);
+    --primary-foreground: var(--text-primary);
     --secondary: var(--surface-subtle);
     --secondary-foreground: var(--text-primary);
     --muted: var(--surface-subtle);
@@ -94,7 +96,8 @@
     /* Directional changes use green/red; monetary profit/loss uses gold/blue. Permanent-loss risk remains a business-risk judgment, not portfolio P&L. Labels and signs carry meaning independently of color. */
     --positive: oklch(0.527 0.154 150.069);
     --destructive: oklch(0.577 0.245 27.325);
-    --profit: oklch(0.56 0.115 80);
+    --profit: #6b4b00;
+    --profit-surface: #f6ce67;
     --loss: oklch(0.52 0.14 250);
     --warning: oklch(0.55 0.135 58);
     --warning-surface: oklch(0.95 0.045 95.277);
@@ -102,11 +105,11 @@
     --input: var(--border-strong);
     /* An offset, opaque focus outline reads against the surrounding surface,
        including on buttons whose fill is already the action color. */
-    --ring: var(--primary-action);
-    /* Holdings, available cash and reserved cash are categories, not returns. */
-    --chart-1: var(--primary-action);
-    --chart-2: #b6811b;
-    --chart-3: #62676b;
+    --ring: var(--primary-ink);
+    /* Dampen allocation categories so they cannot be read as action or P&L. */
+    --chart-1: #896655;
+    --chart-2: #938978;
+    --chart-3: #52616b;
     --radius: 0.625rem;
 }
 

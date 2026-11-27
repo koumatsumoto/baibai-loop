@@ -285,7 +285,7 @@ export function USProposalHistory({ state, search }: {
       <div className="grid min-w-0 gap-3 md:grid-cols-2">
         {rows.map(row => {
           const query = new URLSearchParams({ proposal: row.proposal_id, ticker: row.ticker })
-          return <Link key={row.proposal_id} to={{ pathname: US_PROPOSALS, search: query.toString() }} className="group grid min-h-11 min-w-0 content-start gap-2 rounded-xl border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:p-5">
+          return <Link key={row.proposal_id} to={{ pathname: US_PROPOSALS, search: query.toString() }} className="group grid min-h-11 min-w-0 content-start gap-2 rounded-xl border bg-card p-4 transition-colors hover:border-border-strong hover:bg-primary-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0"><h2 className="break-words text-lg font-semibold">{row.ticker} · {row.venue} · USD</h2><p className="break-words text-xs text-muted-foreground">{row.share_class}</p></div>
               <ArrowUpRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />

@@ -56,15 +56,16 @@ describe('Dashboard valuation display', () => {
     expect(outcomes).toContain('未報告分は含みません')
   })
 
-  it('shows the two stored returns as percentage points without rescaling or conflating their sign', () => {
+  it('shows exact signed comparison returns without monetary P&L colors', () => {
     const html = renderToStaticMarkup(createElement(OutcomeCard, { outcomes: [{
       outcome_id: 'synthetic-outcome', horizon: '1y',
       period_start_date: '2025-09-24', period_end_date: '2026-09-24',
       status: 'resolved', reason: null,
       portfolio_twr_pct: 0.4, benchmark_cumulative_return_pct: -2.5,
     }] }))
-    expect(html).toMatch(/ポート TWR <span[^>]*text-profit[^>]*>\+0\.4%/)
-    expect(html).toMatch(/ベンチマーク <span[^>]*text-loss[^>]*>-2\.5%/)
+    expect(html).toMatch(/ポート TWR <span[^>]*>\+0\.4%/)
+    expect(html).toMatch(/ベンチマーク <span[^>]*>-2\.5%/)
+    expect(html).not.toMatch(/text-(?:profit|loss)\b/)
   })
 
   it('shows pending buy and sell orders without treating sell proceeds as reserved cash', () => {
@@ -185,6 +186,22 @@ describe('Dashboard valuation display', () => {
     expect(html).not.toContain('配分データなし')
     expect(html).not.toContain('未評価')
     expect(html).not.toContain('株価基準')
+  })
+
+  it('highlights the chart-center amount only for an actual positive valuation gain', () => {
+    const gain = render(dashboard())
+    expect(gain).toMatch(/評価損益<\/span><span[^>]*bg-profit-surface[^>]*>\+￥10,000/)
+    for (const [cost, tone, label] of [
+      [120_000, 'text-loss', '-￥10,000'],
+      [110_000, 'text-muted-foreground', '￥0'],
+      [null, 'text-muted-foreground', '—'],
+    ] as const) {
+      const html = render(dashboard({ deployed_cost_yen: cost }))
+      expect(html).not.toContain('bg-profit-surface')
+      const amount = html.match(/評価損益<\/span><span class="([^"]+)">([^<]+)<\/span>/)
+      expect(amount?.[1]).toContain(tone)
+      expect(amount?.[2]).toBe(label)
+    }
   })
 
   it('distinguishes negative and zero realized amounts from explicit unknown', () => {

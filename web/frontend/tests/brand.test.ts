@@ -188,11 +188,16 @@ describe('brand palette', () => {
     ['--primary-foreground', '--primary', 4.5],
     ['--primary-foreground', '--primary-hover', 4.5],
     ['--foreground', '--selection', 4.5],
-    ['--primary', '--surface', 4.5],
+    ['--primary-ink', '--surface', 4.5],
+    ['--primary-ink', '--selection', 3],
+    ['--muted-foreground', '--surface-subtle', 4.5],
+    ['--profit', '--profit-surface', 4.5],
     ['--warning', '--surface', 4.5],
     ['--text-secondary', '--canvas', 4.5],
     ['--ring', '--canvas', 3],
     ['--ring', '--surface-subtle', 3],
+    ['--ring', '--selection', 3],
+    ['--ring', '--surface', 3],
     ['--input', '--surface', 3],
     ...SERIES_COLORS.map((token): [string, string, number] => [token, '--surface', 3]),
     ['--text-tertiary', '--surface', 4.5],
@@ -215,13 +220,19 @@ describe('brand palette', () => {
     }
   })
 
-  it('uses the logo honey for selection, never as white-label button or market ink', () => {
+  it('uses the artwork orange for primary actions, not for selection, returns or chart categories', () => {
     const mark = [...source('brand/logo.svg').matchAll(/fill="(#[0-9a-f]{6})"/gi)]
       .map((match) => match[1].toLowerCase())
     expect(mark).toEqual(['#f0872e', '#f3b845'])
-    expect(tokenValue('--selection')).toBe(mark[1])
-    for (const name of ['--primary', '--primary-hover', ...VALUE_COLORS, '--warning']) {
-      expect(mark).not.toContain(tokenValue(name))
+    expect(tokenValue('--primary')).toBe(mark[0])
+    const nonAction = [
+      '--canvas', '--selection', '--surface-subtle', '--profit-surface',
+      ...VALUE_COLORS, '--warning', ...SERIES_COLORS,
+    ]
+    for (const name of nonAction) expect(mark).not.toContain(tokenValue(name))
+    const profit = [tokenValue('--profit'), tokenValue('--profit-surface')]
+    for (const name of ['--selection', '--warning-surface', ...SERIES_COLORS]) {
+      expect(profit).not.toContain(tokenValue(name))
     }
     const components = componentSources((entry) => !entry.endsWith('.css')).join('\n').toLowerCase()
     for (const color of mark) expect(components).not.toContain(color)
