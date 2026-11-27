@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -438,3 +439,53 @@ def test_outcomes_distinguish_absent_store_and_valid_empty_store(tmp_path):
     assert app.stat().st_size == 0
     initialize_database(app)
     assert build_outcomes(app).model_dump() == {"error": None, "outcomes": []}
+
+
+@pytest.mark.parametrize(
+    ("mutations", "expected"),
+    [
+        ({"portfolio_twr_pct": '"0"'}, (None, 8.2)),
+        ({"benchmark_cumulative_return_pct": "false"}, (10.2, None)),
+        ({"portfolio_twr_pct": "0", "benchmark_cumulative_return_pct": None}, (0.0, None)),
+    ],
+)
+def test_retained_outcome_projects_only_numeric_returns_without_losing_a_sibling(
+    tmp_path, mutations, expected
+):
+    app = tmp_path / APPLICATION_DB_PATH
+    current = _publication()
+    retained = replace(current, outcome_id="synthetic-retained")
+    store = PortfolioOutcomeStore(app)
+    store.publish(current)
+    store.publish(retained)
+    with closing(sqlite3.connect(app)) as connection, connection:
+        connection.execute(
+            "UPDATE portfolio_outcome SET payload = json_set(payload, '$.schema_version', 1)"
+            " WHERE outcome_id=?",
+            (retained.outcome_id,),
+        )
+        for field, encoded in mutations.items():
+            if encoded is None:
+                connection.execute(
+                    "UPDATE portfolio_outcome SET payload = json_remove(payload, ?)"
+                    " WHERE outcome_id=?",
+                    (f"$.{field}", retained.outcome_id),
+                )
+            else:
+                connection.execute(
+                    "UPDATE portfolio_outcome SET payload = json_set(payload, ?, json(?))"
+                    " WHERE outcome_id=?",
+                    (f"$.{field}", encoded, retained.outcome_id),
+                )
+    before = app.read_bytes()
+
+    output = tmp_path / "export"
+    export_read_models(tmp_path, output)
+
+    shown = json.loads((output / "views/outcomes.json").read_text())
+    assert shown["error"] is None
+    assert {
+        row["outcome_id"]: (row["portfolio_twr_pct"], row["benchmark_cumulative_return_pct"])
+        for row in shown["outcomes"]
+    } == {current.outcome_id: (10.2, 8.2), retained.outcome_id: expected}
+    assert app.read_bytes() == before
