@@ -175,6 +175,14 @@ function UnavailableSelection() {
   return <SelectionError>この保存判断は読み取れません。別の判断では代用していません。</SelectionError>
 }
 
+function currentConflictsWithHistory(data: LatestUSProposalView) {
+  const id = data?.proposal?.proposal_id
+  const history = data?.history
+  if (!hasText(id) || !history) return false
+  return (Array.isArray(history.unavailable_proposal_ids) && history.unavailable_proposal_ids.includes(id))
+    || (Array.isArray(history.proposals) && history.proposals.some(row => row?.proposal_id === id))
+}
+
 function readableHistory(data: LatestUSProposalView) {
   const history = data?.history
   if (!history || !Array.isArray(history.proposals) || !Array.isArray(history.unavailable_proposal_ids)
@@ -225,11 +233,13 @@ export function USProposalHistory({ state, search }: {
   if (state.kind !== 'loaded') return <USProposal state={state} above={above} />
   const history = readableHistory(state.data)
   if (history === null) {
+    const disputed = currentConflictsWithHistory(state.data)
     if (proposalId !== null) {
       const ids = state.data?.history?.unavailable_proposal_ids
-      if (Array.isArray(ids) && ids.includes(proposalId)) return <UnavailableSelection />
-    } else if (state.data?.status === 'ready') {
-      // Latest has a separate owner; it may still be valid when there is no verified list.
+      if ((Array.isArray(ids) && ids.includes(proposalId))
+        || (disputed && proposalId === state.data?.proposal?.proposal_id)) return <UnavailableSelection />
+    } else if (state.data?.status === 'ready' && !disputed) {
+      // A failed list is independent unless the list itself disputes the current ID.
       return <USProposal state={state} historyUnavailable />
     }
     return <USProposal state={{ kind: 'unavailable' }} above={above} />

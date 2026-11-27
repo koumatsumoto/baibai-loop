@@ -149,6 +149,7 @@ it('distinguishes a real zero-row App from missing, malformed, or unavailable hi
 it('retains a separately readable latest only on the unselected landing page when history cannot be read', () => {
   for (const data of [
     { ...snapshot, history: { ...fixture.history, status: 'unavailable', has_more: null } } as LatestUSProposalView,
+    { ...snapshot, history: { ...fixture.history, status: 'unavailable', has_more: null, unavailable_proposal_ids: [previous.proposal_id] } } as LatestUSProposalView,
     { ...snapshot, history: undefined } as unknown as LatestUSProposalView,
     { ...snapshot, history: { ...fixture.history, status: 'empty' } } as LatestUSProposalView,
   ]) {
@@ -194,6 +195,28 @@ it('keeps independently readable siblings and refuses an ambiguous or malformed 
   expect(combined(dupe, 'proposal=' + current.proposal_id)).toContain('この保存判断は読み取れません')
   expect(combined(dupe, 'proposal=' + first.proposal_id)).toContain('この保存判断は読み取れません')
   expect(combined(dupe, previousQuery)).toContain(previous.reason)
+})
+
+it.each<[string, LatestUSProposalView['history']]>([
+  ['duplicate current', { ...fixture.history, proposals: [current] }],
+  ['the same ID with a contradictory decision', { ...fixture.history, proposals: [{
+    ...current, action: 'defer', official_close: null, comparison: null, comparison_horizon_et: null,
+  }] }],
+  ['the same ID on another ticker', { ...fixture.history, proposals: [{ ...current, ticker: 'GOOG' }] }],
+  ['a malformed body carrying the current ID', { ...fixture.history, proposals: [{ ...current, published_at: 'unknown' }] }],
+  ['the current ID explicitly unavailable', { ...fixture.history, status: 'partial', unavailable_proposal_ids: [current.proposal_id] }],
+  ['the current ID explicitly unavailable with no readable history', { ...fixture.history, status: 'unavailable', unavailable_proposal_ids: [current.proposal_id] }],
+])('does not resurrect the disputed latest after %s removes the last readable entry', (_case, history) => {
+  const data = { ...snapshot, history }
+  const landing = combined(data)
+  expect(landing).toContain('米国株の判断を読み取れません')
+  expect(landing).not.toContain('以下は最新の保存判断です')
+  expect(landing).not.toContain(current.proposal_id)
+  expect(landing).not.toContain(current.reason)
+  const exact = combined(data, 'proposal=' + current.proposal_id)
+  expect(exact).toContain('この保存判断は読み取れません')
+  expect(exact).not.toContain(current.proposal_id)
+  expect(exact).not.toContain(current.reason)
 })
 
 it('returns to the exact saved US report on Back/Forward under the existing market tabs', async () => {
