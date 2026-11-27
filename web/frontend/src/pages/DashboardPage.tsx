@@ -111,7 +111,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                 <ResponsiveContainer initialDimension={{ width: 320, height: 200 }}>
                   <PieChart accessibilityLayer>
                     <Tooltip content={AllocationTooltip} />
-                    <Pie data={allocation} dataKey="value" innerRadius={80} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
+                    <Pie data={allocation} dataKey="value" innerRadius={80} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} stroke="var(--chart-edge)" strokeLinejoin="round" strokeWidth={1} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -126,7 +126,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                   <div className="mt-1.5 grid justify-items-center gap-0.5">
                     <span className="text-[11px] text-muted-foreground">評価損益</span>
                     <YenAmount
-                      className={cn('text-xs font-semibold', pnl.yen !== null && pnl.yen > 0 && 'rounded-full bg-profit-surface px-2 py-0.5 ring-1 ring-profit/25 ring-inset')}
+                      className="text-sm font-semibold"
                       sign
                       tone="pnl"
                       value={pnl.yen}
@@ -141,9 +141,9 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
         <div className="grid min-w-0 content-center divide-y">
           {[
             { label: '総資産', value: data.total_capital_yen, detail: holdingDetail, color: 'bg-foreground', tone: 'plain' as const, sign: false },
-            { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1', tone: 'plain' as const, sign: false },
-            { label: '台帳の未予約現金', value: data.available_cash_yen, detail: data.cash_pct === null ? '受渡済み資金とは別' : `総資産の ${formatPct(data.cash_pct)}・受渡未照合`, color: 'bg-chart-2', tone: 'plain' as const, sign: false },
-            { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3', tone: 'plain' as const, sign: false },
+            { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1 ring-1 ring-chart-edge ring-inset', tone: 'plain' as const, sign: false },
+            { label: '台帳の未予約現金', value: data.available_cash_yen, detail: data.cash_pct === null ? '受渡済み資金とは別' : `総資産の ${formatPct(data.cash_pct)}・受渡未照合`, color: 'bg-chart-2 ring-1 ring-chart-edge ring-inset', tone: 'plain' as const, sign: false },
+            { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3 ring-1 ring-chart-edge ring-inset', tone: 'plain' as const, sign: false },
             { label: '評価損益', value: hasPnl ? pnl.yen : null, detail: pnl.pct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(pnl.pct, { sign: true })}`, color: null, tone: 'pnl' as const, sign: true },
             { label: '累積確定損益', value: data.realized_gross_pnl_yen, detail: '台帳開始以来の売却損益・税／手数料控除前', color: null, tone: 'pnl' as const, sign: true },
           ].map((metric) => (

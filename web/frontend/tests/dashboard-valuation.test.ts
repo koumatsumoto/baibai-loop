@@ -188,18 +188,17 @@ describe('Dashboard valuation display', () => {
     expect(html).not.toContain('株価基準')
   })
 
-  it('highlights the chart-center amount only for an actual positive valuation gain', () => {
-    const gain = render(dashboard())
-    expect(gain).toMatch(/評価損益<\/span><span[^>]*bg-profit-surface[^>]*>\+￥10,000/)
+  it('uses gold text for positive valuation only, with distinct loss, zero and unavailable text', () => {
     for (const [cost, tone, label] of [
+      [100_000, 'text-profit', '+￥10,000'],
       [120_000, 'text-loss', '-￥10,000'],
       [110_000, 'text-muted-foreground', '￥0'],
       [null, 'text-muted-foreground', '—'],
     ] as const) {
       const html = render(dashboard({ deployed_cost_yen: cost }))
-      expect(html).not.toContain('bg-profit-surface')
       const amount = html.match(/評価損益<\/span><span class="([^"]+)">([^<]+)<\/span>/)
       expect(amount?.[1]).toContain(tone)
+      expect(amount?.[1]).not.toMatch(/bg-|ring-/)
       expect(amount?.[2]).toBe(label)
     }
   })

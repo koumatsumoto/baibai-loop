@@ -36,7 +36,7 @@ function expectMarket(html: string, activeHref: string) {
     .toEqual([activeHref])
   for (const { attributes } of market) {
     expect(attributes).toContain('route-choice')
-    expect(attributes).not.toMatch(/underline|bg-primary/)
+    expect(attributes).not.toMatch(/underline|bg-primary|before:/)
   }
 }
 
