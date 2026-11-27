@@ -111,7 +111,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                 <ResponsiveContainer initialDimension={{ width: 320, height: 200 }}>
                   <PieChart accessibilityLayer>
                     <Tooltip content={AllocationTooltip} />
-                    <Pie data={allocation} dataKey="value" innerRadius={72} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
+                    <Pie data={allocation} dataKey="value" innerRadius={80} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -122,8 +122,17 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
               <div className="pointer-events-none absolute inset-0 grid place-content-center text-center">
                 <span className="text-xs text-muted-foreground">総資産</span>
                 <YenAmount className="mt-1 text-lg font-semibold tracking-tight" value={data.total_capital_yen} />
-                {/* The percentage uses cost, not total assets, as its denominator. */}
-                {hasPnl && <YenAmount className="mt-1.5 text-xs font-medium" sign tone="pnl" value={pnl.yen} />}
+                {hasPnl && (
+                  <div className="mt-1.5 grid justify-items-center gap-0.5">
+                    <span className="text-[11px] text-muted-foreground">評価損益</span>
+                    <YenAmount
+                      className={cn('text-xs font-semibold', pnl.yen !== null && pnl.yen > 0 && 'rounded-full bg-profit-surface px-2 py-0.5 ring-1 ring-profit/25 ring-inset')}
+                      sign
+                      tone="pnl"
+                      value={pnl.yen}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -245,7 +254,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
             {unrealizedPnl.yen === null && holdings.some((holding) => holding.market_value_yen === null)
               ? <span className="font-semibold text-muted-foreground">未評価</span>
               : <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />}
-            <PctBadge className="text-xs" value={unrealizedPnl.pct} />
+            <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
           </div>
           <div className="flex flex-col items-end gap-1">
             <TradingViewWatchlistExportButton
@@ -294,7 +303,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
                     : <YenAmount className="text-sm font-medium" value={holding.market_value_yen} />}
                   <span className="mt-1 flex items-center justify-end gap-2 text-xs">
                     <YenAmount sign tone="pnl" value={holding.unrealized_pnl_yen} />
-                    <PctBadge className="text-xs" value={holding.unrealized_pnl_pct} />
+                    <PctBadge className="text-xs" tone="pnl" value={holding.unrealized_pnl_pct} />
                   </span>
                 </TableCell>
                 <TableCell className="pr-5 text-right sm:pr-6"><TradingViewButton ticker={holding.ticker} /></TableCell>
@@ -367,7 +376,6 @@ export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) 
                 <Badge variant="outline">{STATUS_LABEL.get(item.status) ?? item.status}</Badge>
               </div>
               <p className="break-all text-xs text-muted-foreground">{item.outcome_id}</p>
-              {/* Use the same gain/loss colors for the comparison. */}
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                 <span>ポート TWR <PctBadge className="text-xs" value={item.portfolio_twr_pct} /></span>
                 <span>ベンチマーク <PctBadge className="text-xs" value={item.benchmark_cumulative_return_pct} /></span>

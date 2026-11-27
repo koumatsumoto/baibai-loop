@@ -5,7 +5,7 @@ import 'ldrs/react/DotPulse.css'
 export function LoadingPage({ label }: { label: string }) {
   return (
     <main className="grid min-h-[60vh] place-items-center bg-background px-6">
-      <span aria-label={label} className="inline-grid place-items-center text-primary" role="status">
+      <span aria-label={label} className="inline-grid place-items-center text-primary-ink" role="status">
         <DotPulse color="currentColor" size={44} speed={1.3} />
       </span>
     </main>

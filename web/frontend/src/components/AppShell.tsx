@@ -12,7 +12,6 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
 import { ACTIONS_URL, NAV_TABS } from '../lib/nav'
-import { cn } from '../lib/utils'
 
 function DevMenu() {
   return (
@@ -44,17 +43,14 @@ export function AppShell() {
           <BrandMark />
           <span className="hidden sm:inline">Baibai Loop</span>
         </Link>
-        <nav className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg bg-muted p-1 sm:w-64 sm:flex-none" aria-label="メインナビゲーション">
+        <nav className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:w-64 sm:flex-none" aria-label="メインナビゲーション">
           {NAV_TABS.map((item) => {
             const activeHref = item.activeHref(pathname)
             const active = activeHref !== undefined
             return (
               <Link
                 aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'flex min-h-10 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-1 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4 sm:text-sm',
-                  active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-surface/60 hover:text-foreground',
-                )}
+                className="route-choice flex min-h-10 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap px-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4 sm:text-sm"
                 key={item.to}
                 to={activeHref ?? item.to}
               >
