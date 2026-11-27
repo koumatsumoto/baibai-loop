@@ -7,7 +7,7 @@ description: 人間の依頼に合わせて調査対象を選び、普通株一�
 
 ここは人間の依頼で始まる企業判断（L3）の手順。日次の観測と索引（L2）は比較に使う材料で、調査対象や買い注文を決めない。[投資方針](../../../docs/doctrine.md)に沿って[一株の価値と反証](../../../docs/reference/stock-assessment.md)を検証し、[資金の使い方を提案](../../../docs/reference/trade-proposal.md)する。提案を採用して発注するかは人間が決める。
 
-以下の省略コマンドはinvestment-judgment配下。引数は`--help`、pathは返却値を使う。`<APP_DB>`の準備と保存後の反映は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
+`baibai-engine` のコマンド群は用途で選ぶ。選定・評価・提案は `investment-judgment`、作業記録の参照・更新・完了は `operation` を使う。実行例は以下の各節に示す。引数は `--help` で確認し、パスは返却値を使う。`<APP_DB>`の準備と保存後の反映は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
 
 判断・査読の執筆YAMLでは同じmapping内に同名キーを置かない。読取エラー時は原稿の構文や重複を直してから再確認し、保存済み本文は書き換えない。
 
@@ -134,17 +134,17 @@ uv run baibai-engine operation --db <APP_DB> --format json record-unfinished \
   <OPERATION_ID> --ticker <TICKER> --reason '<REASON>' --ref <REF>
 ```
 
-通常の提案はcontextから作る。
+通常の提案はcontextから作る。以下の3コマンドには同じAppとMarketの作業コピーを渡す。
 
 ```bash
 uv run baibai-engine investment-judgment trade-proposal-context \
   --operation-id <OPERATION_ID> --proposal-id <NEW_PROPOSAL_ID> --out <DRAFT> \
-  --db <APP_DB> --sqlite-path stores/market/market.sqlite
+  --db <APP_DB> --sqlite-path <MARKET_DB>
 ```
 
 標準出力のcontextと任意の新規作業ファイルは同じ時点・IDの投影である。新規発行では、固定元にある流動性の期間を省略しない。旧い未発行原稿がこれを欠く場合は新しい作業ファイルにcontextを出し直し、本文を移して再査読する。既発行の本文・hashは直さない。前回提案・本人報告、監理指定と関連届出の出典はcontextで確認し、今回の判断へ流用しない。作者は固定全対象の行動・理由・再調査条件を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って書く。相対強弱を理由にするなら[反対の読み](../../../docs/reference/trade-proposal.md#fixed-price-comparison)で価値・採否・次の確認のどれが変わるかを残す。
 
-`trade-proposal-check <DRAFT> --db <APP_DB>`の`unreviewed`は本文の事前確認で、正式保存ではない。評価のReviewとは別に、提案の内容Reviewerが本文とdigestを検証して[内容Review](../../../engine/src/baibai_engine/investment_judgment/trade_proposal/contracts.py)を記入する。`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`は発行時点の事実を改めて確認する。
+`trade-proposal-check <DRAFT> --db <APP_DB> --sqlite-path <MARKET_DB>`の`unreviewed`は本文の事前確認で、正式保存ではない。評価のReviewとは別に、提案の内容Reviewerが本文とdigestを検証して[内容Review](../../../engine/src/baibai_engine/investment_judgment/trade_proposal/contracts.py)を記入する。`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB> --sqlite-path <MARKET_DB>`は発行時点の事実を改めて確認する。
 
 保有の利確・配当・業種集中が競合するときは[資本回収案の比較](../../../docs/reference/trade-proposal.md#holding-allocation)で、維持と、同じ現金を別の組合せから回収する案を固定終値・同じ権利窓で突き合わせる。現金目標がなければ作らず、差が採否を変えるものだけを正式本文に残す。
 
@@ -164,6 +164,8 @@ uv run baibai-engine investment-judgment judgment-retrospective changes \
 ```
 
 Appの読取時点で見える保存記録を、指定した保存時刻の窓で返す。開示日や新事実ではない。`next_after`は窓の終端で、確定順のカーソルではない。保存・発行が並行すると、前の窓に属する記録が読取後に確定して、次の窓から漏れることがある。
+
+`changes`は正式発行時に本文と一緒に保存した項目索引を使う。空の結果は索引の整合性を保証しない。項目索引に触れるApp移行・修復では対象の提案IDを下記の`coverage`で照合する。本文と索引が一致しない場合は、整合を回復して同じ窓を読み直すまで`next_after`を採用しない。
 
 保存・発行が並行した可能性がある場合や読めない記録がある場合は、前回の`--after`と`--known-at`を残し、保存の確定または不明点の解消後に同じ窓を再確認する。続けて読むときはその窓の`--after`まで戻して重ねてもよい。重複する受領は`kind`と`reference`全体（ID・ハッシュ、査読済み評価はReview IDも）で見分ける。どの窓が影響したか分からなければ、確認できている時点まで戻る。一定の重ね幅だけでは漏れを防げない。古い事実の再記述、違う仮説・権利、訂正された元提案を条件達成としない。
 

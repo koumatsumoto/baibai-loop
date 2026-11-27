@@ -47,12 +47,14 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Check source and evidence imports without development tools
+      - name: Check production imports without development tools
         run: |
           uv run --locked --no-dev python - <<'PYTHON'
           from openpyxl import DEFUSEDXML
           from baibai_jobs.acquisition import article_evidence
-          from baibai_jobs.integration import economic_handoff, source_handoff
+          from baibai_jobs.integration import economic_handoff, models, source_handoff
+          from baibai_web import materialize
+          from tools.diagnostics import check_daily_jp_inputs
 
           if not DEFUSEDXML:
               raise RuntimeError("external workbook readers require defusedxml")
@@ -85,10 +87,12 @@ jobs:
         # being remembered here. They run as modules so a gate can import a sibling —
         # running the file directly puts only its own directory on the import path.
         run: |
+          status=0
           for gate in tools/quality/drift/check_*.py; do
             echo "== $gate"
-            uv run python -m "tools.quality.drift.$(basename "$gate" .py)"
+            uv run python -m "tools.quality.drift.$(basename "$gate" .py)" || status=$?
           done
+          exit "$status"
 
       - name: Tests with coverage
         if: ${{ !cancelled() }}

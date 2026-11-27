@@ -23,9 +23,13 @@ from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 _CODEC = TypeAdapter(ScreeningSelection)
 
 
+def _load_selection_json(wire: bytes) -> object:
+    return json.loads(wire.decode("utf-8"))
+
+
 def _decode_selection(payload: bytes) -> ScreeningSelection:
     # 全社結果の直接JSON型検証による一時メモリ増を避ける。検証schemaは同じ。
-    return _CODEC.validate_python(json.loads(gzip.decompress(payload).decode("utf-8")))
+    return _CODEC.validate_python(_load_selection_json(gzip.decompress(payload)))
 
 
 def read_selection(selection_id: str, *, path: Path | None = None) -> ScreeningSelection | None:
@@ -107,7 +111,7 @@ def read_case_publication_from_connection(
     _, actual_time, generation, compressed = row
     wire = gzip.decompress(compressed)
     digest = sha256(wire).hexdigest()
-    parsed = json.loads(wire)
+    parsed = _load_selection_json(wire)
     del wire
     selection = _CODEC.validate_python(parsed)
     validate_selection_source(

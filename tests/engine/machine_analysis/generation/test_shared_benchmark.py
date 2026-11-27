@@ -24,6 +24,9 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
+from baibai_engine.machine_analysis.screening.policies.technical_discovery import (
+    evaluate_technical_strategy,
+)
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 
 ASOF = date(2026, 10, 23)
@@ -69,7 +72,7 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
     result = generate(path)
     shared = result.result("market_context", "market")
     benchmark = shared.payload["benchmark_trend"]
-    assert shared.calculation_revision == "shared-market-context-v21-independent-sector-metrics"
+    assert shared.calculation_revision == "shared-market-context-v22-breadth-price-date-membership"
     assert (
         result.result("market_context", TICKERS[0]).calculation_revision
         == "shared-market-context-v20-classified-sector-peers"
@@ -248,6 +251,36 @@ def activity_source(tmp_path):
             (ASOF.isoformat(),),
         )
     return path, dates
+
+
+@pytest.mark.parametrize(
+    ("close", "excess", "match"), [(100.6, -0.001, False), (100.7, 0, False), (100.8, 0.001, True)]
+)
+def test_exact_benchmark_ties_do_not_create_a_technical_match(tmp_path, close, excess, match):
+    path, _ = activity_source(tmp_path)
+    ticker = "1001"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        insert_master_rows(
+            connection, [(ASOF.isoformat(), ticker, "Test", "プライム", "食料品", "011")]
+        )
+        connection.execute("UPDATE jquants_daily_bars SET close=close*200 WHERE ticker='1321'")
+        connection.executemany(
+            "UPDATE jquants_daily_bars SET close=? WHERE ticker=? AND traded_at=?",
+            [(close, ticker, ASOF.isoformat()), (20140, "1321", ASOF.isoformat())],
+        )
+        connection.execute(
+            "UPDATE jquants_daily_bars SET open=close,high=close,low=close,turnover_value=100000"
+        )
+    result = generate(path, tickers=(ticker,))
+    models = tuple(model for model in result.models if model.subject == ticker)
+    market = result.result("market_context", ticker).payload
+    comparison = market["price_path_relative"]["comparisons"]["R20"]
+    assert comparison["status"] == "available"
+    metadata = GenerationMetadata.model_validate(result.model_dump(exclude={"models"}))
+    decision = evaluate_technical_strategy(ticker, models=models, metadata=metadata)
+    assert decision.price_ready
+    assert (decision.state == "matched") is match
+    assert comparison["relative_return"] == pytest.approx(excess, abs=0 if excess == 0 else 1e-14)
 
 
 def test_fixed_prices_feed_activity_and_recovery_and_survive_detached_l3_read(tmp_path):

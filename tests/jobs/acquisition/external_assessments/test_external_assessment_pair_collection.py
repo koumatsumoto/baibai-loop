@@ -89,6 +89,7 @@ def test_pair_keeps_the_observation_already_validated_by_its_source(clock, monke
 
     monkeypatch.setattr(monex, "parse_html", capture)
     result = pair(Session([(200, monex_html())], clock=clock))
+    assert len(parsed) == 1
     assert result.observations[0] is parsed[0]
     assert result.observations[0].fetched_at_utc == result.last_response_finished_at_utc
 

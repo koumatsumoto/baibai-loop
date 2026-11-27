@@ -19,7 +19,14 @@ _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
-_HISTORY_DATE_FORMAT = "%b %d, %Y"
+# The provider emits English month abbreviations, independent of the host's LC_TIME.
+_HISTORY_NUMERIC_DATE_FORMAT = "%m %d, %Y"
+_MONTH_NUMBERS = {
+    name: number
+    for number, name in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1
+    )
+}
 _HISTORY_FLOOR_BY_SLUG = {
     "shiller-pe": date(1871, 2, 1),
     "s-p-500-pe-ratio": date(1871, 1, 1),
@@ -63,6 +70,8 @@ def parse_multpl_table(
     parser = _MultplTableParser()
     parser.feed(text)
     parser.close()
+    if parser.table_open:
+        raise IndicatorsProviderError("multpl: incomplete data table")
     if not parser.found_table or not parser.rows:
         raise IndicatorsProviderError(
             f"multpl: table missing or empty for {series.provider_series_id}"
@@ -76,7 +85,7 @@ def parse_multpl_table(
     dated_rows: list[tuple[date, dict[str, object]]] = []
     for index, (raw_date, raw_value, cell_annotations) in enumerate(parser.rows):
         try:
-            observed_at = date.strptime(raw_date.strip(), _HISTORY_DATE_FORMAT)
+            observed_at = _history_date(raw_date)
         except ValueError as exc:
             raise IndicatorsProviderError(
                 f"multpl: invalid table date for {series.provider_series_id}: {raw_date!r}"
@@ -119,6 +128,14 @@ def parse_multpl_table(
     return records
 
 
+def _history_date(text: str) -> date:
+    value = text.strip()
+    month = _MONTH_NUMBERS.get(value[:3].lower())
+    if month is None:
+        raise ValueError("expected an English abbreviated month")
+    return date.strptime(f"{month:02d}{value[3:]}", _HISTORY_NUMERIC_DATE_FORMAT)
+
+
 class _MultplTableParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -127,7 +144,7 @@ class _MultplTableParser(HTMLParser):
         self.caption_text: str | None = None
         self.description_text: str | None = None
         self.description_links: list[dict[str, str]] = []
-        self._table = False
+        self.table_open = False
         self._row: list[str] | None = None
         self._cell: list[str] | None = None
         self._row_annotations: list[dict[str, str]] = []
@@ -153,13 +170,13 @@ class _MultplTableParser(HTMLParser):
                 self._link_parts = []
         if tag == "table" and attributes.get("id") == "datatable":
             self.found_table = True
-            self._table = True
-        elif self._table and tag == "caption":
+            self.table_open = True
+        elif self.table_open and tag == "caption":
             self._caption_parts = []
-        elif self._table and tag == "tr":
+        elif self.table_open and tag == "tr":
             self._row = []
             self._row_annotations = []
-        elif self._table and self._row is not None and tag == "td":
+        elif self.table_open and self._row is not None and tag == "td":
             self._cell = []
             self._cell_annotations = [] if len(self._row) == 1 else None
         elif self._cell_annotations is not None and tag == "abbr":
@@ -187,24 +204,24 @@ class _MultplTableParser(HTMLParser):
                 self._cell_annotations.append(annotation)
             self._abbr_parts = None
             self._abbr_title = None
-        elif self._table and tag == "td" and self._cell is not None:
+        elif self.table_open and tag == "td" and self._cell is not None:
             if self._row is not None:
                 if len(self._row) == 1:
                     self._row_annotations = self._cell_annotations or []
                 self._row.append("".join(self._cell))
             self._cell = None
             self._cell_annotations = None
-        elif self._table and tag == "tr" and self._row is not None:
+        elif self.table_open and tag == "tr" and self._row is not None:
             if self._row:
                 if len(self._row) != 2:
                     raise IndicatorsProviderError("multpl: table row must have exactly two cells")
                 self.rows.append((self._row[0], self._row[1], self._row_annotations))
             self._row = None
-        elif self._table and tag == "caption" and self._caption_parts is not None:
+        elif self.table_open and tag == "caption" and self._caption_parts is not None:
             self.caption_text = "".join(self._caption_parts)
             self._caption_parts = None
-        elif self._table and tag == "table":
-            self._table = False
+        elif self.table_open and tag == "table":
+            self.table_open = False
         if self._description_depth and tag not in {
             "area",
             "br",

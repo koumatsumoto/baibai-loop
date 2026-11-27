@@ -23,6 +23,7 @@ from baibai_engine.portfolio.ledger.events import (
 )
 from baibai_engine.portfolio.ledger.read import load_ledger_document
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.read import read_store_if_written
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_web.sources.protocols import PortfolioRead
 
@@ -33,11 +34,12 @@ class DbLedgerSource:
         self._market_path = market_db_path
 
     def _document(self) -> PortfolioLedgerDocument | None:
-        if not self._path.is_file():
-            return None
-        with closing(connect_read_only(self._path)) as connection:
-            connection.execute("BEGIN")
-            return load_ledger_document(connection)
+        def load() -> PortfolioLedgerDocument | None:
+            with closing(connect_read_only(self._path)) as connection:
+                connection.execute("BEGIN")
+                return load_ledger_document(connection)
+
+        return read_store_if_written(self._path, load)
 
     def snapshot(self, *, now: datetime) -> PortfolioRead | None:
         document = self._document()
@@ -56,7 +58,7 @@ class DbLedgerSource:
                 warnings=(),
             )
             return PortfolioRead(snapshot, str(error), holding_quantity_unresolved=True)
-        except (SQLiteSchemaError, sqlite3.Error, ValueError):
+        except (OSError, SQLiteSchemaError, sqlite3.Error, ValueError):
             # Only this presentation boundary may retain unvalued ledger facts on a
             # market read failure. Judgment readers still reject the broken store.
             state = replay_events_through(document.events, now)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import closing
+from datetime import date
 from typing import cast
 from unittest import TestCase
 from unittest.mock import patch
@@ -13,6 +15,7 @@ from tests.helpers.provider_fixtures import (
 from baibai_engine.data_collection.catalog import load_sources
 from baibai_engine.data_collection.providers.spglobal.pmi import (
     MANIFEST_PATH,
+    Release,
     SpGlobalPmiSource,
     _parse_stream,
     fetch_pdf_bytes,
@@ -112,3 +115,51 @@ class PmiSourceTests(TestCase):
                 streams,
                 f"{source.source_id} has no manifest stream {source.provider_series_id!r}",
             )
+
+
+def test_rejected_shared_release_does_not_hide_later_month(tmp_path, monkeypatch) -> None:
+    from baibai_engine.data_collection.acquisition.refresh import (
+        SourceRefreshFailure,
+        refresh_sources,
+    )
+    from baibai_engine.data_collection.receipts.native_sources.documents import read_documents
+    from baibai_engine.data_collection.receipts.native_sources.store import (
+        open_read_only_connection,
+    )
+
+    # A release can carry both this month's headline and the restated previous month.
+    months = [date(2026, m, 1) for m in (5, 6, 7, 8)]
+    first, second = (
+        f"https://www.pmi.spglobal.com/Public/Home/PressRelease/{c * 32}" for c in "ab"
+    )
+    releases = (
+        Release(months[0], months[1], first),
+        Release(months[1], months[1], first),
+        Release(months[2], months[3], second),
+        Release(months[3], months[3], second),
+    )
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.providers.spglobal.pmi.load_manifest",
+        lambda _: {"jp_manufacturing": releases},
+    )
+    # One bad HTTP 200 for May, then a real response at the June request.
+    first_responses = iter((b"<html>unavailable</html>", b"%PDF-1.7 june"))
+    calls = []
+
+    def get(_session, url, **kwargs):
+        calls.append(url)
+        return _FakeResponse(next(first_responses) if url == first else b"%PDF-1.7 august")
+
+    monkeypatch.setattr("requests.Session.get", get)
+    path = tmp_path / "source.sqlite"
+    source = "spglobal-jp-pmi-mfg"
+    outcome = refresh_sources([source], db_path=path, start=months[0], end=months[-1])[0]
+    assert isinstance(outcome, SourceRefreshFailure)
+    assert "1 document/manifest failures" in outcome.message
+    assert calls == [first, first, second]
+    with closing(open_read_only_connection(path)) as conn:
+        assert {doc.request_key: doc.payload for doc in read_documents(conn, source)} == {
+            "2026-06-01": b"%PDF-1.7 june",
+            "2026-07-01": b"%PDF-1.7 august",
+            "2026-08-01": b"%PDF-1.7 august",
+        }

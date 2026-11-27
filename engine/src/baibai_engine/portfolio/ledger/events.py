@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from fractions import Fraction
 from math import gcd, isclose, isfinite
@@ -187,10 +187,26 @@ class ExecutionEvent(_EventBase):
     def _parse_common_factors(cls, value: object) -> object:
         return _tuple(value)
 
+    @field_validator("common_factors")
+    @classmethod
+    def _distinct_common_factors(cls, factors: tuple[str, ...]) -> tuple[str, ...]:
+        # A factor is membership, not a weight. Older direct fills can repeat tags.
+        return tuple(sorted(set(factors)))
+
     @field_validator("price_yen", mode="before")
     @classmethod
     def _parse_price(cls, value: object) -> Decimal:
         return _price(value)
+
+    def overlaps_reported_occurrence(self, occurrence: date) -> bool:
+        """Test possible duplicate identity without treating a replay key as a reported time."""
+        if isinstance(occurrence, datetime):
+            if occurrence.tzinfo is None:
+                return False
+            if self.occurred_on is None:
+                return self.occurred_at.astimezone(UTC) == occurrence.astimezone(UTC)
+            return self.occurred_on == occurrence.astimezone(JST).date()
+        return (self.occurred_on or self.occurred_at.astimezone(JST).date()) == occurrence
 
 
 def sell_charge_event_ids(sale_event_id: str) -> tuple[str, str]:
@@ -635,6 +651,10 @@ def replay_events_through(
     metadata: dict[str, tuple[str, tuple[str, ...]]] = {}
     board_lot = policy["order_constraints"]["board_lot"]
 
+    def retire_classification_if_closed(ticker: str) -> None:
+        if not lots[ticker] and not any(order.ticker == ticker for order in active.values()):
+            metadata.pop(ticker, None)
+
     seen_actions: set[str] = set()
     seen_action_days: set[tuple[str, date]] = set()
     for event in ordered_replay_events(events):
@@ -694,11 +714,6 @@ def replay_events_through(
                     )
                     if event.quantity > held - pending:
                         raise PortfolioLedgerError("sell order exceeds uncommitted holding")
-                has_exposure = any(lot.quantity > 0 for lot in lots[event.ticker]) or any(
-                    item.ticker == event.ticker for item in active.values()
-                )
-                if not has_exposure:
-                    metadata.pop(event.ticker, None)
                 _check_metadata(metadata, event.ticker, event.sector, event.common_factors)
                 seen_reservations.add(event.reservation_id)
                 seen_order_ids.add(event.order_id)
@@ -744,6 +759,7 @@ def replay_events_through(
                     available_cash += released
                     reserved_cash -= released
                 del active[event.reservation_id]
+                retire_classification_if_closed(reservation.ticker)
             case ExecutionEvent(side="buy"):
                 if event.execution_id in seen_executions:
                     raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
@@ -758,11 +774,6 @@ def replay_events_through(
                     _require_cash(available_cash, paid, event.event_id)
                     if event.sector is None:
                         raise PortfolioLedgerError("unreserved buy execution requires sector")
-                    has_exposure = any(lot.quantity > 0 for lot in lots[event.ticker]) or any(
-                        item.ticker == event.ticker for item in active.values()
-                    )
-                    if not has_exposure:
-                        metadata.pop(event.ticker, None)
                     _check_metadata(metadata, event.ticker, event.sector, event.common_factors)
                     available_cash -= paid
                 else:
@@ -843,6 +854,7 @@ def replay_events_through(
                 )
                 available_cash += proceeds
                 realized_gross_pnl += proceeds - consumed_cost
+                retire_classification_if_closed(event.ticker)
             case IncomeEvent():
                 available_cash += event.amount_yen
                 confirmed_income += event.amount_yen

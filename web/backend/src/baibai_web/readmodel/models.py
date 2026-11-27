@@ -1,9 +1,10 @@
 """保有・運用成績の表示契約。"""
 
 from datetime import date, datetime
+from math import isfinite
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class HoldingView(BaseModel):
@@ -60,6 +61,8 @@ class DashboardView(BaseModel):
     reserved_cash_yen: int | None
     holdings_market_value_yen: int | None
     deployed_cost_yen: int | None
+    unrealized_pnl_yen: int | None
+    unrealized_pnl_pct: float | None
     realized_gross_pnl_yen: int | None
     cash_pct: float | None
     reserved_pct: float | None
@@ -81,6 +84,19 @@ class PortfolioOutcomeView(BaseModel):
         description="記録済みの税・費用を反映した期間return。未報告の税・費用をゼロ確定とみなさない。",
     )
     benchmark_cumulative_return_pct: float | None = None
+
+    @field_validator("portfolio_twr_pct", "benchmark_cumulative_return_pct", mode="before")
+    @classmethod
+    def _return_or_unrecorded(cls, value: object) -> float | None:
+        # Retained outcomes can lack a usable metric. Do not turn text or a flag
+        # into a return, or hide the other verified metrics on this display.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        try:
+            result = float(value)
+        except OverflowError:
+            return None
+        return result if isfinite(result) else None
 
 
 class OutcomesView(BaseModel):

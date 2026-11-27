@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import gzip
-import sqlite3
-from collections.abc import Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,10 +110,3 @@ class ModelGenerationStore:
             except BaseException:
                 connection.rollback()
                 raise
-
-
-def delete_generations(connection: sqlite3.Connection, identities: Sequence[str]) -> None:
-    """呼出元のtransaction内で指定世代だけを削除する。参照元の処理は所有しない。"""
-    for identity in identities:
-        connection.execute("DELETE FROM generated_model WHERE generation_id=?", (identity,))
-        connection.execute("DELETE FROM model_generation WHERE generation_id=?", (identity,))

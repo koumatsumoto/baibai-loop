@@ -49,11 +49,7 @@ def parse_csv_zip_metric_record(
     quality = _flow_period_quality(doc_type_code, period_start, period_end, submit_datetime)
     consolidation_dei = _consolidation_dei_status(rows)
     statement_rows, accounting_failure = _accounting_standard_rows(rows)
-    rows, basis = _select_statement_rows(
-        statement_rows,
-        doc_type_code,
-        allow_non_consolidated=consolidation_dei in {"false", "missing"},
-    )
+    rows, basis = _select_statement_rows(statement_rows, doc_type_code, consolidation_dei)
     if any(_row_element(row) in _IFRS_ELEMENTS for row in rows) and any(
         _row_element(row) not in _IFRS_ELEMENTS for row in rows
     ):
@@ -356,8 +352,7 @@ def _consolidation_dei_status(rows: Sequence[Mapping[str, str]]) -> _Consolidati
 def _select_statement_rows(
     rows: Sequence[Mapping[str, str]],
     doc_type_code: str,
-    *,
-    allow_non_consolidated: bool = True,
+    consolidation_dei: _ConsolidationDEIStatus,
 ) -> tuple[list[Mapping[str, str]], str | None]:
     # Financial-statement contexts, not arbitrary current-looking IDs. Quarterly
     # flow values use YTD, not the standalone quarter. Extra dimensions are not
@@ -372,10 +367,13 @@ def _select_statement_rows(
         raise EDINETProviderError(f"unsupported financial statement type: {doc_type_code}")
     tags = tuple(tag for group in _TAGS.values() for tag in group)
     financial = [row for row in rows if _element_matches(_row_element(row), tags)]
-    consolidated = [row for row in financial if _row_context(row) in contexts]
-    if consolidated:
-        return consolidated, "consolidated"
-    if not allow_non_consolidated:
+    # Unqualified contexts can occur outside the individual financial statements.
+    # A malformed or conflicting declaration cannot establish either scope.
+    if consolidation_dei in {"true", "missing"}:
+        consolidated = [row for row in financial if _row_context(row) in contexts]
+        if consolidated:
+            return consolidated, "consolidated"
+    if consolidation_dei not in {"false", "missing"}:
         return [], None
     individual_contexts = {f"{context}_NonConsolidatedMember" for context in contexts}
     individual = [row for row in financial if _row_context(row) in individual_contexts]

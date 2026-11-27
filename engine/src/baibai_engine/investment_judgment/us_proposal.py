@@ -6,11 +6,11 @@ import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
-from decimal import Decimal
+from datetime import UTC, date, datetime, timezone
+from decimal import Context, Decimal, localcontext
 from hashlib import sha256
 from pathlib import Path
-from typing import Annotated, ClassVar, Literal, Self
+from typing import Annotated, ClassVar, Literal, Self, cast
 from zoneinfo import ZoneInfo
 
 from pydantic import (
@@ -23,6 +23,8 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     ValidationError,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
     field_validator,
     model_validator,
 )
@@ -44,8 +46,78 @@ _EXCHANGE_HOST = {"XNAS": "nasdaq.com", "XNYS": "nyse.com"}
 type Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 type ReportId = Annotated[str, Field(pattern=r"^us-report-[a-z0-9-]{1,64}$")]
 type Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-type USD = Annotated[Decimal, BeforeValidator(finite_decimal), Field(ge=0, max_digits=16)]
+_USD_INPUT_DIGITS = 16
+# Align the largest admitted integer and fractional scales, with one carry digit.
+_USD_SCENARIO_CONTEXT = Context(prec=2 * _USD_INPUT_DIGITS + 1)
+
+
+def _exact_usd(value: object, validate: ValidatorFunctionWrapHandler) -> Decimal:
+    amount = finite_decimal(value)
+    if amount:
+        # Pydantic's fallback Decimal.normalize() can round before counting.
+        # Count without arithmetic and keep the original Decimal for serialization.
+        _, digits, exponent = amount.as_tuple()
+        assert isinstance(exponent, int)
+        significant = len(digits)
+        while digits[significant - 1] == 0:
+            significant -= 1
+            exponent += 1
+        if max(significant + max(0, exponent), -exponent) > _USD_INPUT_DIGITS:
+            raise ValueError(f"Decimal input should have no more than {_USD_INPUT_DIGITS} digits")
+    with localcontext(_USD_SCENARIO_CONTEXT):
+        return cast("Decimal", validate(amount))
+
+
+type USD = Annotated[
+    Decimal,
+    BeforeValidator(finite_decimal),
+    Field(ge=0, max_digits=_USD_INPUT_DIGITS),
+    WrapValidator(_exact_usd),
+]
 type Price = Annotated[USD, Field(gt=0)]
+
+
+def _exact_report_clock(value: object) -> datetime:
+    if isinstance(value, datetime):
+        stamp = value
+    elif (
+        isinstance(value, str)
+        and not value.endswith("-00:00")
+        and re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+            r"(?:\.[0-9]{1,6}0*)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
+            value,
+        )
+    ):
+        stamp = datetime.fromisoformat(value)
+    else:
+        raise ValueError("report requires an exact, offset-aware time")
+    offset = stamp.utcoffset()
+    if offset is None:
+        raise ValueError("report requires an exact, offset-aware time")
+    try:
+        utc = stamp.astimezone(UTC)
+    except OverflowError as exc:
+        raise ValueError("observation time outside representable UTC range") from exc
+    # Preserve the serialized offset that existing review digests bind. A fixed offset
+    # also compares the two occurrences of a local DST hour as distinct instants.
+    # Sub-minute offsets cannot round-trip in Pydantic JSON; keep that instant in UTC.
+    return (
+        utc
+        if offset.seconds % 60 or offset.microseconds
+        else stamp.replace(tzinfo=timezone(offset))
+    )
+
+
+type _ReportClock = Annotated[AwareDatetime, BeforeValidator(_exact_report_clock)]
+
+
+def _exchange_date(stamp: datetime) -> date:
+    """A UTC-representable instant may still fall before the first New York date."""
+    try:
+        return stamp.astimezone(_ET).date()
+    except OverflowError as exc:
+        raise ValueError("clock has no representable New York date") from exc
 
 
 class _Record(BaseModel):
@@ -56,7 +128,7 @@ class _IEXBand(_Record):
     feed: Literal["alpaca_iex"]
     basis: Literal["split_adjusted_closes"]
     manifest_sha256: Digest
-    received_at: AwareDatetime
+    received_at: _ReportClock
     first_session_et: date
     last_session_et: date
     observations: Annotated[int, Field(strict=True, ge=2)]
@@ -69,7 +141,7 @@ class _IEXBand(_Record):
         if (
             self.observations > (self.last_session_et - self.first_session_et).days + 1
             or not self.low_usd <= self.last_usd <= self.high_usd
-            or self.received_at.astimezone(_ET).date() <= self.last_session_et
+            or _exchange_date(self.received_at) <= self.last_session_et
         ):
             raise ValueError("invalid split-adjusted IEX observation window")
         return self
@@ -80,7 +152,7 @@ class _UnadjustedClose(_Record):
     session_et: date
     price_usd: Price
     source_url: HttpUrl
-    observed_at: AwareDatetime
+    observed_at: _ReportClock
 
 
 class _OfficialClose(_UnadjustedClose):
@@ -104,7 +176,7 @@ class _NasdaqSipClose(_UnadjustedClose):
 class _FinancialEvidence(_Record):
     source_url: HttpUrl
     period_end: date
-    observed_at: AwareDatetime
+    observed_at: _ReportClock
     fact_and_scope: Text
 
 
@@ -115,10 +187,12 @@ class _Scenario(_Record):
 
     @property
     def total(self) -> Decimal:
-        return self.terminal_value_usd_per_share + self.eligible_distributions_usd_per_share
+        with localcontext(_USD_SCENARIO_CONTEXT):
+            return self.terminal_value_usd_per_share + self.eligible_distributions_usd_per_share
 
     def difference_from_cash(self, cash_usd_per_share: Decimal) -> Decimal:
-        return self.total - cash_usd_per_share
+        with localcontext(_USD_SCENARIO_CONTEXT):
+            return self.total - cash_usd_per_share
 
 
 class _Comparison(_Record):
@@ -143,13 +217,13 @@ class ReportDraft(_Record):
     author_identity: Text
     venue: Literal["XNAS", "XNYS"]
     ticker: Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9]*(?:\.[A-Z0-9]+)?$", max_length=8)]
-    cik: Annotated[str, Field(pattern=r"^[0-9]{10}$")]
+    cik: Annotated[str, Field(min_length=10, max_length=10, pattern=r"^0*[1-9][0-9]*$")]
     share_class: Text
     currency: Literal["USD"]
-    cutoff_at: AwareDatetime
-    prepared_at: AwareDatetime
+    cutoff_at: _ReportClock
+    prepared_at: _ReportClock
     expected_session_et: date
-    session_close_at: AwareDatetime
+    session_close_at: _ReportClock
     calendar_source_url: HttpUrl
     iex_band: _IEXBand | None
     official_close: _OfficialClose | _NasdaqSipClose | None
@@ -161,17 +235,17 @@ class ReportDraft(_Record):
 
     @model_validator(mode="after")
     def _evidence(self) -> Self:
-        cutoff_et = self.cutoff_at.astimezone(_ET).date()
+        cutoff_et = _exchange_date(self.cutoff_at)
         if (
             self.prepared_at < self.cutoff_at
             or self.session_close_at > self.cutoff_at
-            or self.session_close_at.astimezone(_ET).date() != self.expected_session_et
+            or _exchange_date(self.session_close_at) != self.expected_session_et
             or not _listing_https(self.calendar_source_url, self.venue)
         ):
             raise ValueError("invalid report cutoff or calendar citation")
         if any(
             fact.observed_at > self.cutoff_at
-            or fact.period_end > fact.observed_at.astimezone(_ET).date()
+            or fact.period_end > _exchange_date(fact.observed_at)
             or not _public_https(fact.source_url)
             for fact in self.financial_evidence
         ):
@@ -255,7 +329,7 @@ class ReportReview(_Record):
     report_id: ReportId
     draft_sha256: Digest
     reviewer_identity: Text
-    reviewed_at: AwareDatetime
+    reviewed_at: _ReportClock
     conclusion: Literal["pass"]
     notes: Text
 
@@ -416,7 +490,7 @@ class _PerspectiveSource(_Record):
     """A public, human-findable citation. The private source document is not a Web field."""
 
     label: Annotated[Text, Field(max_length=180)]
-    observed_at: AwareDatetime
+    observed_at: _ReportClock
 
     @field_validator("label")
     @classmethod
@@ -425,29 +499,10 @@ class _PerspectiveSource(_Record):
             raise ValueError("cite the public document title and section, not its raw URL")
         return value
 
-    @field_validator("observed_at", mode="before")
+    @field_validator("observed_at")
     @classmethod
-    def _source_clock(cls, value: object) -> object:
-        # A date/epoch is not an explicit offset clock; sub-microsecond drift may cross cutoff.
-        if isinstance(value, datetime) and value.utcoffset() is not None:
-            stamp = value
-        elif (
-            isinstance(value, str)
-            and not value.endswith("-00:00")
-            and re.fullmatch(
-                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
-                r"(?:\.[0-9]{1,6}0*)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
-                value,
-            )
-        ):
-            stamp = datetime.fromisoformat(value)
-        else:
-            raise ValueError("cite an exact, offset-aware observation time")
-        try:
-            # Not every tzinfo offset survives JSON rendering; bind the actual instant in UTC.
-            return stamp.astimezone(UTC)
-        except OverflowError as exc:
-            raise ValueError("observation time outside representable UTC range") from exc
+    def _source_clock(cls, stamp: datetime) -> datetime:
+        return stamp.astimezone(UTC)
 
 
 class _USProposalPerspective(_Record):
@@ -468,7 +523,7 @@ class _USProposalPerspective(_Record):
 class USProposalDraft(_Record):
     proposal_id: USProposalId
     author_identity: Text
-    prepared_at: AwareDatetime
+    prepared_at: _ReportClock
     action: Literal["no_action", "defer"]
     reason: Text
     revisit_when: Text
@@ -489,7 +544,7 @@ class USProposalReview(_Record):
     proposal_id: USProposalId
     draft_sha256: Digest
     reviewer_identity: Text
-    reviewed_at: AwareDatetime
+    reviewed_at: _ReportClock
     conclusion: Literal["pass"]
     notes: Text
 
@@ -514,7 +569,7 @@ def _require_future_horizon(
     if (
         draft.action == "no_action"
         and comparison is not None
-        and comparison.horizon_et <= at.astimezone(_ET).date()
+        and comparison.horizon_et <= _exchange_date(at)
     ):
         raise ValueError("no_action requires a comparison horizon after the recorded ET date")
 
@@ -544,7 +599,7 @@ class USProposal(_Record):
     decision: USProposalDraft
     analysis: ReviewedReport
     review: USProposalReview
-    published_at: AwareDatetime
+    published_at: _ReportClock
 
     @model_validator(mode="after")
     def _review_matches_decision(self) -> Self:

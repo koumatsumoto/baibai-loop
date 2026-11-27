@@ -12,7 +12,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProp
 from baibai_engine.investment_judgment.trade_proposal.query import (
     ProposalRecordReader,
     load_investment_proposal,
-    published_proposal_ids,
 )
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     fixed_proposal_scope,
@@ -123,29 +122,46 @@ def main(argv: list[str] | None = None) -> int:
                 and history["error"] is None
                 and history["unavailable_proposal_ids"] == []
                 and isinstance(rows, list)
-                and sorted(row["proposal_id"] for row in rows)
-                == list(published_proposal_ids(connection))
                 and any(
                     row["proposal_id"] == fixed and encode_json(row) == projection for row in rows
                 )
             ):
                 raise ValueError
-            # 履歴全体のApp本文を再投影しないが、IDだけ残った壊れた表示を成功にしない。
-            publication_times = [proposal.published_at]
+            # 履歴は発行時刻の順。IDの集合だけでは順序や各レポートの発行時刻を照合できない。
+            # Appの本文全部を再投影せず、発行索引だけを同じ読取transactionで確認する。
+            app_index = [
+                (datetime.fromisoformat(stamp), key)
+                for key, stamp in connection.execute(
+                    "SELECT proposal_id,published_at FROM investment_proposal"
+                )
+            ]
+            if any(published.utcoffset() is None for published, _ in app_index):
+                raise ValueError
+            app_index.sort(reverse=True)
+            captured_index: list[tuple[datetime, str]] = []
             for row in rows:
-                if row["proposal_id"] != fixed:
+                if row["proposal_id"] == fixed:
+                    saved = expected
+                else:
                     saved = SavedProposalView.model_validate_json(encode_json(row))
-                    publication_times.append(saved.published_at)
+                    # Model validation alone can coerce a timestamp or fill omitted collections.
+                    wire_clock = saved.model_dump(mode="json", include={"published_at"})
+                    if not (
+                        row["published_at"] == wire_clock["published_at"]
+                        and saved.items
+                        and {"corrections", "human_reports"} <= saved.model_fields_set
+                    ):
+                        raise ValueError
+                captured_index.append((saved.published_at, saved.proposal_id))
+            if captured_index != app_index:
+                raise ValueError
             print(f"PASS {stage}")
             stage = "matching_view_timestamps"
             stamp = datetime.fromisoformat(latest["generated_at"])
             if (
                 stamp.utcoffset() is None
                 or history["generated_at"] != latest["generated_at"]
-                or any(
-                    published.utcoffset() is None or stamp < published
-                    for published in publication_times
-                )
+                or stamp < app_index[0][0]
             ):
                 raise ValueError
             print(f"PASS {stage}")

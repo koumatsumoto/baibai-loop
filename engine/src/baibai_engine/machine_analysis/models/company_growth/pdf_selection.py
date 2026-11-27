@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Literal
 
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
+    _AMOUNT_FIELDS,
     _margin,
     _missing_change_reason,
     native_comparison_priors,
@@ -114,11 +115,70 @@ def _native_target(
     )
 
 
+def _annual_pdf_precedes_retained_income(
+    target: PeriodState, current: PdfStatement, native_anchor: JQuantsFinancialSummary
+) -> bool:
+    # A whole fiscal year has no other TTM operands. An interim PDF is a
+    # different case: switching only the current column can mix revision bases.
+    if not _statement_comparison_measurement(current, "annual_ttm"):
+        return False
+    return any(
+        source.disclosed_at > native_anchor.disclosed_at
+        for observation in target.observations
+        if observation.measurement == "reported"
+        for metric in _INCOME_METRICS
+        if (amount := observation.metrics.get(metric)) is not None
+        for source in amount.documents
+    )
+
+
+def _conflicting_annual_income(target: PeriodState, current: PdfStatement) -> dict[Metric, str]:
+    if not _statement_comparison_measurement(current, "annual_ttm"):
+        return {}
+    return {
+        metric: field
+        for observation in target.observations
+        if observation.measurement == "reported"
+        for metric, field in _AMOUNT_FIELDS
+        if (value := observation.metrics.get(metric)) is not None
+        and value.reason == "conflicting_revisions"
+    }
+
+
+def _including_dependent_margin(metrics: set[Metric]) -> set[Metric]:
+    return metrics | {"operating_margin"} if metrics & {"sales", "operating_profit"} else metrics
+
+
+def _later_annual_conflicts(
+    target: PeriodState,
+    current: PdfStatement,
+    native_anchor: JQuantsFinancialSummary,
+    documents: Sequence[JQuantsFinancialSummary],
+) -> set[Metric]:
+    conflicts = _conflicting_annual_income(target, current)
+    if not conflicts:
+        return set()
+    # 欠測理由はnativeの判定を使う。同じ科目の後発候補があるかだけ原本で照合し、
+    # 最新のPDFが補える、より古いnativeの矛盾まで塞がない。
+    return _including_dependent_margin(
+        {
+            metric
+            for row in documents
+            if row.disclosed_at > native_anchor.disclosed_at
+            and row.ticker == native_anchor.ticker
+            and accounting_period_identity(row) == target.cohort
+            for metric, field in conflicts.items()
+            if getattr(row, field) is not None or field in row.unresolved_actual_fields
+        }
+    )
+
+
 def apply_pdf_periods(
     states: Sequence[PeriodState],
     selected: PdfFinancialSelection | None,
     *,
     native_anchor: JQuantsFinancialSummary | None,
+    documents: Sequence[JQuantsFinancialSummary],
     sector: str | None,
 ) -> tuple[PeriodState, ...]:
     if selected is None or (target := _native_target(states, native_anchor)) is None:
@@ -159,6 +219,9 @@ def apply_pdf_periods(
             for state in states
         )
     current = selected.current
+    assert native_anchor is not None
+    if _annual_pdf_precedes_retained_income(target, current, native_anchor):
+        return tuple(states)
     assert current.current_start is not None
     assert current.current_end is not None
     sources = (_source(current),) + ((_source(selected.annual),) if selected.annual else ())
@@ -174,6 +237,9 @@ def apply_pdf_periods(
         (_source(current),),
         sector=sector,
     )
+    for metric in _later_annual_conflicts(target, current, native_anchor, documents):
+        del annual_metrics[metric]
+        del reported_metrics[metric]
     result = []
     for state in states:
         if state is not target or (state.period_start, state.period_end) != (
@@ -223,9 +289,16 @@ def apply_pdf_changes(
 ) -> tuple[Change, ...]:
     if selected is None or (target := _native_target(states, native_anchor)) is None:
         return tuple(changes)
-    if not selected.comparative_verified:
-        return _unverified_annual_comparative(changes, selected, states, target)
-    if selected.current is None:
+    assert native_anchor is not None
+    current = selected.current
+    superseded = current is not None and _annual_pdf_precedes_retained_income(
+        target, current, native_anchor
+    )
+    if superseded or not selected.comparative_verified:
+        return _unverified_annual_comparative(
+            changes, selected, states, target, superseded=superseded
+        )
+    if current is None:
         if not selected.blocks_summary_ttm_fallback:
             return tuple(changes)
         return tuple(
@@ -246,11 +319,12 @@ def apply_pdf_changes(
             else change
             for change in changes
         )
-    current = selected.current
     assert current.current_start is not None
     assert current.current_end is not None
     if not _target_matches_statement(target, current):
         return tuple(changes)
+    # apply_pdf_periods has already resolved which native conflicts the PDF could fill.
+    blocked = _including_dependent_margin(set(_conflicting_annual_income(target, current)))
     before = {pair.metric: pair.comparative * 1_000_000 for pair in current.pairs}
     after = {pair.metric: pair.current * 1_000_000 for pair in current.pairs}
     prior_metrics = _metrics(before, (_source(current),), sector=sector)
@@ -263,6 +337,7 @@ def apply_pdf_changes(
             or change.to_end != current.current_end
             or not _statement_comparison_measurement(current, change.measurement)
             or change.metric not in current_metrics
+            or change.metric in blocked
             or (
                 change.measurement == "quarter"
                 and (
@@ -319,12 +394,17 @@ def _unverified_annual_comparative(
     selected: PdfFinancialSelection,
     states: Sequence[PeriodState],
     target: PeriodState,
+    *,
+    superseded: bool,
 ) -> tuple[Change, ...]:
     current = selected.current
     if (
         current is None
         or selected.status != "available"
-        or selected.annual_revision_basis != "latest_reconfirmed_unchanged_amounts"
+        or (
+            not superseded
+            and selected.annual_revision_basis != "latest_reconfirmed_unchanged_amounts"
+        )
         or not _statement_comparison_measurement(current, "annual_ttm")
         or not _target_matches_statement(target, current)
     ):
@@ -340,7 +420,8 @@ def _unverified_annual_comparative(
         == (current.comparative_start, current.comparative_end)
         and change.reason in {None, "nonpositive_base"}
     ]
-    # 当期額不変は前年比較の再確認ではない。丸め一単位内は確定矛盾にしない。
+    # 旧資料の当期額を使わなくても、組替欄と矛盾する旧native前年額は復活させない。
+    # 丸め一単位内は確定矛盾にしない。
     affected = {
         index
         for index, change in matching

@@ -32,6 +32,7 @@ function dashboard(): DashboardView {
     holding_quantity_unresolved: false, valuation_as_of: null,
     total_capital_yen: null, available_cash_yen: null, reserved_cash_yen: null,
     holdings_market_value_yen: null, deployed_cost_yen: null,
+    unrealized_pnl_yen: null, unrealized_pnl_pct: null,
     realized_gross_pnl_yen: null, cash_pct: null, reserved_pct: null, deployed_pct: null,
     holdings: [], reservations: [], warnings: [],
   }
@@ -101,6 +102,25 @@ it.each(['obsolete market SQLite schema', 'file is not a database'])(
   },
 )
 
+it('shows a rounded threshold breach caused by a pending buy, not a confirmed holding', () => {
+  // Ledger: 100 shares reserved at 1000.01 against 1M cash, no fill or shares held.
+  hooks.values.set(0, {
+    ...dashboard(), total_capital_yen: 1_000_000, available_cash_yen: 899_999,
+    holdings_market_value_yen: 0, reserved_cash_yen: 100_001, holdings: [],
+    reservations: [{ ...pendingBuy, price_guard_yen: '1000.01', reserved_yen: 100_001 }],
+    warnings: [
+      ...[['ticker', '8929'], ['sector', '不動産業'], ['common_factor', '不動産']].map(([scope, key]) =>
+        ({ code: `portfolio.${scope}-concentration`, scope, key, actual_pct: 10, warning_pct: 10, overridden: false })),
+      { code: 'portfolio.dry-powder', scope: 'dry_powder', key: 'portfolio', actual_pct: 90, warning_pct: 90, overridden: false },
+    ],
+  })
+  const html = render()
+  expect(html).toContain('保有銘柄はありません。')
+  expect(html).toContain('未約定注文')
+  expect(html.match(/保有時価と買付予約額を合わせた総資産比：10\.00%（目安 10\.00%）。丸め前の比率で目安を上回っています。/g)).toHaveLength(3)
+  expect(html).toContain('未予約現金の総資産比：90.00%（目安 90.00%）。丸め前の比率で目安を下回っています。')
+})
+
 it.each(['normal', 'unresolved', 'other-holding'])(
   'distinguishes a reported full sale from confirmed zero (%s)', mode => {
     const unresolved = mode !== 'normal'
@@ -146,7 +166,9 @@ it.each(['normal', 'unresolved', 'other-holding'])(
   },
 )
 
-it.each(['holding_quantity_unresolved', 'realized_gross_pnl_yen'] as const)(
+it.each([
+  'holding_quantity_unresolved', 'realized_gross_pnl_yen', 'unrealized_pnl_yen', 'unrealized_pnl_pct',
+] as const)(
   'rejects a dashboard missing the required %s without hiding outcomes', async field => {
     const payload: Partial<DashboardView> = dashboard()
     delete payload[field]
@@ -398,29 +420,31 @@ it.each([
   expect(html).not.toContain('運用成績を読み込めません')
 })
 
-describe('wire-level outcome failures are local to the outcome view', () => {
+describe('wire-level read failures stay local to each saved view', () => {
   const validRow = {
     outcome_id: 'saved-fixture', horizon: '1y', period_start_date: '2025-01-01',
     period_end_date: '2025-12-31', status: 'resolved', reason: null,
     portfolio_twr_pct: 0, benchmark_cumulative_return_pct: null,
   }
 
-  async function loadWireOutcome(wire: string): Promise<string> {
+  const validDashboard = {
+    ...dashboard(), available_cash_yen: 123_456, reserved_cash_yen: 119_000,
+    holdings: [{
+      ticker: '2331', company_name: '合成保有', sector: 'サービス業', quantity: 100,
+      deployed_cost_yen: 99_000, market_price_yen: null, market_price_as_of: null,
+      market_value_yen: null, unrealized_pnl_yen: null, unrealized_pnl_pct: null,
+    }],
+    reservations: [pendingBuy],
+  } satisfies DashboardView
+
+  async function loadWireViews(outcomesWire: string, dashboardPayload: unknown = validDashboard): Promise<string> {
     // Keep the real JSON parser and its response→effect→render path. Only fetch is local.
     const actual = await vi.importActual<typeof import('../src/api/client')>('../src/api/client')
     vi.mocked(fetchJson).mockImplementation(actual.fetchJson)
     vi.stubGlobal('localStorage', { getItem: () => null })
     vi.stubGlobal('fetch', vi.fn(async (path: string) => {
-      if (path === '/api/dashboard') return Response.json({
-        ...dashboard(), available_cash_yen: 123_456, reserved_cash_yen: 119_000,
-        holdings: [{
-          ticker: '2331', company_name: '合成保有', sector: 'サービス業', quantity: 100,
-          deployed_cost_yen: 99_000, market_price_yen: null, market_price_as_of: null,
-          market_value_yen: null, unrealized_pnl_yen: null, unrealized_pnl_pct: null,
-        }],
-        reservations: [pendingBuy],
-      })
-      if (path === '/api/outcomes') return new Response(wire, {
+      if (path === '/api/dashboard') return Response.json(dashboardPayload)
+      if (path === '/api/outcomes') return new Response(outcomesWire, {
         status: 200, headers: { 'Content-Type': 'application/json' },
       })
       throw new Error('unexpected fixture request')
@@ -428,7 +452,7 @@ describe('wire-level outcome failures are local to the outcome view', () => {
     render()
     hooks.effects[0]()
     await vi.waitFor(() => {
-      expect(hooks.setters[0]).toHaveBeenCalledOnce()
+      expect(hooks.setters[0].mock.calls.length + hooks.setters[3].mock.calls.length).toBe(1)
       expect(hooks.setters[1].mock.calls.length + hooks.setters[2].mock.calls.length).toBe(1)
     })
     hooks.setters.forEach((setter, index) => {
@@ -440,6 +464,34 @@ describe('wire-level outcome failures are local to the outcome view', () => {
   }
 
   it.each([
+    ['ledger_exists', undefined], ['ledger_exists', 'false'],
+    ['holdings', undefined], ['holdings', {}], ['holdings', [null]],
+    ['warnings', undefined], ['warnings', null], ['warnings', [null]],
+    ['reservations', undefined], ['reservations', ''], ['reservations', [null]],
+  ] as const)('preserves saved outcomes after HTTP 200 with dashboard %s=%s', async (field, value) => {
+    // Response.json omits properties set to undefined, just as an incomplete stored view does.
+    const html = await loadWireViews(JSON.stringify({ error: null, outcomes: [validRow] }), {
+      ...validDashboard, [field]: value,
+    })
+    expect(html).toContain('資産・保有・未約定注文を読み込めません')
+    expect(html).toContain('資産状況の表示データが不正です。')
+    expect(html).not.toContain('portfolio ledger がありません。')
+    expect(html).not.toContain('保有銘柄はありません。')
+    expect(html).toContain('saved-fixture')
+    expect(html).toContain('0.0%')
+    expect(html).not.toContain('運用成績を読み込めません')
+  })
+
+  it('keeps an explicitly absent ledger distinct from an unreadable dashboard', async () => {
+    const html = await loadWireViews(JSON.stringify({ error: null, outcomes: [validRow] }), {
+      ...dashboard(), ledger_exists: false,
+    })
+    expect(html).toContain('portfolio ledger がありません。')
+    expect(html).not.toContain('資産・保有・未約定注文を読み込めません')
+    expect(html).toContain('saved-fixture')
+  })
+
+  it.each([
     ['null envelope', 'null'],
     ['the other view', '{"generated_at":"2026-11-22T18:00:00+09:00","holdings":[]}'],
     ['null row', '{"error":null,"outcomes":[null]}'],
@@ -449,7 +501,7 @@ describe('wire-level outcome failures are local to the outcome view', () => {
     ['overflowing JSON number', JSON.stringify({ error: null, outcomes: [validRow] }).replace('"portfolio_twr_pct":0', '"portfolio_twr_pct":1e999')],
     ['invalid error shape', '{"error":{"invalid":true},"outcomes":[]}'],
   ])('preserves the other view after HTTP 200 with %s', async (_name, wire) => {
-    const html = await loadWireOutcome(wire)
+    const html = await loadWireViews(wire)
     expect(html).toContain('資産と損益')
     expect(html).toContain('￥123,456')
     expect(html).toContain('合成保有')
@@ -466,7 +518,7 @@ describe('wire-level outcome failures are local to the outcome view', () => {
     { payload: { error: null, outcomes: [{ ...validRow, status: 'constructor' }] }, text: 'constructor' },
     { payload: { error: '保存済み運用成績を読み取れません。', outcomes: [] }, text: '保存済み運用成績を読み取れません。' },
   ])('keeps the current good envelope and a declared read error ($text)', async ({ payload, text }) => {
-    const html = await loadWireOutcome(JSON.stringify(payload))
+    const html = await loadWireViews(JSON.stringify(payload))
     expect(html).toContain(text)
     expect(html).toContain('￥123,456')
     expect(html).not.toContain('保存済み運用成績の表示データが不正です。')

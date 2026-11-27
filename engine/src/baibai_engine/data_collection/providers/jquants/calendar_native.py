@@ -220,6 +220,7 @@ def calendar_index(scopes: Mapping[str, Mapping[str, Any]]) -> NativeMarketIndex
         day = date.fromisoformat(raw_day)
         if (identity := state.get("adopted")) and (confirmed := state.get("confirmed_at")):
             division = state.get("division")
+            valid = state.get("valid") is True
             receipts.append(
                 ReceiptEvidence(
                     identity,
@@ -227,13 +228,13 @@ def calendar_index(scopes: Mapping[str, Mapping[str, Any]]) -> NativeMarketIndex
                     day,
                     day,
                     datetime.fromisoformat(confirmed),
-                    int(state["valid"]),
-                    (day,) if state["valid"] else (),
+                    int(valid),
+                    (day,) if valid else (),
                     ((day, division),)
                     if isinstance(division, str) and cash_equity_open(division) is not None
                     else (),
                     (),
-                    bool(state["valid"]),
+                    valid,
                 )
             )
         if identity := state.get("failure") or state.get("held"):

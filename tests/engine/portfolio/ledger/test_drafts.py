@@ -300,3 +300,74 @@ def test_confirmed_zero_commission_is_recorded_without_changing_cash(tmp_path: P
     current = replay_events_through(stored.events, stored.as_of)
     assert current.available_cash_yen == previous.available_cash_yen
     assert current.reserved_cash_yen == previous.reserved_cash_yen
+
+
+@pytest.mark.parametrize("status", ["open", "filled", "cancelled", "direct-sale"])
+@pytest.mark.parametrize("date_only", [False, True])
+def test_apply_records_trade_fact_only_after_its_reported_time(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], status: str, date_only: bool
+) -> None:
+    """A draft prepared on a clock ahead of the ledger cannot book the future."""
+    db = _seeded_db(tmp_path)
+    service = LedgerStoreService(db)
+    origin = ["--side", "sell", "--decision-reference", "human-reported-sale"]
+    units = ["--ticker", "2331", "--quantity", "100"]
+    new_order = ["--status", "open", *units, "--price-guard-yen", "1000", "--sector", "サービス業"]
+    before_midnight = datetime.fromisoformat("2026-07-11T14:59:59Z")
+    midnight = before_midnight + timedelta(seconds=1)
+    if status in {"filled", "cancelled"}:
+        prior = tmp_path / "prior.yaml"
+        assert (
+            position_main(
+                [
+                    "broker-fact-draft",
+                    *origin,
+                    *new_order,
+                    "--occurred-at",
+                    "2026-07-11T12:00:00+09:00",
+                    "--db",
+                    str(db),
+                    "--out",
+                    str(prior),
+                ],
+                now=before_midnight,
+            )
+            == 0
+        )
+        assert (
+            position_main(
+                ["apply-draft", str(prior), "--db", str(db), "--confirmed"], now=before_midnight
+            )
+            == 0
+        )
+        active = replay_events_through(service.load().events, before_midnight).active_reservations
+        reservation_id = next(key for key, value in active.items() if value.side == "sell")
+        args = [
+            "broker-fact-draft",
+            *origin,
+            "--status",
+            status,
+            "--reservation-id",
+            reservation_id,
+        ]
+        if status == "filled":
+            args += [*units, "--price-yen", "1000"]
+    elif status == "open":
+        args = ["broker-fact-draft", *origin, *new_order]
+    else:
+        args = ["sell-execution-draft", *units, "--price-yen", "1000"]
+    moment = (
+        ["--occurred-on", "2026-07-12"] if date_only else ["--occurred-at", midnight.isoformat()]
+    )
+    draft = tmp_path / "fact.yaml"
+    assert position_main([*args, *moment, "--db", str(db), "--out", str(draft)], now=midnight) == 0
+    capsys.readouterr()
+    before = service.load_with_head()
+    original = db.read_bytes()
+    apply = ["apply-draft", str(draft), "--db", str(db), "--confirmed"]
+    assert position_main(apply, now=before_midnight) == 2
+    assert "must not be in the future" in capsys.readouterr().err
+    assert service.load_with_head() == before
+    assert db.read_bytes() == original
+    assert position_main(apply, now=midnight) == 0
+    assert service.load_with_head()[1] == before[1] + 1

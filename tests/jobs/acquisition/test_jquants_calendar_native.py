@@ -88,12 +88,31 @@ def test_partial_429_is_durable_and_stops_all_later_ranges(tmp_path):
     owner = CalendarL1(store, tmp_path)
     owner.initialize()
     owner.commit([attempt("middle", DAY + timedelta(days=1))])
-    client = Client(at=AT + timedelta(hours=1), error=JQuantsRateLimitError("stop"))
-    result = acquire_calendar_native(owner, start=DAY, end=DAY + timedelta(days=2), client=client)
+    attempted_at = AT + timedelta(minutes=1)
+    received_at = AT + timedelta(hours=1)
+    last = DAY + timedelta(days=2)
+    client = Client(at=received_at, error=JQuantsRateLimitError("stop"))
+    result = acquire_calendar_native(
+        owner, start=DAY, end=last, client=client, clock=lambda: attempted_at
+    )
     assert result["halted"] == result["failed"] == 1
-    assert len(client.calls) == 1
-    assert {item.request_id for item in owner.fixed().requests(store)} >= {"middle"}
+    query = dict.fromkeys(("from", "to"), DAY.strftime("%Y%m%d"))
+    assert client.calls == [("market_calendar", query)]
+
+    fixed = owner.fixed()
+    (partial,) = fixed.requests(store, days=(DAY,))
+    assert (partial.start, partial.end, partial.failure) == (DAY, DAY, "JQuantsRateLimitError")
+    assert len(partial.pages) == 1
+    (page,) = partial.pages
+    expected = {"data": [{"Date": DAY.isoformat(), "HolDiv": "1"}], "pagination_key": "next"}
+    assert (partial.attempted_at, page.received_at) == (attempted_at, received_at)
+    assert dict(page.query) == query
+    assert page.body == json.dumps(expected).encode()
+    local = tmp_path / f"attempt-{partial.request_id}.json"
+    assert json.loads(local.read_bytes()) == partial.value()
+    assert {item.request_id for item in fixed.requests(store)} == {partial.request_id, "middle"}
     assert result["incomplete"] == 2
+    assert fixed.plan(start=DAY, end=last) == (DAY, last)
 
 
 def test_commit_work_replays_without_fetch_and_does_not_fulfill_empty(

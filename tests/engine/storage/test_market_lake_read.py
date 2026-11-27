@@ -1520,7 +1520,9 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "repair.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
+        index_sql = 'CREATE INDEX "daily bars lookup" ON jquants_daily_bars (ticker, traded_at)'
         with closing(sqlite3.connect(store)) as connection, connection:
+            connection.execute(index_sql)
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1555,6 +1557,11 @@ class TestHydrate:
             assert connection.execute(
                 "SELECT COUNT(*) FROM jquants_short_sale_reports"
             ).fetchone() == (2,)
+
+            assert connection.execute(
+                "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = ?",
+                ("daily bars lookup",),
+            ).fetchone() == (index_sql,)
 
     def test_full_fill_can_advance_the_whole_store_to_a_new_release(
         self, session: LakeSession, lake: Lake, tmp_path: Path

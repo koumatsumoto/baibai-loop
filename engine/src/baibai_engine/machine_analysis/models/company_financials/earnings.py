@@ -12,6 +12,7 @@ from math import isfinite
 from pydantic import JsonValue, TypeAdapter
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
+    _capital_action_units,
     _normalize_summaries_with_status,
     _resolve_capital_basis,
 )
@@ -145,7 +146,7 @@ def earnings_price(
     capital = _resolve_capital_basis(
         normalized.summaries,
         capital_basis_barrier=normalized.capital_basis_barrier,
-        capital_actions=capital_actions,
+        capital_actions=_capital_action_units(capital_actions, adjustment_events, as_of),
     )
     rows = _ttm_components(normalized.summaries, "profit", ttm_rules)
     components = tuple(

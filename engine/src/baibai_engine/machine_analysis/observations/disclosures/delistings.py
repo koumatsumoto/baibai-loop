@@ -101,18 +101,15 @@ def parse_delisting_page(content: bytes, url: str) -> tuple[DelistingRecord, ...
     found_target = False
     records: list[DelistingRecord] = []
     for table in parser.tables:
-        target_table = any(tuple(cells[:5]) == _HEADER for cells in table)
+        in_delisting_table = False
         for cells in table:
-            if tuple(cells[:5]) == _HEADER:
-                found_target = True
+            if cells == _HEADER:
+                found_target = in_delisting_table = True
                 continue
-            if not cells or not (
-                (target_table and len(cells) == 5) or _DATE_SHAPE_RE.fullmatch(cells[0])
-            ):
+            if not in_delisting_table or not cells:
                 continue
-            row = _jpx_delisting_row(cells, url=url)
-            found_target = True
-            records.append(row)
+            if len(cells) > 1 or _DATE_SHAPE_RE.fullmatch(cells[0]):
+                records.append(_jpx_delisting_row(cells, url=url))
     if not found_target:
         raise DelistingSourceError(f"JPX delisting page has no recognizable table: {url}")
     return tuple(records)

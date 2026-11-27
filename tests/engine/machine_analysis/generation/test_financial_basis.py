@@ -25,6 +25,9 @@ from baibai_engine.machine_analysis.generation.query import (
     read_generation,
     read_research_model_inputs,
 )
+from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
+    VALUATION_CALCULATION_REVISION,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
@@ -33,7 +36,10 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfStatement
-from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    PriceBar,
+)
 from baibai_engine.primitives.json import canonical_json
 
 _RELEASE = InputRelease(release_id="financial-basis-fixture", manifest_sha256="a" * 64)
@@ -60,13 +66,16 @@ def _native() -> tuple[JQuantsFinancialSummary, ...]:
 
 
 def _financial(
-    rows: tuple[JQuantsFinancialSummary, ...], *, statements: tuple[PdfStatement, ...] = ()
+    rows: tuple[JQuantsFinancialSummary, ...],
+    *,
+    statements: tuple[PdfStatement, ...] = (),
+    events: tuple[JQuantsAdjustmentFactorEvent, ...] = (),
 ) -> GeneratedModel:
     financial, _, _ = generate_financial_and_price_models(
         ticker="9127",
         documents=rows,
         adjusted_bars=(PriceBar(ASOF, 1_000.0, None),),
-        adjustment_events=(),
+        adjustment_events=events,
         trading_dates=(ASOF,),
         expected_price_date=ASOF,
         sector="情報・通信業",
@@ -101,7 +110,83 @@ def test_profit_vintage_never_changes_the_independent_native_cfo(
     assert (
         financial["ocf_ttm_period"] == _financial(_native()).payload["financial"]["ocf_ttm_period"]
     )
-    assert result.calculation_revision.startswith("continuous-annual-input-v61-")
+    assert result.calculation_revision.startswith(VALUATION_CALCULATION_REVISION + "-")
+
+
+@pytest.mark.parametrize(
+    ("corrected_issued", "corrected_treasury", "expected_change"),
+    [(None, 200.0, None), (1000.0, 200.0, 0.125), (None, None, 0.0)],
+)
+def test_tradable_share_yoy_resolves_capital_in_the_comparable_period(
+    corrected_issued, corrected_treasury, expected_change
+):
+    prior, annual, quarter = _native()
+    prior = replace(prior, shares_outstanding=1000.0, treasury_shares=100.0)
+    # Share counts belong to the issuer even when the current financial basis changes.
+    quarter = replace(
+        quarter,
+        shares_outstanding=1000.0,
+        treasury_shares=100.0,
+        document_type="1QFinancialStatements_NonConsolidated_IFRS",
+    )
+    correction = replace(
+        prior,
+        disclosed_at=date(2025, 8, 6),
+        disclosure_number="prior-correction",
+        shares_outstanding=corrected_issued,
+        treasury_shares=corrected_treasury,
+    )
+    rows = (prior, correction, annual, quarter)
+    for ordered in (rows, rows[::-1]):
+        payload = _financial(ordered).payload["financial"]
+        assert isinstance(payload, dict)
+        assert payload["net_share_change_yoy"] == 0.0
+        assert payload["tradable_share_change_yoy"] == expected_change
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [("no_correction", 0.0), ("uncertain", None), ("same_day", None), ("later", 0.2)],
+)
+def test_prior_share_yoy_does_not_revive_pre_correction_treasury_after_a_split(case, expected):
+    prior, annual, quarter = _native()
+    prior = replace(prior, shares_outstanding=1000.0, treasury_shares=100.0, bps=50.0)
+    quarter = replace(quarter, shares_outstanding=2000.0, treasury_shares=200.0)
+    split = JQuantsAdjustmentFactorEvent("9127", date(2025, 9, 1), 0.5, "1")
+    # The issuer corrects a pre-split period without specifying the new count's share unit.
+    uncertain = replace(
+        prior,
+        disclosed_at=date(2026, 8, 6),
+        disclosed_time=None,
+        disclosure_number="treasury-only",
+        shares_outstanding=None,
+        treasury_shares=250.0,
+        bps=None,
+    )
+    rows = (prior, annual, quarter)
+    if case != "no_correction":
+        rows += (uncertain,)
+    if case in {"same_day", "later"}:
+        rows += (
+            replace(
+                uncertain,
+                disclosed_at=date(2026, 8, 6 if case == "same_day" else 7),
+                disclosed_time="15:00:00",
+                disclosure_number="complete-correction",
+                shares_outstanding=2000.0,
+                treasury_shares=500.0,
+            ),
+        )
+    for ordered in (rows, rows[::-1]):
+        payload = _financial(ordered, events=(split,)).payload["financial"]
+        assert isinstance(payload, dict)
+        assert payload["shares_ex_treasury"] == 1800.0
+        assert payload["net_share_change_yoy"] == 0.0
+        assert payload["cfo"] == 100_000_000
+        # Only an uncontested share count can value the BPS reported in the prior filing.
+        assert payload["pbr"] == (40.0 if case == "no_correction" else None)
+        change = payload["tradable_share_change_yoy"]
+        assert change == (pytest.approx(expected) if expected is not None else None)
 
 
 @pytest.mark.parametrize("operating_profit", [None, 0.0, -40.0, 80.0])

@@ -28,7 +28,10 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    PriceBar,
+)
 from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
 
 AS_OF = date(2026, 11, 10)
@@ -217,6 +220,53 @@ def test_new_bps_on_or_after_completed_issuance_restores_book(period_end):
     assert result.book_equity["measurement_date"] == period_end
     assert result.book_equity["disclosure_number"] == "h1-capital"
     assert result.pbr == 0.25
+
+
+@pytest.mark.parametrize(
+    ("kind", "factor", "event_shares", "expected"),
+    [
+        ("1", 0.5, 100, 1600),  # Split after the event: double current shares, not source shares.
+        ("1", 0.5, 200, None),  # Same numeral as current gross, different units.
+        ("2", 2.0, 100, 400),
+        ("2", 2.0, 50, None),
+        ("3", 0.8, 100, 800),  # A rights price adjustment is not a share conversion.
+        (None, 0.5, 100, None),
+    ],
+)
+def test_effective_day_capital_reconciles_before_adjusting_for_later_splits(
+    kind, factor, event_shares, expected
+):
+    source = row(total_assets=None, equity_to_asset_ratio=None)
+    action = replace(
+        COMPLETED_ISSUANCE,
+        effective_date=source.period_end,
+        published_on=source.disclosed_at,
+        issued_shares=event_shares,
+    )
+    models = generate_financial_and_price_models(
+        ticker="1001",
+        documents=(source,),
+        adjusted_bars=(PriceBar(AS_OF, 10.0, None),),
+        adjustment_events=(JQuantsAdjustmentFactorEvent("1001", date(2026, 9, 1), factor, kind),),
+        trading_dates=tuple(AS_OF - timedelta(days=252 - index) for index in range(253)),
+        expected_price_date=AS_OF,
+        sector=None,
+        as_of=AS_OF,
+        input_release=InputRelease(release_id="synthetic", manifest_sha256="b" * 64),
+        ttm_rules=DEFAULT_TTM_RULES,
+        capital_actions=(action,),
+    )
+    payload = next(model.payload for model in models if model.model_id == "company_financials")
+    financial = payload["financial"]
+    assert financial["market_cap"] == expected
+    assert payload["earnings_price"]["market_cap_yen"] == expected
+    assert payload["capital_action_evidence"][0]["issued_shares"] == event_shares
+    if expected is None:
+        assert financial["book_equity"] is None
+        assert financial["pbr"] is None
+    else:
+        assert financial["book_equity"]["amount_yen"] == 2400
+        assert financial["pbr"] == pytest.approx(expected / 2400)
 
 
 def test_same_effective_day_issued_mismatch_prevents_bps_book_despite_later_valid_cap():

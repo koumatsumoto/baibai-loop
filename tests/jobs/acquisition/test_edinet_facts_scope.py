@@ -40,7 +40,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.service
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.edinet_list_native import materialize_lists
-from baibai_jobs.integration.source_cache_merge import merge_stores
 from baibai_jobs.maintenance.edinet_extraction import refresh_edinet_facts_command
 
 DAY = date(2026, 11, 5)
@@ -167,8 +166,8 @@ def test_requested_scope_without_global_since_does_not_enable_fetches(tmp_path):
     assert save_fact_plan(path) is None
 
 
-def test_selected_unavailable_and_failed_ids_survive_family_change_and_merge(tmp_path):
-    local, canonical = tmp_path / "local.sqlite", tmp_path / "canonical.sqlite"
+def test_selected_unavailable_id_survives_family_change(tmp_path):
+    local = tmp_path / "local.sqlite"
     old = filing("S100OLD", 2025, xbrlFlag="0")
     save_list(local, [old])
     with closing(open_connection(local)) as connection, connection:
@@ -180,16 +179,6 @@ def test_selected_unavailable_and_failed_ids_survive_family_change_and_merge(tmp
         "S100OLD",
         "S100LATEST",
     }
-    open_connection(canonical).close()
-    merge_stores(local, canonical)
-    assert scope(canonical) == scope(local)
-    older = tmp_path / "older.sqlite"
-    open_connection(older).close()
-    with closing(open_connection(older)) as connection, connection:
-        merge_scope(connection, FactsScope(doc_ids=frozenset({"S100FAILED"})))
-    merge_stores(older, canonical)
-    assert scope(canonical).since == DAY
-    assert scope(canonical).doc_ids == frozenset({"S100OLD", "S100LATEST", "S100FAILED"})
 
 
 @pytest.mark.parametrize("ticker_only", [False, True])

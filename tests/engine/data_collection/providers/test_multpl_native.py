@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Self
 from unittest import TestCase
+from unittest.mock import patch
 
 from tests.helpers.provider_fixtures import _multpl_monthly_table, _source
 
 from baibai_engine.data_collection.providers.multpl import parse_multpl_table
 from baibai_engine.data_collection.transport.context import IndicatorsProviderError
+
+
+class _LocalizedDate(date):
+    """Model a locale where the English wire month is not valid for strptime."""
+
+    @classmethod
+    def strptime(cls, date_string: str, format: str) -> Self:
+        if "%b" in format:
+            raise ValueError("local month names are not the provider's English names")
+        return super().strptime(date_string, format)
 
 
 class NativeParserTests(TestCase):
@@ -38,6 +50,25 @@ class NativeParserTests(TestCase):
             rows[date(2026, 10, 1)][0]["description_links"],
             [{"text": "Yale", "href": "http://www.econ.yale.edu/~shiller/data.htm"}],
         )
+
+    def test_multpl_reads_english_month_without_locale(self) -> None:
+        series = _source("multpl", "s-p-500-earnings-yield")
+        text = "mAy  1, 2026"
+        html = f'<table id="datatable"><tr><td>{text}</td><td>4.5%</td></tr></table>'
+        day = date(2026, 5, 1)
+        with patch("baibai_engine.data_collection.providers.multpl.date", _LocalizedDate):
+            rows = parse_multpl_table(series, html, start=day, end=day)
+        self.assertEqual(rows, {day: [{"date_text": text, "value_text": "4.5%", "table_row": 0}]})
+
+    def test_multpl_rejects_noncontract_dates(self) -> None:
+        series = _source("multpl", "s-p-500-earnings-yield")
+        for text in ("Mai 1, 2026", "February 1, 2026", "Feb 30, 2026", "May 1,2026"):
+            html = f'<table id="datatable"><tr><td>{text}</td><td>4.5%</td></tr></table>'
+            with (
+                self.subTest(text=text),
+                self.assertRaisesRegex(IndicatorsProviderError, "invalid table date"),
+            ):
+                parse_multpl_table(series, html, start=date(2026, 1, 1), end=date(2026, 8, 1))
 
     def test_multpl_does_not_invent_explanation(self) -> None:
         series = _source("multpl", "shiller-pe")

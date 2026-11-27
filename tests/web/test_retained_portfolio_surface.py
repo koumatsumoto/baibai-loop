@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -247,8 +248,10 @@ def test_invalid_saved_ledger_payload_does_not_escape_through_dashboard(tmp_path
         "names_date",
         "names_empty",
         "names_missing",
+        "names_stat",
         "valuation_schema",
         "valuation_sql",
+        "valuation_resolve",
     ],
 )
 def test_optional_market_read_failure_does_not_block_independent_view_export(
@@ -322,9 +325,23 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     if failed_source == "valuation_sql":
         market.write_bytes(b"not a SQLite database")
     before = app.read_bytes(), market.read_bytes()
+    if failed_source in ("names_stat", "valuation_resolve"):
+        method = "stat" if failed_source == "names_stat" else "resolve"
+        original = getattr(Path, method)
+
+        def denied(path, *args, **kwargs):
+            if path == market:
+                raise PermissionError("SYNTHETIC_MARKET_PATH")
+            return original(path, *args, **kwargs)
+
+        mocker.patch.object(Path, method, denied)
     valuation_failed = failed_source.startswith("valuation_")
     if valuation_failed:
-        error_type = SQLiteSchemaError if failed_source == "valuation_schema" else sqlite3.Error
+        error_type = {
+            "valuation_schema": SQLiteSchemaError,
+            "valuation_sql": sqlite3.Error,
+            "valuation_resolve": PermissionError,
+        }[failed_source]
         with pytest.raises(error_type):
             current_portfolio(service.load(), sqlite_path=market, now=now)
 
@@ -361,7 +378,10 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     if failed_source.startswith("names"):
         assert private_master_date not in caplog.text
         assert private_master_date not in json.dumps(dashboard)
-        assert "tickerで表示します (JQuantsProviderError)" in caplog.text
+        diagnostic = "PermissionError" if failed_source == "names_stat" else "JQuantsProviderError"
+        assert f"tickerで表示します ({diagnostic})" in caplog.text
+    assert "SYNTHETIC_MARKET_PATH" not in caplog.text
+    assert all("SYNTHETIC_MARKET_PATH" not in path.read_text() for path in paths)
     outcomes = json.loads((output / "views/outcomes.json").read_text())
     assert outcomes["outcomes"][0]["portfolio_twr_pct"] == 10.2
     assert (app.read_bytes(), market.read_bytes()) == before
@@ -434,10 +454,102 @@ def test_outcomes_distinguish_absent_store_and_valid_empty_store(tmp_path):
     from baibai_web.readmodel.builders.outcomes import build_outcomes
 
     app = tmp_path / "app.sqlite"
-    assert build_outcomes(app).error is not None
+    assert build_outcomes(app).error == "保存済み運用成績のstoreがありません。"
     assert not app.exists()
     app.touch()
-    assert build_outcomes(app).error is not None
+    assert build_outcomes(app).error == "保存済み運用成績のstoreがありません。"
     assert app.stat().st_size == 0
     initialize_database(app)
     assert build_outcomes(app).model_dump() == {"error": None, "outcomes": []}
+
+
+@pytest.mark.parametrize("problem", ["directory", "ancestor_file", "denied", "wrong_schema"])
+def test_materialize_unreadable_app_is_not_an_unwritten_store(tmp_path, monkeypatch, problem):
+    app = tmp_path / APPLICATION_DB_PATH
+    app.parent.mkdir(parents=True)
+    if problem == "directory":
+        app.mkdir()
+    elif problem == "ancestor_file":
+        app.parent.rmdir()
+        app.parent.write_bytes(b"not a store directory")
+    elif problem == "wrong_schema":
+        with closing(sqlite3.connect(app)) as connection:
+            connection.execute("CREATE TABLE other_store (value INTEGER)")
+
+    with monkeypatch.context() as patch:
+        if problem == "denied":
+            stat = Path.stat
+
+            def denied(path, *args, **kwargs):
+                if path == app:
+                    raise PermissionError("SYNTHETIC_PRIVATE_PATH")
+                return stat(path, *args, **kwargs)
+
+            patch.setattr(Path, "stat", denied)
+        paths = export_read_models(tmp_path, tmp_path / "export")
+
+    exported = {path.name: json.loads(path.read_text()) for path in paths}
+    assert len(exported) == 5
+    ledger = exported["portfolio-dashboard.json"]
+    assert ledger["ledger_exists"] is True
+    assert ledger["ledger_error"] == "保存済み台帳を読み取れません。"
+    assert ledger["available_cash_yen"] is ledger["total_capital_yen"] is None
+    assert ledger["holdings"] == []
+    assert exported["outcomes.json"] == {
+        "error": "保存済み運用成績を読み取れません。",
+        "outcomes": [],
+    }
+    for filename in ("latest-proposal.json", "proposal-history.json", "latest-us-proposal.json"):
+        assert exported[filename]["status"] == "unavailable"
+    assert "SYNTHETIC_PRIVATE_PATH" not in json.dumps(exported)
+    assert not (tmp_path / MARKET_DB_PATH).exists()
+
+
+@pytest.mark.parametrize(
+    ("mutations", "expected"),
+    [
+        ({"portfolio_twr_pct": '"0"'}, (None, 8.2)),
+        ({"benchmark_cumulative_return_pct": "false"}, (10.2, None)),
+        ({"portfolio_twr_pct": "0", "benchmark_cumulative_return_pct": None}, (0.0, None)),
+    ],
+)
+def test_retained_outcome_projects_only_numeric_returns_without_losing_a_sibling(
+    tmp_path, mutations, expected
+):
+    app = tmp_path / APPLICATION_DB_PATH
+    current = _publication()
+    retained = replace(current, outcome_id="synthetic-retained")
+    store = PortfolioOutcomeStore(app)
+    store.publish(current)
+    store.publish(retained)
+    with closing(sqlite3.connect(app)) as connection, connection:
+        connection.execute(
+            "UPDATE portfolio_outcome SET payload = json_set(payload, '$.schema_version', 1)"
+            " WHERE outcome_id=?",
+            (retained.outcome_id,),
+        )
+        for field, encoded in mutations.items():
+            if encoded is None:
+                connection.execute(
+                    "UPDATE portfolio_outcome SET payload = json_remove(payload, ?)"
+                    " WHERE outcome_id=?",
+                    (f"$.{field}", retained.outcome_id),
+                )
+            else:
+                connection.execute(
+                    "UPDATE portfolio_outcome SET payload = json_set(payload, ?, json(?))"
+                    " WHERE outcome_id=?",
+                    (f"$.{field}", encoded, retained.outcome_id),
+                )
+    before = app.read_bytes()
+
+    output = tmp_path / "export"
+    export_read_models(tmp_path, output)
+
+    shown = json.loads((output / "views/outcomes.json").read_text())
+    assert shown["error"] is None
+    assert {
+        row["outcome_id"]: (row["portfolio_twr_pct"], row["benchmark_cumulative_return_pct"])
+        for row in shown["outcomes"]
+    } == {current.outcome_id: (10.2, 8.2), retained.outcome_id: expected}
+    assert app.read_bytes() == before

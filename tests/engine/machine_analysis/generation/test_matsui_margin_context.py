@@ -337,6 +337,28 @@ def test_later_unpublished_correction_to_requested_day_cannot_restore_old_value(
     assert row["flags"] == ["source_unreadable"]
 
 
+@pytest.mark.parametrize(
+    ("friday", "thursday_correction", "expected"),
+    [("未公表", "-12", None), ("-13", "未公表", -13)],
+)
+def test_later_receipt_for_older_observation_does_not_decide_current_availability(
+    tmp_path, friday, thursday_correction, expected
+):
+    path = tmp_path / "data.sqlite"
+    thursday = document(when=datetime(2026, 10, 22, 8, tzinfo=UTC), body=html("10/22(木)", "-10"))
+    latest_day = document(
+        when=datetime(2026, 10, 23, 8, tzinfo=UTC), body=html("10/23(金)", friday)
+    )
+    weekend = document(body=html("10/22(木)", thursday_correction))
+    save(path, thursday, latest_day, weekend)
+    payload = reading_snapshot(path, asof=date(2026, 10, 24))
+    row = next(item for item in payload["series"] if item["series_id"] == SERIES_ID)
+    assert row["latest_value"] == expected
+    assert row["flags"] == (["source_unreadable"] if expected is None else ["year_inferred"])
+    if expected is not None:
+        assert row["observed_at"] == DAY.isoformat()
+
+
 def test_latest_unresolvable_date_still_fails_closed_for_an_earlier_range(tmp_path):
     path = tmp_path / "data.sqlite"
     day = date(2026, 10, 22)

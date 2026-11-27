@@ -124,6 +124,20 @@ def test_bad_index_date_blocks_only_its_own_stream(invalid_date: str) -> None:
         newest_release_candidate(entries, stream="us_services")
 
 
+@pytest.mark.parametrize("omit_closing_div", [False, True])
+def test_incomplete_index_item_does_not_consume_the_next_release(omit_closing_div: bool) -> None:
+    broken = _list_item("August 03 2026", "Incomplete item", _OLDER_URL).split(
+        '<span class="greenListItem">'
+    )[0]
+    if not omit_closing_div:
+        broken += "</div>"
+    valid = _list_item("July 07 2026", "S&amp;P Global US Services PMI", _JP_MFG_URL)
+
+    assert parse_release_index(broken + valid) == (
+        IndexEntry(date(2026, 7, 7), STREAM_TITLES["us_services"], _JP_MFG_URL),
+    )
+
+
 def test_parse_release_index_reads_nothing_from_a_page_that_lists_no_release() -> None:
     """An unrecognized HTML body is not evidence that a month is unpublished."""
 

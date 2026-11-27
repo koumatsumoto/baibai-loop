@@ -479,6 +479,41 @@ def test_unavailable_is_not_empty_or_older_fallback(tmp_path, damaged):
     assert (app.read_bytes() if app.exists() else None) == before
 
 
+@pytest.mark.parametrize(
+    "json_path",
+    [
+        "$.analysis.draft.cutoff_at",
+        "$.analysis.draft.iex_band.received_at",
+        "$.analysis.draft.financial_evidence[0].observed_at",
+    ],
+)
+def test_unrepresentable_exchange_date_does_not_hide_readable_us_history(tmp_path, json_path):
+    app = tmp_path / "isolated.sqlite"
+    initialize_database(app)
+    older = _save_us(app, "us-proposal-older")
+    # Corrupt only the synthetic latest slot. The older saved decision stays readable.
+    with closing(sqlite3.connect(app, autocommit=True)) as db:
+        db.execute(
+            "INSERT INTO us_equity_proposal SELECT ?,published_at,"
+            "json_set(payload,'$.decision.proposal_id',?,'$.review.proposal_id',?,?,?) "
+            "FROM us_equity_proposal WHERE proposal_id=?",
+            (
+                "us-proposal-z",
+                "us-proposal-z",
+                "us-proposal-z",
+                json_path,
+                "0001-01-01T00:00:00Z",
+                older.decision.proposal_id,
+            ),
+        )
+    jp, us = proposal_source.read_serving_proposal_views(app, generated_at=STAMP)
+    assert jp.latest.status == "empty"
+    assert us.status == "unavailable"
+    assert us.history.status == "partial"
+    assert us.history.unavailable_proposal_ids == ["us-proposal-z"]
+    assert [row.proposal_id for row in us.history.proposals] == [older.decision.proposal_id]
+
+
 def test_us_history_bounds_publication_slots_before_reading_exact_details(tmp_path, mocker):
     app = tmp_path / "window.sqlite"
     initialize_database(app)

@@ -135,6 +135,61 @@ describe('保存提案レポート', () => {
     expect(html).not.toContain('承認済み')
   })
 
+  it('部分取得でも選んだ保存レポートの作者判断と観測を読み分けられる', () => {
+    const item = structuredClone(reviewedDeferFixture)
+    if (item.assessment === null) throw new Error('test fixture requires a saved assessment')
+    const summary = '継続利益の内訳が未確認。支持とは判定しない。'
+    item.assessment.model_perspectives = [{ model: 'company_financials', assessment: 'insufficient', summary, source_ids: ['saved-financial-evidence'] }]
+    item.assessment.model_perspective_sources = [{
+      source_id: 'saved-financial-evidence', source_tier: 'local_data', ref: null, provider: 'synthetic', dataset: 'selected-report-evidence',
+      as_of: '2026-10-19', retrieved_at: '2026-10-21T03:00:00Z', used_for: '選んだレポートの継続利益の内訳。',
+    }]
+    item.assessment.estimated_model_chart = {
+      selection_sha256: 'd'.repeat(64), generation_id: null, input_known_at: '2026-10-27T06:00:00+09:00', research_as_of: '2026-10-26',
+      rows: [{ model: 'market_context', assessment: 'mixed', summary: '固定資料の市場方向は揃わない。', evidence: '合成の市場資料', observed_on: '2026-10-23', source_url: null }],
+      monex_fiscal_eps: null,
+    }
+    const chosen = { ...newProposalFixture, items: [item] }
+    const other: ProposalHistoryView['proposals'][number] = {
+      ...chosen, proposal_id: 'other-report-same-ticker', published_at: '2026-10-28T09:00:02+09:00', items: [{
+        ...item, assessment: {
+          ...item.assessment, assessment_id: 'assessment-other', review_id: 'review-other', core_sha256: 'c'.repeat(64),
+          model_perspectives: [{ model: 'company_financials', assessment: 'mixed', summary: '同じ銘柄の別レポートだけの作者判断。', source_ids: [] }],
+        },
+      }],
+    }
+    const unreadableId = 'unreadable-report-same-ticker'
+    const data: ProposalHistoryView = {
+      generated_at: '2026-10-29T02:30:03Z', status: 'partial', error: '一部のレポートを読み取れません。',
+      proposals: [other, chosen], unavailable_proposal_ids: [unreadableId],
+    }
+    const render = (proposalId: string) => renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ProposalHistory, { data, proposalId, ticker: item.ticker })))
+
+    const html = render(chosen.proposal_id)
+    const chart = html.match(/<table\b[^>]*>[\s\S]*?<\/table>/)?.[0] ?? ''
+    expect(html).toContain('aria-label="売買判断の7つの観点"')
+    expect(chart).toMatch(/<caption[^>]*>観点別の評価表。当時の作者判断と固定資料の観測は別の列です。<\/caption>/)
+    expect([...chart.matchAll(/<th[^>]*scope="col"[^>]*>([^<]+)<\/th>/g)].map(match => match[1]))
+      .toEqual(['観点', '当時の作者判断', '固定資料の観測'])
+    const financialRow = chart.split('data-model="company_financials"')[1]?.split('</tr>')[0] ?? ''
+    expect(financialRow).toMatch(/<th[^>]*scope="row"[^>]*>企業財務<\/th>/)
+    expect(financialRow).toMatch(/data-evidence="author"><span aria-hidden="true">[^<]+<\/span>情報不足/)
+    const marketRow = chart.split('data-model="market_context"')[1]?.split('</tr>')[0] ?? ''
+    expect(marketRow).toMatch(/data-perspective="author">.*>未記録<\/span>/)
+    expect(marketRow).toContain('data-evidence="observation">両方向</span>')
+    expect(marketRow).not.toContain('支持・相反')
+    expect(chart).not.toContain('>中立<')
+    expect(html).toContain('部分確認（partially_verified）')
+    expect(html).toContain(summary)
+    expect(html).toContain('保存データ：synthetic / selected-report-evidence')
+    expect(html).not.toContain('同じ銘柄の別レポートだけの作者判断。')
+
+    const unavailable = render(unreadableId)
+    expect(unavailable).toContain('別の時点の提案では代用していません。')
+    expect(unavailable).not.toContain('売買判断の7つの観点')
+    expect(unavailable).not.toContain(summary)
+  })
+
   it('未評価deferの未完了理由・参照と再開条件を残す', () => {
     const html = renderToStaticMarkup(createElement(ProposalItemCard, { item: unassessedDeferFixture }))
     expect(html).toContain('未評価：この項目には保存評価への参照がありません。')

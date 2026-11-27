@@ -382,18 +382,27 @@ class ProposalRecordReader:
         rows = self._connection.execute(
             "SELECT proposal_id,published_at,as_of FROM investment_proposal"
         ).fetchall()
-        rows = [row for row in rows if row[0] not in self.by_erroneous_id]
-        latest_day = max((row[2] for row in rows), default=None)
-        rows = [row for row in rows if row[2] == latest_day]
+        try:
+            dated = [
+                (date.fromisoformat(as_of), published_at, proposal_id)
+                for proposal_id, published_at, as_of in rows
+                if proposal_id not in self.by_erroneous_id
+            ]
+        except ValueError as error:
+            # An unrankable day cannot be treated as older than a readable proposal.
+            raise ProposalConflictError("invalid stored proposal publication date") from error
+        latest_day = max((day for day, _, _ in dated), default=None)
         headers: list[tuple[datetime, str]] = []
-        for row in rows:
+        for day, published_at, proposal_id in dated:
+            if day != latest_day:
+                continue
             try:
-                instant = datetime.fromisoformat(str(row[1]))
+                instant = datetime.fromisoformat(str(published_at))
                 if instant.utcoffset() is None:
                     raise ValueError("stored publication time must include a timezone")
             except ValueError as error:
                 raise ProposalConflictError("invalid stored proposal publication header") from error
-            headers.append((instant, str(row[0])))
+            headers.append((instant, str(proposal_id)))
         # Compare aware instants in Python: textual offsets and SQLite julianday
         # respectively lose instant ordering and sub-millisecond precision.
         return max(headers)[1] if headers else None

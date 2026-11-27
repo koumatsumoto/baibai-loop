@@ -66,6 +66,13 @@ type _Record = dict[str, Any]
 type _Loader = Callable[[str], bytes]
 
 
+def _unique_manifest_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ValueError("duplicate field in fixed US research receipt manifest")
+    return result
+
+
 def _clock(value: str) -> datetime:
     stamp = datetime.fromisoformat(value)
     if stamp.utcoffset() is None or not re.search(r"(?:Z|[+-][0-9]{2}:[0-5][0-9])\Z", value):
@@ -487,13 +494,6 @@ def _sec(
         if _clock(filing_record["received_at"]) > cutoff:
             return evidence, "sec_filing_not_yet_received"
         public_index = filing_record.get("public_index")
-        public_seen = filing_record.get("public_seen_at") if public_index is None else None
-        if public_seen is not None and (seen := _clock(public_seen)) <= cutoff:
-            if seen < _clock(filing_record["accepted_at"]):
-                return evidence, "sec_invalid_fixed_evidence"
-            evidence.append(
-                f"公開を見た申告時刻: {seen.isoformat()}（原本未照合・初回公表の証明ではない）"
-            )
         if filing_record["published_at"] is None:
             evidence.append("独立した初回公表時刻は未確認。")
         form = filing_record["form"]
@@ -878,13 +878,26 @@ def _compare_sec_report(bundle: _Record, load: _Loader, args: Sequence[str]) -> 
         raise ValueError("unknown fixed receipt schema")
     cik, quarter, prior_start, prior_end, current_fiscal_start, prior_fiscal_start = args
     issuer = SecEdgarQuery("companyfacts", cik).cik
-    fields = ("cik", "period_start", "period_end", "companyfacts", "filing")
-    fixed = [
-        {field: subject.get(field) for field in fields}
-        for subject in bundle["subjects"]
-        if subject["cik"] == issuer
-    ]
-    if not fixed or any(entry != fixed[0] for entry in fixed[1:]):
+    fields = ("period_start", "period_end", "companyfacts", "filing")
+    fixed = []
+    for subject in bundle["subjects"]:
+        try:
+            subject_issuer = SecEdgarQuery("companyfacts", subject["cik"]).cik
+        except ValueError:
+            continue
+        if subject_issuer == issuer:
+            entry = {"cik": issuer, **{field: subject.get(field) for field in fields}}
+            filing = entry["filing"]
+            if isinstance(filing, dict) and isinstance(issuer_cik := filing.get("issuer_cik"), str):
+                try:
+                    filing_cik = SecEdgarQuery("companyfacts", issuer_cik).cik
+                except ValueError:
+                    pass  # Leave invalid evidence to the normal SEC interpretation.
+                else:
+                    entry["filing"] = {**filing, "issuer_cik": filing_cik}
+            fixed.append(entry)
+    # Mapping equality conflates JSON booleans and numbers used by receipt validation.
+    if len({json.dumps(entry, sort_keys=True, allow_nan=False) for entry in fixed}) != 1:
         raise ValueError("one fixed filing per SEC comparison")
     prior = SecReportedDuration(_day(prior_start), _day(prior_end))
     notes, problem = _sec(
@@ -898,7 +911,7 @@ def _compare_sec_report(bundle: _Record, load: _Loader, args: Sequence[str]) -> 
     return "# SEC同一提出の発行体財務比較（株価・売買判定なし）\n\n" + "\n".join(notes) + "\n"
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--bundle", type=Path, help="fixed JSON manifest and adjacent original response byte files"
@@ -923,6 +936,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="YYYY-MM-DD",
         help="check each subject's latest eligible IEX date against the expected NY session",
     )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
     manifest: Path | None = args.bundle
     if args.compare_sec is not None and manifest is None:
@@ -945,7 +963,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise ValueError("provider body file escapes the designated directory")
                 return path.read_bytes()
 
-            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            bundle = json.loads(
+                manifest.read_text(encoding="utf-8"), object_pairs_hook=_unique_manifest_object
+            )
             if args.accept_iex_session is not None:
                 report, matched = _accept_iex_session(
                     bundle, read_native, expected=args.accept_iex_session

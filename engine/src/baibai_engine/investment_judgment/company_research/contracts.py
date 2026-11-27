@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
 
@@ -17,6 +18,15 @@ from baibai_engine.investment_judgment.contracts import (
     _tuple,
 )
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
+
+
+def _evidence_after(value: datetime, boundary: datetime) -> bool:
+    # Compare UTC deltas without losing an original offset or ignoring a repeated local hour.
+    value_offset, boundary_offset = value.utcoffset(), boundary.utcoffset()
+    assert value_offset is not None
+    assert boundary_offset is not None
+    wall_delta = value.replace(tzinfo=None) - boundary.replace(tzinfo=None)
+    return wall_delta > value_offset - boundary_offset
 
 
 class Source(BaseModel):
@@ -52,6 +62,18 @@ class Source(BaseModel):
         elif self.provider is not None or self.dataset is not None:
             raise ValueError("external source forbids local provider and dataset")
         return self
+
+    def authoring_locator_error(self) -> str | None:
+        """Check the host for a new citation without rewriting a stored ref."""
+        if self.source_tier == "local_data":
+            return None
+        try:
+            host = urlsplit(self.ref or "").hostname
+        except ValueError:
+            host = None
+        if not host or any(character.isspace() for character in host):
+            return f"external source {self.source_id} requires an HTTP(S) host"
+        return None
 
 
 class ObservedFact(BaseModel):
@@ -138,11 +160,12 @@ class ObservedFact(BaseModel):
 
     def postdates_cited_retrievals(self, sources: Mapping[str, Source]) -> bool:
         """価格時刻の矛盾だけを判定し、日付精度・参照の妥当性は別で扱う。"""
+        observed_at = self.observed_at
         return (
-            self.observed_at is not None
+            observed_at is not None
             and bool(self.source_ids)
             and all(
-                ref in sources and self.observed_at > sources[ref].retrieved_at
+                ref in sources and _evidence_after(observed_at, sources[ref].retrieved_at)
                 for ref in self.source_ids
             )
         )

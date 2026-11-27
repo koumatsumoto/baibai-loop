@@ -201,6 +201,10 @@ def statement_basis(row: JQuantsFinancialSummary) -> str:
     return "primary_unknown"
 
 
+def is_financial_statement(row: JQuantsFinancialSummary) -> bool:
+    return "FinancialStatements" in (row.document_type or "")
+
+
 def accounting_standard(row: JQuantsFinancialSummary) -> str | None:
     """Resolve the standard only from an official financial statement DocType.
 
@@ -264,7 +268,7 @@ def _primary_source_basis(
     row: JQuantsFinancialSummary,
     statements: Sequence[JQuantsFinancialSummary],
 ) -> str:
-    if "FinancialStatements" in (row.document_type or ""):
+    if is_financial_statement(row):
         return statement_basis(row)
     previous = [s for s in statements if s.disclosed_at < row.disclosed_at]
     same_day = [s for s in statements if s.disclosed_at == row.disclosed_at]
@@ -404,7 +408,7 @@ def project_financial_documents(
         target = next(iter(targets)) if len(targets) == 1 else None
         if target is not None and target[1] < asof_date:
             target = None
-        statements = [row for row in rows if "FinancialStatements" in (row.document_type or "")]
+        statements = [row for row in rows if is_financial_statement(row)]
         target_basis = _statement_basis_state(statements)
         for i, row in enumerate(rows):
             record = records[i]

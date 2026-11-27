@@ -188,6 +188,70 @@ def test_generation_cannot_predate_later_corrected_publication_in_history(tmp_pa
     ]
 
 
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "reverse_order",
+        "change_nonlatest_time",
+        "numeric_nonlatest_time",
+        "numeric_string_nonlatest_time",
+        "nonpublisher_separator",
+        "empty_nonlatest_items",
+        "missing_corrections",
+        "missing_human_reports",
+    ],
+)
+def test_history_keeps_the_app_publication_index_and_selectable_rows(tmp_path, capsys, damage):
+    case = backend_case(tmp_path)
+    first = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(reviewed_proposal(case))
+    second = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(microseconds=1)
+    ).publish(
+        reviewed_proposal(
+            case,
+            action="no_action",
+            proposal_id="investment-proposal-00000000-0000-4000-8000-000000000004",
+        )
+    )
+    paths = _capture(case.app, tmp_path)
+    history = json.loads(paths[1].read_bytes())
+    assert [row["proposal_id"] for row in history["proposals"]] == [
+        second.proposal_id,
+        first.proposal_id,
+    ]
+    assert main(_args(case.app, *paths)) == 0
+    capsys.readouterr()
+
+    if damage == "reverse_order":
+        # Same IDs and bodies, but the browser displays its history in wire order.
+        history["proposals"].reverse()
+    elif damage == "change_nonlatest_time":
+        # Still sorted, but not the publication instant saved for the pinned report.
+        history["proposals"][1]["published_at"] = (
+            first.published_at - timedelta(microseconds=1)
+        ).isoformat()
+    elif damage == "numeric_nonlatest_time":
+        # This denotes the correct instant but is not a display date string.
+        history["proposals"][1]["published_at"] = first.published_at.timestamp()
+    elif damage == "numeric_string_nonlatest_time":
+        history["proposals"][1]["published_at"] = str(int(first.published_at.timestamp()))
+    elif damage == "nonpublisher_separator":
+        history["proposals"][1]["published_at"] = first.published_at.isoformat(sep="_")
+    elif damage == "empty_nonlatest_items":
+        history["proposals"][1]["items"] = []
+    else:
+        del history["proposals"][1][damage.removeprefix("missing_")]
+    paths[1].write_text(json.dumps(history), encoding="utf-8")
+    assert main(_args(case.app, *paths)) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "PASS app_publication",
+        "PASS captured_latest",
+        "FAIL captured_history",
+    ]
+
+
 def test_same_two_reports_cannot_hide_a_different_loaded_case(tmp_path, capsys):
     case = backend_case(tmp_path)
     TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(

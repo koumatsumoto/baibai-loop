@@ -24,7 +24,6 @@ import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDateTime, formatPct, formatUnitPriceYen, formatYen } from '../lib/format'
-import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
 function holdingQuantityNotice(unresolved: boolean): string | null {
@@ -33,7 +32,7 @@ function holdingQuantityNotice(unresolved: boolean): string | null {
 
 const HINT = {
   allocation: '台帳で未予約の現金と、これまでの判断が実際に効いているかを 1 か所で確かめる。売却代金は約定時に計上し、受渡済み資金や証券会社の発注可能額とは照合していない。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
-  holdings: '保有中の各銘柄の取得原価・保存終値・評価損益。未評価とゼロを区別して示す。各銘柄と合計はそれぞれ円に丸めるため、表示額を足すと合計と異なる場合がある。',
+  holdings: '保有中の各銘柄の取得原価・保存終値・評価損益。未評価とゼロを区別して示す。各銘柄と合計はそれぞれ円に丸めるため、表示額を足すと合計と異なる場合がある。損益率には丸め前の評価額を使う。',
   reservations: '報告済みの未約定注文。買付だけ資金を予約し、売付の見込代金は現金に加えません。約定・取消・失効は次の明示報告で更新します。',
   outcomes: '記録済みの税・費用を反映した return を、同じ期間の配当込み TOPIX と比べた結果。未報告の税・費用は含まない。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
@@ -64,6 +63,8 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
     holdings_market_value_yen: holdingsValue,
     available_cash_yen: available,
     reserved_cash_yen: reserved,
+    unrealized_pnl_yen: unrealizedPnlYen,
+    unrealized_pnl_pct: unrealizedPnlPct,
   } = data
   const allocation = total !== null && holdingsValue !== null && available !== null && reserved !== null
     ? [
@@ -74,7 +75,6 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
     : []
   const hasAllocation = allocation.some((item) => item.value > 0)
   const unvaluedHoldings = data.holdings.filter((holding) => holding.market_value_yen === null)
-  const pnl = totalUnrealizedPnl(holdingsValue, data.deployed_cost_yen)
   const hasPnl = data.holdings.length > 0
   const holdingDetail = data.ledger_exists
     ? holdingQuantityNotice(data.holding_quantity_unresolved) ?? `${data.holdings.length} 銘柄を保有`
@@ -89,7 +89,10 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
             <InfoHint label="資産と損益">{HINT.allocation}</InfoHint>
           </CardHeader>
           {data.valuation_as_of !== null && (
-            <p className="text-xs text-muted-foreground">株価基準 {data.valuation_as_of.slice(0, 10)}</p>
+            <p className="text-xs text-muted-foreground">
+              {data.holdings.some(holding => holding.market_price_as_of !== data.valuation_as_of)
+                ? '株価基準（銘柄別・最古）' : '株価基準'} {data.valuation_as_of.slice(0, 10)}
+            </p>
           )}
           {data.valuation_error !== null && (
             <Alert className="mt-2">
@@ -129,7 +132,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                       className="text-sm font-semibold"
                       sign
                       tone="pnl"
-                      value={pnl.yen}
+                      value={unrealizedPnlYen}
                     />
                   </div>
                 )}
@@ -144,7 +147,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
             { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1 ring-1 ring-chart-edge ring-inset', tone: 'plain' as const, sign: false },
             { label: '台帳の未予約現金', value: data.available_cash_yen, detail: data.cash_pct === null ? '受渡済み資金とは別' : `総資産の ${formatPct(data.cash_pct)}・受渡未照合`, color: 'bg-chart-2 ring-1 ring-chart-edge ring-inset', tone: 'plain' as const, sign: false },
             { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3 ring-1 ring-chart-edge ring-inset', tone: 'plain' as const, sign: false },
-            { label: '評価損益', value: hasPnl ? pnl.yen : null, detail: pnl.pct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(pnl.pct, { sign: true })}`, color: null, tone: 'pnl' as const, sign: true },
+            { label: '評価損益', value: hasPnl ? unrealizedPnlYen : null, detail: unrealizedPnlPct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(unrealizedPnlPct, { sign: true })}`, color: null, tone: 'pnl' as const, sign: true },
             { label: '累積確定損益', value: data.realized_gross_pnl_yen, detail: '台帳開始以来の売却損益・税／手数料控除前', color: null, tone: 'pnl' as const, sign: true },
           ].map((metric) => (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-5 py-5 sm:px-6" key={metric.label}>
@@ -170,28 +173,29 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
 function warningCopy(warning: WarningView) {
   const actual = formatPct(warning.actual_pct, { digits: 2 })
   const threshold = formatPct(warning.warning_pct, { digits: 2 })
+  const concentration = `保有時価と買付予約額を合わせた総資産比：${actual}（目安 ${threshold}）。丸め前の比率で目安を上回っています。`
   if (warning.code === 'portfolio.ticker-concentration') {
     return {
       title: `銘柄集中度 · ${warning.key}`,
-      description: `構成比 ${actual} が目安 ${threshold} を上回っています。保有全体の集中リスクを確認してください。`,
+      description: concentration,
     }
   }
   if (warning.code === 'portfolio.sector-concentration') {
     return {
       title: `業種集中度 · ${warning.key}`,
-      description: `構成比 ${actual} が目安 ${threshold} を上回っています。同業種への追加購入時に確認してください。`,
+      description: `${concentration}同業種への追加購入時に確認してください。`,
     }
   }
   if (warning.code === 'portfolio.common_factor-concentration') {
     return {
       title: `共通要因の集中度 · ${warning.key}`,
-      description: `構成比 ${actual} が目安 ${threshold} を上回っています。同じリスク要因への追加投資時に確認してください。`,
+      description: `${concentration}同じリスク要因への追加投資時に確認してください。`,
     }
   }
   if (warning.code === 'portfolio.dry-powder') {
     return {
       title: '台帳の未予約現金',
-      description: `未予約現金の比率が ${actual} で、目安 ${threshold} を下回っています。新規購入前に証券会社の発注可能額を確認してください。`,
+      description: `未予約現金の総資産比：${actual}（目安 ${threshold}）。丸め前の比率で目安を下回っています。新規購入前に証券会社の発注可能額を確認してください。`,
     }
   }
   return {
@@ -225,13 +229,13 @@ function PortfolioWarnings({ warnings }: { warnings: WarningView[] }) {
   )
 }
 
-export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityUnresolved, holdingsMarketValueYen, deployedCostYen }: {
+export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityUnresolved, unrealizedPnlYen, unrealizedPnlPct }: {
   holdings: HoldingView[]
   warnings: WarningView[]
   ledgerAsOf?: string | null
   quantityUnresolved: boolean
-  holdingsMarketValueYen: number | null
-  deployedCostYen: number | null
+  unrealizedPnlYen: number | null
+  unrealizedPnlPct: number | null
 }) {
   const quantityNotice = holdingQuantityNotice(quantityUnresolved)
   const recordedOnly = quantityNotice !== null
@@ -239,7 +243,6 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
     const values = Array.from(new Set(holdings.map((holding) => holding.market_price_as_of)))
     return values.length === 1 ? values[0] : null
   }, [holdings])
-  const unrealizedPnl = totalUnrealizedPnl(holdingsMarketValueYen, deployedCostYen)
 
   return (
     // The asset card states the shared valuation basis. Per-row dates show a mixed basis.
@@ -251,10 +254,10 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
           <div className="flex flex-wrap items-baseline justify-end gap-x-2 text-xs">
             <Badge variant="secondary">{recordedOnly ? `表示 ${holdings.length} 行` : `${holdings.length} 銘柄`}</Badge>
             <span className="text-muted-foreground">{recordedOnly ? '記録行の評価損益' : '評価損益 合計'}</span>
-            {unrealizedPnl.yen === null && holdings.some((holding) => holding.market_value_yen === null)
+            {unrealizedPnlYen === null && holdings.some((holding) => holding.market_value_yen === null)
               ? <span className="font-semibold text-muted-foreground">未評価</span>
-              : <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />}
-            <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
+              : <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnlYen} />}
+            <PctBadge className="text-xs" tone="pnl" value={unrealizedPnlPct} />
           </div>
           <div className="flex flex-col items-end gap-1">
             <TradingViewWatchlistExportButton
@@ -326,6 +329,10 @@ const STATUS_LABEL = new Map([
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function recordRows(value: unknown): boolean {
+  return Array.isArray(value) && value.every(record)
 }
 
 function returnOrNull(value: unknown): value is number | null {
@@ -426,9 +433,12 @@ export function DashboardPage() {
     fetchJson<DashboardView>('/api/dashboard', { signal: controller.signal })
       .then(value => {
         if (controller.signal.aborted) return
-        // Missing facts are a view failure, not a confirmed holding quantity or an unknown amount.
-        if (!record(value) || typeof value.holding_quantity_unresolved !== 'boolean'
-          || !returnOrNull(value.realized_gross_pnl_yen)) {
+        // Absent flags or collections are not an empty ledger; reject this view before rendering it.
+        if (!record(value) || typeof value.ledger_exists !== 'boolean'
+          || !recordRows(value.holdings) || !recordRows(value.reservations) || !recordRows(value.warnings)
+          || typeof value.holding_quantity_unresolved !== 'boolean'
+          || !returnOrNull(value.realized_gross_pnl_yen)
+          || !returnOrNull(value.unrealized_pnl_yen) || !returnOrNull(value.unrealized_pnl_pct)) {
           throw new Error('資産状況の表示データが不正です。')
         }
         setData(value)
@@ -469,7 +479,7 @@ export function DashboardPage() {
       {data !== null && data.ledger_error === null && (!data.ledger_exists ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
       ) : data.holdings.length > 0 ? (
-        <HoldingsTable holdings={data.holdings} holdingsMarketValueYen={data.holdings_market_value_yen} deployedCostYen={data.deployed_cost_yen} ledgerAsOf={data.ledger_as_of} quantityUnresolved={data.holding_quantity_unresolved} warnings={data.warnings} />
+        <HoldingsTable holdings={data.holdings} unrealizedPnlYen={data.unrealized_pnl_yen} unrealizedPnlPct={data.unrealized_pnl_pct} ledgerAsOf={data.ledger_as_of} quantityUnresolved={data.holding_quantity_unresolved} warnings={data.warnings} />
       ) : (
         <Card className="gap-0 overflow-hidden border-dashed py-0 shadow-none">
           <CardContent className="py-8 text-center text-sm text-muted-foreground">

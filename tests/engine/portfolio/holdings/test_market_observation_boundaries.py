@@ -114,7 +114,7 @@ def test_bulk_market_close_is_exact_and_reads_one_market_date_across_chunks(tmp_
     assert statements[0] == "PRAGMA user_version"
     assert statements[1].startswith("SELECT MAX(traded_at)")
     assert all(
-        statement.startswith("SELECT ticker, close FROM jquants_daily_bars")
+        statement.startswith("SELECT ticker, close, high, low FROM jquants_daily_bars")
         for statement in statements[2:]
     )
 
@@ -305,6 +305,22 @@ def test_order_session_uses_calendar_and_unexpired_market_close(tmp_path, instan
         )
         is None
     )
+
+
+def test_order_session_uses_the_cash_calendar_across_jst_midnight(tmp_path):
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
+            [
+                ("2026-09-07", "3"),  # Derivatives only, not a cash-equity session.
+                ("2026-09-08", "2"),  # The calendar can confirm a partial cash session date.
+                ("2026-09-09", "1"),
+            ],
+        )
+    # The UTC date is still Sunday; the next-session lower bound is Monday in Japan.
+    now = datetime.fromisoformat("2026-09-06T15:00:00Z")
+    assert next_order_session(sqlite_path=path, now=now) == date(2026, 9, 8)
 
 
 @pytest.mark.parametrize("operation", ["close", "quantity", "session"])

@@ -12,6 +12,7 @@ from baibai_engine.investment_judgment.company_research.contracts import (
     HypothesisCheck,
     ObservedFact,
     Source,
+    _evidence_after,
 )
 from baibai_engine.investment_judgment.contracts import (
     _CONFIG,
@@ -143,10 +144,13 @@ class ResearchRecord(BaseModel):
             raise ValueError("Research cannot follow itself")
         if self.document.as_of > self.recorded_at.astimezone(JST).date():
             raise ValueError("Research as_of is after recorded_at")
-        if any(source.retrieved_at > self.recorded_at for source in self.document.sources):
+        if any(
+            _evidence_after(source.retrieved_at, self.recorded_at)
+            for source in self.document.sources
+        ):
             raise ValueError("source retrieval is after recorded_at")
         if any(
-            fact.observed_at is not None and fact.observed_at > self.recorded_at
+            fact.observed_at is not None and _evidence_after(fact.observed_at, self.recorded_at)
             for fact in self.document.facts
         ):
             raise ValueError("fact observation is after recorded_at")

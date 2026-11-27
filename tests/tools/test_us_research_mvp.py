@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
 import pytest
-from tools.experiments.us_research_mvp import _fixture, main, render_research
+from tools.experiments.us_research_mvp import _compare_sec_report, _fixture, main, render_research
 
 from baibai_engine.data_collection.providers.alpaca import DailyBarsQuery
 
@@ -242,6 +243,34 @@ def test_iex_session_acceptance_counts_receipt_dates_in_ny_not_utc(
     assert ("途中集計扱い" in capsys.readouterr().out) == (exit_code == 1)
 
 
+@pytest.mark.parametrize(
+    ("field", "unusable", "eligible"),
+    [
+        ("received_at", "2026-11-21T04:59:59Z", "2026-11-21T05:00:00Z"),
+        ("complete", False, True),
+    ],
+)
+def test_iex_session_acceptance_refuses_conflicting_manifest_fields(
+    tmp_path, capsys, field, unusable, eligible
+):
+    bundle, files = _fixture()
+    page = bundle["alpaca"]["pages"][0]
+    page[field] = unusable
+    manifest = Path(_write_iex_only_bundle(tmp_path, bundle, files))
+    original = manifest.read_text(encoding="utf-8")
+    page_json = json.dumps(page)
+    assert original.count(page_json) == 1
+    contradictory = f"{page_json[:-1]}, {json.dumps(field)}: {json.dumps(eligible)}}}"
+    manifest.write_text(original.replace(page_json, contradictory), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as error:
+        main(["--bundle", str(manifest), "--accept-iex-session", "2026-11-20"])
+    assert error.value.code == 2
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert "invalid fixed US research receipt bundle" in result.err
+
+
 def test_iex_session_acceptance_fails_when_receipt_is_after_cutoff(tmp_path, capsys):
     bundle, files = _fixture()
     bundle["cutoff"] = "2026-11-21T05:00:00Z"
@@ -257,22 +286,20 @@ def test_iex_session_acceptance_requires_a_bundle(capsys):
     assert "--accept-iex-session requires --bundle" in capsys.readouterr().err
 
 
-def test_publicly_observed_time_is_not_independent_exact_publication():
+@pytest.mark.parametrize("claim", ["2026-11-10T00:00:00Z", "2026-10-01T00:00:00Z", "unknown"])
+def test_unverified_public_time_neither_enables_nor_disables_independent_evidence(claim):
     bundle, files = _fixture()
     filing = bundle["subjects"][0]["filing"]
-    filing.update(published_at=None, publication_ref=None, public_seen_at="2026-11-10T00:00:00Z")
-    before = render_research(bundle, files.__getitem__, synthetic=True)
-    assert "初回公表の証明ではない" in before
-    assert "sec_publication_unverified" in before
-    assert "SEC実績売上" not in before
-    filing["form"] = "10-K/A"
-    assert "sec_filing_form_not_covered" in render_research(
-        bundle, files.__getitem__, synthetic=True
-    )
-    filing["public_seen_at"] = "2026-10-01T00:00:00Z"
-    invalid = render_research(bundle, files.__getitem__, synthetic=True)
-    assert "公開を確認した時刻" not in invalid
-    assert "sec_invalid_fixed_evidence" in invalid
+    valid = render_research(bundle, files.__getitem__, synthetic=True)
+    assert "AAPL | research_candidate" in valid
+    filing["public_seen_at"] = claim
+    assert render_research(bundle, files.__getitem__, synthetic=True) == valid
+
+    filing.update(published_at=None, publication_ref=None)
+    held = render_research(bundle, files.__getitem__, synthetic=True)
+    assert "AAPL | hold_for_evidence" in held
+    assert "sec_publication_unverified" in held
+    assert "SEC実績売上" not in held
 
 
 def _public_index_bundle():
@@ -878,10 +905,43 @@ def test_companyfacts_capture_scope_holds_only_affected_finance_in_cli(
     assert tmp_path / record["file"] not in reads
 
 
-def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path, capsys):
+@pytest.mark.parametrize(
+    ("receipt", "key", "value"),
+    [
+        ("companyfacts", "status", 200.0),
+        ("public_index", "redirected", 0),
+        ("public_index", "complete", 1),
+    ],
+)
+def test_cik_alias_never_merges_conflicting_receipt_types(receipt, key, value):
+    bundle, _, _ = _public_index_bundle()
+    first = bundle["subjects"][0]
+    second = deepcopy(first)
+    second["cik"] = second["filing"]["issuer_cik"] = "320193"
+    changed = (
+        second["companyfacts"] if receipt == "companyfacts" else second["filing"]["public_index"]
+    )
+    changed[key] = value
+    args = ["320193", "Q3", "2025-07-01", "2025-09-30", "2026-01-01", "2025-01-01"]
+
+    def unexpected_read(_):
+        pytest.fail("competing receipt metadata must fail before reading an original")
+
+    for subjects in ([first, second], [second, first]):
+        with pytest.raises(ValueError, match="one fixed filing per SEC comparison"):
+            _compare_sec_report({**bundle, "subjects": subjects}, unexpected_read, args)
+
+
+@pytest.mark.parametrize("manifest_cik", ["0000320193", "320193"])
+def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(
+    tmp_path, capsys, manifest_cik
+):
     bundle, files, index = _public_index_bundle()
     subject = bundle["subjects"][0]
-    bundle["subjects"] = [subject, {**subject, "symbol": "SECOND"}]
+    subject["cik"] = manifest_cik
+    second = {**subject, "symbol": "SECOND", "cik": "0000320193"}
+    second["filing"] = {**subject["filing"], "issuer_cik": manifest_cik}
+    bundle["subjects"] = [subject, second]
     del bundle["alpaca"]
     record = subject["companyfacts"]
     facts = json.loads(files[record["file"]])
@@ -937,7 +997,7 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(tmp_path,
     assert "sec_filing_form_not_covered" in excluded
     assert "operating_income (quarter," not in excluded
     subject["filing"]["form"] = "10-Q"
-    bundle["subjects"][1]["period_start"] = "2026-07-02"
+    bundle["subjects"][1].update(cik="0000320193", period_start="2026-07-02")
     manifest.write_text(json.dumps(bundle), encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         main(cmd)

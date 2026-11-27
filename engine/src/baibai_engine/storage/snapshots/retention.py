@@ -121,13 +121,13 @@ def plan_gc(
     """currentのmanifest・Parquetを辿る。未解決の参照があれば削除できない。"""
     moment = (now or datetime.now(UTC)).astimezone(UTC)
     roots: list[str] = []
-    reachable: set[str] = set()
+    reachable: dict[str, str | None] = {}
     unresolved: list[str] = []
 
     pointer_path = mirror_path(mirror_root, current_release_pointer_key())
     if pointer_path.is_file():
         roots.append(current_release_pointer_key())
-        reachable.add(current_release_pointer_key())
+        reachable[current_release_pointer_key()] = None
         try:
             pointer = load_lake_model_json(pointer_path.read_bytes(), LakeReleasePointer)
         except ValueError as exc:
@@ -153,7 +153,8 @@ def plan_gc(
             {
                 "roots": sorted(roots),
                 "reachable": {
-                    key: _reachable_identity(mirror_root, key) for key in sorted(reachable)
+                    key: _reachable_identity(mirror_root, key, reachable[key])
+                    for key in sorted(reachable)
                 },
                 "candidates": [
                     (item.key, item.sha256, item.bytes)
@@ -178,7 +179,7 @@ def plan_gc(
 def _reach_release(
     mirror_root: Path,
     release_id: str,
-    reachable: set[str],
+    reachable: dict[str, str | None],
     unresolved: list[str],
     *,
     expected_manifest_sha256: str | None = None,
@@ -192,7 +193,7 @@ def _reach_release(
     if expected_manifest_sha256 is not None and sha256_bytes(payload) != expected_manifest_sha256:
         unresolved.append(key)
         return
-    reachable.add(key)
+    reachable[key] = None
     try:
         release = load_lake_model_json(payload, ReleaseManifest)
     except ValueError as exc:
@@ -212,7 +213,7 @@ def _reach_dataset(
     mirror_root: Path,
     dataset: str,
     build_id: str,
-    reachable: set[str],
+    reachable: dict[str, str | None],
     unresolved: list[str],
     *,
     expected_manifest_sha256: str | None = None,
@@ -226,7 +227,7 @@ def _reach_dataset(
     if expected_manifest_sha256 is not None and sha256_bytes(payload) != expected_manifest_sha256:
         unresolved.append(key)
         return
-    reachable.add(key)
+    reachable[key] = None
     try:
         manifest = load_lake_model_json(payload, DatasetManifest)
     except ValueError as exc:
@@ -243,11 +244,11 @@ def _reach_dataset(
             ):
                 unresolved.append(item.key)
             else:
-                reachable.add(item.key)
+                reachable[item.key] = item.sha256
 
 
 def _unreachable(
-    mirror_root: Path, *, reachable: Mapping[str, object] | set[str], now: datetime
+    mirror_root: Path, *, reachable: Mapping[str, object], now: datetime
 ) -> tuple[GcCandidate, ...]:
     """Everything under the published prefixes that no root reaches."""
 
@@ -305,11 +306,14 @@ def _candidate_reason(key: str) -> str | None:
     return None
 
 
-def _reachable_identity(mirror_root: Path, key: str) -> tuple[int, str] | None:
+def _reachable_identity(
+    mirror_root: Path, key: str, verified_payload_sha256: str | None
+) -> tuple[int, str] | None:
     path = mirror_path(mirror_root, key)
     if not path.is_file():
         return None
-    return (path.stat().st_size, sha256_file(path))
+    # An immutable payload was already read and verified in this pass. Re-read graph metadata.
+    return (path.stat().st_size, verified_payload_sha256 or sha256_file(path))
 
 
 def apply_gc(mirror_root: Path, plan: GcPlan, *, plan_hash: str) -> tuple[str, ...]:

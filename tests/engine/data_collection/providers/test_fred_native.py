@@ -6,6 +6,8 @@ from contextlib import closing
 from datetime import date
 from unittest import TestCase
 
+import pytest
+from requests import Session
 from tests.helpers.provider_fixtures import _FakeResponse, _RaisingSession, _source, _StaticSession
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
@@ -70,6 +72,43 @@ def test_missing_cell_is_retained_but_empty_full_history_does_not_erase_prior_va
         (row.observed_at, row.value)
         for row in service.get_range("vix", start=first, end=second).observations
     ] == [(second, 21.0)]
+
+
+@pytest.mark.parametrize(("status", "range_header"), [(206, True), (206, False), (200, True)])
+def test_partial_csv_cannot_withdraw_prior_fred_periods(
+    tmp_path, monkeypatch, status, range_header
+):
+    path = tmp_path / "indicators.sqlite"
+    source = "fred-vixcls"
+    first, second = date(2026, 7, 24), date(2026, 7, 27)
+    # The partial body is valid CSV ending exactly on a real row boundary.
+    short = b"observation_date,VIXCLS\n2026-07-24,20\n"
+    full = short + b"2026-07-27,21\n"
+    span = {"Content-Range": f"bytes 0-{len(short) - 1}/{len(full)}"} if range_header else {}
+    responses = iter(
+        [
+            _FakeResponse(full),
+            _FakeResponse(short, status_code=status, headers=span),
+            _FakeResponse(short),
+        ]
+    )
+    monkeypatch.setattr(Session, "get", lambda *args, **kw: next(responses))
+
+    def refresh():
+        return acquisition.refresh_sources([source], db_path=path, start=first, end=second)[0]
+
+    def current_values():
+        result = IndicatorsService(path).get_range("vix", start=first, end=second)
+        return [(row.observed_at, row.value) for row in result.observations]
+
+    assert isinstance(refresh(), acquisition.SourceRefreshSuccess)
+    assert current_values() == [(first, 20.0), (second, 21.0)]
+    result = refresh()
+    assert current_values() == [(first, 20.0), (second, 21.0)]
+    assert isinstance(result, acquisition.SourceRefreshFailure)
+    # The same shorter CSV delivered as a whole response really can withdraw a period.
+    assert isinstance(refresh(), acquisition.SourceRefreshSuccess)
+    assert current_values() == [(first, 20.0)]
 
 
 class NativeParserTests(TestCase):
@@ -188,8 +227,6 @@ def test_recent_fetch_keeps_old_revision_and_replaces_only_real_periods(tmp_path
 
 
 def test_short_csv_row_is_not_a_successful_period_deletion():
-    import pytest
-
     with pytest.raises(IndicatorsProviderError, match="does not match"):
         parse_fred_csv(_source("fred_csv", "DGS10"), "observation_date,DGS10\n2026-05-01\n")
 
@@ -265,8 +302,6 @@ def test_recent_full_series_is_not_replayed_through_cached_gap_recovery(tmp_path
 def test_failed_response_body_is_not_in_exception_args_repr_or_traceback(monkeypatch):
     import traceback
     from datetime import UTC, datetime
-
-    import pytest
 
     from baibai_engine.data_collection.providers.fred import FredCsvResponseError
     from baibai_engine.data_collection.transport.context import FetchContext

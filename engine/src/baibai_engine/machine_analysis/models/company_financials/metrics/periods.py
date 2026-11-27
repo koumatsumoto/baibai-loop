@@ -13,6 +13,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     accounting_standard,
     comparable_reporting_basis,
     disclosure_revision,
+    is_financial_statement,
     latest_disclosure_candidates,
     latest_reporting_basis_matches,
     reporting_basis_rows,
@@ -80,6 +81,21 @@ def _actual_rows(
         if summary.unresolved_actual_fields
         or any(getattr(summary, field_name) is not None for field_name in ACTUAL_FIELDS)
     ]
+
+
+def _statement_basis_is_current(
+    summaries: Sequence[JQuantsFinancialSummary], selected: JQuantsFinancialSummary
+) -> bool:
+    # An amountless statement can revise the scope of an observed amount, not supply one.
+    period = accounting_period_identity(selected)
+    statements = [
+        row
+        for row in summaries
+        if row is not selected
+        and is_financial_statement(row)
+        and accounting_period_identity(row) == period
+    ]
+    return not statements or latest_reporting_basis_matches([selected, *statements], selected)
 
 
 def _latest_actual_row(
@@ -308,7 +324,7 @@ def _ttm_components(
     if latest is None or latest.period_start is None or latest.period_end is None:
         return ()
     latest_value = getattr(latest, field)
-    if latest_value is None:
+    if latest_value is None or not _statement_basis_is_current(summaries, latest):
         return ()
     latest_days = period_days(latest)
     if latest_days is None:
@@ -333,7 +349,9 @@ def _ttm_components(
     # A fiscal-date match cannot make individual and consolidated amounts additive.
     # Keep each reported operand intact rather than searching older revisions for
     # a convenient basis. Matching labels alone do not prove unchanged group scope.
-    if not comparable_reporting_basis((latest, prior_fy, prior_same)):
+    if not comparable_reporting_basis((latest, prior_fy, prior_same)) or not all(
+        _statement_basis_is_current(summaries, row) for row in (prior_fy, prior_same)
+    ):
         return ()
     prior_fy_value = getattr(prior_fy, field)
     prior_same_value = getattr(prior_same, field)
@@ -412,7 +430,10 @@ def _matched_prior_period_summary(
         selected is not None
         and field_name is not None
         and comparison_field != "shares_outstanding"
-        and not latest_reporting_basis_matches(period_rows, selected)
+        and (
+            not latest_reporting_basis_matches(period_rows, selected)
+            or not _statement_basis_is_current(summaries, selected)
+        )
     ):
         return None
     return selected

@@ -278,6 +278,39 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual(values[0].offer_price_yen, 1060.0)
             self.assertEqual(values[0].delisted_on, self.DELISTED_ON)
 
+    def test_exit_price_requires_ordinary_amount_when_preferred_shares_are_priced(self) -> None:
+        for table, expected in (
+            ("株券Ａ種優先株式１株につき金2,000円", []),
+            ("株券Ａ種優先株式（議決権なし）１株につき金2,000円", []),
+            ("株券Ａ種優先株式 (注１)：１株につき金2,000円", []),
+            ("株券普通株式―Ａ種優先株式　１株につき金2,000円", []),
+            ("株券１株につき金2,000円Ａ種優先株式１株につき金2,000円", []),
+            ("株券普通株式１株につき金1,000円Ａ種優先株式１株につき金2,000円", []),
+            ("株券普通株式１株につき金1,000円Ａ種優先株式１株につき金1,000円", [1000.0]),
+            ("株券Ａ種優先株式１株につき金1,000円普通株式（注１）１株につき金1,000円", [1000.0]),
+            ("株券１株につき金1,000円", [1000.0]),
+        ):
+            with self.subTest(table=table), TemporaryDirectory() as tmp:
+                sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+                reader = _Reader(
+                    {
+                        "SREG": _archive({_PRICE: table + "算定の基礎…", _FUNDING: _CASH_ONLY}),
+                        "SRES": _archive({_OUTCOME: _SUCCESS}),
+                    }
+                )
+                out = io.StringIO()
+                result = delisting_cli.build_tender_offer_exits_command(
+                    sqlite_path=sqlite_path, asof_date=self.ASOF, reader=reader, stdout=out
+                )
+
+                self.assertEqual(result, 0)
+                self.assertEqual(
+                    [row.offer_price_yen for row in read_tender_offer_exit_values(sqlite_path)],
+                    expected,
+                )
+                if not expected:
+                    self.assertIn("price_or_outcome_unreadable=1", out.getvalue())
+
     def test_read_count_survives_an_unreadable_csv(self) -> None:
         for bad_document, expected_count in (("SRES", 1), ("SREG", 2)):
             with self.subTest(bad_document=bad_document), TemporaryDirectory() as tmp:

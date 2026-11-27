@@ -127,6 +127,9 @@ class ResearchStoreService:
             return record
         # New authoring only: historical reads and same-content retries retain their snapshot.
         sources = {source.source_id: source for source in draft.document.sources}
+        for source in sources.values():
+            if locator_error := source.authoring_locator_error():
+                raise ValueError(locator_error)
         for fact in draft.document.facts:
             if fact.postdates_cited_retrievals(sources):
                 raise ValueError(

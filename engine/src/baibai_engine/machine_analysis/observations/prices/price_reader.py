@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Set
 from datetime import date
+from itertools import batched, chain
 from pathlib import Path
 from typing import Any
 
@@ -12,9 +13,10 @@ from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsPr
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
+    close_conflicts_with_observed_range,
 )
 from baibai_engine.storage.sqlite.source_cache.convert import optional_float
-from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered, uncovered_days
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
@@ -33,7 +35,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
             return None
         rows = conn.execute(
             "SELECT ticker, traded_at, close, turnover_value, volume, "
-            "adjustment_factor, ex_right_type "
+            "adjustment_factor, ex_right_type, high, low "
             "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? "
             "ORDER BY ticker, traded_at",
             (start.isoformat(), end.isoformat()),
@@ -94,23 +96,29 @@ def _adjustment_events_from_rows(
 
 
 def read_ticker_bars(
-    conn: sqlite3.Connection, tickers: tuple[str, ...], start: date, end: date
+    conn: sqlite3.Connection, marks_by_session: Mapping[date, Set[str]]
 ) -> list[JQuantsDailyBar] | None:
-    """Read held tickers on the caller's calendar snapshot; do not fill missing closes."""
-    if not tickers:
+    """Read exact closing marks; an empty set still requires that session's receipt."""
+    if not marks_by_session:
         return []
-    if not range_covered(conn, "jquants_daily_bars", start, end):
+    if uncovered_days(conn, "jquants_daily_bars", marks_by_session):
         return None
-    placeholders = ", ".join("?" for _ in tickers)
-    rows = conn.execute(
-        "SELECT ticker, traded_at, close, turnover_value, volume, "
-        "adjustment_factor, ex_right_type FROM jquants_daily_bars "
-        # Local placeholder count; ticker values remain bound.  # nosec B608
-        f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
-        "ORDER BY ticker, traded_at",
-        (*tickers, start.isoformat(), end.isoformat()),
-    ).fetchall()
-    return _daily_bars_from_rows(rows)
+    pairs = sorted(
+        (ticker, day.isoformat()) for day, tickers in marks_by_session.items() for ticker in tickers
+    )
+    bars: list[JQuantsDailyBar] = []
+    # Bound the two parameters per key below SQLite's traditional 999-variable limit.
+    for batch in batched(pairs, 400, strict=False):
+        placeholders = ", ".join("(?, ?)" for _ in batch)
+        rows = conn.execute(
+            f"WITH marks(ticker, traded_at) AS (VALUES {placeholders}) "  # nosec B608
+            "SELECT b.ticker, b.traded_at, b.close, b.turnover_value, b.volume, "
+            "b.adjustment_factor, b.ex_right_type, b.high, b.low FROM marks "
+            "JOIN jquants_daily_bars b USING (ticker, traded_at) ORDER BY b.ticker, b.traded_at",
+            tuple(chain.from_iterable(batch)),
+        )
+        bars.extend(_daily_bars_from_rows(rows))
+    return bars
 
 
 def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:
@@ -154,15 +162,20 @@ def _daily_bars_from_rows(rows: Iterable[tuple[Any, ...]]) -> list[JQuantsDailyB
         volume,
         adjustment_factor,
         ex_right_type,
+        high,
+        low,
     ) in rows:
         if close is None or traded_at is None:
             continue
         try:
+            raw_close = float(close)
+            if close_conflicts_with_observed_range(raw_close, high=high, low=low):
+                continue
             bars.append(
                 JQuantsDailyBar(
                     ticker=str(ticker),
                     traded_at=date.fromisoformat(traded_at),
-                    close=float(close),
+                    close=raw_close,
                     turnover_value=optional_float(turnover_value),
                     volume=optional_float(volume),
                     adjustment_factor=optional_float(adjustment_factor),

@@ -280,6 +280,12 @@ def _fetch_bytes_once(
                     f"source returned HTTP {response.status_code} for {url}; not following redirect"
                 )
             _raise_for_response(response, url)
+            # These callers request whole resources; a valid prefix is not a full response.
+            if (
+                response.status_code == HTTPStatus.PARTIAL_CONTENT
+                or "Content-Range" in response.headers
+            ):
+                raise ProviderFetchStoppedError(f"partial response to full-resource GET for {url}")
             content_length = response.headers.get("Content-Length")
             if content_length is not None:
                 try:

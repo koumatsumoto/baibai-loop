@@ -36,6 +36,8 @@ def _store_and_lease(tmp_path, monkeypatch, *, lease_now=None):
     monkeypatch.setattr(remote, "close", lambda: None, raising=False)
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
     seed_machine_current(remote, _lake_pointer())
+    # Real JPX dataset readback is covered separately; these cases isolate pair/lease writes.
+    monkeypatch.setattr(sources, "verify_jpx_publication", lambda *_, **__: {})
     handle, _ = acquire(remote, "daily", now=lease_now)
     lease_path = tmp_path / "lease.json"
     _save_handle(lease_path, handle)
@@ -72,7 +74,7 @@ def _seal_cli(tmp_path, lease_path):
                             "started_at": f"{DAY}T00:0{index}:00+00:00",
                         },
                         "applied": True,
-                        "result": {"retained_bundles": []},
+                        "result": {"retained_bundles": [f"fixture-original-{index}"]},
                         "recovery": False,
                     }
                     for index in range(2)

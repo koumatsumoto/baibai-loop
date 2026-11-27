@@ -196,6 +196,19 @@ class ObjectStore(Protocol):
     ) -> RemoteObject: ...
 
 
+class PinnedDownloadStore(ObjectStore, Protocol):
+    """The streamed response must be the selected object generation."""
+
+    def download_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        expect_bytes: int | None = None,
+        expect_etag: str | None = None,
+    ) -> None: ...
+
+
 def _refuse_exact_reissue(
     *,
     operation: OperationModel,
@@ -580,31 +593,27 @@ class Boto3R2Store:
                 response = self._client(expect_bytes).get_object(**request)
                 body = response["Body"]
                 try:
+                    announced = response.get("ContentLength")
                     if expect_etag is not None and (
                         response.get("ETag", "").strip('"') != expect_etag
-                        or (
-                            expect_bytes is not None
-                            and response.get("ContentLength") != expect_bytes
-                        )
+                        or (expect_bytes is not None and announced != expect_bytes)
                     ):
                         raise R2PinnedObjectMismatch(
                             "R2 get-object response differs from the pinned identity"
                         )
+                    if announced is not None:
+                        _require_download_size(announced, expect_bytes, max_bytes, complete=True)
                     written = 0
                     with temporary_path.open("wb") as target:
                         while chunk := body.read(8 * 1024 * 1024):
                             written += len(chunk)
-                            if max_bytes is not None and written > max_bytes:
-                                raise R2Error(f"R2 get-object exceeds size limit: {max_bytes}")
+                            _require_download_size(written, expect_bytes, max_bytes, complete=False)
                             target.write(chunk)
+                        _require_download_size(written, expect_bytes, max_bytes, complete=True)
                         target.flush()
                         os.fsync(target.fileno())
                 finally:
                     body.close()
-            if expect_bytes is not None and written != expect_bytes:
-                raise R2Error(
-                    f"R2 get-object size mismatch: expected {expect_bytes}, got {written}"
-                )
             temporary_path.replace(path)
             fsync_directory(path.parent)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
@@ -809,6 +818,15 @@ class Boto3R2Store:
         ):
             raise R2Error("R2 multipart readback differs from the completed object")
         return actual
+
+
+def _require_download_size(
+    size: int, expected: int | None, maximum: int | None, *, complete: bool
+) -> None:
+    if maximum is not None and size > maximum:
+        raise R2Error(f"R2 get-object exceeds size limit: {maximum}")
+    if expected is not None and (size > expected or (complete and size != expected)):
+        raise R2Error(f"R2 get-object size mismatch: expected {expected}, got {size}")
 
 
 def _remote_object(value: Mapping[str, Any]) -> RemoteObject:

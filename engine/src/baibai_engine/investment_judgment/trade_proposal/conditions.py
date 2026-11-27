@@ -97,7 +97,8 @@ def no_action_blocker(
     ):
         return None  # 確認済みの事業反証は、株価や数値評価を必要としない。
     finding = assessment.price_value_case
-    settled = assessment.conclusion.stance != "uncertain"
+    # A negative overall stance does not settle a thesis explicitly recorded as uncertain.
+    settled = assessment.conclusion.stance != "uncertain" and thesis.status != "uncertain"
     if finding is not None and (
         finding.status == "not_supported_at_quote"
         or (

@@ -32,14 +32,15 @@ def holding_view(holding: HoldingSnapshot, *, security_name: str | None) -> Hold
         unrealized_pnl_pct=percentage(
             None if value is None else value - holding.deployed_cost_yen,
             holding.deployed_cost_yen,
-            digits=2,
+            digits=None,
         ),
     )
 
 
 def percentage(
-    numerator: ValuationYen | None, denominator: ValuationYen | None, *, digits: int
+    numerator: ValuationYen | None, denominator: ValuationYen | None, *, digits: int | None
 ) -> float | None:
     if numerator is None or denominator is None or denominator == 0:
         return None
-    return round(float(numerator / denominator * 100), digits)
+    ratio = float(numerator / denominator * 100)
+    return ratio if digits is None else round(ratio, digits)

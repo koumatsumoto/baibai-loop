@@ -21,6 +21,7 @@ from baibai_engine.portfolio.ledger.events import (
     ReservationEvent,
 )
 from baibai_engine.primitives.time import JST
+from baibai_engine.storage.sqlite.read import written_schema_version
 
 
 class LedgerConflictError(ValueError):
@@ -32,17 +33,15 @@ class LedgerSchemaError(RuntimeError):
 
 
 def _require_schema(connection: sqlite3.Connection) -> bool:
-    tables = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        )
-    }
-    if not tables and connection.execute("PRAGMA user_version").fetchone()[0] == 0:
+    required = connection.execute(
+        "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' "
+        "AND name IN ('ledger_event', 'ledger_meta')"
+    ).fetchone()[0]
+    if required == 2:
+        return True
+    if written_schema_version(connection) is None:
         return False
-    if not {"ledger_event", "ledger_meta"} <= tables:
-        raise LedgerSchemaError("application DB ledger schema is incomplete")
-    return True
+    raise LedgerSchemaError("application DB ledger schema is incomplete")
 
 
 def ledger_append_head(connection: sqlite3.Connection) -> int:

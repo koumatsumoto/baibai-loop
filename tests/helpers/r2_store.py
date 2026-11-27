@@ -98,9 +98,19 @@ class MemoryR2Store:
             content_type=value.content_type,
         )
 
-    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+    def download_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        expect_bytes: int | None = None,
+        expect_etag: str | None = None,
+    ) -> None:
         self.get_keys.append(key)
-        body = self.values[key].body
+        value = self.values[key]
+        if expect_etag is not None and value.etag != expect_etag:
+            raise LakeCASConflict("selected download generation changed")
+        body = value.body
         if expect_bytes is not None and len(body) != expect_bytes:
             raise R2Error(f"R2 get-object size mismatch: expected {expect_bytes}, got {len(body)}")
         path.write_bytes(body)

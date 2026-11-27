@@ -217,7 +217,7 @@ def test_reserved_buy_uses_only_known_clock_as_close_bound(
     assert tuple(event.type for event in scoped.events) == (
         ("opening_balance", "reservation", "execution") if included else ("opening_balance",)
     )
-    assert period.market_tickers() == (("1234",) if included else ())
+    assert period.close_marks_by_session() == ({end: {"1234"}} if included else {})
     result = period.compute(
         benchmark,
         bars=(JQuantsDailyBar("1234", end, 6.0, None, adjustment_factor=1.0),) if included else (),

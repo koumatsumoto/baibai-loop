@@ -26,6 +26,8 @@ source .env
 set +a
 ```
 
+`r2_transfer.sh` 自身が `.env` を読むのはR2の認証3項目のいずれかが不足するときだけ。この補完では指定済みのR2設定を優先し、未指定のアカウント・鍵・バケット等だけを同ファイルから使う。認証3項目が揃っている環境で隔離バケットを使う場合は、上記のように先に読み込むか、実行環境に対象バケットを明示する。
+
 - **結果不明:** 固定plan・receipt・ID/hash・原bytes・実受領時計を保ち、現objectと照合する。正常空・partial・未試行・失敗を区別し、新UUID・日付変更・marker手修正・再送で埋めない。
 - **拒否・障害:** 認証・403・429を別経路・hydrateの別GET・権限追加で回避しない。取得期限にはexport/stageの時間を残す。429で続行できないquota groupはそのpassを止める。`Retry-After`は最早時刻で自動再実行の指示ではない。R2の存在判定は明示404だけを不在とする。`HeadObject failed`や不明なstatusは停止理由であり、応答本文・stderr・tracebackの公開やkey hashからの匿名性の推定をしない。
 - **世代不一致:** schema・origin・CAS・必要なleaseが合わなければ止める。旧release・受領stage・移送証拠を保ち、旧copyは通常writerで移行しない。日次を全期間再取得・旧データ整理に使わない。不可逆な整理には対象keyと失う再開能力を固定した別承認が必要。
@@ -57,7 +59,7 @@ gh run watch "${RUN_ID:?対象の日次run IDを指定}" --exit-status --interva
 
 EDINET revisionを明示受入する場合だけ、隔離比較済みの[受入条件](src/baibai_jobs/integration/edinet_metric_acceptance.py)を`edinet_metrics_acceptance`へ渡す。同じ明示asofを指定し、固定list/archive・revision・対象sampleの原本/保存結果のdigestを生成前に照合する。partial/延期・入力交代・差異は停止し、後付け期待値で通さない。先行する経済L1・planの保持は取り消されず、公開後の実読戻し・L3の受入は別。
 
-失敗時は正本のIDと最後に完了した段階・lease解放を確認する。通知や`done`行だけで公開を判定しない。公開受入の診断は`release_acceptance`のreason codeと登録dataset名、未分類は型までで、原本や識別子は出さない。候補0は投資機会なしではない。[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。過去の機械結果をIDで照合する場合は、その世代を含む隔離Runsを明示する。
+失敗時は同じrun/attemptの成功工程・停止点、正本の読戻しとlease解放を確認する。通知の `[FAILED]` や監視の `MISSING` だけでは、Machineが公開済みかは分からない。そのrunの公開が読戻しで確認できたら、正本は再発行せず、失敗した工程から再開する。成功runでも全sourceの最新入力を採用できたとは限らないため、必要なsourceの採用日・入力延期を確認する。公開受入の診断は`release_acceptance`のreason codeと登録dataset名、未分類は型までで、原本や識別子は出さない。候補0は投資機会なしではない。[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。過去の機械結果をIDで照合する場合は、その世代を含む隔離Runsを明示する。
 
 [watchdog](../.github/workflows/cloud-batch-watchdog.yml)は履歴を読み、実行・cancel・再dispatchはしない。対象日の判断は[判定実装](src/baibai_jobs/observability/watchdog.py)が持つ。
 
@@ -79,7 +81,7 @@ gh workflow run cloud-batch-watchdog.yml --ref main -f "check_date=${ASOF:?対�
 uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores --format json
 ```
 
-現在のmarket・runs・経済の作業copyを一括で用意するのは `jobs/scripts/pull.sh`。Machineは同じ現行ポインタに固定した両DBとLakeを検証し、Marketをhydrateした後で両作業DBを置き換える。Machineの検証・hydrateが失敗した場合は作業DBを置換しない。経済の取得はMachineの準備に成功してから行う。applicationは`pull-app`で取得する。歴史の固定入力を現在のcopyへ付け替えない。
+現在のmarket・runs・経済の作業copyを一括で用意するのは `jobs/scripts/pull.sh`。Machineは同じ現行ポインタに固定した両DBとLakeを検証し、Marketをhydrateした後で両作業DBを置き換える。Machineの検証・hydrateが失敗した場合は作業DBを置換しない。経済の取得はMachineの準備に成功してから行う。経済の取得で止まった場合、Market/Runsは反映済み。同じ組で続けるなら、案内された `jobs/scripts/r2_transfer.sh pull-indicators` だけを再実行する。applicationは`pull-app`で取得する。歴史の固定入力を現在のcopyへ付け替えない。
 
 <a id="local-release-hydrate"></a>
 ### 完全local mirrorからのhydrate
@@ -93,7 +95,7 @@ uv run baibai-jobs snapshots hydrate \
   --release "${RELEASE_ID:?固定するrelease IDを指定}" --manifest-sha256 "${MANIFEST_SHA256:?そのmanifestのSHA-256を指定}"
 ```
 
-完全mirrorならbucket不要。認可済みR2の固定releaseから読む場合は同じコマンドに `--bucket baibai-stores` を加える。作業DBに旧EDINET原受領cacheが残る場合も[照合](#edinet-list-native-l1)にbucketが必要。hydrateはlake所管tableを置換するため、対象契約に合う既存のmarket作業DBと一時snapshot容量が必要。空ファイルや唯一の未公開copyに実行しない。store-local取得coverageは作らない。対象契約が古ければ元commitのreaderを使い、未収録・欠損・破損を別release/providerで補わない。Parquetは[reader](../engine/src/baibai_engine/storage/snapshots/reader.py)の検証済みpathで読み、globで混ぜない。
+完全mirrorならbucket不要。必要なobjectをR2から読む場合は `--bucket baibai-stores` を加える。退役した旧releaseをR2だけから全量再現できるとは限らない。作業DBに旧EDINET原受領cacheが残る場合も[照合](#edinet-list-native-l1)にbucketが必要。hydrateはlake所管tableを置換するため、対象契約に合う既存のmarket作業DBと一時snapshot容量が必要。空ファイルや唯一の未公開copyに実行しない。store-local取得coverageは作らない。対象契約が古ければ元commitのreaderを使い、未収録・欠損・破損を別release/providerで補わない。Parquetは[reader](../engine/src/baibai_engine/storage/snapshots/reader.py)の検証済みpathで読み、globで混ぜない。
 
 ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済みParquetの `baibai.source_kind` に保存した `legacy_sqlite_import` は、既存objectのSHA・key・固定releaseの読取を変えないためそのまま使う。物理タグの変更は既存releaseの読取を含む別の契約移行とし、通常publishで既存objectを書き換えない。
 
@@ -170,30 +172,9 @@ with_publication_lease() (
 - 候補と実際のポインタが一致すると確認できるまで、公開成功とはみなさずseal/input/表示を進めない。通信拒否で別経路を使わず、応答不明のPUTを再送しない。旧ポインタが見えても、応答を失ったPUTがまだ到着し得る間は候補を削除しない。
 - 現行を確認し、失敗したrunnerの作業copyを正本へ戻さずfresh pullで前進する。旧Machineの除去失敗は、確認済みの公開・seal・表示の成否と分ける。次の日次は同じ現行ポインタが記録した旧2キーの不在を確認するまで、新しいLake・Machineをstageしない。切替前に停止した未公開候補はこの前世代UUIDには含まれない。応答不明の送信が落ち着くまでは、404だけを削除の根拠にしない。Lake graphや原本の一掃は行わない。
 
-### MachineとLakeを単一ポインタに切り替える一回作業
-
-切替前に旧SHAの `cloud-daily-batch-current.yml` と `cloud-materialize.yml` の待機・実行（再実行を含む）が残っていないことを確認する。手動・ローカルwriterと旧readerも止める。切替後に旧runを再実行しない。旧 `push-runs` は固定keyが残る間、ポインタを読まずに書ける。旧 `cloud-materialize` はv2 leaseを取得できる版でも、旧Marketの取得失敗をApp単独表示として配信し得る。leaseだけを排出の証拠にしない。採用commit・書込み先・実行機・範囲をレビューし、既存v2 leaseをoperatorとして取得する。強制取得・延長はしない。
-
-1. **組と経路を確定する。** v1 currentの本文・ETag・Lake release ID/manifest SHAを固定する。旧受領票の本文・公開時のSHA-256・ETag、固定Market/RunsのETag・長さ・実体を照合し、MarketのoriginとRunsのGeneration/Selectionが受領票のLakeを指すことを確認する。既に証明済みの保護copyは新しい固定ETag・長さと再照合して使える。本文未検証のHEADだけは使わない。current Lakeと旧組が同一のときだけ、そのままの実ペアを移す。Lakeだけが先行していれば[前向き復旧](#lakeだけが先行した場合の一回復旧)だけを使い、不明・改変・不一致を旧組への巻き戻しで通さない。
-2. **実寸で一回の書込み範囲を決める。** 実際に封印した転送用Market/Runsがどちらも `MAX_MACHINE_PUT_BYTES`（5,363,466,240 B）以下であることを、新候補のR2 stageより前に確認する。最初の切替は単一PUTのみ。転送元と独立readbackを一緒に置ける実行機で、hydrate・SQLite封印の一時容量も別に足して計測し、120分のoperator lease内で完結できなければ止める。上限を超えたら最初の切替を止め、multipartの実機受入と個別承認なしに切り替えない。上限内の実ペアに対する本番受入に、上限超の合成試験を前提としない。実通信、実使用量、実時間が未確認なら検証済みとは扱わない。
-3. **未選択のまま実バイトを読む。** 既存の `stage_machine_members` で再利用しない固有キーへ条件付き単一PUTし、旧canonicalは変更しない。別のR2 readerで、固定したLake graphを解決し、両keyのHEADに加えETag/長さ指定GETで各本体を新しい作業ファイルへ取得する。実長さと全SHA-256を封印した送信元と照合し、SQLite整合・Marketの現行版とorigin・RunsのGeneration/Selectionを通常ownerで確かめる。前向き復旧ではこの前に新規生成本文とAから保持した履歴も照合する。応答のmetadataだけや送信元ファイルの再読取りは独立検証ではない。
-4. **一回だけ選び、通常readerで確かめる。** 同一lease内、既存 `activate_machine` の直前に、旧受領票と両固定DB、旧ポインタの本文・ETagが全て固定時のままで、同じv2 leaseが有効であることを確認。旧ETagを条件に一回だけCASする。切替後、通常の `pull_current_machine` が実currentから取得した両DB・Lake/Origin・Generation/Selection・全SHA-256と、現行ポインタの本文・ETagを同じlease内で再確認する。切替専用でreaderを差し替えず、旧形式fallbackを付けない。応答不明、lease交代、読戻し失敗では成功扱いせず凍結を継続する。CASの再送、旧ポインタへの書戻し、候補削除、後段sealはしない。
-
-この一回作業は `publish_staged_machine` や `finish_machine_retirement` を呼ばず、旧 `market.sqlite`、`runs.sqlite`、`machine-manifest.json`、固定の `.bak` を作成・削除・上書きしない。旧writerは再開しない。切替の読戻しとlease解放を確認後、切替済みmainの新しい日次とMarket単独表示を別に受入する。次回日次の封印Runsが上限超になる可能性があれば、通常日次による暗黙のmultipart実行を受入試験の代用にしない。別の実機検証と承認が済むまでその起動・定期再開は保留する。旧キーの削除は実データと利用経路を別途確認したexact keyの判断であり、この実行には含めない。
-
 日次の通常writerはMarket・ポインタを単一PUTし、上限超のRunsのみ固有キーへmultipartする。条件付き完成と応答不明時の停止、未完partの期限、実転送・独立読戻しは別のmultipart受入。模擬S3や縮小fixtureを実R2の証拠にはしない。
 
-### Lakeだけが先行した場合の一回復旧
-
-旧方式の日次がLakeだけを公開して止まり、旧固定Market/Runs（A）が旧受領票どおりに読める場合に限る。実行・書込み先は[実行前の確認](#actions-write-boundary)に従う。現行のLake-onlyポインタ（T）は新しいMarketの材料で、Tに対応するRunsではない。Aのモデルに新しいIDや時点を付け直さず、固定した原本から再計算して新しいLake・Market・Runs（T2）を作る。通常の `pull-machine` / `model-integration` がLake-onlyで止まる仕様は変えず、正常系のbase検査を外して回避しない。旧runの再実行、旧形式へのfallback、A・T・既存backupの上書きや削除は行わない。
-
-1. **基点を確認する。** 旧版の日次・表示の稼働/待機/再実行と手動writerを[一回切替](#machineとlakeを単一ポインタに切り替える一回作業)と同じように排出する。Aは `machine-manifest.json` の実bytes・SHA・ETag、両固定DBのETag・長さ、Marketのorigin、RunsのGenerationとSelectionで照合する。Tは現行ポインタの実bytes・ETagと、release ID・manifest SHAを固定する。AからTに前向きhydrateできることを、両方の固定manifestとAのMarketで検証する。取得した両DBは固定ETag・長さとSQLiteを照合する。検証済み原copyは閉じたまま保持し、新しい隔離copyだけを使う。
-2. **実入力を固定する。** Tの照合済みobjectからMarketをhydrateし、経済正本の検証済みcopy、EDINETのlist/archive、J-Quantsの財務・暦・銘柄・日足と有効な信用/空売り系native入力を、通常のownerと計画で固定する。取得workerのsource固有CASは共通leaseでは止まらない。固定内容を使い、hydrate・抽出・転送時に別のheadを読み直さない。入力レシピの既存の保持処理はR2へ書く場合がある。必要な固定本文を読めることと、その保持の範囲を分けて確認する。受領済みのstageを取り込む場合は固定 `plan` → `apply` の実結果を使い、元受領を変更しない。遅着は次の統合へ。既にseal済みの経済原本・取得inputの再発行やproviderへの取り直しはしない。基準日、実評価時刻、原本の受領・公表時刻は区別し、失敗runの時点を再現したとは扱わない。
-3. **通常の計算・保存でT2を作る。** 新releaseと `read_and_generate_models` は同じ封印済みMarketを使う。新GenerationはT2のrelease ID・manifest SHAを指し、候補外を含む通常の対象全体について再計算する。`ModelGenerationStore.publish_stream` と通常の探索結果から、そのGenerationの `ScreeningSelection` を保存する。生成されなかったTの結果や比較材料は捏造しない。利用可能な固定L1原本は通常どおり参照する。通常の再計算で値が等しいことと、古い本文を代入することは別。
-4. **新しく封印した組だけを選ぶ。** Runsのcompaction後、新IDの既存行がないことと、Aの既存履歴がすべて元のままであることを一回比較する。増分は新Generation、そのモデルとSelectionだけとする。新モデルは生成されたID・対象・計算revisionと、通常writerに渡した本文を保存行の展開後のbytesと照合する。各対象の財務・成長・テクニカルは必須。任意モデルの未出力を一律に失敗とせず、予定件数との一致だけで通さない。T2はAともTとも異なるreleaseとする。実寸の封印Market/Runsが単一PUT上限内と確認してから、既存 `stage_release` でT2のimmutable graphを置き、[一回切替](#machineとlakeを単一ポインタに切り替える一回作業)と同じ未選択の両DBの実バイト検証を行う。Aの固定組とTの本文・ETagが不変の時だけTのETagを条件に一回CASする。
-5. **読戻しと通常運用を別に確認する。** 選んだポインタの実bytesを確認し、通常のpair readerで両DBを固定して取得する。SQLite、origin、Generation/Selection、両DBのSHA-256をstage前の結果と照合する。この一回復旧は取得markerや次input、Web、提案の完了ではない。失敗runの `applied.json` がなければ捏造せず、未sealのstageだけを新しい通常日次の `plan` / `apply` から再確認する。既存markerを変えず、通常探索できないstageは[source取得と再開](#sources)で扱う。復旧のleaseを解放し、同じ対象の別runがないことを確認して、切替済みのmainから[日次を手動実行](#daily)し、正本の前進、seal、経済L1の入力、Web、lease解放をそのrunで確認する。[新規の正式提案](#production-proposal-acceptance)は別受入とする。
-
-現行が既に別の世代へ進んでいたら、この復旧は実行しない。この復旧専用の入口は通常CLIにない。通常CLIのbase検査を省いて起動したり、固定作業copyを公開し直したりしない。固定A/Tと各原本の実体・通常の生成と本文照合を、採用commitの一回用手順として独立レビューする。Aの保護copy・作業DB・Lake展開・SQLite一時ファイル・読戻しを置ける実行機と、[既存operator lease](src/baibai_jobs/publication/lease.py)内の実測時間を確認する。別々のvolumeの空きは合算しない。合成fixtureは手順の反証に限り、今回の本番受入では未選択の実ペアと切替後の通常readerを使う。新しい互換機能、定期監査、backup、保存形式は足さない。
+単一ポインタへの一回限りの移行は[完了済み](https://github.com/koumatsumoto/baibai-loop/pull/2963#issuecomment-7183844510)。旧版のwriterや移行手順を日次復旧に使わない。
 
 ### 保持copyから欠落Generationを戻す
 
@@ -337,7 +318,9 @@ validateはL2算式/L3履歴の証明でない。原本更新時だけ経済push
 
 TSRデータインサイト・日銀新着の定期収集と、その他の媒体を含む手動一括取得は終了した。[必要時の企業調査](../docs/reference/stock-assessment.md#recent-news-research)で発表元の一覧から原文を読み、判断に使った出典を残す。[経済原本](#economic-acquisition)（日銀の経済数値を含む）と[数値の外部評価](#external-assessment-acquisition)は同じ入口で継続する。
 
-日次は圧縮済みの現行Marketから始め、旧releaseの記事本文・観測・抽出・投影を復元も再発行もしない。[旧記事workflow](../.github/workflows/cloud-article-sources-current.yml)は無効のままにし、旧runを再実行しない。既存stage・固定release・App/Runsはこの切替で削除しない。
+日次は圧縮済みの現行Marketから始め、旧releaseの記事本文・観測・抽出・投影を復元も再発行もしない。[旧記事workflow](../.github/workflows/cloud-article-sources-current.yml)は無効のままにし、旧runを再実行しない。この日次は記事の旧版を移行・削除するジョブではない。
+
+最新提案の表示はAppの保存済み本文と根拠から行い、旧Lake releaseを読まない。旧提案を再表示・再調査するための物理データは保持の対象にしない。記事を含まない新しい現行が確認できた後、現行処理や未完の受領に不要な旧記事オブジェクトを退役させる。過去記事の原本照合や、旧releaseの全量hydrateは保証しない。
 
 公表済み提案は保存した根拠で読み、Lakeに記録した出典は指定の固定releaseで同じID・hashを照合する。stageだけが分かる場合は、元のstage ID・manifest SHA・receipt ID・receipt SHAを指定し、原本を私有ディレクトリにコピーする。304の原本は同じ内容の別受領ではなく、その304が指定する元200。
 
@@ -350,13 +333,15 @@ uv run baibai-jobs article-evidence --source <SOURCE> --stage-id <STAGE_ID> --ma
 
 ### 先行切替の旧writerフェンス (#2913 / #2829)
 
-旧記事 `401275764`、旧経済 `394769782`、旧経済reusable `394769781`、旧日次 `317890420` は明示無効のまま維持する。[既存の確認](../tools/diagnostics/check_article_cutoff.py)はこの4旧IDを対象とし、今回の記事停止を判定しない。
+日次・経済取得の前に、[旧writer確認](../.github/workflows/cloud-writer-retirement.yml)が停止した記事・経済・日次workflowの明示無効とrunの終端を確かめる。対象のID・パスと例外のrun・SHAは[診断実装](../tools/diagnostics/check_article_cutoff.py)が持ち、workflowは `--report-v2-condition` で判定する。この確認だけでは現在の記事取得停止や入力の充足を証明しない。
 
-旧日次run `43097164269`・固定SHA `b720659b300e0c8dfbbefa003794bd83265d6261`・`main`の定期attempt 1は、同じqueued状態でjobが0件と確定した場合だけ例外。この旧コードはv2 leaseを受理せず、v2で稼働中の本番へは書き込めない。現行日次は同じ読取世代に対する取得CAS、現行経済は書込前の読取で正常なv2を確認する。別run・別attempt・状態変化・一覧不明は例外にしない。未終端中にv2の記録を削除・旧版化しない。
+未終了runの例外は、既知の旧日次が同じqueued状態でjobが0件と確認でき、現行writerがv2 leaseを検証した場合だけ。それ以外の未終了runや例外の状態変化、一覧不明なら止める。例外が残る間はv2の記録を削除・旧版化しない。
 
 ### JPX PDF
 
 JPX決算予定/規制は `uv run python -m baibai_jobs.integration.source_handoff acquire --source <SOURCE> --asof <DATE> --directory <PRIVATE_DIRECTORY>` で原本だけ取得する。SOURCEは `jpx-earnings` または `jpx-regulations`。部分受領も同じモジュールの `stage --source <SOURCE> --stage-id <UNIQUE_ID> --directory <PRIVATE_DIRECTORY>` で保存し、L2は通常の統合で作る。
+
+決算予定・規制の加工表は、提案が直接参照しなくても[現行Lakeの必須データ](src/baibai_jobs/publication/policy.py)である。表示だけの時価更新はJPXのParquetを取得しないが、現行releaseが参照するmanifestは照合する。JPX原本のLake表には、監理・整理の確認や企業財務・資本異動に使う本文も混在する。これらを退役するなら取得・公開・読戻しを先に切り替え、現行参照と未統合の受領に不要になった対象だけを整理する。
 
 失敗seal済みのJPX stageを限定回復する場合は、原本とmarkerをread-onlyで照合してからexact source・stage ID・manifest hashを指定する。複数件はoptionを繰り返す。
 
@@ -452,17 +437,24 @@ gh workflow run cloud-market-sources.yml --ref main -f source=jquants-price-prob
 日足の保存入力で投影版が未記録または実行コードと異なる場合、`--saved-input` は旧digestに異なる投影を結び付けず停止する。再構築する場合は公開時のproducer commitを使う。原本の選択や公開済みreleaseの読取は変わらない。
 
 <a id="financial-native-l1"></a>
-**財務。** [`rebuild-financial-native --saved-input`](src/baibai_jobs/integration/financial_native.py)は、同じ投影版の固定native入力から財務の派生表を再構築する。版が未記録・不一致なら停止し、当時の実行commitを確認できる場合に限ってその版で再構築する。保存結果はGeneration/SelectionのIDで読む。切替前に財務派生表を含んだreleaseは[そのreleaseを指定](#fixed-release-read)して読む。`--saved-input` なしの診断は起動時の固定原本を現行版で投影する。いずれも保存原本・Generation・Selectionは置き換えない。
+**財務。** [`rebuild-financial-native --saved-input`](src/baibai_jobs/integration/financial_native.py)は、同じ投影版の固定native入力から財務の派生表を再構築する。版が未記録・不一致なら停止し、当時の実行commitを確認できる場合に限ってその版で再構築する。日次が採用した財務は、そのGenerationの `inputs["financial"]` に固定したnative入力で確認する。旧Parquet `jquants.fin_summaries` は現行Lakeの必須データではない。過去のreleaseに何があるかは[固定manifest](#fixed-release-read)で確認する。`--saved-input` なしの診断は起動時の固定原本を現行版で投影する。いずれも保存原本・Generation・Selectionは置き換えない。
 
-定期財務取得は平日18:13 JSTの`financial-edinet-facts`枠へ置き、価格等の16:43枠と分ける。Standard等の[公式更新目安](https://jpx-jquants.com/ja/spec/data-update)は18:00速報・翌00:30確報で、18:13の完全到着や22:43統合への間に合いを保証しない。確報は次回overlapで取り込むため、17時頃の臨時統合では前回取得後の確報が未反映の場合がある。早期更新が必要なら既存受領と進行中runを確認し、不足する財務だけ次で明示取得する。
+定期財務取得は平日18:13 JSTの `financial-edinet-facts` 枠。Standard等の[公式更新目安](https://jpx-jquants.com/ja/spec/data-update)は18:00速報・翌00:30確報で、取得・統合への到着は保証されない。下の手動取得も同じ[通常計画](src/baibai_jobs/integration/source_handoff.py)を使い、`asof` の7日前から当日までの8暦日と、取得範囲内の欠落・失敗・保留日を再照会する。特定の一日だけを指定するコマンドではない。早期更新が必要な場合だけ実行する。
 
 ```bash
-gh workflow run cloud-market-sources.yml --ref main -f source=jquants-financial -f asof=<YYYY-MM-DD>
+gh workflow run cloud-market-sources.yml --ref main -f source=jquants-financial -f "asof=${ASOF:?基準日をYYYY-MM-DDで指定}"
 gh run list --workflow cloud-market-sources.yml --branch main --event workflow_dispatch --limit 5
-gh run watch <SOURCE_RUN_ID> --exit-status --interval 60
+gh run watch "${SOURCE_RUN_ID:?対象の財務run IDを指定}" --exit-status --interval 60
 ```
 
-作成された対象run IDを固定し、成功後も財務head/受領の対象日・不足を確認してから必要な[日次統合](#daily)へ進む。取得完了とL2利用可能時刻を分け、統合・公開/readbackの時間も見込む。dailyだけの再実行ではproviderの最新値を取得せず、後着入力へ途中で差し替えない。scheduleのrun作成自体も遅れ得るため、枠の追加を定刻到着の保証にしない。明示実行も既存queueを守り、即時完了は保証しない。
+[J-Quantsの財務訂正](https://jpx-jquants.com/ja/spec/fin-summary)には通常、新しい開示番号（`DiscNo`）が付くが、2026-11-16以降は同じ番号の値がフラグなしで上書きされる場合がある。過去日の訂正は差分cursorに現れず、通常計画も窓外の取得済み正常日までは再確認しない。調査対象の数値に影響する訂正を把握したときだけ、元の開示日（`DiscDate`）を開始・終了の両方に指定して取り直す。認可された環境で他のJ-Quants取得と重ねない。
+
+```bash
+uv run baibai-jobs jquants-financial-native acquire --directory "${NEW_WORK:?新しい作業先を指定}" \
+  --start "${DISC_DATE:?元の開示日をYYYY-MM-DDで指定}" --end "$DISC_DATE"
+```
+
+新しい受領の日付・取得結果を確認し、必要な[日次統合](#daily)へ進む。再取得は今返る値の確認で、訂正前の値や訂正が反映された時刻は復元できない。日次の再実行だけでは財務を再取得しない。
 
 財務summaryの[API枠](https://jpx-jquants.com/ja/spec/rate-limits)はプラン共通60要求/分で通常plan枠とは別。現行のJ-Quants共通queueはこれより保守的な実装上の直列化であり、時刻変更では外さない。`financial-edinet-facts`は枠名で、土日は従来どおりEDINET factsだけを取得する。
 
@@ -609,7 +601,7 @@ uv run python -m tools.diagnostics.check_served_proposal \
   --db "$APP_COPY" --latest-json "$AUTH_LATEST_JSON" --history-json "$AUTH_HISTORY_JSON"
 ```
 
-診断は訂正を反映した正式latest全項目、履歴の形式・ID集合・生成時刻、Caseの対象/結果/Selectionを照合する。他の履歴本文の全項目比較ではない。`--proposal-id`で対象を固定できる。`--require-completed`はCase完了参照まで同じ提案であることを求める場合だけ使う（後日の訂正で異なり得る）。終了0は配備・実画面・新規提案発行や売買の証明ではない。
+診断は訂正を反映した正式latestの本文、履歴の形式・発行索引・生成時刻、Caseの対象/結果/Selectionを照合する。正式latest以外は、選択した過去レポートの本文や後日の人間報告がAppと一致するかまでは確認しない。`--proposal-id`で正式latestのIDを指定できる。`--require-completed`はCase完了参照まで同じ提案であることを求める場合だけ使う（後日の訂正で異なり得る）。終了0は配備・実画面・新規提案発行や売買の証明ではない。
 
 [Web workflow](../.github/workflows/web.yml)は `main` へのpushでWeb入力が変わった場合だけ、Webの検証後にWorkerとUIを自動配備する。PRと `main` 以外での手動起動は検証だけ。配信データの公開とは独立しており、データ形式の切替中に一時的に表示が崩れることは許容する。配備を待たせたり、旧形式に対応する実装を残したりしない。
 

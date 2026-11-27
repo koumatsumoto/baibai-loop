@@ -258,6 +258,47 @@ def test_consolidated_dei_uses_supported_consolidated_facts():
     assert "consolidated_dei_no_supported_current_facts" not in record.failure_reasons
 
 
+@pytest.mark.parametrize(
+    ("declarations", "failure"),
+    [
+        (("false",), None),
+        (("TRUE",), "consolidation_dei_invalid"),
+        (("true", "false"), "consolidation_dei_conflict"),
+    ],
+)
+@pytest.mark.parametrize("has_individual", [True, False])
+def test_unqualified_facts_require_consistent_consolidated_scope(
+    declarations, failure, has_individual
+):
+    rows = [
+        ("jppfs_cor:NetSales", "CurrentYearDuration", "その他", "900"),
+        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "その他", "1000"),
+    ]
+    if has_individual:
+        rows.extend(
+            [
+                ("jppfs_cor:NetSales", "CurrentYearDuration_NonConsolidatedMember", "個別", "100"),
+                (
+                    "jppfs_cor:CashAndDeposits",
+                    "CurrentYearInstant_NonConsolidatedMember",
+                    "個別",
+                    "150",
+                ),
+            ]
+        )
+    record = _parse(
+        "120",
+        rows,
+        dei_rows=[(_CONSOLIDATION_DEI, "FilingDateInstant", "－", value) for value in declarations],
+    )
+    use_individual = failure is None and has_individual
+    assert record.sales_ttm == (100 if use_individual else None)
+    assert record.cash == (150 if use_individual else None)
+    assert record.consolidation_basis == ("non_consolidated" if use_individual else None)
+    if failure is not None:
+        assert failure in record.failure_reasons
+
+
 def test_1375_supported_assets_do_not_adopt_individual_cash_or_debt():
     # S100YK0W の原本にある科目・値。単体総資産はこの J-Quants fixture と2倍以内なので、
     # 旧 parser の単体 fallback は既存の規模 gate を通ってしまった。

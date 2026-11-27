@@ -18,6 +18,11 @@ def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
     connection = connect_sqlite_read_only(resolved)
     try:
         version = written_schema_version(connection)
+        if version == 0:
+            raise RuntimeError(
+                "unrecognized application schema: version-zero database is not an empty "
+                f"application database: {resolved}"
+            )
         if version is not None and version != APPLICATION_SCHEMA_VERSION:
             raise RuntimeError(
                 "obsolete application database schema; publish a store cut over by the "

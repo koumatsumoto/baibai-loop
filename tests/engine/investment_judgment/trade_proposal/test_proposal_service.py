@@ -1096,6 +1096,49 @@ def test_new_no_action_matches_the_authored_economic_finding(
     assert _ledger_snapshot(case.app) == ledger
 
 
+@pytest.mark.parametrize(
+    ("review_check", "quote_present", "expected"),
+    [
+        ("verified", False, "no_action_reviewed_quote_mismatch"),
+        ("partially_verified", True, "no_action_comparison_incomplete"),
+        ("verified", True, None),
+    ],
+)
+def test_unsupported_stance_does_not_settle_an_explicitly_uncertain_business_case(
+    tmp_path, review_check, quote_present, expected
+):
+    case = backend_case(tmp_path)
+    document, review = pair_payload(review_number=91, price_case="supported_at_quote")
+    document["conclusion"]["stance"] = "unsupported"
+    document["investment_case"].update(
+        status="uncertain", status_reason="主力事業の裏付けは未確認。"
+    )
+    review["primary_source_check"] = review_check
+    review["uncertainty_acceptance_reason"] = "事業の裏付けは一部未確認。"
+    update_review_hash(document, review)
+    case.pair = AssessmentStoreService(
+        case.app, clock=lambda: PREPARED - timedelta(minutes=1)
+    ).publish_reviewed_assessment(
+        assessment_id(91), document, review, supersedes_id=case.pair.assessment_id
+    )
+    case.operations.record_assessment(
+        case.operation.operation_id, case.pair.assessment_id, now=PREPARED
+    )
+    if not quote_present:
+        with closing(sqlite3.connect(case.market)) as connection, connection:
+            connection.execute("UPDATE jquants_daily_bars SET close = NULL")
+    draft = reviewed_proposal(case, action="no_action")
+    assert bool(draft.inputs.quotes) is quote_present
+    before = case.app.read_bytes()
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    checked = service.check(draft)
+    assert [reason.code for reason in checked.blockers] == ([] if expected is None else [expected])
+    if expected:
+        with pytest.raises(ProposalError, match="defer"):
+            service.publish(draft)
+    assert case.app.read_bytes() == before
+
+
 @pytest.mark.parametrize("quote_age_days", [7, 8])
 @pytest.mark.parametrize(
     ("finding", "stance", "price_dependent"),

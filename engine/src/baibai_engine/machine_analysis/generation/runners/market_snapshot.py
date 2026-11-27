@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, timedelta
+from functools import cache
 from pathlib import Path
 
 from baibai_engine.machine_analysis.models.market_context.benchmark import (
@@ -129,9 +130,9 @@ def build_market_snapshot(
 
     ``points`` walks weekly evaluation dates from oldest to ``asof_date`` so a
     reader sees how trend and breadth evolved; ``sectors``
-    aggregates per-sector returns and breadth at ``asof_date`` only. Breadth
-    uses common-stock membership from the latest master available at each point;
-    ETFs and later master constituents cannot enter a historical stock sample.
+    aggregates per-sector returns and breadth at ``asof_date`` only. Market breadth
+    uses common-stock membership from the latest master at or before the
+    benchmark's actual price date, not the weekly evaluation date.
     A raw store read can instead resolve its latest cached price day through
     ``asof_date`` on the same snapshot as the observations.
     """
@@ -142,6 +143,7 @@ def build_market_snapshot(
                 sqlite_path,
                 asof_date=asof_date,
                 history_weeks=history_weeks,
+                benchmark_ticker=benchmark_ticker,
                 use_latest_cached_day=use_latest_cached_day,
             ),
         )
@@ -167,10 +169,13 @@ def build_market_snapshot(
             if series.dates and series.dates[-1] >= start
         }
         master = prepared.master
-        masters_by_date = {
-            day: master if day == asof_date else read_master_snapshot(sqlite_path, as_of=day)
-            for day in point_dates
-        }
+        masters_by_date = _breadth_masters(
+            sqlite_path,
+            point_dates=point_dates,
+            benchmark=series_by_ticker.get(benchmark_ticker),
+            asof_date=asof_date,
+            master=master,
+        )
     return calculate_market_snapshot(
         asof_date=asof_date,
         history_weeks=history_weeks,
@@ -191,8 +196,39 @@ type _SnapshotInputs = tuple[
 ]
 
 
+def _breadth_masters(
+    path: Path,
+    *,
+    point_dates: Sequence[date],
+    benchmark: _Series | None,
+    asof_date: date,
+    master: MasterSnapshot | None,
+    connection: sqlite3.Connection | None = None,
+) -> dict[date, MasterSnapshot | None]:
+    if benchmark is None:
+        return {}
+
+    @cache
+    def at_close(day: date) -> MasterSnapshot | None:
+        # The current master may already be bound by the Generation input.
+        if day == asof_date:
+            return master
+        return read_master_snapshot(path, as_of=day, connection=connection)
+
+    return {
+        point: at_close(day)
+        for point in point_dates
+        if (day := benchmark.last_date_on(point)) is not None
+    }
+
+
 def _read_snapshot_inputs(
-    path: Path, *, asof_date: date, history_weeks: int, use_latest_cached_day: bool
+    path: Path,
+    *,
+    asof_date: date,
+    history_weeks: int,
+    benchmark_ticker: str,
+    use_latest_cached_day: bool,
 ) -> _SnapshotInputs | None:
     # Inferred dates already required a written current store.
     connection = connect_current(path) if use_latest_cached_day else connect_read_only(path)
@@ -210,12 +246,14 @@ def _read_snapshot_inputs(
         start = days[0] - timedelta(days=_POINT_LOOKBACK_CALENDAR_DAYS)
         series = _load_series(connection, start=start, end=asof_date)
         master = read_master_snapshot(path, as_of=asof_date, connection=connection)
-        masters = {
-            day: master
-            if day == asof_date
-            else read_master_snapshot(path, as_of=day, connection=connection)
-            for day in days
-        }
+        masters = _breadth_masters(
+            path,
+            point_dates=days,
+            benchmark=series.get(benchmark_ticker),
+            asof_date=asof_date,
+            master=master,
+            connection=connection,
+        )
     return asof_date, series, master, masters
 
 

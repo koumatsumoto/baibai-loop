@@ -76,6 +76,7 @@ def backend_case(
     required_rate=None,
     horizon_months=None,
     tickers=("1234",),
+    models=(),
 ):
     """実writerで固定選定/Operationと評価・Reviewのpairを作る。新Operation行のSQL seedはしない。"""
     app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
@@ -212,18 +213,21 @@ def backend_case(
         app, clock=lambda: datetime.fromisoformat(f"{assessment_as_of}T16:06:00+09:00")
     ).publish_reviewed_assessment(assessment_id(), document, review)
     runs = tmp_path / "runs.sqlite"
+    opened_at = datetime.fromisoformat("2026-10-14T16:07:00+09:00")
+    # Past-assessment cases exercise an earlier fixed Selection, not an older pair in a new Case.
     selected = seed_generated_selection(
         db=app,
         runs=runs,
-        now=datetime.fromisoformat("2026-10-14T16:07:00+09:00"),
+        now=min(opened_at, pair.published_at + timedelta(minutes=1)),
         tickers=tickers,
+        models=models,
         scope="review_positions" if holding else "specified_stocks",
     )
     operations = OperationService(app, runs_path=runs)
     operation = operations.start(
         session_kind="position-review" if holding else "capital-allocation",
         as_of=selected.research_as_of,
-        started_at=selected.input_known_at,
+        started_at=opened_at,
         ticker="1234" if holding and len(tickers) == 1 else None,
         payload=OperationPayload(
             checkpoint="research", artifacts=(selected.model_dump(mode="json"),)

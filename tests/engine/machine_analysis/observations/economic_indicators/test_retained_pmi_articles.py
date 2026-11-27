@@ -2,6 +2,7 @@
 
 import json
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -164,3 +165,113 @@ def test_comparison_month_cannot_become_current_headline_month():
     )
     with pytest.raises(ValueError, match="country/index/month"):
         te.parse_article(html(lead), stream="us_services", url=URL)
+
+
+def test_current_official_month_beats_later_secondary_final_and_late_flash(tmp_path, monkeypatch):
+    series = load_definitions().by_id()["jp.pmi_manufacturing"]
+    primary_url = "https://www.pmi.spglobal.com/Public/Home/PressRelease/" + "a" * 32
+    primary = SourceDocument(
+        source_id=series.source_id,
+        request_key=SEP.isoformat(),
+        source_url=primary_url,
+        content_type="application/pdf",
+        fetched_at=datetime(2026, 10, 1, tzinfo=UTC),
+        payload=b"49.1",
+        metadata={"observed_at": SEP.isoformat(), "release_observed_at": SEP.isoformat()},
+    )
+    # Exercise selection over retained receipts; real PDF decoding has its own fixture.
+    monkeypatch.setattr(
+        pmi_reading,
+        "extract_pdf_text",
+        lambda body: f"The headline PMI posted {body.decode()} in September.",
+    )
+    newer_secondary = document(html(FINAL, published="2026-10-04T00:35:15Z"))
+    flash_url = URL[:-3] + "101"
+    late_flash = document(
+        html(FLASH, url=flash_url, published="2026-09-24T00:30:00Z"),
+        url=flash_url,
+        when=WHEN,
+    )
+    october_url = URL[:-3] + "102"
+    october_flash = document(
+        html(
+            FLASH.replace("September", "October").replace("54.1", "51.3"),
+            url=october_url,
+            published="2026-10-23T00:30:00Z",
+        ),
+        url=october_url,
+    )
+    corrected_primary = replace(
+        primary, fetched_at=primary.fetched_at + timedelta(days=1), payload=b"50.0"
+    )
+
+    with closing(store.initialize_database(tmp_path / "source.sqlite")) as conn, conn:
+        for doc in (newer_secondary, primary, late_flash, corrected_primary, october_flash):
+            store_document(conn, doc)
+        # Select inside the requested *observation* interval. Later publication or
+        # acquisition is not a reason to drop a reported September observation.
+        values = read_document_series(conn, series, start=SEP, end=SEP)
+        assert [(r.value, r.observed_at, r.source_url, r.vintage_at) for r in values] == [
+            (50.0, SEP, primary_url, corrected_primary.fetched_at)
+        ]
+        assert "secondary_delivery" not in values[0].quality_flags
+        october = date(2026, 10, 1)
+        values = read_document_series(conn, series, start=october, end=october)
+        assert [(r.value, r.observed_at, r.quality_flags) for r in values] == [
+            (51.3, october, ("secondary_delivery", "flash"))
+        ]
+
+
+def test_current_secondary_uses_publication_order_not_arrival_when_phase_matches(tmp_path):
+    series = load_definitions().by_id()["jp.pmi_manufacturing"]
+    old_url = URL[:-3] + "125"
+    old_final = document(
+        html(FINAL, url=old_url, published="2026-10-01T05:00:00Z"),
+        url=old_url,
+        when=WHEN,
+    )
+    revised = document(
+        html(FINAL.replace("54.1", "53.7"), published="2026-10-02T05:00:00Z"),
+        when=WHEN - timedelta(hours=12),
+    )
+    with closing(store.initialize_database(tmp_path / "source.sqlite")) as conn, conn:
+        for doc in (revised, old_final):
+            store_document(conn, doc)
+        records = read_document_series(conn, series, start=SEP, end=SEP)
+    assert [(r.value, r.source_url, r.vintage_at, r.quality_flags) for r in records] == [
+        (53.7, URL, revised.fetched_at, ("secondary_delivery", "final"))
+    ]
+
+
+def test_prefer_official_regardless_of_order_even_if_secondary_body_is_unreadable(monkeypatch):
+    series = load_definitions().by_id()["jp.pmi_manufacturing"]
+    unreadable = replace(document(html(FINAL)), payload=b"<html>unavailable</html>")
+    official_url = "https://www.pmi.spglobal.com/Public/Home/PressRelease/" + "a" * 32
+    official = SourceDocument(
+        source_id=series.source_id,
+        request_key=SEP.isoformat(),
+        source_url=official_url,
+        content_type="application/pdf",
+        fetched_at=WHEN - timedelta(days=7),
+        payload=b"%PDF synthetic",
+        metadata={"observed_at": SEP.isoformat(), "release_observed_at": SEP.isoformat()},
+    )
+    monkeypatch.setattr(
+        pmi_reading, "extract_pdf_text", lambda _: "The headline PMI posted 0.0 in September."
+    )
+    for receipts in ((official, unreadable), (unreadable, official)):
+        readings = pmi_reading.read_pmi_documents(series, receipts, start=SEP, end=SEP)
+        assert [(r.observed_at, r.value, r.source_url) for r in readings] == [
+            (SEP, 0.0, official_url)
+        ]
+    with pytest.raises(ValueError, match="TE PMI main article"):
+        pmi_reading.read_pmi_documents(series, (unreadable,), start=SEP, end=SEP)
+    assert pmi_reading.read_pmi_documents(series, (), start=SEP, end=SEP) == ()
+
+
+def test_secondary_cannot_move_between_months_if_retained_period_disagrees():
+    series = load_definitions().by_id()["jp.pmi_manufacturing"]
+    doc = document(html(FINAL))
+    changed = replace(doc, metadata={**doc.metadata, "observed_at": "2026-10-01"})
+    with pytest.raises(ValueError, match="bound observation month"):
+        pmi_reading.read_pmi_documents(series, (changed,), start=SEP, end=END)

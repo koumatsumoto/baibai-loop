@@ -144,6 +144,51 @@ def test_an_expired_order_reports_how_far_the_low_stayed_above_the_limit(tmp_pat
     assert not any("forgone" in key for key in payload["summary"]["all_ledger_orders"])
 
 
+@pytest.mark.parametrize("obsolete", [False, True], ids=["current-market", "obsolete-market"])
+def test_same_day_measurement_requires_current_market_schema(tmp_path, capsys, obsolete):
+    app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    order = _reservation(
+        reservation_id="same-day",
+        occurred_at="2026-07-02T09:00:00+09:00",
+        limit_yen="1000",
+        decision_reference=None,
+    )
+    order["expires_at"] = "2026-07-02T15:30:00+09:00"
+    _ledger(
+        app,
+        [
+            order,
+            {
+                "event_id": "same-day-release",
+                "type": "release",
+                "occurred_at": order["expires_at"],
+                "reservation_id": "same-day",
+                "reason": "expired",
+            },
+        ],
+    )
+    _market(market, [("2026-07-02", 1050.0, 1100.0)])
+    if obsolete:
+        # Structurally plausible prior-version copy; a same-day read still needs the right schema.
+        with closing(sqlite3.connect(market)) as connection, connection:
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            connection.execute(f"PRAGMA user_version={version - 1}")
+    before = app.read_bytes(), market.read_bytes()
+    rc = main(["--db", str(app), "--sqlite-path", str(market), "--asof", ASOF.isoformat()])
+    output = capsys.readouterr()
+    if obsolete:
+        assert rc == 1
+        assert output.out == ""
+        assert output.err == "error: limit outcome measurement failed (SQLiteSchemaError)\n"
+    else:
+        assert rc == 0
+        assert output.err == ""
+        (measured,) = yaml.safe_load(output.out)["orders"]
+        assert measured["window_low_yen"] == 1050
+        assert measured["distance_to_limit_pct"] == 5
+    assert before == (app.read_bytes(), market.read_bytes())
+
+
 @pytest.mark.parametrize("future_close", [800.0, 1250.0, 5000.0])
 @pytest.mark.parametrize("future_factor", [1.0, 0.5, None])
 def test_post_expiry_prices_and_actions_cannot_change_order_diagnostics(
@@ -649,7 +694,7 @@ def test_cli_never_overwrites_an_input_store(tmp_path: Path, target: str, alias:
         ("ledger_payload", "ValidationError"),
         ("obsolete_schema", "RuntimeError"),
         ("missing_market", "LimitOutcomeMeasurementError"),
-        ("market_schema", "OperationalError"),
+        ("market_schema", "SQLiteSchemaError"),
         ("invalid_low", "LimitOutcomeMeasurementError"),
     ],
 )

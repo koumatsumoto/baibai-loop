@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-REVISION = "edinet-ifrs-statement-comparisons-v3-known-non-ifrs"
+REVISION = "edinet-ifrs-statement-comparisons-v4-xbrl-units"
 type ComparativeMetric = Literal["sales", "operating_profit", "parent_profit"]
 
 

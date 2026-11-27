@@ -1,7 +1,7 @@
 """DB保存後に壊れた投影を読んでも、保存IDで同じ作業を回復する。"""
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
@@ -87,3 +87,26 @@ def test_input_read_error_before_commit_still_has_no_operation_id(tmp_path, caps
     assert error["reason"] == "required input unavailable"
     assert not app.exists()
     assert not workspace.exists()
+
+
+def test_no_manifest_retry_respects_operation_start_for_both_identities(tmp_path, capsys):
+    runs, app = tmp_path / "runs", tmp_path / "app"
+    selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
+    selection_path = tmp_path / "selection.json"
+    selection_path.write_text(generated_draft_for(selected).model_dump_json())
+    start = NOW + timedelta(minutes=5)
+    by_draft = ["--selection-file", str(selection_path), "--runs-path", str(runs)]
+    base = ["prepare", "--db", str(app)]
+    assert main([*base, "--workspace", str(tmp_path / "initial"), *by_draft], now=start) == 0
+    saved_id = json.loads(capsys.readouterr().out)["operation_id"]
+    before = app.read_bytes()
+    for index, key in enumerate((["--operation-id", saved_id], by_draft)):
+        workspace = tmp_path / f"restored-{index}"
+        args = [*base, "--workspace", str(workspace), *key]
+        assert main(args, now=start - timedelta(microseconds=1)) == 4
+        assert "resume precedes the Operation start" in capsys.readouterr().err
+        assert not workspace.exists()
+        assert main(args, now=start) == 0
+        resumed = json.loads(capsys.readouterr().out)
+        assert (resumed["status"], resumed["operation_id"]) == ("resumed", saved_id)
+    assert app.read_bytes() == before

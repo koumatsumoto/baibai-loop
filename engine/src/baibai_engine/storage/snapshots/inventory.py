@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from itertools import chain
 from pathlib import Path
+from stat import S_ISREG
 
 from pydantic import JsonValue
 
@@ -63,12 +64,19 @@ def inventory(root: Path) -> dict[str, JsonValue]:
     capacity: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     control_files = 0
     control_bytes = 0
-    for path in chain((root / "lake").rglob("*"), (root / name for name in _CONTROL_FILES)):
-        if not path.is_file():
+    lake = root / "lake"
+    # The selected root may be mounted; links *inside* it are not R2 objects.
+    lake_paths = () if lake.is_symlink() else lake.rglob("*")
+    for path in chain(lake_paths, (root / name for name in _CONTROL_FILES)):
+        try:
+            metadata = path.lstat()
+        except OSError:
+            continue
+        if not S_ISREG(metadata.st_mode):
             continue
         relative = path.relative_to(root)
         key = relative.as_posix()
-        size = path.stat().st_size
+        size = metadata.st_size
         if key in _CONTROL_FILES:
             control_files += 1
             control_bytes += size

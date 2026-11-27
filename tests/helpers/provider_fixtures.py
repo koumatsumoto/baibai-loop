@@ -26,6 +26,7 @@ from baibai_engine.machine_analysis.observations.economic_indicators.validation 
 )
 from tests.helpers.indicator_store import (
     SOURCE_URL,
+    multpl_date_text,
     series_definition,
 )
 
@@ -40,7 +41,7 @@ def _multpl_monthly_table(*, floor: date, latest: date, omit: date | None = None
     month = floor
     while month <= latest:
         if month != omit:
-            rows.append(f"<tr><td>{month:%b} 1, {month.year}</td><td>20.0</td></tr>")
+            rows.append(f"<tr><td>{multpl_date_text(month.replace(day=1))}</td><td>20.0</td></tr>")
         month = (
             date(month.year + 1, 1, 1)
             if month.month == 12

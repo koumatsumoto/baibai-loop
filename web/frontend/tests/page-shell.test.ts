@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { expect, it, vi } from 'vitest'
 
 import { AppLayout } from '../src/components/AppLayout'
+import { LoadingPage } from '../src/components/LoadingIndicator'
 import { PageShell } from '../src/components/PageShell'
 import { PageState } from '../src/components/PageState'
 import { RouteErrorBoundary } from '../src/components/RouteErrorBoundary'
@@ -34,6 +35,15 @@ it.each<[string, ReactNode, string]>([
   expect(html).not.toContain('href="/tasks"')
   expect(html).toContain('href="/proposal"')
   expect(html).toContain(content)
+})
+
+it('shows the current loading message as text and treats the spinner as decorative', () => {
+  const label = '米国株の判断を読み込んでいます'
+  const html = renderToStaticMarkup(createElement(LoadingPage, { label }))
+  expect(html.match(/role="status"/g)).toHaveLength(1)
+  expect(html).toContain(`>${label}</`)
+  expect(html).toMatch(/aria-hidden="true"[^>]*motion-safe:animate-spin/)
+  expect(html).not.toMatch(/<button\b|<a\b/)
 })
 
 it('keeps navigation outside a failed route boundary', () => {

@@ -66,7 +66,7 @@ def normalize_master_record(record: Mapping[str, Any]) -> SecurityMaster | None:
 
 
 def master_from_payload(payload: str, *, expected_code: str | None = None) -> SecurityMaster | None:
-    """Decode a native row; an indexed point lookup must match its stored key."""
+    """Decode a native row, binding its full provider code to a stored key if supplied."""
     try:
         record = json.loads(payload)
     except json.JSONDecodeError as exc:

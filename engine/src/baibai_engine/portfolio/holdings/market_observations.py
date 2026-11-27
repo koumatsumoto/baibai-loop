@@ -36,6 +36,7 @@ from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
 from baibai_engine.machine_analysis.observations.prices.price_basis import share_unit_factor
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
+    close_conflicts_with_observed_range,
 )
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.portfolio.ledger.events import ShareConversionEvent, matches_share_conversion
@@ -75,8 +76,9 @@ def read_unadjusted_closes(
 ) -> dict[str, UnadjustedCloseObservation]:
     """Read exact ticker quotes on one market-wide date and one read snapshot.
 
-    Missing, adjusted-only or invalid closes are absent, not filled from an
-    earlier ticker date. A supplied connection's transaction belongs to the caller.
+    Missing, adjusted-only or invalid closes are absent, including a close
+    contradicted by its own observed high/low. Never use an earlier ticker date.
+    A supplied connection's transaction belongs to the caller.
     """
     if not tickers:
         return {}
@@ -111,16 +113,20 @@ def read_unadjusted_closes(
         for batch in batched(dict.fromkeys(tickers), 500, strict=False):
             placeholders = ", ".join("?" for _ in batch)
             rows = conn.execute(
-                "SELECT ticker, close FROM jquants_daily_bars "  # nosec B608
+                "SELECT ticker, close, high, low FROM jquants_daily_bars "  # nosec B608
                 f"WHERE traded_at = ? AND ticker IN ({placeholders})",
                 (price_as_of_text, *batch),
             )
-            for ticker, close in rows:
+            for ticker, close, high, low in rows:
                 try:
                     close_yen = float(close)
                 except (TypeError, ValueError):
                     continue
-                if isfinite(close_yen) and close_yen > 0:
+                if (
+                    isfinite(close_yen)
+                    and close_yen > 0
+                    and not close_conflicts_with_observed_range(close_yen, high=high, low=low)
+                ):
                     quotes[str(ticker)] = UnadjustedCloseObservation(close_yen, price_as_of)
         return quotes
     finally:

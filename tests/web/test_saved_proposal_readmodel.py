@@ -9,7 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
-from tests.helpers.proposal import PUBLISHED
+from tests.helpers.external_assessment_html import monex_html
+from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, reviewed_proposal
 
 from baibai_engine.investment_judgment.independent_review.contracts import AssessmentReview
 from baibai_engine.investment_judgment.stock_assessment.document import (
@@ -25,6 +26,17 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
 from baibai_engine.investment_judgment.trade_proposal.query import SavedProposalReportContext
+from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.machine_analysis.generation.runners.external_assessment import (
+    generate_external_assessment,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
+    ModelValuationHistory,
+    MonexGenerationWindow,
+    ObservationHistory,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_web.readmodel.builders import proposal as proposal_builder
@@ -36,9 +48,9 @@ from baibai_web.sources.proposal import read_proposal_views
 
 @pytest.fixture
 def payload():
-    return json.loads(Path("tests/fixtures/domain-assessment-proposal-synthetic.json").read_text())[
-        "investment_proposal"
-    ]
+    return json.loads(
+        Path("tests/fixtures/domain-assessment-proposal-synthetic.json").read_bytes()
+    )["investment_proposal"]
 
 
 def _pair(
@@ -263,6 +275,69 @@ def test_single_projection_keeps_fixed_context_on_current_assessment_only(payloa
     assert item.assessment.model_dump(exclude={"estimated_model_chart"}) == (
         item.original_assessment.model_dump(exclude={"estimated_model_chart"})
     )
+
+
+@pytest.mark.parametrize("analyst_price", ["1,234円", "－"])
+def test_saved_external_per_analyst_forecast_is_a_model_price_not_a_recommendation(
+    tmp_path, analyst_price
+):
+    # Only this native series carries a value. Other price cells are explicit normal nulls;
+    # the unrelated locked rating, valuation sentiment and quote in the HTML are not evidence.
+    receipt_at = PREPARED - timedelta(minutes=10)
+    source_url = monex.public_url("1234")
+    html = monex_html("1234", value="－").replace(
+        "アナリスト予想</span></th></tr><tr><td>－",
+        f"アナリスト予想</span></th></tr><tr><td>{analyst_price}",
+    )
+    native = monex.parse_html(html, ticker="1234", source_url=source_url, fetched_at_utc=receipt_at)
+    assert native.consensus_target is native.per_company_forecast is native.pbr is None
+    assert native.per_consensus == (1234 if analyst_price == "1,234円" else None)
+    external = generate_external_assessment(
+        ObservationHistory(
+            ticker="1234",
+            cutoff=receipt_at,
+            monex_generation_window=MonexGenerationWindow(
+                as_of=native.snapshot_date, received_through=receipt_at
+            ),
+            model_valuations=(ModelValuationHistory(latest=native),),
+        ),
+        evaluated_at=receipt_at,
+    )
+    assert not external.analyst_ratings
+    model = GeneratedModel(
+        model_id="external_assessment",
+        subject="1234",
+        calculation_revision=external.method_version,
+        payload=external.model_dump(mode="json"),
+    )
+    case = backend_case(tmp_path, models=(model,))
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service.publish(reviewed_proposal(case, action="no_action"))
+    before = case.app.read_bytes()
+    view = read_proposal_views(case.app).latest.proposal
+    item = view.items[0]
+    assessment = item.assessment
+    chart = assessment.estimated_model_chart
+    reading = next(row for row in chart.rows if row.model == "external_assessment")
+    assert item.action == "no_action"
+    assert assessment.review.primary_source_check == "verified"
+    assert source_url not in {source.ref for source in assessment.review.checked_sources}
+    assert not assessment.model_perspectives  # No made-up author opinion or source.
+    if native.per_consensus is None:
+        assert reading.assessment == "insufficient"
+        assert reading.observed_on is None
+        assert reading.source_url is None
+    else:
+        assert reading.assessment == "context_only"
+        assert "アナリスト予想" in reading.summary
+        assert "1,234円/株" in reading.summary
+        assert "コンセンサス目標" not in reading.summary
+        assert "独立した適正価値・買い推奨とはみなしません" in reading.summary
+        assert "per_consensus" in reading.evidence
+        assert reading.source_url == source_url
+        assert reading.observed_on == native.snapshot_date
+    assert "999円" not in reading.summary  # The raw page quote is not the formal policy price.
+    assert case.app.read_bytes() == before
 
 
 def test_legacy_model_perspectives_remain_unrecorded(payload):

@@ -14,8 +14,12 @@ from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
-from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
-from baibai_engine.portfolio.ledger.events import ContributionEvent
+from baibai_engine.portfolio.ledger.drafts import (
+    apply_draft,
+    build_sell_execution_draft,
+    build_share_conversion_draft,
+)
+from baibai_engine.portfolio.ledger.events import ContributionEvent, PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.read import (
     LedgerConflictError,
     ledger_append_head,
@@ -23,6 +27,8 @@ from baibai_engine.portfolio.ledger.read import (
     load_ledger_events,
 )
 from baibai_engine.portfolio.ledger.store import LedgerStoreService, _event_values
+from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
+from baibai_web.materialize import export_read_models
 from baibai_web.readmodel.builders import dashboard
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.presentation import percentage
@@ -43,6 +49,11 @@ def test_display_percentage_keeps_undefined_denominator_distinct_from_zero(
     numerator, denominator, expected
 ):
     assert percentage(numerator, denominator, digits=2) == expected
+
+
+def test_display_percentage_can_preserve_the_ratio_until_the_formatter():
+    assert percentage(Decimal("1049"), 100_000, digits=None) == 1.049
+    assert percentage(Decimal("1049"), 100_000, digits=2) == 1.05
 
 
 @pytest.fixture
@@ -128,6 +139,112 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
     assert db.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    ("price", "buy_price", "split_by", "deployed_cost", "displayed_value", "pnl_yen", "pnl_pct"),
+    [
+        (79.8, "4", 20, 400, 399, -1, -0.25),
+        (79.9, "4", 20, 400, 400, 0, -0.125),
+        (80.0, "4", 20, 400, 400, 0, 0.0),
+        (80.1, "4", 20, 400, 401, 1, 0.125),
+        (None, "4", 20, 400, None, None, None),
+        # A sole position's 1.0479...% must not become 1.1% by rounding twice.
+        pytest.param(
+            202.5,
+            "50.10",
+            4,
+            5010,
+            5063,
+            53,
+            float(Decimal("52.5") / 5010 * 100),
+            id="single-holding-near-display-rounding",
+        ),
+    ],
+)
+def test_dashboard_exports_holding_and_total_returns_before_rounding_the_value_to_yen(
+    tmp_path, mocker, price, buy_price, split_by, deployed_cost, displayed_value, pnl_yen, pnl_pct
+):
+    app, market = tmp_path / APPLICATION_DB_PATH, tmp_path / MARKET_DB_PATH
+    ledger = PortfolioLedgerDocument.model_validate(
+        {
+            "schema_version": 3,
+            "portfolio_scope": "repository_only",
+            "as_of": NOW,
+            "events": [
+                {
+                    "type": "opening_balance",
+                    "event_id": "cash",
+                    "occurred_at": "2026-09-04T08:00:00+09:00",
+                    "amount_yen": deployed_cost + 600,
+                },
+                {
+                    "type": "execution",
+                    "event_id": "buy",
+                    "execution_id": "buy",
+                    "occurred_at": "2026-09-04T09:15:00+09:00",
+                    "ticker": "2331",
+                    "side": "buy",
+                    "quantity": 100,
+                    "price_yen": buy_price,
+                    "sector": "synthetic",
+                },
+            ],
+        }
+    )
+    seed_ledger(app, ledger)
+    service = LedgerStoreService(app)
+    conversion = build_share_conversion_draft(
+        service,
+        ticker="2331",
+        action_id="synthetic-consolidation",
+        basis_date=NOW.date(),
+        confirmed_at=NOW,
+        now=NOW,
+        source_ref="synthetic:confirmed",
+        numerator=1,
+        denominator=split_by,
+        quantity_before=100,
+        quantity_after=100 // split_by,
+    )
+    assert conversion is not None
+    apply_draft(service, conversion, human_confirmed=True, now=NOW)
+    seed_daily_bars(market, [("2331", NOW.date().isoformat(), price, float(split_by))])
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET ex_right_type='2'")
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar VALUES (?, ?)",
+            [
+                ("2026-09-05", "0"),
+                ("2026-09-06", "0"),
+                ("2026-09-07", "1"),
+            ],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="synthetic-odd-lot-calendar",
+            min_date="2026-09-05",
+            max_date="2026-09-07",
+            record_count=3,
+        )
+    mocker.patch.object(dashboard, "datetime").now.return_value = NOW
+    before = app.read_bytes(), market.read_bytes()
+
+    output = tmp_path / "web-out"
+    export_read_models(tmp_path, output)
+    payload = json.loads((output / "views/portfolio-dashboard.json").read_text())
+
+    assert payload["ledger_error"] is None
+    assert payload["valuation_error"] is None
+    assert payload["available_cash_yen"] == 600
+    assert payload["deployed_cost_yen"] == deployed_cost
+    assert payload["holdings_market_value_yen"] == displayed_value
+    assert payload["holdings"][0]["unrealized_pnl_yen"] == pnl_yen
+    assert payload["holdings"][0]["unrealized_pnl_pct"] == pnl_pct
+    assert payload["unrealized_pnl_yen"] == pnl_yen
+    assert payload["unrealized_pnl_pct"] == pnl_pct
+    assert (app.read_bytes(), market.read_bytes()) == before
+
+
 def test_dashboard_uses_one_clock_across_market_close(holding_case, monkeypatch):
     db, market, _ = holding_case
     before_close = datetime.fromisoformat("2026-09-07T15:29:59+09:00")
@@ -158,10 +275,9 @@ def test_dashboard_uses_one_clock_across_market_close(holding_case, monkeypatch)
 
 
 @pytest.mark.parametrize("missing", [False, True])
-def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
-    holding_case, tmp_path, missing
-):
+def test_dashboard_retains_realized_pnl_when_market_price_is_missing(holding_case, mocker, missing):
     db, market, _ = holding_case
+    mocker.patch.object(dashboard, "datetime").now.return_value = NOW
     service = LedgerStoreService(db)
     draft = build_sell_execution_draft(
         service,
@@ -170,8 +286,9 @@ def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
         quantity=100,
         price_yen=Decimal("1100"),
         decision_reference="synthetic-human-sale-note",
+        now=NOW,
     )
-    apply_draft(service, draft, human_confirmed=True)
+    apply_draft(service, draft, human_confirmed=True, now=NOW)
     if missing:
         with closing(sqlite3.connect(market)) as connection, connection:
             connection.execute(
@@ -182,8 +299,9 @@ def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
         DbMarketSource(market),
     )
     assert view.realized_gross_pnl_yen == 6_000
-    if missing:
-        assert view.total_capital_yen is None
+    assert view.holdings[0].market_value_yen == (None if missing else 100_000)
+    assert view.valuation_as_of == (None if missing else date(2026, 9, 4))
+    assert view.total_capital_yen == (None if missing else 10_409_500)
 
 
 def test_cash_only_dashboard_keeps_ledger_facts_without_inventing_a_quote_date(tmp_path, mocker):
@@ -203,7 +321,8 @@ def test_cash_only_dashboard_keeps_ledger_facts_without_inventing_a_quote_date(t
     assert view.generated_at == NOW
     assert view.ledger_as_of == ledger.as_of  # An old last report does not expire known cash.
     assert view.available_cash_yen == view.total_capital_yen == 10_400_000
-    assert view.reserved_cash_yen == view.holdings_market_value_yen == 0
+    assert view.reserved_cash_yen == view.holdings_market_value_yen == view.unrealized_pnl_yen == 0
+    assert view.unrealized_pnl_pct is None  # No deployed-cost denominator.
     assert view.holdings == []
     assert view.valuation_as_of is None
     assert app.read_bytes() == before

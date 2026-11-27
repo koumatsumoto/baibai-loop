@@ -34,11 +34,13 @@ uv run mypy
 uv run lint-imports
 ```
 
+容量不足で止まったら `df -h . "${TMPDIR:-/tmp}"` で、作業コピーとテストの一時領域を別々に確認する。必要なら空きのある領域にその実行専用の一時ディレクトリを用意して `TMPDIR` を指定し、対象テストだけを同じ設定でやり直す。一時fixtureの保持・整理はpytestの既定に任せ、既存の作業データがあるディレクトリを `--basetemp` に指定しない。容量不足で中断した実行は検証未完了。依存・CIの条件は変えず、本番データも取り直さない。
+
 よく変更する境界は、まず次の合成データのテストで確認できる。
 
 | 変更した契約 | 最初のテスト |
 | --- | --- |
-| 受領の読戻しとseal | [公開前は消費せず、同じ原本と投影でsealする](../tests/jobs/publication/test_tradingview_verification.py) |
+| 受領の読戻しとseal | [JPXの原本・投影を読戻してからsealする](../tests/jobs/publication/test_jpx_verification.py) |
 | 探索索引の問いとページ送り | [入力不足・分類・固定した個社比較を区別する](../tests/engine/investment_judgment/workflow/test_discovery_questions.py) |
 | 提案の指値・価格・数量 | [観測価格と指値を分け、未確定の根拠で数量を作らない](../tests/engine/investment_judgment/trade_proposal/test_conditional_buy_terms.py) |
 
@@ -49,12 +51,21 @@ PR全体の検査は[Python CI](../.github/workflows/ci.yml)と[Web CI](../.gith
 <a id="webの確認"></a>
 ## Webの確認
 
-[.node-version](../.node-version)のNodeと対応するnpmで検証する。
+[.node-version](../.node-version)のNodeと対応するnpmを使う。UIの型検査・ビルドは表示テストを実行しないので、表示を変えたら両方を確認する。
 
 ```bash
 npm --prefix web/frontend ci
-npm --prefix web/edge ci
 npm --prefix web/frontend run build
+npm --prefix web/frontend test
+```
+
+Workerや共通の配信契約を変えたら、上のUIビルドに続いてWorkerの生成型、型検査、ルートの動作を確認する。次のコマンドは配備しない。
+
+```bash
+npm --prefix web/edge ci
+npm --prefix web/edge run types:check
+npm --prefix web/edge run typecheck
+npm --prefix web/edge test
 ```
 
 `npm --prefix web/frontend run dev` は画面資産のみを配信し、ローカルAPIやSQLiteには接続しない。表示データの生成・認証付きAPI・実画面の確認は[Webの運用](../jobs/OPERATIONS.md#web-serving)へ。

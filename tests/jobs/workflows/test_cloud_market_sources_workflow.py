@@ -301,6 +301,17 @@ def test_unknown_cron_is_rejected_even_with_explicit_asof(tmp_path, asof):
     assert output == {}
 
 
+@pytest.mark.parametrize("asof", ["20261126", "2026-W48-4", "2026-02-30"])
+def test_market_plan_rejects_invalid_explicit_dates_before_emitting_source_outputs(tmp_path, asof):
+    result, output = _run_plan(
+        tmp_path, created_at="2026-11-27T00:30:00Z", asof=asof, source="jquants-financial"
+    )
+    assert result.returncode != 0
+    assert not output
+    assert "asof must use YYYY-MM-DD" in result.stderr
+    assert asof not in result.stderr
+
+
 def test_native_sources_do_not_load_or_resume_scoped_inputs():
     workflow = yaml.load(
         (ROOT / ".github/workflows/cloud-market-source.yml").read_text(), Loader=yaml.BaseLoader

@@ -7,7 +7,13 @@ from unittest.mock import Mock
 import pytest
 from tests.helpers.edinet_metrics import _edinet_csv_zip
 from tests.helpers.edinet_research_sources import source_zip
-from tests.jobs.acquisition.test_edinet_archive_native_acquisition import AT, DAY, filing, setup
+from tests.jobs.acquisition.test_edinet_archive_native_acquisition import (
+    AT,
+    DAY,
+    filing,
+    setup,
+    with_damaged_zip_directory,
+)
 
 from baibai_engine.data_collection.providers.edinet.archive_native import (
     HEAD_KEY,
@@ -15,7 +21,10 @@ from baibai_engine.data_collection.providers.edinet.archive_native import (
     NativeArchive,
 )
 from baibai_engine.data_collection.providers.edinet.facts_scope import read_scope
-from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
+from baibai_engine.data_collection.providers.edinet.models import (
+    EDINETProviderError,
+    EdinetResponse,
+)
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.edinet_archive_native import materialize_archives
@@ -128,6 +137,28 @@ def test_explicit_tob_zip_refresh_publishes_original_before_sql_and_reuses_it(
         .received_at_utc
         == AT
     )
+
+
+def test_manual_zip_does_not_hold_a_damaged_directory_or_make_a_sql_copy(tmp_path, monkeypatch):
+    owner, _, _, _ = setup(tmp_path, [])
+    monkeypatch.setattr(source, "Boto3R2Store", lambda **_: owner.store)
+    valid = _edinet_csv_zip()
+    initial = owner.freeze().identity
+    database = tmp_path / "market.sqlite"
+    with closing(source.EDINETRefresh("synthetic", sqlite_path=database)) as client:
+        http = Mock()
+        http.fetch_archive.side_effect = [
+            EdinetResponse(AT, with_damaged_zip_directory(valid)),
+            EdinetResponse(AT, valid),
+        ]
+        client._http = http
+        with pytest.raises(EDINETProviderError, match="not a ZIP"):
+            client.download_csv_zip("S100OFFER")
+        assert owner.freeze().identity == initial
+        assert not database.exists()
+        assert client.download_csv_zip("S100OFFER") == valid
+        assert http.fetch_archive.call_count == 2
+    assert owner.freeze().read_csv_zip("S100OFFER") == valid
 
 
 def test_manual_zip_reads_freeze_metadata_once_and_still_refuse_pending_work(tmp_path, monkeypatch):

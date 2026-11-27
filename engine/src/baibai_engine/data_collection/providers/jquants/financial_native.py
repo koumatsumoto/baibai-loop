@@ -22,7 +22,7 @@ PREFIX = "l1/jquants/financial-summaries/v1/"
 HEAD_KEY = PREFIX + "head.json"
 FORMAT = "jquants-financial-native-v1"
 MAX_PACK_BYTES = 16 * 1024 * 1024
-_CONTRACT = FullDayContract("financial_summaries", PREFIX, FORMAT)
+_CONTRACT = FullDayContract("financial_summaries", PREFIX, FORMAT, response_day_key="DiscDate")
 FinancialObjectStore = FullDayObjectStore
 
 

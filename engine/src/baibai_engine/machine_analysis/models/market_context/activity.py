@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date
+from decimal import Decimal
+from fractions import Fraction
 from itertools import pairwise
 from math import fsum, isfinite
 from statistics import median, median_high, median_low
+from sys import float_info
 
 from baibai_engine.machine_analysis.observations.prices.price_observation import PriceCalendar
+
+_MAX_FINITE_RETURN = int(float_info.max)
 
 ETF_PRICE_BENCHMARKS = {"1321": "nikkei225_etf_proxy", "1306": "topix_etf_proxy"}
 
@@ -22,6 +27,8 @@ def market_conditioned_returns(
 ) -> dict[str, object]:
     """Never compress a missing session into a multi-day return or fill from another ETF."""
     window = calendar.windows[60]
+    own = [_valid(prices.get(day), positive=True) for day in window or ()]
+    own_returns = _returns(own)
     return {
         "window_basis": "common_trading_calendar",
         "calendar_differences": 60,
@@ -31,7 +38,9 @@ def market_conditioned_returns(
         "benchmarks": {
             ticker: {
                 "benchmark_kind": kind,
-                **_conditioned(prices, turnover, benchmark_prices.get(ticker, {}), window),
+                **_conditioned(
+                    own, own_returns, turnover, benchmark_prices.get(ticker, {}), window
+                ),
             }
             for ticker, kind in ETF_PRICE_BENCHMARKS.items()
         },
@@ -39,12 +48,12 @@ def market_conditioned_returns(
 
 
 def _conditioned(
-    prices: Mapping[date, float],
+    own: list[float | None],
+    own_returns: list[Fraction] | None,
     turnover: Mapping[date, float | None],
     benchmark: Mapping[date, float],
     window: tuple[date, ...] | None,
 ) -> dict[str, object]:
-    own = [_valid(prices.get(day), positive=True) for day in window or ()]
     bench = [_valid(benchmark.get(day), positive=True) for day in window or ()]
     benchmark_returns = _returns(bench)
     benchmark_reason = (
@@ -76,7 +85,6 @@ def _conditioned(
         ),
     }
     # Completeness is required before forming adjacent returns; no filtered-date pairing.
-    own_returns = _returns(own)
     reason = (
         "insufficient_calendar"
         if window is None
@@ -106,18 +114,21 @@ def _conditioned(
     }
 
 
-def _returns(prices: list[float | None]) -> list[float] | None:
+def _returns(prices: list[float | None]) -> list[Fraction] | None:
     if None in prices:
         return None
-    values = [b / a - 1 for a, b in pairwise(value for value in prices if value is not None)]
-    return values if all(isfinite(value) for value in values) else None
+    # Preserve the observed decimal quotes through averaging: opposite moves must
+    # cancel even when their separate daily ratios have no finite decimal form.
+    quotes = (Fraction(Decimal(str(value))) for value in prices if value is not None)
+    values = [(b - a) / a for a, b in pairwise(quotes)]
+    return values if all(value <= _MAX_FINITE_RETURN for value in values) else None
 
 
 def _market_turnover(
     turnover: Mapping[date, float | None],
     *,
     window: tuple[date, ...] | None,
-    benchmark_returns: list[float] | None,
+    benchmark_returns: list[Fraction] | None,
     reason: str | None,
 ) -> dict[str, object]:
     result: dict[str, object] = {
@@ -167,7 +178,7 @@ def _down_own_turnover(
     turnover: Mapping[date, float | None],
     *,
     window: tuple[date, ...] | None,
-    pairs: list[tuple[float, float]] | None,
+    pairs: list[tuple[Fraction, Fraction]] | None,
     reason: str | None,
 ) -> dict[str, object]:
     result: dict[str, object] = {
@@ -189,16 +200,17 @@ def _down_own_turnover(
     return {**result, **{name: _turnover_condition(values) for name, values in groups.items()}}
 
 
-def _condition(pairs: list[tuple[float, float]]) -> dict[str, object]:
+def _condition(pairs: list[tuple[Fraction, Fraction]]) -> dict[str, object]:
+    days = len(pairs)
+    own_sum = sum((own for own, _ in pairs), Fraction())
+    benchmark_sum = sum((benchmark for _, benchmark in pairs), Fraction())
     return {
-        "days": len(pairs),
+        "days": days,
         "own_up_days": sum(own > 0 for own, _ in pairs),
         "outperform_days": sum(own > benchmark for own, benchmark in pairs),
-        "own_mean_return": _mean([own for own, _ in pairs]) if pairs else None,
-        "benchmark_mean_return": _mean([benchmark for _, benchmark in pairs]) if pairs else None,
-        "mean_excess_return": _mean([own - benchmark for own, benchmark in pairs])
-        if pairs
-        else None,
+        "own_mean_return": float(own_sum / days) if days else None,
+        "benchmark_mean_return": float(benchmark_sum / days) if days else None,
+        "mean_excess_return": float((own_sum - benchmark_sum) / days) if days else None,
     }
 
 

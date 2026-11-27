@@ -1,4 +1,4 @@
-"""Finite production dataset inventory composed from L1 and observation owners."""
+"""Readable Lake dataset contracts, not the inventory of any one release."""
 
 from types import MappingProxyType
 

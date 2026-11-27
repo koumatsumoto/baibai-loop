@@ -6,7 +6,7 @@ import io
 import re
 from collections.abc import Iterable
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 
 from pypdf import PdfReader
 
@@ -86,44 +86,48 @@ def read_pmi_documents(
     start: date,
     end: date,
 ) -> tuple[ObservationRecord, ...]:
-    """One sample per month, final before flash regardless of arrival order."""
-    selected: dict[
-        date, tuple[tuple[int, datetime, datetime], SourceDocument, PmiArticle | None]
-    ] = {}
+    """Select one receipt per observed month: official final, secondary final, then flash."""
+    official: dict[date, SourceDocument] = {}
+    secondary: list[tuple[date | None, SourceDocument]] = []
     for document in documents:
-        article = None
+        if document.source_id != series.source_id:
+            raise ValueError("PMI document is bound to a different measurement source")
         if document.content_type == "application/pdf":
             month = _document_month(document, "observed_at")
-            phase = "final"
-            # Legacy metadata has no source publication timestamp. Do not invent one.
-            published = datetime.min.replace(tzinfo=UTC)
+            if start <= month <= end and (
+                month not in official or document.fetched_at > official[month].fetched_at
+            ):
+                official[month] = document
         elif document.content_type == "text/html":
             binding = document.metadata.get(
                 "observed_at", document.metadata.get("requested_observed_at")
             )
-            if isinstance(binding, str) and not start <= date.fromisoformat(binding) <= end:
-                # A known older malformed receipt must not block another month's reading.
-                continue
-            article = parse_article(
-                document.payload, stream=series.reading_key, url=document.source_url
-            )
-            month, phase, published = article.observed_at, article.phase, article.published_at
+            month_hint = date.fromisoformat(binding) if isinstance(binding, str) else None
+            if month_hint is None or start <= month_hint <= end:
+                secondary.append((month_hint, document))
         else:
             raise ValueError("PMI reading requires a retained PDF or bound TE HTML article")
-        if document.source_id != series.source_id:
-            raise ValueError("PMI document is bound to a different measurement source")
-        if not start <= month <= end:
+
+    # A secondary article cannot supersede or invalidate a retained official release
+    # for the same month. Official receipts do not assert a publication timestamp.
+    values = {month: read_pmi_document(series, document) for month, document in official.items()}
+    selected: dict[date, tuple[tuple[bool, datetime, datetime], SourceDocument, PmiArticle]] = {}
+    for month_hint, document in secondary:
+        if month_hint in official:
             continue
-        order = (1 if phase == "final" else 0, published, document.fetched_at)
-        previous = selected.get(month)
-        if previous is None or previous[0] < order:
+        article = parse_article(
+            document.payload, stream=series.reading_key, url=document.source_url
+        )
+        month = article.observed_at
+        if month_hint is not None and month != month_hint:
+            raise ValueError("PMI article does not match its bound observation month")
+        if not start <= month <= end or month in official:
+            continue
+        order = (article.phase == "final", article.published_at, document.fetched_at)
+        if month not in selected or order > selected[month][0]:
             selected[month] = (order, document, article)
-    values = []
-    for month in sorted(selected):
-        _, document, article = selected[month]
-        if article is None:
-            values.append(read_pmi_document(series, document))
-            continue
+
+    for month, (_, document, article) in selected.items():
         # Select the current main-article level before its explicit target month.
         # Previous/forecast/flash comparisons and the appended stream are excluded.
         name = STREAM_NAMES[series.reading_key]
@@ -145,22 +149,20 @@ def read_pmi_documents(
         value = float(level["value"])
         if not 0 <= value <= 100:
             raise ValueError(f"{series.series_id}: PMI headline is outside the index range")
-        values.append(
-            replace(
-                reading_observation(
-                    series, observed_at=month, value=value, vintage_at=document.fetched_at
-                ),
-                source_url=document.source_url,
-                quality_flags=("secondary_delivery", article.phase),
-                notes=(
-                    "measurement_provider=spglobal",
-                    "delivery_provider=tradingeconomics",
-                    "primary_unverified",
-                    f"phase={article.phase}",
-                    f"delivery_published_at={article.published_at.isoformat()}",
-                    f"delivery_modified_at={article.modified_at.isoformat()}",
-                    "S&P publication time is not established by the TE article timestamp",
-                ),
-            )
+        values[month] = replace(
+            reading_observation(
+                series, observed_at=month, value=value, vintage_at=document.fetched_at
+            ),
+            source_url=document.source_url,
+            quality_flags=("secondary_delivery", article.phase),
+            notes=(
+                "measurement_provider=spglobal",
+                "delivery_provider=tradingeconomics",
+                "primary_unverified",
+                f"phase={article.phase}",
+                f"delivery_published_at={article.published_at.isoformat()}",
+                f"delivery_modified_at={article.modified_at.isoformat()}",
+                "S&P publication time is not established by the TE article timestamp",
+            ),
         )
-    return tuple(values)
+    return tuple(values[month] for month in sorted(values))

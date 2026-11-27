@@ -18,6 +18,10 @@ def _fake_aws(tmp_path: Path) -> tuple[Path, Path]:
     executable.write_text(
         """#!/usr/bin/env bash
 printf "%s\\n" "$*" >> "$AWS_LOG"
+if [[ -n "${EXPECT_FAKE_R2_CREDENTIALS:-}" && "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" != "$EXPECT_FAKE_R2_CREDENTIALS" ]]; then
+  printf 'unexpected synthetic credentials; values withheld\\n' >&2
+  exit 97
+fi
 object_etag() {
   local generation="${AWS_FAKE_STATE}/generation-$1"
   if [[ -s "$generation" ]]; then
@@ -282,7 +286,14 @@ def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
         "R2_SECRET_ACCESS_KEY": "secret-for-test",
         "PUBLICATION_LEASE_HANDLE": str(handle),
     }
-    environment.pop("GITHUB_ACTIONS", None)
+    # Exercise script defaults, not the operator's local bucket selection.
+    for name in (
+        "GITHUB_ACTIONS",
+        "R2_STORES_BUCKET",
+        "R2_SERVING_BUCKET",
+        "EXPECT_FAKE_R2_CREDENTIALS",
+    ):
+        environment.pop(name, None)
     return environment
 
 

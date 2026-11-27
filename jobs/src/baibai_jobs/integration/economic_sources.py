@@ -15,7 +15,7 @@ from collections.abc import Callable
 from contextlib import closing, suppress
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from baibai_engine.data_collection.acquisition.policy import acquisition_groups
 from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
@@ -33,7 +33,7 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
-    ObjectStore,
+    PinnedDownloadStore,
     R2Error,
     RemoteObject,
 )
@@ -56,11 +56,15 @@ from baibai_jobs.publication.lease import _load_handle, verify_held
 KEY = "indicators.sqlite"
 
 
-def _read(store: ObjectStore, path: Path) -> RemoteObject:
+class EconomicIntegrationStore(PinnedDownloadStore, ReceiptStore, Protocol):
+    """Read mutable canonical bytes and consume fixed source handoffs."""
+
+
+def _read(store: PinnedDownloadStore, path: Path) -> RemoteObject:
     before = store.head(KEY)
     if before is None:
         raise ValueError("economic canonical is missing; provision it explicitly")
-    store.download_file(KEY, path, expect_bytes=before.size)
+    store.download_file(KEY, path, expect_bytes=before.size, expect_etag=before.etag)
     after = store.head(KEY)
     if after is None or after.etag != before.etag or path.stat().st_size != before.size:
         raise LakePublishError("economic canonical changed during download")
@@ -71,7 +75,7 @@ def _read(store: ObjectStore, path: Path) -> RemoteObject:
 
 
 def _publish_current(
-    store: ObjectStore,
+    store: PinnedDownloadStore,
     path: Path,
     readback: Path,
     *,
@@ -98,7 +102,7 @@ def _publish_current(
 
 
 def integrate(
-    store: ReceiptStore,
+    store: EconomicIntegrationStore,
     directory: Path,
     *,
     database: Path,

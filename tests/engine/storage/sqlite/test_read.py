@@ -3,6 +3,8 @@ from contextlib import closing
 
 import pytest
 
+from baibai_engine.portfolio.ledger.read import LedgerSchemaError, load_ledger_document
+from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 from baibai_engine.storage.sqlite import machine_analysis, read
 from baibai_engine.storage.sqlite.application import read as application_read
 from baibai_engine.storage.sqlite.application.write import initialize_database
@@ -144,3 +146,54 @@ def test_interrupted_schema_check_closes_connection(tmp_path, monkeypatch, owner
         owner.connect_read_only(path)
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
         opened.execute("SELECT 1")
+
+
+def test_optional_reads_do_not_hide_an_existing_non_database_path(tmp_path):
+    absent = tmp_path / "missing.sqlite"
+    assert PortfolioOutcomeStore(absent).list() == ()
+    assert read.read_store_if_written(absent, lambda: pytest.fail("missing store was read")) is None
+    assert not absent.exists()
+
+    directory = tmp_path / "misconfigured.sqlite"
+    directory.mkdir()
+    with pytest.raises(sqlite3.OperationalError, match="regular file"):
+        PortfolioOutcomeStore(directory).list()
+    with pytest.raises(sqlite3.OperationalError, match="regular file"):
+        read.read_store_if_written(directory, lambda: pytest.fail("invalid store was read"))
+    assert list(directory.iterdir()) == []
+
+
+def test_sqlite_user_prefix_is_not_sqlite_internal_schema(tmp_path):
+    path = tmp_path / "version-zero.sqlite"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("CREATE TABLE sqliteXcustomer (payload INTEGER)")
+        connection.execute("INSERT INTO sqliteXcustomer VALUES (1)")
+    before = path.read_bytes()
+
+    with closing(read.connect_read_only(path)) as connection:
+        assert read.written_schema_version(connection) == 0
+        with pytest.raises(LedgerSchemaError, match="incomplete"):
+            load_ledger_document(connection)
+    for owner in READERS[1:]:
+        with pytest.raises(RuntimeError, match="schema"):
+            owner(path).close()
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        read.read_rows(path, "SELECT * FROM portfolio_outcome")
+    assert path.read_bytes() == before
+
+
+def test_real_sqlite_internal_sequence_alone_keeps_the_unwritten_contract(tmp_path):
+    path = tmp_path / "only-internal.sqlite"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("CREATE TABLE example (value INTEGER PRIMARY KEY AUTOINCREMENT)")
+        connection.execute("DROP TABLE example")
+        assert connection.execute("SELECT name FROM sqlite_schema").fetchall() == [
+            ("sqlite_sequence",)
+        ]
+
+    before = path.read_bytes()
+    with closing(application_read.connect_read_only(path)) as connection:
+        assert read.written_schema_version(connection) is None
+        assert load_ledger_document(connection) is None
+    assert read.read_rows(path, "SELECT * FROM portfolio_outcome") == []
+    assert path.read_bytes() == before

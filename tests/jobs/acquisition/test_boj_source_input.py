@@ -98,6 +98,7 @@ def _body(
             "RESULTSET": [
                 {
                     "SERIES_CODE": item.provider_series_id.split(":")[1],
+                    "FREQUENCY": item.frequency.upper(),
                     "UNIT": unit,
                     "PROVISIONAL": provisional,
                     "VALUES": {

@@ -118,6 +118,56 @@ def test_l1_and_every_input_publish_without_market_runs_lake_or_models(tmp_path,
             )
 
 
+@pytest.mark.parametrize("restore", [False, True])
+def test_l1_initial_read_cannot_accept_another_same_size_generation(
+    tmp_path, setup, monkeypatch, restore
+):
+    store, _, _ = setup
+    bodies = []
+    for value in ("A", "B"):
+        path = tmp_path / f"seed-{value}.sqlite"
+        with closing(initialize_database(path)) as connection, connection:
+            confirm_source_response(
+                connection,
+                source_id=SOURCE,
+                fetched_at=AT,
+                records_by_day={DAY: [{"value": value}]},
+            )
+        bodies.append(path.read_bytes())
+    first, second = bodies
+    assert first != second
+    assert len(first) == len(second)
+    store.store_object("indicators.sqlite", first)
+    download = store.download_file
+
+    def replace_at_get(key, *args, **kwargs):
+        if key != "indicators.sqlite":
+            return download(key, *args, **kwargs)
+        store.store_object(key, second)
+        try:
+            return download(key, *args, **kwargs)
+        finally:
+            if restore:
+                store.store_object(key, first)
+
+    with monkeypatch.context() as race:
+        race.setattr(store, "download_file", replace_at_get)
+        before = list(store.put_keys)
+        with pytest.raises(LakeCASConflict):
+            run(tmp_path, setup)
+        assert store.put_keys == before
+        assert not (tmp_path / "run.sqlite").exists()
+
+    report = run(tmp_path, setup, "retry")
+    assert report["canonical_generations"] == {
+        "economic_etag": store.head("indicators.sqlite").etag
+    }
+    with closing(sqlite3.connect(tmp_path / "retry.sqlite")) as conn:
+        assert next(read_snapshots(conn, DAY, DAY, source_id=SOURCE)).records == (
+            {"value": "A" if restore else "B"},
+        )
+
+
 def test_l1_put_unknown_ack_is_resolved_by_bytes(tmp_path, setup, monkeypatch):
     store, _, _ = setup
     stage(tmp_path, store)
@@ -302,6 +352,45 @@ def test_handoff_validation_timer_counts_only_entered_checks_including_failure(
     assert report["handoffs"][1]["result"] == {"reason": "MergeError"}
     assert json.loads(captured.out)["handoffs"] == report["handoffs"]
     assert json.loads((tmp_path / "plan/applied.json").read_bytes()) == report
+
+
+def test_candidate_lease_expires_during_checksum_before_any_put(tmp_path, setup, monkeypatch):
+    from types import SimpleNamespace
+
+    from baibai_jobs.integration import economic_sources
+
+    store, _, handle = setup
+    stage(tmp_path, store)
+    before = store.values.copy()
+    put_keys = list(store.put_keys)
+    moment = handle.acquired_at_utc
+    verify_held = economic_sources.verify_held
+    digest = economic_sources.hashlib
+
+    def finish_candidate_checksum(stream, method):
+        nonlocal moment
+        result = digest.file_digest(stream, method)
+        # The snapshot already exists, but its conditional upload has not started.
+        moment = handle.expires_at_utc
+        return result
+
+    monkeypatch.setattr(
+        economic_sources,
+        "hashlib",
+        SimpleNamespace(md5=digest.md5, file_digest=finish_candidate_checksum),
+    )
+    monkeypatch.setattr(
+        economic_sources,
+        "verify_held",
+        lambda remote, active: verify_held(remote, active, now=moment),
+    )
+
+    with pytest.raises(LeaseError, match="expired or replaced"):
+        run(tmp_path, setup)
+    assert moment == handle.expires_at_utc
+    assert store.values == before
+    assert store.put_keys == put_keys
+    assert not (tmp_path / "run.sqlite").exists()
 
 
 def test_expired_lease_before_seal_does_not_advance_watermark(tmp_path, setup, monkeypatch):
@@ -654,6 +743,65 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(
     assert checked["integration_status"] == "completed_with_source_gaps"
     assert "受領1" in render_source_failures(report)[0]
     assert "private provider failure" not in json.dumps(report)
+
+
+@pytest.mark.parametrize("source", ["multpl-shiller-pe", "nikkei-per"])
+def test_incomplete_valuation_markup_is_a_gap_not_an_empty_revision(
+    tmp_path, setup, monkeypatch, capsys, source
+):
+    from baibai_engine.data_collection.providers import multpl
+    from baibai_engine.data_collection.providers.nikkei import indices
+    from baibai_jobs.integration.economic_handoff import acquire as acquire_source
+    from baibai_jobs.integration.sources import main as check
+
+    asof, retained_day = date(2026, 10, 15), date(2026, 10, 1)
+    if source == "multpl-shiller-pe":
+        provider, group, field, missing = multpl, "multpl", "value_text", "null"
+        prefix = '<table id="datatable"><tr><td>Oct 15, 2026</td><td>41.1</td></tr>'
+        earlier = "<tr><td>Oct 1, 2026</td><td>{value}</td></tr></table>"
+        truncated = prefix + "<tr><td>Oct 1, 2026</td><td>"
+    else:
+        provider, group, field, missing = indices, "nikkei_indexes", "weighted_text", "-"
+        # Nikkei can return a fragment containing completed rows, with no outer table.
+        prefix = "<tr><td>2026.10.15</td><td>41.1</td><td>46.9</td></tr>"
+        earlier = "<tr><!--daily_changing--><td>2026.10.01</td><td>{value}</td><td>21</td></tr>"
+        truncated = prefix + earlier.split("{value}")[0]
+    responses = iter(
+        [prefix + earlier.format(value="20.0"), truncated, prefix + earlier.format(value=missing)]
+    )
+    monkeypatch.setattr(provider, "fetch_text", lambda *a, **kw: next(responses))
+    store, _, _ = setup
+    database = tmp_path / "source.sqlite"
+    with closing(initialize_database(database)):
+        pass
+
+    def stage_acquisition(label, expected_exit):
+        packet = tmp_path / (label + "-packet")
+        assert acquire_source(group, source, asof, packet, database) == expected_exit
+        save_handoff(store, group + "-" + label, packet)
+        report = run(tmp_path, setup, label, asof=asof)
+        assert report["l1_published"]
+        assert report["l1_sealed"]
+        assert not available_handoffs(store, market=False)
+        assert not report["handoffs"][0]["failed"]
+        with closing(sqlite3.connect(tmp_path / (label + ".sqlite"))) as conn:
+            row = next(read_snapshots(conn, retained_day, retained_day, source_id=source))
+        return report, row
+
+    _, original = stage_acquisition("initial-receive", 0)
+    assert original.records[0][field] == "20.0"
+    report, after_failure = stage_acquisition("truncated", 1)
+    assert after_failure == original
+    assert report["handoffs"][0]["result"]["acquisition_failures"] == [
+        {"source_id": source, "status": "failed", "error_types": ["IndicatorsProviderError"]}
+    ]
+    capsys.readouterr()
+    assert check(["check", "--directory", str(tmp_path / "truncated")]) == 0
+    assert json.loads(capsys.readouterr().out)["integration_status"] == "completed_with_source_gaps"
+    report, after_complete = stage_acquisition("complete", 0)
+    assert after_complete.records[0][field] == missing
+    assert after_complete.fetched_at > original.fetched_at
+    assert report["handoffs"][0]["result"]["acquisition_failures"] == []
 
 
 def test_legacy_browser_diagnostic_survives_l1_handoff(tmp_path, setup, monkeypatch, capsys):

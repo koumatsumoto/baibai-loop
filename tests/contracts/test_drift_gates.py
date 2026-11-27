@@ -327,6 +327,30 @@ def test_documented_command_gate_checks_the_reference_owner_examples(tmp_path, r
     ]
 
 
+@pytest.mark.parametrize(
+    ("suffix", "error"),
+    [
+        ("", None),
+        (" --bundle <MANIFEST> --accept-iex-session <DATE>", None),
+        (" --bundle <MANIFEST> --compare-sec 320193 Q3 <A> <B> <C> <D>", None),
+        (" --removed-option", "has unknown options --removed-option"),
+        (" --accept-iex-session", "omits value for --accept-iex-session"),
+    ],
+)
+def test_us_research_runbook_checks_offline_entry_point(tmp_path, suffix, error):
+    path = tmp_path / "docs/reference/us-research-mvp.md"
+    path.parent.mkdir(parents=True)
+    command = "uv run --offline python -m tools.experiments.us_research_mvp"
+    path.write_text(f"```bash\n{command}{suffix}\n```\n")
+
+    errors = check_documented_commands.check(tmp_path)
+    assert errors == (
+        []
+        if error is None
+        else [f"{path.relative_to(tmp_path).as_posix()}: `{command}{suffix}` {error}"]
+    )
+
+
 def _transfer_script(root: Path, *names: str) -> None:
     """A stand-in for `r2_transfer.sh` carrying only the dispatch the gate reads."""
 

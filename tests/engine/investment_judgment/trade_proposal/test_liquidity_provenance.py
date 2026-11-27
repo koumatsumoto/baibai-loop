@@ -30,7 +30,7 @@ from baibai_engine.primitives.json import canonical_json
 
 
 @pytest.fixture
-def case(tmp_path, monkeypatch, request):
+def case(tmp_path, request):
     last = helper.PREPARED.date() - timedelta(days=7)
     days = sorted(
         (last - timedelta(days=i) for i in range(35) if (last - timedelta(days=i)).weekday() < 5),
@@ -57,11 +57,7 @@ def case(tmp_path, monkeypatch, request):
         calculation_revision="synthetic-v1",
         payload=market,
     )
-    seed = helper.seed_generated_selection
-    monkeypatch.setattr(
-        helper, "seed_generated_selection", lambda **kw: seed(**kw, models=(model,))
-    )
-    return helper.backend_case(tmp_path)
+    return helper.backend_case(tmp_path, models=(model,))
 
 
 def _signed_omission(case, omitted_fields):

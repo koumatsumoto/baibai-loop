@@ -117,15 +117,19 @@ def test_source_acquisitions_never_pull_or_hydrate_the_full_machine():
         ("cloud-external-assessment-source.yml", "acquire"),
     ):
         document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
-        text = str(document["jobs"][job])
+        acquire = document["jobs"][job]
+        text = str(acquire)
         for command in (
             "pull-portfolio-market",
             "pull-machine",
             "hydrate-market-for-daily",
             "pull-app",
-            "publication_lease",
         ):
             assert command not in text
+        for step in acquire["steps"]:
+            run = " ".join(step.get("run", "").replace("\\\n", "").split())
+            for action in ("acquire", "release"):
+                assert f"baibai_jobs.publication.lease {action}" not in run, workflow
 
 
 @pytest.mark.parametrize(

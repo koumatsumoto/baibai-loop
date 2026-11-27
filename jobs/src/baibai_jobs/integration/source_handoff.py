@@ -97,10 +97,10 @@ def _export(
     write_json_atomic(directory / "result.json", report)
 
 
-def _handoff_ids(report: dict[str, object], field: str) -> tuple[str, ...]:
-    values = report.get(field)
+def _jpx_bundle_ids(report: object) -> tuple[str, ...]:
+    values = report.get("bundle_ids") if isinstance(report, dict) else None
     if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
-        raise ValueError(f"invalid handoff {field}")
+        raise ValueError("invalid JPX handoff bundle_ids")
     return tuple(values)
 
 
@@ -155,7 +155,7 @@ def _replay(
         )
         return import_tradingview_handoff(path, database, handoff, store=store)
     return import_jpx_handoff(
-        path, database, _handoff_ids(report, "bundle_ids"), collection=_JPX_COLLECTION[source]
+        path, database, _jpx_bundle_ids(report), collection=_JPX_COLLECTION[source]
     )
 
 
@@ -515,6 +515,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
+            if args.command == "stage" and args.source in _JPX_COLLECTION:
+                report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
+                if not _jpx_bundle_ids(report):
+                    raise ValueError("JPX handoff requires an original bundle")
             with closing(
                 Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
             ) as store:
@@ -571,12 +575,14 @@ def main(argv: list[str] | None = None) -> int:
                     "Use the source's explicit original receipt import; no live client here"
                 )
             _export(args.source, args.asof, since, database, directory)
-            report = json.loads((directory / "result.json").read_text())
-            report["acquisition"] = {"status": "received"}
-            write_json_atomic(directory / "result.json", report)
+            report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
+            stage_ready = bool(_jpx_bundle_ids(report))
+            if stage_ready:
+                report["acquisition"] = {"status": "received"}
+                write_json_atomic(directory / "result.json", report)
             if output := os.environ.get("GITHUB_OUTPUT"):
                 with Path(output).open("a", encoding="utf-8") as stream:
-                    print("stage_ready=true", file=stream)
+                    print(f"stage_ready={str(stage_ready).lower()}", file=stream)
             return 0
     except Exception as error:
         # Raw provider payload and credentials must not enter cross-job output.

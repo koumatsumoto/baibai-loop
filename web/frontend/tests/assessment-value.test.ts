@@ -27,7 +27,7 @@ function withValue() {
 describe('保存評価の見返り', () => {
   it('評価の価格・時計・期間・要求率と中心/下方の前提を示し、提案価格と区別する', () => {
     const html = renderToStaticMarkup(createElement(ProposalItemCard, { item: withValue() }))
-    for (const text of ['保存評価の見返り', '評価に用いた株価', '1000.0000000000000001 円', '24 か月', '9.5 %', '中心ケース（Base）', '下方ケース（Downside）', '10.00%', '-10.00%', '総受取額の年率換算', '1210.0000000000000001 円', value.base.calculation, value.downside.calculation]) expect(html).toContain(text)
+    for (const text of ['保存評価の見返り', '評価に用いた株価', '1000.0000000000000001 円', '24 か月', '9.5 %', '中心ケース（Base）', '下方ケース（Downside）', '10.0000%', '-10.0000%', '総受取額の年率換算', '1210.0000000000000001 円', value.base.calculation, value.downside.calculation]) expect(html).toContain(text)
     expect(html).toContain('dateTime="2026-10-23T15:30:00+09:00"')
     expect(html).toContain('dateTime="2026-10-23"')
     expect(html).toContain('dateTime="2026-10-26"')
@@ -39,6 +39,18 @@ describe('保存評価の見返り', () => {
     expect(html.indexOf('売買判断の7つの観点')).toBeLessThan(html.indexOf('保存評価の見返り'))
     expect(html.match(/buyの反対論：利益率改善が一過性の可能性。/g)).toHaveLength(1)
     expect(html).toContain('仮定・計算と最も強い反対論')
+  })
+
+  it('要求年率の直下とわずかなマイナスを、達成やゼロに丸めない', () => {
+    const item = withValue()
+    item.assessment!.valuation = { ...value, price_yen: '1000', horizon_months: 12,
+      base: { ...value.base, terminal_value_per_share_yen: '1094.999', annualized_return_pct: '9.4999' },
+      downside: { ...value.downside, terminal_value_per_share_yen: '999.951', annualized_return_pct: '-0.0049' },
+    }
+    const html = renderToStaticMarkup(createElement(ProposalItemCard, { item }))
+    for (const text of ['9.5 %', '9.4999%', '-0.0049%']) expect(html).toContain(text)
+    expect(html).not.toContain('9.50%')
+    expect(html).not.toContain('-0.00%')
   })
 
   it.each(['missing', 'null'] as const)('旧表示データの未記録をゼロや未確定へ変えない: %s', kind => {
@@ -78,7 +90,7 @@ describe('保存評価の見返り', () => {
     const item = withValue()
     item.assessment!.valuation = { ...value, price_observed_at: null, downside: { ...value.downside, terminal_value_per_share_yen: '0', annualized_return_pct: '-100.0000', calculation: '<script>bad()</script>\n保存された条件。' } }
     const html = renderToStaticMarkup(createElement(ProposalItemCard, { item }))
-    expect(html).toContain('-100.00%')
+    expect(html).toContain('-100.0000%')
     expect(html).toContain('0 円')
     expect(html).toContain('&lt;script&gt;bad()&lt;/script&gt;\n保存された条件。')
     expect(html).not.toContain('<script>')

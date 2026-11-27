@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -73,6 +74,28 @@ def test_python_quality_gates_share_one_runner() -> None:
         "Dependency audit",
         "Build dependency audit",
     } <= names
+
+
+@pytest.mark.parametrize("first_status", [0, 1])
+def test_drift_step_runs_remaining_gates_without_hiding_failure(tmp_path, first_status):
+    gates = tmp_path / "tools/quality/drift"
+    gates.mkdir(parents=True)
+    for name in ("first", "next"):
+        (gates / f"check_{name}.py").touch()
+    run = str(_by_name("ci.yml", "quality")["Drift gates"]["run"])
+    uv = f'uv() {{ echo "$4" >> calls; case "$4" in *.check_first) return {first_status};; esac; }}'
+    result = subprocess.run(
+        ["bash", "-e", "-c", f"{uv}\n{run}"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == first_status
+    assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == [
+        "tools.quality.drift.check_first",
+        "tools.quality.drift.check_next",
+    ]
 
 
 @pytest.mark.parametrize("workflow_name", sorted(path.name for path in WORKFLOWS.glob("*.yml")))

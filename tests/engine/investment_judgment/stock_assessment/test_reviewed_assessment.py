@@ -11,6 +11,7 @@ from tests.helpers.assessment_v1 import (
     review_id,
     update_review_hash,
 )
+from tests.helpers.db_seed import seed_historical_assessment
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
@@ -26,6 +27,7 @@ from baibai_engine.investment_judgment.stock_assessment.scenario import (
 from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
     ResearchValidationError,
+    load_reviewed_assessment,
 )
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
@@ -103,6 +105,7 @@ def test_horizon_rejects_invalid_numbers(bad):
         ("terminal", "terminal_value_per_share_yen mismatch"),
         ("cash", "cash_distribution_per_share_yen mismatch"),
         ("source", "projection references unknown source"),
+        ("source_host", r"external source annual requires an HTTP\(S\) host"),
         ("unit", "market_price requires unadjusted JPY_per_share basis"),
     ],
 )
@@ -121,6 +124,8 @@ def test_invalid_pair_never_publishes(tmp_path, fault, message):
         )
     elif fault == "source":
         assessment["valuation"]["base"]["source_ids"] = ["missing"]
+    elif fault == "source_host":
+        assessment["input_snapshot"]["sources"][0]["ref"] = "https://"
     else:
         assessment["input_snapshot"]["facts"][0]["unit"] = "JPY"
     if fault != "hash":
@@ -134,6 +139,31 @@ def test_invalid_pair_never_publishes(tmp_path, fault, message):
     with closing(connect_read_only(db)) as connection, connection:
         assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0] == 0
+
+
+def test_precheck_assessment_can_be_read_retried_and_superseded(tmp_path):
+    path = tmp_path / "app"
+    document, review = pair_payload()
+    document["input_snapshot"]["sources"][0]["ref"] = "https://"
+    update_review_hash(document, review)
+    identity = assessment_id()
+    seed_historical_assessment(
+        path, {"assessment_id": identity, "document": document, "review": review}, NOW
+    )
+    with closing(connect_read_only(path)) as connection:
+        stored = load_reviewed_assessment(connection, identity)
+    assert stored.core_sha256 == review["reviewed_assessment_sha256"]
+    assert stored.document.input_snapshot.sources[0].ref == "https://"
+    service = AssessmentStoreService(path, clock=lambda: NOW)
+    assert service.publish_reviewed_assessment(identity, document, review) == stored
+    successor, successor_review = pair_payload(review_number=4)
+    fresh = service.publish_reviewed_assessment(
+        assessment_id(3), successor, successor_review, supersedes_id=identity
+    )
+    assert (
+        fresh.document.input_snapshot.sources[0].ref
+        == successor["input_snapshot"]["sources"][0]["ref"]
+    )
 
 
 @pytest.mark.parametrize(

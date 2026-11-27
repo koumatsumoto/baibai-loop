@@ -24,6 +24,10 @@ function hasZonedClock(value: unknown): value is string {
   return typeof value === 'string' && /(?:Z|[+-]\d{2}:\d{2})$/.test(value) && !Number.isNaN(Date.parse(value))
 }
 
+function isExplicitEmptyView(view: USProposalRead | null): boolean {
+  return view?.status === 'empty' && view.proposal === null && view.error === null && hasZonedClock(view.generated_at)
+}
+
 function hasDecimalText(value: unknown): value is string {
   return typeof value === 'string' && /^-?\d+(?:\.\d+)?(?:E[+-]?\d+)?$/.test(value)
 }
@@ -111,7 +115,7 @@ export function USProposal({ state, above, historyUnavailable }: {
         <SectionCard padded title="米国株の判断は配信準備中です">
           <p>表示データが未配信です。保存された判断がないという意味ではありません。</p>
         </SectionCard>
-      ) : view?.status === 'empty' && view.proposal === null ? (
+      ) : isExplicitEmptyView(view) ? (
         <SectionCard padded title="保存済みの米国株の判断はありません">
           <p>表示データ生成時点で、正式に保存された米国株の判断はありません。</p>
         </SectionCard>
@@ -203,7 +207,7 @@ function readableHistory(data: LatestUSProposalView) {
     || !history.unavailable_proposal_ids.every(hasText) || typeof history.has_more !== 'boolean'
     || (data.status !== 'ready' && data.status !== 'empty' && data.status !== 'unavailable')) return null
   if (history.status === 'empty') {
-    return data.status === 'empty' && data.proposal === null
+    return isExplicitEmptyView(data) && history.error === null
       && history.proposals.length === 0 && history.unavailable_proposal_ids.length === 0 && !history.has_more
       ? { rows: [], unavailable: new Set<string>(), incomplete: false, latestId: null, hasMore: false }
       : null

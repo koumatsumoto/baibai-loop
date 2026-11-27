@@ -11,14 +11,13 @@ from collections.abc import Iterator
 from contextlib import closing, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
 from baibai_engine.storage.filesystem import fsync_directory
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
-    ObjectStore,
+    PinnedDownloadStore,
     R2Error,
     R2OperationStopped,
     R2PinnedObjectMismatch,
@@ -47,17 +46,6 @@ from baibai_jobs.publication.snapshot_release import PointerSnapshot, read_point
 from baibai_jobs.publication.snapshot_write_cli import hydrate_release
 
 
-class MachineDownloadStore(ObjectStore, Protocol):
-    def download_file(
-        self,
-        key: str,
-        path: Path,
-        *,
-        expect_bytes: int | None = None,
-        expect_etag: str | None = None,
-    ) -> None: ...
-
-
 @dataclass(frozen=True, slots=True)
 class PulledMachine:
     current: PointerSnapshot
@@ -80,7 +68,7 @@ def resolve_machine_lake(
 
 @contextmanager
 def pull_current_machine(
-    store: MachineDownloadStore,
+    store: PinnedDownloadStore,
     source: LakeObjectSource,
     *,
     directory: Path,

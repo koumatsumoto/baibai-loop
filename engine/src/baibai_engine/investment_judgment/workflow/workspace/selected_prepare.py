@@ -147,6 +147,11 @@ def _generated_selection(
     )
 
 
+def _require_resume_time(operation: OperationSession, *, now: datetime) -> None:
+    if now.utcoffset() is None or now < operation.started_at:
+        raise ResearchWorkspaceConflictError("resume precedes the Operation start")
+
+
 def prepare_selected_workspace(
     *,
     draft: GeneratedResearchSelectionDraft,
@@ -186,6 +191,7 @@ def prepare_selected_workspace(
             raise ResearchWorkspaceConflictError(
                 f"different active Operation: {active.operation_id}"
             )
+        _require_resume_time(active, now=now)
         return _materialize(
             active,
             saved,
@@ -256,8 +262,7 @@ def resume_selected_workspace(
     operation = OperationService(db_path).get(operation_id)
     selection: ResearchSelectionRecord | None
     schema_version = WORKSPACE_SCHEMA_VERSION
-    if now.utcoffset() is None or now < operation.started_at:
-        raise ResearchWorkspaceConflictError("resume precedes the Operation start")
+    _require_resume_time(operation, now=now)
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists():
         manifest = _load_mapping(manifest_path, label="workspace manifest")

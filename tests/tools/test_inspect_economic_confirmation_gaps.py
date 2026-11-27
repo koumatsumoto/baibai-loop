@@ -38,7 +38,15 @@ def receive(path, value, hour, *, day=DAY, source_id=SOURCE, confirmed=False):
         )
 
 
-def stage(tmp_path, rows, *, identity="test-stage", marker="integrated", source_status="ok"):
+def stage(
+    tmp_path,
+    rows,
+    *,
+    identity="test-stage",
+    marker="integrated",
+    source_status="ok",
+    started_at=None,
+):
     directory = tmp_path / identity
     directory.mkdir()
     raw = directory / "receipts.sqlite"
@@ -47,7 +55,7 @@ def stage(tmp_path, rows, *, identity="test-stage", marker="integrated", source_
     result = {
         "group": "nikkei_indexes",
         # Deliberately outside the receipt window: this is not the receipt clock.
-        "started_at": (AT - timedelta(days=4)).isoformat(),
+        "started_at": started_at or (AT - timedelta(days=4)).isoformat(),
         "asof": DAY.isoformat(),
         "sources": [{"source_id": SOURCE, "status": source_status}],
     }
@@ -137,6 +145,18 @@ def test_late_b_adoption_is_detected_and_raw_a_repairs_only_a_fixture_copy(tmp_p
             AT + timedelta(hours=3)
         ).isoformat(timespec="microseconds")
     assert inspect(candidate, (packet,))["counts"] == {"current_matches": 1}
+
+
+@pytest.mark.parametrize("started_at", ["2026-11-02T19:00:00+09:00", "2026-11-02T10:00:00Z"])
+def test_staged_clock_is_compared_with_the_sealed_utc_instant(tmp_path, started_at):
+    canonical = tmp_path / "canonical.sqlite"
+    receive(canonical, "A", 0)
+    packet = stage(tmp_path, [("A", 3, {})], started_at=started_at)
+    marker = json.loads((packet.directory / "integrated.json").read_text())
+    assert marker["started_at"] == "2026-11-02T10:00:00+00:00"
+    report = inspect(canonical, (packet,))
+    assert report["counts"] == {"confirmation_gap_candidate": 1}
+    assert report["handoffs"][0]["marker_status"] == "integrated"
 
 
 def test_newer_canonical_is_not_a_rollback_candidate(tmp_path):
@@ -270,6 +290,25 @@ def test_local_change_during_inspection_is_not_reported_as_success(tmp_path, mon
         inspect(canonical, (packet,))
 
 
+def test_canonical_copy_must_match_its_selected_digest(tmp_path, monkeypatch):
+    canonical = tmp_path / "canonical.sqlite"
+    unrelated = tmp_path / "unrelated.sqlite"
+    receive(canonical, "A", 0)
+    receive(unrelated, "B", 0)
+    assert canonical.stat().st_size == unrelated.stat().st_size
+    digest = sha256_file(canonical)
+    packet = stage(tmp_path, [("A", 3, {})])
+    copyfile = shutil.copyfile
+
+    def copy_wrong_bytes(source, destination):
+        return copyfile(unrelated if source == canonical else source, destination)
+
+    monkeypatch.setattr(shutil, "copyfile", copy_wrong_bytes)
+    with pytest.raises(ValueError, match="local copy differs from the selected digest"):
+        inspect(canonical, (packet,))
+    assert sha256_file(canonical) == digest
+
+
 def cli_args(canonical, packet):
     return [
         "--canonical",
@@ -369,7 +408,7 @@ def test_cli_contains_malformed_input_errors_without_payload_output(tmp_path, ca
     assert json.loads(output.out) == {
         "status": "failed",
         "reason": {
-            "marker_list": "AttributeError",
+            "marker_list": "ValueError",
             "sources_shape": "TypeError",
             "truncated_gzip": "EOFError",
             "private_status": "ValueError",

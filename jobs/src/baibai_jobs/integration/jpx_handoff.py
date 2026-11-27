@@ -69,6 +69,8 @@ def import_handoff(
 ) -> ReplayResult:
     if collection not in _COLLECTIONS:
         raise ValueError("invalid JPX handoff collection")
+    if not bundle_ids:
+        raise ValueError("JPX handoff requires an original bundle")
     with (
         closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as raw,
         closing(open_connection(target)) as conn,

@@ -27,6 +27,8 @@ eventはappend-onlyで、遅延報告でも既存ID/同時刻順を変えない�
 
 約定は報告の日付・銘柄・数量・単価を使う。IDなしの同日同内容は再送とし、別約定との区別がつかない場合だけ確認する。broker execution ID（注文内のみ一意なら注文IDとの組）で識別し、注文ID単独/推定時刻を使わない。同ID同内容は予約消滅後もno-change、異内容は拒否する。
 
+`broker-fact-draft`は、IDなしで記帳済みの約定と注文・内容が一致し、発生時点が重なる場合、新しいIDを添えてもdraftを作らない。実時刻同士は同じ瞬間、どちらかが報告日だけならJST同日を照合する。注文・参照を指定しない直接買付でも、既存の手入力約定に一致すれば保留する。再送は元のID指定（なしを含む）と注文・参照を保つ。別約定かはbroker明細で確認し、区別できなければ時刻やIDを変えて通さない。
+
 買付は具体buyの公開Proposal IDと確認済み実注文条件を使う。
 
 ```bash
@@ -46,6 +48,8 @@ uv run baibai-engine portfolio sell-execution-draft --db stores/application/baib
   --occurred-on <YYYY-MM-DD> --execution-id <BROKER_EXECUTION_ID> --out <DRAFT>
 ```
 
+売却の`--execution-id`は初回記帳からbrokerの約定IDを使う。売予約の部分約定をすでに一方のコマンドで記帳した場合、もう一方から同じ明細を別約定として足さない。IDなしで記帳済みの同条件の売却を、後からIDや費用・税・参照の違いだけで別約定として追加しない。片方が日付のみなら日本時間の同日を照合し、明細で区別できない報告は保留する。
+
 <a id="human-result-semantics"></a>
 ### 予約・約定・cash
 
@@ -55,7 +59,7 @@ uv run baibai-engine portfolio sell-execution-draft --db stores/application/baib
 
 売買/incomeはgross、費用/確認税は別event。売却cashは約定時に計上するがavailable cashは未予約現金で、受渡済み資金/broker発注可能額ではない。FIFO実現gross損益は開始から通算し、全売却/買直しでリセットしたりcashへ再加算したりしない。
 
-予定入金/未報告取引は加算しない。入出金・配当・費用・税は実際の発生後に記帳し、日付しか分からない報告は日本時間の当日までとする。明示費用0は記録できるが、eventなしは費用/税ゼロの確認でない。推定exit taxは表示だけでcash/confirmed taxと分ける。
+予定入金/未報告取引は加算しない。注文・約定・取消、入出金・配当・費用・税は実際の発生後に記帳する。draft作成・適用時とも、時刻が分かる事実はその瞬間以後、日付だけなら日本時間の当日以後に受け付ける。明示費用0は記録できるが、eventなしは費用/税ゼロの確認でない。推定exit taxは表示だけでcash/confirmed taxと分ける。
 
 ## 確認と反映
 
@@ -107,7 +111,7 @@ uv run baibai-engine portfolio outcome --db stores/application/baibai.sqlite \
   --out <NEW_OUTCOME_YAML>
 ```
 
-resolvedだけapplication DBへimmutable保存する。`--out`は任意exportで既存pathを上書きしない。export失敗はDB保存の取消ではない。過去IDを現在値/新形式で書換えず、遅延報告等で再計測するなら`--outcome-id <NEW_OUTCOME_ID>`、同内容再送なら同じIDを使う。
+終了コード0でも、出力が `status: unresolved` なら実績は保存されない。`status: resolved` と `outcome_id` が保存の確認になる。`--out`は任意exportで既存pathを上書きしない。export失敗はDB保存の取消ではない。過去IDを現在値/新形式で書換えず、遅延報告等で再計測するなら`--outcome-id <NEW_OUTCOME_ID>`、同内容再送なら同じIDを使う。
 
 保存後のexportだけが失敗した場合は終了code 2のまま、stdoutの`saved_output_failed`に保存IDとpayload SHAを返す。台帳・市場・benchmarkで再計算せず、保存した結果を新規pathへ出す。SHAは保存JSON本文のbytesの照合用で、YAMLファイルのSHAではない。
 

@@ -14,7 +14,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl im
 
 # Increment when extraction semantics change. Separate from the existing metrics
 # revision: research fact changes must not invalidate screening's financial baseline.
-EXTRACTOR_REVISION = "edinet-research-facts-v3"
+EXTRACTOR_REVISION = "edinet-research-facts-v4"
 
 
 def extract_facts(*, content: bytes, ticker: str, doc_id: str, submitted: str) -> ExtractedFacts:

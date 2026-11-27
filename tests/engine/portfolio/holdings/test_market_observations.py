@@ -64,11 +64,27 @@ def test_portfolio_only_decodes_requested_traded_closes(tmp_path):
 
     with closing(connect_read_only(database)) as connection:
         connection.execute("BEGIN")
-        bars = read_ticker_bars(connection, ("1301", "2345"), START, END)
+        bars = read_ticker_bars(connection, {START: {"1301"}, END: {"1301", "2345"}})
         assert bars is not None
         assert [(bar.ticker, bar.close) for bar in bars] == [("1301", 100.0), ("1301", 101.0)]
         with pytest.raises(JQuantsProviderError, match=r"corrupt SQLite row.*3456"):
-            read_ticker_bars(connection, ("3456",), START, END)
+            read_ticker_bars(connection, {END: {"3456"}})
+
+
+def test_scoped_marks_are_read_in_bounded_batches(tmp_path):
+    database = tmp_path / "market.sqlite"
+    _market_store(database)
+    with closing(connect_read_only(database)) as connection:
+        connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
+        trace = []
+        connection.set_trace_callback(trace.append)
+        # 1,002 distinct pairs, but only two exist in the fixture.
+        tickers = {str(ticker) for ticker in range(1301, 1802)}
+        bars = read_ticker_bars(connection, {START: tickers, END: tickers})
+        assert bars is not None
+        assert [(bar.ticker, bar.traded_at) for bar in bars] == [("1301", START), ("1301", END)]
+        bar_reads = [sql for sql in trace if "JOIN jquants_daily_bars" in sql]
+        assert 1 < len(bar_reads) < 10
 
 
 @pytest.mark.parametrize("missing", ["store", "calendar", "bars", "ticker"])
@@ -85,8 +101,8 @@ def test_market_input_owners_preserve_unavailable_and_missing_ticker_distinction
         assert calendar is not None
         with closing(connect_read_only(database)) as connection:
             connection.execute("BEGIN")
-            tickers = ("9999",) if missing == "ticker" else ("1301",)
-            assert read_ticker_bars(connection, tickers, START, END) == (
+            ticker = "9999" if missing == "ticker" else "1301"
+            assert read_ticker_bars(connection, {START: {ticker}, END: {ticker}}) == (
                 [] if missing == "ticker" else None
             )
 
@@ -99,7 +115,7 @@ def test_caller_keeps_the_same_snapshot_for_unit_checks_after_prices(tmp_path):
     with closing(connect_read_only(database)) as reader:
         reader.execute("BEGIN")
         calendar = read_market_calendar(database, START, END, connection=reader)
-        bars = read_ticker_bars(reader, ("1301",), START, END)
+        bars = read_ticker_bars(reader, {START: {"1301"}, END: {"1301"}})
         assert calendar is not None
         assert bars is not None
         with closing(sqlite3.connect(database)) as writer, writer:

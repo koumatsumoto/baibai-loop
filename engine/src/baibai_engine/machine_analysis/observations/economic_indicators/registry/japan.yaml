@@ -186,7 +186,7 @@ series:
     plausible_max: 100
     reading_key: jp_manufacturing
     source_id: spglobal-jp-pmi-mfg
-    notes: S&P Global Japan Manufacturing PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する
+    notes: S&P Global Japan Manufacturing PMI(50=拡大縮小の境界)。同じ観測月は公式PDFの確報を優先し、公式PDFがない月は保存済み二次記事の確報、次に速報を使う
     aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
   - series_id: jp.pmi_services
     name: 日本サービス業PMI
@@ -198,7 +198,7 @@ series:
     plausible_max: 100
     reading_key: jp_services
     source_id: spglobal-jp-pmi-svc
-    notes: S&P Global Japan Services PMI(Business Activity Index、50=拡大縮小の境界)。公式リリースPDFから機械抽出する。製造業PMIと対で内需サイクルを読む
+    notes: S&P Global Japan Services PMI(Business Activity Index、50=拡大縮小の境界)。同じ観測月は公式PDFの確報を優先し、公式PDFがない月は保存済み二次記事の確報、次に速報を使う。製造業PMIと対で内需サイクルを読む
     aliases: [サービス業PMI, 日本サービスPMI, JP services PMI, au Jibun services PMI]
   - series_id: jp.monetary_base
     name: 日本マネタリーベース

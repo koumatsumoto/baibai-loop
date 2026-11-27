@@ -102,7 +102,31 @@ def record_broker_fact(
                     "conflicting human report for existing fill event; "
                     "another fill needs an execution_id to distinguish it"
                 )
+            # An unreserved buy owns its classification; a reserved fill inherits the order's.
+            if (
+                existing.side == "buy"
+                and existing.reservation_id is None
+                and (
+                    (sector is not None and sector != existing.sector)
+                    or (common_factors and set(common_factors) != set(existing.common_factors))
+                )
+            ):
+                raise BrokerFactRecordingError(
+                    "conflicting human report for existing fill classification"
+                )
             return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
+        if execution_id is not None:
+            _require_distinct_broker_fill(
+                document,
+                decision_reference=decision_reference,
+                occurred_at=occurred_at,
+                occurred_on=occurred_on,
+                ticker=ticker,
+                side=side,
+                quantity=quantity,
+                price_yen=price_yen,
+                reservation_id=reservation_id,
+            )
     if status in {"cancelled", "expired"} and reservation_id is not None:
         release_reason: Literal["cancelled", "expired"] = (
             "cancelled" if status == "cancelled" else "expired"
@@ -117,18 +141,10 @@ def record_broker_fact(
         ):
             return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
 
-    # A delayed fill belongs at its reported occurrence, before any later
-    # release. The complete replacement is still replayed below, so inserting a
-    # fill cannot invalidate a saved release or another subsequent fact.
+    # A delayed order or fill must not inherit a later position's classification.
+    # Its insertion still requires a full replay of subsequent saved facts.
     state = replay_events_through(
-        document.events, occurred_at if status == "filled" else document.as_of
-    )
-    holding_metadata = state.metadata.get(ticker) if ticker is not None else None
-    resolved_sector = (
-        sector if sector is not None else (holding_metadata[0] if holding_metadata else None)
-    )
-    resolved_common_factors = (
-        common_factors if common_factors else (holding_metadata[1] if holding_metadata else ())
+        document.events, occurred_at if status in {"open", "filled"} else document.as_of
     )
     # A ticker alone cannot identify which order produced a confirmed fill.
     # The draft builder resolves a reported broker order ID to its reservation.
@@ -146,7 +162,7 @@ def record_broker_fact(
     additions: list[dict[str, object]] = []
 
     if status == "open":
-        _require(ticker=ticker, quantity=quantity, sector=resolved_sector)
+        _require(ticker=ticker, quantity=quantity)
         assert ticker is not None
         if price_guard_yen is None:
             raise BrokerFactRecordingError("open requires price_guard_yen")
@@ -189,8 +205,13 @@ def record_broker_fact(
                 "order_id": order_id
                 or (saved_order.order_id if saved_order else f"repository-order-{suffix}"),
                 "ticker": ticker,
-                "sector": resolved_sector,
-                "common_factors": sorted(resolved_common_factors),
+                **_reported_classification(
+                    sector,
+                    common_factors,
+                    (saved_order.sector, saved_order.common_factors)
+                    if saved_order is not None
+                    else state.metadata.get(ticker),
+                ),
                 "decision_reference": decision_reference,
                 "quantity": quantity,
                 "price_guard_yen": str(price_guard_yen),
@@ -207,7 +228,9 @@ def record_broker_fact(
         if side == "sell" and reservation is None:
             raise BrokerFactRecordingError("sell fill requires an active sell order")
         if reservation is None:
-            _require(sector=resolved_sector)
+            classification = _reported_classification(
+                sector, common_factors, state.metadata.get(ticker)
+            )
             resolved_reservation_id = None
         else:
             if ticker != reservation.ticker:
@@ -220,6 +243,7 @@ def record_broker_fact(
                     "filled decision_reference does not match the active reservation"
                 )
             resolved_reservation_id = reservation.reservation_id
+            classification = {}
         suffix = (
             _provided_execution_suffix(execution_id)
             if execution_id is not None
@@ -244,11 +268,7 @@ def record_broker_fact(
                 "quantity": quantity,
                 "price_yen": str(price_yen),
                 "decision_reference": decision_reference,
-                **(
-                    {"sector": resolved_sector, "common_factors": sorted(resolved_common_factors)}
-                    if reservation is None
-                    else {}
-                ),
+                **classification,
             }
         )
     else:
@@ -490,6 +510,18 @@ def _select_reservation(
     return matches[0]
 
 
+def _reported_classification(
+    sector: str | None,
+    common_factors: tuple[str, ...],
+    known: tuple[str, tuple[str, ...]] | None,
+) -> dict[str, object]:
+    if known is not None:
+        sector = sector if sector is not None else known[0]
+        common_factors = common_factors or known[1]
+    _require(sector=sector)
+    return {"sector": sector, "common_factors": sorted(common_factors)}
+
+
 def _require(**values: object) -> None:
     missing = [name for name, value in values.items() if value is None]
     if missing:
@@ -527,6 +559,60 @@ def _fill_suffix(
         )
     raw = f"{decision_reference}|{side}|{ticker}|date:{occurred_on.isoformat()}|{reservation_id}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _require_distinct_broker_fill(
+    document: PortfolioLedgerDocument,
+    *,
+    decision_reference: str | None,
+    occurred_at: datetime | None,
+    occurred_on: date | None,
+    ticker: str,
+    side: Literal["buy", "sell"],
+    quantity: int | None,
+    price_yen: Decimal | None,
+    reservation_id: str | None,
+) -> None:
+    """A previously ID-less fill makes an unseen broker ID ambiguous if the facts overlap.
+
+    Without a reference, the caller is deciding whether to mint one for a direct buy.
+    That new reference is not evidence of a separate unreserved manual fill.
+    """
+    occurrence = occurred_on or occurred_at
+    if occurrence is None:
+        return
+
+    for event in document.events:
+        if (
+            not isinstance(event, ExecutionEvent)
+            or event.ticker != ticker
+            or event.side != side
+            or event.reservation_id != reservation_id
+            or event.quantity != quantity
+            or event.price_yen != price_yen
+            or event.decision_reference is None
+        ):
+            continue
+        reference = event.decision_reference
+        if decision_reference is not None:
+            if reference != decision_reference:
+                continue
+        elif not (
+            side == "buy" and reservation_id is None and reference.startswith("manual-fact-")
+        ):
+            continue
+
+        if not event.overlaps_reported_occurrence(occurrence):
+            continue
+        suffix = _fill_suffix(
+            reference, side, ticker, event.occurred_at, event.occurred_on, reservation_id
+        )
+        # A stable broker ID can have the same spelling as the fallback. Match both stored IDs.
+        if (event.event_id, event.execution_id) == (f"human-fill-{suffix}", f"execution-{suffix}"):
+            raise BrokerFactRecordingError(
+                "cannot distinguish new execution_id from a matching fill previously reported "
+                "without a broker ID; verify the broker record and retry with the original identity"
+            )
 
 
 def _validate_execution_id(value: str) -> None:

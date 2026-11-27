@@ -31,6 +31,11 @@ def observe(prices, *, states=None, calendar=None):
     [
         ((None,) * 6, "no_trade"),
         ((100, 100, 100, 100, 10, 1000), "priced"),
+        ((100, 110, 90, 110, 10, 1000), "priced"),
+        ((110, 110, 90, 90, 10, 1000), "priced"),
+        ((111, 110, 90, 100, 10, 1000), "invalid"),
+        ((100, 110, 90, 89, 10, 1000), "invalid"),
+        ((100, 90, 110, 100, 10, 1000), "invalid"),
         ((None, None, None, 100, None, None), "mixed"),
         ((100, 100, 100, 0, 10, 1000), "invalid"),
         ((100, 100, 100, float("nan"), 10, 1000), "invalid"),
@@ -39,6 +44,19 @@ def observe(prices, *, states=None, calendar=None):
 )
 def test_saved_six_field_state_is_not_a_reason_for_no_executions(values, expected):
     assert classify_price_day(values) == expected
+
+
+def test_contradictory_open_does_not_certify_endpoint_or_erase_close_only_path():
+    prices = dict.fromkeys(DATES[-61:], 100.0)
+    states = dict.fromkeys(prices, "priced")
+    states[ASOF] = classify_price_day((120.0, 110.0, 90.0, 100.0, 10.0, 1000.0))
+    result = observe(prices, states=states).payload
+    assert result["current_row_state"] == "invalid"
+    r1 = result["observations"]["R1"]
+    assert r1["coverage"]["complete"] is False
+    assert r1["value"] is None
+    g60 = result["observations"]["G60"]
+    assert g60["path_statistics"]["status"] == "available"
 
 
 @pytest.mark.parametrize("state", ["no_trade", "absent", "mixed", "invalid"])

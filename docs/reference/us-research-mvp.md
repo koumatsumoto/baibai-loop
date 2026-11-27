@@ -1,13 +1,15 @@
 # 米国株の固定受領から調査候補を作る
 
-このページのCLI手順は、固定受領と隔離コピーで、米国株の観測・調査・査読を試すためのもの。CLIは固定したAlpaca IEXの日次集計とSECの指定期間の売上を読み、次に調べることと保留理由を標準出力へ返す。本番の査読済み判断は[Webの「売買提案」→「米国株」](../../web/README.md#表示の意味)で読む。このCLIは本番への転送、日次選抜や注文を行わない。
+ここでは固定受領と隔離Appを使い、米国株の観測・調査・査読済み判断を試す。調査CLIは固定したAlpaca IEXの日次集計とSECの指定期間の売上を読み、次に調べることと保留理由を標準出力へ返す。同じ経路を合成fixtureで試せる。本番の査読済み判断は[Webの「売買提案」→「米国株」](../../web/README.md#表示の意味)で読む。ここでのCLIは本番配信・日次選抜・注文に接続しない。
+
+リポジトリのルートで[開発環境を準備](../development.md#手元で始める)してから実行する。`--offline` は依存を初回取得しない。
 
 ```bash
 uv run --offline python -m tools.experiments.us_research_mvp
 uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/manifest.json
 ```
 
-`research_candidate` は調査を進められる状態。幅や成長を証明するシグナルではない。`hold_for_evidence` は証拠保留で、保有継続を指さない。どちらも `no_action`。IEX分割調整済みの**観測20日分**だけで平均と乖離を計算する。NY日付で当日受領しかない足は途中集計として除き、後日同じ束を再読しても採用しない。市場の取引暦が揃ったとはみなさず、公式引けや約定可能値、売買代金を作らない。
+`research_candidate` は調査を進められる状態。幅や成長を証明するシグナルではない。`hold_for_evidence` は証拠保留で、保有継続を指さない。どちらにも出る `売買: no_action` は「この観測CLIは売買判断を出さない」という固定表示で、査読済みの「見送り」ではない。正式な判断は[別の手順](#隔離appに米国株の見送り判断保留を保存する)で記録し、比較に必要な根拠が欠ければ `defer` とする。終了コード0は報告を出せたことだけを示し、証拠の充足や実データ受入を意味しない。引数やmanifest自体が不正なら2。IEX分割調整済みの**観測20日分**だけで平均と乖離を計算する。NY日付で当日受領しかない足は途中集計として除き、後日同じ束を再読しても採用しない。市場の取引暦が揃ったとはみなさず、公式引けや約定可能値、売買代金を作らない。
 
 ## USDの調査・比較を査読して保存する（正式提案は発行しない）
 
@@ -40,6 +42,8 @@ uv run --offline python -m tools.experiments.us_research_report check-render \
 
 私有レポートの保存とは別に、USD建ての一社の判断を[米国株の保存owner](../../engine/src/baibai_engine/investment_judgment/us_proposal.py)で記録する。判断保留（`defer`）は根拠未確定でも理由と見直し条件を明示する。見送り（`no_action`）は取引所の無調整終値と同じUSD現金との比較、その上で資金を投じない理由がある場合だけ。比較の終期は判断の作成日・保存日（いずれも米東部時間）より後とし、過ぎた比較を新規発行に使わない。保存済み判断の読戻しには現在時刻を使わない。IEXで埋めない。数量、売買条件、口座や円換算は扱わず、日本株の提案・進捗・台帳への書込も行わない。
 
+現在の判断として見送りを新規発行するときは、比較に使った公式終値が対象取引所の直近の完了立会のものか、分析の締切後に判断を変える公表・権利変更がないかを査読で照合する。発行時刻だけでは、価格や根拠の鮮度は確認できない。重要な根拠が足りなければ `defer` とし、会社IRなどの確認先と再検討の条件を `revisit_when` に記す。
+
 査読済みの分析を用い、[判断原稿と査読の例](../../tests/tools/test_us_research_report.py)に沿って独立した提案本文の査読を取る。`proposal-digest` が出す提案IDとSHAに、見送りか保留か、理由、見直し条件、元の分析・その査読を結び付ける。分析の査読を提案の査読として使い回さない。査読済み分析の内容はApp内に保存され、読戻しでは分析と提案それぞれが査読に結び付いていることも確認する。元ファイルや再描画は不要で、同IDの差替えや欠損・破損した最新判断から別判断へのfallbackは行わない。
 
 ```bash
@@ -68,7 +72,7 @@ uv run --offline python -m tools.experiments.us_research_report proposal-show \
 uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/manifest.json --accept-iex-session YYYY-MM-DD
 ```
 
-各銘柄で、cutoffまでに受領し、かつその足のNY翌日以降に受領した最新観測が指定日と一致する場合だけ終了コード0。受領チェーン不備・観測欠落・日付不一致は1。cutoffを書き換えても、取引日当日に受領した足は採用しない。暦の推定、SEC・調査候補判定、公式引けや売買可否の確認はしない。通常の調査は `--accept-iex-session` を付けずに実行する。
+各銘柄で、cutoffまでに受領し、かつその足のNY翌日以降に受領した最新観測が指定日と一致する場合だけ終了コード0。有効なmanifestでの受領チェーン不備・観測欠落・日付不一致は1。cutoffを書き換えても、取引日当日に受領した足は採用しない。暦の推定、SEC・調査候補判定、公式引けや売買可否の確認はしない。通常の調査は `--accept-iex-session` を付けずに実行する。
 
 ## 許可済みの実受領を束ねる
 
@@ -76,13 +80,20 @@ CLI自体はネットへ接続しない。許可済みの収集CLI/transportが�
 
 指定CIKのSEC [Submissions](https://www.sec.gov/search-filings/edgar-application-programming-interfaces#data-sec-gov-submissions) の原本から、Alpacaの銘柄ラベルが同じ発行体に明示されているかを照合する。未受領・受領遅れ・不一致なら日足の観測だけ残し、その発行体の財務とは結合しない。申告ラベルだけでは採用しない。この照合は現在の銘柄表記とCIKまでで、取引所・株式クラス・過去の名称変更まで証明しない。最初の実データ受入では、採用した提出書表紙のSection 12(b)で銘柄と市場・株式クラスが対応する行を別担当が照合する。同一企業のGOOG/GOOGL等は別の株式クラスとして扱い、財務は発行体単位のまま読む。証拠が揃わなければ実データ受入は保留する。
 
-SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) の原本と、別途固定した提出証拠を用意する。`published_at` はそのaccessionの独立した初回公表時刻が確認できた場合だけ。SECの受付時計や取得時刻では埋めない。初回公表時刻が不明でも、SECの該当提出索引を実際に受領していれば、`published_at` と `publication_ref` をnullのまま置き、任意の `filing.public_index` に正規 `<accession>-index.htm` の原本を指定できる。報告に示す公開確認時刻は、その索引の受領時刻であり初回公表ではない。`public_seen_at` の申告だけは採用に使わない。時点証明が足りない場合は保留し、代替conceptを勝手に合算しない。
+SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) の原本と、別途固定した提出証拠を用意する。`published_at` はそのaccessionの独立した初回公表時刻が確認できた場合だけ。SECの受付時計や取得時刻では埋めない。初回公表時刻が不明でも、SECの該当提出索引を実際に受領していれば、`published_at` と `publication_ref` をnullのまま置き、任意の `filing.public_index` に正規 `<accession>-index.htm` の原本を指定できる。報告に示す公開確認時刻は、その索引の受領時刻であり初回公表ではない。公開を見た時刻の申告は、採用・保留のどちらの根拠にも使わない。時点証明が足りない場合は保留し、代替conceptを勝手に合算しない。
 
 採用する売上は、提出書の対象列と照合した開始日・終了日を固定する。通常四半期は10-Qまたは10-Q/Aの単独四半期で、期間は両端を含む89〜98日（連続3暦月、13〜14週を含む）。明示した10-Kは52週・53週または暦年相当の通期売上として区別し、10-K/Aや変則決算は対象外。期間長だけでは会計上の区分を証明しない。同じ10-Q、同じ期末日でも半年・9か月累計や範囲外の変則期は保留し、差分で単独四半期を作らない。最新の提出は自動で選ばず、報告には採用期間を表示する。
 
 採用できる提出索引があれば、索引の `Period of Report` と指定期末日 `period_end` が一致する場合だけ当期を採用する。同じ提出の前年列を当期には使わない。`--compare-sec` の前年列は従来どおり比較に使う。索引を使わず独立公表証拠を使う場合は索引での照合は行わないため、提出書の対象列との照合は入力作成側で行う。
 
-同じ10-Qまたは10-Q/Aの発行体財務だけを比較する場合は `--compare-sec CIK 会計四半期 前年四半期開始 前年四半期終了 当期期首 前年期首` を付ける。当期の日付はmanifestの期間を使う。会計四半期（Q1・Q2・Q3）と残りの日付は提出書の比較列で確認して指定する。指定四半期と一致し、四半期の開始・終了と期首それぞれの間隔が364〜371日の前年比較だけを対象にし、売上・営業利益は単独四半期、営業CF・有形固定資産の現金取得額は期首来累計のUSDで出す。原本の符号を変えず、欠測は補わない。株価・候補判定・一株価値には接続しない。
+同じ10-Qまたは10-Q/Aの発行体財務だけを比較する例（会計四半期はQ1・Q2・Q3）。
+
+```bash
+uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/manifest.json \
+  --compare-sec <CIK> Q3 <PRIOR_Q_START> <PRIOR_Q_END> <CURRENT_FY_START> <PRIOR_FY_START>
+```
+
+終了コード0でも、報告に不足・未採用を含み得る。当期の日付はmanifestの期間を使う。会計四半期と残りの日付は提出書の比較列で確認して指定する。指定四半期と一致し、四半期の開始・終了と期首それぞれの間隔が364〜371日の前年比較だけを対象にし、売上・営業利益は単独四半期、営業CF・有形固定資産の現金取得額は期首来累計のUSDで出す。原本の符号を変えず、欠測は補わない。株価・候補判定・一株価値には接続しない。
 
 取得toolでは許可済みの秘密情報をプロセスにだけ渡し、鍵、Authorizationヘッダー・コマンドログを保存しない。実際に本文まで受領した時刻とHTTP状態を記録し、SHA-256はその原本bytesから作る。送信時刻やこのCLIの実行時刻を受領にしない。必要な権限または接続がない場合、実データで合格したとは扱わない。
 
@@ -176,7 +187,11 @@ SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終�
 
 ## Nasdaqの公式終値を固定受領から読む
 
-Alpaca SIP経由の終値を使う場合だけ追加する。対象はNasdaq上場（XNAS）で、同一銘柄・株式クラス・NY立会日とその終了時刻を別の証拠で確認済みのもの。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec_3.0.pdf)に当たるNasdaqの無調整公式終値であり、取引所からの直接受領、約定値、統合終値、IEX観測ではない。
+Alpaca SIP経由の終値を使う場合だけ追加する。対象はNasdaq上場（XNAS）で、同一銘柄・株式クラス・NY立会日とその終了時刻を別の証拠で確認済みのもの。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec-4.1b.pdf)に当たるNasdaqの無調整公式終値であり、取引所からの直接受領、約定値、統合終値、IEX観測ではない。
+
+**SIPを取得してよいかは、価格の検証より先に確認する。** Alpacaの[Paper Only口座の説明](https://docs.alpaca.markets/us/docs/paper-trading)では、受領・利用できるのはIEXのデータだけ。[一般の市場データFAQ](https://docs.alpaca.markets/us/docs/market-data-faq)が説明する「履歴の終了時刻が15分以上前」という条件は、その口座にSIPの利用を許すものではない。利用する口座・用途でSIPの許諾が確認できない場合はSIPを取得せず、IEX日足を調査用観測としてだけ使う。別途確認できた上場取引所の公式終値もなければ、公式終値とそれを使う比較は空欄にする。
+
+[銘柄別のオークションAPI](https://docs.alpaca.markets/us/reference/stockauctionsingle-1)はSIP専用。通信成功と、その価格を第三者に表示できるかは別である。[Alpacaの再配布方針](https://alpaca.markets/support/redistribute-alpaca-api)に従い、配信先・用途に対応する許諾が確認できない限り、取得した価格や原本を第三者に配信しない。認証付きWebであっても、認証がその許諾の代わりにはならない。
 
 1. 許可済みの取得手段で、`NasdaqOfficialCloseQuery.url()` が作る[Alpaca SIPの要求](https://docs.alpaca.markets/us/reference/stockauctionsingle-1)を使う。単一銘柄、同じNY日内で立会終了を含み、それより後までのUTC秒単位区間、`feed=sip`、`currency=USD`、`asof=-`。実行時に確認した `request_url`・`response_url`（両方とも固定URLと一致）、`status: 200`、`complete: true`、`redirected: false`、全文を受領した `received_at`（`Z` または有効な `±HH:MM`、`-00:00` は不可、小数秒6桁まで）と原本バイト列の `sha256` を受領JSONに残す。応答本文は整形せず別の私有ファイルに保存する。HTTP 200やSHAだけから全文受領・リダイレクト有無を推定せず、欠けた記録は後から補わない。鍵・認証ヘッダーは保存しない。
 2. 要求区間の終端以降かつ情報締切以前に受領した、`next_page_token: null` が明示された同日・同銘柄の応答を使う。引けイベント全体でQ/Mが一つだけで、その発生時刻が立会終了から要求区間の終端まで（両端を含む）にある場合だけ採用する。[合成入力例](../../tests/tools/test_us_research_report_sip.py)のように、`read_nasdaq_official_close` の結果を `sip_official_close_fields` で原稿の `official_close`（`origin: "alpaca_sip_nasdaq_official_close"`）に写す。発生時刻は原文の精度を保持し、全文受領時刻とは分ける。証拠が不足する場合は公式値・比較を埋めず、未確認事項を残す。

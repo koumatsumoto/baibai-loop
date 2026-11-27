@@ -31,6 +31,7 @@ from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.price_inputs import (
     PRICE_PROJECTION_REVISION,
     SavedPriceProjectionRevisionMismatch,
+    read_closed_price_days,
     read_price_input,
 )
 from baibai_engine.machine_analysis.generation.query import read_generation
@@ -38,7 +39,11 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
-from baibai_jobs.integration.calendar_native import fixed_input
+from baibai_jobs.acquisition.calendar_dependencies import (
+    CalendarDependencyUnavailable,
+    saved_calendar_context,
+)
+from baibai_jobs.integration.calendar_native import fixed_input, materialize_saved_input
 from baibai_jobs.integration.calendar_native import rebuild_saved_input as rebuild_saved_calendar
 from baibai_jobs.integration.price_native import model_input, rebuild, rebuild_saved_input
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -442,6 +447,44 @@ def test_fresh_price_proof_requires_the_exact_adopted_day(tmp_path, field, repla
     assert scopes[saturday] == {}
     assert scopes[sunday]["closed_calendar"]
     assert len([key for key in store.get_keys if "market-calendar/v1/packs/" in key]) == 1
+
+
+@pytest.mark.parametrize("invalid_flag", [False, "false", 1])
+def test_unproved_calendar_day_remains_missing_from_acquisition_basis_and_price_coverage(
+    tmp_path, invalid_flag
+):
+    store, _, calendar, market = source_fixture(tmp_path)
+    original = fixed_input(store, calendar.fixed(), as_of=LAST, evaluated_at=AT)
+    selected = read_calendar_input(store, original.descriptor, days=DAYS)
+    selected["scopes"][SATURDAY.isoformat()]["valid"] = invalid_flag
+    descriptor = retain_calendar_input(store, {**original.descriptor, **selected})
+    # A saved calendar without a projection revision is materialized without reclassifying raw days.
+    descriptor["summary"] = dict(descriptor["summary"])
+    descriptor["summary"].pop("projection_revision")
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    saved = InputSnapshot(
+        kind="native_l1",
+        reference="jquants-market-calendar-" + digest,
+        sha256=digest,
+        descriptor=descriptor,
+    )
+    assert saved_calendar_context(store, saved, observation_date=FIRST) == (FIRST, True)
+    with pytest.raises(CalendarDependencyUnavailable):
+        saved_calendar_context(store, saved, observation_date=SATURDAY)
+    proof = {"closed_calendar": descriptor["selection_sha256"]}
+    with pytest.raises(ValueError, match="not proved"):
+        read_closed_price_days(store, {SATURDAY.isoformat(): proof})
+    assert read_closed_price_days(store, {SUNDAY.isoformat(): proof}) == {SUNDAY}
+
+    summary = materialize_saved_input(store, saved, market=market, days=(SATURDAY, SUNDAY))
+    assert summary["rows"] == summary["invalid_days"] == 1
+    assert summary["unknown_division_days"] == 0
+    assert summary["raw_coverage_status"] == summary["coverage_status"] == "partial"
+
+    head = calendar.fixed().value()
+    head["days"][SATURDAY.isoformat()]["valid"] = invalid_flag
+    store.store_object(native_calendar.HEAD_KEY, json.dumps(head).encode())
+    assert calendar.fixed().plan(start=FIRST, end=LAST) == (SATURDAY,)
 
 
 def test_historical_closure_replays_but_cannot_be_minted_again(tmp_path, monkeypatch):

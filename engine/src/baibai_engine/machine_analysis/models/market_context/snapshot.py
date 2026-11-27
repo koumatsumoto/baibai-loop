@@ -194,7 +194,7 @@ def calculate_market_snapshot(
     masters_by_date: Mapping[date, MasterSnapshot | None],
     series_by_ticker: Mapping[str, _Series],
 ) -> dict[str, object]:
-    """各評価日の固定masterと価格だけからbreadth・業種比較を計算する。"""
+    """評価点に対応する価格日基準のbreadth用masterとは別に、業種表は評価日のmasterを使う。"""
     point_dates = [
         asof_date - timedelta(days=7 * offset) for offset in range(history_weeks - 1, -1, -1)
     ]

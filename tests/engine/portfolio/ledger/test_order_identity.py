@@ -1,13 +1,16 @@
 """保存注文の明示IDでcash・残数・terminal再試行を束縛する合成回帰。"""
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
+import yaml
 from tests.helpers.db_seed import seed_ledger
 
-from baibai_engine.portfolio.ledger.drafts import apply_draft, build_broker_fact_draft
+from baibai_engine.cli.portfolio import main
+from baibai_engine.portfolio.ledger.drafts import apply_draft, build_broker_fact_draft, load_draft
 from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
     PortfolioLedgerDocument,
@@ -123,6 +126,233 @@ def test_order_id_consumes_only_its_reserved_quantity(
             **(report | {"order_id": "wrong-order"}),
             execution_id="synthetic-fill-2",
         )
+
+
+@pytest.mark.parametrize("reserved", [True, False], ids=["reserved", "manual"])
+@pytest.mark.parametrize(
+    ("first_date_only", "retry_date_only"),
+    [(False, False), (True, True), (True, False), (False, True)],
+    ids=["instants", "dates", "date-to-instant", "instant-to-date"],
+)
+def test_new_broker_id_cannot_repeat_a_fill_reported_without_id(
+    tmp_path, capsys, reserved, first_date_only, retry_date_only
+):
+    service = _service(tmp_path, cash=300_000)
+    db = tmp_path / "app.sqlite"
+    fill_at = AT + timedelta(minutes=10)
+    out = tmp_path / "fill.yaml"
+    args = [
+        "broker-fact-draft",
+        "--db",
+        str(db),
+        "--direct-fact",
+        "--status",
+        "filled",
+        "--ticker",
+        "1234",
+        "--quantity",
+        "100",
+        "--price-yen",
+        "900",
+    ]
+    reservation_id = None
+    if reserved:
+        reservation_id = _open(service, "synthetic-order", quantity=300, direct_fact=True)
+        args.extend(["--order-id", "synthetic-order"])
+    # The stated instant's UTC date is the previous date; JST determines a date-only match.
+    fill_at = (fill_at + timedelta(days=1)).replace(hour=0) if not reserved else fill_at
+    half_hour_offset = timezone(timedelta(hours=-3, minutes=-30))
+    date_arg = ["--occurred-on", fill_at.date().isoformat()]
+    original_at = ["--occurred-at", fill_at.astimezone(half_hour_offset).isoformat()]
+    utc_at = ["--occurred-at", fill_at.astimezone(UTC).isoformat()]
+    assert (
+        main(
+            [
+                *args,
+                *(date_arg if first_date_only else original_at),
+                "--sector",
+                "synthetic",
+                "--out",
+                str(out),
+            ],
+            now=fill_at,
+        )
+        == 0
+    )
+    first_result = yaml.safe_load(capsys.readouterr().out)
+    assert first_result["status"] == "draft_created"
+    apply_draft(service, load_draft(out), human_confirmed=True)
+    before = db.read_bytes()
+    saved, head = service.load_with_head()
+    retry = tmp_path / "retry.yaml"
+    retry_args = (
+        args if reserved else [*args, "--decision-reference", first_result["decision_reference"]]
+    )
+    assert (
+        main(
+            [*retry_args, *(date_arg if first_date_only else utc_at), "--out", str(retry)],
+            now=fill_at,
+        )
+        == 0
+    )
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
+
+    assert (
+        main(
+            [
+                *args,
+                *(date_arg if retry_date_only else utc_at),
+                "--execution-id",
+                "first-broker-id",
+                "--out",
+                str(retry),
+            ],
+            now=fill_at,
+        )
+        == 2
+    )
+    output = capsys.readouterr()
+    assert "previously reported without a broker ID" in output.err
+    assert output.out == ""
+    assert not retry.exists()
+    assert db.read_bytes() == before
+    assert service.load_with_head() == (saved, head)
+    state = replay_events_through(saved.events, saved.as_of)
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 100
+    if reservation_id is not None:
+        assert state.active_reservations[reservation_id].remaining_quantity == 200
+        assert state.reserved_cash_yen == 200_000
+        assert state.available_cash_yen == 10_000
+    else:
+        assert not state.active_reservations
+        assert state.reserved_cash_yen == 0
+        assert state.available_cash_yen == 210_000
+
+
+@pytest.mark.parametrize(
+    "next_jst_day", [False, True], ids=["distinct-times", "distinct-jst-dates"]
+)
+def test_distinct_fill_occurrence_can_have_new_id(tmp_path: Path, next_jst_day: bool):
+    service = _service(tmp_path, cash=300_000)
+    _open(service, "synthetic-order", quantity=300)
+    at = AT + timedelta(minutes=10)
+    now = AT + timedelta(hours=16)
+    report = dict(
+        decision_reference=REFERENCE,
+        status="filled",
+        ticker="1234",
+        quantity=100,
+        price_yen=Decimal(900),
+        order_id="synthetic-order",
+        now=now,
+    )
+    first_occurrence = {"occurred_on": at.date()} if next_jst_day else {"occurred_at": at}
+    first, _ = build_broker_fact_draft(service, lambda _: "1234", **report, **first_occurrence)
+    assert first is not None
+    apply_draft(service, first, human_confirmed=True)
+    second_at = now if next_jst_day else at + timedelta(minutes=1)
+    second, _ = build_broker_fact_draft(
+        service,
+        lambda _: "1234",
+        **report,
+        occurred_at=second_at.astimezone(UTC),
+        execution_id="distinct-broker-id",
+    )
+    assert second is not None
+    apply_draft(service, second, human_confirmed=True)
+    doc, head = service.load_with_head()
+    # An explicit known ID keeps the strict original report precision, not the collision rule.
+    with pytest.raises(ValueError, match="conflicting human report"):
+        build_broker_fact_draft(
+            service,
+            lambda _: "1234",
+            **report,
+            occurred_on=second_at.date(),
+            execution_id="distinct-broker-id",
+        )
+    assert service.load_with_head() == (doc, head)
+    state = replay_events_through(doc.events, doc.as_of)
+    assert head == 4
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 200
+    assert state.reserved_cash_yen == 100_000
+
+
+def test_new_broker_id_matches_instant_not_repeated_wall_clock(tmp_path: Path):
+    service = _service(tmp_path, cash=300_000)
+    first_clock = datetime(2026, 11, 1, 1, 30, tzinfo=ZoneInfo("America/New_York"))
+    later_clock = first_clock.replace(fold=1)
+    report = dict(
+        decision_reference=None,
+        direct_fact=True,
+        status="filled",
+        ticker="1234",
+        quantity=100,
+        price_yen=Decimal(900),
+        sector="synthetic",
+        now=later_clock,
+    )
+    original, _ = build_broker_fact_draft(
+        service, lambda _: "1234", **report, occurred_at=first_clock
+    )
+    assert original is not None
+    apply_draft(service, original, human_confirmed=True, now=later_clock)
+    saved = service.load_with_head()
+    with pytest.raises(ValueError, match="previously reported without a broker ID"):
+        build_broker_fact_draft(
+            service,
+            lambda _: "1234",
+            **report,
+            occurred_at=first_clock,
+            execution_id="now-known-id",
+        )
+    assert service.load_with_head() == saved
+    later, _ = build_broker_fact_draft(
+        service,
+        lambda _: "1234",
+        **report,
+        occurred_at=later_clock,
+        execution_id="genuinely-later-id",
+    )
+    assert later is not None
+
+
+def test_stable_broker_id_equal_to_fallback_text_is_not_an_idless_fill(tmp_path):
+    service = _service(tmp_path, cash=300_000)
+    _open(service, "synthetic-order", quantity=300)
+    fill_at = AT + timedelta(minutes=10)
+    report = dict(
+        decision_reference=REFERENCE,
+        status="filled",
+        occurred_at=fill_at,
+        ticker="1234",
+        quantity=100,
+        price_yen=Decimal(900),
+        order_id="synthetic-order",
+        now=fill_at,
+    )
+    fallback, _ = build_broker_fact_draft(service, lambda _: "1234", **report)
+    assert fallback is not None
+    hypothetical = fallback.replacement.events[-1]
+    assert isinstance(hypothetical, ExecutionEvent)
+    stable_ids = (hypothetical.execution_id, "second-broker-id")
+    for explicit_id in stable_ids:
+        draft, _ = build_broker_fact_draft(
+            service, lambda _: "1234", **report, execution_id=explicit_id
+        )
+        assert draft is not None
+        saved = draft.replacement.events[-1]
+        assert isinstance(saved, ExecutionEvent)
+        assert saved.execution_id == explicit_id
+        assert saved.event_id != hypothetical.event_id
+        apply_draft(service, draft, human_confirmed=True)
+        assert build_broker_fact_draft(
+            service, lambda _: "1234", **report, execution_id=explicit_id
+        ) == (None, ())
+    doc, head = service.load_with_head()
+    state = replay_events_through(doc.events, doc.as_of)
+    assert head == 4
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 200
+    assert state.reserved_cash_yen == 100_000
 
 
 def test_proposal_fill_rejects_conflicting_order_and_reservation_ids(tmp_path: Path):

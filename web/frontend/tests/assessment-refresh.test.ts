@@ -48,6 +48,13 @@ describe('保存評価の差分確認', () => {
     expect(html).not.toContain('今後40円')
   })
 
+  it('価格と価値の判断を変更した区画も、保存順のまま画面の見出しで示す', () => {
+    const pair = assessment()
+    pair.refresh!.changed_sections = ['valuation', 'price_value_case', 'sources']
+    const html = renderToStaticMarkup(createElement(ProposalItemCard, { item: { ...reviewedDeferFixture, assessment: pair } }))
+    expect(html).toMatch(/今回変更した範囲<\/dt><dd[^>]*>価値算定、一株の価値と価格、資料<\/dd>/)
+  })
+
   it('保有の当初評価と今回評価に別の更新元・理由を保持する', () => {
     const item = { ...holdFixture, assessment: assessment('今回'), original_assessment: assessment('当初') }
     const html = renderToStaticMarkup(createElement(ProposalItemCard, { item }))

@@ -27,6 +27,19 @@ def validate_finite(value: float | None) -> float | None:
     return value
 
 
+def close_conflicts_with_observed_range(close: float, *, high: object, low: object) -> bool:
+    """A positive raw close cannot cross a same-row usable high or low.
+
+    An absent or invalid bound is not evidence against an independently observed close.
+    This check is independent of coverage, turnover, and share volume.
+    """
+    if not isfinite(close) or close <= 0:
+        return False
+    return (isinstance(high, int | float) and 0 < high < close) or (
+        isinstance(low, int | float) and isfinite(low) and low > close
+    )
+
+
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsDailyBar:
     ticker: str

@@ -255,3 +255,24 @@ def test_authored_record_parse_errors_do_not_create_records_or_exports(
     assert (db.read_bytes() if db.exists() else None) == before
     assert not out.exists()
     assert draft.read_text(encoding="utf-8") == text
+
+
+@pytest.mark.parametrize("command", ["latest", "catalog", "scaffold", "save"])
+def test_company_research_never_uses_the_absent_app_as_its_export(
+    tmp_path, capsys, monkeypatch, command
+):
+    db, draft, _, _ = _case(tmp_path, "company-research")
+    if command == "save":
+        args = ["save", str(draft), "--db", str(db)]
+    else:
+        monkeypatch.setenv("BAIBAI_DB", str(db))
+        args = [command, "--asof", "2026-10-14"]
+        if command != "catalog":
+            args.extend(["--ticker", "1234"])
+
+    assert not db.exists()
+    assert main(["investment-judgment", "company-research", *args, "--out", str(db)]) == 4
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert result.err == "error: output must be separate from the application database\n"
+    assert not db.exists()

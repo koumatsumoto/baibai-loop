@@ -282,15 +282,18 @@ def test_indicator_download_refuses_unproven_body(tmp_path, operation, failure):
     assert _remote_writes(log) == []
     assert "synthetic-private-value" not in completed.stderr
     assert local_path.read_bytes() == local
-    if operation == "pull-indicators":
-        assert not (Path(env["R2_GENERATION_DIR"]) / "indicators.sqlite.etag").exists()
     assert not list(root.glob(".r2-transfer.*"))
 
 
-def test_indicator_pull_installs_the_single_pinned_get(tmp_path):
+def test_indicator_pull_installs_the_single_pinned_get(tmp_path, monkeypatch):
+    monkeypatch.setenv("R2_STORES_BUCKET", "operator-selected-stores")
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
+    # Indicator pushes merge a fresh remote copy; only the App needs a local origin.
+    unavailable_origin_dir = tmp_path / "not-a-directory"
+    unavailable_origin_dir.write_text("untouched")
+    env["R2_GENERATION_DIR"] = str(unavailable_origin_dir)
     canonical = _indicator_fixture(Path(env["AWS_FAKE_STATE"]) / "put-indicators.sqlite", "a")
 
     completed = subprocess.run(
@@ -310,9 +313,7 @@ def test_indicator_pull_installs_the_single_pinned_get(tmp_path):
     assert sum(command.startswith("s3api head-object ") for command in commands) == 2
     assert _remote_writes(log) == []
     assert (root / "stores/market_context/indicators.sqlite").read_bytes() == canonical
-    assert (
-        Path(env["R2_GENERATION_DIR"]) / "indicators.sqlite.etag"
-    ).read_text() == '"etag-stable"\n'
+    assert unavailable_origin_dir.read_text() == "untouched"
 
 
 def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> None:
@@ -557,6 +558,57 @@ def test_application_push_does_not_require_the_common_lease(tmp_path):
     assert not (Path(env["AWS_FAKE_STATE"]) / "lease-checks").exists()
 
 
+@pytest.mark.parametrize("profile", ["file", "mixed", "complete", "defaults"])
+def test_credential_fallback_resolves_one_r2_target(tmp_path, profile):
+    root = _fake_repo(tmp_path)
+    binary, log = _fake_aws(tmp_path)
+    env = _environment(binary, log)
+    env["GITHUB_ACTIONS"] = "true"
+    if profile != "complete":
+        env.pop("R2_ACCESS_KEY_ID")
+    if profile == "file":
+        env.pop("R2_ACCOUNT_ID")
+        env.pop("R2_SECRET_ACCESS_KEY")
+    if profile in {"mixed", "complete"}:
+        env.update(R2_STORES_BUCKET="shell-stores", R2_SERVING_BUCKET="shell-serving")
+    settings = (
+        "R2_ACCOUNT_ID=file-account\nR2_ACCESS_KEY_ID=file-id\nR2_SECRET_ACCESS_KEY=file-secret\n"
+    )
+    if profile != "defaults":
+        settings += "R2_STORES_BUCKET=file-stores\nR2_SERVING_BUCKET=file-serving\n"
+    (root / ".env").write_text(settings)
+    env["EXPECT_FAKE_R2_CREDENTIALS"] = (
+        ("access-for-test" if profile == "complete" else "file-id")
+        + ":"
+        + ("file-secret" if profile == "file" else "secret-for-test")
+    )
+    output = tmp_path / "serving"
+    (output / "views").mkdir(parents=True)
+    for name in _SERVING_VIEW_ORDER:
+        (output / "views" / f"{name}.json").write_text("{}")
+    for command in (["push-indicators"], ["upload-portfolio-views", output]):
+        result = subprocess.run(
+            [root / "jobs/scripts/r2_transfer.sh", *command],
+            env=env,
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+    prefix = {"file": "file", "mixed": "shell", "complete": "shell", "defaults": "baibai"}[profile]
+    account = "file-account" if profile == "file" else "account-for-test"
+    calls = [line for line in _transfer_commands(log) if line.startswith(("s3api ", "s3 "))]
+    checks = (Path(env["AWS_FAKE_STATE"]) / "lease-checks").read_text().splitlines()
+    assert set(checks) == {f"verify {prefix}-stores"}
+    assert any(line.startswith("s3api put-object ") for line in calls)
+    assert any(line.startswith("s3 cp ") for line in calls)
+    assert all(f"--bucket {prefix}-stores " in line for line in calls if line.startswith("s3api "))
+    assert all(f"s3://{prefix}-serving/views/" in line for line in calls if line.startswith("s3 "))
+    assert all(
+        f"--endpoint-url https://{account}.r2.cloudflarestorage.com" in line for line in calls
+    )
+
+
 def test_transfer_lease_verifies_the_selected_stores_bucket_not_a_late_env_override(tmp_path):
     root = _fake_repo(tmp_path)
     binary, log = _fake_aws(tmp_path)
@@ -591,8 +643,9 @@ def test_transfer_lease_verifies_the_selected_stores_bucket_not_a_late_env_overr
 )
 @pytest.mark.parametrize("in_actions", [False, True])
 def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
-    tmp_path, invalid, shape, in_actions
+    tmp_path, invalid, shape, in_actions, monkeypatch
 ):
+    monkeypatch.setenv("R2_SERVING_BUCKET", "operator-selected-serving")
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ from baibai_engine.primitives.dates import parse_iso_date as _parse_iso_date
 from baibai_engine.primitives.time import JST
 from baibai_engine.primitives.yaml import NoAliasSafeDumper as _NoAliasDumper
 from baibai_engine.storage.paths import MARKET_DB_PATH
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 
 
 def market_snapshot_command(
@@ -43,6 +45,9 @@ def market_snapshot_command(
         )
     except NoCachedDailyBars:
         print(f"no cached daily bars found to resolve --asof: {sqlite_path}", file=sys.stderr)
+        return 1
+    except (SQLiteSchemaError, sqlite3.Error, OSError) as error:
+        print(f"error: market snapshot read failed: {error}", file=sys.stderr)
         return 1
     if output_format == "json":
         print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), file=out)

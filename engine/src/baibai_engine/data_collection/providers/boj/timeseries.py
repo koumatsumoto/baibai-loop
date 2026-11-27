@@ -93,6 +93,9 @@ def parse_boj_timeseries_json(
     )
     if result is None:
         raise IndicatorsProviderError(f"BOJ response missing series {expected}")
+    # YYYY01 can mean January or Q1. Bind the source frequency before date-keying receipts.
+    if result.get("FREQUENCY") != series.frequency.upper():
+        raise IndicatorsProviderError(f"BOJ response does not confirm {series.frequency} frequency")
     values = _require_mapping(result.get("VALUES"), "VALUES")
     survey_dates = values.get("SURVEY_DATES")
     raw_values = values.get("VALUES")

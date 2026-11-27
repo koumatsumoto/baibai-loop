@@ -6,6 +6,7 @@ import sqlite3
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, date, datetime
+from hashlib import sha256
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -252,7 +253,11 @@ def test_reader_separates_json_decode_from_schema_validation_without_changing_by
 
     monkeypatch.setattr(query._CODEC, "validate_json", forbidden)
     assert store.read("fixed") == selected
-    assert query.read_publication(path=path, selection_id="fixed").selection == selected
+    publication = query.read_publication(path=path, selection_id="fixed")
+    assert publication.selection == selected
+    assert query.read_case_publication(
+        path=path, selection_id="fixed", known_at=publication.published_at
+    ) == (publication.published_at, sha256(expected.encode()).hexdigest(), selected)
     assert path.read_bytes() == before
 
 
@@ -285,19 +290,28 @@ def test_decoded_selection_still_rejects_invalid_policy(tmp_path):
         (b"null", ValidationError),
         (b"[]", ValidationError),
         (b'{"generation_id":null}', ValidationError),
-        ("null".encode("utf-16"), UnicodeDecodeError),
-        ("null".encode("utf-32"), UnicodeDecodeError),
+        ("utf-16", UnicodeDecodeError),
+        ("utf-32", UnicodeDecodeError),
     ],
 )
 def test_decoded_selection_fails_closed_on_malformed_saved_json(tmp_path, payload, error):
-    from baibai_engine.machine_analysis.screening.selection_query import read_publication
+    from baibai_engine.machine_analysis.screening.selection_query import (
+        read_case_publication,
+        read_publication,
+    )
 
     path = tmp_path / "runs"
     source = generation()
     publish_generation(source, path=path)
     store = ScreeningSelectionStore(path)
     store.publish("fixed", empty_selection(source.generation_id))
+    publication_time = read_publication(path=path, selection_id="fixed").published_at
     with sqlite3.connect(path) as connection:
+        if isinstance(payload, str):
+            original = connection.execute(
+                "SELECT payload_gzip FROM screening_selection"
+            ).fetchone()[0]
+            payload = gzip.decompress(original).decode("utf-8").encode(payload)
         connection.execute(
             "UPDATE screening_selection SET payload_gzip=?", (gzip.compress(payload, mtime=0),)
         )
@@ -305,3 +319,5 @@ def test_decoded_selection_fails_closed_on_malformed_saved_json(tmp_path, payloa
         store.read("fixed")
     with pytest.raises(error):
         read_publication(path=path, selection_id="fixed")
+    with pytest.raises(error):
+        read_case_publication(path=path, selection_id="fixed", known_at=publication_time)

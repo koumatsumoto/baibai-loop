@@ -1,4 +1,4 @@
-"""Derive a price L2 snapshot from retained native L1 pages."""
+"""Publish the price projection from the same SQLite seal used by this run."""
 
 from __future__ import annotations
 

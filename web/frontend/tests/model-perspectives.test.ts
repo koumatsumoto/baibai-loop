@@ -104,6 +104,7 @@ it('分類チャートには一観点につき一判断を置き、説明と出�
   expect(chart).toContain('固定資料の観測')
   expect(chart).toContain('>情報不足<')
   expect(chart).not.toContain(assessment.model_perspectives[0].summary)
+  expect(html).not.toContain('提案時の固定資料を、後から表示用に読み取った観測です。')
   expect(html.slice(html.indexOf('<details'))).toContain(assessment.model_perspectives[0].summary)
   expect(html).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/)
   expect(html).not.toContain('総合点')

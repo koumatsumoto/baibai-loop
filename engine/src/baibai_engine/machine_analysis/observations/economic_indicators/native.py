@@ -21,6 +21,7 @@ from baibai_engine.machine_analysis.observations.economic_indicators.observation
     ObservationRecord,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    UnavailableObservationError,
     reading_observation,
 )
 
@@ -115,7 +116,7 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
     if None in values:
         return None
     if len(values) != 1:
-        raise ValueError(f"conflicting native inputs for {series.series_id}")
+        raise UnavailableObservationError(f"conflicting native inputs for {series.series_id}")
     return values.pop()
 
 

@@ -17,5 +17,10 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 "${repo_root}/jobs/scripts/r2_transfer.sh" pull-machine
-"${repo_root}/jobs/scripts/r2_transfer.sh" pull-indicators
+"${repo_root}/jobs/scripts/r2_transfer.sh" pull-indicators || {
+  status=$?
+  printf 'Market/Runs are already updated; the indicators refresh did not complete.\n' >&2
+  printf 'To keep this Machine pair, retry only jobs/scripts/r2_transfer.sh pull-indicators from the repository root.\n' >&2
+  exit "${status}"
+}
 printf 'market/runs/market-context stores pulled, validated, and market hydrated\n'

@@ -32,6 +32,8 @@ from baibai_engine.portfolio.ledger.events import (
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
+from baibai_engine.storage.sqlite.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 
 
 class LimitOutcomeMeasurementError(ValueError):
@@ -93,9 +95,10 @@ def build_limit_outcomes(*, app_db: Path, market_db: Path, asof: date) -> dict[s
         elif isinstance(event, ExecutionEvent) and event.reservation_id is not None:
             fills.setdefault(event.reservation_id, []).append(event)
 
-    connection = sqlite3.connect(f"{market_db.resolve().as_uri()}?mode=ro", uri=True)
+    connection = connect_read_only(market_db)
     try:
         connection.execute("BEGIN")
+        validate_current_schema(connection)
         outcomes = [
             _order_outcome(
                 connection,

@@ -3,6 +3,7 @@
 import json
 from contextlib import closing
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from tests.helpers.assessment_v1 import pair_payload, update_review_hash
@@ -294,3 +295,96 @@ def test_legacy_price_clock_read_retry_and_fixed_context_are_unchanged(tmp_path)
     with pytest.raises(ValueError, match="postdates all cited source retrievals"):
         ResearchStoreService(path, clock=lambda: NOW + timedelta(seconds=1)).save(new_revision)
     assert path.read_bytes() == before
+
+
+def _repeated_hour_research(retrieved_at, *, observed_at=None):
+    day = "2026-11-01"
+    facts = (
+        []
+        if observed_at is None
+        else [
+            {
+                "fact_id": "synthetic-price",
+                "fact_kind": "market_price",
+                "value": 1000,
+                "unit": "JPY_per_share",
+                "as_of": day,
+                "source_ids": ["synthetic-origin"],
+                "price_basis": "realtime",
+                "observed_at": observed_at,
+            }
+        ]
+    )
+    return ResearchDraft.model_validate(
+        {
+            "research_id": "test-repeated-source-hour",
+            "document": {
+                "ticker": "1234",
+                "as_of": day,
+                "investigated_scope": "合成時刻のみ。実際の取引所の約定ではない。",
+                "sources": [
+                    {
+                        "source_id": "synthetic-origin",
+                        "ticker": "1234",
+                        "source_tier": "primary",
+                        "ref": "https://example.invalid/ir",
+                        "as_of": day,
+                        "retrieved_at": retrieved_at,
+                        "used_for": "合成の出典時計。",
+                    }
+                ],
+                "facts": facts,
+                "unresolved_questions": ["実際の影響は未調査。"],
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize("future", [False, True])
+def test_programmatic_research_save_and_read_agree_across_repeated_hour(tmp_path, future):
+    zone = ZoneInfo("America/New_York")
+    later = datetime(2026, 11, 1, 1, 29, tzinfo=zone, fold=1)
+    earlier = later.replace(minute=30, fold=0)
+    retrieved, recorded = (later, earlier) if future else (earlier, later)
+    for suffix, value in (("object", retrieved), ("text", retrieved.isoformat())):
+        path = tmp_path / suffix
+        initialize_database(path)
+        before = path.read_bytes()
+        draft = _repeated_hour_research(value)
+        service = ResearchStoreService(path, clock=lambda: recorded)
+        if future:
+            with pytest.raises(ValueError, match="source retrieval is after recorded_at"):
+                service.save(draft)
+            assert before == path.read_bytes()
+        else:
+            saved = service.save(draft)
+            with closing(connect_read_only(path)) as connection:
+                read = load_research(connection, draft.research_id)
+            assert read.model_dump_json() == saved.model_dump_json()
+            assert read.document.sources[0].retrieved_at.isoformat() == retrieved.isoformat()
+
+
+@pytest.mark.parametrize("observation_follows_receipt", [False, True])
+def test_research_price_fact_uses_receipt_instant_across_repeated_hour(
+    tmp_path, observation_follows_receipt
+):
+    zone = ZoneInfo("America/New_York")
+    later = datetime(2026, 11, 1, 1, 29, tzinfo=zone, fold=1)
+    earlier = later.replace(minute=30, fold=0)
+    observation, receipt = (later, earlier) if observation_follows_receipt else (earlier, later)
+    recorded = later.replace(hour=2)
+    path = tmp_path / "app"
+    draft = _repeated_hour_research(receipt, observed_at=observation)
+    service = ResearchStoreService(path, clock=lambda: recorded)
+    if observation_follows_receipt:
+        with pytest.raises(ValueError, match="postdates all cited source retrievals"):
+            service.save(draft)
+        with closing(connect_read_only(path)) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM company_research").fetchone()[0] == 0
+    else:
+        saved = service.save(draft)
+        with closing(connect_read_only(path)) as connection:
+            assert (
+                load_research(connection, draft.research_id).model_dump_json()
+                == saved.model_dump_json()
+            )

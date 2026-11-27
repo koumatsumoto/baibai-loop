@@ -566,6 +566,10 @@ def evaluate_assessment(
     if not sources or len(sources) != len(snapshot.sources):
         errors.append("input_snapshot requires unique sources")
     for source in snapshot.sources:
+        if identity is UnpublishedAssessment.DRAFT and (
+            locator_error := source.authoring_locator_error()
+        ):
+            errors.append(locator_error)
         if source.ticker != snapshot.ticker:
             errors.append(f"source {source.source_id} ticker mismatch")
         if (

@@ -24,13 +24,14 @@ END = date(2026, 11, 6)
 STAMP = datetime(2026, 11, 6, 1, tzinfo=UTC)
 
 
-def response(code, periods, values):
+def response(code, periods, values, *, frequency="QUARTERLY"):
     return {
         "STATUS": 200,
         "MESSAGE": "synthetic",
         "RESULTSET": [
             {
                 "SERIES_CODE": code,
+                "FREQUENCY": frequency,
                 "UNIT": "D.I.",
                 "VALUES": {"SURVEY_DATES": periods, "VALUES": values, "NOTE": "retained"},
             }
@@ -103,7 +104,7 @@ def test_recent_retains_returned_revisions_nulls_and_future_periods_only(
         assert [item.fetched_at for item in snapshots] == [current, STAMP, current, current]
         assert snapshots[0].records[0] == {
             "response_metadata": {"STATUS": 200, "MESSAGE": "synthetic"},
-            "series_metadata": {"SERIES_CODE": code, "UNIT": "D.I."},
+            "series_metadata": {"SERIES_CODE": code, "FREQUENCY": "QUARTERLY", "UNIT": "D.I."},
             "values_metadata": {"NOTE": "retained"},
             "survey_date": 202401,
             "value": 11,
@@ -222,7 +223,9 @@ def test_daily_and_monthly_query_and_storage_ranges_are_unchanged(
     path = tmp_path / "receipts.sqlite"
     source = load_sources()[source_id]
     code = source.provider_series_id.split(":")[1]
-    calls = transport(monkeypatch, [response(code, periods, [10, None, 30])])
+    calls = transport(
+        monkeypatch, [response(code, periods, [10, None, 30], frequency=source.frequency.upper())]
+    )
     result = acquisition.refresh_sources([source_id], db_path=path, start=first, end=last)[0]
     assert isinstance(result, acquisition.SourceRefreshSuccess)
     assert result.record_count == 1
@@ -235,3 +238,33 @@ def test_daily_and_monthly_query_and_storage_ranges_are_unchanged(
         assert len(snapshots) == (last - first).days + 1
         assert [item.observed_at for item in snapshots if item.records] == [expected]
         assert next(item for item in snapshots if item.records).records[0]["value"] is None
+
+
+@pytest.mark.parametrize("invalid_frequency", ["MONTHLY", None])
+def test_ambiguous_survey_label_does_not_replace_a_quarterly_receipt(
+    tmp_path, monkeypatch, invalid_frequency
+):
+    path = tmp_path / "receipts.sqlite"
+    series = load_definitions().by_id()["jp.tankan_large_mfg_di"]
+    code = load_sources()[series.source_id].provider_series_id.split(":")[1]
+    first = response(code, [202601], [17])
+    other = response(code, [202601], [93], frequency=invalid_frequency)
+    if invalid_frequency is None:
+        del other["RESULTSET"][0]["FREQUENCY"]
+    transport(monkeypatch, [first, other])
+    quarter = date(2026, 3, 1)
+
+    def refresh():
+        return acquisition.refresh_sources(
+            [series.source_id], db_path=path, start=quarter, end=quarter
+        )[0]
+
+    assert isinstance(refresh(), acquisition.SourceRefreshSuccess)
+    assert isinstance(refresh(), acquisition.SourceRefreshFailure)
+    with closing(store.open_read_only_connection(path)) as conn:
+        (snapshot,) = read_snapshots(conn, quarter, quarter, source_id=series.source_id)
+        assert snapshot.records[0]["value"] == 17
+        reader = build_store_observation_reader(conn, series=load_definitions().series)
+        assert [
+            (row.observed_at, row.value) for row in reader(series.series_id, quarter, quarter)
+        ] == [(quarter, 17)]

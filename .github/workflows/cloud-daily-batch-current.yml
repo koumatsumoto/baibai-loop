@@ -39,6 +39,8 @@ jobs:
       actions: read
 
   daily:
+    env:
+      UV_NO_DEV: "true"
     needs: retirement
     if: >-
       ${{ needs.retirement.result == 'success' && needs.retirement.outputs.attempt == github.run_attempt

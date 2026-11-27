@@ -23,7 +23,6 @@ from baibai_engine.data_collection.providers.articles.native import (
 )
 from baibai_engine.data_collection.receipts.articles.store import (
     ArticleStoreError,
-    read_body,
     read_receipt,
     read_receipt_body,
 )
@@ -114,20 +113,17 @@ def project_receipt(
         status = "unsupported"
         error_code = f"receipt_{receipt.status}"
     else:
-        rss_index_revision = None
-        if kind == "index":
-            original, body = read_receipt_body(conn, receipt)
-            rss_index_revision = original.rss_index_revision
-        else:
-            body = read_body(conn, receipt.body_ref)
+        # Interpret the retained bytes with their original 200 metadata, not a later 304's.
+        original, body = read_receipt_body(conn, receipt)
+        encoding = original.encoding or "utf-8"
         try:
             if kind == "index":
                 native = parse_index(
                     receipt.source,
                     body,
                     url=receipt.requested_url,
-                    encoding=receipt.encoding or "utf-8",
-                    rss_index_revision=rss_index_revision,
+                    encoding=encoding,
+                    rss_index_revision=original.rss_index_revision,
                 )
             elif kind == "document":
                 native = (
@@ -136,7 +132,7 @@ def project_receipt(
                         body,
                         url=receipt.requested_url,
                         title=index_observation.title if index_observation else title,
-                        encoding=receipt.encoding or "utf-8",
+                        encoding=encoding,
                     ),
                 )
                 if index_observation is not None:

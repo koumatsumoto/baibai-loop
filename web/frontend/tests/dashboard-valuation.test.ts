@@ -26,7 +26,8 @@ function dashboard(overrides: Partial<DashboardView> = {}): DashboardView {
     total_capital_yen: 210_000, holdings_market_value_yen: 110_000,
     available_cash_yen: 100_000, reserved_cash_yen: 0,
     realized_gross_pnl_yen: 136_100,
-    deployed_cost_yen: 100_000, cash_pct: 47.62, reserved_pct: 0,
+    deployed_cost_yen: 100_000, unrealized_pnl_yen: 10_000, unrealized_pnl_pct: 10,
+    cash_pct: 47.62, reserved_pct: 0,
     deployed_pct: 52.38, holdings: [holding('8255')],
     reservations: [], warnings: [],
     ...overrides,
@@ -97,6 +98,20 @@ describe('Dashboard valuation display', () => {
     expect(html).not.toContain('未評価')
   })
 
+  it.each([false, true])('labels the oldest saved close when every holding is valued on different dates (reverse: %s)', reverse => {
+    const rows = [holding('1234'), { ...holding('8255'), market_price_as_of: '2026-09-25' }]
+    const html = render(dashboard({ generated_at: '2026-09-25T20:00:00+09:00', holdings: reverse ? rows.reverse() : rows }))
+    expect(html).toContain('株価基準（銘柄別・最古） 2026-09-24')
+    expect(html).not.toContain('株価基準 2026-09-24')
+    expect(html).not.toContain('未評価')
+  })
+
+  it('shows one common basis when every position uses the same close date', () => {
+    const html = render(dashboard({ holdings: [holding('1234'), holding('8255')] }))
+    expect(html).toContain('株価基準 2026-09-24')
+    expect(html).not.toContain('最古')
+  })
+
   it('keeps the server total rather than summing individually rounded positions', () => {
     const holdings = ['1234', '5678'].map(ticker => ({
       ...holding(ticker), quantity: 25, market_price_yen: '400.1', deployed_cost_yen: 10_000,
@@ -104,6 +119,7 @@ describe('Dashboard valuation display', () => {
     }))
     const data = dashboard({
       holdings, holdings_market_value_yen: 20_005, deployed_cost_yen: 20_000, total_capital_yen: 120_005,
+      unrealized_pnl_yen: 5, unrealized_pnl_pct: 0.025,
     })
     const allocation = render(data)
     expect(allocation).toContain('￥120,005')
@@ -112,13 +128,42 @@ describe('Dashboard valuation display', () => {
     const positions = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
         holdings, warnings: [], quantityUnresolved: false,
-        holdingsMarketValueYen: data.holdings_market_value_yen, deployedCostYen: data.deployed_cost_yen,
+        unrealizedPnlYen: data.unrealized_pnl_yen, unrealizedPnlPct: data.unrealized_pnl_pct,
       })),
     ))
     expect(positions.match(/￥10,003/g)).toHaveLength(2)
     expect(positions).toContain('￥400.1')
     expect(positions).toContain('+￥5')
     expect(positions).not.toContain('+￥6')
+  })
+
+  it.each([
+    ['79.9', 5, 400, 400, 0, -0.125, '-0.1%'],
+    ['80.0', 5, 400, 400, 0, 0, '0.0%'],
+    ['80.1', 5, 400, 401, 1, 0.125, '+0.1%'],
+    ['202.50', 25, 5_010, 5_063, 53, 1.0479041916167664, '+1.0%'],
+    ['20209.8', 5, 100_000, 101_049, 1_049, 1.049, '+1.0%'],
+  ] as const)('renders the supplied return without a second rounding at a %s yen mark', (price, quantity, cost, value, yen, pct, label) => {
+    const data = {
+      ...dashboard(), holdings_market_value_yen: value, deployed_cost_yen: cost,
+      total_capital_yen: 100_000 + value,
+      unrealized_pnl_yen: yen, unrealized_pnl_pct: pct,
+      holdings: [{
+        ...holding('8255'), quantity, deployed_cost_yen: cost,
+        market_price_yen: price, market_value_yen: value, unrealized_pnl_yen: yen, unrealized_pnl_pct: pct,
+      }],
+    }
+    expect(render(data)).toContain(`取得原価比 ${label}`)
+    const table = renderToStaticMarkup(createElement(TooltipProvider, null,
+      createElement(MemoryRouter, null, createElement(HoldingsTable, {
+        holdings: data.holdings, warnings: [], quantityUnresolved: false,
+        unrealizedPnlYen: data.unrealized_pnl_yen, unrealizedPnlPct: data.unrealized_pnl_pct,
+      })),
+    ))
+    const aggregate = table.match(/評価損益 合計<\/span><span[^>]*>[^<]+<\/span><span[^>]*>([^<]+)</)
+    expect(aggregate?.[1]).toBe(label)
+    const rows = table.match(/<tbody[^>]*>(.*)<\/tbody>/)?.[1]
+    expect(rows).toContain(`>${label}</span>`)
   })
 
   it('names one unvalued holding without a cash-only chart or partial total', () => {
@@ -129,7 +174,7 @@ describe('Dashboard valuation display', () => {
     }
     const html = render(dashboard({
       holdings: [...valued, unvalued], valuation_as_of: null,
-      total_capital_yen: null, holdings_market_value_yen: null,
+      total_capital_yen: null, holdings_market_value_yen: null, unrealized_pnl_yen: null, unrealized_pnl_pct: null,
       available_cash_yen: 3_507_000, reserved_cash_yen: 0,
       cash_pct: null, deployed_pct: null,
     }))
@@ -153,19 +198,19 @@ describe('Dashboard valuation display', () => {
     }
   })
 
-  it('describes ticker concentration as a holding risk without suggesting an additional purchase', () => {
+  it('describes ticker concentration on the ledger exposure basis without suggesting an additional purchase', () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
         quantityUnresolved: false,
         holdings: [holding('1234')],
-        holdingsMarketValueYen: 110_000, deployedCostYen: 100_000,
+        unrealizedPnlYen: 10_000, unrealizedPnlPct: 10,
         warnings: [{ code: 'portfolio.ticker-concentration', scope: 'ticker', key: '1234',
           actual_pct: 30, warning_pct: 20, overridden: false }],
       })),
     ))
     expect(html).toContain('銘柄集中度 · 1234')
-    expect(html).toContain('構成比 30.00% が目安 20.00% を上回っています。')
-    expect(html).toContain('保有全体の集中リスクを確認してください。')
+    expect(html).toContain('保有時価と買付予約額を合わせた総資産比：30.00%（目安 20.00%）。')
+    expect(html).toContain('丸め前の比率で目安を上回っています。')
     expect(html).not.toContain('追加購入')
   })
 
@@ -177,7 +222,7 @@ describe('Dashboard valuation display', () => {
 
   it('shows a cash-only account with zero equity value', () => {
     const html = render(dashboard({
-      holdings: [], holdings_market_value_yen: 0, deployed_cost_yen: 0,
+      holdings: [], holdings_market_value_yen: 0, deployed_cost_yen: 0, unrealized_pnl_yen: 0, unrealized_pnl_pct: null,
       valuation_as_of: null, total_capital_yen: 100_000,
       deployed_pct: 0, cash_pct: 100,
     }))
@@ -189,13 +234,13 @@ describe('Dashboard valuation display', () => {
   })
 
   it('uses gold text for positive valuation only, with distinct loss, zero and unavailable text', () => {
-    for (const [cost, tone, label] of [
-      [100_000, 'text-profit', '+￥10,000'],
-      [120_000, 'text-loss', '-￥10,000'],
-      [110_000, 'text-muted-foreground', '￥0'],
-      [null, 'text-muted-foreground', '—'],
+    for (const [yen, pct, tone, label] of [
+      [10_000, 10, 'text-profit', '+￥10,000'],
+      [-10_000, -8.33, 'text-loss', '-￥10,000'],
+      [0, 0, 'text-muted-foreground', '￥0'],
+      [null, null, 'text-muted-foreground', '—'],
     ] as const) {
-      const html = render(dashboard({ deployed_cost_yen: cost }))
+      const html = render(dashboard({ unrealized_pnl_yen: yen, unrealized_pnl_pct: pct }))
       const amount = html.match(/評価損益<\/span><span class="([^"]+)">([^<]+)<\/span>/)
       expect(amount?.[1]).toContain(tone)
       expect(amount?.[1]).not.toMatch(/bg-|ring-/)
@@ -215,7 +260,7 @@ describe('Dashboard valuation display', () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
         quantityUnresolved: false,
-        holdingsMarketValueYen: null, deployedCostYen: 200_000,
+        unrealizedPnlYen: null, unrealizedPnlPct: null,
         holdings: [
           holding('1234'),
           { ...holding('8255'), market_price_yen: null, market_price_as_of: null,
@@ -243,7 +288,7 @@ it('preserves fractional holding prices and order guards while notionals remain 
     createElement(MemoryRouter, null,
       createElement(HoldingsTable, {
         quantityUnresolved: false,
-        holdingsMarketValueYen: 210_500, deployedCostYen: 210_500,
+        unrealizedPnlYen: 0, unrealizedPnlPct: 0,
         holdings: [{ ...holding('1234'), quantity: 200, deployed_cost_yen: 210_500,
           market_price_yen: '1052.5', market_value_yen: 210_500,
           unrealized_pnl_yen: 0, unrealized_pnl_pct: 0 }], warnings: [],

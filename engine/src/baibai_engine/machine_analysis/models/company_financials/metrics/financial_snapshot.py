@@ -9,12 +9,12 @@ from typing import Literal
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     ENTITY_SCALE_MISMATCH,
     _book_period_shares,
-    _capital_action_supersedes,
+    _capital_action_units,
     _common_equity,
     _edinet_passes_entity_scale_check,
     _normalize_summaries_with_status,
+    _period_capital_basis,
     _resolve_capital_basis,
-    _shares_excluding_treasury,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
     _reported_dividend,
@@ -64,7 +64,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v61-ttm-fiscal-year-anchor"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v63-effective-capital-units"
 
 
 def _reported_source(
@@ -104,6 +104,7 @@ def build_financial_snapshot(
         asof_date,
     )
     summaries = normalization.summaries
+    historical_capital = normalization.historical_capital_rows()
     capital_basis_barrier = normalization.capital_basis_barrier
     latest_disclosure = _latest_summary(summaries)
     forecast = latest_forecast_source(summaries)
@@ -158,10 +159,11 @@ def build_financial_snapshot(
         if latest_price is not None and forecast_eps is not None and forecast_eps > 0
         else None
     )
+    action_units = _capital_action_units(capital_actions, adjustment_events, asof_date)
     capital_basis = _resolve_capital_basis(
         summaries,
         capital_basis_barrier=capital_basis_barrier,
-        capital_actions=capital_actions,
+        capital_actions=action_units,
     )
     if forecast is not None and any(
         action.effective_date > forecast.disclosed_at for action in capital_actions
@@ -222,7 +224,7 @@ def build_financial_snapshot(
             common_equity_row.total_assets * common_equity_row.equity_to_asset_ratio
         )
     bps_row = _latest_non_null_row(summaries, "bps")
-    bps_period_shares = _book_period_shares(summaries, bps_row)
+    bps_period_shares = _book_period_shares(historical_capital, bps_row)
     # 同一状態の円経路へ直しても、その組がより新しい BPS より古ければstaleな資本を
     # 復活させる。2経路のうち新しい観測を先に選び、同日または円経路が新しい場合だけ
     # 下の普通株basis一致判定へ進める。
@@ -231,7 +233,7 @@ def build_financial_snapshot(
         or _accounting_observation_key(common_equity_row) >= _accounting_observation_key(bps_row)
     )
     equity = _common_equity(
-        summaries,
+        historical_capital,
         total_assets=(
             common_equity_row.total_assets
             if common_equity_row is not None and use_yen_route
@@ -250,8 +252,8 @@ def build_financial_snapshot(
         and equity[1] == "bps_times_reported_period_shares"
         and bps_row is not None
         and any(
-            _capital_action_supersedes(action, bps_row.period_end, bps_row.shares_outstanding)
-            for action in capital_actions
+            action.supersedes(bps_row.period_end, bps_row.shares_outstanding)
+            for action in action_units
         )
     ):
         # A completed capital event makes the superseded BPS route unavailable for a
@@ -287,18 +289,19 @@ def build_financial_snapshot(
             ),
         }
     pbr = _safe_positive_ratio(latest_market_cap, None if equity is None else equity[0])
-    shares_prior = _prior_year_summary(summaries, ttm_rules, field_name="shares_outstanding")
+    shares_prior = _prior_year_summary(
+        historical_capital, ttm_rules, field_name="shares_outstanding"
+    )
     net_share_change_yoy = _yoy_ratio(
         shares_outstanding,
         shares_prior.shares_outstanding if shares_prior else None,
     )
-    # 自社株を取得しても消却前は発行総数が減らない。自己株控除前後を分けて比べる。
+    # 発行済株数が同じでも、前年同期の自己株式訂正で控除後の分母は変わり得る。
     tradable_share_change_yoy = _yoy_ratio(
         shares_ex_treasury,
-        _shares_excluding_treasury(
-            shares_prior.shares_outstanding if shares_prior else None,
-            shares_prior.treasury_shares if shares_prior else None,
-        ),
+        _period_capital_basis(historical_capital, shares_prior).shares_ex_treasury
+        if shares_ex_treasury is not None and shares_prior is not None
+        else None,
     )
     return FinancialSnapshot(
         latest_financial_disclosure_date=latest_disclosure.disclosed_at

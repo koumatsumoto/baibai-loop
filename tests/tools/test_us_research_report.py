@@ -4,8 +4,10 @@ import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta, timezone
+from decimal import Decimal, localcontext
 from hashlib import sha256
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
@@ -187,6 +189,10 @@ def test_invalid_ticker_is_rejected_by_owner_and_cli(tmp_path, capsys, ticker):
     ("fields", "value"),
     [
         (("currency",), "JPY"),
+        (("cik",), "0000000000"),
+        (("cik",), "1652044"),
+        (("cik",), "00000000001"),
+        (("cik",), "000000０００１"),
         (("buy_quantity",), 100),
         (("official_close", "basis"), "split_adjusted_closes"),
         (("official_close", "price_usd"), 0),
@@ -577,6 +583,111 @@ def test_saved_no_action_is_unreadable_if_its_recorded_publication_never_had_a_f
     assert db.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    ("precision", "principal", "distribution", "downside", "expected_downside"),
+    [
+        (5, "120.50", "0.0001", "120.49", "-0.0099"),
+        (28, "9999999999999999", "1E-16", "9999999999999998", "-0.9999999999999999"),
+    ],
+)
+def test_cash_comparison_keeps_exact_admitted_usd_delta_and_rejects_reversed_cases(
+    tmp_path, capsys, precision, principal, distribution, downside, expected_downside
+):
+    raw = _draft()
+    raw["official_close"]["price_usd"] = principal
+    comparison = raw["comparison"]
+    comparison["base"].update(
+        terminal_value_usd_per_share=principal,
+        eligible_distributions_usd_per_share=distribution,
+    )
+    comparison["downside"].update(
+        terminal_value_usd_per_share=downside,
+        eligible_distributions_usd_per_share=distribution,
+    )
+    with localcontext(prec=precision):
+        draft_path, report_review = _prepare(tmp_path, capsys, raw)
+        report_review_path = _write(tmp_path / "report-review.json", report_review)
+        saved = tmp_path / "reviewed.json"
+        assert main(["save", draft_path, report_review_path, "--output", str(saved)]) == 0
+        assert main(["render", str(saved)]) == 0
+        shown = capsys.readouterr().out
+        assert f"現金との差 USD {Decimal(distribution):+f}" in shown
+        assert f"現金との差 USD {Decimal(expected_downside):+f}" in shown
+
+        analysis = ReviewedReport.model_validate_json(saved.read_bytes())
+        decision = USProposalDraft(
+            proposal_id="us-proposal-exact-usd",
+            author_identity="synthetic decision author",
+            prepared_at=datetime.fromisoformat("2026-11-28T17:00:00Z"),
+            action="no_action",
+            reason="保存した元手・期間と同じ現金との比較。",
+            revisit_when="前提が変わったとき。",
+        )
+        review = USProposalReview(
+            proposal_id=decision.proposal_id,
+            draft_sha256=prepare_us_proposal(decision, analysis),
+            reviewer_identity="synthetic decision peer",
+            reviewed_at=datetime.fromisoformat("2026-11-28T18:00:00Z"),
+            conclusion="pass",
+            notes="根拠と同元手比較を別に確認。",
+        )
+        db = tmp_path / APPLICATION_DB_PATH
+        initialize_database(db)
+        save_us_proposal(
+            db,
+            decision,
+            analysis,
+            review,
+            published_at=datetime.fromisoformat("2026-11-28T19:00:00Z"),
+        )
+        export_read_models(tmp_path, tmp_path / "serving")
+        view = json.loads((tmp_path / "serving/views/latest-us-proposal.json").read_bytes())[
+            "proposal"
+        ]
+        assert view["currency"] == "USD"
+        assert view["official_close"]["price_usd"] == principal
+        assert view["comparison_horizon_et"] == comparison["horizon_et"]
+        assert Decimal(view["comparison"]["base"]["difference_from_cash_usd_per_share"]) == Decimal(
+            distribution
+        )
+        assert Decimal(
+            view["comparison"]["downside"]["difference_from_cash_usd_per_share"]
+        ) == Decimal(expected_downside)
+
+        # A genuinely higher downside must not become equal after a rounded addition.
+        comparison["base"]["eligible_distributions_usd_per_share"] = "0"
+        comparison["downside"]["terminal_value_usd_per_share"] = principal
+        with pytest.raises(ValidationError, match="coherent scenarios"):
+            ReportDraft.model_validate(raw)
+
+
+@pytest.mark.parametrize(
+    ("precision", "value", "admitted"),
+    [
+        (2, "9999999999999999.0000", True),
+        (5, "0.0000000000000001000", True),
+        (28, "999999999999999.1234", False),
+        (2, "999999999999999.1234", False),
+        (28, "0.10000000000000000000000000000000000000001", False),
+        (2, "0.001234567890123456789012345", False),
+        (28, "1E-17", False),
+        (28, "1E+16", False),
+    ],
+)
+def test_cash_comparison_digit_bound_is_exact_and_preserves_valid_input(precision, value, admitted):
+    raw = _draft()
+    raw["comparison"]["base"]["eligible_distributions_usd_per_share"] = value
+    with localcontext(prec=precision):
+        if admitted:
+            report = ReportDraft.model_validate(raw).model_dump(mode="json")
+            assert report["comparison"]["base"]["eligible_distributions_usd_per_share"] == str(
+                Decimal(value)
+            )
+        else:
+            with pytest.raises(ValidationError, match="16 digits"):
+                ReportDraft.model_validate(raw)
+
+
 def _finance_perspective():
     return {
         "model": "company_financials",
@@ -603,6 +714,23 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
             "summary": "合成例：対象期に対応する独立した予想は確認できなかった。",
             "sources": [],
         },
+        {
+            "model": "industry_trends",
+            "assessment": "supportive",
+            "summary": "合成例：設備投資の増加がこの会社の受注に結びついた。",
+            "sources": [
+                {
+                    "label": "合成10-Q Item 2 設備投資需要別の受注",
+                    "observed_at": "2025-11-27T18:00:00Z",
+                }
+            ],
+        },
+        {
+            "model": "social_trends",
+            "assessment": "not_applicable",
+            "summary": "合成例：確認した制度変更は対象事業に適用されない。",
+            "sources": [],
+        },
     ]
     decision_path = _write(tmp_path / "decision.json", decision)
     binding = _review_decision(analysis, decision_path, capsys)
@@ -620,7 +748,7 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
     ):
         changed = {
             **decision,
-            "model_perspectives": [replacement, decision["model_perspectives"][1]],
+            "model_perspectives": [replacement, *decision["model_perspectives"][1:]],
         }
         _write(Path(decision_path), changed)
         assert main(["proposal-save", analysis, decision_path, review_path, "--db", str(db)]) == 2
@@ -646,6 +774,8 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
     assert served["official_close"] is None
     # No unsupplied row or direction is inferred, even though the IEX band exists.
     assert served["model_perspectives"] == expected
+    assert "market_context" not in {row["model"] for row in served["model_perspectives"]}
+    assert "estimated_model_chart" not in served
     for private in ("https://", "合成の収益継続仮説", "synthetic decision peer"):
         assert private not in payload
 
@@ -736,3 +866,60 @@ def test_unrepresentable_perspective_time_is_a_validation_error():
                 "model_perspectives": [row],
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("owner", "clock"),
+    [
+        ("iex_band", "received_at"),
+        ("official_close", "observed_at"),
+        ("financial_evidence", "observed_at"),
+    ],
+)
+def test_report_evidence_does_not_round_receipts_into_cutoff(tmp_path, capsys, owner, clock):
+    payload = _draft()
+    source = payload[owner][0] if owner == "financial_evidence" else payload[owner]
+    path = tmp_path / "draft.json"
+
+    # The ordinary CLI receives the original text, before Pydantic can truncate it.
+    source[clock] = "2026-11-28T09:00:00.000000001-05:00"
+    assert main(["draft-digest", _write(path, payload)]) == 2
+    assert capsys.readouterr().out == ""
+    source[clock] = "2026-11-28T09:00:00.000000000-05:00"
+    assert main(["draft-digest", _write(path, payload)]) == 0
+    assert json.loads(capsys.readouterr().out)["report_id"] == payload["report_id"]
+
+
+def test_report_uses_instants_across_both_occurrences_of_a_new_york_hour():
+    payload = _draft()
+    ny = ZoneInfo("America/New_York")
+    cutoff = datetime(2026, 11, 1, 1, 30, tzinfo=ny, fold=0)
+    payload.update(
+        cutoff_at=cutoff,
+        expected_session_et="2026-10-30",
+        session_close_at="2026-10-30T16:00:00-04:00",
+        iex_band=None,
+        official_close=None,
+        comparison=None,
+        unresolved=["合成。価格・比較は未確認。"],
+    )
+    fact = payload["financial_evidence"][0]
+    # 01:29 EST is 59 minutes *after* 01:30 EDT.
+    fact["observed_at"] = cutoff.replace(minute=29, fold=1)
+    with pytest.raises(ValidationError, match="financial evidence is unavailable at cutoff"):
+        ReportDraft.model_validate(payload)
+    fact["observed_at"] = cutoff
+    draft = ReportDraft.model_validate(payload)
+    assert draft.model_dump(mode="json")["cutoff_at"] == "2026-11-01T01:30:00-04:00"
+    assert ReportDraft.model_validate_json(draft.model_dump_json()) == draft
+
+
+def test_financial_evidence_accepts_the_first_representable_exchange_local_instant():
+    payload = _draft()
+    first_et = datetime.min.replace(tzinfo=ZoneInfo("America/New_York")).astimezone(UTC)
+    fact = payload["financial_evidence"][0]
+    fact.update(period_end="0001-01-01", observed_at=first_et.isoformat())
+    assert ReportDraft.model_validate(payload).financial_evidence[0].observed_at == first_et
+    fact["observed_at"] = (first_et - timedelta(microseconds=1)).isoformat()
+    with pytest.raises(ValidationError, match="representable New York date"):
+        ReportDraft.model_validate(payload)

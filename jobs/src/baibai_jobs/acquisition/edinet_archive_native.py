@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import io
-import zipfile
 from datetime import date, timedelta
 from typing import Literal, Protocol
 
@@ -11,6 +9,7 @@ from baibai_engine.data_collection.providers.edinet.archive_input import read_ar
 from baibai_engine.data_collection.providers.edinet.archive_native import (
     EdinetArchiveL1,
     NativeArchive,
+    has_readable_zip_directory,
 )
 from baibai_engine.data_collection.providers.edinet.archive_plan import (
     needs_archive,
@@ -121,7 +120,7 @@ def acquire_archives(
             continue
         try:
             response = client.fetch_archive(doc_id, source_type)
-            if not zipfile.is_zipfile(io.BytesIO(response.body)):
+            if not has_readable_zip_directory(response.body):
                 raise ValueError("EDINET archive response is not a ZIP")
         except (EdinetAcquisitionError, AcquisitionDeadlineExceeded, ValueError, OSError) as error:
             failed.append({"doc_id": doc_id, "reason": type(error).__name__})

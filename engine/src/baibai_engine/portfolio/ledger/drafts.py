@@ -19,6 +19,7 @@ from baibai_engine.portfolio.ledger.broker_facts import (
     BrokerFactStatus,
     _provided_execution_suffix,
     _require_date_only_expiry_reached,
+    _require_distinct_broker_fill,
     _validate_execution_id,
     _validate_report_time,
     find_reported_execution,
@@ -165,6 +166,23 @@ def build_broker_fact_draft(
                         "saved manual-fact reference; select the existing fact or explicitly "
                         "identify a new fact"
                     )
+                if (
+                    execution_id is not None
+                    and order_id is None
+                    and not requested_ids
+                    and (occurred_at is None) != (occurred_on is None)
+                ):
+                    _require_distinct_broker_fill(
+                        source,
+                        decision_reference=None,
+                        occurred_at=occurred_at,
+                        occurred_on=occurred_on,
+                        ticker=ticker,
+                        side="buy",
+                        quantity=quantity,
+                        price_yen=price_yen,
+                        reservation_id=None,
+                    )
                 decision_reference = f"manual-fact-{uuid4()}"
             binding_addition = DecisionReferenceBinding(
                 reference=decision_reference,
@@ -274,6 +292,17 @@ def build_broker_fact_draft(
             raise ValueError("broker fact ticker does not match the buy decision reference")
     elif status != "open":
         raise ValueError("sell broker fact requires an active order")
+
+    if status == "filled" and side == "sell" and execution_id is not None and selected:
+        # The same reservation also accepts a human report via sell-execution-draft.
+        _require_distinct_sell_execution(
+            source,
+            ticker=ticker,
+            quantity=quantity,
+            price_yen=price_yen,
+            occurrence=occurred_on or occurred_at,
+            reservation_id=selected[0].reservation_id,
+        )
 
     if len(requested_ids) > 1:
         assert status in {"cancelled", "expired"}
@@ -510,6 +539,28 @@ def build_sell_execution_draft(
         return None
     # Only a new sell needs a clock check; a date-only replay key is not its fill time.
     _validate_report_time(occurred_on or occurred_at, now=now)
+    if execution_id is not None:
+        _require_distinct_sell_execution(
+            source,
+            ticker=ticker,
+            quantity=quantity,
+            price_yen=price_yen,
+            occurrence=occurred_on or occurred_at,
+            reservation_id=reservation_id,
+        )
+        if reservation_id is not None and decision_reference is not None:
+            # This order may have had a prior fill through broker-fact-draft.
+            _require_distinct_broker_fill(
+                source,
+                decision_reference=decision_reference,
+                side="sell",
+                ticker=ticker,
+                quantity=quantity,
+                price_yen=price_yen,
+                occurred_at=occurred_at,
+                occurred_on=occurred_on,
+                reservation_id=reservation_id,
+            )
     if reservation_id is not None:
         active = {
             item.reservation_id: item
@@ -712,6 +763,50 @@ def _sell_event_suffix(
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
+def _require_distinct_sell_execution(
+    source: PortfolioLedgerDocument,
+    *,
+    ticker: str | None,
+    quantity: int | None,
+    price_yen: Decimal | None,
+    occurrence: date,
+    reservation_id: str | None,
+) -> None:
+    # Neither another recorder, another proposal reference nor amended charges proves a second sale.
+    if any(
+        isinstance(event, ExecutionEvent)
+        and event.side == "sell"
+        and event.ticker == ticker
+        and event.reservation_id == reservation_id
+        and event.quantity == quantity
+        and event.price_yen == price_yen
+        and event.overlaps_reported_occurrence(occurrence)
+        and _has_generated_sell_ids(event)
+        for event in source.events
+    ):
+        raise ValueError(
+            "cannot distinguish new execution_id from a matching sale previously reported "
+            "without a broker ID; verify the broker record and retry with the original identity"
+        )
+
+
+def _has_generated_sell_ids(event: ExecutionEvent) -> bool:
+    suffix = _sell_event_suffix(
+        occurred_at=event.occurred_at,
+        ticker=event.ticker,
+        quantity=event.quantity,
+        price_yen=event.price_yen,
+        decision_reference=event.decision_reference,
+        reservation_id=event.reservation_id,
+        occurred_on=event.occurred_on,
+    )
+    # Match the pair from the original payload, not the spelling of a broker ID.
+    return (event.event_id, event.execution_id) == (
+        f"human-sell-{suffix}",
+        f"sell-execution-{suffix}",
+    )
+
+
 def write_draft(path: Path, draft: LedgerDraft) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x", encoding="utf-8") as stream:
@@ -756,13 +851,8 @@ def apply_draft(
         if isinstance(event, ShareConversionEvent):
             _validate_report_time(event.confirmed_at, now=reported_at, instant_field="confirmed_at")
             continue
-        if isinstance(event, ReleaseEvent):
-            if event.reason != "expired":
-                continue
-        elif not isinstance(event, HumanEvent):
-            continue
         _validate_report_time(event.occurred_on or event.occurred_at, now=reported_at)
-        if isinstance(event, ReleaseEvent):
+        if isinstance(event, ReleaseEvent) and event.reason == "expired":
             _require_date_only_expiry_reached(
                 reservation_id=event.reservation_id,
                 expires_at=expiries.get(event.reservation_id),

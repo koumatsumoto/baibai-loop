@@ -2,8 +2,10 @@
 
 from copy import deepcopy
 from itertools import product
+from math import inf, nextafter
 
 import pytest
+from tests.engine.machine_analysis.models.market_context.test_activity import DATES, observe
 from tests.helpers.technical_discovery import _DAY, _metadata, _models
 from tests.helpers.technical_financial import _no_match
 
@@ -179,3 +181,35 @@ def test_down_day_turnover_and_frequency_do_not_override_observed_returns():
     source.pop("turnover")
     source["down"].update(own_up_days=1, outperform_days=25)
     assert _evaluate(models).state == "matched"
+
+
+@pytest.mark.parametrize(
+    "moves",
+    [
+        [(100, 110), (100, 90)],
+        [(101, 111.1), (147, 132.3)],
+        [(100, 101), (100, 102), (100, 97)],
+        [(600, 601), (600, 601), (600, 598)],
+    ],
+    ids=["integer-prices", "decimal-prices", "three-days", "recurring-ratios"],
+)
+@pytest.mark.parametrize("direction", [-1, 0, 1])
+def test_offsetting_down_market_moves_are_not_positive_resilience(moves, direction):
+    # Every sequence has exactly zero mean; change the last quote by one ULP for the controls.
+    own = dict.fromkeys(DATES, 100.0)
+    benchmark = dict(own)
+    for i, (start, end) in enumerate(moves, 1):
+        if direction and i == len(moves):
+            end = nextafter(end, inf if direction > 0 else 0.0)
+        own[DATES[2 * i - 1]], own[DATES[2 * i]] = start, end
+        benchmark[DATES[2 * i]] = 99.0
+    window = observe(own, benchmark)
+    down = window["benchmarks"]["1321"]["down"]
+    assert down["days"] == len(moves)
+    assert down["mean_excess_return"] > 0
+    value = down["own_mean_return"]
+    assert (value > 0) - (value < 0) == direction
+
+    models = _example()
+    models[1].payload["relative"]["market_conditioned_60d"] = window
+    assert _evaluate(models).state == ("matched" if direction > 0 else "not_matched")

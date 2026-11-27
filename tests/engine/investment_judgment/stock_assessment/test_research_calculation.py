@@ -247,6 +247,43 @@ def test_waiting_rejects_lookahead_only_for_the_opt_in(date_label, observed, mes
     assert "waiting_paths" not in calculate(CalculationInput.model_validate(raw))
 
 
+@pytest.mark.parametrize(
+    ("day", "retrieved_at", "also_cite_after_close", "expected"),
+    [
+        ("2026-09-07", "2026-09-07T06:29:59Z", False, 2),
+        ("2026-09-07", "2026-09-07T15:30:00+09:00", False, 0),
+        ("2026-09-07", "2026-09-07T06:29:59Z", True, 0),
+        ("2026-09-04", "2026-09-07T06:29:59Z", False, 0),
+    ],
+)
+def test_waiting_date_only_close_requires_a_timely_cited_retrieval(
+    tmp_path, capsys, day, retrieved_at, also_cite_after_close, expected
+):
+    raw = _waiting_input()
+    snapshot = raw["input_snapshot"]
+    source = next(item for item in snapshot["sources"] if item["source_id"] == "price")
+    source.update(as_of=day, retrieved_at=retrieved_at)
+    snapshot["facts"][0].update(
+        as_of=day,
+        observed_at=None,
+        source_ids=["price", "annual"] if also_cite_after_close else ["price"],
+    )
+    path = tmp_path / "inputs.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    assert workspace_cli.main(["calculate", str(path)]) == expected
+    output = capsys.readouterr()
+    if expected == 0:
+        assert json.loads(output.out)["waiting_paths"]["reference_price_as_of"] == day
+    else:
+        assert not output.out
+        assert "waiting reference close date postdates all cited source retrievals" in output.err
+        del raw["price_comparison"]["waiting_terms"]
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        assert workspace_cli.main(["calculate", str(path)]) == 0
+        assert "waiting_paths" not in json.loads(capsys.readouterr().out)
+
+
 def test_waiting_price_date_is_the_japanese_session_date_not_the_utc_date():
     raw = _waiting_input()
     raw["input_snapshot"]["facts"][0].update(

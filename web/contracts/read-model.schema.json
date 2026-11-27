@@ -186,6 +186,28 @@
           ],
           "title": "Deployed Cost Yen"
         },
+        "unrealized_pnl_yen": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrealized Pnl Yen"
+        },
+        "unrealized_pnl_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrealized Pnl Pct"
+        },
         "realized_gross_pnl_yen": {
           "anyOf": [
             {
@@ -265,6 +287,8 @@
         "reserved_cash_yen",
         "holdings_market_value_yen",
         "deployed_cost_yen",
+        "unrealized_pnl_yen",
+        "unrealized_pnl_pct",
         "realized_gross_pnl_yen",
         "cash_pct",
         "reserved_pct",
