@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.engine.machine_analysis.observations.financials.test_pdf_selection import (
@@ -169,6 +169,36 @@ def test_annual_growth_path_cannot_use_old_increase_instead_of_restated_decline(
     assert (change["from_value"], change["to_value"]) == (400_000_000_000, 315_507_000_000)
     assert (change["from_end"], change["to_end"]) == ("2025-03-31", "2026-03-31")
     assert change["source_sha256"] == pdf.source_sha256
+
+
+def test_retrospective_growth_does_not_replace_new_native_revision_with_an_old_pdf():
+    docs, pdf = annual_inputs()
+    # Only the sales comparative conflicts. Profit has an independent compatible prior.
+    docs[0] = replace(docs[0], operating_profit=20_000_000_000, profit=4_000_000_000)
+    revised = replace(
+        docs[-1],
+        disclosed_at=ASOF + timedelta(days=1),
+        disclosure_number="retained-next-day-correction",
+        sales=380_000_000_000,
+    )
+    baseline_financial, _, _ = models(documents=docs, pdfs=[pdf])
+    financial, growth, _ = models(documents=[*docs, revised], pdfs=[pdf])
+
+    assert financial == baseline_financial  # the valuation side still fixes as-of
+    reader = CompanyGrowthReader(growth.payload)
+    for measurement in ("annual_ttm", "reported"):
+        observed = reader.observation(reader.latest_period, measurement)
+        sales = observed.metrics["sales"]
+        assert sales.value == 380_000_000_000
+        assert sales.documents[0].disclosure_number == revised.disclosure_number
+        comparison = comparisons(growth, measurement)
+        assert comparison["sales"]["to_value"] == sales.value
+        assert comparison["sales"]["from_value"] is comparison["sales"]["difference"] is None
+        assert comparison["sales"]["reason"] == "restated_comparative_unverified_after_revision"
+        assert "source_sha256" not in comparison["sales"]
+        assert comparison["operating_margin"]["difference"] is None
+        assert comparison["operating_profit"]["from_value"] == 20_000_000_000
+        assert comparison["operating_profit"]["difference"] is not None
 
 
 def test_pdf_prior_refuses_a_copied_change_with_the_same_source_but_different_amount():

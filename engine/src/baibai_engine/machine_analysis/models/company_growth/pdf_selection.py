@@ -114,6 +114,23 @@ def _native_target(
     )
 
 
+def _annual_pdf_precedes_retained_income(
+    target: PeriodState, current: PdfStatement, native_anchor: JQuantsFinancialSummary
+) -> bool:
+    # A whole fiscal year has no other TTM operands. An interim PDF is a
+    # different case: switching only the current column can mix revision bases.
+    if not _statement_comparison_measurement(current, "annual_ttm"):
+        return False
+    return any(
+        source.disclosed_at > native_anchor.disclosed_at
+        for observation in target.observations
+        if observation.measurement == "reported"
+        for metric in _INCOME_METRICS
+        if (amount := observation.metrics.get(metric)) is not None
+        for source in amount.documents
+    )
+
+
 def apply_pdf_periods(
     states: Sequence[PeriodState],
     selected: PdfFinancialSelection | None,
@@ -159,6 +176,9 @@ def apply_pdf_periods(
             for state in states
         )
     current = selected.current
+    assert native_anchor is not None
+    if _annual_pdf_precedes_retained_income(target, current, native_anchor):
+        return tuple(states)
     assert current.current_start is not None
     assert current.current_end is not None
     sources = (_source(current),) + ((_source(selected.annual),) if selected.annual else ())
@@ -223,9 +243,16 @@ def apply_pdf_changes(
 ) -> tuple[Change, ...]:
     if selected is None or (target := _native_target(states, native_anchor)) is None:
         return tuple(changes)
-    if not selected.comparative_verified:
-        return _unverified_annual_comparative(changes, selected, states, target)
-    if selected.current is None:
+    assert native_anchor is not None
+    current = selected.current
+    superseded = current is not None and _annual_pdf_precedes_retained_income(
+        target, current, native_anchor
+    )
+    if superseded or not selected.comparative_verified:
+        return _unverified_annual_comparative(
+            changes, selected, states, target, superseded=superseded
+        )
+    if current is None:
         if not selected.blocks_summary_ttm_fallback:
             return tuple(changes)
         return tuple(
@@ -246,7 +273,6 @@ def apply_pdf_changes(
             else change
             for change in changes
         )
-    current = selected.current
     assert current.current_start is not None
     assert current.current_end is not None
     if not _target_matches_statement(target, current):
@@ -319,12 +345,17 @@ def _unverified_annual_comparative(
     selected: PdfFinancialSelection,
     states: Sequence[PeriodState],
     target: PeriodState,
+    *,
+    superseded: bool,
 ) -> tuple[Change, ...]:
     current = selected.current
     if (
         current is None
         or selected.status != "available"
-        or selected.annual_revision_basis != "latest_reconfirmed_unchanged_amounts"
+        or (
+            not superseded
+            and selected.annual_revision_basis != "latest_reconfirmed_unchanged_amounts"
+        )
         or not _statement_comparison_measurement(current, "annual_ttm")
         or not _target_matches_statement(target, current)
     ):
@@ -340,7 +371,8 @@ def _unverified_annual_comparative(
         == (current.comparative_start, current.comparative_end)
         and change.reason in {None, "nonpositive_base"}
     ]
-    # 当期額不変は前年比較の再確認ではない。丸め一単位内は確定矛盾にしない。
+    # 旧資料の当期額を使わなくても、組替欄と矛盾する旧native前年額は復活させない。
+    # 丸め一単位内は確定矛盾にしない。
     affected = {
         index
         for index, change in matching
