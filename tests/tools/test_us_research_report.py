@@ -483,7 +483,7 @@ def test_app_read_detects_an_invalid_nested_review_even_with_matching_outer_dige
     assert main(["proposal-show", "--db", str(db), "--proposal-id", decision["proposal_id"]]) == 0
 
 
-def test_no_action_horizon_applies_only_to_new_admission_on_the_et_date(tmp_path, capsys):
+def test_no_action_horizon_uses_recorded_et_dates_instead_of_the_read_clock(tmp_path, capsys):
     report, decision = _decision_inputs(tmp_path, capsys, comparable=True, horizon="2025-12-01")
     analysis = ReviewedReport.model_validate_json(Path(report).read_bytes())
     draft = USProposalDraft.model_validate(decision)
@@ -523,3 +523,53 @@ def test_no_action_horizon_applies_only_to_new_admission_on_the_et_date(tmp_path
     too_late = USProposalDraft.model_validate({**decision, "prepared_at": horizon_start_et})
     with pytest.raises(ValueError, match="comparison horizon"):
         prepare_us_proposal(too_late, analysis)
+
+
+def test_saved_no_action_is_unreadable_if_its_recorded_publication_never_had_a_future_horizon(
+    tmp_path, capsys
+):
+    report, decision = _decision_inputs(tmp_path, capsys, comparable=True, horizon="2025-12-01")
+    analysis = ReviewedReport.model_validate_json(Path(report).read_bytes())
+    recorded_horizon = datetime.fromisoformat("2025-12-01T05:00:00Z")
+
+    def reviewed_decision(name):
+        draft = USProposalDraft.model_validate({**decision, "proposal_id": name})
+        review = USProposalReview(
+            proposal_id=name,
+            draft_sha256=prepare_us_proposal(draft, analysis),
+            reviewer_identity="synthetic peer",
+            reviewed_at=datetime.fromisoformat("2025-11-28T18:00:00Z"),
+            conclusion="pass",
+            notes="reviewed the separate simulated decision",
+        )
+        return draft, review
+
+    db = tmp_path / "synthetic.sqlite"
+    initialize_database(db)
+    related, peer = reviewed_decision("us-proposal-valid-admitted")
+    valid = save_us_proposal(
+        db, related, analysis, peer, published_at=recorded_horizon - timedelta(microseconds=1)
+    )
+    invalid, peer = reviewed_decision("us-proposal-unreadable-at-publication")
+    stamp = recorded_horizon.isoformat(timespec="microseconds")
+    unsupported_row = {
+        "decision": invalid.model_dump(mode="json"),
+        "analysis": analysis.model_dump(mode="json"),
+        "review": peer.model_dump(mode="json"),
+        "published_at": stamp,
+    }
+    with closing(sqlite3.connect(db, autocommit=True)) as connection:
+        connection.execute(
+            "INSERT INTO us_equity_proposal VALUES (?,?,?)",
+            (invalid.proposal_id, stamp, canonical_json(unsupported_row)),
+        )
+
+    before = db.read_bytes()
+    assert main(["proposal-show", "--db", str(db), "--proposal-id", related.proposal_id]) == 0
+    assert json.loads(capsys.readouterr().out) == valid.model_dump(mode="json")
+    for selector in ([], ["--proposal-id", invalid.proposal_id]):
+        assert main(["proposal-show", "--db", str(db), *selector]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == "FAIL US App read\n"
+    assert db.read_bytes() == before

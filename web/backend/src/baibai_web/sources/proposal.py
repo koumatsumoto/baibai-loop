@@ -1,4 +1,4 @@
-"""One read-only App snapshot for both saved proposal views."""
+"""One read-only App snapshot for the saved proposal views."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def read_proposal_views(db_path: Path, *, generated_at: datetime | None = None) 
 def read_serving_proposal_views(
     db_path: Path, *, generated_at: datetime | None = None
 ) -> tuple[ProposalViews, LatestUSProposalView]:
-    """Use one App read transaction for JP latest/history and independent USD latest."""
+    """Use one App read transaction for independent JP and USD latest/history."""
     try:
         with _proposal_snapshot(db_path) as connection:
             try:

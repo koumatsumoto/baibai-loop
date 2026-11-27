@@ -1,6 +1,6 @@
 # 米国株の固定受領から調査候補を作る
 
-日次・本番・注文へは接続しない。CLIは固定したAlpaca IEXの日次集計とSECの指定期間の売上を読み、調査の次の一手と見送り理由を標準出力へ返す。初回は同じ経路を合成fixtureで試せる。
+このページのCLI手順は、固定受領と隔離コピーで、米国株の観測・調査・査読を試すためのもの。CLIは固定したAlpaca IEXの日次集計とSECの指定期間の売上を読み、次に調べることと保留理由を標準出力へ返す。本番の査読済み判断は[Webの「売買提案」→「米国株」](../../web/README.md#表示の意味)で読む。このCLIは本番への転送、日次選抜や注文を行わない。
 
 ```bash
 uv run --offline python -m tools.experiments.us_research_mvp
@@ -34,7 +34,7 @@ uv run --offline python -m tools.experiments.us_research_report check-render \
   /private/reviewed.json "$NEW_REPORT"
 ```
 
-出力先は作業者の私有ディレクトリ内の新規ファイル。描画に失敗した出力は使わず、`check-render` が成功したファイルだけを使う。原稿を変更したらレビューも取り直す。照合はIDと原稿SHAだけでなく描画本文も比較する。照合成功は私有ファイルの読戻しであり、日本株用Appに正式提案が保存・配信された証拠ではない。
+出力先は作業者の私有ディレクトリ内の新規ファイル。描画に失敗した出力は使わず、`check-render` が成功したファイルだけを使う。原稿を変更したらレビューも取り直す。照合はIDと原稿SHAだけでなく描画本文も比較する。照合成功は私有ファイルの読戻しであり、Appに査読済みの判断が保存・配信された証拠ではない。
 
 ## 隔離Appに米国株の見送り・判断保留を保存する
 
@@ -54,40 +54,9 @@ uv run --offline python -m tools.experiments.us_research_report proposal-show \
 
 保存時と同じ提案ID・提案原稿SHA・判断を読戻して照合する。 `--proposal-id` を省略すると公開時刻の新しい米国株判断を1件だけ読む。現行Appに該当行がないときは `null`（終了1）。DB不在、異なるschema・読めない行はエラー（終了2）。両者を混同しない。この入口は隔離Appでの保存検証であり、R2転送・公開Web・broker発注・台帳記帳の完了ではない。
 
-### 隔離コピーの一回限りの v30 → v31
+### 隔離Appを用意する
 
-v31では `us_equity_proposal` 一表と、その行の上書きを防ぐtriggerだけを一つのtransactionで追加する。v30の通常の読書き・`db init`を移行と兼用しない。新規の隔離DBは `baibai-engine db init --db "$APP_COPY"`、既存v30 Appは**停止した隔離コピーだけ**に次の手順を使う。旧releaseはv31を開けない。本番ではDBとすべての読書き側の切替・読戻しを別に検証するまで適用しない。
-
-```bash
-uv run --offline python - "${APP_COPY:?隔離コピーのパスを指定}" <<'PY'
-import sqlite3
-import sys
-from contextlib import closing
-from pathlib import Path
-
-from baibai_engine.storage.sqlite.application.schema import (
-    APPLICATION_SCHEMA_VERSION,
-    US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS,
-)
-
-source = Path(sys.argv[1]).resolve()
-with closing(sqlite3.connect(source.as_uri() + "?mode=rw", uri=True, autocommit=True)) as db:
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        if db.execute("PRAGMA user_version").fetchone()[0] != 30 or APPLICATION_SCHEMA_VERSION != 31:
-            raise ValueError("expected isolated App v30 and v31 code")
-        for statement in US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS:
-            db.execute(statement)
-        db.execute(f"PRAGMA user_version={APPLICATION_SCHEMA_VERSION}")
-        db.execute("COMMIT")
-    except BaseException:
-        if db.in_transaction:
-            db.execute("ROLLBACK")
-        raise
-PY
-```
-
-追加前の日本株提案・進捗・JPY台帳の行と既存schemaが変わらないこと、追加表が空であること、`integrity_check` と `foreign_key_check` を隔離コピーで確かめてから判断を書き込む。日次が切替を代行する仕組みや旧schemaとの併用は設けない。
+新規の隔離検証は現行コードで `baibai-engine db init --db "$APP_COPY"` を実行し、空のAppを使う。v31への本番切替は完了済み（[#3012](https://github.com/koumatsumoto/baibai-loop/issues/3012)）。通常の調査や表示のために旧DBを取得・移行する必要はない。
 
 ## 最新のIEX観測だけを確認する
 

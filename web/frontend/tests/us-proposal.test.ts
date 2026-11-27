@@ -5,49 +5,21 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { ApiError, fetchJson } from '../src/api/client'
 import type { LatestUSProposalView } from '../src/api/types'
 import { USProposal, USProposalPage } from '../src/pages/USProposalPage'
-
-const fixture: LatestUSProposalView = {
-  generated_at: '2026-11-28T18:00:00Z',
-  status: 'ready',
-  error: null,
-  proposal: {
-    proposal_id: 'us-proposal-fixture',
-    draft_sha256: 'a'.repeat(64),
-    ticker: 'GOOGL',
-    venue: 'XNAS',
-    share_class: 'Class A common',
-    currency: 'USD',
-    session_et: '2026-11-27',
-    cutoff_at: '2026-11-28T16:00:00Z',
-    published_at: '2026-11-28T17:10:00Z',
-    reviewed_at: '2026-11-28T17:00:00Z',
-    action: 'no_action',
-    reason: '現金に比べ下振れの根拠が薄い。',
-    revisit_when: '次回決算の確認後に見直す。',
-    official_close: { price_usd: '100.50', origin: 'listing_exchange', observed_at: '2026-11-27T18:05:00Z' },
-    iex_band: { first_session_et: '2026-11-02', last_session_et: '2026-11-27', observations: 19, low_usd: '90.900', high_usd: '125.03', last_usd: '101.03' },
-    comparison_horizon_et: '2027-02-15',
-    comparison: {
-      cash_basis: 'same_usd_no_interest_tax_or_fees',
-      base: {
-        terminal_value_usd_per_share: '105.75', eligible_distributions_usd_per_share: '1.25', difference_from_cash_usd_per_share: '6.50',
-      },
-      downside: {
-        terminal_value_usd_per_share: '80', eligible_distributions_usd_per_share: '0', difference_from_cash_usd_per_share: '-20.50',
-      },
-    },
-    unresolved: [],
-  },
-}
+import { usProposalFixture as fixture } from './fixtures/us-proposal'
 
 const hooks = vi.hoisted(() => ({
-  setup: null as null | (() => () => void),
+  effects: [] as (() => void | (() => void))[],
+  params: new URLSearchParams(),
   setState: vi.fn(),
 }))
 vi.mock('react', async original => ({
   ...await original<typeof import('react')>(),
   useState: (initial: unknown) => [initial, hooks.setState],
-  useEffect: (setup: () => () => void) => { hooks.setup = setup },
+  useEffect: (setup: () => void | (() => void)) => { hooks.effects.push(setup) },
+}))
+vi.mock('react-router', async original => ({
+  ...await original<typeof import('react-router')>(),
+  useSearchParams: () => [hooks.params],
 }))
 vi.mock('../src/api/client', async original => ({
   ...await original<typeof import('../src/api/client')>(),
@@ -56,7 +28,9 @@ vi.mock('../src/api/client', async original => ({
 
 afterEach(() => {
   vi.resetAllMocks()
-  hooks.setup = null
+  vi.unstubAllGlobals()
+  hooks.effects = []
+  hooks.params = new URLSearchParams()
 })
 
 it('renders the same saved ID and SHA, keeps USD price evidence distinct, and has no order controls', () => {
@@ -246,7 +220,7 @@ it.each([
 it('fetches the one fixed key only with the existing API client and aborts on exit', async () => {
   vi.mocked(fetchJson).mockResolvedValue(fixture)
   expect(renderToStaticMarkup(USProposalPage())).toContain('米国株の判断を読み込んでいます')
-  const cleanup = hooks.setup?.()
+  const cleanup = hooks.effects[0]?.()
   expect(fetchJson).toHaveBeenCalledExactlyOnceWith('/api/us-proposal/latest', { signal: expect.any(AbortSignal) })
   await Promise.resolve()
   expect(hooks.setState).toHaveBeenCalledExactlyOnceWith({ kind: 'loaded', data: fixture })
@@ -257,10 +231,19 @@ it('fetches the one fixed key only with the existing API client and aborts on ex
 it.each([[404, 'pending'], [500, 'unavailable']])('classifies an HTTP %s without falling back to Japan', async (status, kind) => {
   vi.mocked(fetchJson).mockRejectedValue(new ApiError(status, 'internal detail'))
   USProposalPage()
-  const cleanup = hooks.setup?.()
+  const cleanup = hooks.effects[0]?.()
   await Promise.resolve()
   await Promise.resolve()
   expect(hooks.setState).toHaveBeenCalledExactlyOnceWith({ kind })
   expect(fetchJson).toHaveBeenCalledExactlyOnceWith('/api/us-proposal/latest', { signal: expect.any(AbortSignal) })
   cleanup?.()
+})
+
+it('starts the requested exact report at its summary', () => {
+  const scrollTo = vi.fn()
+  vi.stubGlobal('window', { scrollTo })
+  hooks.params = new URLSearchParams({ proposal: 'us-proposal-fixture', ticker: 'GOOGL' })
+  USProposalPage()
+  hooks.effects[1]?.()
+  expect(scrollTo).toHaveBeenCalledExactlyOnceWith(0, 0)
 })

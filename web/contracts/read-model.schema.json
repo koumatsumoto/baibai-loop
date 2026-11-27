@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 16,
+  "schemaVersion": 17,
   "roots": {
     "views/latest-proposal.json": "#/$defs/LatestProposalView",
     "views/latest-us-proposal.json": "#/$defs/LatestUSProposalView",
@@ -670,13 +670,17 @@
               "type": "null"
             }
           ]
+        },
+        "history": {
+          "$ref": "#/$defs/USProposalHistoryView"
         }
       },
       "required": [
         "generated_at",
         "status",
         "error",
-        "proposal"
+        "proposal",
+        "history"
       ],
       "title": "LatestUSProposalView",
       "type": "object"
@@ -3931,6 +3935,66 @@
         "downside"
       ],
       "title": "USProposalComparisonView",
+      "type": "object"
+    },
+    "USProposalHistoryView": {
+      "description": "Recent publication slots. The readable latest is carried only at the root.",
+      "properties": {
+        "status": {
+          "enum": [
+            "ready",
+            "empty",
+            "partial",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/USProposalView"
+          },
+          "title": "Proposals",
+          "type": "array"
+        },
+        "unavailable_proposal_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unavailable Proposal Ids",
+          "type": "array"
+        },
+        "has_more": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Has More"
+        }
+      },
+      "required": [
+        "status",
+        "error",
+        "proposals",
+        "unavailable_proposal_ids",
+        "has_more"
+      ],
+      "title": "USProposalHistoryView",
       "type": "object"
     },
     "USProposalIexBandView": {
