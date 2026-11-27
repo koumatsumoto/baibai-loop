@@ -275,9 +275,7 @@ def test_dashboard_uses_one_clock_across_market_close(holding_case, monkeypatch)
 
 
 @pytest.mark.parametrize("missing", [False, True])
-def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
-    holding_case, mocker, missing
-):
+def test_dashboard_retains_realized_pnl_when_market_price_is_missing(holding_case, mocker, missing):
     db, market, _ = holding_case
     mocker.patch.object(dashboard, "datetime").now.return_value = NOW
     service = LedgerStoreService(db)
