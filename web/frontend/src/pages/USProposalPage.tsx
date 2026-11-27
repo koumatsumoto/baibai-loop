@@ -140,7 +140,11 @@ export function USProposal({ state, above, historyUnavailable }: {
               <h4 className="font-medium">同期間のUSD現金との比較</h4>
               {proposal.comparison !== null && proposal.comparison_horizon_et !== null && proposal.official_close !== null
                 ? <CashComparison comparison={proposal.comparison} horizon={proposal.comparison_horizon_et} cash={proposal.official_close.price_usd} />
-                : <p className="text-muted-foreground">比較未確定。確認できていない価格や前提を補っていません。</p>}
+                : <p className="text-muted-foreground">
+                    比較未確定。{proposal.official_close === null
+                      ? '比較の起点となる公式終値は未確認です。IEXの観測値では代用していません。'
+                      : '公式終値は確認済みです。基本・下方ケースとUSD現金を同じ終期で比べた結果は、この判断にはありません。'}
+                  </p>}
             </section>
             <section className="grid min-w-0 gap-2 border-t pt-4">
               <h4 className="font-medium">査読と未確認事項</h4>
