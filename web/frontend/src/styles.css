@@ -62,9 +62,7 @@
 }
 
 :root {
-    /* Logo measurements stay separate from readable interaction colors. Use primary-action / primary-hover for controls, not brand-green or brand-lime. */
-    --brand-green: #09ab65;
-    --brand-lime: #c7de24;
+    /* Logo artwork colors belong to the SVG, not to the interaction palette. */
     --primary-action: #008755;
     --primary-hover: #006b43;
     --primary-soft: #e8faf0;

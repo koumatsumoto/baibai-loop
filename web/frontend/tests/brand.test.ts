@@ -120,22 +120,44 @@ function flatten(foreground: string, background: string, alpha: number): Rgb {
 
 describe('brand assets', () => {
   it('wires the favicon, home-screen icon and shared logo asset', () => {
-    expect(source('index.html')).toContain('<link rel="icon" href="/favicon.ico" sizes="32x32" />')
+    expect(source('index.html')).toContain('<link rel="icon" href="/favicon.ico" sizes="16x16 32x32" />')
     expect(source('index.html')).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png" />')
     expect(source('index.html')).toContain('<link rel="manifest" href="/manifest.webmanifest" />')
     expect(source('src/components/BrandMark.tsx')).toContain('src="/logo.png"')
   })
 
-  it('declares home-screen metadata without opting this logo into masking', () => {
+  it('provides opaque, correctly sized PWA and Apple Touch icons', () => {
     const manifest = JSON.parse(source('public/manifest.webmanifest')) as {
       display: string
       start_url: string
-      icons: { sizes: string; purpose: string }[]
+      icons: { src: string; sizes: string; type: string; purpose: string }[]
     }
     expect(manifest.display).toBe('standalone')
     expect(manifest.start_url).toBe('/')
-    expect(manifest.icons.map((icon) => icon.sizes)).toEqual(['192x192', '512x512'])
-    expect(manifest.icons.map((icon) => icon.purpose)).toEqual(['any', 'any'])
+    expect(manifest.icons).toEqual([
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ])
+    for (const [file, size] of [
+      ['apple-touch-icon.png', 180],
+      ...manifest.icons.map(({ src, sizes }) => [src.slice(1), Number.parseInt(sizes, 10)] as const),
+    ] as const) {
+      const png = readFileSync(resolve(uiRoot, 'public', file))
+      expect(png.subarray(0, 8).toString('hex'), file).toBe('89504e470d0a1a0a')
+      expect(png.readUInt32BE(16), file).toBe(size)
+      expect(png.readUInt32BE(20), file).toBe(size)
+      // PNG color type 2 is RGB; no alpha channel or transparency chunk.
+      expect(png[25], file).toBe(2)
+      expect(png.includes(Buffer.from('tRNS')), file).toBe(false)
+    }
+  })
+
+  it('ships both 16px and 32px favicon frames', () => {
+    const ico = readFileSync(resolve(uiRoot, 'public/favicon.ico'))
+    expect(ico.readUInt16LE(2)).toBe(1)
+    expect(ico.readUInt16LE(4)).toBe(2)
+    expect([...ico.subarray(6, 8), ...ico.subarray(22, 24)]).toEqual([16, 16, 32, 32])
   })
 })
 
@@ -181,17 +203,14 @@ describe('brand palette', () => {
 
   // Artwork colors do not own interaction or status contrast. Keep them out of
   // component utilities; the semantic text/focus colors have contrast checks above.
-  it('leaves the mark’s own green out of the components', () => {
-    const markGreen = tokenValue('--brand-green').toLowerCase()
-    const aliases = [...tokens.keys()].filter((name) => tokenValue(name).toLowerCase() === markGreen)
-    for (const name of aliases) {
-      expect(themeMappings.has(`--color${name.slice(1)}`), `${name} is a utility`).toBe(false)
-    }
-    const painted = componentSources((entry) => entry !== 'styles.css').filter((text) =>
-      aliases.some((name) => text.includes(`var(${name})`) || text.includes(`(${name})`)),
-    )
-    expect(painted).toEqual([])
+  it('keeps the SVG artwork palette out of the interface theme', () => {
+    const markColors = [...source('brand/logo.svg').matchAll(/fill="(#[0-9a-f]{6})"/gi)]
+      .map((match) => match[1].toLowerCase())
+    expect(markColors).toEqual(['#f0872e', '#f3b845'])
+    const interfaceSources = [styles, ...componentSources()].join('\n').toLowerCase()
+    for (const color of markColors) expect(interfaceSources).not.toContain(color)
   })
+
 
   // Check palette classes, not Tailwind's built-in scale.
   it('paints with no color the theme layer does not export', () => {
