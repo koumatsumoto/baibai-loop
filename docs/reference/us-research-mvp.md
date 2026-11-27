@@ -64,6 +64,21 @@ uv run --offline python -m tools.experiments.us_research_report proposal-show \
 
 新規の隔離検証は現行コードで `baibai-engine db init --db "$APP_COPY"` を実行し、空のAppを使う。v31への本番切替は完了済み（[#3012](https://github.com/koumatsumoto/baibai-loop/issues/3012)）。通常の調査や表示のために旧DBを取得・移行する必要はない。
 
+<a id="us-iex-live-acceptance"></a>
+## Alpaca Paperの実接続を確認する
+
+1. [GitHub ActionsのリポジトリSecrets](https://github.com/koumatsumoto/baibai-loop/settings/secrets/actions) に、Alpacaの同じPaper口座の鍵を `APCA_API_KEY_ID` と `APCA_API_SECRET_KEY` として登録する。Variables、実行入力、チャット、コミットには入れない。Live鍵やURLの設定は不要。
+2. [IEX公式暦](https://www.iex.io/resources/trading/trading-hours-holidays) で対象立会日を確認し、米東部の翌日以降に `main` の [us-iex-acceptance](../../.github/workflows/us-iex-acceptance.yml) を手動で実行する。
+
+```bash
+gh workflow run us-iex-acceptance.yml --repo koumatsumoto/baibai-loop --ref main \
+  -f expected_date=YYYY-MM-DD
+```
+
+取得は [Alpaca Market Dataの日足](https://docs.alpaca.markets/us/reference/stockbars) のIEXに固定し、口座・注文用のAPIは呼ばない。AAPL・GOOG・GOOGL・NVDAの4銘柄すべてで指定日の観測がそろえば成功。鍵がない、認証できない、4銘柄がそろわない場合は失敗として扱い、SIPや別日の足で埋めない。短縮日も米東部の日付判定を変えない。
+
+この確認ジョブは日本株の日次に接続せず、R2・App・Web配信を変更しない。鍵・価格・原本はログやArtifactsに残さない。成功は指定日のIEX観測を確認したことだけを示す。公式終値、価格の保存・再配布の許諾、SEC連携や売買提案の受入とは別で、下の固定受領用manifestも作らない。
+
 ## 最新のIEX観測だけを確認する
 
 運用受入では対象市場の公式暦で期待するNY取引日（休場・短縮日を含む）を確認し、実受領のmanifestと一緒に明示する。
@@ -76,7 +91,7 @@ uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/m
 
 ## 許可済みの実受領を束ねる
 
-CLI自体はネットへ接続しない。許可済みの収集CLI/transportがある場合だけ、収集と再読を分ける。Alpacaは `DailyBarsQuery(("AAPL",), start, end, "-", "split").url(page_token=...)` が作る [v2日足](https://docs.alpaca.markets/us/reference/stockbars) を使用。`1Day`、`iex`、`USD`、`split`、`asof=-`、`limit=10000`、`sort=asc`。評価日前のNY日を使う。native `bars` と明示 `next_page_token` を含む本文を最終ページまで整形せずに保存する。各ページの取得時に実要求URL・最終応答URL・リダイレクト有無・全文受領を記録する。IEXは[要求の `feed`](https://docs.alpaca.markets/us/docs/market-data-faq#whats-the-difference-between-iex-and-sip-data)で指定するもので、日足本文からは判別しない。固定URLへの直接の完全な応答が確認できなければ、価格だけ保留する。記録されたヘッダーが部分応答、圧縮、または原本と矛盾する長さ・転送形式を示す場合は、HTTP 200・全文読了の申告だけで採用しない。記録されていないヘッダーは要求しない。CLIの整形表、ページを合成したJSON、再保存時刻による代用は使わない。
+固定受領を読む調査CLI自体はネットへ接続しない。許可済みの収集CLI/transportがある場合だけ、収集と再読を分ける。Alpacaは `DailyBarsQuery(("AAPL",), start, end, "-", "split").url(page_token=...)` が作る [v2日足](https://docs.alpaca.markets/us/reference/stockbars) を使用。`1Day`、`iex`、`USD`、`split`、`asof=-`、`limit=10000`、`sort=asc`。評価日前のNY日を使う。native `bars` と明示 `next_page_token` を含む本文を最終ページまで整形せずに保存する。各ページの取得時に実要求URL・最終応答URL・リダイレクト有無・全文受領を記録する。IEXは[要求の `feed`](https://docs.alpaca.markets/us/docs/market-data-faq#whats-the-difference-between-iex-and-sip-data)で指定するもので、日足本文からは判別しない。固定URLへの直接の完全な応答が確認できなければ、価格だけ保留する。記録されたヘッダーが部分応答、圧縮、または原本と矛盾する長さ・転送形式を示す場合は、HTTP 200・全文読了の申告だけで採用しない。記録されていないヘッダーは要求しない。CLIの整形表、ページを合成したJSON、再保存時刻による代用は使わない。
 
 指定CIKのSEC [Submissions](https://www.sec.gov/search-filings/edgar-application-programming-interfaces#data-sec-gov-submissions) の原本から、Alpacaの銘柄ラベルが同じ発行体に明示されているかを照合する。未受領・受領遅れ・不一致なら日足の観測だけ残し、その発行体の財務とは結合しない。申告ラベルだけでは採用しない。この照合は現在の銘柄表記とCIKまでで、取引所・株式クラス・過去の名称変更まで証明しない。最初の実データ受入では、採用した提出書表紙のSection 12(b)で銘柄と市場・株式クラスが対応する行を別担当が照合する。同一企業のGOOG/GOOGL等は別の株式クラスとして扱い、財務は発行体単位のまま読む。証拠が揃わなければ実データ受入は保留する。
 
