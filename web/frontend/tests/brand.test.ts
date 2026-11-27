@@ -153,6 +153,14 @@ describe('brand assets', () => {
     }
   })
 
+  it('matches browser chrome and the installed PWA splash to the canvas', () => {
+    const manifest = JSON.parse(source('public/manifest.webmanifest')) as { background_color: string; theme_color: string }
+    const canvas = tokenValue('--canvas')
+    expect(manifest.background_color).toBe(canvas)
+    expect(manifest.theme_color).toBe(canvas)
+    expect(source('index.html')).toContain(`<meta name="theme-color" content="${canvas}" />`)
+  })
+
   it('ships both 16px and 32px favicon frames', () => {
     const ico = readFileSync(resolve(uiRoot, 'public/favicon.ico'))
     expect(ico.readUInt16LE(2)).toBe(1)
@@ -174,14 +182,20 @@ const SERIES_COLORS = ['--chart-1', '--chart-2', '--chart-3'] as const
 describe('brand palette', () => {
   // Use text and non-text contrast thresholds for their actual surfaces.
   it.each([
-    ...VALUE_COLORS.map((token): [string, string, number] => [token, '--surface', 4.5]),
-    ['--primary-action', '--surface', 4.5],
-    ['--primary-hover', '--surface', 4.5],
+    // White portfolio cards and their selected/hovered rows both show these monetary values.
+    ...VALUE_COLORS.flatMap((token) =>
+      ['--surface', '--primary-soft'].map((background): [string, string, number] => [token, background, 4.5])),
+    ['--primary-foreground', '--primary', 4.5],
+    ['--primary-foreground', '--primary-hover', 4.5],
+    ['--foreground', '--selection', 4.5],
+    ['--primary', '--surface', 4.5],
     ['--warning', '--surface', 4.5],
     ['--text-secondary', '--canvas', 4.5],
     ['--ring', '--canvas', 3],
-    ['--chart-1', '--surface', 3],
-    ['--text-tertiary', '--surface', 3],
+    ['--ring', '--surface-subtle', 3],
+    ['--input', '--surface', 3],
+    ...SERIES_COLORS.map((token): [string, string, number] => [token, '--surface', 3]),
+    ['--text-tertiary', '--surface', 4.5],
   ])('keeps %s legible on %s', (token, background, minimum) => {
     expect(contrastRatio(tokenValue(token), tokenValue(background))).toBeGreaterThanOrEqual(minimum)
   })
@@ -201,16 +215,17 @@ describe('brand palette', () => {
     }
   })
 
-  // Artwork colors do not own interaction or status contrast. Keep them out of
-  // component utilities; the semantic text/focus colors have contrast checks above.
-  it('keeps the SVG artwork palette out of the interface theme', () => {
-    const markColors = [...source('brand/logo.svg').matchAll(/fill="(#[0-9a-f]{6})"/gi)]
+  it('uses the logo honey for selection, never as white-label button or market ink', () => {
+    const mark = [...source('brand/logo.svg').matchAll(/fill="(#[0-9a-f]{6})"/gi)]
       .map((match) => match[1].toLowerCase())
-    expect(markColors).toEqual(['#f0872e', '#f3b845'])
-    const interfaceSources = [styles, ...componentSources()].join('\n').toLowerCase()
-    for (const color of markColors) expect(interfaceSources).not.toContain(color)
+    expect(mark).toEqual(['#f0872e', '#f3b845'])
+    expect(tokenValue('--selection')).toBe(mark[1])
+    for (const name of ['--primary', '--primary-hover', ...VALUE_COLORS, '--warning']) {
+      expect(mark).not.toContain(tokenValue(name))
+    }
+    const components = componentSources((entry) => !entry.endsWith('.css')).join('\n').toLowerCase()
+    for (const color of mark) expect(components).not.toContain(color)
   })
-
 
   // Check palette classes, not Tailwind's built-in scale.
   it('paints with no color the theme layer does not export', () => {
@@ -231,7 +246,7 @@ describe('brand palette', () => {
     for (const token of [...VALUE_COLORS, '--warning']) {
       const declaration = tokens.get(token)
       expect(declaration).toBeDefined()
-      expect(declaration).not.toMatch(/var\(--(?:brand|accent)/)
+      expect(declaration).not.toMatch(/var\(--(?:brand|accent|primary|selection|chart)/)
     }
   })
 })

@@ -16,7 +16,7 @@ function ProposalMarketNavigation({ current }: { current: string }) {
             aria-current={current === to ? 'page' : undefined}
             className={cn(
               'flex min-h-11 items-center justify-center rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
-              current === to ? 'bg-surface text-primary shadow-sm' : 'text-muted-foreground hover:bg-surface/60 hover:text-foreground',
+              current === to ? 'bg-selection font-semibold text-foreground underline decoration-1 underline-offset-4' : 'text-muted-foreground hover:bg-surface/60 hover:text-foreground',
             )}
             key={to}
             to={to}
