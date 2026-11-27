@@ -184,7 +184,9 @@ jobs:
           PROBE_WORK: ${{ steps.window.outputs.work }}
         run: |
           umask 077
-          if ! uv run --offline --no-sync python - >> "$GITHUB_STEP_SUMMARY" 2> "$PROBE_WORK/summary.log" <<'PY'
+          report="$PROBE_WORK/report.md"
+          status=0
+          uv run --offline --no-sync python - > "$report" 2> "$PROBE_WORK/summary.log" <<'PY' || status=$?
           import json
           import os
           from collections import Counter
@@ -207,7 +209,9 @@ jobs:
               day = row['day'].isoformat()
               adopted, failed, held = (bool(scopes[day].get(key)) for key in ('adopted', 'failure', 'held'))
               count, status, incomplete = counts[day], row['projection_status'], row['incomplete_requests']
-              if status == 'ok' and not count:
+              if status not in ('ok', 'partial', 'unavailable'):
+                  status = 'unknown'
+              elif status == 'ok' and not count:
                   status = 'empty'
               print(f'| {day} | {count} | {status} | {adopted} | {failed} | {held} | {incomplete} |')
               if day == os.environ['ASOF']:
@@ -217,9 +221,11 @@ jobs:
               print('対象日について、未解決のない非空の日足を確認できませんでした。')
               raise SystemExit(1)
           PY
-          then
+          # Only this aggregate is safe to share; never print reader stdout or diagnostics.
+          tee -a "$GITHUB_STEP_SUMMARY" < "$report"
+          if [[ "$status" -ne 0 ]]; then
             echo "::error::J-Quants target price receipt not verified; see aggregate summary."
-            exit 1
+            exit "$status"
           fi
 
   notify-plan-failure:

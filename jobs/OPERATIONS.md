@@ -443,7 +443,7 @@ uv run python -m baibai_jobs.integration.tradingview_receipts \
 
 `--saved-input` を渡さない日足CLIは、開始時に現在のL1 headを一度固定する。`--work-directory` に置いた旧 `head.json` や過去のattemptは入力にならない。元の失敗attemptに結び付く保存InputSnapshotがなければ、元attemptの再現としてはそこで止める。現行headを診断する場合は別の新しい出力先を使い、同じ日付でも過去の選択に付け替えない。
 
-クラウドから原本に直接接続できない場合は、既存の市場取得workflowを読取専用で手動起動できる。対象日を必ず明示し、前6日を含む7日分の投影行数・受領状態だけをJob summaryで確認する。
+クラウドから原本に直接接続できない場合は、既存の市場取得workflowを読取専用で手動起動できる。対象日を必ず明示し、前6日を含む7日分の投影行数・受領状態だけをJob summaryまたはActionsのjob logで確認する。
 
 ```bash
 gh workflow run cloud-market-sources.yml --ref main -f source=jquants-price-probe -f "asof=${ASOF:?確認日をYYYY-MM-DDで指定}"

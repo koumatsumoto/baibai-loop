@@ -479,6 +479,7 @@ def test_price_probe_runs_only_cold_read_command_and_keeps_failure_output_privat
         (0, "ok", {"adopted": "private-id"}, 0, "empty", False),
         (0, "unavailable", {}, 0, "unavailable", False),
         (1, "partial", {"adopted": "private-id"}, 0, "partial", False),
+        (1, "private-status", {"adopted": "private-id"}, 0, "unknown", False),
         (1, "ok", {"adopted": "private-id", "held": "private-hold"}, 0, "ok", False),
         (1, "ok", {"adopted": "private-id", "failure": "private-failure"}, 1, "ok", False),
     ],
@@ -529,4 +530,6 @@ def test_price_probe_summary_requires_target_rows_and_unresolved_free_adoption(
     assert f"| {prior} | 1 | ok | True | False | False | 0 |" in report
     assert f"| {target} | {rows} | {display_status} | " in report
     assert "公開判定ではない" in report
+    assert result.stdout.startswith(report)
+    assert ("::error::" in result.stdout[len(report) :]) is not healthy
     assert "private-" not in report + result.stdout + result.stderr
