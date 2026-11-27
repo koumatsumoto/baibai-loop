@@ -3,6 +3,7 @@
 import io
 import json
 import sqlite3
+import zipfile
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import Mock
@@ -229,6 +230,51 @@ def test_invalid_zip_keeps_requested_scope_without_global_enable(tmp_path):
     assert report["status"] == "failed"
     assert owner.freeze().scope == FactsScope(doc_ids=frozenset({"S100ONE"}))
     assert not owner.freeze().archive_keys
+
+
+def with_damaged_zip_directory(body: bytes) -> bytes:
+    # Keep the first directory record and footer readable; damage a later record.
+    buffer = io.BytesIO(body)
+    with zipfile.ZipFile(buffer, "a") as archive:
+        archive.writestr("archive-note.txt", b"another file")
+    body = buffer.getvalue()
+    directory = body.rindex(b"PK\x01\x02")
+    return body[:directory] + bytes(4) + body[directory + 4 :]
+
+
+@pytest.mark.parametrize(("group", "kind"), [("edinet-metrics", 5), ("edinet-facts", 1)])
+def test_damaged_zip_directory_leaves_archive_missing_for_next_acquisition(tmp_path, group, kind):
+    owner, client, _, lists = setup(tmp_path, [filing("S100ONE")])
+    valid = _edinet_csv_zip() if kind == 5 else source_zip()
+    damaged = with_damaged_zip_directory(valid)
+    later = AT + timedelta(seconds=1)
+    client.fetch_archive.side_effect = [EdinetResponse(AT, damaged), EdinetResponse(later, valid)]
+    options = {"lookback_days": 0, "initialize_facts": kind == 1}
+
+    failed = acquire_archives(owner, client, lists, group=group, asof=DAY, **options)
+    fixed = owner.freeze()
+    assert (failed["status"], failed["downloaded"], fixed.archive_keys, fixed.scope.since) == (
+        "failed",
+        0,
+        frozenset(),
+        None,
+    )
+    assert not (owner.directory / "pending.json").exists()
+    if kind == 1:
+        assert fixed.scope.doc_ids == {"S100ONE"}
+
+    received = acquire_archives(owner, client, lists, group=group, asof=DAY, **options)
+    assert (received["status"], received["downloaded"], client.fetch_archive.call_count) == (
+        "received",
+        1,
+        2,
+    )
+    fixed = owner.freeze()
+    metadata = fixed.metadata("S100ONE", kind)
+    assert metadata is not None
+    assert metadata.received_at_utc == later
+    assert fixed.read_archive("S100ONE", kind) == valid
+    assert fixed.scope.since == (DAY if kind == 1 else None)
 
 
 def test_saved_list_binding_does_not_advance_during_get(tmp_path):

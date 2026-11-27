@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import os
-import zipfile
 from contextlib import closing
 from datetime import date
 from pathlib import Path
@@ -13,6 +11,7 @@ from baibai_engine.data_collection.providers.edinet.archive_native import (
     EdinetArchiveL1,
     FixedEdinetArchives,
     NativeArchive,
+    has_readable_zip_directory,
 )
 from baibai_engine.data_collection.providers.edinet.archives import (
     retain_source_archive,
@@ -121,7 +120,7 @@ class EDINETRefresh:
                 return bytes(row[1])
         if metadata is None:
             received = self.fetch_archive(doc_id, 5)
-            if not zipfile.is_zipfile(io.BytesIO(received.body)):
+            if not has_readable_zip_directory(received.body):
                 raise EDINETProviderError("EDINET archive response is not a ZIP")
             fixed = owner.publish([NativeArchive.from_response(doc_id, 5, received)])
             self._native_fixed = fixed

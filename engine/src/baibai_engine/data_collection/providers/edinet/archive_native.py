@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import re
+import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -24,6 +26,15 @@ from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, 
 PREFIX = "l1/edinet/archives/v1/"
 HEAD_KEY = PREFIX + "head.json"
 _FORMAT: Final = "edinet-archive-native-v1"
+
+
+def has_readable_zip_directory(body: bytes) -> bool:
+    """Validate the ZIP container at acquisition without reading member data."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(body)):
+            return True
+    except (zipfile.BadZipFile, UnicodeDecodeError, NotImplementedError):
+        return False
 
 
 def _digest(body: bytes) -> str:
