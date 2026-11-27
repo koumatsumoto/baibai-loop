@@ -48,7 +48,7 @@ uv run baibai-engine portfolio sell-execution-draft --db stores/application/baib
   --occurred-on <YYYY-MM-DD> --execution-id <BROKER_EXECUTION_ID> --out <DRAFT>
 ```
 
-売却の`--execution-id`は初回記帳からbrokerの約定IDを使う。IDなしで記帳済みの同条件の売却を、後からIDや費用・税・参照の違いだけで別約定として追加しない。片方が日付のみなら日本時間の同日を照合し、明細で区別できない報告は保留する。
+売却の`--execution-id`は初回記帳からbrokerの約定IDを使う。売予約の部分約定をすでに一方のコマンドで記帳した場合、もう一方から同じ明細を別約定として足さない。IDなしで記帳済みの同条件の売却を、後からIDや費用・税・参照の違いだけで別約定として追加しない。片方が日付のみなら日本時間の同日を照合し、明細で区別できない報告は保留する。
 
 <a id="human-result-semantics"></a>
 ### 予約・約定・cash

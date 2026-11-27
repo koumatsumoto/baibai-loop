@@ -9,7 +9,7 @@ from typing import Literal
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     ENTITY_SCALE_MISMATCH,
     _book_period_shares,
-    _capital_action_supersedes,
+    _capital_action_units,
     _common_equity,
     _edinet_passes_entity_scale_check,
     _normalize_summaries_with_status,
@@ -64,7 +64,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v62-prior-period-share-basis"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v63-effective-capital-units"
 
 
 def _reported_source(
@@ -159,10 +159,11 @@ def build_financial_snapshot(
         if latest_price is not None and forecast_eps is not None and forecast_eps > 0
         else None
     )
+    action_units = _capital_action_units(capital_actions, adjustment_events, asof_date)
     capital_basis = _resolve_capital_basis(
         summaries,
         capital_basis_barrier=capital_basis_barrier,
-        capital_actions=capital_actions,
+        capital_actions=action_units,
     )
     if forecast is not None and any(
         action.effective_date > forecast.disclosed_at for action in capital_actions
@@ -251,8 +252,8 @@ def build_financial_snapshot(
         and equity[1] == "bps_times_reported_period_shares"
         and bps_row is not None
         and any(
-            _capital_action_supersedes(action, bps_row.period_end, bps_row.shares_outstanding)
-            for action in capital_actions
+            action.supersedes(bps_row.period_end, bps_row.shares_outstanding)
+            for action in action_units
         )
     ):
         # A completed capital event makes the superseded BPS route unavailable for a

@@ -759,3 +759,52 @@ def test_ambiguous_same_day_basis_revision_does_not_revive_bps(correction_time):
     )
     for rows in ([annual, correction], [correction, annual]):
         assert _latest_non_null_row(rows, "bps") is None
+
+
+@pytest.mark.parametrize("component", ["annual", "current_ytd", "prior_fy", "prior_ytd"])
+@pytest.mark.parametrize(
+    ("document_type", "comparable"),
+    [
+        ("FinancialStatements_NonConsolidated_JP", False),
+        ("FinancialStatements_Consolidated_IFRS", False),
+        ("FinancialStatements_Consolidated_JP", True),
+        ("EarnForecastRevision", True),
+    ],
+)
+def test_ttm_uses_current_filing_scope_even_when_correction_has_no_actual_values(
+    component, document_type, comparable
+):
+    prior, full_year, current = weekly_documents(date(2023, 2, 19))
+    prior = replace(prior, shares_outstanding=100.0)
+    current = replace(current, shares_outstanding=120.0)
+    actuals = [full_year] if component == "annual" else [prior, full_year, current]
+    operand = {
+        "annual": full_year,
+        "prior_fy": full_year,
+        "prior_ytd": prior,
+        "current_ytd": current,
+    }[component]
+    correction = replace(
+        operand,
+        disclosed_at=operand.disclosed_at + timedelta(days=1),
+        disclosure_number="correction-with-no-amounts",
+        document_type=document_type,
+        sales=None,
+        operating_profit=None,
+        profit=None,
+        shares_outstanding=None,
+    )
+    rows = [*actuals, correction]
+    ttm = _reported_ttm(rows, "profit", DEFAULT_TTM_RULES)
+    amount = full_year.profit if component == "annual" else 120.0
+    assert ttm.value_and_quality() == (
+        (amount, TTMQuality.EXACT) if comparable else (None, TTMQuality.UNAVAILABLE)
+    )
+    assert bool(ttm.components) is comparable
+    if component == "prior_ytd":
+        assert _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="profit") == (
+            prior if comparable else None
+        )
+        assert (
+            _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="shares_outstanding") == prior
+        )

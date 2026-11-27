@@ -272,13 +272,14 @@ def seal_integrated(
         else "integrated.json"
     )
     key = prefix + "/" + terminal
+    status = "needs_explicit_recovery" if recovery else "integrated"
     value = json.dumps(
         {
             "manifest_sha256": entry["manifest_sha256"],
             "canonical_generations": generations,
             "source": entry["source"],
             "started_at": entry["started_at"],
-            "status": "needs_explicit_recovery" if recovery else "integrated",
+            "status": status,
             "integrated_at": datetime.now(UTC).isoformat(),
         },
         sort_keys=True,
@@ -288,7 +289,7 @@ def seal_integrated(
         put_private(store, key, value, previous_etag=None)
     else:
         try:
-            _integration_marker(
+            marker = _integration_marker(
                 prior.payload,
                 digest=str(entry["manifest_sha256"]),
                 source=str(entry["source"]),
@@ -299,3 +300,5 @@ def seal_integrated(
             raise LakePublishError(
                 "integration marker differs from the fixed source handoff"
             ) from error
+        if marker["status"] != status:
+            raise LakePublishError("integration marker already records a different outcome")

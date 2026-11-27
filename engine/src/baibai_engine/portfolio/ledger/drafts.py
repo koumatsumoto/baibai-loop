@@ -293,6 +293,17 @@ def build_broker_fact_draft(
     elif status != "open":
         raise ValueError("sell broker fact requires an active order")
 
+    if status == "filled" and side == "sell" and execution_id is not None and selected:
+        # The same reservation also accepts a human report via sell-execution-draft.
+        _require_distinct_sell_execution(
+            source,
+            ticker=ticker,
+            quantity=quantity,
+            price_yen=price_yen,
+            occurrence=occurred_on or occurred_at,
+            reservation_id=selected[0].reservation_id,
+        )
+
     if len(requested_ids) > 1:
         assert status in {"cancelled", "expired"}
         result = record_terminal_broker_facts(
@@ -528,22 +539,28 @@ def build_sell_execution_draft(
         return None
     # Only a new sell needs a clock check; a date-only replay key is not its fill time.
     _validate_report_time(occurred_on or occurred_at, now=now)
-    if execution_id is not None and any(
-        isinstance(event, ExecutionEvent)
-        and event.side == "sell"
-        and event.ticker == ticker
-        and event.reservation_id == reservation_id
-        and event.quantity == quantity
-        and event.price_yen == price_yen
-        and event.overlaps_reported_occurrence(occurred_on or occurred_at)
-        and _has_generated_sell_ids(event)
-        for event in source.events
-    ):
-        # Neither a proposal reference nor amended charges prove a second settlement.
-        raise ValueError(
-            "cannot distinguish new execution_id from a matching sale previously reported "
-            "without a broker ID; verify the broker record and retry with the original identity"
+    if execution_id is not None:
+        _require_distinct_sell_execution(
+            source,
+            ticker=ticker,
+            quantity=quantity,
+            price_yen=price_yen,
+            occurrence=occurred_on or occurred_at,
+            reservation_id=reservation_id,
         )
+        if reservation_id is not None and decision_reference is not None:
+            # This order may have had a prior fill through broker-fact-draft.
+            _require_distinct_broker_fill(
+                source,
+                decision_reference=decision_reference,
+                side="sell",
+                ticker=ticker,
+                quantity=quantity,
+                price_yen=price_yen,
+                occurred_at=occurred_at,
+                occurred_on=occurred_on,
+                reservation_id=reservation_id,
+            )
     if reservation_id is not None:
         active = {
             item.reservation_id: item
@@ -744,6 +761,33 @@ def _sell_event_suffix(
     if reservation_id is not None:
         raw += f"|{reservation_id}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _require_distinct_sell_execution(
+    source: PortfolioLedgerDocument,
+    *,
+    ticker: str | None,
+    quantity: int | None,
+    price_yen: Decimal | None,
+    occurrence: date,
+    reservation_id: str | None,
+) -> None:
+    # Neither another recorder, another proposal reference nor amended charges proves a second sale.
+    if any(
+        isinstance(event, ExecutionEvent)
+        and event.side == "sell"
+        and event.ticker == ticker
+        and event.reservation_id == reservation_id
+        and event.quantity == quantity
+        and event.price_yen == price_yen
+        and event.overlaps_reported_occurrence(occurrence)
+        and _has_generated_sell_ids(event)
+        for event in source.events
+    ):
+        raise ValueError(
+            "cannot distinguish new execution_id from a matching sale previously reported "
+            "without a broker ID; verify the broker record and retry with the original identity"
+        )
 
 
 def _has_generated_sell_ids(event: ExecutionEvent) -> bool:

@@ -703,3 +703,85 @@ def test_retained_buy_reference_does_not_write_or_replay_current_eligibility(
     with pytest.raises(ValueError, match="application database is unavailable"):
         resolve_buy_reference(RETAINED_BUY_REFERENCE, db_path=missing)
     assert not missing.exists()
+
+
+@pytest.mark.parametrize(
+    "broker_first", [False, True], ids=["sale-then-broker", "broker-then-sale"]
+)
+@pytest.mark.parametrize("first_has_broker_id", [False, True], ids=["id-less", "identified"])
+def test_both_sell_recorders_distinguish_identified_fills_on_one_order(
+    tmp_path: Path, broker_first: bool, first_has_broker_id: bool
+) -> None:
+    service, resolve = _services(tmp_path)
+    shared = dict(ticker="2331", decision_reference="reported-sale")
+    order, _ = build_broker_fact_draft(
+        service,
+        resolve,
+        **shared,
+        side="sell",
+        status="open",
+        order_id="recorded-order",
+        quantity=200,
+        price_guard_yen=Decimal("1000"),
+        occurred_at=ORDERED_AT,
+        now=ORDERED_AT,
+    )
+    assert order is not None
+    apply_draft(service, order, human_confirmed=True, now=ORDERED_AT)
+    state = portfolio_snapshot(service.load())
+    reservation_id = next(
+        order.reservation_id
+        for order in state.active_reservations
+        if order.order_id == "recorded-order"
+    )
+    at = ORDERED_AT + timedelta(hours=1)
+    economics = dict(**shared, quantity=100, price_yen=Decimal("1100"), now=at)
+
+    def prepare(*, broker: bool, identity: str | None, date_only: bool):
+        time = {"occurred_on": at.date()} if date_only else {"occurred_at": at}
+        if broker:
+            # The generic route accepts an actual order ID; the dedicated route accepts its reservation.
+            return build_broker_fact_draft(
+                service,
+                resolve,
+                **economics,
+                **time,
+                side="sell",
+                status="filled",
+                order_id="recorded-order",
+                execution_id=identity,
+            )[0]
+        return build_sell_execution_draft(
+            service,
+            **economics,
+            **time,
+            reservation_id=reservation_id,
+            execution_id=identity,
+            fees_yen=50,
+            tax_yen=100,
+        )
+
+    first = prepare(
+        broker=broker_first,
+        identity="first-reported-id" if first_has_broker_id else None,
+        date_only=False,
+    )
+    assert first is not None
+    apply_draft(service, first, human_confirmed=True, now=at)
+    before, head = service.load_with_head()
+    before_bytes = (tmp_path / "app.sqlite").read_bytes()
+    if first_has_broker_id:
+        second = prepare(broker=not broker_first, identity="second-reported-id", date_only=True)
+        assert second is not None
+        additions = [
+            event.type for event in second.replacement.events if event not in before.events
+        ]
+        assert additions == (
+            ["execution", "cost", "tax_confirmed"] if broker_first else ["execution"]
+        )
+    else:
+        with pytest.raises(ValueError, match="cannot distinguish new execution_id"):
+            prepare(broker=not broker_first, identity="second-reported-id", date_only=True)
+    # Merely preparing at either entrance never applies a second trade or its charges.
+    assert service.load_with_head() == (before, head)
+    assert (tmp_path / "app.sqlite").read_bytes() == before_bytes

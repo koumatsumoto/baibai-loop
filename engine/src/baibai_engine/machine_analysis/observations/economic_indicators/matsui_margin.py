@@ -145,11 +145,6 @@ def read_matsui_margin_documents(
     # Observation range is independent of receipt time: keep later corrections
     # to an in-range observation, but do not parse values for later observations.
     in_range = sorted((day, entry) for day, entry in selected.items() if start <= day <= end)
-    latest_in_range = max(
-        (document for _, (document, _) in in_range),
-        key=lambda item: (item.fetched_at, item.request_key),
-        default=None,
-    )
     values: list[ObservationRecord] = []
     for observed_at, (document, section) in in_range:
         try:
@@ -160,8 +155,9 @@ def read_matsui_margin_documents(
                 vintage_at=document.fetched_at,
             )
         except ValueError as error:
-            if document is latest_in_range:
-                raise UnavailableObservationError(f"Matsui latest saved source: {error}") from error
+            # Receipt time chooses revisions within a day, not the latest economic day.
+            if observed_at == in_range[-1][0]:
+                raise UnavailableObservationError(f"Matsui latest observation: {error}") from error
             continue
         values.append(
             replace(

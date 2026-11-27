@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum
-from math import exp, isclose, log
+from math import exp, isclose, log, ulp
 from typing import Literal
 
 from pydantic import JsonValue
@@ -501,13 +501,36 @@ def _correct_period_end_share_basis(
     )
 
 
-def _capital_action_supersedes(
-    action: CapitalAction, period_end: date | None, issued: float | None
-) -> bool:
-    return (
-        period_end is None
-        or action.effective_date > period_end
-        or (action.effective_date == period_end and issued != action.issued_shares)
+@dataclass(frozen=True, slots=True)
+class _CapitalActionUnits:
+    source: CapitalAction
+    factor_to_effective_units: float | None
+
+    def supersedes(self, period_end: date | None, issued_on_model_basis: float | None) -> bool:
+        effective = self.source.effective_date
+        if period_end != effective:
+            return period_end is None or effective > period_end
+        if issued_on_model_basis is None or self.factor_to_effective_units is None:
+            return True
+        # Compare on the source's effective-date unit; never rescale the stored fact.
+        issued = issued_on_model_basis * self.factor_to_effective_units
+        # Undoing floating-point division may leave a few ULPs, not a missing share.
+        return not isclose(
+            issued, self.source.issued_shares, rel_tol=0.0, abs_tol=min(2 * ulp(issued), 0.25)
+        )
+
+
+def _capital_action_units(
+    actions: Sequence[CapitalAction],
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    as_of: date,
+) -> tuple[_CapitalActionUnits, ...]:
+    return tuple(
+        _CapitalActionUnits(
+            action,
+            cumulative_share_unit_factor_after(adjustment_events, action.effective_date, as_of),
+        )
+        for action in actions
     )
 
 
@@ -515,7 +538,7 @@ def _resolve_capital_basis(
     summaries: Sequence[JQuantsFinancialSummary],
     *,
     capital_basis_barrier: _AccountingObservationKey | None = None,
-    capital_actions: Sequence[CapitalAction] = (),
+    capital_actions: Sequence[_CapitalActionUnits] = (),
 ) -> _CapitalBasisResolution:
     """発行済と自己株式を、両方が成立する資本状態でだけ組み合わせる。
 
@@ -544,9 +567,7 @@ def _resolve_capital_basis(
     # new issued total with a stale treasury count as though both were current.
     basis_end = issued_row.period_end if issued_row is not None else None
     later_actions = [
-        action
-        for action in capital_actions
-        if _capital_action_supersedes(action, basis_end, issued)
+        action.source for action in capital_actions if action.supersedes(basis_end, issued)
     ]
     if later_actions:
         latest_day = max(action.effective_date for action in later_actions)

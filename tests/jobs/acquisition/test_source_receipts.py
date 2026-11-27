@@ -315,3 +315,20 @@ def test_authenticated_first_format_terminal_still_resolves_without_rewriting(ma
     assert saved["integration"] == marker
     seal_integrated(store, entry, generations={}, recovery=status != "integrated")
     assert not store.put_keys
+
+
+@pytest.mark.parametrize("recovery", [False, True])
+def test_seal_retry_cannot_report_the_opposite_recorded_outcome(tmp_path, recovery):
+    store = MemoryR2Store()
+    stage(store, tmp_path / "unit", "boj-2026-10-24-retry")
+    (entry,) = available_handoffs(store)
+    seal_integrated(store, entry, generations={"economic_etag": "first"}, recovery=recovery)
+    key = "coordination/economic-sources/boj-2026-10-24-retry/integrated.json"
+    original = store.values[key].body
+    store.put_keys.clear()
+    # The receipt may already have been committed by a prior attempt, under a different head.
+    seal_integrated(store, entry, generations={"economic_etag": "later"}, recovery=recovery)
+    with pytest.raises(LakePublishError, match="different outcome"):
+        seal_integrated(store, entry, generations={"economic_etag": "later"}, recovery=not recovery)
+    assert store.values[key].body == original
+    assert not store.put_keys
