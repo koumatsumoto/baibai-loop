@@ -29,6 +29,6 @@ Webは[エンジン](../docs/architecture.md#変更する場所)が保存した�
 - `views/proposal-history.json` は現在の提案履歴に使う配信物。`/api/health` はR2を読まず、[表示更新](../jobs/OPERATIONS.md#web-serving)は現行viewだけを上書きして旧キーを削除しない。[TradingView用TXT](frontend/src/components/TradingViewWatchlistExportButton.tsx)は画面の保有銘柄からブラウザで作るため、専用のR2ファイルはない。
 
 - 米国株は認証が必要な `/api/us-proposal/latest` の同じ配信物を使う。`history` は発行時刻・発行ID順の直近20枠（読取不能な枠も数える）。履歴が読める場合、正常な最新 `proposal` を先頭に置き、重複を含まない `history.proposals` を続ける。最新が不正でも別の判断を最新にしない。IDが正しい読取不能の枠だけIDを示し、古い枠を繰り上げない。範囲外の正確な保存判断は[保存元の読取](../docs/reference/us-research-mvp.md#隔離appに米国株の見送り判断保留を保存する)で確認できる。
-- 未配信・読取不能と保存済み判断0件は別。新しい画面より先に同じ米国株配信物を更新し、認証済みレスポンスに履歴と保存元と同じ最新の発行ID・査読SHAがあることを確認する。画面は履歴のない旧配信物から履歴を作らない。
+- 未配信・読取不能と保存済み判断0件は別。Web配備と配信物の更新は独立し、データ形式の切替中は一時的に表示できないことがある。切替後は認証済みレスポンスで履歴と、保存元と同じ最新の発行ID・査読SHAを確認する。画面は履歴のない旧配信物から履歴を作らない。
 
 環境準備とViteで確認できる範囲は[開発手順](../docs/development.md#webの確認)、本番での生成・公開・読戻し・Worker配備は[運用手順](../jobs/OPERATIONS.md#web-serving)へ。

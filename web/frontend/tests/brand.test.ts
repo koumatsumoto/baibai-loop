@@ -120,22 +120,52 @@ function flatten(foreground: string, background: string, alpha: number): Rgb {
 
 describe('brand assets', () => {
   it('wires the favicon, home-screen icon and shared logo asset', () => {
-    expect(source('index.html')).toContain('<link rel="icon" href="/favicon.ico" sizes="32x32" />')
+    expect(source('index.html')).toContain('<link rel="icon" href="/favicon.ico" sizes="16x16 32x32" />')
     expect(source('index.html')).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png" />')
     expect(source('index.html')).toContain('<link rel="manifest" href="/manifest.webmanifest" />')
     expect(source('src/components/BrandMark.tsx')).toContain('src="/logo.png"')
   })
 
-  it('declares home-screen metadata without opting this logo into masking', () => {
+  it('provides opaque, correctly sized PWA and Apple Touch icons', () => {
     const manifest = JSON.parse(source('public/manifest.webmanifest')) as {
       display: string
       start_url: string
-      icons: { sizes: string; purpose: string }[]
+      icons: { src: string; sizes: string; type: string; purpose: string }[]
     }
     expect(manifest.display).toBe('standalone')
     expect(manifest.start_url).toBe('/')
-    expect(manifest.icons.map((icon) => icon.sizes)).toEqual(['192x192', '512x512'])
-    expect(manifest.icons.map((icon) => icon.purpose)).toEqual(['any', 'any'])
+    expect(manifest.icons).toEqual([
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ])
+    for (const [file, size] of [
+      ['apple-touch-icon.png', 180],
+      ...manifest.icons.map(({ src, sizes }) => [src.slice(1), Number.parseInt(sizes, 10)] as const),
+    ] as const) {
+      const png = readFileSync(resolve(uiRoot, 'public', file))
+      expect(png.subarray(0, 8).toString('hex'), file).toBe('89504e470d0a1a0a')
+      expect(png.readUInt32BE(16), file).toBe(size)
+      expect(png.readUInt32BE(20), file).toBe(size)
+      // PNG color type 2 is RGB; no alpha channel or transparency chunk.
+      expect(png[25], file).toBe(2)
+      expect(png.includes(Buffer.from('tRNS')), file).toBe(false)
+    }
+  })
+
+  it('matches browser chrome and the installed PWA splash to the canvas', () => {
+    const manifest = JSON.parse(source('public/manifest.webmanifest')) as { background_color: string; theme_color: string }
+    const canvas = tokenValue('--canvas')
+    expect(manifest.background_color).toBe(canvas)
+    expect(manifest.theme_color).toBe(canvas)
+    expect(source('index.html')).toContain(`<meta name="theme-color" content="${canvas}" />`)
+  })
+
+  it('ships both 16px and 32px favicon frames', () => {
+    const ico = readFileSync(resolve(uiRoot, 'public/favicon.ico'))
+    expect(ico.readUInt16LE(2)).toBe(1)
+    expect(ico.readUInt16LE(4)).toBe(2)
+    expect([...ico.subarray(6, 8), ...ico.subarray(22, 24)]).toEqual([16, 16, 32, 32])
   })
 })
 
@@ -152,20 +182,29 @@ const SERIES_COLORS = ['--chart-1', '--chart-2', '--chart-3'] as const
 describe('brand palette', () => {
   // Use text and non-text contrast thresholds for their actual surfaces.
   it.each([
-    ...VALUE_COLORS.map((token): [string, string, number] => [token, '--surface', 4.5]),
-    ['--primary-action', '--surface', 4.5],
-    ['--primary-hover', '--surface', 4.5],
+    // White portfolio cards and their selected/hovered rows both show these monetary values.
+    ...VALUE_COLORS.flatMap((token) =>
+      ['--surface', '--primary-soft'].map((background): [string, string, number] => [token, background, 4.5])),
+    ['--primary-foreground', '--primary', 4.5],
+    ['--primary-foreground', '--primary-hover', 4.5],
+    ['--foreground', '--selection', 4.5],
+    ['--primary-ink', '--surface', 4.5],
+    ['--muted-foreground', '--surface-subtle', 4.5],
     ['--warning', '--surface', 4.5],
     ['--text-secondary', '--canvas', 4.5],
     ['--ring', '--canvas', 3],
-    ['--chart-1', '--surface', 3],
-    ['--text-tertiary', '--surface', 3],
+    ['--ring', '--surface-subtle', 3],
+    ['--ring', '--selection', 3],
+    ['--ring', '--surface', 3],
+    ['--input', '--surface', 3],
+    ['--chart-edge', '--surface', 3],
+    ...SERIES_COLORS.map((token): [string, string, number] => ['--chart-edge', token, 3]),
   ])('keeps %s legible on %s', (token, background, minimum) => {
     expect(contrastRatio(tokenValue(token), tokenValue(background))).toBeGreaterThanOrEqual(minimum)
   })
 
   // Tailwind only emits utilities for tokens exposed through @theme.
-  it.each([...VALUE_COLORS, ...SERIES_COLORS])('exposes %s as a utility', (token) => {
+  it.each([...VALUE_COLORS, ...SERIES_COLORS, '--chart-edge'])('exposes %s as a utility', (token) => {
     expect(themeMappings.get(`--color${token.slice(1)}`)).toBe(`var(${token})`)
   })
 
@@ -179,18 +218,31 @@ describe('brand palette', () => {
     }
   })
 
-  // Artwork colors do not own interaction or status contrast. Keep them out of
-  // component utilities; the semantic text/focus colors have contrast checks above.
-  it('leaves the mark’s own green out of the components', () => {
-    const markGreen = tokenValue('--brand-green').toLowerCase()
-    const aliases = [...tokens.keys()].filter((name) => tokenValue(name).toLowerCase() === markGreen)
-    for (const name of aliases) {
-      expect(themeMappings.has(`--color${name.slice(1)}`), `${name} is a utility`).toBe(false)
+  it('uses the artwork orange for primary actions, not for selection, returns or chart categories', () => {
+    const mark = [...source('brand/logo.svg').matchAll(/fill="(#[0-9a-f]{6})"/gi)]
+      .map((match) => match[1].toLowerCase())
+    expect(mark).toEqual(['#f0872e', '#f3b845'])
+    expect(tokenValue('--primary')).toBe(mark[0])
+    const nonAction = [
+      '--canvas', '--selection', '--surface-subtle', '--chart-edge',
+      ...VALUE_COLORS, '--warning', ...SERIES_COLORS,
+    ]
+    for (const name of nonAction) expect(mark).not.toContain(tokenValue(name))
+    const profit = tokenValue('--profit')
+    for (const name of ['--selection', '--warning-surface', '--chart-edge', ...SERIES_COLORS]) {
+      expect(profit).not.toBe(tokenValue(name))
     }
-    const painted = componentSources((entry) => entry !== 'styles.css').filter((text) =>
-      aliases.some((name) => text.includes(`var(${name})`) || text.includes(`(${name})`)),
-    )
-    expect(painted).toEqual([])
+    const allocation = SERIES_COLORS.map((name) => tokenValue(name))
+    expect(new Set(allocation).size).toBe(allocation.length)
+    const components = componentSources((entry) => !entry.endsWith('.css')).join('\n').toLowerCase()
+    for (const color of mark) expect(components).not.toContain(color)
+  })
+
+  it('orders the allocation tones from amber shares to honey reserves to light cream cash', () => {
+    const [shares, reserves, cash] = ['--chart-1', '--chart-3', '--chart-2']
+      .map((name) => relativeLuminance(parseColor(tokenValue(name))))
+    expect(shares).toBeLessThan(reserves)
+    expect(reserves).toBeLessThan(cash)
   })
 
   // Check palette classes, not Tailwind's built-in scale.
@@ -212,7 +264,7 @@ describe('brand palette', () => {
     for (const token of [...VALUE_COLORS, '--warning']) {
       const declaration = tokens.get(token)
       expect(declaration).toBeDefined()
-      expect(declaration).not.toMatch(/var\(--(?:brand|accent)/)
+      expect(declaration).not.toMatch(/var\(--(?:brand|accent|primary|selection|chart)/)
     }
   })
 })

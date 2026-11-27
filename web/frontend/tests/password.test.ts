@@ -55,6 +55,16 @@ describe('PasswordForm rendering', () => {
     expect(markup).toMatch(/<input\b[^>]*id="view-password"/)
   })
 
+  it('outlines both controls against the paper outside the control, not only its fill', () => {
+    const controls = renderForm(null).match(/<(?:input|button)\b[^>]*>/g)
+    expect(controls).toHaveLength(2)
+    for (const control of controls ?? []) {
+      expect(control).toContain('focus-visible:outline-2')
+      expect(control).toContain('focus-visible:outline-offset-2')
+      expect(control).toContain('focus-visible:outline-ring')
+    }
+  })
+
   it('shows the invalid-input notice when validation fails', () => {
     const markup = renderForm(PASSWORD_INVALID_NOTICE)
     expect(markup).toContain(PASSWORD_INVALID_NOTICE)

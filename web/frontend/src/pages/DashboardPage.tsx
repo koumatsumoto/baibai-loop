@@ -114,7 +114,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                 <ResponsiveContainer initialDimension={{ width: 320, height: 200 }}>
                   <PieChart accessibilityLayer>
                     <Tooltip content={AllocationTooltip} />
-                    <Pie data={allocation} dataKey="value" innerRadius={72} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
+                    <Pie data={allocation} dataKey="value" innerRadius={80} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} stroke="var(--chart-edge)" strokeLinejoin="round" strokeWidth={1} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -125,7 +125,17 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
               <div className="pointer-events-none absolute inset-0 grid place-content-center text-center">
                 <span className="text-xs text-muted-foreground">総資産</span>
                 <YenAmount className="mt-1 text-lg font-semibold tracking-tight" value={data.total_capital_yen} />
-                {hasPnl && <YenAmount className="mt-1.5 text-xs font-medium" sign tone="pnl" value={unrealizedPnlYen} />}
+                {hasPnl && (
+                  <div className="mt-1.5 grid justify-items-center gap-0.5">
+                    <span className="text-[11px] text-muted-foreground">評価損益</span>
+                    <YenAmount
+                      className="text-sm font-semibold"
+                      sign
+                      tone="pnl"
+                      value={unrealizedPnlYen}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -134,9 +144,9 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
         <div className="grid min-w-0 content-center divide-y">
           {[
             { label: '総資産', value: data.total_capital_yen, detail: holdingDetail, color: 'bg-foreground', tone: 'plain' as const, sign: false },
-            { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1', tone: 'plain' as const, sign: false },
-            { label: '台帳の未予約現金', value: data.available_cash_yen, detail: data.cash_pct === null ? '受渡済み資金とは別' : `総資産の ${formatPct(data.cash_pct)}・受渡未照合`, color: 'bg-chart-2', tone: 'plain' as const, sign: false },
-            { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3', tone: 'plain' as const, sign: false },
+            { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1 ring-1 ring-chart-edge ring-inset', tone: 'plain' as const, sign: false },
+            { label: '台帳の未予約現金', value: data.available_cash_yen, detail: data.cash_pct === null ? '受渡済み資金とは別' : `総資産の ${formatPct(data.cash_pct)}・受渡未照合`, color: 'bg-chart-2 ring-1 ring-chart-edge ring-inset', tone: 'plain' as const, sign: false },
+            { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3 ring-1 ring-chart-edge ring-inset', tone: 'plain' as const, sign: false },
             { label: '評価損益', value: hasPnl ? unrealizedPnlYen : null, detail: unrealizedPnlPct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(unrealizedPnlPct, { sign: true })}`, color: null, tone: 'pnl' as const, sign: true },
             { label: '累積確定損益', value: data.realized_gross_pnl_yen, detail: '台帳開始以来の売却損益・税／手数料控除前', color: null, tone: 'pnl' as const, sign: true },
           ].map((metric) => (
@@ -247,7 +257,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
             {unrealizedPnlYen === null && holdings.some((holding) => holding.market_value_yen === null)
               ? <span className="font-semibold text-muted-foreground">未評価</span>
               : <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnlYen} />}
-            <PctBadge className="text-xs" value={unrealizedPnlPct} />
+            <PctBadge className="text-xs" tone="pnl" value={unrealizedPnlPct} />
           </div>
           <div className="flex flex-col items-end gap-1">
             <TradingViewWatchlistExportButton
@@ -296,7 +306,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null, quantityU
                     : <YenAmount className="text-sm font-medium" value={holding.market_value_yen} />}
                   <span className="mt-1 flex items-center justify-end gap-2 text-xs">
                     <YenAmount sign tone="pnl" value={holding.unrealized_pnl_yen} />
-                    <PctBadge className="text-xs" value={holding.unrealized_pnl_pct} />
+                    <PctBadge className="text-xs" tone="pnl" value={holding.unrealized_pnl_pct} />
                   </span>
                 </TableCell>
                 <TableCell className="pr-5 text-right sm:pr-6"><TradingViewButton ticker={holding.ticker} /></TableCell>
@@ -373,7 +383,6 @@ export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) 
                 <Badge variant="outline">{STATUS_LABEL.get(item.status) ?? item.status}</Badge>
               </div>
               <p className="break-all text-xs text-muted-foreground">{item.outcome_id}</p>
-              {/* Use the same gain/loss colors for the comparison. */}
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                 <span>ポート TWR <PctBadge className="text-xs" value={item.portfolio_twr_pct} /></span>
                 <span>ベンチマーク <PctBadge className="text-xs" value={item.benchmark_cumulative_return_pct} /></span>

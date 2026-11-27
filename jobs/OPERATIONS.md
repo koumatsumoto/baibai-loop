@@ -428,6 +428,14 @@ uv run python -m baibai_jobs.integration.tradingview_receipts \
 
 `--saved-input` を渡さない日足CLIは、開始時に現在のL1 headを一度固定する。`--work-directory` に置いた旧 `head.json` や過去のattemptは入力にならない。元の失敗attemptに結び付く保存InputSnapshotがなければ、元attemptの再現としてはそこで止める。現行headを診断する場合は別の新しい出力先を使い、同じ日付でも過去の選択に付け替えない。
 
+クラウドから原本に直接接続できない場合は、既存の市場取得workflowを読取専用で手動起動できる。対象日を必ず明示し、前6日を含む7日分の投影行数・受領状態だけをJob summaryまたはActionsのjob logで確認する。
+
+```bash
+gh workflow run cloud-market-sources.yml --ref main -f source=jquants-price-probe -f "asof=${ASOF:?確認日をYYYY-MM-DDで指定}"
+```
+
+対象日の採用済み日足が非空で、投影・受領に未解決がない場合にのみprobeが成功する。空や未確認を欠損と断定せず、日次で必要な全収録窓の充足は通常の日次で別途確認する。provider取得・R2書込み・DBダウンロードは行わない。
+
 旧releaseに公開された日足を調べる場合は、native L1からの再計算ではなく[固定releaseのhydrate](#local-release-hydrate)を使う。
 日足の保存入力で投影版が未記録または実行コードと異なる場合、`--saved-input` は旧digestに異なる投影を結び付けず停止する。再構築する場合は公開時のproducer commitを使う。原本の選択や公開済みreleaseの読取は変わらない。
 
@@ -598,13 +606,14 @@ uv run python -m tools.diagnostics.check_served_proposal \
 
 診断は訂正を反映した正式latestの本文、履歴の形式・発行索引・生成時刻、Caseの対象/結果/Selectionを照合する。正式latest以外は、選択した過去レポートの本文や後日の人間報告がAppと一致するかまでは確認しない。`--proposal-id`で正式latestのIDを指定できる。`--require-completed`はCase完了参照まで同じ提案であることを求める場合だけ使う（後日の訂正で異なり得る）。終了0は配備・実画面・新規提案発行や売買の証明ではない。
 
-必要な表示データを公開・読戻しした成功main runを確認後、[web workflow](../.github/workflows/web.yml)をmainで明示dispatchする。push/PRのweb runは検証だけで、Worker/UIを配備しない。
+[Web workflow](../.github/workflows/web.yml)は `main` へのpushでWeb入力が変わった場合だけ、Webの検証後にWorkerとUIを自動配備する。PRと `main` 以外での手動起動は検証だけ。配信データの公開とは独立しており、データ形式の切替中に一時的に表示が崩れることは許容する。配備を待たせたり、旧形式に対応する実装を残したりしない。
 
 ```bash
-gh workflow run web.yml --ref main
-gh run list --workflow web.yml --branch main --event workflow_dispatch --limit 5
+gh run list --workflow web.yml --branch main --event push --commit <TARGET_SHA> --limit 5
 gh run watch <WEB_RUN_ID> --exit-status --interval 60
 ```
+
+自動配備の復旧や現行mainの再配備には `gh workflow run web.yml --ref main` を使う。自動・手動の本番配備は同じキューで直列実行する。
 
 対象SHAの`Deploy Worker and UI assets`が実行・成功したことを確認する。待機中にmainのWeb入力が変わると配備はskipされるため、run成功だけで配備済みとしない。認証APIは対話terminalで`bash web/edge/scripts/verify-deployment.sh`を実行し、閲覧パスワードはpromptへ入力する。`WORKER_BASE_URL`で確認先を変える場合はHTTPS originだけを指定し、userinfo・path（末尾slashを含む）・query・fragment・空白を含めない。画面のDashboard・提案emptyまたは保存ID/基準日/発行時刻付き本文の表示受入は別に確認する。旧object/secretは削除しない。
 

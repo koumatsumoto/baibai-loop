@@ -21,15 +21,17 @@
     --color-primary-action: var(--primary-action);
     --color-primary-hover: var(--primary-hover);
     --color-primary-soft: var(--primary-soft);
+    --color-primary-ink: var(--primary-ink);
+    --color-selection: var(--selection);
     --color-surface: var(--surface);
     --color-surface-subtle: var(--surface-subtle);
     --color-border-strong: var(--border-strong);
     --color-text-primary: var(--text-primary);
     --color-text-secondary: var(--text-secondary);
-    --color-text-tertiary: var(--text-tertiary);
     --color-chart-3: var(--chart-3);
     --color-chart-2: var(--chart-2);
     --color-chart-1: var(--chart-1);
+    --color-chart-edge: var(--chart-edge);
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
@@ -62,22 +64,20 @@
 }
 
 :root {
-    /* Logo measurements stay separate from readable interaction colors. Use primary-action / primary-hover for controls, not brand-green or brand-lime. */
-    --brand-green: #09ab65;
-    --brand-lime: #c7de24;
-    --primary-action: #008755;
-    --primary-hover: #006b43;
-    --primary-soft: #e8faf0;
-
-    /* Neutral palette carries the layout; the action greens carry interaction. */
-    --canvas: #f8faf9;
+    /* Pale yellow paper, quiet selected yellow, a separate orange for primary actions. */
+    --canvas: #fffcf1;
     --surface: #ffffff;
-    --surface-subtle: #f2f5f3;
-    --border: #e2e8e5;
-    --border-strong: #d4ddd8;
-    --text-primary: #111815;
-    --text-secondary: #56625c;
-    --text-tertiary: #75817b;
+    --surface-subtle: #f7f1e0;
+    --primary-soft: #fff9eb;
+    --selection: #f7efda;
+    --primary-action: #f0872e;
+    --primary-hover: #e87925;
+    --primary-ink: #9c3f07;
+
+    --border: #e9e1cd;
+    --border-strong: #8e8164;
+    --text-primary: #2c2414;
+    --text-secondary: #5e5540;
 
     --background: var(--canvas);
     --foreground: var(--text-primary);
@@ -86,7 +86,7 @@
     --popover: var(--surface);
     --popover-foreground: var(--text-primary);
     --primary: var(--primary-action);
-    --primary-foreground: var(--surface);
+    --primary-foreground: var(--text-primary);
     --secondary: var(--surface-subtle);
     --secondary-foreground: var(--text-primary);
     --muted: var(--surface-subtle);
@@ -94,20 +94,34 @@
     /* Directional changes use green/red; monetary profit/loss uses gold/blue. Permanent-loss risk remains a business-risk judgment, not portfolio P&L. Labels and signs carry meaning independently of color. */
     --positive: oklch(0.527 0.154 150.069);
     --destructive: oklch(0.577 0.245 27.325);
-    --profit: oklch(0.56 0.115 80);
+    --profit: #6b4b00;
     --loss: oklch(0.52 0.14 250);
     --warning: oklch(0.55 0.135 58);
     --warning-surface: oklch(0.95 0.045 95.277);
     --warning-ink: oklch(0.4 0.09 58);
     --input: var(--border-strong);
-    /* Focus is drawn as an opaque border plus a translucent halo; the border carries
-       the contrast, so the ring is the action green. */
-    --ring: var(--primary-action);
-    /* Allocation charts use green tones and reserved-cash gray, distinct from profit/loss colors. */
-    --chart-1: var(--primary-action);
-    --chart-2: #8fbb18;
-    --chart-3: var(--text-tertiary);
+    /* An offset, opaque focus outline reads against the surrounding surface,
+       including on buttons whose fill is already the action color. */
+    --ring: var(--primary-ink);
+    /* Allocation takes the logo's warm hues at different lightness and chroma, not the artwork swatches. */
+    --chart-1: #ef983e;
+    --chart-2: #f9e6ab;
+    --chart-3: #f4c358;
+    --chart-edge: #755223;
     --radius: 0.625rem;
+}
+
+/* Both route levels mark the current link with a quiet fill and stronger type. */
+@utility route-choice {
+  @apply rounded-lg text-muted-foreground transition-colors;
+
+  &:hover {
+    @apply bg-primary-soft text-foreground;
+  }
+
+  &[aria-current="page"] {
+    @apply bg-selection font-semibold text-foreground;
+  }
 }
 
 @layer base {

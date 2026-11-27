@@ -14,7 +14,7 @@ import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
 from baibai_engine.data_collection.catalog import require_source
 from baibai_engine.data_collection.providers.cftc import CftcSource
-from baibai_engine.data_collection.providers.ecb.fx import EcbFxSource
+from baibai_engine.data_collection.providers.ecb.fx import EcbFxSource, parse_ecb_reference_csv
 from baibai_engine.data_collection.providers.estat.dashboard import EStatDashboardSource
 from baibai_engine.data_collection.receipts.native_sources.records import (
     read_snapshots,
@@ -22,6 +22,10 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
 )
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.data_collection.transport.context import FetchContext
+from baibai_engine.machine_analysis.generation.runners.market_reading import (
+    READING_RULES_PATH,
+    read_store_snapshot,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
@@ -88,6 +92,35 @@ def test_ecb_crosses_use_one_native_row_and_missing_leg_never_uses_old_output(tm
         assert usd.source_url == eur.source_url == require_source("ecb-fx").source_url
         assert usd.vintage_at == eur.vintage_at == datetime(2026, 10, 14, tzinfo=UTC)
         assert read("aud_jpy", DAY, DAY) == ()
+
+
+def test_ecb_conflicting_cross_does_not_hide_independent_readings(tmp_path):
+    prior_day = DAY - timedelta(days=1)
+    rows = parse_ecb_reference_csv(
+        f"Date,JPY,USD,AUD\n{prior_day},177,1.2,1.5\n{DAY},180,1.2,1.5\n{DAY},180,1.25,1.5\n",
+        start=prior_day,
+        end=DAY,
+    )
+    received = datetime(2026, 10, 14, tzinfo=UTC)
+    with closing(initialize_database(tmp_path / "indicators.sqlite")) as connection, connection:
+        for observed_at, records in rows.items():
+            store_snapshot(
+                connection,
+                source_id="ecb-fx",
+                observed_at=observed_at,
+                fetched_at=received,
+                records=records,
+            )
+        snapshot = read_store_snapshot(connection, asof=DAY, rules_path=READING_RULES_PATH)
+
+    readings = {row.series_id: row for row in snapshot.series}
+    usd = readings["usd_jpy"]
+    assert usd.latest_value is None
+    assert usd.observed_at is None  # Do not silently fall back to the valid prior day.
+    assert usd.flags == ("source_unreadable",)
+    assert readings["eur_jpy"].latest_value == 180.0
+    assert readings["aud_jpy"].latest_value == 120.0
+    assert readings["eur_jpy"].observed_at == readings["aud_jpy"].observed_at == DAY
 
 
 def test_unusable_calculation_does_not_roll_back_native_bulk_records(tmp_path, monkeypatch):

@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 import yaml
 from tests.helpers.workflow_schedule import declared_schedule
@@ -363,3 +366,181 @@ def test_acquire_shell_uses_native_sources_without_scoped_inputs(tmp_path, sourc
     assert parsed.asof == date(2026, 11, 6)
     assert parsed.directory == runner / "source-handoff"
     assert "--input-directory" not in arguments
+
+
+def _probe_steps():
+    return {
+        step["id"]: step
+        for step in _workflow()["jobs"]["jquants-price-probe"]["steps"]
+        if "id" in step
+    }
+
+
+def _probe_step(name, env):
+    return subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", _probe_steps()[name]["run"]],
+        env={"PATH": os.environ["PATH"], **env},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_price_probe_only_dispatches_the_reader_not_other_market_jobs():
+    workflow = _workflow()
+    assert workflow["permissions"] == {"contents": "read"}
+    jobs = workflow["jobs"]
+    probe = jobs["jquants-price-probe"]
+    assert "github.event_name == 'workflow_dispatch'" in probe["if"]
+    assert "github.ref == 'refs/heads/main'" in probe["if"]
+    assert "inputs.source == 'jquants-price-probe'" in probe["if"]
+    assert "inputs.source != 'jquants-price-probe'" in jobs["plan"]["if"]
+    assert "inputs.source != 'jquants-price-probe'" in jobs["notify-plan-failure"]["if"]
+    for name in ("source", "edinet-list", "edinet-archives"):
+        assert "plan" in jobs[name]["needs"]
+    readback = _probe_steps()["readback"]["env"]
+    assert {key for key, value in readback.items() if "secrets." in value} == {
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+    }
+    for step in probe["steps"]:
+        if step.get("id") != "readback":
+            assert not any(key.startswith("R2_") for key in step.get("env", {}))
+            assert not any("secrets." in value for value in step.get("env", {}).values())
+
+
+@pytest.mark.parametrize(
+    ("target", "start"),
+    [
+        ("2024-03-01", "2024-02-24"),
+        ("", None),
+        ("20240301", None),
+        ("9999-12-31", None),
+        ("0001-01-01", None),
+    ],
+)
+def test_price_probe_requires_a_real_explicit_date_and_reads_only_seven_days(
+    tmp_path, target, start
+):
+    target_path = tmp_path / "window"
+    result = _probe_step(
+        "window",
+        {"TARGET_DATE": target, "RUNNER_TEMP": str(tmp_path), "GITHUB_OUTPUT": str(target_path)},
+    )
+    if start is None:
+        assert result.returncode == 1
+        assert not target_path.exists()
+        return
+    assert result.returncode == 0, result.stderr
+    out = dict(line.split("=", 1) for line in target_path.read_text().splitlines())
+    assert (out["start"], out["asof"]) == (start, target)
+    work = Path(out["work"])
+    assert work.parent == tmp_path
+    assert work.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.parametrize("bad_read", [False, True])
+def test_price_probe_runs_only_cold_read_command_and_keeps_failure_output_private(
+    tmp_path, bad_read
+):
+    uv = tmp_path / "uv"
+    uv.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\0" "$@" > "$COMMAND"\n'
+        "printf private-input; printf private-error >&2\n"
+        'exit "$READER_STATUS"\n'
+    )
+    uv.chmod(0o755)
+    command = tmp_path / "command"
+    result = _probe_step(
+        "readback",
+        {
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "PROBE_WORK": str(tmp_path),
+            "ASOF": "2024-03-01",
+            "START": "2024-02-24",
+            "COMMAND": str(command),
+            "READER_STATUS": str(int(bad_read) * 2),
+        },
+    )
+    assert result.returncode == int(bad_read)
+    assert command.read_bytes().decode().split("\0")[:-1] == [
+        "run",
+        "--offline",
+        "--no-sync",
+        "baibai-jobs",
+        "rebuild-price-native",
+        "--work-directory",
+        str(tmp_path / "work"),
+        "--start",
+        "2024-02-24",
+        "--end",
+        "2024-03-01",
+        "--output",
+        str(tmp_path / "output"),
+    ]
+    assert "private-" not in result.stdout + result.stderr
+    assert "private-input" in (tmp_path / "readback.log").read_text()
+
+
+@pytest.mark.parametrize(
+    ("rows", "projection", "scope", "incomplete", "display_status", "healthy"),
+    [
+        (1, "ok", {"adopted": "private-id"}, 0, "ok", True),
+        (0, "ok", {"adopted": "private-id"}, 0, "empty", False),
+        (0, "unavailable", {}, 0, "unavailable", False),
+        (1, "partial", {"adopted": "private-id"}, 0, "partial", False),
+        (1, "private-status", {"adopted": "private-id"}, 0, "unknown", False),
+        (1, "ok", {"adopted": "private-id", "held": "private-hold"}, 0, "ok", False),
+        (1, "ok", {"adopted": "private-id", "failure": "private-failure"}, 1, "ok", False),
+    ],
+)
+def test_price_probe_summary_requires_target_rows_and_unresolved_free_adoption(
+    tmp_path, rows, projection, scope, incomplete, display_status, healthy
+):
+    target = "2024-03-01"
+    prior = "2024-02-29"
+    uv = tmp_path / "uv"
+    uv.write_text('#!/usr/bin/env bash\nshift 4\nexec "$TEST_PYTHON" "$@"\n')
+    uv.chmod(0o755)
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / "input.json").write_text(
+        json.dumps({"acquisition": {prior: {"adopted": "private-prior"}, target: scope}})
+    )
+    pq.write_table(
+        pa.table(
+            {"traded_at": [prior, *([target] * rows)], "ticker": ["private-ticker"] * (1 + rows)}
+        ),
+        output / "daily_bars.parquet",
+    )
+    pq.write_table(
+        pa.table(
+            {
+                "day": [date.fromisoformat(day) for day in (prior, target)],
+                "projection_status": ["ok", projection],
+                "incomplete_requests": [0, incomplete],
+                "request_id": ["private-prior", "private-id"],
+            }
+        ),
+        output / "price_receipt_status.parquet",
+    )
+    summary = tmp_path / "summary"
+    result = _probe_step(
+        "summary",
+        {
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "TEST_PYTHON": sys.executable,
+            "PROBE_WORK": str(tmp_path),
+            "ASOF": target,
+            "GITHUB_STEP_SUMMARY": str(summary),
+        },
+    )
+    assert result.returncode == int(not healthy), (tmp_path / "summary.log").read_text()
+    report = summary.read_text()
+    assert f"| {prior} | 1 | ok | True | False | False | 0 |" in report
+    assert f"| {target} | {rows} | {display_status} | " in report
+    assert "公開判定ではない" in report
+    assert result.stdout.startswith(report)
+    assert ("::error::" in result.stdout[len(report) :]) is not healthy
+    assert "private-" not in report + result.stdout + result.stderr

@@ -105,14 +105,14 @@ export function ProposalHistory({ data, proposalId = null, ticker = null }: {
     <div className="grid gap-2 text-xs leading-6 text-muted-foreground">
       <p>発行日時（JST）の新しい順。午前は0〜11時、午後は12〜23時です。提案基準日や再生成日時とは異なります。</p>
       <p>同じ銘柄でも過去のレポートは別に残しています。現在の売買推奨・注文可否ではありません。</p>
-      {data.unavailable_proposal_ids.length > 0 && <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-foreground">読取不能の提案が{data.unavailable_proposal_ids.length}件あります。その提案に含まれる銘柄は一覧に表示できていません。</p>}
-      {malformedCount > 0 && <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-foreground">配信データの形式が不正な提案が{malformedCount}件あります。該当するレポートは表示していません。</p>}
+      {data.unavailable_proposal_ids.length > 0 && <p role="status" className="rounded-lg border border-warning/30 bg-warning-surface px-4 py-3 text-sm text-warning-ink">読取不能の提案が{data.unavailable_proposal_ids.length}件あります。その提案に含まれる銘柄は一覧に表示できていません。</p>}
+      {malformedCount > 0 && <p role="status" className="rounded-lg border border-warning/30 bg-warning-surface px-4 py-3 text-sm text-warning-ink">配信データの形式が不正な提案が{malformedCount}件あります。該当するレポートは表示していません。</p>}
     </div>
     {data.status === 'empty' && <SectionCard padded title="日本株の保存済みレポートはありません"><p className="text-sm text-muted-foreground">表示データ生成時点で、正式に保存された提案はありません。</p></SectionCard>}
     {groups.map(group => <section className="grid min-w-0 gap-3" key={group.key} aria-labelledby={`reports-${group.key}`}>
       <h2 id={`reports-${group.key}`} className="flex items-baseline gap-3 text-lg font-semibold">{group.label}<span className="text-xs font-normal text-muted-foreground">{group.year}年 · JST</span></h2>
       <div className="grid min-w-0 gap-3 md:grid-cols-2">
-        {group.reports.map(({ proposal, item, publicationTime, corrected }) => <Link key={`${proposal.proposal_id}:${item.ticker}`} to={proposalReportHref(proposal.proposal_id, item.ticker)} className="group grid min-w-0 content-start gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:p-5">
+        {group.reports.map(({ proposal, item, publicationTime, corrected }) => <Link key={`${proposal.proposal_id}:${item.ticker}`} to={proposalReportHref(proposal.proposal_id, item.ticker)} className="group grid min-w-0 content-start gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-border-strong hover:bg-primary-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0"><h3 className="break-words text-lg font-semibold">{item.company_name ?? '会社名未記録'}</h3><p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span className="font-mono">{item.ticker}</span><span>{item.sector ?? '業種未記録'}</span></p></div>
             <ArrowUpRight aria-hidden="true" className="mt-1 size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />

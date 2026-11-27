@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: "One source group, or all"
+        description: "One source group, all, or jquants-price-probe (read-only)"
         type: string
         default: all
       asof:
-        description: "Optional YYYY-MM-DD"
+        description: "YYYY-MM-DD (required for jquants-price-probe)"
         type: string
         default: ''
 
@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   plan:
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/main' && inputs.source != 'jquants-price-probe' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -119,9 +119,120 @@ jobs:
       asof: ${{ needs.plan.outputs.asof }}
     secrets: inherit
 
+  jquants-price-probe:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+      && inputs.source == 'jquants-price-probe' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      UV_NO_DEV: "true"
+    steps:
+      - name: Validate the target and bound the readback window
+        id: window
+        env:
+          TARGET_DATE: ${{ inputs.asof }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from datetime import date, datetime, timedelta
+          from tempfile import mkdtemp
+          from zoneinfo import ZoneInfo
+
+          target = os.environ['TARGET_DATE']
+          try:
+              day = date.fromisoformat(target)
+              if day.isoformat() != target or day > datetime.now(ZoneInfo('Asia/Tokyo')).date():
+                  raise ValueError
+              start = day - timedelta(days=6)
+          except (ValueError, OverflowError):
+              raise SystemExit('Set asof to an explicit YYYY-MM-DD no later than today in JST.') from None
+          work = mkdtemp(prefix='jquants-price-probe-', dir=os.environ['RUNNER_TEMP'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
+              print(f'asof={target}\nstart={start}\nwork={work}', file=stream)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - run: uv sync --locked
+      - name: Read only the fixed native price window
+        id: readback
+        env:
+          ASOF: ${{ steps.window.outputs.asof }}
+          START: ${{ steps.window.outputs.start }}
+          PROBE_WORK: ${{ steps.window.outputs.work }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_STOP_ON_REJECTION: '1'
+        run: |
+          umask 077
+          if ! timeout 120s uv run --offline --no-sync baibai-jobs rebuild-price-native \
+            --work-directory "$PROBE_WORK/work" --start "$START" --end "$ASOF" \
+            --output "$PROBE_WORK/output" > "$PROBE_WORK/readback.log" 2>&1; then
+            echo "::error::J-Quants price readback failed. Details kept private."
+            exit 1
+          fi
+      - name: Report only aggregate receipt evidence (not a publication check)
+        id: summary
+        env:
+          ASOF: ${{ steps.window.outputs.asof }}
+          PROBE_WORK: ${{ steps.window.outputs.work }}
+        run: |
+          umask 077
+          report="$PROBE_WORK/report.md"
+          status=0
+          uv run --offline --no-sync python - > "$report" 2> "$PROBE_WORK/summary.log" <<'PY' || status=$?
+          import json
+          import os
+          from collections import Counter
+          from pathlib import Path
+          import pyarrow.parquet as pq
+
+          output = Path(os.environ['PROBE_WORK']) / 'output'
+          scopes = json.loads((output / 'input.json').read_text(encoding='utf-8'))['acquisition']
+          counts = Counter(pq.read_table(output / 'daily_bars.parquet', columns=['traded_at']).column(0).to_pylist())
+          days = pq.read_table(
+              output / 'price_receipt_status.parquet',
+              columns=['day', 'projection_status', 'incomplete_requests'],
+          ).to_pylist()
+
+          print('### J-Quants 日足原本の限定確認（公開判定ではない）')
+          print('| 日付 | 行数 | 投影 | 採用済み | 失敗 | 保留 | 不完全な応答 |')
+          print('| --- | ---: | --- | --- | --- | --- | ---: |')
+          ready = False
+          for row in days:
+              day = row['day'].isoformat()
+              adopted, failed, held = (bool(scopes[day].get(key)) for key in ('adopted', 'failure', 'held'))
+              count, status, incomplete = counts[day], row['projection_status'], row['incomplete_requests']
+              if status not in ('ok', 'partial', 'unavailable'):
+                  status = 'unknown'
+              elif status == 'ok' and not count:
+                  status = 'empty'
+              print(f'| {day} | {count} | {status} | {adopted} | {failed} | {held} | {incomplete} |')
+              if day == os.environ['ASOF']:
+                  ready = status == 'ok' and adopted and not (failed or held or incomplete)
+          print('この範囲は現在の原本の確認のみ。休場の証明・収録窓全体・日次公開は未判定。')
+          if not ready:
+              print('対象日について、未解決のない非空の日足を確認できませんでした。')
+              raise SystemExit(1)
+          PY
+          # Only this aggregate is safe to share; never print reader stdout or diagnostics.
+          tee -a "$GITHUB_STEP_SUMMARY" < "$report"
+          if [[ "$status" -ne 0 ]]; then
+            echo "::error::J-Quants target price receipt not verified; see aggregate summary."
+            exit "$status"
+          fi
+
   notify-plan-failure:
     needs: plan
-    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.result != 'success' }}
+    if: >-
+      ${{ always() && github.ref == 'refs/heads/main' && inputs.source != 'jquants-price-probe'
+      && needs.plan.result != 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

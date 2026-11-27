@@ -307,6 +307,22 @@ def test_order_session_uses_calendar_and_unexpired_market_close(tmp_path, instan
     )
 
 
+def test_order_session_uses_the_cash_calendar_across_jst_midnight(tmp_path):
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
+            [
+                ("2026-09-07", "3"),  # Derivatives only, not a cash-equity session.
+                ("2026-09-08", "2"),  # The calendar can confirm a partial cash session date.
+                ("2026-09-09", "1"),
+            ],
+        )
+    # The UTC date is still Sunday; the next-session lower bound is Monday in Japan.
+    now = datetime.fromisoformat("2026-09-06T15:00:00Z")
+    assert next_order_session(sqlite_path=path, now=now) == date(2026, 9, 8)
+
+
 @pytest.mark.parametrize("operation", ["close", "quantity", "session"])
 @pytest.mark.parametrize("state", ["absent", "corrupt", "obsolete", "missing_table"])
 def test_market_read_failure_is_not_normal_missing_data(tmp_path, operation, state):
