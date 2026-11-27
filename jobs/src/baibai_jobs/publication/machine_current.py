@@ -230,6 +230,18 @@ def _stage_member(
     return MachineMember(key=key, etag=ack.etag, size=size)
 
 
+def _require_publication_release(
+    current: LakeReleasePointer | None, candidate: LakeReleasePointer
+) -> None:
+    # An unchanged Lake-only pointer can receive its first Machine pair.
+    if (
+        current is not None
+        and current.release_id == candidate.release_id
+        and (current.machine is not None or current.manifest_sha256 != candidate.manifest_sha256)
+    ):
+        raise LakePublishError("a new machine publication must use a new Lake release")
+
+
 def stage_machine_members(
     store: ObjectStore,
     *,
@@ -246,6 +258,7 @@ def stage_machine_members(
         or lake.base.payload != base.snapshot.payload
     ):
         raise LakePublishError("machine base differs from the staged Lake")
+    _require_publication_release(base.snapshot.pointer, lake.pointer)
     market_size = _require_sealed_body(market)
     runs_size = _require_sealed_body(runs)
     if market_size > MAX_MACHINE_PUT_BYTES:
@@ -325,12 +338,7 @@ def activate_machine(
         raise LakePublishError(
             "machine publication must use fresh keys and identify its former pair"
         )
-    if (
-        base.pointer is not None
-        and base.pointer.release_id == candidate.release_id
-        and (prior is not None or base.pointer.manifest_sha256 != candidate.manifest_sha256)
-    ):
-        raise LakePublishError("a new machine publication must use a new Lake release")
+    _require_publication_release(base.pointer, candidate)
     _require_staged_lake(store, candidate)
     _require_members(store, members, _ROLES)
 

@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing, contextmanager, nullcontext
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -358,6 +359,68 @@ def test_old_candidate_cannot_rejoin_with_a_newer_current_base(incumbent, tmp_pa
     for key in next_commit.detached:
         store.values.pop(key)
     assert machine.read_machine_current(store) == next_commit.current
+
+
+def test_reusing_active_lake_release_rejects_before_machine_writes(incumbent, tmp_path):
+    store, active, base = incumbent
+    mirror = tmp_path / "mirror"
+    staged = stage_release(
+        mirror_root=mirror,
+        release_manifest_path=mirror / active.manifest_key,
+        store=store,
+        base=base,
+    )
+    assert staged.pointer.manifest_sha256 == active.manifest_sha256
+    puts, deletes = list(store.put_keys), list(store.delete_keys)
+
+    with pytest.raises(LakePublishError, match="must use a new Lake release"):
+        _publish_machine(
+            store,
+            lake=staged,
+            market=tmp_path / f"{active.release_id}.market.sqlite",
+            runs=tmp_path / f"{active.release_id}.runs.sqlite",
+            while_held=lambda: None,
+        )
+
+    assert store.put_keys == puts
+    assert store.delete_keys == deletes
+    assert read_pointer_snapshot(store).payload == base.payload
+    assert machine.read_machine_current(store) == base
+
+
+@pytest.mark.parametrize("same_manifest", [True, False])
+def test_same_lake_only_release_can_attach_first_pair_with_exact_manifest(tmp_path, same_manifest):
+    store = ReadStore()
+    staged = _stage_lake(store, tmp_path, "lake-only-bootstrap")
+    market, runs = _files(tmp_path, staged.pointer)
+    prior = LakeReleasePointer(
+        release_id=staged.pointer.release_id,
+        manifest_key=staged.pointer.manifest_key,
+        manifest_sha256=staged.pointer.manifest_sha256 if same_manifest else "0" * 64,
+    )
+    store.store_object(HEAD, canonical_lake_model_bytes(prior))
+    base = read_pointer_snapshot(store)
+    staged = replace(staged, base=base)
+    puts = list(store.put_keys)
+
+    if not same_manifest:
+        with pytest.raises(LakePublishError, match="must use a new Lake release"):
+            _publish_machine(store, lake=staged, market=market, runs=runs, while_held=lambda: None)
+        assert store.put_keys == puts
+        assert read_pointer_snapshot(store).payload == base.payload
+        return
+
+    committed, _ = _publish_machine(
+        store, lake=staged, market=market, runs=runs, while_held=lambda: None
+    )
+    active = committed.current.pointer
+    assert active is not None
+    assert active.machine is not None
+    assert active.release_id == prior.release_id
+    assert active.manifest_sha256 == prior.manifest_sha256
+    assert committed.detached == ()
+    assert store.put_keys[len(puts) :] == [active.machine.market.key, active.machine.runs.key, HEAD]
+    assert not store.delete_keys
 
 
 @pytest.mark.parametrize(
